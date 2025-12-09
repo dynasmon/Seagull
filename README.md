@@ -101,11 +101,11 @@ Go was chosen for the agent because it allows building static, single‑binary e
 ### 1. Clone the Repository
 
 ```bash
-git clone https://gitlab.com/<your-user>/dynasmon-netwatch.git
+git clone https://gitlab.com/nathanmblima/dynasmon-netwatch.git
 cd dynasmon-netwatch
 ```
 
-Replace `<your-user>` with your actual GitLab username or group name.
+Replace `nathanmblima` with your actual GitLab username or group name.
 
 ### 2. Build the Docker Images
 
