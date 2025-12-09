@@ -1,0 +1,79 @@
+version: "3.9"
+
+services:
+  netwatch-backend:
+    build: ./backend
+    container_name: netwatch-backend
+    environment:
+      - NETWATCH_REDIS_HOST=redis
+      - NETWATCH_REDIS_PORT=6379
+      - NETWATCH_DB_HOST=postgres
+      - NETWATCH_DB_PORT=5432
+      - NETWATCH_DB_NAME=netwatch
+      - NETWATCH_DB_USER=netwatch
+      - NETWATCH_DB_PASSWORD=netwatch123
+    depends_on:
+      - redis
+      - postgres
+    ports:
+      - "8000:8000"
+    networks:
+      - netwatch_internal
+
+  netwatch-agent:
+    build: ./agent
+    container_name: netwatch-agent
+    restart: unless-stopped
+    environment:
+      - NETWATCH_AGENT_ID=agent-lab-1
+      - NETWATCH_API_URL=http://netwatch-backend:8000
+    depends_on:
+      - netwatch-backend
+    networks:
+      - netwatch_internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: netwatch-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - netwatch_internal
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: netwatch-postgres
+    environment:
+      - POSTGRES_DB=netwatch
+      - POSTGRES_USER=netwatch
+      - POSTGRES_PASSWORD=netwatch123
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - netwatch_internal
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: netwatch-grafana
+    depends_on:
+      - postgres
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - netwatch_internal
+    # depois você monta provisioning aqui
+    # volumes:
+    #   - ./infra/grafana/provisioning:/etc/grafana/provisioning
+
+networks:
+  netwatch_internal:
+    driver: bridge
+
+volumes:
+  redis-data:
+  postgres-data:
