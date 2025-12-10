@@ -41,7 +41,9 @@ def _build_match_filters(rule: Dict[str, Any]):
             filters.append(NetEventModel.src_ip == val)
         elif key == "dst_ip":
             filters.append(NetEventModel.dst_ip == val)
-
+        elif key == "agent_id":
+            filters.append(NetEventModel.agent_id == val)
+            
     return filters
 
 
