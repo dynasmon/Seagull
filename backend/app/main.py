@@ -2,12 +2,13 @@ from fastapi import FastAPI
 
 from app.api.ingest import router as ingest_router
 from app.api.events import router as events_router
+from app.api.alerts import router as alerts_router
 from app.core.db import Base, engine
 
 app = FastAPI(
     title="NetWatch Backend",
     version="0.1.0",
-    description="Mini-SIEM de network / Threat Hunting",
+    description="Mini-SIEM for network / Threat Hunting",
 )
 
 
@@ -25,3 +26,4 @@ async def health():
 # Routers
 app.include_router(ingest_router)
 app.include_router(events_router)
+app.include_router(alerts_router)

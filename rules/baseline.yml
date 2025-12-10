@@ -1,0 +1,53 @@
+rules:
+  - id: ssh_bruteforce_v1
+    name: "SSH brute force / high connection volume to port 22"
+    description: "Detects source IPs with high volume of flows to SSH (port 22) in a given time window."
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "10m"
+    match:
+      event_type: "flow"
+      dst_port: 22
+    group_by: "src_ip"
+    condition:
+      field: "count"
+      operator: ">="
+      value: 20
+
+  - id: port_scan_v1
+    name: "Vertical port scan"
+    description: "Detects source IPs scanning many destination ports."
+    enabled: true
+    severity: "high"
+    type: "distinct_count"
+    window: "10m"
+    cooldown: "10m"
+    match:
+      event_type: "flow"
+      proto: "tcp"
+    group_by: "src_ip"
+    distinct_field: "dst_port"
+    condition:
+      field: "distinct_count"
+      operator: ">="
+      value: 20
+
+  - id: horizontal_scan_v1
+    name: "Horizontal scan on a single port"
+    description: "Detects source IPs scanning many destination IPs on the same port."
+    enabled: true
+    severity: "medium"
+    type: "distinct_count"
+    window: "15m"
+    cooldown: "15m"
+    match:
+      event_type: "flow"
+      dst_port: 22
+    group_by: "src_ip"
+    distinct_field: "dst_ip"
+    condition:
+      field: "distinct_count"
+      operator: ">="
+      value: 10

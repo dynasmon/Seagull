@@ -1,0 +1,21 @@
+apiVersion: 1
+
+datasources:
+  - name: NetWatch Postgres
+    type: postgres
+    access: proxy
+    orgId: 1
+    uid: netwatch-postgres
+    isDefault: true
+    url: postgres:5432
+    user: netwatch
+    secureJsonData:
+      password: netwatch123
+    jsonData:
+      database: netwatch
+      sslmode: disable
+      maxOpenConns: 10
+      maxIdleConns: 5
+      connMaxLifetime: 14400
+      postgresVersion: 1400
+      timescaledb: false
