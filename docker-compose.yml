@@ -16,15 +16,30 @@ services:
     volumes:
       - ./rules:/app/rules:ro
 
-  netwatch-agent:
+  netwatch-agent-mock:
     build: ./agent
-    container_name: netwatch-agent
+    container_name: netwatch-agent-mock
     depends_on:
       - netwatch-backend
     environment:
-      - NETWATCH_AGENT_ID=agent-lab-1
+      - NETWATCH_AGENT_ID=agent-mock-1
       - NETWATCH_API_URL=http://netwatch-backend:8000
-      - NETWATCH_AGENT_MODE=mock   # or "proc"
+      - NETWATCH_AGENT_MODE=mock
+    networks:
+      - netwatch_internal
+
+  netwatch-agent-proc:
+    build: ./agent
+    container_name: netwatch-agent-proc
+    depends_on:
+      - netwatch-backend
+    environment:
+      - NETWATCH_AGENT_ID=agent-proc-1
+      - NETWATCH_API_URL=http://netwatch-backend:8000
+      - NETWATCH_AGENT_MODE=proc
+      - NETWATCH_PROC_TCP_PATH=/host_proc/net/tcp
+    volumes:
+      - /proc:/host_proc:ro 
     networks:
       - netwatch_internal
 

@@ -1,7 +1,8 @@
 rules:
+  # 1) SSH brute force / high volume to port 22
   - id: ssh_bruteforce_v1
     name: "SSH brute force / high connection volume to port 22"
-    description: "Detects source IPs with high volume of flows to SSH (port 22) in a given time window."
+    description: "Detects source IPs with a high number of flows to SSH (port 22) in a short time window."
     enabled: true
     severity: "medium"
     type: "aggregate_count"
@@ -9,45 +10,68 @@ rules:
     cooldown: "10m"
     match:
       event_type: "flow"
+      agent_id: "agent-proc-1"
       dst_port: 22
     group_by: "src_ip"
     condition:
       field: "count"
       operator: ">="
-      value: 20
+      value: 10
 
+  # 2) Vertical port scan (many ports on same target)
   - id: port_scan_v1
     name: "Vertical port scan"
-    description: "Detects source IPs scanning many destination ports."
+    description: "Detects source IPs scanning many destination ports on the same host or across hosts."
     enabled: true
     severity: "high"
     type: "distinct_count"
-    window: "10m"
+    window: "5m"
     cooldown: "10m"
     match:
       event_type: "flow"
+      agent_id: "agent-proc-1"
       proto: "tcp"
     group_by: "src_ip"
     distinct_field: "dst_port"
     condition:
       field: "distinct_count"
       operator: ">="
-      value: 20
+      value: 6   # adjust up/down for lab vs production
 
+  # 3) Horizontal scan on a single port
   - id: horizontal_scan_v1
     name: "Horizontal scan on a single port"
-    description: "Detects source IPs scanning many destination IPs on the same port."
+    description: "Detects source IPs hitting the same destination port on many different IPs."
     enabled: true
     severity: "medium"
     type: "distinct_count"
-    window: "15m"
+    window: "10m"
     cooldown: "15m"
     match:
       event_type: "flow"
+      agent_id: "agent-proc-1"
       dst_port: 22
     group_by: "src_ip"
     distinct_field: "dst_ip"
     condition:
       field: "distinct_count"
       operator: ">="
-      value: 10
+      value: 3
+
+  # 4) Sanity check: any real traffic seen from agent-proc-1
+  - id: real_traffic_seen_v1
+    name: "Real traffic observed from agent-proc-1"
+    description: "Simple rule that fires when any flow is observed from the proc-based agent."
+    enabled: true
+    severity: "low"
+    type: "aggregate_count"
+    window: "5m"
+    cooldown: "30m"
+    match:
+      event_type: "flow"
+      agent_id: "agent-proc-1"
+    group_by: "src_ip"
+    condition:
+      field: "count"
+      operator: ">="
+      value: 1
