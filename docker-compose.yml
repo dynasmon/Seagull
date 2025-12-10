@@ -4,33 +4,47 @@ services:
   netwatch-backend:
     build: ./backend
     container_name: netwatch-backend
-    environment:
-      - NETWATCH_REDIS_HOST=redis
-      - NETWATCH_REDIS_PORT=6379
-      - NETWATCH_DB_HOST=postgres
-      - NETWATCH_DB_PORT=5432
-      - NETWATCH_DB_NAME=netwatch
-      - NETWATCH_DB_USER=netwatch
-      - NETWATCH_DB_PASSWORD=netwatch123
     depends_on:
-      - redis
       - postgres
+      - redis
     ports:
       - "8000:8000"
+    environment:
+      - NETWATCH_DB_URL=postgresql+psycopg2://netwatch:netwatch123@postgres:5432/netwatch
     networks:
       - netwatch_internal
+    volumes:
+      - ./rules:/app/rules:ro
 
   netwatch-agent:
     build: ./agent
     container_name: netwatch-agent
-    restart: unless-stopped
+    depends_on:
+      - netwatch-backend
     environment:
       - NETWATCH_AGENT_ID=agent-lab-1
       - NETWATCH_API_URL=http://netwatch-backend:8000
-    depends_on:
-      - netwatch-backend
+      - NETWATCH_AGENT_MODE=mock   # or "proc"
     networks:
       - netwatch_internal
+
+  netwatch-rules-worker:
+    build: ./backend
+    container_name: netwatch-rules-worker
+    depends_on:
+      - postgres
+    environment:
+      - NETWATCH_DB_URL=postgresql+psycopg2://netwatch:netwatch123@postgres:5432/netwatch
+    networks:
+      - netwatch_internal
+    volumes:
+      - ./rules:/app/rules:ro
+    command: >
+      sh -c "while true; do
+               echo '[RULES] Running detection cycle...';
+               python -m app.workers;
+               sleep 60;
+             done"      
 
   redis:
     image: redis:7-alpine
@@ -66,9 +80,8 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     networks:
       - netwatch_internal
-    # depois você monta provisioning aqui
-    # volumes:
-    #   - ./infra/grafana/provisioning:/etc/grafana/provisioning
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
 
 networks:
   netwatch_internal:
