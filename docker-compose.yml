@@ -29,19 +29,20 @@ services:
       - netwatch_internal
 
   netwatch-agent-proc:
-    build: ./agent
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
     container_name: netwatch-agent-proc
-    depends_on:
-      - netwatch-backend
+    # Agent runs with host network to see host TCP connections
+    network_mode: host
     environment:
       - NETWATCH_AGENT_ID=agent-proc-1
-      - NETWATCH_API_URL=http://netwatch-backend:8000
       - NETWATCH_AGENT_MODE=proc
-      - NETWATCH_PROC_TCP_PATH=/host_proc/net/tcp
-    volumes:
-      - /proc:/host_proc:ro 
-    networks:
-      - netwatch_internal
+      - NETWATCH_API_URL=http://127.0.0.1:8000
+      - NETWATCH_PROC_TCP4_PATH=/proc/net/tcp
+      - NETWATCH_PROC_TCP6_PATH=/proc/net/tcp6
+    depends_on:
+      - netwatch-backend
 
   netwatch-rules-worker:
     build: ./backend
@@ -60,7 +61,7 @@ services:
                python -m app.workers;
                sleep 60;
              done"      
-
+             
   redis:
     image: redis:7-alpine
     container_name: netwatch-redis
