@@ -16,18 +16,6 @@ services:
     volumes:
       - ./rules:/app/rules:ro
 
-  netwatch-agent-mock:
-    build: ./agent
-    container_name: netwatch-agent-mock
-    depends_on:
-      - netwatch-backend
-    environment:
-      - NETWATCH_AGENT_ID=agent-mock-1
-      - NETWATCH_API_URL=http://netwatch-backend:8000
-      - NETWATCH_AGENT_MODE=mock
-    networks:
-      - netwatch_internal
-
   netwatch-agent-proc:
     build:
       context: ./agent
@@ -36,11 +24,21 @@ services:
     # Agent runs with host network to see host TCP connections
     network_mode: host
     environment:
-      - NETWATCH_AGENT_ID=agent-proc-1
-      - NETWATCH_AGENT_MODE=proc
-      - NETWATCH_API_URL=http://127.0.0.1:8000
-      - NETWATCH_PROC_TCP4_PATH=/proc/net/tcp
-      - NETWATCH_PROC_TCP6_PATH=/proc/net/tcp6
+    - NETWATCH_AGENT_ID=agent-proc-1
+    - NETWATCH_AGENT_MODE=proc
+    - NETWATCH_API_URL=http://127.0.0.1:8000
+    - NETWATCH_PROC_TCP4_PATH=/proc/net/tcp
+    - NETWATCH_PROC_TCP6_PATH=/proc/net/tcp6
+
+    # Reduce noise
+    - NETWATCH_ESTABLISHED_TTL=30m
+    - NETWATCH_DEDUP_TTL=30s
+    - NETWATCH_SKIP_LOOPBACK=true
+    - NETWATCH_SKIP_LINK_LOCAL=true
+
+    # Drop internal stack/docker chatter (adjust to your docker subnets)
+    - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
+    - NETWATCH_DENY_DST_PORTS=3000,8000,5432,6379
     depends_on:
       - netwatch-backend
 

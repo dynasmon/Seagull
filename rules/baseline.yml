@@ -9,6 +9,7 @@ rules:
     window: "10m"
     cooldown: "10m"
     match:
+      proto: "tcp"
       event_type: "flow"
       agent_id: "agent-proc-1"
       dst_port: 22
