@@ -15,6 +15,46 @@ services:
       - ./rules:/app/rules:ro
     restart: unless-stopped
 
+  netwatch-agent-scan:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: netwatch-agent-scan
+    network_mode: host
+
+    # Packet capture needs privileges
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+    environment:
+      - NETWATCH_AGENT_ID=agent-scan-1
+      - NETWATCH_API_URL=http://127.0.0.1:8000
+      - NETWATCH_SOURCES=scan
+      - NETWATCH_POLL_INTERVAL=500ms
+
+      # PCAP
+      - NETWATCH_PCAP_IFACE=any
+      - NETWATCH_SCAN_DEDUP_TTL=1s
+      - NETWATCH_SCAN_MAX_BATCH=2000
+
+      - NETWATCH_SCAN_MODE=summary
+      - NETWATCH_LOG_LEVEL=info
+      - NETWATCH_LOG_SUMMARY_EVERY=60s
+      - NETWATCH_LOG_HEARTBEAT_EVERY=5m
+      - NETWATCH_LOG_MIN_EVENTS=200
+
+      # Noise control (keep consistent with your proc agent)
+      - NETWATCH_SKIP_LOOPBACK=true
+      - NETWATCH_SKIP_LINK_LOCAL=true
+      - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
+      - NETWATCH_DENY_DST_PORTS=8000,3000,5432,6379
+
+    depends_on:
+      - netwatch-backend
+    restart: unless-stopped
+
   netwatch-agent-proc:
     build:
       context: ./agent

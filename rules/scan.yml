@@ -1,0 +1,60 @@
+rules:
+  - id: tcp_vertical_port_scan_v3
+    name: "TCP vertical port scan"
+    description: "One source probing many TCP ports on this host."
+    enabled: true
+    severity: "high"
+    type: "distinct_count"
+    window: "60s"
+    cooldown: "10m"
+    match:
+      event_type: "scan_probe"
+      agent_id: "agent-scan-1"
+      proto: "tcp"
+    group_by: ["src_ip", "dst_ip"]
+    distinct_field: "dst_port"
+    min_events: 40
+    condition:
+      operator: ">="
+      value: 20
+
+  - id: udp_vertical_port_scan_v2
+    name: "UDP vertical port scan"
+    description: "One source probing many UDP ports on this host."
+    enabled: true
+    severity: "high"
+    type: "distinct_count"
+    window: "90s"
+    cooldown: "10m"
+    match:
+      event_type: "scan_probe"
+      agent_id: "agent-scan-1"
+      proto: "udp"
+    group_by: ["src_ip", "dst_ip"]
+    distinct_field: "dst_port"
+    min_events: 25
+    condition:
+      operator: ">="
+      value: 15
+
+  - id: tcp_scan_spray_v1
+    name: "TCP scan spray (ports + source ports diversity)"
+    description: "High-confidence scan pattern requiring port diversity."
+    enabled: true
+    severity: "medium"
+    type: "multi_distinct"
+    window: "60s"
+    cooldown: "10m"
+    match:
+      event_type: "scan_probe"
+      agent_id: "agent-scan-1"
+      proto: "tcp"
+    group_by: ["src_ip", "dst_ip"]
+    min_events: 80
+    distinct_conditions:
+      - field: "dst_port"
+        operator: ">="
+        value: 20
+      - field: "src_port"
+        operator: ">="
+        value: 20
