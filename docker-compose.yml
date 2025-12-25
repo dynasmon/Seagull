@@ -85,7 +85,7 @@ services:
       - NETWATCH_DEDUP_TTL=30s
       - NETWATCH_SKIP_LOOPBACK=true
       - NETWATCH_SKIP_LINK_LOCAL=true
-
+      - NETWATCH_SKIP_PRIVATE_TO_PRIVATE=false
       # Drop internal stack/docker chatter (adjust to your docker subnets)
       - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
       - NETWATCH_DENY_DST_PORTS=3000,8000,5432,6379
