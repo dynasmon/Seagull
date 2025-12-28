@@ -1,23 +1,20 @@
 rules:
-  # 1) SSH brute force / high volume to port 22
-  - id: ssh_bruteforce_v1
-    name: "SSH brute force / high connection volume to port 22"
-    description: "Detects source IPs with a high number of flows to SSH (destination port 22) in a short time window."
+  - id: ssh_bruteforce_authlog_v1
+    name: "SSH brute force (authlog-based)"
+    description: "Detects repeated failed logins to SSH from same source IP using /var/log/auth.log."
     enabled: true
-    severity: "medium"
+    severity: "high"
     type: "aggregate_count"
     window: "10m"
     cooldown: "10m"
     match:
-      event_type: "flow"
-      agent_id: "agent-proc-1"   # se quiser aplicar a todos os agentes, remova esta linha
-      dst_port: 22               # agora é a porta alvo (servidor)
-      # proto: "tcp"             # opcional; se deixar "tcp", você exclui eventos "tcp6"
-    group_by: "src_ip"           # src_ip = remoto/atacante
+      event_type: "ssh_auth"
+      agent_id: "agent-proc-1"
+    group_by: "src_ip"
     condition:
       field: "count"
       operator: ">="
-      value: 10
+      value: 8
 
   # 2) Vertical port scan (many ports on same target)
   - id: port_scan_v1
