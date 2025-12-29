@@ -1,25 +1,27 @@
 rules:
+  # 1) SSH brute force (authlog)
   - id: ssh_bruteforce_authlog_v1
     name: "SSH brute force (authlog-based)"
-    description: "Detects repeated failed logins to SSH from same source IP using /var/log/auth.log."
+    description: "Detects repeated failed SSH logins from the same source IP using ssh_auth events."
     enabled: true
     severity: "high"
     type: "aggregate_count"
-    window: "10m"
+    window: "2m"
     cooldown: "10m"
     match:
       event_type: "ssh_auth"
       agent_id: "agent-proc-1"
+      dst_port: 22
+      extra_action: "failed"
     group_by: "src_ip"
     condition:
-      field: "count"
       operator: ">="
       value: 8
 
   # 2) Vertical port scan (many ports on same target)
   - id: port_scan_v1
     name: "Vertical port scan"
-    description: "Detects source IPs scanning many destination ports."
+    description: "Detects a source IP scanning many destination ports on the same target."
     enabled: true
     severity: "high"
     type: "distinct_count"
@@ -28,20 +30,17 @@ rules:
     match:
       event_type: "flow"
       agent_id: "agent-proc-1"
-      # proto: "tcp"             # opcional; remova para incluir tcp6
+      # proto: "tcp"             # optional; remove to include tcp6 events
     group_by: "src_ip"
-    distinct_field: "dst_port"   # portas alvo distintas (agora faz sentido)
+    distinct_field: "dst_port"
     condition:
-      field: "distinct_count"
       operator: ">="
-      value: 6                   # ajuste para lab vs produção
+      value: 6
 
-  # 3) Horizontal scan on a single port (ex.: SSH) em múltiplos destinos
-  # Observação: em 1 única VM (1 IP), isso raramente dispara (porque dst_ip não varia).
-  # Use isso quando seu agente observa múltiplos IPs/serviços (ex.: host/bridge com vários containers).
+  # 3) Horizontal scan on a single port (e.g., SSH) across multiple destinations
   - id: horizontal_scan_v1
     name: "Horizontal scan on a single port"
-    description: "Detects source IPs hitting the same destination port on many different destination IPs."
+    description: "Detects a source IP hitting the same destination port across many destination IPs."
     enabled: true
     severity: "medium"
     type: "distinct_count"
@@ -52,16 +51,15 @@ rules:
       agent_id: "agent-proc-1"
       dst_port: 22
     group_by: "src_ip"
-    distinct_field: "dst_ip"     # IPs alvo distintos
+    distinct_field: "dst_ip"
     condition:
-      field: "distinct_count"
       operator: ">="
       value: 3
 
-  # 4) Sanity check: qualquer tráfego real visto do agent-proc-1
+  # 4) Sanity check: any traffic observed from agent-proc-1
   - id: real_traffic_seen_v1
     name: "Real traffic observed from agent-proc-1"
-    description: "Simple rule that fires when any flow is observed from the proc-based agent."
+    description: "Fires when any flow is observed from the proc-based agent."
     enabled: true
     severity: "low"
     type: "aggregate_count"
@@ -72,6 +70,5 @@ rules:
       agent_id: "agent-proc-1"
     group_by: "src_ip"
     condition:
-      field: "count"
       operator: ">="
       value: 1
