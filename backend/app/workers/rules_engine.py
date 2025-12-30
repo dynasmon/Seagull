@@ -27,7 +27,11 @@ def parse_window(window_str: str) -> timedelta:
         raise ValueError(f"Invalid window: {window_str!r}")
 
     unit = window_str[-1]
-    value = int(window_str[:-1])
+    raw = window_str[:-1].strip()
+    try:
+        value = int(raw)
+    except Exception as e:
+        raise ValueError(f"Invalid window value: {window_str!r}") from e
 
     if value <= 0:
         raise ValueError(f"Window must be > 0: {window_str!r}")
@@ -58,11 +62,42 @@ def _safe_col(field: str):
     return getattr(NetEventModel, field)
 
 
+def _is_safe_extra_key(k: str) -> bool:
+    # Keep it strict to avoid weird JSON path abuse
+    return k.replace("_", "").isalnum()
+
+
+def _extra_text_col(extra_key: str):
+    # JSON ->> text
+    # NetEventModel.extra is JSON, Postgres supports ->> via SQLAlchemy indexing + .astext
+    return NetEventModel.extra[extra_key].astext
+
+
 def _build_match_filters(rule: Dict[str, Any]):
     match = rule.get("match", {}) or {}
     filters = []
 
     for key, val in match.items():
+        # extra_* support (JSON)
+        if key.startswith("extra_"):
+            extra_key = key[len("extra_") :]
+            if _is_safe_extra_key(extra_key) and val is not None:
+                filters.append(_extra_text_col(extra_key) == str(val))
+            continue
+
+        if key.startswith("extra_") and key.endswith("_in"):
+            extra_key = key[len("extra_") : -3]
+            if _is_safe_extra_key(extra_key) and isinstance(val, list) and val:
+                filters.append(_extra_text_col(extra_key).in_([str(x) for x in val]))
+            continue
+
+        if key.startswith("extra_") and key.endswith("_not_in"):
+            extra_key = key[len("extra_") : -7]
+            if _is_safe_extra_key(extra_key) and isinstance(val, list) and val:
+                filters.append(~_extra_text_col(extra_key).in_([str(x) for x in val]))
+            continue
+
+        # base fields
         if key.endswith("_in"):
             base = key[:-3]
             if base in _ALLOWED_EVENT_FIELDS and isinstance(val, list) and val:
@@ -113,13 +148,11 @@ def _extract_alert_key(group_key: Dict[str, Any], match: Dict[str, Any]) -> Tupl
 
 
 def _build_recent_alert_index(db, rule_id: str, threshold: datetime) -> Dict[str, Any]:
-    # In-memory cooldown index to avoid N+1 queries
     stmt = (
         select(AlertModel.src_ip, AlertModel.dst_ip, AlertModel.dst_port)
         .where(AlertModel.rule_id == rule_id)
         .where(AlertModel.created_at >= threshold)
     )
-
     rows = db.execute(stmt).all()
 
     idx = {
@@ -161,25 +194,18 @@ def _build_recent_alert_index(db, rule_id: str, threshold: datetime) -> Dict[str
 def _recent_alert_exists_cached(idx: Dict[str, Any], src_ip: str | None, dst_ip: str | None, dst_port: int | None) -> bool:
     if src_ip is not None and dst_ip is not None and dst_port is not None:
         return (src_ip, dst_ip, dst_port) in idx["src_dst_dport"]
-
     if src_ip is not None and dst_ip is not None:
         return (src_ip, dst_ip) in idx["src_dst"]
-
     if src_ip is not None and dst_port is not None:
         return (src_ip, dst_port) in idx["src_dport"]
-
     if dst_ip is not None and dst_port is not None:
         return (dst_ip, dst_port) in idx["dst_dport"]
-
     if src_ip is not None:
         return src_ip in idx["src"]
-
     if dst_ip is not None:
         return dst_ip in idx["dst"]
-
     if dst_port is not None:
         return dst_port in idx["dport"]
-
     return bool(idx["any"])
 
 
@@ -258,9 +284,7 @@ def run_all_rules() -> List[AlertModel]:
                 print(f"[RULES] Rule={rule_id} unsupported group_by fields={group_fields}. Skipping")
                 continue
 
-            print(
-                f"[RULES] Evaluating rule={rule_id}, type={rule_type}, window={window}, cooldown={cooldown}, group_by={group_fields}"
-            )
+            print(f"[RULES] Evaluating rule={rule_id}, type={rule_type}, window={window}, cooldown={cooldown}, group_by={group_fields}")
 
             if rule_type == "aggregate_count":
                 condition = rule.get("condition", {}) or {}
@@ -401,7 +425,6 @@ def run_all_rules() -> List[AlertModel]:
                     continue
 
                 selects.append(func.count().label("event_count"))
-
                 stmt = select(*selects).where(and_(*filters2)).group_by(*group_cols)
 
                 rows = db.execute(stmt).all()

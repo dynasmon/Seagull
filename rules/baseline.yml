@@ -1,8 +1,7 @@
 rules:
-  # 1) SSH brute force (authlog)
-  - id: ssh_bruteforce_authlog_v1
+  - id: ssh_bruteforce_authlog_v2
     name: "SSH brute force (authlog-based)"
-    description: "Detects repeated failed SSH logins from the same source IP using ssh_auth events."
+    description: "Counts ssh_auth events per source IP."
     enabled: true
     severity: "high"
     type: "aggregate_count"
@@ -12,55 +11,56 @@ rules:
       event_type: "ssh_auth"
       agent_id: "agent-proc-1"
       dst_port: 22
-      extra_action: "failed"
     group_by: "src_ip"
     condition:
       operator: ">="
       value: 8
 
   # 2) Vertical port scan (many ports on same target)
-  - id: port_scan_v1
-    name: "Vertical port scan"
-    description: "Detects a source IP scanning many destination ports on the same target."
+  - id: port_scan_pcap_v1
+    name: "Vertical port scan (pcap)"
+    description: "Distinct destination ports per source IP using scan_probe."
     enabled: true
     severity: "high"
     type: "distinct_count"
-    window: "5m"
+    window: "2m"
     cooldown: "10m"
     match:
-      event_type: "flow"
-      agent_id: "agent-proc-1"
-      # proto: "tcp"             # optional; remove to include tcp6 events
+      event_type: "scan_probe"
+      proto: "tcp"
     group_by: "src_ip"
     distinct_field: "dst_port"
+    min_events: 25
     condition:
       operator: ">="
-      value: 6
+      value: 12
+
 
   # 3) Horizontal scan on a single port (e.g., SSH) across multiple destinations
-  - id: horizontal_scan_v1
-    name: "Horizontal scan on a single port"
-    description: "Detects a source IP hitting the same destination port across many destination IPs."
+  - id: horizontal_scan_pcap_v1
+    name: "Horizontal scan on a single port (pcap)"
+    description: "Distinct destination IPs per source IP for a fixed port using scan_probe."
     enabled: true
     severity: "medium"
     type: "distinct_count"
-    window: "10m"
+    window: "5m"
     cooldown: "15m"
     match:
-      event_type: "flow"
-      agent_id: "agent-proc-1"
+      event_type: "scan_probe"
+      agent_id: "agent-scan-1"
+      proto: "tcp"
       dst_port: 22
     group_by: "src_ip"
     distinct_field: "dst_ip"
     condition:
       operator: ">="
-      value: 3
+      value: 4
 
   # 4) Sanity check: any traffic observed from agent-proc-1
-  - id: real_traffic_seen_v1
-    name: "Real traffic observed from agent-proc-1"
-    description: "Fires when any flow is observed from the proc-based agent."
-    enabled: true
+  - id: traffic_seen_smoke_v1
+    name: "Smoke test: traffic ingestion"
+    description: "Pipeline sanity check. Enable only during deployments."
+    enabled: false
     severity: "low"
     type: "aggregate_count"
     window: "5m"
@@ -68,7 +68,26 @@ rules:
     match:
       event_type: "flow"
       agent_id: "agent-proc-1"
-    group_by: "src_ip"
+    group_by: "agent_id"
     condition:
       operator: ">="
       value: 1
+
+  - id: horizontal_scan_ssh_pcap_v1
+    name: "Horizontal scan on SSH (pcap)"
+    description: "Distinct destination IPs per source IP on dst_port 22 using scan_probe."
+    enabled: true
+    severity: "medium"
+    type: "distinct_count"
+    window: "5m"
+    cooldown: "15m"
+    match:
+      event_type: "scan_probe"
+      proto: "tcp"
+      dst_port: 22
+    group_by: "src_ip"
+    distinct_field: "dst_ip"
+    min_events: 10
+    condition:
+      operator: ">="
+      value: 4
