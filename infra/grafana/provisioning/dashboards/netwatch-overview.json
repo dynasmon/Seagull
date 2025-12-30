@@ -1,192 +1,340 @@
 {
   "id": null,
-  "uid": "netwatch-overview",
-  "title": "Dynasmon NetWatch - Overview",
-  "tags": ["netwatch", "security", "network"],
-  "timezone": "",
+  "uid": "netwatch-overview-v2",
+  "title": "Dynasmon NetWatch - Overview (v2)",
+  "tags": ["netwatch", "security", "network", "siem"],
+  "timezone": "utc",
   "schemaVersion": 36,
-  "version": 1,
-  "refresh": "10s",
+  "version": 3,
+  "refresh": "5s",
   "style": "dark",
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "agent",
+        "label": "Agent",
+        "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+        "refresh": 2,
+        "hide": 0,
+        "includeAll": true,
+        "allValue": "%",
+        "multi": false,
+        "query": "SELECT DISTINCT agent_id FROM net_events ORDER BY 1;",
+        "current": { "text": "All", "value": "%" }
+      },
+      {
+        "type": "query",
+        "name": "event_type",
+        "label": "Event Type",
+        "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+        "refresh": 2,
+        "hide": 0,
+        "includeAll": true,
+        "allValue": "%",
+        "multi": false,
+        "query": "SELECT DISTINCT event_type FROM net_events ORDER BY 1;",
+        "current": { "text": "All", "value": "%" }
+      },
+      {
+        "type": "query",
+        "name": "severity",
+        "label": "Alert Severity",
+        "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+        "refresh": 2,
+        "hide": 0,
+        "includeAll": true,
+        "allValue": "%",
+        "multi": false,
+        "query": "SELECT DISTINCT severity FROM alerts ORDER BY 1;",
+        "current": { "text": "All", "value": "%" }
+      }
+    ]
+  },
   "panels": [
     {
+      "type": "row",
+      "title": "Ingestion & Health",
+      "id": 100,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
       "type": "stat",
-      "title": "Total Events (last 1h)",
+      "title": "Events (last 5m)",
       "id": 1,
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
-      "datasource": {
-        "type": "postgres",
-        "uid": "netwatch-postgres"
-      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
       "targets": [
         {
           "refId": "A",
           "format": "time_series",
-          "datasource": {
-            "type": "postgres",
-            "uid": "netwatch-postgres"
-          },
-          "rawSql": "SELECT NOW() as time, COUNT(*) as value FROM net_events WHERE timestamp >= NOW() - INTERVAL '1 hour';",
-          "timeColumn": "time",
-          "valueColumn": "value"
+          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '5 minutes' AND agent_id LIKE ${agent:sqlstring} AND event_type LIKE ${event_type:sqlstring};"
         }
       ],
       "options": {
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
+        "reduceOptions": { "calcs": ["lastNotNull"] },
         "orientation": "horizontal",
         "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto"
+        "graphMode": "none"
       }
+    },
+    {
+      "type": "stat",
+      "title": "Events (last 1h)",
+      "id": 2,
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '1 hour' AND agent_id LIKE ${agent:sqlstring} AND event_type LIKE ${event_type:sqlstring};"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Active Agents (last 1h)",
+      "id": 3,
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, COUNT(DISTINCT agent_id)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '1 hour';"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last Event TS",
+      "id": 4,
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT MAX(\"timestamp\") AS last_event_ts FROM net_events WHERE agent_id LIKE ${agent:sqlstring};"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Alerts (last 1h)",
+      "id": 5,
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM alerts WHERE created_at >= NOW() - interval '1 hour' AND severity LIKE ${severity:sqlstring};"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Event Volume",
+      "id": 101,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false
     },
     {
       "type": "timeseries",
-      "title": "Events per Minute (last 1h)",
-      "id": 2,
-      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 },
-      "datasource": {
-        "type": "postgres",
-        "uid": "netwatch-postgres"
-      },
+      "title": "Events per minute by type",
+      "id": 10,
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
       "targets": [
         {
           "refId": "A",
           "format": "time_series",
-          "datasource": {
-            "type": "postgres",
-            "uid": "netwatch-postgres"
-          },
-          "rawSql": "SELECT date_trunc('minute', timestamp) AS time, COUNT(*) AS value FROM net_events WHERE timestamp >= NOW() - INTERVAL '1 hour' GROUP BY 1 ORDER BY 1;",
-          "timeColumn": "time",
-          "valueColumn": "value"
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), event_type AS metric, COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type LIKE ${event_type:sqlstring} GROUP BY 1, 2 ORDER BY 1;"
         }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      }
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
     },
     {
-      "type": "bargauge",
-      "title": "Top Destination Ports (all time)",
-      "id": 3,
-      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 4 },
-      "datasource": {
-        "type": "postgres",
-        "uid": "netwatch-postgres"
-      },
+      "type": "timeseries",
+      "title": "Flows per minute",
+      "id": 11,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
       "targets": [
         {
           "refId": "A",
-          "format": "table",
-          "datasource": {
-            "type": "postgres",
-            "uid": "netwatch-postgres"
-          },
-          "rawSql": "SELECT dst_port AS \"port\", COUNT(*) AS \"count\" FROM net_events WHERE dst_port IS NOT NULL GROUP BY dst_port ORDER BY COUNT(*) DESC LIMIT 10;",
-          "timeColumn": "time",
-          "valueColumn": "count"
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type = 'flow' GROUP BY 1 ORDER BY 1;"
         }
       ],
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "showUnfilled": false
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none"
-        },
-        "overrides": []
-      }
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+
+    {
+      "type": "timeseries",
+      "title": "SSH auth failures per minute",
+      "id": 12,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type = 'ssh_auth' AND COALESCE(extra->>'action','') IN ('failed_password','invalid_user','max_auth_attempts') GROUP BY 1 ORDER BY 1;"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+
+    {
+      "type": "row",
+      "title": "SSH Auth Deep Dive",
+      "id": 105,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapsed": false
     },
     {
       "type": "table",
-      "title": "Recent Events",
-      "id": 4,
-      "gridPos": { "h": 10, "w": 18, "x": 0, "y": 12 },
-      "datasource": {
-        "type": "postgres",
-        "uid": "netwatch-postgres"
-      },
+      "title": "Recent SSH Auth Events (normalized)",
+      "id": 13,
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 23 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
       "targets": [
         {
           "refId": "A",
           "format": "table",
-          "datasource": {
-            "type": "postgres",
-            "uid": "netwatch-postgres"
-          },
-          "rawSql": "SELECT timestamp AS \"time\", agent_id, event_type, src_ip, dst_ip, dst_port, proto, bytes FROM net_events ORDER BY timestamp DESC LIMIT 50;",
-          "timeColumn": "time"
+          "rawSql": "SELECT \"timestamp\" AS time, agent_id, src_ip, dst_ip, dst_port, proto, COALESCE(extra->>'action','') AS action, COALESCE(extra->>'user', extra->>'username', '') AS username, COALESCE(extra->>'method','') AS method, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type = 'ssh_auth' ORDER BY \"timestamp\" DESC LIMIT 200;"
         }
       ],
-      "options": {
-        "showHeader": true,
-        "footer": {
-          "show": false
+      "options": { "showHeader": true, "footer": { "show": false } }
+    },
+
+    {
+      "type": "row",
+      "title": "Top Talkers & Ports",
+      "id": 102,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 },
+      "collapsed": false
+    },
+    {
+      "type": "table",
+      "title": "Top Source IPs (events)",
+      "id": 20,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT src_ip, COUNT(*)::bigint AS events FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type LIKE ${event_type:sqlstring} AND src_ip IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 15;"
         }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto"
-          }
-        },
-        "overrides": []
-      }
+      ],
+      "options": { "showHeader": true, "footer": { "show": false } }
+    },
+    {
+      "type": "bargauge",
+      "title": "Top Destination Ports (flows)",
+      "id": 21,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT dst_port::text AS \"port\", COUNT(*)::bigint AS \"count\" FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type = 'flow' AND dst_port IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 12;"
+        }
+      ],
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": false }
+    },
+
+    {
+      "type": "row",
+      "title": "Alerts",
+      "id": 103,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Alerts per minute by severity",
+      "id": 30,
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 43 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1m'), severity AS metric, COUNT(*)::bigint AS value FROM alerts WHERE $__timeFilter(created_at) AND severity LIKE ${severity:sqlstring} GROUP BY 1, 2 ORDER BY 1;"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
     },
     {
       "type": "table",
       "title": "Recent Alerts",
-      "id": 5,
-      "gridPos": { "h": 8, "w": 18, "x": 0, "y": 22 },
-      "datasource": {
-        "type": "postgres",
-        "uid": "netwatch-postgres"
-      },
+      "id": 31,
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 51 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
       "targets": [
         {
           "refId": "A",
           "format": "table",
-          "datasource": {
-            "type": "postgres",
-            "uid": "netwatch-postgres"
-          },
-          "rawSql": "SELECT created_at AS \"time\", rule_id, severity, src_ip, dst_ip, dst_port, description, details::text AS details_json FROM alerts ORDER BY created_at DESC LIMIT 50;",
-          "timeColumn": "time"
+          "rawSql": "SELECT created_at AS time, rule_id, severity, src_ip, dst_ip, dst_port, description, details::text AS details_json FROM alerts WHERE $__timeFilter(created_at) AND severity LIKE ${severity:sqlstring} ORDER BY created_at DESC LIMIT 100;"
         }
       ],
-      "options": {
-        "showHeader": true,
-        "footer": {
-          "show": false
+      "options": { "showHeader": true, "footer": { "show": false } }
+    },
+
+    {
+      "type": "row",
+      "title": "Raw Telemetry",
+      "id": 104,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 61 },
+      "collapsed": false
+    },
+    {
+      "type": "table",
+      "title": "Recent Events",
+      "id": 40,
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 62 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT \"timestamp\" AS time, agent_id, event_type, src_ip, src_port, dst_ip, dst_port, proto, bytes, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type LIKE ${event_type:sqlstring} ORDER BY \"timestamp\" DESC LIMIT 200;"
         }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto"
-          }
-        },
-        "overrides": []
-      }
+      ],
+      "options": { "showHeader": true, "footer": { "show": false } }
     }
   ],
-  "time": {
-    "from": "now-1h",
-    "to": "now"
-  }
+  "time": { "from": "now-1h", "to": "now" }
 }

@@ -90,6 +90,9 @@ services:
       - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
       - NETWATCH_DENY_DST_PORTS=3000,8000,5432,6379
 
+      - NETWATCH_PROC_DROP_LIKELY_OUTBOUND=true
+      - NETWATCH_EPHEMERAL_PORT_MIN=49152
+
     volumes:
       - /var/log/auth.log:/var/log/auth.log:ro
 
