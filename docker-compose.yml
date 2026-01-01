@@ -32,14 +32,14 @@ services:
       - NETWATCH_AGENT_ID=agent-scan-1
       - NETWATCH_API_URL=http://127.0.0.1:8000
       - NETWATCH_SOURCES=scan
-      - NETWATCH_POLL_INTERVAL=500ms
+      - NETWATCH_POLL_INTERVAL=1s
 
       # PCAP
       - NETWATCH_PCAP_IFACE=any
       - NETWATCH_SCAN_DEDUP_TTL=1s
       - NETWATCH_SCAN_MAX_BATCH=2000
 
-      - NETWATCH_SCAN_MODE=summary
+      - NETWATCH_SCAN_MODE=both
       - NETWATCH_LOG_LEVEL=debug
       - NETWATCH_LOG_SUMMARY_EVERY=60s
       - NETWATCH_LOG_HEARTBEAT_EVERY=5m
@@ -120,7 +120,7 @@ services:
       sh -c "while true; do
                echo '[RULES] Running detection cycle...';
                python -m app.workers;
-               sleep 60;
+               sleep 5;
              done"
     restart: unless-stopped
 
