@@ -40,7 +40,7 @@ services:
       - NETWATCH_SCAN_MAX_BATCH=2000
 
       - NETWATCH_SCAN_MODE=summary
-      - NETWATCH_LOG_LEVEL=info
+      - NETWATCH_LOG_LEVEL=debug
       - NETWATCH_LOG_SUMMARY_EVERY=60s
       - NETWATCH_LOG_HEARTBEAT_EVERY=5m
       - NETWATCH_LOG_MIN_EVENTS=200
@@ -79,6 +79,11 @@ services:
 
       # Auth log path
       - NETWATCH_AUTHLOG_PATH=/var/log/auth.log
+
+      - NETWATCH_POLL_INTERVAL=500ms
+      - NETWATCH_LOG_LEVEL=debug
+      - NETWATCH_LOG_MIN_EVENTS=1
+      - NETWATCH_LOG_SUMMARY_EVERY=10s
 
       # Reduce noise
       - NETWATCH_ESTABLISHED_TTL=30m
