@@ -5,7 +5,7 @@
   "tags": ["netwatch", "security", "network", "siem"],
   "timezone": "utc",
   "schemaVersion": 36,
-  "version": 3,
+  "version": 4,
   "refresh": "5s",
   "style": "dark",
   "templating": {
@@ -69,7 +69,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '5 minutes' AND agent_id LIKE ${agent:sqlstring} AND event_type LIKE ${event_type:sqlstring};"
+          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '5 minutes' AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}');"
         }
       ],
       "options": {
@@ -89,7 +89,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '1 hour' AND agent_id LIKE ${agent:sqlstring} AND event_type LIKE ${event_type:sqlstring};"
+          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '1 hour' AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}');"
         }
       ],
       "options": {
@@ -129,7 +129,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT MAX(\"timestamp\") AS last_event_ts FROM net_events WHERE agent_id LIKE ${agent:sqlstring};"
+          "rawSql": "SELECT MAX(\"timestamp\") AS last_event_ts FROM net_events WHERE ('${agent}' = '%' OR agent_id = '${agent}');"
         }
       ],
       "options": {
@@ -149,7 +149,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM alerts WHERE created_at >= NOW() - interval '1 hour' AND severity LIKE ${severity:sqlstring};"
+          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM alerts WHERE created_at >= NOW() - interval '1 hour' AND ('${severity}' = '%' OR severity = '${severity}');"
         }
       ],
       "options": {
@@ -177,7 +177,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), event_type AS metric, COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type LIKE ${event_type:sqlstring} GROUP BY 1, 2 ORDER BY 1;"
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), event_type AS metric, COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}') GROUP BY 1, 2 ORDER BY 1;"
         }
       ],
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
@@ -192,7 +192,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type = 'flow' GROUP BY 1 ORDER BY 1;"
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'flow' GROUP BY 1 ORDER BY 1;"
         }
       ],
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
@@ -208,7 +208,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type = 'ssh_auth' AND COALESCE(extra->>'action','') IN ('failed_password','invalid_user','max_auth_attempts') GROUP BY 1 ORDER BY 1;"
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'ssh_auth' AND COALESCE(extra->>'action','') IN ('failed_password','invalid_user','max_auth_attempts') GROUP BY 1 ORDER BY 1;"
         }
       ],
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
@@ -231,7 +231,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT \"timestamp\" AS time, agent_id, src_ip, dst_ip, dst_port, proto, COALESCE(extra->>'action','') AS action, COALESCE(extra->>'user', extra->>'username', '') AS username, COALESCE(extra->>'method','') AS method, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type = 'ssh_auth' ORDER BY \"timestamp\" DESC LIMIT 200;"
+          "rawSql": "SELECT \"timestamp\" AS time, agent_id, src_ip, dst_ip, dst_port, proto, COALESCE(extra->>'action','') AS action, COALESCE(extra->>'user', extra->>'username', '') AS username, COALESCE(extra->>'method','') AS method, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'ssh_auth' ORDER BY \"timestamp\" DESC LIMIT 200;"
         }
       ],
       "options": { "showHeader": true, "footer": { "show": false } }
@@ -254,7 +254,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT src_ip, COUNT(*)::bigint AS events FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type LIKE ${event_type:sqlstring} AND src_ip IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 15;"
+          "rawSql": "SELECT src_ip, COUNT(*)::bigint AS events FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}') AND src_ip IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 15;"
         }
       ],
       "options": { "showHeader": true, "footer": { "show": false } }
@@ -269,7 +269,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT dst_port::text AS \"port\", COUNT(*)::bigint AS \"count\" FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type = 'flow' AND dst_port IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 12;"
+          "rawSql": "SELECT dst_port::text AS \"port\", COUNT(*)::bigint AS \"count\" FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'flow' AND dst_port IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 12;"
         }
       ],
       "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": false }
@@ -292,7 +292,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(created_at, '1m'), severity AS metric, COUNT(*)::bigint AS value FROM alerts WHERE $__timeFilter(created_at) AND severity LIKE ${severity:sqlstring} GROUP BY 1, 2 ORDER BY 1;"
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1m'), severity AS metric, COUNT(*)::bigint AS value FROM alerts WHERE $__timeFilter(created_at) AND ('${severity}' = '%' OR severity = '${severity}') GROUP BY 1, 2 ORDER BY 1;"
         }
       ],
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
@@ -307,7 +307,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT created_at AS time, rule_id, severity, src_ip, dst_ip, dst_port, description, details::text AS details_json FROM alerts WHERE $__timeFilter(created_at) AND severity LIKE ${severity:sqlstring} ORDER BY created_at DESC LIMIT 100;"
+          "rawSql": "SELECT created_at AS time, rule_id, severity, src_ip, dst_ip, dst_port, description, details::text AS details_json FROM alerts WHERE $__timeFilter(created_at) AND ('${severity}' = '%' OR severity = '${severity}') ORDER BY created_at DESC LIMIT 100;"
         }
       ],
       "options": { "showHeader": true, "footer": { "show": false } }
@@ -330,7 +330,45 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT \"timestamp\" AS time, agent_id, event_type, src_ip, src_port, dst_ip, dst_port, proto, bytes, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND agent_id LIKE ${agent:sqlstring} AND event_type LIKE ${event_type:sqlstring} ORDER BY \"timestamp\" DESC LIMIT 200;"
+          "rawSql": "SELECT \"timestamp\" AS time, agent_id, event_type, src_ip, src_port, dst_ip, dst_port, proto, bytes, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}') ORDER BY \"timestamp\" DESC LIMIT 200;"
+        }
+      ],
+      "options": { "showHeader": true, "footer": { "show": false } }
+    },
+
+    {
+      "type": "row",
+      "title": "Lateral Movement (host-based)",
+      "id": 106,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 74 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Lateral attempts per minute (admin ports)",
+      "id": 50,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 75 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'lateral_conn' AND COALESCE(extra->>'lateral_kind','') = 'attempt' AND dst_port IN (445,3389,5985,5986,135,139) GROUP BY 1 ORDER BY 1;"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "type": "table",
+      "title": "Recent lateral attempts (normalized)",
+      "id": 51,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 75 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT \"timestamp\" AS time, agent_id, src_ip, dst_ip, dst_port, proto, COALESCE(extra->>'lateral_kind','') AS lateral_kind, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'lateral_conn' AND COALESCE(extra->>'lateral_kind','') = 'attempt' ORDER BY \"timestamp\" DESC LIMIT 200;"
         }
       ],
       "options": { "showHeader": true, "footer": { "show": false } }
