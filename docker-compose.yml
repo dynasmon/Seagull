@@ -55,6 +55,44 @@ services:
       - netwatch-backend
     restart: unless-stopped
 
+  netwatch-agent-lateral:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: netwatch-agent-lateral
+    network_mode: host
+    user: "0:0"
+
+    environment:
+      - NETWATCH_AGENT_ID=agent-lateral-1
+      - NETWATCH_API_URL=http://127.0.0.1:8000
+      - NETWATCH_SOURCES=lateral
+      - NETWATCH_POLL_INTERVAL=750ms
+
+      - NETWATCH_PROC_TCP4_PATH=/proc/net/tcp
+      - NETWATCH_PROC_TCP6_PATH=/proc/net/tcp6
+
+      - NETWATCH_LATERAL_PORTS=445,3389,5985,5986,135,139
+      - NETWATCH_LATERAL_INCLUDE_ESTABLISHED=false
+      - NETWATCH_LATERAL_DEDUP_TTL=5s
+      - NETWATCH_LATERAL_MAX_BATCH=500
+
+      - NETWATCH_SKIP_LOOPBACK=true
+      - NETWATCH_SKIP_LINK_LOCAL=true
+      - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
+      - NETWATCH_DENY_DST_PORTS=3000,8000,5432,6379
+
+      - NETWATCH_PROC_DROP_LIKELY_OUTBOUND=true
+      - NETWATCH_EPHEMERAL_PORT_MIN=49152
+
+      - NETWATCH_LOG_LEVEL=debug
+      - NETWATCH_LOG_MIN_EVENTS=1
+      - NETWATCH_LOG_SUMMARY_EVERY=15s
+
+    depends_on:
+      - netwatch-backend
+    restart: unless-stopped
+
   netwatch-agent-proc:
     build:
       context: ./agent

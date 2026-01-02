@@ -91,3 +91,38 @@ rules:
     condition:
       operator: ">="
       value: 4
+
+  - id: lateral_admin_ports_burst_v1
+    name: "Lateral burst on admin ports"
+    description: "High rate of admin-port attempts from one source (host-based)."
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "90s"
+    cooldown: "10m"
+    match:
+      event_type: "lateral_conn"
+      extra_lateral_kind: "attempt"
+      dst_port_in: [445,3389,5985,5986,135,139]
+    group_by: "src_ip"
+    condition:
+      operator: ">="
+      value: 12
+
+  - id: lateral_admin_port_diversity_v1
+    name: "Admin port diversity (host-based)"
+    description: "One source touching many admin ports on this host."
+    enabled: true
+    severity: "medium"
+    type: "distinct_count"
+    window: "2m"
+    cooldown: "15m"
+    match:
+      event_type: "lateral_conn"
+      extra_lateral_kind: "attempt"
+    group_by: "src_ip"
+    distinct_field: "dst_port"
+    min_events: 10
+    condition:
+      operator: ">="
+      value: 3

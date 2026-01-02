@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, cast, func, select, String
+
 
 from app.core.db import SessionLocal
 from app.models.alerts import AlertModel
@@ -68,33 +69,35 @@ def _is_safe_extra_key(k: str) -> bool:
 
 
 def _extra_text_col(extra_key: str):
-    # JSON ->> text
-    # NetEventModel.extra is JSON, Postgres supports ->> via SQLAlchemy indexing + .astext
-    return NetEventModel.extra[extra_key].astext
-
+    col = NetEventModel.extra[extra_key]
+    if hasattr(col, "as_string"):
+        return col.as_string()
+    return cast(col, String)
 
 def _build_match_filters(rule: Dict[str, Any]):
     match = rule.get("match", {}) or {}
     filters = []
 
     for key, val in match.items():
-        # extra_* support (JSON)
-        if key.startswith("extra_"):
-            extra_key = key[len("extra_") :]
-            if _is_safe_extra_key(extra_key) and val is not None:
-                filters.append(_extra_text_col(extra_key) == str(val))
-            continue
-
+        # extra_*_in support (JSON)
         if key.startswith("extra_") and key.endswith("_in"):
             extra_key = key[len("extra_") : -3]
             if _is_safe_extra_key(extra_key) and isinstance(val, list) and val:
                 filters.append(_extra_text_col(extra_key).in_([str(x) for x in val]))
             continue
 
+        # extra_*_not_in support (JSON)
         if key.startswith("extra_") and key.endswith("_not_in"):
             extra_key = key[len("extra_") : -7]
             if _is_safe_extra_key(extra_key) and isinstance(val, list) and val:
                 filters.append(~_extra_text_col(extra_key).in_([str(x) for x in val]))
+            continue
+
+        # extra_* equality support (JSON)
+        if key.startswith("extra_"):
+            extra_key = key[len("extra_") :]
+            if _is_safe_extra_key(extra_key) and val is not None:
+                filters.append(_extra_text_col(extra_key) == str(val))
             continue
 
         # base fields
