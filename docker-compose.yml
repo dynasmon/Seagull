@@ -62,6 +62,10 @@ services:
     container_name: netwatch-agent-lateral
     network_mode: host
     user: "0:0"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
 
     environment:
       - NETWATCH_AGENT_ID=agent-lateral-1
@@ -69,18 +73,19 @@ services:
       - NETWATCH_SOURCES=lateral
       - NETWATCH_POLL_INTERVAL=750ms
 
+      - NETWATCH_LATERAL_PCAP_IFACE=any
+
       - NETWATCH_PROC_TCP4_PATH=/proc/net/tcp
       - NETWATCH_PROC_TCP6_PATH=/proc/net/tcp6
 
-      - NETWATCH_LATERAL_PORTS=445,3389,5985,5986,135,139
-      - NETWATCH_LATERAL_INCLUDE_ESTABLISHED=false
+      - NETWATCH_LATERAL_PORTS=22,445,3389,5985,5986,135,139
+      - NETWATCH_LATERAL_INCLUDE_ESTABLISHED=true
       - NETWATCH_LATERAL_DEDUP_TTL=5s
       - NETWATCH_LATERAL_MAX_BATCH=500
 
       - NETWATCH_SKIP_LOOPBACK=true
       - NETWATCH_SKIP_LINK_LOCAL=true
       - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
-      - NETWATCH_DENY_DST_PORTS=3000,8000,5432,6379
 
       - NETWATCH_PROC_DROP_LIKELY_OUTBOUND=true
       - NETWATCH_EPHEMERAL_PORT_MIN=49152
