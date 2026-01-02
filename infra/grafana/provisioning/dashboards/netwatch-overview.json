@@ -169,7 +169,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Events per minute by type",
+      "title": "Events per 10s by type",
       "id": 10,
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
       "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
@@ -184,7 +184,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Flows per minute",
+      "title": "Flows per 10s",
       "id": 11,
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
       "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
@@ -200,7 +200,7 @@
 
     {
       "type": "timeseries",
-      "title": "SSH auth failures per minute",
+      "title": "SSH auth failures per 10s",
       "id": 12,
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
       "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
@@ -284,7 +284,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Alerts per minute by severity",
+      "title": "Alerts per 10s by severity",
       "id": 30,
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 43 },
       "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
