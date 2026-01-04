@@ -5,7 +5,7 @@
   "tags": ["netwatch", "security", "network", "siem"],
   "timezone": "utc",
   "schemaVersion": 36,
-  "version": 4,
+  "version": 6,
   "refresh": "5s",
   "style": "dark",
   "templating": {
@@ -169,7 +169,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Events per 10s by type",
+      "title": "Events per minute by type",
       "id": 10,
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
       "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
@@ -184,7 +184,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Flows per 10s",
+      "title": "Flows per minute",
       "id": 11,
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
       "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
@@ -197,10 +197,9 @@
       ],
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
     },
-
     {
       "type": "timeseries",
-      "title": "SSH auth failures per 10s",
+      "title": "SSH auth failures per minute",
       "id": 12,
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
       "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
@@ -284,7 +283,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Alerts per 10s by severity",
+      "title": "Alerts per minute by severity",
       "id": 30,
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 43 },
       "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
@@ -369,6 +368,184 @@
           "refId": "A",
           "format": "table",
           "rawSql": "SELECT \"timestamp\" AS time, agent_id, src_ip, dst_ip, dst_port, proto, COALESCE(extra->>'lateral_kind','') AS lateral_kind, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'lateral_conn' AND COALESCE(extra->>'lateral_kind','') = 'attempt' ORDER BY \"timestamp\" DESC LIMIT 200;"
+        }
+      ],
+      "options": { "showHeader": true, "footer": { "show": false } }
+    },
+
+    {
+      "type": "row",
+      "title": "DoS / DDoS",
+      "id": 107,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 83 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "DoS/DDoS detections (last 5m)",
+      "id": 60,
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 84 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '5 minutes' AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%');"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last confidence (5m max)",
+      "id": 61,
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 84 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, COALESCE(MAX(NULLIF(extra->>'confidence','')::double precision), 0)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '5 minutes' AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%');"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last attack kind",
+      "id": 62,
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 84 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT COALESCE(extra->>'attack_kind','unknown') AS attack_kind FROM net_events WHERE ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') ORDER BY \"timestamp\" DESC LIMIT 1;"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last target",
+      "id": 63,
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 84 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT CONCAT(COALESCE(dst_ip,''), CASE WHEN dst_port IS NULL THEN '' ELSE ':' || dst_port::text END, CASE WHEN COALESCE(proto,'') = '' THEN '' ELSE '/' || proto END) AS target FROM net_events WHERE ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') ORDER BY \"timestamp\" DESC LIMIT 1;"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "none"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "DoS/DDoS detections per minute by kind",
+      "id": 64,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 88 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COALESCE(extra->>'attack_kind','unknown') AS metric, COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') GROUP BY 1, 2 ORDER BY 1;"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Confidence / SYN ratio (max)",
+      "id": 65,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 88 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT \"time\", metric, value FROM ( SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'confidence' AS metric, MAX(NULLIF(extra->>'confidence','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'confidence','') IS NOT NULL GROUP BY 1 UNION ALL SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'syn_ratio' AS metric, MAX(NULLIF(extra->>'syn_ratio','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'syn_ratio','') IS NOT NULL GROUP BY 1 ) s ORDER BY 1;"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Traffic rate (PPS/BPS max)",
+      "id": 66,
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 96 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT \"time\", metric, value FROM ( SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'pps' AS metric, MAX(NULLIF(extra->>'pps','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'pps','') IS NOT NULL GROUP BY 1 UNION ALL SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'bps' AS metric, MAX(NULLIF(extra->>'bps','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'bps','') IS NOT NULL GROUP BY 1 ) s ORDER BY 1;"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "L7 signals (HTTP RPS / TLS HS RPS max)",
+      "id": 67,
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 104 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT \"time\", metric, value FROM ( SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'http_rps' AS metric, MAX(NULLIF(extra->>'http_rps','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'http_rps','') IS NOT NULL GROUP BY 1 UNION ALL SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'tls_hs_rps' AS metric, MAX(NULLIF(extra->>'tls_hs_rps','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'tls_hs_rps','') IS NOT NULL GROUP BY 1 ) s ORDER BY 1;"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Source cardinality / entropy (max)",
+      "id": 68,
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 112 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT \"time\", metric, value FROM ( SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'src_ips_est' AS metric, MAX(COALESCE(NULLIF(extra->>'src_ips_est',''), NULLIF(extra->>'src_ips',''))::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND COALESCE(NULLIF(extra->>'src_ips_est',''), NULLIF(extra->>'src_ips','')) IS NOT NULL GROUP BY 1 UNION ALL SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'src_entropy_norm' AS metric, MAX(NULLIF(extra->>'src_entropy_norm','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'src_entropy_norm','') IS NOT NULL GROUP BY 1 ) s ORDER BY 1;"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "type": "table",
+      "title": "Recent DoS/DDoS detections (normalized)",
+      "id": 69,
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 120 },
+      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT \"timestamp\" AS time, agent_id, event_type, src_ip, dst_ip, dst_port, proto, COALESCE(extra->>'attack_kind','') AS attack_kind, COALESCE(extra->>'confidence','') AS confidence, COALESCE(extra->>'pps','') AS pps, COALESCE(extra->>'bps','') AS bps, COALESCE(extra->>'http_rps','') AS http_rps, COALESCE(extra->>'tls_hs_rps','') AS tls_hs_rps, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') ORDER BY \"timestamp\" DESC LIMIT 200;"
         }
       ],
       "options": { "showHeader": true, "footer": { "show": false } }

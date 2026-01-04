@@ -22,7 +22,7 @@ services:
     container_name: netwatch-agent-scan
     network_mode: host
 
-    # Packet capture needs privileges
+    # Packet capture requires privileges.
     user: "0:0"
     cap_add:
       - NET_RAW
@@ -32,24 +32,85 @@ services:
       - NETWATCH_AGENT_ID=agent-scan-1
       - NETWATCH_API_URL=http://127.0.0.1:8000
       - NETWATCH_SOURCES=scan
-      - NETWATCH_POLL_INTERVAL=1s
+      - NETWATCH_POLL_INTERVAL=${NETWATCH_SCAN_POLL_INTERVAL:-1s}
 
-      # PCAP
-      - NETWATCH_PCAP_IFACE=any
-      - NETWATCH_SCAN_DEDUP_TTL=1s
-      - NETWATCH_SCAN_MAX_BATCH=2000
+      # PCAP identifies scan probes.
+      - NETWATCH_PCAP_IFACE=${NETWATCH_PCAP_IFACE:-any}
+      - NETWATCH_SCAN_DEDUP_TTL=${NETWATCH_SCAN_DEDUP_TTL:-1s}
+      - NETWATCH_SCAN_MAX_BATCH=${NETWATCH_SCAN_MAX_BATCH:-2000}
 
-      - NETWATCH_SCAN_MODE=both
-      - NETWATCH_LOG_LEVEL=debug
-      - NETWATCH_LOG_SUMMARY_EVERY=60s
-      - NETWATCH_LOG_HEARTBEAT_EVERY=5m
-      - NETWATCH_LOG_MIN_EVENTS=200
+      # Summary mode reduces ingestion overhead during floods.
+      - NETWATCH_SCAN_MODE=${NETWATCH_SCAN_MODE:-both}
 
-      # Noise control (keep consistent with your proc agent)
+      - NETWATCH_LOG_LEVEL=${NETWATCH_SCAN_LOG_LEVEL:-debug}
+      - NETWATCH_LOG_SUMMARY_EVERY=${NETWATCH_SCAN_LOG_SUMMARY_EVERY:-60s}
+      - NETWATCH_LOG_HEARTBEAT_EVERY=${NETWATCH_SCAN_LOG_HEARTBEAT_EVERY:-5m}
+      - NETWATCH_LOG_MIN_EVENTS=${NETWATCH_SCAN_LOG_MIN_EVENTS:-200}
+
+      # Noise control matches the proc agent.
       - NETWATCH_SKIP_LOOPBACK=true
       - NETWATCH_SKIP_LINK_LOCAL=true
       - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
       - NETWATCH_DENY_DST_PORTS=8000,3000,5432,6379
+
+    depends_on:
+      - netwatch-backend
+    restart: unless-stopped
+
+  netwatch-agent-ddos:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: netwatch-agent-ddos
+    network_mode: host
+
+    # DoS/DDoS detection via PCAP requires privileges.
+    user: "0:0"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+    environment:
+      - NETWATCH_AGENT_ID=agent-ddos-1
+      - NETWATCH_API_URL=http://127.0.0.1:8000
+      - NETWATCH_SOURCES=ddos
+      - NETWATCH_POLL_INTERVAL=${NETWATCH_DDOS_POLL_INTERVAL:-1s}
+
+      # PCAP derives pps/bps metrics and L7 heuristics.
+      - NETWATCH_DDOS_PCAP_IFACE=${NETWATCH_DDOS_PCAP_IFACE:-${NETWATCH_PCAP_IFACE:-any}}
+
+      # Lab tuning increases signal emission under short attacks.
+      - NETWATCH_DDOS_WINDOW=${NETWATCH_DDOS_WINDOW:-1s}
+      - NETWATCH_DDOS_EVAL_EVERY=${NETWATCH_DDOS_EVAL_EVERY:-1s}
+      - NETWATCH_DDOS_COOLDOWN=${NETWATCH_DDOS_COOLDOWN:-3s}
+      - NETWATCH_DDOS_SUSTAIN_WINDOWS=${NETWATCH_DDOS_SUSTAIN_WINDOWS:-1}
+      - NETWATCH_DDOS_BASELINE_WARMUP_WINDOWS=${NETWATCH_DDOS_BASELINE_WARMUP_WINDOWS:-5}
+      - NETWATCH_DDOS_BASELINE_ALPHA=${NETWATCH_DDOS_BASELINE_ALPHA:-0.08}
+      - NETWATCH_DDOS_BASELINE_FACTOR=${NETWATCH_DDOS_BASELINE_FACTOR:-2.0}
+
+      - NETWATCH_DDOS_MIN_PPS=${NETWATCH_DDOS_MIN_PPS:-200}
+      - NETWATCH_DDOS_MIN_BPS=${NETWATCH_DDOS_MIN_BPS:-20000}
+      - NETWATCH_DDOS_MIN_CONFIDENCE=${NETWATCH_DDOS_MIN_CONFIDENCE:-30}
+      - NETWATCH_DDOS_MIN_SYN_RATIO=${NETWATCH_DDOS_MIN_SYN_RATIO:-0.10}
+
+      - NETWATCH_DDOS_ENABLE_L7=${NETWATCH_DDOS_ENABLE_L7:-true}
+      - NETWATCH_DDOS_MIN_HTTP_RPS=${NETWATCH_DDOS_MIN_HTTP_RPS:-20}
+      - NETWATCH_DDOS_MIN_TLS_HS_RPS=${NETWATCH_DDOS_MIN_TLS_HS_RPS:-20}
+      - NETWATCH_DDOS_MIN_L7_RATIO=${NETWATCH_DDOS_MIN_L7_RATIO:-0.05}
+
+      - NETWATCH_DDOS_ENABLE_ENTROPY=${NETWATCH_DDOS_ENABLE_ENTROPY:-true}
+      - NETWATCH_DDOS_MIN_SRC_ENTROPY_NORM=${NETWATCH_DDOS_MIN_SRC_ENTROPY_NORM:-0.10}
+
+      # Noise control avoids internal stack traffic.
+      - NETWATCH_SKIP_LOOPBACK=true
+      - NETWATCH_SKIP_LINK_LOCAL=true
+      - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
+      - NETWATCH_DENY_DST_PORTS=8000,3000,5432,6379
+
+      - NETWATCH_LOG_LEVEL=${NETWATCH_DDOS_LOG_LEVEL:-debug}
+      - NETWATCH_LOG_SUMMARY_EVERY=${NETWATCH_DDOS_LOG_SUMMARY_EVERY:-60s}
+      - NETWATCH_LOG_HEARTBEAT_EVERY=${NETWATCH_DDOS_LOG_HEARTBEAT_EVERY:-5m}
+      - NETWATCH_LOG_MIN_EVENTS=${NETWATCH_DDOS_LOG_MIN_EVENTS:-1}
 
     depends_on:
       - netwatch-backend
@@ -66,14 +127,13 @@ services:
       - NET_ADMIN
       - NET_RAW
 
-
     environment:
       - NETWATCH_AGENT_ID=agent-lateral-1
       - NETWATCH_API_URL=http://127.0.0.1:8000
       - NETWATCH_SOURCES=lateral
       - NETWATCH_POLL_INTERVAL=750ms
 
-      - NETWATCH_LATERAL_PCAP_IFACE=any
+      - NETWATCH_LATERAL_PCAP_IFACE=${NETWATCH_PCAP_IFACE:-any}
 
       - NETWATCH_PROC_TCP4_PATH=/proc/net/tcp
       - NETWATCH_PROC_TCP6_PATH=/proc/net/tcp6
@@ -105,22 +165,19 @@ services:
     container_name: netwatch-agent-proc
     network_mode: host
 
-    # Required to read /var/log/auth.log on most distros
+    # Access to /var/log/auth.log requires root on most distros.
     user: "0:0"
 
     environment:
       - NETWATCH_AGENT_ID=agent-proc-1
       - NETWATCH_API_URL=http://127.0.0.1:8000
 
-      # Enable sources (keep MODE for backward compatibility if your code still reads it)
       - NETWATCH_SOURCES=proc,authlog
       - NETWATCH_AGENT_MODE=proc
 
-      # Proc paths
       - NETWATCH_PROC_TCP4_PATH=/proc/net/tcp
       - NETWATCH_PROC_TCP6_PATH=/proc/net/tcp6
 
-      # Auth log path
       - NETWATCH_AUTHLOG_PATH=/var/log/auth.log
 
       - NETWATCH_POLL_INTERVAL=500ms
@@ -128,13 +185,12 @@ services:
       - NETWATCH_LOG_MIN_EVENTS=1
       - NETWATCH_LOG_SUMMARY_EVERY=10s
 
-      # Reduce noise
+      # Noise reduction filters internal Docker/stack chatter.
       - NETWATCH_ESTABLISHED_TTL=30m
       - NETWATCH_DEDUP_TTL=30s
       - NETWATCH_SKIP_LOOPBACK=true
       - NETWATCH_SKIP_LINK_LOCAL=true
       - NETWATCH_SKIP_PRIVATE_TO_PRIVATE=false
-      # Drop internal stack/docker chatter (adjust to your docker subnets)
       - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
       - NETWATCH_DENY_DST_PORTS=3000,8000,5432,6379
 

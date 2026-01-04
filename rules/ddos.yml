@@ -1,0 +1,72 @@
+rules:
+  - id: ddos_attack_high_conf_v1
+    name: "DDoS detected (high confidence)"
+    description: "High confidence DDoS event emitted by the DDoS collector."
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "30s"
+    cooldown: "2m"
+    match:
+      event_type: "dos_attack"
+      extra_attack: "ddos"
+      extra_confidence_gte: 85
+    group_by: ["dst_ip", "dst_port", "proto"]
+    condition:
+      field: "count"
+      operator: ">="
+      value: 1
+
+  - id: dos_attack_high_conf_v1
+    name: "DoS detected (high confidence)"
+    description: "High confidence DoS event emitted by the DDoS collector."
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "30s"
+    cooldown: "2m"
+    match:
+      event_type: "dos_attack"
+      extra_attack: "dos"
+      extra_confidence_gte: 85
+    group_by: ["dst_ip", "dst_port", "proto"]
+    condition:
+      field: "count"
+      operator: ">="
+      value: 1
+
+  - id: l7_http_flood_v1
+    name: "HTTP flood (L7)"
+    description: "HTTP request flood heuristics (request-line rate) detected."
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "30s"
+    cooldown: "2m"
+    match:
+      event_type: "dos_attack"
+      extra_vector: "http_flood"
+      extra_confidence_gte: 80
+    group_by: ["dst_ip", "dst_port", "proto"]
+    condition:
+      field: "count"
+      operator: ">="
+      value: 1
+
+  - id: l7_tls_handshake_flood_v1
+    name: "TLS handshake flood (L7)"
+    description: "TLS ClientHello/handshake flood heuristics detected."
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "30s"
+    cooldown: "2m"
+    match:
+      event_type: "dos_attack"
+      extra_vector: "tls_handshake_flood"
+      extra_confidence_gte: 80
+    group_by: ["dst_ip", "dst_port", "proto"]
+    condition:
+      field: "count"
+      operator: ">="
+      value: 1
