@@ -1,293 +1,320 @@
+import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import and_, cast, func, select, String
-
+import yaml
+from sqlalchemy import and_, cast, func, select, or_
+from sqlalchemy.orm import Session
+from sqlalchemy.sql.sqltypes import Float
 
 from app.core.db import SessionLocal
 from app.models.alerts import AlertModel
 from app.models.events import NetEventModel
 from app.workers.rules_loader import load_rules
 
-
 _ALLOWED_EVENT_FIELDS = {
-    "event_type",
-    "proto",
     "agent_id",
+    "event_type",
     "src_ip",
     "dst_ip",
-    "src_port",
     "dst_port",
+    "src_port",
+    "proto",
     "bytes",
 }
 
-
-def parse_window(window_str: str) -> timedelta:
-    window_str = (window_str or "").strip().lower()
-    if len(window_str) < 2:
-        raise ValueError(f"Invalid window: {window_str!r}")
-
-    unit = window_str[-1]
-    raw = window_str[:-1].strip()
-    try:
-        value = int(raw)
-    except Exception as e:
-        raise ValueError(f"Invalid window value: {window_str!r}") from e
-
-    if value <= 0:
-        raise ValueError(f"Window must be > 0: {window_str!r}")
-
-    if unit == "s":
-        return timedelta(seconds=value)
-    if unit == "m":
-        return timedelta(minutes=value)
-    if unit == "h":
-        return timedelta(hours=value)
-    if unit == "d":
-        return timedelta(days=value)
-
-    raise ValueError(f"Unsupported window unit: {unit} in {window_str}")
-
-
-def _normalize_group_by(group_by: Any) -> List[str]:
-    if isinstance(group_by, str):
-        return [group_by]
-    if isinstance(group_by, list) and all(isinstance(x, str) for x in group_by):
-        return group_by
-    raise ValueError(f"Invalid group_by: expected str|list[str], got {type(group_by).__name__}")
+_ALLOWED_GROUP_FIELDS = _ALLOWED_EVENT_FIELDS
 
 
 def _safe_col(field: str):
     if field not in _ALLOWED_EVENT_FIELDS:
-        raise ValueError(f"Unsupported field: {field}")
+        raise ValueError(f"Invalid field: {field}")
     return getattr(NetEventModel, field)
 
 
-def _is_safe_extra_key(k: str) -> bool:
-    # Keep it strict to avoid weird JSON path abuse
-    return k.replace("_", "").isalnum()
-
-
-def _extra_text_col(extra_key: str):
-    col = NetEventModel.extra[extra_key]
-    if hasattr(col, "as_string"):
-        return col.as_string()
-    return cast(col, String)
-
-def _build_match_filters(rule: Dict[str, Any]):
-    match = rule.get("match", {}) or {}
-    filters = []
-
-    for key, val in match.items():
-        # extra_*_in support (JSON)
-        if key.startswith("extra_") and key.endswith("_in"):
-            extra_key = key[len("extra_") : -3]
-            if _is_safe_extra_key(extra_key) and isinstance(val, list) and val:
-                filters.append(_extra_text_col(extra_key).in_([str(x) for x in val]))
-            continue
-
-        # extra_*_not_in support (JSON)
-        if key.startswith("extra_") and key.endswith("_not_in"):
-            extra_key = key[len("extra_") : -7]
-            if _is_safe_extra_key(extra_key) and isinstance(val, list) and val:
-                filters.append(~_extra_text_col(extra_key).in_([str(x) for x in val]))
-            continue
-
-        # extra_* equality support (JSON)
-        if key.startswith("extra_"):
-            extra_key = key[len("extra_") :]
-            if _is_safe_extra_key(extra_key) and val is not None:
-                filters.append(_extra_text_col(extra_key) == str(val))
-            continue
-
-        # base fields
-        if key.endswith("_in"):
-            base = key[:-3]
-            if base in _ALLOWED_EVENT_FIELDS and isinstance(val, list) and val:
-                filters.append(_safe_col(base).in_(val))
-            continue
-
-        if key.endswith("_not_in"):
-            base = key[:-7]
-            if base in _ALLOWED_EVENT_FIELDS and isinstance(val, list) and val:
-                filters.append(~_safe_col(base).in_(val))
-            continue
-
-        if key in _ALLOWED_EVENT_FIELDS:
-            filters.append(_safe_col(key) == val)
-
-    return filters
-
-
-def _evaluate_condition(value: int, condition: Dict[str, Any]) -> bool:
-    op = condition.get("operator")
-    threshold = int(condition.get("value", 0))
+def _evaluate_condition(value: int, condition: Dict) -> bool:
+    op = (condition.get("operator") or ">=").strip()
+    target = int(condition.get("value") or 0)
 
     if op == ">=":
-        return value >= threshold
+        return value >= target
     if op == ">":
-        return value > threshold
-    if op == "==":
-        return value == threshold
+        return value > target
     if op == "<=":
-        return value <= threshold
+        return value <= target
     if op == "<":
-        return value < threshold
+        return value < target
+    if op == "==":
+        return value == target
+    if op == "!=":
+        return value != target
 
-    raise ValueError(f"Unsupported operator in condition: {op}")
+    return False
 
 
-def _extract_alert_key(group_key: Dict[str, Any], match: Dict[str, Any]) -> Tuple[str | None, str | None, int | None]:
+def _extract_alert_key(group_key: Dict, match: Dict) -> Tuple[Optional[str], Optional[str], Optional[int]]:
     src_ip = group_key.get("src_ip") if "src_ip" in group_key else match.get("src_ip")
     dst_ip = group_key.get("dst_ip") if "dst_ip" in group_key else match.get("dst_ip")
 
     dst_port = group_key.get("dst_port") if "dst_port" in group_key else match.get("dst_port")
-    if isinstance(dst_port, str) and dst_port.isdigit():
-        dst_port = int(dst_port)
-    if not isinstance(dst_port, int):
-        dst_port = None
+    if dst_port is not None:
+        try:
+            dst_port = int(dst_port)
+        except Exception:
+            dst_port = None
 
     return src_ip, dst_ip, dst_port
 
 
-def _build_recent_alert_index(db, rule_id: str, threshold: datetime) -> Dict[str, Any]:
+def _recent_alert_index(db: Session, horizon: timedelta) -> Dict[Tuple[Optional[str], Optional[str], Optional[int]], datetime]:
+    threshold = datetime.utcnow() - horizon
+
     stmt = (
-        select(AlertModel.src_ip, AlertModel.dst_ip, AlertModel.dst_port)
-        .where(AlertModel.rule_id == rule_id)
+        select(AlertModel.src_ip, AlertModel.dst_ip, AlertModel.dst_port, func.max(AlertModel.created_at))
         .where(AlertModel.created_at >= threshold)
+        .group_by(AlertModel.src_ip, AlertModel.dst_ip, AlertModel.dst_port)
     )
-    rows = db.execute(stmt).all()
 
-    idx = {
-        "any": False,
-        "src": set(),
-        "dst": set(),
-        "dport": set(),
-        "src_dst": set(),
-        "src_dport": set(),
-        "dst_dport": set(),
-        "src_dst_dport": set(),
-    }
-
-    if not rows:
-        return idx
-
-    idx["any"] = True
-    for r in rows:
-        src_ip, dst_ip, dport = r[0], r[1], r[2]
-        if src_ip is not None:
-            idx["src"].add(src_ip)
-        if dst_ip is not None:
-            idx["dst"].add(dst_ip)
-        if dport is not None:
-            idx["dport"].add(int(dport))
-
-        if src_ip is not None and dst_ip is not None:
-            idx["src_dst"].add((src_ip, dst_ip))
-        if src_ip is not None and dport is not None:
-            idx["src_dport"].add((src_ip, int(dport)))
-        if dst_ip is not None and dport is not None:
-            idx["dst_dport"].add((dst_ip, int(dport)))
-        if src_ip is not None and dst_ip is not None and dport is not None:
-            idx["src_dst_dport"].add((src_ip, dst_ip, int(dport)))
+    idx: Dict[Tuple[Optional[str], Optional[str], Optional[int]], datetime] = {}
+    for src_ip, dst_ip, dst_port, last_at in db.execute(stmt).all():
+        idx[(src_ip, dst_ip, int(dst_port) if dst_port is not None else None)] = last_at
 
     return idx
 
 
-def _recent_alert_exists_cached(idx: Dict[str, Any], src_ip: str | None, dst_ip: str | None, dst_port: int | None) -> bool:
-    if src_ip is not None and dst_ip is not None and dst_port is not None:
-        return (src_ip, dst_ip, dst_port) in idx["src_dst_dport"]
-    if src_ip is not None and dst_ip is not None:
-        return (src_ip, dst_ip) in idx["src_dst"]
-    if src_ip is not None and dst_port is not None:
-        return (src_ip, dst_port) in idx["src_dport"]
-    if dst_ip is not None and dst_port is not None:
-        return (dst_ip, dst_port) in idx["dst_dport"]
-    if src_ip is not None:
-        return src_ip in idx["src"]
-    if dst_ip is not None:
-        return dst_ip in idx["dst"]
-    if dst_port is not None:
-        return dst_port in idx["dport"]
-    return bool(idx["any"])
+def _recent_alert_exists_cached(idx: Dict, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]) -> bool:
+    return (src_ip, dst_ip, dst_port) in idx
 
 
-def _index_add(idx: Dict[str, Any], src_ip: str | None, dst_ip: str | None, dst_port: int | None) -> None:
-    idx["any"] = True
+def _index_add(idx: Dict, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]):
+    idx[(src_ip, dst_ip, dst_port)] = datetime.utcnow()
 
-    if src_ip is not None:
-        idx["src"].add(src_ip)
-    if dst_ip is not None:
-        idx["dst"].add(dst_ip)
-    if dst_port is not None:
-        idx["dport"].add(int(dst_port))
 
-    if src_ip is not None and dst_ip is not None:
-        idx["src_dst"].add((src_ip, dst_ip))
-    if src_ip is not None and dst_port is not None:
-        idx["src_dport"].add((src_ip, int(dst_port)))
-    if dst_ip is not None and dst_port is not None:
-        idx["dst_dport"].add((dst_ip, int(dst_port)))
-    if src_ip is not None and dst_ip is not None and dst_port is not None:
-        idx["src_dst_dport"].add((src_ip, dst_ip, int(dst_port)))
+def _parse_extra_key(raw_key: str) -> Tuple[str, str]:
+    k = raw_key[len("extra_") :]
+
+    for suffix, op in (
+        ("_not_in", "not_in"),
+        ("_in", "in"),
+        ("_gte", "gte"),
+        ("_gt", "gt"),
+        ("_lte", "lte"),
+        ("_lt", "lt"),
+        ("_neq", "neq"),
+    ):
+        if k.endswith(suffix):
+            return k[: -len(suffix)], op
+
+    return k, "eq"
+
+
+from sqlalchemy import func
+
+def _extra_text_col(extra_key: str):
+    expr = NetEventModel.extra[extra_key]
+
+    if hasattr(expr, "as_string"):
+        return expr.as_string()
+
+    if hasattr(expr, "astext"):
+        return expr.astext
+
+    return func.jsonb_extract_path_text(NetEventModel.extra, extra_key)
+
+
+def _extra_numeric_col(extra_key: str):
+    text_col = _extra_text_col(extra_key)
+    is_numeric = text_col.op("~")(r"^-?\d+(\.\d+)?$")
+    return is_numeric, cast(text_col, Float)
+
+
+def _build_match_filters(match: Dict, since: datetime, until: datetime) -> List:
+    filters = [NetEventModel.timestamp >= since, NetEventModel.timestamp < until]
+
+    for key, val in (match or {}).items():
+        if key in _ALLOWED_EVENT_FIELDS:
+            col = _safe_col(key)
+            filters.append(col == val)
+            continue
+
+        if not key.startswith("extra_"):
+            continue
+
+        extra_key, op = _parse_extra_key(key)
+        text_col = _extra_text_col(extra_key)
+
+        if op in ("in", "not_in"):
+            if not isinstance(val, list):
+                continue
+            needle = [str(v) for v in val]
+            if op == "in":
+                filters.append(text_col.in_(needle))
+            else:
+                filters.append(~text_col.in_(needle))
+            continue
+
+        if op in ("gte", "gt", "lte", "lt"):
+            try:
+                target = float(val)
+            except Exception:
+                continue
+            is_numeric, num_col = _extra_numeric_col(extra_key)
+            filters.append(is_numeric)
+            if op == "gte":
+                filters.append(num_col >= target)
+            elif op == "gt":
+                filters.append(num_col > target)
+            elif op == "lte":
+                filters.append(num_col <= target)
+            else:
+                filters.append(num_col < target)
+            continue
+
+        if op == "neq":
+            filters.append(text_col != str(val).lower() if isinstance(val, bool) else text_col != str(val))
+            continue
+
+        if isinstance(val, bool):
+            filters.append(text_col == ("true" if val else "false"))
+        else:
+            filters.append(text_col == str(val))
+
+    return filters
+
+
+def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[AlertModel]) -> List[AlertModel]:
+    horizon = timedelta(minutes=10)
+    since = now - horizon
+
+    ddos_alerts = [
+        a
+        for a in created_alerts
+        if isinstance(a.rule_id, str)
+        and (a.rule_id.startswith("ddos_") or a.rule_id.startswith("dos_") or a.rule_id.startswith("l7_"))
+    ]
+
+    if not ddos_alerts:
+        return []
+
+    out: List[AlertModel] = []
+
+    for a in ddos_alerts:
+        group_key = (a.details or {}).get("group_key") or {}
+        dst_ip = a.dst_ip or group_key.get("dst_ip")
+        dst_port = a.dst_port or group_key.get("dst_port")
+
+        stmt = (
+            select(AlertModel.rule_id, func.count().label("cnt"))
+            .where(AlertModel.created_at >= since)
+            .where(AlertModel.dst_ip == dst_ip)
+            .where(or_(
+                AlertModel.rule_id.like("%ssh%"),
+                AlertModel.rule_id.like("%scan%"),
+                AlertModel.rule_id.like("%port_scan%"),
+            ))
+            .group_by(AlertModel.rule_id)
+        )
+
+        if dst_port is not None:
+            try:
+                dst_port_int = int(dst_port)
+                stmt = stmt.where(or_(AlertModel.dst_port.is_(None), AlertModel.dst_port == dst_port_int))
+            except Exception:
+                pass
+
+        rows = db.execute(stmt).all()
+        if not rows:
+            continue
+
+        correlated = {r.rule_id: int(r.cnt) for r in rows if r.rule_id}
+        total = sum(correlated.values())
+        if total <= 0:
+            continue
+
+        incident_rule_id = "incident_ddos_correlated_v1"
+
+        cooldown_since = now - timedelta(minutes=10)
+        existing = (
+            db.execute(
+                select(func.count())
+                .select_from(AlertModel)
+                .where(AlertModel.rule_id == incident_rule_id)
+                .where(AlertModel.created_at >= cooldown_since)
+                .where(AlertModel.dst_ip == dst_ip)
+                .where(AlertModel.dst_port == a.dst_port)
+            ).scalar()
+            or 0
+        )
+        if int(existing) > 0:
+            continue
+
+        incident = AlertModel(
+            rule_id=incident_rule_id,
+            severity="critical",
+            src_ip=None,
+            dst_ip=dst_ip,
+            dst_port=a.dst_port,
+            description="Potential incident: DDoS/DoS correlated with additional hostile activity",
+            details={
+                "type": "correlation",
+                "window_seconds": int(horizon.total_seconds()),
+                "correlated_rules": correlated,
+                "base_rule_id": a.rule_id,
+            },
+        )
+        db.add(incident)
+        out.append(incident)
+
+    return out
 
 
 def run_all_rules() -> List[AlertModel]:
     rules = load_rules()
-    print(f"[RULES] Loaded {len(rules)} rule(s) from YAML")
-    if not rules:
-        return []
 
-    db = SessionLocal()
+    now = datetime.utcnow()
     created_alerts: List[AlertModel] = []
 
+    db = SessionLocal()
     try:
-        now = datetime.utcnow()
+        recent_idx = _recent_alert_index(db, timedelta(minutes=2))
 
         for rule in rules:
+            if not rule.get("enabled", True):
+                continue
+
             rule_id = rule.get("id")
             rule_type = rule.get("type")
-            if not rule_id or not rule_type:
-                print(f"[RULES] invalid rule missing id/type: {rule}. Skipping")
-                continue
-
-            severity = rule.get("severity", "medium")
+            severity = rule.get("severity", "low")
             description = rule.get("description", "")
-            match = rule.get("match", {}) or {}
 
-            window = parse_window(rule.get("window", "10m"))
-            cooldown_str = rule.get("cooldown")
-            cooldown = parse_window(cooldown_str) if isinstance(cooldown_str, str) else window
-
-            recent_threshold = now - cooldown
-            recent_idx = _build_recent_alert_index(db, rule_id, recent_threshold)
-
-            time_threshold = now - window
-
-            filters = _build_match_filters(rule)
-            filters.append(NetEventModel.timestamp >= time_threshold)
+            window_s = rule.get("window", "5m")
+            cooldown_s = rule.get("cooldown", "10m")
 
             try:
-                group_fields = _normalize_group_by(rule.get("group_by"))
-            except Exception as e:
-                print(f"[RULES] Rule={rule_id} invalid group_by: {e}. Skipping")
-                continue
+                window = timedelta(seconds=_parse_window(window_s))
+                cooldown = timedelta(seconds=_parse_window(cooldown_s))
+            except Exception:
+                window = timedelta(minutes=5)
+                cooldown = timedelta(minutes=10)
 
-            group_cols = []
-            bad = False
-            for f in group_fields:
-                if f not in _ALLOWED_EVENT_FIELDS:
-                    bad = True
-                    break
-                c = _safe_col(f)
-                group_cols.append(c)
-                filters.append(c.is_not(None))
+            since = now - window
+            until = now
 
-            if bad:
-                print(f"[RULES] Rule={rule_id} unsupported group_by fields={group_fields}. Skipping")
-                continue
+            match = rule.get("match", {}) or {}
+            group_fields = rule.get("group_by", []) or []
 
-            print(f"[RULES] Evaluating rule={rule_id}, type={rule_type}, window={window}, cooldown={cooldown}, group_by={group_fields}")
+            if isinstance(group_fields, str):
+                group_fields = [group_fields]
+
+            group_fields = [f for f in group_fields if f in _ALLOWED_GROUP_FIELDS]
+
+            try:
+                group_cols = [_safe_col(f) for f in group_fields]
+            except Exception:
+                group_cols = []
+                group_fields = []
+
+            filters = _build_match_filters(match, since, until)
 
             if rule_type == "aggregate_count":
                 condition = rule.get("condition", {}) or {}
@@ -303,7 +330,6 @@ def run_all_rules() -> List[AlertModel]:
                 )
 
                 rows = db.execute(stmt).all()
-                print(f"[RULES] Rule={rule_id} aggregate_count: {len(rows)} group(s) found")
 
                 for row in rows:
                     group_key = {f: row._mapping.get(f) for f in group_fields}
@@ -344,7 +370,6 @@ def run_all_rules() -> List[AlertModel]:
 
                 distinct_field = rule.get("distinct_field")
                 if not isinstance(distinct_field, str) or distinct_field not in _ALLOWED_EVENT_FIELDS:
-                    print(f"[RULES] Rule={rule_id} invalid distinct_field={distinct_field!r}. Skipping")
                     continue
 
                 distinct_col = _safe_col(distinct_field)
@@ -362,7 +387,6 @@ def run_all_rules() -> List[AlertModel]:
                 )
 
                 rows = db.execute(stmt).all()
-                print(f"[RULES] Rule={rule_id} distinct_count: {len(rows)} group(s) found")
 
                 for row in rows:
                     group_key = {f: row._mapping.get(f) for f in group_fields}
@@ -400,93 +424,31 @@ def run_all_rules() -> List[AlertModel]:
                     created_alerts.append(alert)
                     _index_add(recent_idx, src_ip, dst_ip, dst_port)
 
-            elif rule_type == "multi_distinct":
-                distinct_conditions = rule.get("distinct_conditions", []) or []
-                if not isinstance(distinct_conditions, list) or not distinct_conditions:
-                    print(f"[RULES] Rule={rule_id} missing distinct_conditions. Skipping")
-                    continue
-
-                min_events = int(rule.get("min_events") or 0)
-
-                selects = [c.label(f) for c, f in zip(group_cols, group_fields)]
-                filters2 = list(filters)
-
-                metric_labels = []
-                for dc in distinct_conditions:
-                    field = dc.get("field")
-                    if not isinstance(field, str) or field not in _ALLOWED_EVENT_FIELDS:
-                        print(f"[RULES] Rule={rule_id} invalid distinct field in multi_distinct: {field!r}. Skipping")
-                        metric_labels = None
-                        break
-                    col = _safe_col(field)
-                    filters2.append(col.is_not(None))
-                    label = f"distinct_{field}"
-                    selects.append(func.count(func.distinct(col)).label(label))
-                    metric_labels.append((field, label, dc))
-
-                if metric_labels is None:
-                    continue
-
-                selects.append(func.count().label("event_count"))
-                stmt = select(*selects).where(and_(*filters2)).group_by(*group_cols)
-
-                rows = db.execute(stmt).all()
-                print(f"[RULES] Rule={rule_id} multi_distinct: {len(rows)} group(s) found")
-
-                for row in rows:
-                    group_key = {f: row._mapping.get(f) for f in group_fields}
-                    event_count = int(row._mapping.get("event_count") or 0)
-                    if min_events and event_count < min_events:
-                        continue
-
-                    ok = True
-                    metrics = {}
-                    for field, label, dc in metric_labels:
-                        v = int(row._mapping.get(label) or 0)
-                        metrics[field] = v
-                        if not _evaluate_condition(v, dc):
-                            ok = False
-                            break
-                    if not ok:
-                        continue
-
-                    src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
-
-                    if _recent_alert_exists_cached(recent_idx, src_ip, dst_ip, dst_port):
-                        continue
-
-                    alert = AlertModel(
-                        rule_id=rule_id,
-                        severity=severity,
-                        src_ip=src_ip,
-                        dst_ip=dst_ip,
-                        dst_port=dst_port,
-                        description=description,
-                        details={
-                            "type": rule_type,
-                            "group_by": group_fields,
-                            "group_key": group_key,
-                            "metrics": metrics,
-                            "event_count": event_count,
-                            "distinct_conditions": distinct_conditions,
-                            "window_seconds": int(window.total_seconds()),
-                        },
-                    )
-                    db.add(alert)
-                    created_alerts.append(alert)
-                    _index_add(recent_idx, src_ip, dst_ip, dst_port)
-
             else:
-                print(f"[RULES] Rule={rule_id} has unsupported type={rule_type}, skipping")
                 continue
 
-        if created_alerts:
-            db.commit()
-            for a in created_alerts:
-                db.refresh(a)
+        try:
+            correlated = _correlate_ddos_incidents(db, now, created_alerts)
+            if correlated:
+                created_alerts.extend(correlated)
+        except Exception:
+            pass
 
-        print(f"[RULES] Created {len(created_alerts)} alert(s) in this cycle")
+        db.commit()
         return created_alerts
 
     finally:
         db.close()
+
+
+def _parse_window(s: str) -> int:
+    s = str(s).strip().lower()
+    if s.endswith("ms"):
+        return int(float(s[:-2]) / 1000.0)
+    if s.endswith("s"):
+        return int(float(s[:-1]))
+    if s.endswith("m"):
+        return int(float(s[:-1]) * 60)
+    if s.endswith("h"):
+        return int(float(s[:-1]) * 3600)
+    return int(float(s))
