@@ -1,555 +1,2058 @@
 {
-  "id": null,
-  "uid": "netwatch-overview-v2",
-  "title": "Dynasmon NetWatch - Overview (v2)",
-  "tags": ["netwatch", "security", "network", "siem"],
-  "timezone": "utc",
-  "schemaVersion": 36,
-  "version": 6,
-  "refresh": "5s",
-  "style": "dark",
-  "templating": {
+  "annotations": {
     "list": [
       {
-        "type": "query",
-        "name": "agent",
-        "label": "Agent",
-        "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
-        "refresh": 2,
-        "hide": 0,
-        "includeAll": true,
-        "allValue": "%",
-        "multi": false,
-        "query": "SELECT DISTINCT agent_id FROM net_events ORDER BY 1;",
-        "current": { "text": "All", "value": "%" }
-      },
-      {
-        "type": "query",
-        "name": "event_type",
-        "label": "Event Type",
-        "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
-        "refresh": 2,
-        "hide": 0,
-        "includeAll": true,
-        "allValue": "%",
-        "multi": false,
-        "query": "SELECT DISTINCT event_type FROM net_events ORDER BY 1;",
-        "current": { "text": "All", "value": "%" }
-      },
-      {
-        "type": "query",
-        "name": "severity",
-        "label": "Alert Severity",
-        "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
-        "refresh": 2,
-        "hide": 0,
-        "includeAll": true,
-        "allValue": "%",
-        "multi": false,
-        "query": "SELECT DISTINCT severity FROM alerts ORDER BY 1;",
-        "current": { "text": "All", "value": "%" }
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
       }
     ]
   },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 2,
+  "links": [],
   "panels": [
     {
-      "type": "row",
-      "title": "Ingestion & Health",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "id": 100,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
-      "collapsed": false
+      "panels": [],
+      "title": "Ingestion & Health",
+      "type": "row"
     },
     {
-      "type": "stat",
-      "title": "Events (last 5m)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
       "id": 1,
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '5 minutes' AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}');"
+          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '5 minutes' AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}');",
+          "refId": "A"
         }
       ],
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "horizontal",
-        "colorMode": "value",
-        "graphMode": "none"
-      }
+      "title": "Events (last 5m)",
+      "type": "stat"
     },
     {
-      "type": "stat",
-      "title": "Events (last 1h)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
       "id": 2,
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '1 hour' AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}');"
+          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '1 hour' AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}');",
+          "refId": "A"
         }
       ],
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "horizontal",
-        "colorMode": "value",
-        "graphMode": "none"
-      }
+      "title": "Events (last 1h)",
+      "type": "stat"
     },
     {
-      "type": "stat",
-      "title": "Active Agents (last 1h)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
       "id": 3,
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(DISTINCT agent_id)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '1 hour';"
+          "rawSql": "SELECT NOW() AS time, COUNT(DISTINCT agent_id)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '1 hour';",
+          "refId": "A"
         }
       ],
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "horizontal",
-        "colorMode": "value",
-        "graphMode": "none"
-      }
+      "title": "Active Agents (last 1h)",
+      "type": "stat"
     },
     {
-      "type": "stat",
-      "title": "Last Event TS",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
       "id": 4,
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "table",
-          "rawSql": "SELECT MAX(\"timestamp\") AS last_event_ts FROM net_events WHERE ('${agent}' = '%' OR agent_id = '${agent}');"
+          "rawSql": "SELECT MAX(\"timestamp\") AS last_event_ts FROM net_events WHERE ('${agent}' = '%' OR agent_id = '${agent}');",
+          "refId": "A"
         }
       ],
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "horizontal",
-        "colorMode": "value",
-        "graphMode": "none"
-      }
+      "title": "Last Event TS",
+      "type": "stat"
     },
     {
-      "type": "stat",
-      "title": "Alerts (last 1h)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
       "id": 5,
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM alerts WHERE created_at >= NOW() - interval '1 hour' AND ('${severity}' = '%' OR severity = '${severity}');"
+          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM alerts WHERE created_at >= NOW() - interval '1 hour' AND ('${severity}' = '%' OR severity = '${severity}');",
+          "refId": "A"
         }
       ],
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "horizontal",
-        "colorMode": "value",
-        "graphMode": "none"
-      }
+      "title": "Alerts (last 1h)",
+      "type": "stat"
     },
-
     {
-      "type": "row",
-      "title": "Event Volume",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
       "id": 101,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
-      "collapsed": false
+      "panels": [],
+      "title": "Event Volume",
+      "type": "row"
     },
     {
-      "type": "timeseries",
-      "title": "Events per minute by type",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
       "id": 10,
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), event_type AS metric, COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}') GROUP BY 1, 2 ORDER BY 1;"
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), event_type AS metric, COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}') GROUP BY 1, 2 ORDER BY 1;",
+          "refId": "A"
         }
       ],
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+      "title": "Events per minute by type",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "title": "Flows per minute",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
       "id": 11,
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'flow' GROUP BY 1 ORDER BY 1;"
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'flow' GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
         }
       ],
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+      "title": "Flows per minute",
+      "type": "timeseries"
     },
     {
-      "type": "timeseries",
-      "title": "SSH auth failures per minute",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
       "id": 12,
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'ssh_auth' AND COALESCE(extra->>'action','') IN ('failed_password','invalid_user','max_auth_attempts') GROUP BY 1 ORDER BY 1;"
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'ssh_auth' AND COALESCE(extra->>'action','') IN ('failed_password','invalid_user','max_auth_attempts') GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
         }
       ],
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+      "title": "SSH auth failures per minute",
+      "type": "timeseries"
     },
-
     {
-      "type": "row",
-      "title": "SSH Auth Deep Dive",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
       "id": 105,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
-      "collapsed": false
+      "panels": [],
+      "title": "SSH Auth Deep Dive",
+      "type": "row"
     },
     {
-      "type": "table",
-      "title": "Recent SSH Auth Events (normalized)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
       "id": 13,
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 23 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "table",
-          "rawSql": "SELECT \"timestamp\" AS time, agent_id, src_ip, dst_ip, dst_port, proto, COALESCE(extra->>'action','') AS action, COALESCE(extra->>'user', extra->>'username', '') AS username, COALESCE(extra->>'method','') AS method, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'ssh_auth' ORDER BY \"timestamp\" DESC LIMIT 200;"
+          "rawSql": "SELECT \"timestamp\" AS time, agent_id, src_ip, dst_ip, dst_port, proto, COALESCE(extra->>'action','') AS action, COALESCE(extra->>'user', extra->>'username', '') AS username, COALESCE(extra->>'method','') AS method, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'ssh_auth' ORDER BY \"timestamp\" DESC LIMIT 200;",
+          "refId": "A"
         }
       ],
-      "options": { "showHeader": true, "footer": { "show": false } }
+      "title": "Recent SSH Auth Events (normalized)",
+      "type": "table"
     },
-
     {
-      "type": "row",
-      "title": "Top Talkers & Ports",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
       "id": 102,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 },
-      "collapsed": false
+      "panels": [],
+      "title": "Top Talkers & Ports",
+      "type": "row"
     },
     {
-      "type": "table",
-      "title": "Top Source IPs (events)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
       "id": 20,
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "table",
-          "rawSql": "SELECT src_ip, COUNT(*)::bigint AS events FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}') AND src_ip IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 15;"
+          "rawSql": "SELECT src_ip, COUNT(*)::bigint AS events FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}') AND src_ip IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 15;",
+          "refId": "A"
         }
       ],
-      "options": { "showHeader": true, "footer": { "show": false } }
+      "title": "Top Source IPs (events)",
+      "type": "table"
     },
     {
-      "type": "bargauge",
-      "title": "Top Destination Ports (flows)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
       "id": 21,
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "displayMode": "gradient",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": false,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "table",
-          "rawSql": "SELECT dst_port::text AS \"port\", COUNT(*)::bigint AS \"count\" FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'flow' AND dst_port IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 12;"
+          "rawSql": "SELECT dst_port::text AS \"port\", COUNT(*)::bigint AS \"count\" FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'flow' AND dst_port IS NOT NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 12;",
+          "refId": "A"
         }
       ],
-      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": false }
+      "title": "Top Destination Ports (flows)",
+      "type": "bargauge"
     },
-
     {
-      "type": "row",
-      "title": "Alerts",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
       "id": 103,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 },
-      "collapsed": false
+      "panels": [],
+      "title": "Alerts",
+      "type": "row"
     },
     {
-      "type": "timeseries",
-      "title": "Alerts per minute by severity",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
       "id": 30,
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 43 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(created_at, '1m'), severity AS metric, COUNT(*)::bigint AS value FROM alerts WHERE $__timeFilter(created_at) AND ('${severity}' = '%' OR severity = '${severity}') GROUP BY 1, 2 ORDER BY 1;"
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1m'), severity AS metric, COUNT(*)::bigint AS value FROM alerts WHERE $__timeFilter(created_at) AND ('${severity}' = '%' OR severity = '${severity}') GROUP BY 1, 2 ORDER BY 1;",
+          "refId": "A"
         }
       ],
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+      "title": "Alerts per minute by severity",
+      "type": "timeseries"
     },
     {
-      "type": "table",
-      "title": "Recent Alerts",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 51
+      },
       "id": 31,
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 51 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "table",
-          "rawSql": "SELECT created_at AS time, rule_id, severity, src_ip, dst_ip, dst_port, description, details::text AS details_json FROM alerts WHERE $__timeFilter(created_at) AND ('${severity}' = '%' OR severity = '${severity}') ORDER BY created_at DESC LIMIT 100;"
+          "rawSql": "SELECT created_at AS time, rule_id, severity, COALESCE(NULLIF(src_ip,''), NULLIF(details->>'src_ip',''), NULLIF(details->>'source_ip',''), NULLIF(details->>'attacker_ip',''), NULLIF(details->>'ip',''), NULLIF(details->>'remote_ip','')) AS src_ip, COALESCE(NULLIF(dst_ip,''), NULLIF(details->>'dst_ip',''), NULLIF(details->>'target_ip',''), NULLIF(details->>'target','')) AS dst_ip, COALESCE(dst_port, CASE WHEN NULLIF(details->>'dst_port','') ~ '^[0-9]+$' THEN (details->>'dst_port')::int WHEN NULLIF(details->>'target_port','') ~ '^[0-9]+$' THEN (details->>'target_port')::int ELSE NULL END) AS dst_port, description, details::text AS details_json FROM alerts WHERE $__timeFilter(created_at) AND ('${severity}' = '%' OR severity = '${severity}') ORDER BY created_at DESC LIMIT 100;",
+          "refId": "A"
         }
       ],
-      "options": { "showHeader": true, "footer": { "show": false } }
+      "title": "Recent Alerts",
+      "type": "table"
     },
-
     {
-      "type": "row",
-      "title": "Raw Telemetry",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
       "id": 104,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 61 },
-      "collapsed": false
+      "panels": [],
+      "title": "Raw Telemetry",
+      "type": "row"
     },
     {
-      "type": "table",
-      "title": "Recent Events",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 62
+      },
       "id": 40,
-      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 62 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "table",
-          "rawSql": "SELECT \"timestamp\" AS time, agent_id, event_type, src_ip, src_port, dst_ip, dst_port, proto, bytes, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}') ORDER BY \"timestamp\" DESC LIMIT 200;"
+          "rawSql": "SELECT \"timestamp\" AS time, agent_id, event_type, src_ip, src_port, dst_ip, dst_port, proto, bytes, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}') ORDER BY \"timestamp\" DESC LIMIT 200;",
+          "refId": "A"
         }
       ],
-      "options": { "showHeader": true, "footer": { "show": false } }
+      "title": "Recent Events",
+      "type": "table"
     },
-
     {
-      "type": "row",
-      "title": "Lateral Movement (host-based)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 74
+      },
       "id": 106,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 74 },
-      "collapsed": false
+      "panels": [],
+      "title": "Lateral Movement (host-based)",
+      "type": "row"
     },
     {
-      "type": "timeseries",
-      "title": "Lateral attempts per minute (admin ports)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 75
+      },
       "id": 50,
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 75 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'lateral_conn' AND COALESCE(extra->>'lateral_kind','') = 'attempt' AND dst_port IN (445,3389,5985,5986,135,139) GROUP BY 1 ORDER BY 1;"
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'lateral_conn' AND COALESCE(extra->>'lateral_kind','') = 'attempt' AND dst_port IN (445,3389,5985,5986,135,139) GROUP BY 1 ORDER BY 1;",
+          "refId": "A"
         }
       ],
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+      "title": "Lateral attempts per minute (admin ports)",
+      "type": "timeseries"
     },
     {
-      "type": "table",
-      "title": "Recent lateral attempts (normalized)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 75
+      },
       "id": 51,
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 75 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "table",
-          "rawSql": "SELECT \"timestamp\" AS time, agent_id, src_ip, dst_ip, dst_port, proto, COALESCE(extra->>'lateral_kind','') AS lateral_kind, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'lateral_conn' AND COALESCE(extra->>'lateral_kind','') = 'attempt' ORDER BY \"timestamp\" DESC LIMIT 200;"
+          "rawSql": "SELECT \"timestamp\" AS time, agent_id, src_ip, dst_ip, dst_port, proto, COALESCE(extra->>'lateral_kind','') AS lateral_kind, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'lateral_conn' AND COALESCE(extra->>'lateral_kind','') = 'attempt' ORDER BY \"timestamp\" DESC LIMIT 200;",
+          "refId": "A"
         }
       ],
-      "options": { "showHeader": true, "footer": { "show": false } }
+      "title": "Recent lateral attempts (normalized)",
+      "type": "table"
     },
-
     {
-      "type": "row",
-      "title": "DoS / DDoS",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 83
+      },
       "id": 107,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 83 },
-      "collapsed": false
+      "panels": [],
+      "title": "DoS / DDoS",
+      "type": "row"
     },
     {
-      "type": "stat",
-      "title": "DoS/DDoS detections (last 5m)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 84
+      },
       "id": 60,
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 84 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '5 minutes' AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%');"
+          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '5 minutes' AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%');",
+          "refId": "A"
         }
       ],
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "horizontal",
-        "colorMode": "value",
-        "graphMode": "none"
-      }
+      "title": "DoS/DDoS detections (last 5m)",
+      "type": "stat"
     },
     {
-      "type": "stat",
-      "title": "Last confidence (5m max)",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 84
+      },
       "id": 61,
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 84 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COALESCE(MAX(NULLIF(extra->>'confidence','')::double precision), 0)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '5 minutes' AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%');"
+          "rawSql": "SELECT NOW() AS time, COALESCE(MAX(NULLIF(extra->>'confidence','')::double precision), 0)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '5 minutes' AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%');",
+          "refId": "A"
         }
       ],
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "horizontal",
-        "colorMode": "value",
-        "graphMode": "none"
-      }
+      "title": "Last confidence (5m max)",
+      "type": "stat"
     },
     {
-      "type": "stat",
-      "title": "Last attack kind",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 84
+      },
       "id": 62,
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 84 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "/^attack_kind$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
           "format": "table",
-          "rawSql": "SELECT COALESCE(extra->>'attack_kind','unknown') AS attack_kind FROM net_events WHERE ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') ORDER BY \"timestamp\" DESC LIMIT 1;"
+          "rawSql": "SELECT\n  COALESCE(\n    NULLIF(CONCAT_WS(' / ',\n      NULLIF(extra->>'attack',''),\n      NULLIF(extra->>'vector','')\n    ), ''),\n    'unknown'\n  ) AS attack_kind\nFROM net_events\nWHERE ('${agent}' = '%' OR agent_id = '${agent}')\n  AND event_type = 'dos_attack'\nORDER BY \"timestamp\" DESC\nLIMIT 1;\n",
+          "refId": "A"
         }
       ],
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "horizontal",
-        "colorMode": "value",
-        "graphMode": "none"
-      }
+      "title": "Last attack kind",
+      "type": "stat"
     },
     {
-      "type": "stat",
-      "title": "Last target",
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 84
+      },
       "id": 63,
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 84 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
-      "targets": [
-        {
-          "refId": "A",
-          "format": "table",
-          "rawSql": "SELECT CONCAT(COALESCE(dst_ip,''), CASE WHEN dst_port IS NULL THEN '' ELSE ':' || dst_port::text END, CASE WHEN COALESCE(proto,'') = '' THEN '' ELSE '/' || proto END) AS target FROM net_events WHERE ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') ORDER BY \"timestamp\" DESC LIMIT 1;"
-        }
-      ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "horizontal",
         "colorMode": "value",
-        "graphMode": "none"
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "DoS/DDoS detections per minute by kind",
-      "id": 64,
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 88 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "fields": "/^target$/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
       "targets": [
         {
-          "refId": "A",
-          "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COALESCE(extra->>'attack_kind','unknown') AS metric, COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') GROUP BY 1, 2 ORDER BY 1;"
-        }
-      ],
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
-    },
-    {
-      "type": "timeseries",
-      "title": "Confidence / SYN ratio (max)",
-      "id": 65,
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 88 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
-      "targets": [
-        {
-          "refId": "A",
-          "format": "time_series",
-          "rawSql": "SELECT \"time\", metric, value FROM ( SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'confidence' AS metric, MAX(NULLIF(extra->>'confidence','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'confidence','') IS NOT NULL GROUP BY 1 UNION ALL SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'syn_ratio' AS metric, MAX(NULLIF(extra->>'syn_ratio','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'syn_ratio','') IS NOT NULL GROUP BY 1 ) s ORDER BY 1;"
-        }
-      ],
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
-    },
-    {
-      "type": "timeseries",
-      "title": "Traffic rate (PPS/BPS max)",
-      "id": 66,
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 96 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
-      "targets": [
-        {
-          "refId": "A",
-          "format": "time_series",
-          "rawSql": "SELECT \"time\", metric, value FROM ( SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'pps' AS metric, MAX(NULLIF(extra->>'pps','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'pps','') IS NOT NULL GROUP BY 1 UNION ALL SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'bps' AS metric, MAX(NULLIF(extra->>'bps','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'bps','') IS NOT NULL GROUP BY 1 ) s ORDER BY 1;"
-        }
-      ],
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
-    },
-    {
-      "type": "timeseries",
-      "title": "L7 signals (HTTP RPS / TLS HS RPS max)",
-      "id": 67,
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 104 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
-      "targets": [
-        {
-          "refId": "A",
-          "format": "time_series",
-          "rawSql": "SELECT \"time\", metric, value FROM ( SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'http_rps' AS metric, MAX(NULLIF(extra->>'http_rps','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'http_rps','') IS NOT NULL GROUP BY 1 UNION ALL SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'tls_hs_rps' AS metric, MAX(NULLIF(extra->>'tls_hs_rps','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'tls_hs_rps','') IS NOT NULL GROUP BY 1 ) s ORDER BY 1;"
-        }
-      ],
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
-    },
-    {
-      "type": "timeseries",
-      "title": "Source cardinality / entropy (max)",
-      "id": 68,
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 112 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
-      "targets": [
-        {
-          "refId": "A",
-          "format": "time_series",
-          "rawSql": "SELECT \"time\", metric, value FROM ( SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'src_ips_est' AS metric, MAX(COALESCE(NULLIF(extra->>'src_ips_est',''), NULLIF(extra->>'src_ips',''))::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND COALESCE(NULLIF(extra->>'src_ips_est',''), NULLIF(extra->>'src_ips','')) IS NOT NULL GROUP BY 1 UNION ALL SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'src_entropy_norm' AS metric, MAX(NULLIF(extra->>'src_entropy_norm','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'src_entropy_norm','') IS NOT NULL GROUP BY 1 ) s ORDER BY 1;"
-        }
-      ],
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
-    },
-    {
-      "type": "table",
-      "title": "Recent DoS/DDoS detections (normalized)",
-      "id": 69,
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 120 },
-      "datasource": { "type": "postgres", "uid": "netwatch-postgres" },
-      "targets": [
-        {
-          "refId": "A",
           "format": "table",
-          "rawSql": "SELECT \"timestamp\" AS time, agent_id, event_type, src_ip, dst_ip, dst_port, proto, COALESCE(extra->>'attack_kind','') AS attack_kind, COALESCE(extra->>'confidence','') AS confidence, COALESCE(extra->>'pps','') AS pps, COALESCE(extra->>'bps','') AS bps, COALESCE(extra->>'http_rps','') AS http_rps, COALESCE(extra->>'tls_hs_rps','') AS tls_hs_rps, extra::text AS extra_json FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') ORDER BY \"timestamp\" DESC LIMIT 200;"
+          "rawSql": "SELECT\n  CONCAT(\n    COALESCE(dst_ip,''),\n    CASE WHEN dst_port IS NULL THEN '' ELSE ':' || dst_port::text END,\n    CASE WHEN COALESCE(proto,'') = '' THEN '' ELSE '/' || proto END\n  ) AS target\nFROM net_events\nWHERE ('${agent}' = '%' OR agent_id = '${agent}')\n  AND event_type = 'dos_attack'\nORDER BY \"timestamp\" DESC\nLIMIT 1;\n",
+          "refId": "A"
         }
       ],
-      "options": { "showHeader": true, "footer": { "show": false } }
+      "title": "Last target",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 88
+      },
+      "id": 64,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT\n  $__timeGroupAlias(\"timestamp\", '1m'),\n  COALESCE(\n    NULLIF(CONCAT_WS(' / ',\n      NULLIF(extra->>'attack',''),\n      NULLIF(extra->>'vector','')\n    ), ''),\n    'unknown'\n  ) AS metric,\n  COUNT(*)::bigint AS value\nFROM net_events\nWHERE $__timeFilter(\"timestamp\")\n  AND ('${agent}' = '%' OR agent_id = '${agent}')\n  AND event_type = 'dos_attack'\nGROUP BY 1, 2\nORDER BY 1;\n",
+          "refId": "A"
+        }
+      ],
+      "title": "DoS/DDoS detections per minute by kind",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 88
+      },
+      "id": 65,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT time, metric, value FROM (\n  SELECT $__timeGroup(\"timestamp\",'10s') AS time,\n         'confidence' AS metric,\n         MAX(CASE WHEN NULLIF(extra->>'confidence','') ~ '^[0-9]+(\\\\.[0-9]+)?$'\n                  THEN (extra->>'confidence')::double precision END) AS value\n  FROM net_events\n  WHERE $__timeFilter(\"timestamp\")\n    AND ('${agent}' = '%' OR agent_id = '${agent}')\n    AND event_type = 'dos_attack'\n  GROUP BY 1\n  UNION ALL\n  SELECT $__timeGroup(\"timestamp\",'10s') AS time,\n         'tcp_syn_ratio' AS metric,\n         MAX(CASE WHEN NULLIF(extra->>'tcp_syn_ratio','') ~ '^[0-9]+(\\\\.[0-9]+)?$'\n                  THEN (extra->>'tcp_syn_ratio')::double precision END) AS value\n  FROM net_events\n  WHERE $__timeFilter(\"timestamp\")\n    AND ('${agent}' = '%' OR agent_id = '${agent}')\n    AND event_type = 'dos_attack'\n  GROUP BY 1\n) s\nWHERE value IS NOT NULL\nORDER BY time;\n",
+          "refId": "A"
+        }
+      ],
+      "title": "Confidence / SYN ratio (max)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 96
+      },
+      "id": 66,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT \"time\", metric, value FROM ( SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'pps' AS metric, MAX(NULLIF(extra->>'pps','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'pps','') IS NOT NULL GROUP BY 1 UNION ALL SELECT $__timeGroupAlias(\"timestamp\", '10s'), 'bps' AS metric, MAX(NULLIF(extra->>'bps','')::double precision) AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND (event_type = 'dos_attack' OR event_type LIKE 'ddos%') AND NULLIF(extra->>'bps','') IS NOT NULL GROUP BY 1 ) s ORDER BY 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "Traffic rate (PPS/BPS max)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 104
+      },
+      "id": 67,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT time, metric, value FROM (\n  SELECT $__timeGroup(\"timestamp\",'10s') AS time,\n         'http_rps' AS metric,\n         MAX(CASE WHEN NULLIF(extra->>'http_rps','') ~ '^[0-9]+(\\\\.[0-9]+)?$'\n                  THEN (extra->>'http_rps')::double precision END) AS value\n  FROM net_events\n  WHERE $__timeFilter(\"timestamp\")\n    AND ('${agent}' = '%' OR agent_id = '${agent}')\n    AND event_type = 'dos_attack'\n  GROUP BY 1\n  UNION ALL\n  SELECT $__timeGroup(\"timestamp\",'10s') AS time,\n         'tls_handshake_rps' AS metric,\n         MAX(CASE WHEN NULLIF(extra->>'tls_handshake_rps','') ~ '^[0-9]+(\\\\.[0-9]+)?$'\n                  THEN (extra->>'tls_handshake_rps')::double precision END) AS value\n  FROM net_events\n  WHERE $__timeFilter(\"timestamp\")\n    AND ('${agent}' = '%' OR agent_id = '${agent}')\n    AND event_type = 'dos_attack'\n  GROUP BY 1\n) s\nWHERE value IS NOT NULL\nORDER BY time;\n",
+          "refId": "A"
+        }
+      ],
+      "title": "L7 signals (HTTP RPS / TLS HS RPS max)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 112
+      },
+      "id": 68,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT time, metric, value FROM (\n  SELECT $__timeGroup(\"timestamp\",'10s') AS time,\n         'unique_src_ips' AS metric,\n         MAX(CASE WHEN NULLIF(extra->>'unique_src_ips','') ~ '^[0-9]+(\\\\.[0-9]+)?$'\n                  THEN (extra->>'unique_src_ips')::double precision END) AS value\n  FROM net_events\n  WHERE $__timeFilter(\"timestamp\")\n    AND ('${agent}' = '%' OR agent_id = '${agent}')\n    AND event_type = 'dos_attack'\n  GROUP BY 1\n  UNION ALL\n  SELECT $__timeGroup(\"timestamp\",'10s') AS time,\n         'src_entropy_norm' AS metric,\n         MAX(CASE WHEN NULLIF(extra->>'src_entropy_norm','') ~ '^[0-9]+(\\\\.[0-9]+)?$'\n                  THEN (extra->>'src_entropy_norm')::double precision END) AS value\n  FROM net_events\n  WHERE $__timeFilter(\"timestamp\")\n    AND ('${agent}' = '%' OR agent_id = '${agent}')\n    AND event_type = 'dos_attack'\n  GROUP BY 1\n) s\nWHERE value IS NOT NULL\nORDER BY time;\n",
+          "refId": "A"
+        }
+      ],
+      "title": "Source cardinality / entropy (max)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 120
+      },
+      "id": 69,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT\n  \"timestamp\" AS time,\n  agent_id,\n  event_type,\n COALESCE(NULLIF(src_ip,''), NULLIF(extra->'top_src'->0->>'ip',''),'multiple') AS src_ip,\n  dst_ip,\n  dst_port,\n  proto,\n  COALESCE(extra->>'attack','') AS attack,\n  COALESCE(extra->>'vector','') AS vector,\n  COALESCE(extra->>'severity','') AS severity,\n  COALESCE(extra->>'confidence','') AS confidence,\n  COALESCE(extra->>'pps','') AS pps,\n  COALESCE(extra->>'bps','') AS bps,\n  COALESCE(extra->>'http_rps','') AS http_rps,\n  COALESCE(extra->>'tls_handshake_rps','') AS tls_handshake_rps,\n  COALESCE(extra->>'tcp_syn_ratio','') AS tcp_syn_ratio,\n  COALESCE(extra->>'unique_src_ips','') AS unique_src_ips,\n  COALESCE(extra->>'src_entropy_norm','') AS src_entropy_norm,\n  extra::text AS extra_json\nFROM net_events\nWHERE $__timeFilter(\"timestamp\")\n  AND ('${agent}' = '%' OR agent_id = '${agent}')\n  AND event_type = 'dos_attack'\nORDER BY \"timestamp\" DESC\nLIMIT 200;\n",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent DoS/DDoS detections (normalized)",
+      "type": "table"
     }
   ],
-  "time": { "from": "now-1h", "to": "now" }
+  "preload": false,
+  "refresh": "5s",
+  "schemaVersion": 42,
+  "tags": [
+    "netwatch",
+    "security",
+    "network",
+    "siem"
+  ],
+  "templating": {
+    "list": [
+      {
+        "allValue": "%",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "netwatch-postgres"
+        },
+        "includeAll": true,
+        "label": "Agent",
+        "name": "agent",
+        "options": [],
+        "query": "SELECT DISTINCT agent_id FROM net_events ORDER BY 1;",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "allValue": "%",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "netwatch-postgres"
+        },
+        "includeAll": true,
+        "label": "Event Type",
+        "name": "event_type",
+        "options": [],
+        "query": "SELECT DISTINCT event_type FROM net_events ORDER BY 1;",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "allValue": "%",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "netwatch-postgres"
+        },
+        "includeAll": true,
+        "label": "Alert Severity",
+        "name": "severity",
+        "options": [],
+        "query": "SELECT DISTINCT severity FROM alerts ORDER BY 1;",
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Dynasmon NetWatch - Overview (v2)",
+  "uid": "netwatch-overview-v2",
+  "version": 15
 }
