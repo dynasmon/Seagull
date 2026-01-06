@@ -1,41 +1,56 @@
 # Dynasmon NetWatch
 
 Dynasmon NetWatch is a network threat hunting platform designed as a lightweight, opinionated mini-SIEM focused on network telemetry.  
-It is built around a distributed agent that ships network events to a central backend, where they are stored, analyzed, and visualized.
+It is built around distributed Go agents that ship network events to a central backend, where they are stored, analyzed, and visualized.
 
-At this stage, the project provides an end‑to‑end pipeline:
+At this stage, the project provides an end-to-end pipeline:
 
-- A Go agent that generates and ships network-like events
+- Multiple Go agents that capture and ship network telemetry (proc/authlog + PCAP-based collectors)
 - A FastAPI backend that ingests and persists events
 - A PostgreSQL database that stores raw events
-- A Grafana instance ready to be wired to PostgreSQL for dashboards
+- A rules worker that evaluates YAML detections and generates alerts
+- A Grafana instance ready to query PostgreSQL for dashboards
 
-The long‑term goal is to evolve this into a real threat hunting environment with traffic capture, correlation rules, and anomaly detection.
+The long-term goal is to evolve this into a real threat hunting environment with stronger capture coverage, correlation rules, and anomaly detection.
 
 ---
 
-## High‑Level Architecture
+## High-Level Architecture
 
-Dynasmon NetWatch is composed of four main services, orchestrated with Docker Compose:
+Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Compose:
 
-- **netwatch-agent (Go)**
+- **netwatch-agent-*** (Go)
   - Runs close to the network (host or segment).
-  - Generates or captures network events (MVP: synthetic events).
+  - Supports multiple telemetry sources (selected via `NETWATCH_SOURCES`), including:
+    - `proc` (flows from `/proc/net/tcp*`)
+    - `authlog` (SSH/auth log parsing)
+    - `scan` (PCAP-based scan detection)
+    - `lateral` (PCAP + proc-assisted lateral movement telemetry)
+    - `ddos` (PCAP-based DoS/DDoS heuristics)
   - Sends batched events to the backend over HTTP.
 
-- **netwatch-backend (FastAPI)**
+- **netwatch-backend** (FastAPI)
   - Exposes an HTTP API for agents to send events (`/ingest/events`).
   - Validates and normalizes event payloads.
   - Persists events into PostgreSQL.
-  - Future: pushes events into Redis Streams and runs background workers for correlation and alerting.
+
+- **netwatch-rules-worker**
+  - Periodically loads rule definitions from `./rules/`.
+  - Evaluates detections over recent events and writes findings to the `alerts` table.
 
 - **PostgreSQL**
   - Stores raw network events in the `net_events` table.
-  - Acts as the source of truth for dashboards and ad‑hoc queries.
+  - Stores detections in the `alerts` table.
+  - Acts as the source of truth for dashboards and ad-hoc queries.
+
+- **Redis**
+  - Included in the stack to support event pipelines and asynchronous processing.
+  - Current rules execution is DB-driven; Redis is reserved for expanding the pipeline (streams/workers) as the project grows.
 
 - **Grafana**
   - Connects to the PostgreSQL database.
   - Provides dashboards and visualizations for threat hunting and monitoring.
+  - Dashboards can be provisioned via `infra/grafana/provisioning`.
 
 ---
 
@@ -47,32 +62,33 @@ Dynasmon NetWatch is composed of four main services, orchestrated with Docker Co
 - **Current dependencies:**
   - `net/http` for communicating with the backend
   - `encoding/json` for serializing batches of events
-  - `github.com/google/uuid` for flow identifiers
+  - `github.com/google/uuid` for identifiers
+  - `github.com/google/gopacket` for PCAP-based capture and decoding
 - **Planned enhancements:**
-  - `gopacket` or libpcap for passive traffic capture
-  - Optional eBPF‑based probes for low‑overhead monitoring
+  - Optional eBPF-based probes for low-overhead telemetry
+  - Deeper protocol parsing and enrichment (DNS/HTTP metadata, TLS fingerprints, etc.)
 
-Go was chosen for the agent because it allows building static, single‑binary executables with good performance and low memory usage, ideal for distributed agents.
+Go was chosen for the agent because it allows building static, single-binary executables with good performance and low memory usage, ideal for distributed agents.
 
 ### Backend
 
 - **Language:** Python
 - **Framework:** FastAPI
-  - Modern, async‑friendly web framework
-  - First‑class support for Pydantic models and automatic OpenAPI documentation
+  - Modern, async-friendly web framework
+  - First-class support for Pydantic models and automatic OpenAPI documentation
 - **Server:** Uvicorn
   - ASGI server used to run FastAPI in production mode
 - **Data modeling:**
   - **Pydantic** for request validation and serialization
   - **SQLAlchemy** for ORM and database access
-- **Planned integrations:**
-  - **Redis** (as a queue via Streams) for event pipelines, correlation engines, and rule execution
-  - Background workers consuming from Redis and generating alerts or derived metrics
+- **Detection pipeline:**
+  - YAML rules in `./rules/` evaluated by a worker process
+  - Alerts stored in PostgreSQL and exposed via API endpoints
 
 ### Storage and Visualization
 
 - **PostgreSQL**
-  - Relational database used to store normalized network events
+  - Relational database used to store normalized network events and alerts
   - Easy to query for both analytics and threat hunting patterns
 
 - **Grafana**
@@ -81,12 +97,13 @@ Go was chosen for the agent because it allows building static, single‑binary e
     - Events per time window
     - Top source and destination IPs
     - Distribution of ports, protocols, and agents
+    - Recent alerts and detections
 
 ### Orchestration
 
 - **Docker** and **Docker Compose**
-  - Each service (agent, backend, PostgreSQL, Redis, Grafana) runs in its own container.
-  - A single `docker-compose.yml` file defines the entire environment, making it reproducible and easy to run.
+  - Each service (agents, backend, PostgreSQL, Redis, Grafana, rules worker) runs in its own container.
+  - A single `docker-compose.yml` file defines the entire environment.
 
 ---
 
@@ -105,8 +122,6 @@ git clone https://gitlab.com/nathanmblima/dynasmon-netwatch.git
 cd dynasmon-netwatch
 ```
 
-Replace `nathanmblima` with your actual GitLab username or group name.
-
 ### 2. Build the Docker Images
 
 ```bash
@@ -115,8 +130,8 @@ docker compose build
 
 This builds:
 
-- `netwatch-agent`
-- `netwatch-backend`
+- `netwatch-agent` (used by all `netwatch-agent-*` services)
+- `netwatch-backend` (also used by `netwatch-rules-worker`)
 
 The PostgreSQL, Redis, and Grafana images are pulled automatically from their official registries.
 
@@ -126,13 +141,17 @@ The PostgreSQL, Redis, and Grafana images are pulled automatically from their of
 docker compose up -d
 ```
 
-This will start:
+This will start (by default):
 
-- `netwatch-agent`
 - `netwatch-backend`
+- `netwatch-rules-worker`
 - `netwatch-postgres`
 - `netwatch-redis`
 - `netwatch-grafana`
+- `netwatch-agent-proc`
+- `netwatch-agent-scan`
+- `netwatch-agent-lateral`
+- `netwatch-agent-ddos`
 
 You can check that everything is up with:
 
@@ -140,7 +159,13 @@ You can check that everything is up with:
 docker ps
 ```
 
-### 4. Verify the Backend
+### 4. Packet Capture Requirements (PCAP Agents)
+
+The `scan`, `lateral`, and `ddos` agents use packet capture and require elevated capabilities. In Docker Compose, those services run with `network_mode: host` and `cap_add: NET_RAW, NET_ADMIN`.
+
+If you do not want to run PCAP-based collectors, you can disable them by stopping those containers or removing them from your Compose profile.
+
+### 5. Verify the Backend
 
 From your host, verify that the backend health endpoint is reachable:
 
@@ -163,13 +188,11 @@ docker logs netwatch-backend -f
 You should see logs similar to:
 
 ```text
-[INGEST] Recebidos 1 eventos
-[INGEST] Primeiro evento: {...}
+[INGEST] Received 1 events
+[INGEST] First event (in memory): {...}
 ```
 
-This confirms that the agent is successfully sending events to the backend.
-
-### 5. Verify Events in PostgreSQL
+### 6. Verify Events in PostgreSQL
 
 Enter the PostgreSQL container:
 
@@ -192,7 +215,29 @@ ORDER BY id DESC
 LIMIT 10;
 ```
 
-You should see rows corresponding to the synthetic events sent by the agent.
+---
+
+## DoS/DDoS (Reducing False Positives)
+
+The `netwatch-agent-ddos` collector supports hard thresholds to avoid emitting low-signal detections.
+
+Key environment variables:
+
+- `NETWATCH_DDOS_MIN_PACKETS`  
+  Minimum packet count in the evaluation window required to emit a detection.
+
+- `NETWATCH_DDOS_MIN_REQUESTS`  
+  Minimum L7 “request-like” count (e.g., HTTP indicators / TLS handshakes) in the evaluation window required to emit L7 detections.
+
+- `NETWATCH_DDOS_MIN_CONFIDENCE`  
+  Minimum confidence score required to emit a `dos_attack` event.
+
+Additionally, the stack supports noise control that helps reduce “return traffic” false positives in lab environments:
+
+- `NETWATCH_PROC_DROP_LIKELY_OUTBOUND=true`
+- `NETWATCH_EPHEMERAL_PORT_MIN=49152`
+
+These settings help drop traffic likely related to outbound connections where the local host is using ephemeral destination ports.
 
 ---
 
@@ -220,7 +265,7 @@ After the stack is running, Grafana is available at:
 
 5. Click **Save & test**.
 
-If the connection is successful, Grafana can now query the `net_events` table.
+If the connection is successful, Grafana can now query the `net_events` and `alerts` tables.
 
 ### First Example Panel
 
@@ -235,8 +280,6 @@ FROM net_events
 ORDER BY timestamp DESC
 LIMIT 500;
 ```
-
-This allows you to quickly validate that events are flowing and explore patterns per agent and event type.
 
 ---
 
@@ -283,37 +326,29 @@ NETWATCH_AGENT_ID=dev-agent NETWATCH_API_URL=http://localhost:8000 go run ./cmd/
 
 Dynasmon NetWatch is designed to be extended. Planned enhancements include:
 
-1. **Real Network Capture**
-   - Use libpcap or gopacket in the agent to capture real traffic.
-   - Reconstruct TCP sessions and higher‑level protocols (HTTP, DNS, SSH metadata).
+1. **Expanded Network Capture Coverage**
+   - Extend parsing and enrichment beyond the current telemetry (e.g., DNS metadata, HTTP method/host, TLS fingerprinting).
+   - Improve attribution and directionality (client/server inference, service identification).
 
 2. **Device Fingerprinting**
    - Maintain a catalog of observed hosts (MAC/OUI, IPs, open ports, services).
    - Detect new hosts, new services, and unexpected changes in behavior.
 
-3. **Redis‑Based Event Pipeline**
-   - Push events from the backend into Redis Streams.
+3. **Redis-Based Event Pipeline**
+   - Push events from ingestion into Redis Streams.
    - Implement worker processes to:
      - Aggregate events
      - Run correlation rules
-     - Generate alerts
+     - Generate derived metrics
 
-4. **Rule Engine**
-   - A flexible rules layer inspired by Sigma/YARA‑style definitions.
-   - Conditions such as:
-     - Spike in connections from a single host
-     - Repeated SSH attempts to many targets
-     - Suspicious combinations of ports and protocols
+4. **Rules and Correlation Expansion**
+   - Broaden the rule catalog (scan families, brute force patterns, DDoS vectors).
+   - Add incident-level correlation across multiple detection families.
 
-5. **Alerting and Integrations**
-   - Store alerts in a separate table.
-   - Expose alert APIs to be consumed by other systems.
-   - Optional webhooks, email, or chat notifications.
-
-6. **Advanced Dashboards**
+5. **Advanced Dashboards**
    - Top talkers and top targets
    - Heatmaps of ports and protocols
-   - Time series of specific event types (flows, DNS, HTTP, alerts)
+   - Time series of specific event types (flows, scans, ddos, alerts)
 
 ---
 
@@ -321,8 +356,9 @@ Dynasmon NetWatch is designed to be extended. Planned enhancements include:
 
 Even in a lab environment, NetWatch touches sensitive areas:
 
-- Packet capture and eBPF hooks can expose network metadata.
+- Packet capture and low-level hooks can expose network metadata.
 - Logs and events may contain IPs, hostnames, and user identifiers.
+- PCAP-based agents may require elevated privileges (NET_RAW/NET_ADMIN and/or root).
 
 Use this project responsibly:
 
@@ -330,4 +366,4 @@ Use this project responsibly:
 - Do not deploy in environments where you do not have explicit authorization.
 - Treat collected data as sensitive and protect access to the database and dashboards accordingly.
 
-Dynasmon NetWatch is intended as an educational and research‑oriented platform for learning about network monitoring, threat hunting, and security engineering.
+Dynasmon NetWatch is intended as an educational and research-oriented platform for learning about network monitoring, threat hunting, and security engineering.
