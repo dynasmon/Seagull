@@ -193,7 +193,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/^value$/",
           "values": false
         },
         "showPercentChange": false,
@@ -252,7 +252,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/^last_event_ts$/",
           "values": false
         },
         "showPercentChange": false,
@@ -804,7 +804,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/^port$/",
           "values": false
         },
         "showUnfilled": false,
@@ -919,9 +919,28 @@
       "pluginVersion": "12.3.0",
       "targets": [
         {
+          "editorMode": "code",
           "format": "time_series",
+          "rawQuery": true,
           "rawSql": "SELECT $__timeGroupAlias(created_at, '1m'), severity AS metric, COUNT(*)::bigint AS value FROM alerts WHERE $__timeFilter(created_at) AND ('${severity}' = '%' OR severity = '${severity}') GROUP BY 1, 2 ORDER BY 1;",
-          "refId": "A"
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
         }
       ],
       "title": "Alerts per minute by severity",
@@ -2054,5 +2073,5 @@
   "timezone": "utc",
   "title": "Dynasmon NetWatch - Overview (v2)",
   "uid": "netwatch-overview-v2",
-  "version": 15
+  "version": 22
 }
