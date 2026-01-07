@@ -10,7 +10,8 @@ rules:
     match:
       event_type: "dos_attack"
       extra_attack: "ddos"
-      extra_confidence_gte: 85
+      # UDP floods often cap around ~80 unless entropy/amplification signals are strong.
+      extra_confidence_gte: 80
     group_by: ["dst_ip", "dst_port", "proto"]
     condition:
       field: "count"
@@ -28,7 +29,7 @@ rules:
     match:
       event_type: "dos_attack"
       extra_attack: "dos"
-      extra_confidence_gte: 85
+      extra_confidence_gte: 75
     group_by: ["dst_ip", "dst_port", "proto"]
     condition:
       field: "count"

@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.api.agents import router as agents_router
 from app.api.ingest import router as ingest_router
 from app.api.events import router as events_router
 from app.api.alerts import router as alerts_router
@@ -14,6 +15,11 @@ app = FastAPI(
 
 @app.on_event("startup")
 def on_startup():
+    # Ensure all models are registered on Base.metadata before create_all.
+    from app.models import agents as _agents  # noqa: F401
+    from app.models import alerts as _alerts  # noqa: F401
+    from app.models import events as _events  # noqa: F401
+
     # Create tables if they do not exist
     Base.metadata.create_all(bind=engine)
 
@@ -27,3 +33,4 @@ async def health():
 app.include_router(ingest_router)
 app.include_router(events_router)
 app.include_router(alerts_router)
+app.include_router(agents_router)

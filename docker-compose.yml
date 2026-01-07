@@ -1,228 +1,44 @@
+x-agent-env: &agent-env
+  NETWATCH_API_URL: http://127.0.0.1:${NETWATCH_BACKEND_PORT}
+  NETWATCH_HTTP_TIMEOUT: ${NETWATCH_HTTP_TIMEOUT}
+  NETWATCH_CONTROL_HEARTBEAT_EVERY: ${NETWATCH_CONTROL_HEARTBEAT_EVERY}
+  NETWATCH_CONTROL_CONFIG_EVERY: ${NETWATCH_CONTROL_CONFIG_EVERY}
+  NETWATCH_PCAP_IFACE: ${NETWATCH_PCAP_IFACE}
+  NETWATCH_SKIP_LOOPBACK: ${NETWATCH_SKIP_LOOPBACK}
+  NETWATCH_SKIP_LINK_LOCAL: ${NETWATCH_SKIP_LINK_LOCAL}
+  NETWATCH_DENY_CIDRS: ${NETWATCH_DENY_CIDRS}
+  NETWATCH_DENY_DST_PORTS: ${NETWATCH_DENY_DST_PORTS}
+
+x-agent-base: &agent-base
+  build:
+    context: ./agent
+    dockerfile: Dockerfile
+  network_mode: host
+  user: "0:0"
+  cap_add:
+    - NET_RAW
+    - NET_ADMIN
+  restart: unless-stopped
+
 services:
-  netwatch-backend:
-    build: ./backend
-    container_name: netwatch-backend
-    depends_on:
-      - postgres
-      - redis
-    ports:
-      - "8000:8000"
+  postgres:
+    image: postgres:16-alpine
+    container_name: netwatch-postgres
     environment:
-      - NETWATCH_DB_URL=postgresql+psycopg2://netwatch:netwatch123@postgres:5432/netwatch
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
-      - netwatch_internal
-    volumes:
-      - ./rules:/app/rules:ro
-    restart: unless-stopped
-
-  netwatch-agent-scan:
-    build:
-      context: ./agent
-      dockerfile: Dockerfile
-    container_name: netwatch-agent-scan
-    network_mode: host
-
-    # Packet capture requires privileges.
-    user: "0:0"
-    cap_add:
-      - NET_RAW
-      - NET_ADMIN
-
-    environment:
-      - NETWATCH_AGENT_ID=agent-scan-1
-      - NETWATCH_API_URL=http://127.0.0.1:8000
-      - NETWATCH_SOURCES=scan
-      - NETWATCH_POLL_INTERVAL=${NETWATCH_SCAN_POLL_INTERVAL:-1s}
-
-      # PCAP identifies scan probes.
-      - NETWATCH_PCAP_IFACE=${NETWATCH_PCAP_IFACE:-any}
-      - NETWATCH_SCAN_DEDUP_TTL=${NETWATCH_SCAN_DEDUP_TTL:-1s}
-      - NETWATCH_SCAN_MAX_BATCH=${NETWATCH_SCAN_MAX_BATCH:-2000}
-
-      # Summary mode reduces ingestion overhead during floods.
-      - NETWATCH_SCAN_MODE=${NETWATCH_SCAN_MODE:-both}
-
-      - NETWATCH_LOG_LEVEL=${NETWATCH_SCAN_LOG_LEVEL:-debug}
-      - NETWATCH_LOG_SUMMARY_EVERY=${NETWATCH_SCAN_LOG_SUMMARY_EVERY:-60s}
-      - NETWATCH_LOG_HEARTBEAT_EVERY=${NETWATCH_SCAN_LOG_HEARTBEAT_EVERY:-5m}
-      - NETWATCH_LOG_MIN_EVENTS=${NETWATCH_SCAN_LOG_MIN_EVENTS:-200}
-
-      # Noise control matches the proc agent.
-      - NETWATCH_SKIP_LOOPBACK=true
-      - NETWATCH_SKIP_LINK_LOCAL=true
-      - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
-      - NETWATCH_DENY_DST_PORTS=8000,3000,5432,6379
-
-    depends_on:
-      - netwatch-backend
-    restart: unless-stopped
-
-  netwatch-agent-ddos:
-    build:
-      context: ./agent
-      dockerfile: Dockerfile
-    container_name: netwatch-agent-ddos
-    network_mode: host
-
-    # DoS/DDoS detection via PCAP requires privileges.
-    user: "0:0"
-    cap_add:
-      - NET_RAW
-      - NET_ADMIN
-
-    environment:
-      - NETWATCH_AGENT_ID=agent-ddos-1
-      - NETWATCH_API_URL=http://127.0.0.1:8000
-      - NETWATCH_SOURCES=ddos
-      - NETWATCH_POLL_INTERVAL=${NETWATCH_DDOS_POLL_INTERVAL:-1s}
-
-      # PCAP derives pps/bps metrics and L7 heuristics.
-      - NETWATCH_DDOS_PCAP_IFACE=${NETWATCH_DDOS_PCAP_IFACE:-${NETWATCH_PCAP_IFACE:-any}}
-
-      # Lab tuning increases signal emission under short attacks.
-      - NETWATCH_DDOS_WINDOW=${NETWATCH_DDOS_WINDOW:-1s}
-      - NETWATCH_DDOS_EVAL_EVERY=${NETWATCH_DDOS_EVAL_EVERY:-1s}
-      - NETWATCH_DDOS_COOLDOWN=${NETWATCH_DDOS_COOLDOWN:-3s}
-      - NETWATCH_DDOS_SUSTAIN_WINDOWS=${NETWATCH_DDOS_SUSTAIN_WINDOWS:-1}
-      - NETWATCH_DDOS_BASELINE_WARMUP_WINDOWS=${NETWATCH_DDOS_BASELINE_WARMUP_WINDOWS:-5}
-      - NETWATCH_DDOS_BASELINE_ALPHA=${NETWATCH_DDOS_BASELINE_ALPHA:-0.08}
-      - NETWATCH_DDOS_BASELINE_FACTOR=${NETWATCH_DDOS_BASELINE_FACTOR:-2.0}
-
-      - NETWATCH_DDOS_MIN_PPS=${NETWATCH_DDOS_MIN_PPS:-200}
-      - NETWATCH_DDOS_MIN_BPS=${NETWATCH_DDOS_MIN_BPS:-20000}
-      - NETWATCH_DDOS_MIN_PACKETS=${NETWATCH_DDOS_MIN_PACKETS:-800}
-      - NETWATCH_DDOS_MIN_REQUESTS=${NETWATCH_DDOS_MIN_REQUESTS:-80}
-      - NETWATCH_DDOS_MIN_CONFIDENCE=${NETWATCH_DDOS_MIN_CONFIDENCE:-70}
-      - NETWATCH_DDOS_MIN_SYN_RATIO=${NETWATCH_DDOS_MIN_SYN_RATIO:-0.10}
-
-      - NETWATCH_DDOS_ENABLE_L7=${NETWATCH_DDOS_ENABLE_L7:-true}
-      - NETWATCH_DDOS_MIN_HTTP_RPS=${NETWATCH_DDOS_MIN_HTTP_RPS:-20}
-      - NETWATCH_DDOS_MIN_TLS_HS_RPS=${NETWATCH_DDOS_MIN_TLS_HS_RPS:-20}
-      - NETWATCH_DDOS_MIN_L7_RATIO=${NETWATCH_DDOS_MIN_L7_RATIO:-0.05}
-
-      - NETWATCH_DDOS_ENABLE_ENTROPY=${NETWATCH_DDOS_ENABLE_ENTROPY:-true}
-      - NETWATCH_DDOS_MIN_SRC_ENTROPY_NORM=${NETWATCH_DDOS_MIN_SRC_ENTROPY_NORM:-0.10}
-
-      # Noise control avoids internal stack traffic.
-      - NETWATCH_SKIP_LOOPBACK=true
-      - NETWATCH_SKIP_LINK_LOCAL=true
-      - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
-      - NETWATCH_DENY_DST_PORTS=8000,3000,5432,6379
-
-      - NETWATCH_LOG_LEVEL=${NETWATCH_DDOS_LOG_LEVEL:-debug}
-      - NETWATCH_LOG_SUMMARY_EVERY=${NETWATCH_DDOS_LOG_SUMMARY_EVERY:-60s}
-      - NETWATCH_LOG_HEARTBEAT_EVERY=${NETWATCH_DDOS_LOG_HEARTBEAT_EVERY:-5m}
-      - NETWATCH_LOG_MIN_EVENTS=${NETWATCH_DDOS_LOG_MIN_EVENTS:-1}
-
-    depends_on:
-      - netwatch-backend
-    restart: unless-stopped
-
-  netwatch-agent-lateral:
-    build:
-      context: ./agent
-      dockerfile: Dockerfile
-    container_name: netwatch-agent-lateral
-    network_mode: host
-    user: "0:0"
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-
-    environment:
-      - NETWATCH_AGENT_ID=agent-lateral-1
-      - NETWATCH_API_URL=http://127.0.0.1:8000
-      - NETWATCH_SOURCES=lateral
-      - NETWATCH_POLL_INTERVAL=750ms
-
-      - NETWATCH_LATERAL_PCAP_IFACE=${NETWATCH_PCAP_IFACE:-any}
-
-      - NETWATCH_PROC_TCP4_PATH=/proc/net/tcp
-      - NETWATCH_PROC_TCP6_PATH=/proc/net/tcp6
-
-      - NETWATCH_LATERAL_PORTS=22,445,3389,5985,5986,135,139
-      - NETWATCH_LATERAL_INCLUDE_ESTABLISHED=true
-      - NETWATCH_LATERAL_DEDUP_TTL=5s
-      - NETWATCH_LATERAL_MAX_BATCH=500
-
-      - NETWATCH_SKIP_LOOPBACK=true
-      - NETWATCH_SKIP_LINK_LOCAL=true
-      - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
-
-      - NETWATCH_PROC_DROP_LIKELY_OUTBOUND=true
-      - NETWATCH_EPHEMERAL_PORT_MIN=49152
-
-      - NETWATCH_LOG_LEVEL=debug
-      - NETWATCH_LOG_MIN_EVENTS=1
-      - NETWATCH_LOG_SUMMARY_EVERY=15s
-
-    depends_on:
-      - netwatch-backend
-    restart: unless-stopped
-
-  netwatch-agent-proc:
-    build:
-      context: ./agent
-      dockerfile: Dockerfile
-    container_name: netwatch-agent-proc
-    network_mode: host
-
-    # Access to /var/log/auth.log requires root on most distros.
-    user: "0:0"
-
-    environment:
-      - NETWATCH_AGENT_ID=agent-proc-1
-      - NETWATCH_API_URL=http://127.0.0.1:8000
-
-      - NETWATCH_SOURCES=proc,authlog
-      - NETWATCH_AGENT_MODE=proc
-
-      - NETWATCH_PROC_TCP4_PATH=/proc/net/tcp
-      - NETWATCH_PROC_TCP6_PATH=/proc/net/tcp6
-
-      - NETWATCH_AUTHLOG_PATH=/var/log/auth.log
-
-      - NETWATCH_POLL_INTERVAL=500ms
-      - NETWATCH_LOG_LEVEL=debug
-      - NETWATCH_LOG_MIN_EVENTS=1
-      - NETWATCH_LOG_SUMMARY_EVERY=10s
-
-      # Noise reduction filters internal Docker/stack chatter.
-      - NETWATCH_ESTABLISHED_TTL=30m
-      - NETWATCH_DEDUP_TTL=30s
-      - NETWATCH_SKIP_LOOPBACK=true
-      - NETWATCH_SKIP_LINK_LOCAL=true
-      - NETWATCH_SKIP_PRIVATE_TO_PRIVATE=false
-      - NETWATCH_DENY_CIDRS=172.24.0.0/16,172.17.0.0/16,172.18.0.0/16
-      - NETWATCH_DENY_DST_PORTS=3000,8000,5432,6379
-
-      - NETWATCH_PROC_DROP_LIKELY_OUTBOUND=true
-      - NETWATCH_EPHEMERAL_PORT_MIN=49152
-
-    volumes:
-      - /var/log/auth.log:/var/log/auth.log:ro
-
-    depends_on:
-      - netwatch-backend
-    restart: unless-stopped
-
-  netwatch-rules-worker:
-    build: ./backend
-    container_name: netwatch-rules-worker
-    depends_on:
-      - postgres
-    environment:
-      - NETWATCH_DB_URL=postgresql+psycopg2://netwatch:netwatch123@postgres:5432/netwatch
-    networks:
-      - netwatch_internal
-    volumes:
-      - ./rules:/app/rules:ro
-    command: >
-      sh -c "while true; do
-               echo '[RULES] Running detection cycle...';
-               python -m app.workers;
-               sleep 5;
-             done"
+      - netwatch
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
     restart: unless-stopped
 
   redis:
@@ -232,43 +48,128 @@ services:
     volumes:
       - redis-data:/data
     networks:
-      - netwatch_internal
+      - netwatch
     restart: unless-stopped
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: netwatch-postgres
+  netwatch-backend:
+    build: ./backend
+    container_name: netwatch-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "${NETWATCH_BACKEND_PORT}:8000"
     environment:
-      - POSTGRES_DB=netwatch
-      - POSTGRES_USER=netwatch
-      - POSTGRES_PASSWORD=netwatch123
+      NETWATCH_DB_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS: ${NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./rules:/app/rules:ro
     networks:
-      - netwatch_internal
+      - netwatch
+    restart: unless-stopped
+
+  netwatch-rules-worker:
+    build: ./backend
+    container_name: netwatch-rules-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NETWATCH_DB_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      NETWATCH_RULES_EVERY_SECONDS: ${NETWATCH_RULES_EVERY_SECONDS}
+    volumes:
+      - ./rules:/app/rules:ro
+    command: ["python", "-m", "app.workers.runner"]
+    networks:
+      - netwatch
     restart: unless-stopped
 
   grafana:
     image: grafana/grafana-oss:latest
     container_name: netwatch-grafana
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT}:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-    networks:
-      - netwatch_internal
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
     volumes:
-      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - netwatch
     restart: unless-stopped
 
+  netwatch-agent-proc:
+    <<: *agent-base
+    container_name: netwatch-agent-proc-1
+    depends_on:
+      - netwatch-backend
+    environment:
+      <<: *agent-env
+      NETWATCH_AGENT_ID: ${AGENT_PROC_ID}
+      NETWATCH_SOURCES: proc,authlog
+      NETWATCH_AUTHLOG_PATH: /var/log/auth.log
+    volumes:
+      - /var/log/auth.log:/var/log/auth.log:ro
+      - agent-proc-state:/var/lib/netwatch
+
+  netwatch-agent-scan:
+    <<: *agent-base
+    container_name: netwatch-agent-scan-1
+    depends_on:
+      - netwatch-backend
+    environment:
+      <<: *agent-env
+      NETWATCH_AGENT_ID: ${AGENT_SCAN_ID}
+      NETWATCH_SOURCES: scan
+    volumes:
+      - agent-scan-state:/var/lib/netwatch
+
+  netwatch-agent-ddos:
+    <<: *agent-base
+    container_name: netwatch-agent-ddos
+    depends_on:
+      - netwatch-backend
+    environment:
+      <<: *agent-env
+      NETWATCH_AGENT_ID: ${AGENT_DDOS_ID}
+      NETWATCH_SOURCES: ddos
+      NETWATCH_DDOS_SUSTAIN_WINDOWS: ${NETWATCH_DDOS_SUSTAIN_WINDOWS}
+      NETWATCH_DDOS_COOLDOWN: ${NETWATCH_DDOS_COOLDOWN}
+    volumes:
+      - agent-ddos-state:/var/lib/netwatch
+
+  netwatch-agent-lateral:
+    <<: *agent-base
+    container_name: netwatch-agent-lateral
+    depends_on:
+      - netwatch-backend
+    profiles: ["extra"]
+    environment:
+      <<: *agent-env
+      NETWATCH_AGENT_ID: ${AGENT_LATERAL_ID}
+      NETWATCH_SOURCES: lateral
+      NETWATCH_LATERAL_MODE: ${NETWATCH_LATERAL_MODE}
+      NETWATCH_LATERAL_PCAP_IFACE: ${NETWATCH_LATERAL_PCAP_IFACE}
+      NETWATCH_LATERAL_PORTS: ${NETWATCH_LATERAL_PORTS}
+      NETWATCH_LATERAL_INCLUDE_ESTABLISHED: ${NETWATCH_LATERAL_INCLUDE_ESTABLISHED}
+      NETWATCH_LATERAL_DEDUP_TTL: ${NETWATCH_LATERAL_DEDUP_TTL}
+      NETWATCH_LATERAL_MAX_BATCH: ${NETWATCH_LATERAL_MAX_BATCH}
+    volumes:
+      - agent-lateral-state:/var/lib/netwatch
+
 networks:
-  netwatch_internal:
+  netwatch:
     driver: bridge
 
 volumes:
-  redis-data:
   postgres-data:
+  redis-data:
+  agent-proc-state:
+  agent-scan-state:
+  agent-ddos-state:
+  agent-lateral-state:
