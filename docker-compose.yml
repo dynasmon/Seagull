@@ -129,20 +129,6 @@ services:
     volumes:
       - agent-scan-state:/var/lib/netwatch
 
-  netwatch-agent-ddos:
-    <<: *agent-base
-    container_name: netwatch-agent-ddos
-    depends_on:
-      - netwatch-backend
-    environment:
-      <<: *agent-env
-      NETWATCH_AGENT_ID: ${AGENT_DDOS_ID}
-      NETWATCH_SOURCES: ddos
-      NETWATCH_DDOS_SUSTAIN_WINDOWS: ${NETWATCH_DDOS_SUSTAIN_WINDOWS}
-      NETWATCH_DDOS_COOLDOWN: ${NETWATCH_DDOS_COOLDOWN}
-    volumes:
-      - agent-ddos-state:/var/lib/netwatch
-
   netwatch-agent-lateral:
     <<: *agent-base
     container_name: netwatch-agent-lateral
@@ -161,6 +147,20 @@ services:
       NETWATCH_LATERAL_MAX_BATCH: ${NETWATCH_LATERAL_MAX_BATCH}
     volumes:
       - agent-lateral-state:/var/lib/netwatch
+
+  netwatch-agent-ddos:
+    <<: *agent-base
+    container_name: netwatch-agent-ddos
+    depends_on:
+      - netwatch-backend
+    environment:
+      <<: *agent-env
+      NETWATCH_AGENT_ID: ${AGENT_DDOS_ID}
+      NETWATCH_SOURCES: ddos
+      NETWATCH_DDOS_SUSTAIN_WINDOWS: ${NETWATCH_DDOS_SUSTAIN_WINDOWS}
+      NETWATCH_DDOS_COOLDOWN: ${NETWATCH_DDOS_COOLDOWN}
+    volumes:
+      - agent-ddos-state:/var/lib/netwatch
 
 networks:
   netwatch:
