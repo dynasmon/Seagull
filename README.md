@@ -1,11 +1,18 @@
 # Dynasmon NetWatch
 
-Dynasmon NetWatch is a network threat hunting platform designed as a lightweight, opinionated mini-SIEM focused on network telemetry.  
-It is built around distributed Go agents that ship network events to a central backend, where they are stored, analyzed, and visualized.
+Dynasmon NetWatch is a threat hunting platform designed as a lightweight, opinionated mini-SIEM. It started as a network telemetry pipeline and is evolving toward an “XDR-foundation” architecture inspired by Wazuh-style endpoint management.
+
+In addition to network-like events, the stack now includes a Sprint 1 “endpoint control plane”:
+
+- Agent enroll + heartbeat + config distribution
+- Schema v1 (event_type + schema_version + agent metadata)
+- Syscollector v0.1 (OS + packages inventory snapshots)
+- Log collector v0.1 (auth.log / sshd parsing)
+- Basic dashboards: Agents Online, SSH failures, Inventory changes
 
 At this stage, the project provides an end-to-end pipeline:
 
-- Multiple Go agents that capture and ship network telemetry (proc/authlog + PCAP-based collectors)
+- Multiple Go agents that capture and ship telemetry (proc/authlog + PCAP-based collectors + endpoint syscollector)
 - A FastAPI backend that ingests and persists events
 - A PostgreSQL database that stores raw events
 - A rules worker that evaluates YAML detections and generates alerts
@@ -27,12 +34,14 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
     - `scan` (PCAP-based scan detection)
     - `lateral` (PCAP + proc-assisted lateral movement telemetry)
     - `ddos` (PCAP-based DoS/DDoS heuristics)
+    - `syscollector` (OS + package inventory snapshots)
   - Sends batched events to the backend over HTTP.
 
 - **netwatch-backend** (FastAPI)
-  - Exposes an HTTP API for agents to send events (`/ingest/events`).
-  - Validates and normalizes event payloads.
-  - Persists events into PostgreSQL.
+  - Ingestion API: `/ingest/events`
+  - Control plane APIs: `/agents/enroll`, `/agents/heartbeat`, `/agents/config` (agent-facing)
+  - Inventory API: `/inventory` (agent inventory snapshots)
+  - Validates and normalizes payloads; persists to PostgreSQL.
 
 - **netwatch-rules-worker**
   - Periodically loads rule definitions from `./rules/`.
@@ -148,6 +157,7 @@ This will start (by default):
 - `netwatch-postgres`
 - `netwatch-redis`
 - `netwatch-grafana`
+- `netwatch-agent-endpoint`
 - `netwatch-agent-proc`
 - `netwatch-agent-scan`
 - `netwatch-agent-lateral`

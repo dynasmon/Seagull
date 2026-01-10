@@ -10,6 +10,7 @@ class NetEvent(BaseModel):
         ...,
         description="Event type (flow, conn, dns, http, alert, etc.)",
     )
+    schema_version: int = Field(1, ge=1, le=16, description="Schema version")
     timestamp: datetime
 
     src_ip: Optional[str] = None

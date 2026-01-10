@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Integer, String, BigInteger, JSON, func
+from sqlalchemy import Column, DateTime, Integer, String, JSON, func, SmallInteger
 from app.core.db import Base
 
 
@@ -8,6 +8,7 @@ class NetEventModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     agent_id = Column(String(64), index=True, nullable=False)
     event_type = Column(String(32), index=True, nullable=False)
+    schema_version = Column(SmallInteger, nullable=False, default=1)
     timestamp = Column(DateTime(timezone=True), index=True, nullable=False, server_default=func.now())
 
     src_ip = Column(String(45), index=True, nullable=True)
@@ -17,4 +18,4 @@ class NetEventModel(Base):
     proto = Column(String(16), nullable=True)
     bytes = Column(Integer, nullable=True)
 
-    extra = Column(JSON, nullable=False, default={})
+    extra = Column(JSON, nullable=False, default=dict)

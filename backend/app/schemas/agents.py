@@ -26,6 +26,10 @@ class AgentHeartbeatIn(BaseModel):
     metrics: Optional[Dict[str, Any]] = None
 
 
+class AgentConfigUpdateIn(BaseModel):
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
 class AgentPublic(BaseModel):
     agent_id: str
     created_at: datetime

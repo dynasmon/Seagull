@@ -56,6 +56,7 @@ async def ingest_events(events: List[NetEvent], agent: AgentPrincipal = Depends(
             kwargs = dict(
                 agent_id=e.agent_id,
                 event_type=e.event_type,
+                schema_version=int(getattr(e, "schema_version", 1) or 1),
                 src_ip=e.src_ip,
                 dst_ip=e.dst_ip,
                 src_port=e.src_port,

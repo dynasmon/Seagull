@@ -1,12 +1,21 @@
+import json
 from datetime import datetime
-from typing import List
+from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.agent_auth import AgentPrincipal, generate_agent_token, get_current_agent
+from app.core.admin_auth import require_admin
+from app.core.config import settings
 from app.core.db import SessionLocal
 from app.models.agents import AgentModel
-from app.schemas.agents import AgentEnrollIn, AgentEnrollOut, AgentHeartbeatIn, AgentPublic
+from app.schemas.agents import (
+    AgentEnrollIn,
+    AgentEnrollOut,
+    AgentHeartbeatIn,
+    AgentPublic,
+    AgentConfigUpdateIn,
+)
 
 
 router = APIRouter(
@@ -35,12 +44,17 @@ async def enroll_agent(payload: AgentEnrollIn):
         }
 
         if not agent:
+            # Default config only on first enroll
+            default_cfg = settings.default_agent_config()
+            # Enforce size limit defensively
+            if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.NETWATCH_MAX_AGENT_CONFIG_BYTES:
+                default_cfg = {}
             agent = AgentModel(
                 agent_id=payload.agent_id,
                 key_salt=salt,
                 key_hash=secret_hash,
                 agent_metadata=meta,
-                config={},
+                config=default_cfg,
                 metrics={},
                 created_at=datetime.utcnow(),
                 last_seen_at=datetime.utcnow(),
@@ -59,6 +73,36 @@ async def enroll_agent(payload: AgentEnrollIn):
         db.commit()
 
         return AgentEnrollOut(agent_id=payload.agent_id, agent_token=token, config=agent.config or {})
+    finally:
+        db.close()
+
+
+@router.put("/{agent_id}/config", status_code=status.HTTP_204_NO_CONTENT)
+async def set_agent_config(request: Request, agent_id: str, payload: AgentConfigUpdateIn):
+    """Admin: push a new config blob to an agent."""
+
+    require_admin(request)
+
+    cfg: Dict[str, Any] = dict(payload.config or {})
+    raw = json.dumps(cfg, separators=(",", ":")).encode("utf-8")
+    if len(raw) > settings.NETWATCH_MAX_AGENT_CONFIG_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"config exceeds {settings.NETWATCH_MAX_AGENT_CONFIG_BYTES} bytes",
+        )
+
+    db = SessionLocal()
+    try:
+        row: AgentModel | None = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        if row.is_revoked:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
+
+        row.config = cfg
+        db.add(row)
+        db.commit()
+        return None
     finally:
         db.close()
 
