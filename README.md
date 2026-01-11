@@ -61,6 +61,14 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
   - Provides dashboards and visualizations for threat hunting and monitoring.
   - Dashboards can be provisioned via `infra/grafana/provisioning`.
 
+- **Elasticsearch (optional search index)**
+  - Stores indexed events for fast hunting and flexible aggregations (index pattern `netwatch-events-*`).
+  - Fed asynchronously by `netwatch-es-indexer` (Postgres → Elasticsearch).
+
+- **netwatch-es-indexer**
+  - Polls the `net_events` table and bulk-indexes in batches.
+  - Persists its cursor in the `search_index_offsets` table.
+
 ---
 
 ## Technology Stack
@@ -154,15 +162,18 @@ This will start (by default):
 
 - `netwatch-backend`
 - `netwatch-rules-worker`
+- `netwatch-es-indexer`
 - `netwatch-postgres`
 - `netwatch-redis`
+- `netwatch-elasticsearch`
 - `netwatch-grafana`
-- `netwatch-agent-endpoint`
-- `netwatch-agent-proc`
-- `netwatch-agent-scan`
-- `netwatch-agent-lateral`
+- `netwatch-agent-proc-1`
+- `netwatch-agent-scan-1`
 - `netwatch-agent-ddos`
 
+Optional (profile: extra):
+- `netwatch-kibana`
+- `netwatch-agent-lateral`
 You can check that everything is up with:
 
 ```bash

@@ -6,3 +6,4 @@ psycopg2-binary
 SQLAlchemy
 python-dotenv
 PyYAML==6.0.2
+elasticsearch>=8.12.0,<9

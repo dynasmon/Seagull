@@ -84,6 +84,20 @@ def bootstrap_schema(engine) -> None:
             END IF;
         END $$;
         """,
+
+        # Search indexer offsets (Elasticsearch/OpenSearch forwarders)
+        """
+        CREATE TABLE IF NOT EXISTS search_index_offsets (
+            name TEXT PRIMARY KEY,
+            last_id INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """,
+        """
+        INSERT INTO search_index_offsets (name, last_id)
+        VALUES ('events', 0)
+        ON CONFLICT (name) DO NOTHING;
+        """,
     ]
 
     with engine.begin() as conn:

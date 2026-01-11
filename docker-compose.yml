@@ -57,6 +57,42 @@ services:
       - netwatch
     restart: unless-stopped
 
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: netwatch-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.ml.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elastic-data:/usr/share/elasticsearch/data
+    ports:
+      - "${ELASTICSEARCH_PORT:-9200}:9200"
+    networks:
+      - netwatch
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.4
+    container_name: netwatch-kibana
+    profiles: ["extra"]
+    depends_on:
+      - elasticsearch
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "${KIBANA_PORT:-5601}:5601"
+    networks:
+      - netwatch
+    restart: unless-stopped
+
   netwatch-backend:
     build: ./backend
     container_name: netwatch-backend
@@ -91,6 +127,31 @@ services:
     volumes:
       - ./rules:/app/rules:ro
     command: ["python", "-m", "app.workers.runner"]
+    networks:
+      - netwatch
+    restart: unless-stopped
+
+
+  netwatch-es-indexer:
+    build: ./backend
+    container_name: netwatch-es-indexer
+    depends_on:
+      postgres:
+        condition: service_healthy
+      netwatch-backend:
+        condition: service_started
+      elasticsearch:
+        condition: service_started
+    environment:
+      NETWATCH_DB_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      NETWATCH_ES_URL: ${NETWATCH_ES_URL:-http://elasticsearch:9200}
+      NETWATCH_ES_INDEX_PREFIX: ${NETWATCH_ES_INDEX_PREFIX:-netwatch-events}
+      NETWATCH_ES_BATCH_SIZE: ${NETWATCH_ES_BATCH_SIZE:-500}
+      NETWATCH_ES_EVERY_SECONDS: ${NETWATCH_ES_EVERY_SECONDS:-1}
+      NETWATCH_ES_IDLE_SLEEP_SECONDS: ${NETWATCH_ES_IDLE_SLEEP_SECONDS:-2}
+      NETWATCH_ES_REQUEST_TIMEOUT_SECONDS: ${NETWATCH_ES_REQUEST_TIMEOUT_SECONDS:-30}
+      NETWATCH_ES_BOOTSTRAP: ${NETWATCH_ES_BOOTSTRAP:-true}
+    command: ["python", "-m", "app.workers.es_indexer"]
     networks:
       - netwatch
     restart: unless-stopped
@@ -181,6 +242,7 @@ networks:
 volumes:
   postgres-data:
   redis-data:
+  elastic-data:
   agent-proc-state:
   agent-scan-state:
   agent-ddos-state:
