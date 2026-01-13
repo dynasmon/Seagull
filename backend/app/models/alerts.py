@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, DateTime, JSON
+from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy.dialects.postgresql import JSONB
+
 from app.core.db import Base
 
 
@@ -18,4 +20,4 @@ class AlertModel(Base):
     dst_port = Column(Integer, nullable=True)
 
     description = Column(String(255), nullable=False)
-    details = Column(JSON, nullable=False, default={})
+    details = Column(JSONB, nullable=False, default=dict)

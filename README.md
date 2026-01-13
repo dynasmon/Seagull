@@ -388,3 +388,16 @@ Use this project responsibly:
 - Treat collected data as sensitive and protect access to the database and dashboards accordingly.
 
 Dynasmon NetWatch is intended as an educational and research-oriented platform for learning about network monitoring, threat hunting, and security engineering.
+
+### Performance: Rollups (Grafana/Postgres CPU reduction)
+
+NetWatch includes an optional rollup worker that pre-aggregates net_events into 1-minute buckets.
+This significantly reduces CPU usage caused by Grafana dashboards that run COUNT/GROUP BY queries over large windows.
+
+- Worker: `netwatch-rollup-worker` (Docker Compose)
+- Tables: `event_rollups_1m`, `ssh_fail_rollups_1m`
+- Offsets: `search_index_offsets` (`rollup_events_1m`, `rollup_ssh_fail_1m`)
+
+You can tune it via `.env`:
+- `NETWATCH_ROLLUP_EVERY_SECONDS`, `NETWATCH_ROLLUP_MAX_ROWS`
+

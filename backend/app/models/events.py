@@ -1,4 +1,6 @@
-from sqlalchemy import Column, DateTime, Integer, String, JSON, func, SmallInteger
+from sqlalchemy import Column, DateTime, Integer, String, func, SmallInteger
+from sqlalchemy.dialects.postgresql import JSONB
+
 from app.core.db import Base
 
 
@@ -18,4 +20,5 @@ class NetEventModel(Base):
     proto = Column(String(16), nullable=True)
     bytes = Column(Integer, nullable=True)
 
-    extra = Column(JSON, nullable=False, default=dict)
+    # JSONB enables expression/GIN indexes and faster key extraction in Postgres.
+    extra = Column(JSONB, nullable=False, default=dict)

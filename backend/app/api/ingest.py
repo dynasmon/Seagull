@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.schemas.events import NetEvent
 from app.core.db import SessionLocal
-from app.models.events import NetEventModel  # <-- aqui, "events" (plural)
+from app.models.events import NetEventModel
 from app.core.agent_auth import AgentPrincipal, get_current_agent
 
 
@@ -16,32 +16,33 @@ router = APIRouter(
 )
 
 
-@router.post("/events", status_code=status.HTTP_202_ACCEPTED)
-async def ingest_events(events: List[NetEvent], agent: AgentPrincipal = Depends(get_current_agent)):
-    print(f"[INGEST] Received {len(events)} events")
+@router.post("/events")
+def ingest_events(
+    events: List[NetEvent],
+    agent: AgentPrincipal = Depends(get_current_agent),
+):
+    if not events:
+        return {"received": 0}
 
-    # Prevent spoofing by enforcing the authenticated agent_id.
+    # Enforce that an agent can only send its own events.
     for e in events:
         if e.agent_id != agent.agent_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="agent_id mismatch")
 
-    # NOTE: the agent supplies a timestamp, but detection windows are evaluated
-    # against DB time (rules worker). If the agent clock is skewed, rules may miss
-    # events (e.g., "last 30s" window).
-    # We therefore store server-side time by default, and only trust the client
-    # timestamp when it's close enough.
+    # NOTE: the agent supplies a timestamp, but detection windows are evaluated against DB time.
+    # We store server-side time by default, and only trust the client timestamp when it is
+    # close enough to the server clock.
     max_skew_s = int((os.getenv("NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS") or "30").strip() or "30")
 
     db = SessionLocal()
     try:
+        rows = []
+        now = datetime.now(timezone.utc)
+
         for e in events:
             extra = dict(e.extra or {})
 
-            now = datetime.now(timezone.utc)
             ts = e.timestamp
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-
             use_client_ts = False
             try:
                 skew = abs((now - ts).total_seconds())
@@ -50,10 +51,9 @@ async def ingest_events(events: List[NetEvent], agent: AgentPrincipal = Depends(
                     extra.setdefault("client_timestamp", ts.isoformat())
                     extra.setdefault("clock_skew_seconds", round(skew, 3))
             except Exception:
-                # If anything is off, fall back to server-side timestamp.
                 use_client_ts = False
 
-            kwargs = dict(
+            row = dict(
                 agent_id=e.agent_id,
                 event_type=e.event_type,
                 schema_version=int(getattr(e, "schema_version", 1) or 1),
@@ -65,17 +65,17 @@ async def ingest_events(events: List[NetEvent], agent: AgentPrincipal = Depends(
                 bytes=e.bytes,
                 extra=extra,
             )
+
+            # Only store client ts if it is close to server time; otherwise rely on DB default.
             if use_client_ts:
-                kwargs["timestamp"] = ts
+                row["timestamp"] = ts
 
-            db_event = NetEventModel(**kwargs)
-            db.add(db_event)
+            rows.append(row)
 
+        # Bulk insert to reduce Python/ORM overhead.
+        db.bulk_insert_mappings(NetEventModel, rows, render_nulls=True)
         db.commit()
     finally:
         db.close()
-
-    if events:
-        print("[INGEST] First event (in memory):", events[0].dict())
 
     return {"received": len(events)}

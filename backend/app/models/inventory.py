@@ -1,4 +1,5 @@
-from sqlalchemy import Column, DateTime, Integer, JSON, String, func, SmallInteger
+from sqlalchemy import Column, DateTime, Integer, String, func, SmallInteger
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
 
@@ -12,11 +13,11 @@ class AgentInventorySnapshotModel(Base):
     collected_at = Column(DateTime(timezone=True), index=True, nullable=False, server_default=func.now())
     schema_version = Column(SmallInteger, nullable=False, default=1)
 
-    os = Column(JSON, nullable=False, default=dict)
-    packages = Column(JSON, nullable=False, default=list)
+    os = Column(JSONB, nullable=False, default=dict)
+    packages = Column(JSONB, nullable=False, default=list)
 
     packages_hash = Column(String(64), nullable=False)
     packages_count = Column(Integer, nullable=False, default=0)
     manager = Column(String(32), nullable=True)
 
-    extra = Column(JSON, nullable=False, default=dict)
+    extra = Column(JSONB, nullable=False, default=dict)

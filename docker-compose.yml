@@ -96,6 +96,7 @@ services:
   netwatch-backend:
     build: ./backend
     container_name: netwatch-backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "${NETWATCH_UVICORN_WORKERS:-2}", "--no-access-log"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -152,6 +153,22 @@ services:
       NETWATCH_ES_REQUEST_TIMEOUT_SECONDS: ${NETWATCH_ES_REQUEST_TIMEOUT_SECONDS:-30}
       NETWATCH_ES_BOOTSTRAP: ${NETWATCH_ES_BOOTSTRAP:-true}
     command: ["python", "-m", "app.workers.es_indexer"]
+    networks:
+      - netwatch
+    restart: unless-stopped
+
+  netwatch-rollup-worker:
+    build: ./backend
+    container_name: netwatch-rollup-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NETWATCH_DB_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      NETWATCH_ROLLUP_EVERY_SECONDS: ${NETWATCH_ROLLUP_EVERY_SECONDS:-1}
+      NETWATCH_ROLLUP_IDLE_SLEEP_SECONDS: ${NETWATCH_ROLLUP_IDLE_SLEEP_SECONDS:-2}
+      NETWATCH_ROLLUP_MAX_ROWS: ${NETWATCH_ROLLUP_MAX_ROWS:-5000}
+    command: ["python", "-m", "app.workers.rollup_1m"]
     networks:
       - netwatch
     restart: unless-stopped

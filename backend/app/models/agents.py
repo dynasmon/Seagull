@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, JSON, String
+from sqlalchemy import Boolean, Column, DateTime, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
 
@@ -18,9 +19,9 @@ class AgentModel(Base):
     key_hash = Column(String(64), nullable=False)
 
     # Operational metadata
-    agent_metadata = Column("metadata", JSON, nullable=False, default=dict)
-    config = Column(JSON, nullable=False, default=dict)
-    metrics = Column(JSON, nullable=False, default=dict)
+    agent_metadata = Column("metadata", JSONB, nullable=False, default=dict)
+    config = Column(JSONB, nullable=False, default=dict)
+    metrics = Column(JSONB, nullable=False, default=dict)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     last_seen_at = Column(DateTime, nullable=True)
