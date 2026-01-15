@@ -23,8 +23,6 @@ _ALLOWED_EVENT_FIELDS = {
     "bytes",
 }
 
-_ALLOWED_GROUP_FIELDS = _ALLOWED_EVENT_FIELDS
-
 
 def _safe_col(field: str):
     if field not in _ALLOWED_EVENT_FIELDS:
@@ -49,14 +47,14 @@ def _evaluate_condition(value: int, condition: Dict) -> bool:
     if op == "!=":
         return value != target
 
-    return False
+    return value >= target
 
 
 def _extract_alert_key(group_key: Dict, match: Dict) -> Tuple[Optional[str], Optional[str], Optional[int]]:
     src_ip = group_key.get("src_ip") if "src_ip" in group_key else match.get("src_ip")
     dst_ip = group_key.get("dst_ip") if "dst_ip" in group_key else match.get("dst_ip")
-
     dst_port = group_key.get("dst_port") if "dst_port" in group_key else match.get("dst_port")
+
     if dst_port is not None:
         try:
             dst_port = int(dst_port)
@@ -66,28 +64,58 @@ def _extract_alert_key(group_key: Dict, match: Dict) -> Tuple[Optional[str], Opt
     return src_ip, dst_ip, dst_port
 
 
-def _recent_alert_index(db: Session, horizon: timedelta) -> Dict[Tuple[Optional[str], Optional[str], Optional[int]], datetime]:
+def _normalize_dedup_key(rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]):
+    """Normalize dedup key so enrichment doesn't create duplicate alerts.
+
+    - DDoS/DoS/L7 rules: dedup ignores src_ip (because alerts may be enriched with a representative attacker)
+    - SSH bruteforce rules: dedup ignores dst_ip (because alerts may be enriched with the local/target IP)
+    """
+    rid = str(rule_id or "")
+    src = src_ip
+    dst = dst_ip
+
+    if rid.startswith(("ddos_", "dos_", "l7_")):
+        src = None
+    if rid.startswith("ssh_bruteforce_"):
+        dst = None
+
+    return (rid, src, dst, int(dst_port) if dst_port is not None else None)
+
+
+def _recent_alert_index(
+    db: Session, horizon: timedelta
+) -> Dict[Tuple[str, Optional[str], Optional[str], Optional[int]], datetime]:
     threshold = datetime.utcnow() - horizon
 
     stmt = (
-        select(AlertModel.src_ip, AlertModel.dst_ip, AlertModel.dst_port, func.max(AlertModel.created_at))
+        select(
+            AlertModel.rule_id,
+            AlertModel.src_ip,
+            AlertModel.dst_ip,
+            AlertModel.dst_port,
+            func.max(AlertModel.created_at),
+        )
         .where(AlertModel.created_at >= threshold)
-        .group_by(AlertModel.src_ip, AlertModel.dst_ip, AlertModel.dst_port)
+        .group_by(AlertModel.rule_id, AlertModel.src_ip, AlertModel.dst_ip, AlertModel.dst_port)
     )
 
-    idx: Dict[Tuple[Optional[str], Optional[str], Optional[int]], datetime] = {}
-    for src_ip, dst_ip, dst_port, last_at in db.execute(stmt).all():
-        idx[(src_ip, dst_ip, int(dst_port) if dst_port is not None else None)] = last_at
+    rows = db.execute(stmt).all()
+    idx: Dict[Tuple[str, Optional[str], Optional[str], Optional[int]], datetime] = {}
+    for rule_id, src_ip, dst_ip, dst_port, last_at in rows:
+        key = _normalize_dedup_key(rule_id, src_ip, dst_ip, dst_port)
+        idx[key] = last_at
 
     return idx
 
 
-def _recent_alert_exists_cached(idx: Dict, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]) -> bool:
-    return (src_ip, dst_ip, dst_port) in idx
+def _recent_alert_exists_cached(
+    idx: Dict, rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]
+) -> bool:
+    return _normalize_dedup_key(rule_id, src_ip, dst_ip, dst_port) in idx
 
 
-def _index_add(idx: Dict, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]):
-    idx[(src_ip, dst_ip, dst_port)] = datetime.utcnow()
+def _index_add(idx: Dict, rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]):
+    idx[_normalize_dedup_key(rule_id, src_ip, dst_ip, dst_port)] = datetime.utcnow()
 
 
 def _parse_extra_key(raw_key: str) -> Tuple[str, str]:
@@ -108,24 +136,15 @@ def _parse_extra_key(raw_key: str) -> Tuple[str, str]:
     return k, "eq"
 
 
-from sqlalchemy import func
-
-def _extra_text_col(extra_key: str):
-    expr = NetEventModel.extra[extra_key]
-
-    if hasattr(expr, "as_string"):
-        return expr.as_string()
-
-    if hasattr(expr, "astext"):
-        return expr.astext
-
-    return func.jsonb_extract_path_text(NetEventModel.extra, extra_key)
+def _extra_text_col(key: str):
+    return NetEventModel.extra.op("->>")(key)
 
 
-def _extra_numeric_col(extra_key: str):
-    text_col = _extra_text_col(extra_key)
-    is_numeric = text_col.op("~")(r"^-?\d+(\.\d+)?$")
-    return is_numeric, cast(text_col, Float)
+def _extra_numeric_col(key: str):
+    txt = _extra_text_col(key)
+    is_numeric = txt.op("~")("^-?[0-9]+(\\.[0-9]+)?$")
+    num = cast(txt, Float)
+    return is_numeric, num
 
 
 def _build_match_filters(match: Dict, since: datetime, until: datetime) -> List:
@@ -144,13 +163,14 @@ def _build_match_filters(match: Dict, since: datetime, until: datetime) -> List:
         text_col = _extra_text_col(extra_key)
 
         if op in ("in", "not_in"):
-            if not isinstance(val, list):
+            items = val if isinstance(val, list) else [val]
+            items = [str(x) for x in items if x is not None]
+            if not items:
                 continue
-            needle = [str(v) for v in val]
             if op == "in":
-                filters.append(text_col.in_(needle))
+                filters.append(text_col.in_(items))
             else:
-                filters.append(~text_col.in_(needle))
+                filters.append(or_(text_col.is_(None), ~text_col.in_(items)))
             continue
 
         if op in ("gte", "gt", "lte", "lt"):
@@ -182,6 +202,99 @@ def _build_match_filters(match: Dict, since: datetime, until: datetime) -> List:
     return filters
 
 
+def _enrich_alert_ips(
+    db: Session,
+    rule_id: str,
+    match: Dict,
+    group_key: Dict,
+    since: datetime,
+    until: datetime,
+    src_ip: Optional[str],
+    dst_ip: Optional[str],
+    dst_port: Optional[int],
+) -> Tuple[Optional[str], Optional[str], Dict]:
+    """Fill missing src_ip/dst_ip for specific rule families using supporting events.
+
+    Returns: (src_ip, dst_ip, enrichment_details)
+    """
+    enrichment: Dict = {}
+    rid = str(rule_id or "")
+
+    # For DDoS/DoS/L7: compute Top-N attacker src_ips and unique cardinality.
+    # Also fill alert.src_ip with the top attacker if missing.
+    if rid.startswith(("ddos_", "dos_", "l7_")):
+        dst = group_key.get("dst_ip") or dst_ip
+        if dst:
+            filters = _build_match_filters(match or {}, since, until)
+            filters.append(NetEventModel.dst_ip == dst)
+
+            gp_port = group_key.get("dst_port") or dst_port
+            if gp_port is not None:
+                try:
+                    filters.append(NetEventModel.dst_port == int(gp_port))
+                except Exception:
+                    pass
+
+            gp_proto = group_key.get("proto")
+            if gp_proto:
+                filters.append(NetEventModel.proto == str(gp_proto))
+
+            filters.append(NetEventModel.src_ip.is_not(None))
+
+            # Top 10 attackers
+            stmt_top = (
+                select(NetEventModel.src_ip, func.count().label("cnt"))
+                .where(and_(*filters))
+                .group_by(NetEventModel.src_ip)
+                .order_by(func.count().desc())
+                .limit(10)
+            )
+            rows = db.execute(stmt_top).all()
+
+            top_list = []
+            for r in rows:
+                ip = r[0]
+                cnt = int(r[1])
+                if ip:
+                    top_list.append({"ip": ip, "count": cnt})
+
+            if top_list:
+                enrichment["src_ips"] = top_list
+                enrichment["top_src_ip"] = top_list[0]["ip"]
+                enrichment["top_src_count"] = top_list[0]["count"]
+
+                if src_ip is None or src_ip == "":
+                    src_ip = top_list[0]["ip"]
+                    enrichment["src_ip"] = "top_src_ip"
+
+            # Unique attackers count
+            stmt_uniq = select(func.count(func.distinct(NetEventModel.src_ip))).where(and_(*filters))
+            uniq = db.execute(stmt_uniq).scalar() or 0
+            enrichment["unique_src_ips"] = int(uniq)
+
+    # For SSH bruteforce alerts grouped by src_ip only, infer dst_ip from most recent matching ssh_auth event.
+    if (dst_ip is None or dst_ip == "") and rid.startswith("ssh_bruteforce_"):
+        src = group_key.get("src_ip") or src_ip
+        if src:
+            filters = _build_match_filters(match or {}, since, until)
+            filters.append(NetEventModel.src_ip == src)
+            filters.append(NetEventModel.dst_ip.is_not(None))
+
+            stmt = (
+                select(NetEventModel.dst_ip)
+                .where(and_(*filters))
+                .order_by(NetEventModel.timestamp.desc())
+                .limit(1)
+            )
+
+            row = db.execute(stmt).first()
+            if row and row[0]:
+                dst_ip = row[0]
+                enrichment["dst_ip"] = "latest_dst_ip"
+
+    return src_ip, dst_ip, enrichment
+
+
 def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[AlertModel]) -> List[AlertModel]:
     horizon = timedelta(minutes=10)
     since = now - horizon
@@ -199,28 +312,21 @@ def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[A
     out: List[AlertModel] = []
 
     for a in ddos_alerts:
-        group_key = (a.details or {}).get("group_key") or {}
-        dst_ip = a.dst_ip or group_key.get("dst_ip")
-        dst_port = a.dst_port or group_key.get("dst_port")
+        dst_ip = a.dst_ip
+        if not dst_ip:
+            continue
 
         stmt = (
             select(AlertModel.rule_id, func.count().label("cnt"))
-            .where(AlertModel.created_at >= since)
-            .where(AlertModel.dst_ip == dst_ip)
-            .where(or_(
-                AlertModel.rule_id.like("%ssh%"),
-                AlertModel.rule_id.like("%scan%"),
-                AlertModel.rule_id.like("%port_scan%"),
-            ))
+            .where(
+                and_(
+                    AlertModel.created_at >= since,
+                    AlertModel.dst_ip == dst_ip,
+                    AlertModel.rule_id.in_(["port_scan_pcap_v1", "ssh_bruteforce_authlog_v2"]),
+                )
+            )
             .group_by(AlertModel.rule_id)
         )
-
-        if dst_port is not None:
-            try:
-                dst_port_int = int(dst_port)
-                stmt = stmt.where(or_(AlertModel.dst_port.is_(None), AlertModel.dst_port == dst_port_int))
-            except Exception:
-                pass
 
         rows = db.execute(stmt).all()
         if not rows:
@@ -238,13 +344,19 @@ def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[A
             db.execute(
                 select(func.count())
                 .select_from(AlertModel)
-                .where(AlertModel.rule_id == incident_rule_id)
-                .where(AlertModel.created_at >= cooldown_since)
-                .where(AlertModel.dst_ip == dst_ip)
-                .where(AlertModel.dst_port == a.dst_port)
-            ).scalar()
+                .where(
+                    and_(
+                        AlertModel.created_at >= cooldown_since,
+                        AlertModel.rule_id == incident_rule_id,
+                        AlertModel.dst_ip == dst_ip,
+                        AlertModel.dst_port == a.dst_port,
+                    )
+                )
+            )
+            .scalar()
             or 0
         )
+
         if int(existing) > 0:
             continue
 
@@ -268,7 +380,7 @@ def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[A
     return out
 
 
-def run_all_rules() -> List[AlertModel]:
+def run_rules_once():
     rules = load_rules()
 
     now = datetime.utcnow()
@@ -300,23 +412,17 @@ def run_all_rules() -> List[AlertModel]:
             since = now - window
             until = now
 
-            match = rule.get("match", {}) or {}
-            group_fields = rule.get("group_by", []) or []
-
-            if isinstance(group_fields, str):
-                group_fields = [group_fields]
-
-            group_fields = [f for f in group_fields if f in _ALLOWED_GROUP_FIELDS]
-
-            try:
-                group_cols = [_safe_col(f) for f in group_fields]
-            except Exception:
-                group_cols = []
-                group_fields = []
-
+            match = rule.get("match") or {}
             filters = _build_match_filters(match, since, until)
 
             if rule_type == "aggregate_count":
+                group_by = rule.get("group_by")
+                group_fields = group_by if isinstance(group_by, list) else [group_by] if isinstance(group_by, str) else []
+                group_fields = [f for f in group_fields if isinstance(f, str) and f in _ALLOWED_EVENT_FIELDS]
+                if not group_fields:
+                    continue
+
+                group_cols = [_safe_col(f) for f in group_fields]
                 condition = rule.get("condition", {}) or {}
                 min_events = int(rule.get("min_events") or condition.get("min_events") or 0)
 
@@ -342,8 +448,33 @@ def run_all_rules() -> List[AlertModel]:
 
                     src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
 
-                    if _recent_alert_exists_cached(recent_idx, src_ip, dst_ip, dst_port):
+                    src_ip, dst_ip, enrichment = _enrich_alert_ips(
+                        db,
+                        rule_id,
+                        match or {},
+                        group_key,
+                        since,
+                        until,
+                        src_ip,
+                        dst_ip,
+                        dst_port,
+                    )
+
+                    if _recent_alert_exists_cached(recent_idx, rule_id, src_ip, dst_ip, dst_port):
                         continue
+
+                    details = {
+                        "type": rule_type,
+                        "group_by": group_fields,
+                        "group_key": group_key,
+                        "count": count,
+                        "window_seconds": int(window.total_seconds()),
+                        "enrichment": enrichment,
+                    }
+                    # Mirror to root for easier dashboards (optional but useful)
+                    if enrichment.get("src_ips"):
+                        details["src_ips"] = enrichment["src_ips"]
+                        details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
 
                     alert = AlertModel(
                         rule_id=rule_id,
@@ -352,17 +483,11 @@ def run_all_rules() -> List[AlertModel]:
                         dst_ip=dst_ip,
                         dst_port=dst_port,
                         description=description,
-                        details={
-                            "type": rule_type,
-                            "group_by": group_fields,
-                            "group_key": group_key,
-                            "count": count,
-                            "window_seconds": int(window.total_seconds()),
-                        },
+                        details=details,
                     )
                     db.add(alert)
                     created_alerts.append(alert)
-                    _index_add(recent_idx, src_ip, dst_ip, dst_port)
+                    _index_add(recent_idx, rule_id, src_ip, dst_ip, dst_port)
 
             elif rule_type == "distinct_count":
                 condition = rule.get("condition", {}) or {}
@@ -375,6 +500,14 @@ def run_all_rules() -> List[AlertModel]:
                 distinct_col = _safe_col(distinct_field)
                 filters2 = list(filters)
                 filters2.append(distinct_col.is_not(None))
+
+                group_by = rule.get("group_by")
+                group_fields = group_by if isinstance(group_by, list) else [group_by] if isinstance(group_by, str) else []
+                group_fields = [f for f in group_fields if isinstance(f, str) and f in _ALLOWED_EVENT_FIELDS]
+                if not group_fields:
+                    continue
+
+                group_cols = [_safe_col(f) for f in group_fields]
 
                 stmt = (
                     select(
@@ -400,8 +533,34 @@ def run_all_rules() -> List[AlertModel]:
 
                     src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
 
-                    if _recent_alert_exists_cached(recent_idx, src_ip, dst_ip, dst_port):
+                    src_ip, dst_ip, enrichment = _enrich_alert_ips(
+                        db,
+                        rule_id,
+                        match or {},
+                        group_key,
+                        since,
+                        until,
+                        src_ip,
+                        dst_ip,
+                        dst_port,
+                    )
+
+                    if _recent_alert_exists_cached(recent_idx, rule_id, src_ip, dst_ip, dst_port):
                         continue
+
+                    details = {
+                        "type": rule_type,
+                        "group_by": group_fields,
+                        "group_key": group_key,
+                        "distinct_field": distinct_field,
+                        "distinct_count": distinct_count,
+                        "event_count": event_count,
+                        "window_seconds": int(window.total_seconds()),
+                        "enrichment": enrichment,
+                    }
+                    if enrichment.get("src_ips"):
+                        details["src_ips"] = enrichment["src_ips"]
+                        details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
 
                     alert = AlertModel(
                         rule_id=rule_id,
@@ -410,19 +569,11 @@ def run_all_rules() -> List[AlertModel]:
                         dst_ip=dst_ip,
                         dst_port=dst_port,
                         description=description,
-                        details={
-                            "type": rule_type,
-                            "group_by": group_fields,
-                            "group_key": group_key,
-                            "distinct_field": distinct_field,
-                            "distinct_count": distinct_count,
-                            "event_count": event_count,
-                            "window_seconds": int(window.total_seconds()),
-                        },
+                        details=details,
                     )
                     db.add(alert)
                     created_alerts.append(alert)
-                    _index_add(recent_idx, src_ip, dst_ip, dst_port)
+                    _index_add(recent_idx, rule_id, src_ip, dst_ip, dst_port)
 
             else:
                 continue
@@ -435,10 +586,10 @@ def run_all_rules() -> List[AlertModel]:
             pass
 
         db.commit()
-        return created_alerts
-
     finally:
         db.close()
+
+    return created_alerts
 
 
 def _parse_window(s: str) -> int:
@@ -452,3 +603,7 @@ def _parse_window(s: str) -> int:
     if s.endswith("h"):
         return int(float(s[:-1]) * 3600)
     return int(float(s))
+
+
+def run_all_rules():
+    return run_rules_once()
