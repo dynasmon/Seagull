@@ -49,6 +49,22 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  netwatch-portal:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: netwatch-portal
+    depends_on:
+      - netwatch-backend
+    ports:
+      - "${NETWATCH_PORTAL_PORT:-8085}:80"
+    environment:
+      # opcional: apenas para você expor no futuro em runtime (hoje o proxy é pelo nginx)
+      NETWATCH_API_BASE: /api
+    networks:
+      - netwatch
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
     container_name: netwatch-redis
