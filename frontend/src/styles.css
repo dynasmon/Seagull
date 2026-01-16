@@ -2,38 +2,67 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Light (default) */
+/*
+  Design system
+  - Uses RGB triplets so Tailwind can apply alpha via: rgb(var(--token) / <alpha-value>)
+  - Clean cyber (dark-first)
+*/
+
 :root {
-  --bg: #f6f8fc;
-  --panel: #ffffff;
-  --panel2: #f1f5f9;
-  --border: rgba(15, 23, 42, 0.12);
-  --text: #0f172a;
-  --muted: rgba(15, 23, 42, 0.65);
-  --muted2: rgba(15, 23, 42, 0.45);
+  --background: 246 248 252;
+  --foreground: 15 23 42;
+
+  --card: 255 255 255;
+  --muted: 241 245 249;
+  --muted-foreground: 100 116 139;
+
+  --border: 148 163 184;
+
+  --primary: 2 132 199;
+  --primary-foreground: 255 255 255;
 }
 
-/* Dark */
 html.dark {
   color-scheme: dark;
-  --bg: #0b1220;
-  --panel: rgba(255, 255, 255, 0.04);
-  --panel2: rgba(255, 255, 255, 0.06);
-  --border: rgba(255, 255, 255, 0.10);
-  --text: #e5e7eb;
-  --muted: rgba(229, 231, 235, 0.70);
-  --muted2: rgba(229, 231, 235, 0.45);
+
+  --background: 11 18 32;
+  --foreground: 229 231 235;
+
+  /*
+    Keep cards readable by using a white-based card token and controlling opacity
+    with Tailwind alpha (e.g., bg-card/30).
+  */
+  --card: 255 255 255;
+  --muted: 255 255 255;
+  --muted-foreground: 148 163 184;
+
+  --border: 71 85 105;
+
+  --primary: 34 211 238;
+  --primary-foreground: 15 23 42;
 }
 
-html,
-body {
-  height: 100%;
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: rgb(var(--background));
+    color: rgb(var(--foreground));
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
+      Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  }
 }
 
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
-    Arial, "Apple Color Emoji", "Segoe UI Emoji";
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none; /* IE/Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+  }
 }

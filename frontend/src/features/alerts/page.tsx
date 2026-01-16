@@ -1,24 +1,22 @@
-import PageHeader from "@/shared/components/PageHeader";
+import { Card } from "@/shared/components/Card";
+import { Link } from "react-router-dom";
 
 export default function AlertsPage() {
   return (
-    <div>
-      <PageHeader
-        title="Security events"
-        breadcrumb={["Modules", "Security events"]}
-        tabs={[
-          { label: "Dashboard", to: "/overview" },
-          { label: "Events", to: "/events" },
-          { label: "Alerts", to: "/alerts" }
-        ]}
-      />
-
-      <div className="rounded-lg border border-border bg-panel p-4 shadow-soft">
-        <div className="text-sm font-semibold">Alerts</div>
-        <p className="mt-2 text-sm text-muted">
-          Aqui vai entrar a lista de alertas com severidade, regra e detalhes.
+    <div className="space-y-6">
+      <div>
+        <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Detection</div>
+        <h1 className="text-xl font-semibold">Alerts</h1>
+        <p className="text-sm text-muted-foreground">
+          Alertas gerados por regras. A listagem paginada entra aqui.
         </p>
       </div>
+
+      <Card title="Alert queue" right={<Link to="/overview" className="text-primary hover:underline">Back to overview</Link>}>
+        <div className="text-sm text-muted-foreground">
+          Placeholder proposital. Próximo passo: paginação por cursor, severidade, rule_id e detalhes.
+        </div>
+      </Card>
     </div>
   );
 }

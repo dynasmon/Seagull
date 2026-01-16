@@ -81,10 +81,10 @@ function NavItem({
       title={collapsed ? label : undefined}
       className={({ isActive }) =>
         cx(
-          "flex items-center gap-3 rounded-md px-3 py-2 text-sm",
+          "flex items-center gap-3 px-3 py-2 text-sm",
           isActive
-            ? "bg-primary/10 text-fg"
-            : "text-muted hover:bg-panel2 hover:text-fg"
+            ? "bg-primary/10 text-foreground"
+            : "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
         )
       }
     >
@@ -100,13 +100,13 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
   return (
     <aside
       className={cx(
-        "border-r border-border bg-panel",
+        "h-screen shrink-0 overflow-y-auto border-r border-border/60 bg-card/10 backdrop-blur-md",
         collapsed ? "w-16" : "w-72"
       )}
     >
       <div className="px-3 py-3">
-        <div className={cx("rounded-md bg-panel2 px-3 py-2", collapsed && "px-2")}>
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted">
+        <div className={cx("border border-border/60 bg-background/40 px-3 py-2", collapsed && "px-2")}>
+          <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
             {collapsed ? "NW" : "NetWatch"}
           </div>
         </div>
@@ -115,12 +115,12 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
       <nav className="px-2 pb-4 space-y-4">
         <div>
           {!collapsed && (
-            <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
-              Security events
+            <div className="px-3 pb-2 text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
+              Telemetry
             </div>
           )}
           <div className="space-y-1">
-            <NavItem collapsed={collapsed} to="/overview" label="Dashboard" icon="dashboard" />
+            <NavItem collapsed={collapsed} to="/overview" label="Overview" icon="dashboard" />
             <NavItem collapsed={collapsed} to="/events" label="Events" icon="events" />
             <NavItem collapsed={collapsed} to="/alerts" label="Alerts" icon="alerts" />
           </div>
@@ -128,8 +128,8 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
 
         <div>
           {!collapsed && (
-            <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
-              Modules
+            <div className="px-3 pb-2 text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
+              Assets
             </div>
           )}
           <div className="space-y-1">
@@ -140,8 +140,8 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
 
         <div>
           {!collapsed && (
-            <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
-              Administration
+            <div className="px-3 pb-2 text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
+              Admin
             </div>
           )}
           <div className="space-y-1">
@@ -150,5 +150,6 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
         </div>
       </nav>
     </aside>
+
   );
 }

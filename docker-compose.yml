@@ -52,15 +52,21 @@ services:
   netwatch-portal:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: netwatch-portal
     depends_on:
       - netwatch-backend
     ports:
-      - "${NETWATCH_PORTAL_PORT:-8085}:80"
+      - "${NETWATCH_PORTAL_PORT:-8085}:5173" 
     environment:
-      # opcional: apenas para você expor no futuro em runtime (hoje o proxy é pelo nginx)
-      NETWATCH_API_BASE: /api
+      NETWATCH_API_BASE: http://netwatch-backend:8000
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - /app/node_modules
     networks:
       - netwatch
     restart: unless-stopped

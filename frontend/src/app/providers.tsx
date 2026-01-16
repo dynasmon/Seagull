@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 
 type Theme = "dark" | "light";
 
@@ -16,7 +17,7 @@ function applyThemeToDom(theme: Theme) {
   else root.classList.remove("dark");
 }
 
-export function AppProviders({ children }: { children: React.ReactNode }) {
+export function AppProviders({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     const saved = (localStorage.getItem("netwatch_theme") || "").toLowerCase();
     return saved === "light" ? "light" : "dark";

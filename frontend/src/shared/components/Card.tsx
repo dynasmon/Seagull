@@ -1,4 +1,4 @@
-import React from "react";
+import type { ReactNode } from "react";
 
 function cx(...v: Array<string | false | undefined>) {
   return v.filter(Boolean).join(" ");
@@ -11,25 +11,32 @@ export function Card({
   className
 }: {
   title?: string;
-  right?: React.ReactNode;
-  children: React.ReactNode;
+  right?: ReactNode;
+  children: ReactNode;
   className?: string;
 }) {
+  const hasHeader = Boolean(title || right);
+
   return (
     <section
       className={cx(
-        "rounded-lg border border-[var(--border)] bg-[var(--panel)]",
-        "shadow-sm",
+        "border border-border/60 bg-card/10 backdrop-blur-sm",
         className
       )}
     >
-      {(title || right) && (
-        <header className="flex items-center justify-between px-4 py-3">
-          <div className="text-sm font-semibold">{title}</div>
-          <div className="text-xs text-[var(--muted)]">{right}</div>
+      {hasHeader && (
+        <header className="flex items-center justify-between border-b border-border/60 bg-muted/10 px-4 py-2">
+          <div className="text-xs font-mono font-bold uppercase tracking-widest text-primary/90">
+            {title}
+          </div>
+          {right && (
+            <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
+              {right}
+            </div>
+          )}
         </header>
       )}
-      <div className={cx("px-4", title || right ? "pb-4" : "py-4")}>{children}</div>
+      <div className={cx("p-4", hasHeader ? "" : "")}>{children}</div>
     </section>
   );
 }
