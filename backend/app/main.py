@@ -7,6 +7,7 @@ from app.api.ingest import router as ingest_router
 from app.api.inventory import router as inventory_router
 from app.core.db import Base, engine
 from app.core.schema_bootstrap import bootstrap_schema
+from app.api.overview import router as overview_router
 
 
 app = FastAPI(
@@ -38,3 +39,4 @@ app.include_router(events_router)
 app.include_router(alerts_router)
 app.include_router(agents_router)
 app.include_router(inventory_router)
+app.include_router(overview_router)
