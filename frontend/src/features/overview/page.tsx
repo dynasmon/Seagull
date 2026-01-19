@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode, CSSProperties } from "react";
 import { Link } from "react-router-dom";
 
 import EmptyState from "@/shared/components/EmptyState";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
-import { getOverview } from "./api";
 import type { Alert, OverviewSnapshot } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
+import { useOverviewLive } from "./live";
+
 
 // Polling interval for a Grafana-like "live" dashboard experience.
 // Keep it modest to avoid hammering the API and the database.
@@ -208,49 +209,8 @@ function SeverityBadge({ severity }: { severity: string }) {
 }
 
 export default function OverviewPage() {
-  const [snapshot, setSnapshot] = useState<OverviewSnapshot | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const { snapshot, isLoading, error, lastUpdatedAt, windowMinutes } = useOverviewLive();
 
-  // Avoid overlapping requests during polling.
-  const inFlight = useRef(false);
-
-  useEffect(() => {
-    let alive = true;
-    let timer: number | null = null;
-
-    async function refresh() {
-      if (inFlight.current) return;
-      inFlight.current = true;
-
-      try {
-        const data = await getOverview({ window_minutes: WINDOW_MINUTES });
-        if (!alive) return;
-        setSnapshot(data);
-        setError(null);
-        setLastUpdatedAt(new Date());
-      } catch (e: any) {
-        if (!alive) return;
-        // Keep the last snapshot rendered, but show an error indicator.
-        setError(e?.message || "Failed to load overview");
-      } finally {
-        if (alive) setIsLoading(false);
-        inFlight.current = false;
-      }
-    }
-
-    // Initial load should be immediate.
-    refresh();
-
-    // Poll for a Grafana-like live view.
-    timer = window.setInterval(refresh, POLL_MS);
-
-    return () => {
-      alive = false;
-      if (timer) window.clearInterval(timer);
-    };
-  }, []);
 
   const derived = useMemo(() => {
     if (!snapshot) {

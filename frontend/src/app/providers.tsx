@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
+import { OverviewLiveProvider } from "@/features/overview/live";
+
 type Theme = "dark" | "light";
 
 type ThemeCtx = {
@@ -37,7 +39,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   const value = useMemo<ThemeCtx>(() => ({ theme, setTheme, toggleTheme }), [theme]);
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return (
+    <ThemeContext.Provider value={value}>
+      <OverviewLiveProvider>{children}</OverviewLiveProvider>
+    </ThemeContext.Provider>
+  );
 }
 
 export function useTheme() {

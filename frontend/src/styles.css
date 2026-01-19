@@ -9,18 +9,23 @@
 */
 
 :root {
-  --background: 246 248 252;
+  /* Ice white (cool, slightly bluish) */
+  --background: 244 248 255;
   --foreground: 15 23 42;
 
-  --card: 255 255 255;
-  --muted: 241 245 249;
-  --muted-foreground: 100 116 139;
+  /* Surfaces */
+  --card: 252 254 255;
+  --muted: 236 242 250;
+  --muted-foreground: 86 102 126;
 
-  --border: 148 163 184;
+  /* Lines */
+  --border: 182 195 214;
 
+  /* Brand */
   --primary: 2 132 199;
   --primary-foreground: 255 255 255;
 }
+
 
 html.dark {
   color-scheme: dark;
