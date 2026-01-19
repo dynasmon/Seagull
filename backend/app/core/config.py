@@ -39,6 +39,9 @@ class Settings:
 
     # Admin-only operations (e.g., pushing agent config)
     NETWATCH_ADMIN_TOKEN: str | None = _env_str("NETWATCH_ADMIN_TOKEN", None)
+    
+    # Enroll token
+    NETWATCH_ENROLL_TOKEN: str | None = _env_str("NETWATCH_ENROLL_TOKEN", None)
 
     # Default agent configuration applied on first enroll (JSON object).
     NETWATCH_DEFAULT_AGENT_CONFIG_JSON: str = _env_str("NETWATCH_DEFAULT_AGENT_CONFIG_JSON", "{}") or "{}"

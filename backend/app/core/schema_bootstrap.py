@@ -95,6 +95,37 @@ def bootstrap_schema(engine) -> None:
                     ALTER TABLE agents
                       ALTER COLUMN metrics TYPE JSONB USING metrics::jsonb;
                 END IF;
+
+                -- Portal-managed fields
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema='public'
+                      AND table_name='agents'
+                      AND column_name='display_name'
+                ) THEN
+                    ALTER TABLE agents ADD COLUMN display_name VARCHAR(128);
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema='public'
+                      AND table_name='agents'
+                      AND column_name='description'
+                ) THEN
+                    ALTER TABLE agents ADD COLUMN description VARCHAR(512);
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema='public'
+                      AND table_name='agents'
+                      AND column_name='tags'
+                ) THEN
+                    ALTER TABLE agents ADD COLUMN tags JSONB NOT NULL DEFAULT '[]'::jsonb;
+                END IF;
             END IF;
 
             IF to_regclass('public.agent_inventory_snapshots') IS NOT NULL THEN

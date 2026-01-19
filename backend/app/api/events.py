@@ -1,23 +1,23 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends, Request
 from sqlalchemy import select, func
 
 from app.core.db import SessionLocal
 from app.models.events import NetEventModel
 from app.schemas.events import NetEventDB
 
+from app.core.admin_auth import require_admin
+
+
+def _admin_dep(request: Request) -> None:
+    require_admin(request)
+
+
 router = APIRouter(
     prefix="/events",
     tags=["events"],
-)
-
-
-@router.get("/recent", response_model=List[NetEventDB])
-def get_recent_events(
-    limit: int = Query(50, ge=1, le=1000, description="Maximum number of events to return"),
-    agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
-    event_type: Optional[str] = Query(None, description="Filter by event type"),
+    dependencies=[Depends(_admin_dep)],
 ):
     """
     Return the most recent events, optionally filtered by agent_id and event_type.

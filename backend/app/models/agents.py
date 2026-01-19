@@ -20,6 +20,12 @@ class AgentModel(Base):
 
     # Operational metadata
     agent_metadata = Column("metadata", JSONB, nullable=False, default=dict)
+
+    # Human-friendly fields managed by the portal
+    display_name = Column(String(128), nullable=True)
+    description = Column(String(512), nullable=True)
+    tags = Column(JSONB, nullable=False, default=list)
+
     config = Column(JSONB, nullable=False, default=dict)
     metrics = Column(JSONB, nullable=False, default=dict)
 

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import List
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends, Request
 from sqlalchemy import select, func
 
 from app.core.db import SessionLocal
@@ -10,9 +10,17 @@ from app.models.alerts import AlertModel
 from app.schemas.alerts import AlertOut
 from app.workers.rules_engine import run_all_rules
 
+from app.core.admin_auth import require_admin
+
+
+def _admin_dep(request: Request) -> None:
+    require_admin(request)
+
+
 router = APIRouter(
     prefix="/alerts",
     tags=["alerts"],
+    dependencies=[Depends(_admin_dep)],
 )
 
 

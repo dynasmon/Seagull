@@ -3,14 +3,21 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends, Request
 from sqlalchemy import text
 
 from app.core.db import SessionLocal
 
+from app.core.admin_auth import require_admin
+
+
+def _admin_dep(request: Request) -> None:
+    require_admin(request)
+
 router = APIRouter(
     prefix="",
     tags=["overview"],
+    dependencies=[Depends(_admin_dep)],
 )
 
 

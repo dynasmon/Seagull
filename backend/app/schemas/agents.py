@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -32,8 +32,22 @@ class AgentConfigUpdateIn(BaseModel):
 
 class AgentPublic(BaseModel):
     agent_id: str
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
     created_at: datetime
     last_seen_at: Optional[datetime]
     is_revoked: bool
     metadata: Dict[str, Any] = Field(default_factory=dict)
     metrics: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentDetail(AgentPublic):
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentUpdateIn(BaseModel):
+    display_name: Optional[str] = Field(default=None, max_length=128)
+    description: Optional[str] = Field(default=None, max_length=512)
+    tags: Optional[List[str]] = Field(default=None)
+    metadata: Optional[Dict[str, Any]] = Field(default=None)
