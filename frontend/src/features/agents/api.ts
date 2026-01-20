@@ -13,16 +13,21 @@ export function updateAgent(agentId: string, patch: AgentUpdateIn) {
   return apiPatch<AgentDetail>(`/api/agents/${encodeURIComponent(agentId)}`, patch);
 }
 
-export function setAgentConfig(agentId: string, config: Record<string, any>) {
-  // Backend expects: { config: {...} }? No — in our backend it expects AgentConfigUpdateIn = { config: {...} }
-  // So we send { config } to match exactly.
-  return apiPut<AgentDetail>(`/api/agents/${encodeURIComponent(agentId)}/config`, { config });
+/**
+ * Backend endpoints return 204 No Content for state/config operations.
+ * To keep the UI simple, we re-fetch the agent details after each operation.
+ */
+export async function setAgentConfig(agentId: string, config: Record<string, any>) {
+  await apiPut<void>(`/api/agents/${encodeURIComponent(agentId)}/config`, { config });
+  return getAgent(agentId);
 }
 
-export function enableAgent(agentId: string) {
-  return apiPost<AgentDetail>(`/api/agents/${encodeURIComponent(agentId)}/enable`);
+export async function enableAgent(agentId: string) {
+  await apiPost<void>(`/api/agents/${encodeURIComponent(agentId)}/enable`);
+  return getAgent(agentId);
 }
 
-export function disableAgent(agentId: string) {
-  return apiPost<AgentDetail>(`/api/agents/${encodeURIComponent(agentId)}/disable`);
+export async function disableAgent(agentId: string) {
+  await apiPost<void>(`/api/agents/${encodeURIComponent(agentId)}/disable`);
+  return getAgent(agentId);
 }

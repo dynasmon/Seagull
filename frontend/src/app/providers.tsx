@@ -1,7 +1,9 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { OverviewLiveProvider } from "@/features/overview/live";
+import { listAgents } from "@/features/agents/api";
+import type { AgentPublic } from "@/features/agents/types";
 
 type Theme = "dark" | "light";
 
@@ -12,6 +14,19 @@ type ThemeCtx = {
 };
 
 const ThemeContext = createContext<ThemeCtx | null>(null);
+
+type AgentsCtx = {
+  agents: AgentPublic[];
+  isLoading: boolean;
+  error: string | null;
+  selectedAgentId: string;
+  setSelectedAgentId: (id: string) => void;
+  refresh: () => Promise<void>;
+};
+
+const AgentsContext = createContext<AgentsCtx | null>(null);
+
+const SELECTED_AGENT_KEY = "nw_selected_agent_id";
 
 function applyThemeToDom(theme: Theme) {
   const root = document.documentElement;
@@ -39,9 +54,83 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   const value = useMemo<ThemeCtx>(() => ({ theme, setTheme, toggleTheme }), [theme]);
 
+  const [agents, setAgents] = useState<AgentPublic[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [agentsError, setAgentsError] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentIdState] = useState<string>(() => {
+    try {
+      return localStorage.getItem(SELECTED_AGENT_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
+
+  const setSelectedAgentId = (id: string) => {
+    const safe = (id || "").trim();
+    setSelectedAgentIdState(safe);
+    try {
+      localStorage.setItem(SELECTED_AGENT_KEY, safe);
+    } catch {
+      // no-op
+    }
+  };
+
+  const selectedAgentRef = useRef(selectedAgentId);
+  useEffect(() => {
+    selectedAgentRef.current = selectedAgentId;
+  }, [selectedAgentId]);
+
+  const refreshAgents = useCallback(async () => {
+    try {
+      const rows = await listAgents();
+      setAgents(rows);
+      setAgentsError(null);
+
+      // If an agent was removed, drop the selection.
+      const currentSel = (selectedAgentRef.current || "").trim();
+      if (currentSel && !rows.some((a) => a.agent_id === currentSel)) {
+        setSelectedAgentId("");
+      }
+    } catch (e: any) {
+      setAgentsError(e?.message || "Failed to load agents");
+    } finally {
+      setAgentsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    refreshAgents();
+
+    // Lightweight refresh to keep the sidebar dropdown up-to-date.
+    const t = window.setInterval(() => {
+      if (!alive) return;
+      refreshAgents();
+    }, 15000);
+
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, [refreshAgents]);
+
+  const agentsValue = useMemo<AgentsCtx>(
+    () => ({
+      agents,
+      isLoading: agentsLoading,
+      error: agentsError,
+      selectedAgentId,
+      setSelectedAgentId,
+      refresh: refreshAgents
+    }),
+    [agents, agentsLoading, agentsError, selectedAgentId]
+  );
+
   return (
     <ThemeContext.Provider value={value}>
-      <OverviewLiveProvider>{children}</OverviewLiveProvider>
+      <AgentsContext.Provider value={agentsValue}>
+        <OverviewLiveProvider>{children}</OverviewLiveProvider>
+      </AgentsContext.Provider>
     </ThemeContext.Provider>
   );
 }
@@ -49,5 +138,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
 export function useTheme() {
   const ctx = useContext(ThemeContext);
   if (!ctx) throw new Error("useTheme must be used within AppProviders");
+  return ctx;
+}
+
+export function useAgentsCatalog() {
+  const ctx = useContext(AgentsContext);
+  if (!ctx) throw new Error("useAgentsCatalog must be used within AppProviders");
   return ctx;
 }
