@@ -128,6 +128,7 @@ function Panel({
         <h3 className="text-xs font-bold uppercase tracking-widest font-mono text-primary/90">{title}</h3>
         {right && <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">{right}</div>}
       </div>
+      {/* ALTERAÇÃO: overflow-hidden explícito aqui também para reforçar */}
       <div className={cx("p-3 flex-1 min-h-0", scrollY ? "overflow-y-auto" : "overflow-hidden")}>{children}</div>
     </div>
   );
@@ -854,7 +855,17 @@ export default function AgentsPage() {
               ) : !charts.traffic ? (
                 <Loading label="Loading chart..." />
               ) : (
-                <SimpleTimeSeries data={charts.traffic.data} seriesKeys={charts.traffic.series} height={H_PANEL_MD - 80} />
+                // ALTERAÇÃO: Wrapper para centralizar, cortar scroll e fixar gráfico
+                <div className="h-full w-full flex items-center justify-center overflow-hidden">
+                  <div className="w-full max-w-full flex justify-center">
+                    <SimpleTimeSeries 
+                      data={charts.traffic.data} 
+                      seriesKeys={charts.traffic.series} 
+                      height={H_PANEL_MD - 100} 
+                      allowHorizontalScroll={false} 
+                    />
+                  </div>
+                </div>
               )}
             </Panel>
 
@@ -864,7 +875,17 @@ export default function AgentsPage() {
               ) : !charts.ssh ? (
                 <Loading label="Loading chart..." />
               ) : (
-                <SimpleTimeSeries data={charts.ssh.data} seriesKeys={charts.ssh.series} height={H_PANEL_MD - 80} />
+                // ALTERAÇÃO: Wrapper para centralizar, cortar scroll e fixar gráfico
+                <div className="h-full w-full flex items-center justify-center overflow-hidden">
+                  <div className="w-full max-w-full flex justify-center">
+                    <SimpleTimeSeries 
+                      data={charts.ssh.data} 
+                      seriesKeys={charts.ssh.series} 
+                      height={H_PANEL_MD - 100} 
+                      allowHorizontalScroll={false} 
+                    />
+                  </div>
+                </div>
               )}
             </Panel>
 
@@ -874,7 +895,17 @@ export default function AgentsPage() {
               ) : !charts.ddos ? (
                 <Loading label="Loading chart..." />
               ) : (
-                <SimpleTimeSeries data={charts.ddos.data} seriesKeys={charts.ddos.series} height={H_PANEL_MD - 80} />
+                // ALTERAÇÃO: Wrapper para centralizar, cortar scroll e fixar gráfico
+                <div className="h-full w-full flex items-center justify-center overflow-hidden">
+                  <div className="w-full max-w-full flex justify-center">
+                    <SimpleTimeSeries 
+                      data={charts.ddos.data} 
+                      seriesKeys={charts.ddos.series} 
+                      height={H_PANEL_MD - 100} 
+                      allowHorizontalScroll={false} 
+                    />
+                  </div>
+                </div>
               )}
             </Panel>
 
@@ -884,7 +915,17 @@ export default function AgentsPage() {
               ) : !charts.sev ? (
                 <Loading label="Loading chart..." />
               ) : (
-                <SimpleTimeSeries data={charts.sev.data} seriesKeys={charts.sev.series} height={H_PANEL_MD - 80} />
+                // ALTERAÇÃO: Wrapper para centralizar, cortar scroll e fixar gráfico
+                <div className="h-full w-full flex items-center justify-center overflow-hidden">
+                  <div className="w-full max-w-full flex justify-center">
+                    <SimpleTimeSeries 
+                      data={charts.sev.data} 
+                      seriesKeys={charts.sev.series} 
+                      height={H_PANEL_MD - 100} 
+                      allowHorizontalScroll={false} 
+                    />
+                  </div>
+                </div>
               )}
             </Panel>
           </div>

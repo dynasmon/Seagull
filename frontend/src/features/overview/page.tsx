@@ -5,14 +5,9 @@ import { Link } from "react-router-dom";
 import EmptyState from "@/shared/components/EmptyState";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
-import type { Alert, OverviewSnapshot } from "./types";
+import type { Alert } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
 import { useOverviewLive } from "./live";
-
-
-// Polling interval for a Grafana-like "live" dashboard experience.
-// Keep it modest to avoid hammering the API and the database.
-const POLL_MS = 5000;
 
 // One overview snapshot covers this time window.
 const WINDOW_MINUTES = 60;
@@ -40,7 +35,6 @@ function fmtHHMM(d: Date) {
 }
 
 function fmtDateTime(d: Date) {
-  // Grafana-like compact timestamp.
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
@@ -76,7 +70,6 @@ function CyberPanel({
   right?: ReactNode;
   className?: string;
   isCritical?: boolean;
-  /** Enable internal vertical scrolling (Grafana-like tables/panels). */
   scrollY?: boolean;
   bodyClassName?: string;
   style?: CSSProperties;
@@ -84,7 +77,6 @@ function CyberPanel({
   const borderClass = isCritical
     ? "border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
     : "border-border/60";
-  // Slightly darker body to avoid a washed-out KPI/panel look.
   const bgClass = isCritical ? "bg-red-950/10" : "bg-background/70";
 
   return (
@@ -108,6 +100,7 @@ function CyberPanel({
         </h3>
         {right && <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">{right}</div>}
       </div>
+
       <div
         className={cx(
           "p-3 flex-1 min-h-0",
@@ -157,11 +150,8 @@ function DashboardSection({
 
   return (
     <div className="space-y-4">
-      <button
-        type="button"
-        onClick={toggle}
-        className="w-full flex items-center gap-3 text-left select-none"
-      >
+      <button type="button" onClick={toggle} className="w-full flex items-center gap-3 text-left select-none">
+        {/* keep arrows exactly as-is */}
         <span className="text-muted-foreground font-mono text-xs">{open ? "▾" : "▸"}</span>
         <span className="text-[11px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
           {title}
@@ -209,8 +199,7 @@ function SeverityBadge({ severity }: { severity: string }) {
 }
 
 export default function OverviewPage() {
-  const { snapshot, isLoading, error, lastUpdatedAt, windowMinutes } = useOverviewLive();
-
+  const { snapshot, isLoading, error, lastUpdatedAt } = useOverviewLive();
 
   const derived = useMemo(() => {
     if (!snapshot) {
@@ -232,13 +221,11 @@ export default function OverviewPage() {
     const events5m = snapshot.kpis.events_5m;
     const alerts1h = snapshot.kpis.alerts_60m;
 
-    // Compute the total volume in the snapshot window.
     const events1h = snapshot.traffic.data.reduce((acc, row) => acc + sumRow(row), 0);
 
     const lastEvent = snapshot.raw_events?.[0]?.timestamp ? new Date(snapshot.raw_events[0].timestamp) : null;
     const lastEventTs = lastEvent ? fmtDateTime(lastEvent) : "-";
 
-    // DDoS detections in the last 5 minutes (based on ddos timeseries tail).
     const ddosRows = snapshot.ddos.data.slice(-5);
     const ddos5m = ddosRows.reduce((acc, row) => acc + sumRow(row), 0);
 
@@ -305,9 +292,14 @@ export default function OverviewPage() {
 
       <DashboardSection id="ingestion" title="INGESTION & HEALTH" defaultOpen>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <StatTile label="EVENTS (last 5m)" value={derived.events5m} tone={derived.events5m > 0 ? "default" : "default"} />
+          <StatTile label="EVENTS (last 5m)" value={derived.events5m} />
           <StatTile label={`EVENTS (last ${WINDOW_MINUTES}m)`} value={derived.events1h} />
-          <StatTile label="ACTIVE AGENTS" value={derived.onlineAgents} hint={`TOTAL: ${derived.totalAgents}`} tone={derived.onlineAgents > 0 ? "good" : "warn"} />
+          <StatTile
+            label="ACTIVE AGENTS"
+            value={derived.onlineAgents}
+            hint={`TOTAL: ${derived.totalAgents}`}
+            tone={derived.onlineAgents > 0 ? "good" : "warn"}
+          />
           <StatTile label="LAST EVENT TS" value={derived.lastEventTs} tone={derived.lastEventTs === "-" ? "warn" : "default"} />
           <StatTile label="ALERTS (last 1h)" value={derived.alerts1h} tone={derived.alerts1h > 0 ? "warn" : "good"} />
         </div>
@@ -328,7 +320,16 @@ export default function OverviewPage() {
             {snapshot.traffic.data.length === 0 ? (
               <EmptyState title="NO SIGNAL" hint="Waiting for telemetry..." />
             ) : (
-              <SimpleTimeSeries data={snapshot.traffic.data} seriesKeys={snapshot.traffic.series} height={260} minWidth={900} />
+              <div className="h-full w-full flex items-center justify-center overflow-hidden">
+                <div className="w-full max-w-full flex justify-center">
+                  <SimpleTimeSeries
+                    data={snapshot.traffic.data}
+                    seriesKeys={snapshot.traffic.series}
+                    height={250}
+                    allowHorizontalScroll={false}
+                  />
+                </div>
+              </div>
             )}
           </CyberPanel>
 
@@ -339,7 +340,16 @@ export default function OverviewPage() {
                   NO SSH FAILURES
                 </div>
               ) : (
-                <SimpleTimeSeries data={snapshot.ssh_failures.data} seriesKeys={snapshot.ssh_failures.series} height={170} minWidth={720} />
+                <div className="h-full w-full flex items-center justify-center overflow-hidden">
+                  <div className="w-full max-w-full flex justify-center">
+                    <SimpleTimeSeries
+                      data={snapshot.ssh_failures.data}
+                      seriesKeys={snapshot.ssh_failures.series}
+                      height={160}
+                      allowHorizontalScroll={false}
+                    />
+                  </div>
+                </div>
               )}
             </CyberPanel>
 
@@ -349,7 +359,16 @@ export default function OverviewPage() {
                   NO ACTIVE THREATS
                 </div>
               ) : (
-                <SimpleTimeSeries data={snapshot.alert_severity.data} seriesKeys={snapshot.alert_severity.series} height={170} minWidth={720} />
+                <div className="h-full w-full flex items-center justify-center overflow-hidden">
+                  <div className="w-full max-w-full flex justify-center">
+                    <SimpleTimeSeries
+                      data={snapshot.alert_severity.data}
+                      seriesKeys={snapshot.alert_severity.series}
+                      height={160}
+                      allowHorizontalScroll={false}
+                    />
+                  </div>
+                </div>
               )}
             </CyberPanel>
           </div>
@@ -549,7 +568,7 @@ export default function OverviewPage() {
       <DashboardSection id="ddos" title="DOS / DDOS" defaultOpen>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <StatTile label="DoS/DDoS detections (last 5m)" value={derived.ddos5m} tone={derived.ddos5m > 0 ? "warn" : "good"} />
-          <StatTile label="Last attack kind" value={derived.ddosLastKind} tone={derived.ddosLastKind === "-" ? "default" : "default"} />
+          <StatTile label="Last attack kind" value={derived.ddosLastKind} />
           <StatTile label="Last target" value={derived.ddosLastTarget} />
           <StatTile label="Alerts (critical/high)" value={snapshot.ddos_alerts.length} tone={snapshot.ddos_alerts.length > 0 ? "warn" : "good"} />
         </div>
@@ -559,7 +578,16 @@ export default function OverviewPage() {
             {snapshot.ddos.data.length === 0 ? (
               <EmptyState title="NO DDOS" hint="No DoS/DDoS detections available." />
             ) : (
-              <SimpleTimeSeries data={snapshot.ddos.data} seriesKeys={snapshot.ddos.series} height={170} minWidth={720} />
+              <div className="h-full w-full flex items-center justify-center overflow-hidden">
+                <div className="w-full max-w-full flex justify-center">
+                  <SimpleTimeSeries
+                    data={snapshot.ddos.data}
+                    seriesKeys={snapshot.ddos.series}
+                    height={160}
+                    allowHorizontalScroll={false}
+                  />
+                </div>
+              </div>
             )}
           </CyberPanel>
 

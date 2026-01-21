@@ -9,8 +9,6 @@ import {
   CartesianGrid
 } from "recharts";
 
-// A small palette to keep multiple series readable.
-// The UI specifically asked for distinct colors per line.
 const DEFAULT_PALETTE = [
   "#22d3ee",
   "#a78bfa",
@@ -40,18 +38,21 @@ export function SimpleTimeSeries({
   data,
   seriesKeys,
   height = 220,
-  minWidth = 720
+  minWidth = 720,
+  allowHorizontalScroll = true
 }: {
   data: Array<Record<string, any>>;
   seriesKeys: string[];
-  /** Fixed plot height in pixels (Grafana-style panels rely on fixed heights). */
   height?: number;
-  /** Minimum width (enables horizontal scrolling when the viewport is narrow). */
   minWidth?: number;
+  allowHorizontalScroll?: boolean;
 }) {
+  // IMPORTANT:
+  // - allowHorizontalScroll=true: wrapper is scrollable (overflow-x-auto)
+  // - allowHorizontalScroll=false: wrapper is strictly clipped (overflow-hidden) to prevent scrollbars/flickering
   return (
-    <div className="w-full overflow-x-auto">
-      <div style={{ minWidth }}>
+    <div className={allowHorizontalScroll ? "w-full overflow-x-auto" : "w-full overflow-hidden"}>
+      <div style={allowHorizontalScroll ? { minWidth } : { width: "100%" }}>
         <div style={{ width: "100%", height }}>
           <ResponsiveContainer>
             <LineChart data={data}>
@@ -63,7 +64,8 @@ export function SimpleTimeSeries({
               {seriesKeys.map((k, idx) => (
                 <Line
                   key={k}
-                  type="monotone"
+                  // CHANGE: "linear" makes lines straight (Grafana style) instead of curved ("monotone")
+                  type="linear"
                   dataKey={k}
                   dot={false}
                   strokeWidth={2}

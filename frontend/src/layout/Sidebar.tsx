@@ -1,5 +1,7 @@
+// frontend/src/layout/Sidebar.tsx
+
 import { useEffect, useMemo, useState } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 
 import { useAgentsCatalog } from "@/app/providers";
 
@@ -7,7 +9,16 @@ function cx(...v: Array<string | false | undefined | null>) {
   return v.filter(Boolean).join(" ");
 }
 
-function ItemIcon({ name }: { name: "dashboard" | "events" | "alerts" | "agents" | "inventory" | "settings" }) {
+function ActiveBar({ active }: { active: boolean }) {
+  if (!active) return null;
+  return <span className="absolute left-0 top-1 bottom-1 w-[3px] rounded-r bg-primary" />;
+}
+
+function ItemIcon({
+  name,
+}: {
+  name: "dashboard" | "events" | "alerts" | "agents" | "inventory" | "settings";
+}) {
   const common = "h-4 w-4";
   switch (name) {
     case "dashboard":
@@ -74,7 +85,11 @@ function ItemIcon({ name }: { name: "dashboard" | "events" | "alerts" | "agents"
 
 function Chevron({ open }: { open: boolean }) {
   return (
-    <svg className={cx("h-4 w-4 transition-transform", open ? "rotate-90" : "rotate-0")} viewBox="0 0 24 24" fill="none">
+    <svg
+      className={cx("h-4 w-4 transition-transform", open ? "rotate-90" : "rotate-0")}
+      viewBox="0 0 24 24"
+      fill="none"
+    >
       <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -82,12 +97,7 @@ function Chevron({ open }: { open: boolean }) {
 
 function Dot({ state }: { state: "online" | "offline" | "disabled" }) {
   const klass =
-    state === "disabled"
-      ? "bg-muted-foreground/70"
-      : state === "online"
-        ? "bg-emerald-400/90"
-        : "bg-amber-400/90";
-
+    state === "disabled" ? "bg-muted-foreground/70" : state === "online" ? "bg-emerald-400/90" : "bg-amber-400/90";
   return <span className={cx("h-2 w-2 rounded-full", klass)} />;
 }
 
@@ -108,17 +118,21 @@ function NavItem({
       title={collapsed ? label : undefined}
       className={({ isActive }) =>
         cx(
-          "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-          isActive
-            ? "bg-primary/10 text-foreground"
-            : "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
+          "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+          collapsed && "justify-center px-2",
+          isActive ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
         )
       }
     >
-      <span className="text-primary">
-        <ItemIcon name={icon} />
-      </span>
-      {!collapsed && <span className="truncate">{label}</span>}
+      {({ isActive }) => (
+        <>
+          <ActiveBar active={isActive} />
+          <span className="text-primary">
+            <ItemIcon name={icon} />
+          </span>
+          {!collapsed && <span className="truncate">{label}</span>}
+        </>
+      )}
     </NavLink>
   );
 }
@@ -162,9 +176,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
   });
 
   useEffect(() => {
-    if (location.pathname.startsWith("/agents")) {
-      setAgentsOpen(true);
-    }
+    if (location.pathname.startsWith("/agents")) setAgentsOpen(true);
   }, [location.pathname]);
 
   function toggleAgentsOpen() {
@@ -177,22 +189,45 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
     }
   }
 
-  function goAgentsRoot() {
-    nav("/agents");
+  function updateUrlAgentParam(agentId: string) {
+    const safe = (agentId || "").trim();
+    const sp = new URLSearchParams(location.search);
+    if (safe) sp.set("agent_id", safe);
+    else sp.delete("agent_id");
+
+    const search = sp.toString();
+
+    // Se o usuário está no console de agentes, mantém a rota canônica /agents
+    if (location.pathname.startsWith("/agents")) {
+      nav(safe ? `/agents?agent_id=${encodeURIComponent(safe)}` : "/agents", { replace: true });
+      return;
+    }
+
+    // Em qualquer outra tela, só reflete a seleção no query param sem trocar a rota
+    nav({ pathname: location.pathname, search: search ? `?${search}` : "" }, { replace: true });
   }
 
   function selectAgent(agentId: string) {
     setSelectedAgentId(agentId);
-    nav("/agents?agent_id=" + encodeURIComponent(agentId));
+    updateUrlAgentParam(agentId);
   }
 
   function selectAllAgents() {
     setSelectedAgentId("");
-    nav("/agents");
+    updateUrlAgentParam("");
   }
 
   const now = Date.now();
   const onlineWindowMs = 90_000;
+
+  const selectedAgentLabel = useMemo(() => {
+    const sel = (selectedAgentId || "").trim();
+    if (!sel) return "ALL";
+    const found = agentsSorted.find((a) => a.agent_id === sel);
+    if (!found) return sel;
+    const dn = (found.display_name || "").trim();
+    return dn ? dn : sel;
+  }, [agentsSorted, selectedAgentId]);
 
   return (
     <aside
@@ -231,130 +266,145 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
           )}
 
           <div className="space-y-1">
-            {/* Agents group header (VS Code-like explorer) */}
-            <div
-              className={cx(
-                "rounded-md border border-transparent transition-colors",
-                location.pathname.startsWith("/agents") ? "bg-primary/10" : "hover:bg-muted/10"
-              )}
-            >
-              <div className="flex items-center">
-                <button
-                  type="button"
-                  onClick={toggleAgentsOpen}
-                  className={cx(
-                    "ml-1 mr-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground",
-                    "hover:bg-background/30 hover:text-foreground"
-                  )}
-                  aria-label="Toggle agents list"
-                >
-                  <Chevron open={agentsOpen} />
-                </button>
+            {/* Agents (explorer-style) */}
+            <div className="space-y-1">
+              <button
+                type="button"
+                onClick={toggleAgentsOpen}
+                title={collapsed ? "Agents" : undefined}
+                className={cx(
+                  "relative flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+                  collapsed && "justify-center px-2",
+                  agentsOpen || selectedAgentId || location.pathname.startsWith("/agents")
+                    ? "bg-primary/10 text-foreground"
+                    : "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
+                )}
+                aria-expanded={agentsOpen}
+              >
+                <ActiveBar active={agentsOpen || !!selectedAgentId || location.pathname.startsWith("/agents")} />
+                <Chevron open={agentsOpen} />
+                <span className="text-primary">
+                  <ItemIcon name="agents" />
+                </span>
+                {!collapsed && <span className="truncate">Agents</span>}
 
-                <button
-                  type="button"
-                  onClick={goAgentsRoot}
-                  className={cx(
-                    "flex flex-1 items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors",
-                    location.pathname.startsWith("/agents") ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <span className="text-primary">
-                    <ItemIcon name="agents" />
+                {!collapsed && (
+                  <span className="ml-auto max-w-[140px] truncate rounded border border-border/60 bg-background/20 px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                    {selectedAgentLabel}
                   </span>
-                  {!collapsed && <span className="truncate">Agents</span>}
-                </button>
-              </div>
+                )}
+              </button>
 
-              {/* Agent list */}
               {!collapsed && agentsOpen && (
-                <div className="px-2 pb-2">
-                  <div className="mt-1 rounded-lg border border-border/60 bg-background/20">
-                    {/* All agents (like a workspace root item) */}
-                    <button
-                      type="button"
-                      onClick={selectAllAgents}
-                      className={cx(
-                        "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
-                        !selectedAgentId
-                          ? "bg-background/40 text-foreground"
-                          : "text-muted-foreground hover:bg-background/30 hover:text-foreground"
-                      )}
-                    >
-                      <span className="text-muted-foreground">
-                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-                          <path
-                            d="M4 7h7l2 2h7v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </span>
-                      <span className="truncate">All agents</span>
-
-                      <span className="ml-auto text-[10px] font-mono text-muted-foreground">
-                        {agentsSorted.length}
-                      </span>
-                    </button>
-
-                    <div className="h-px bg-border/60" />
-
-                    {isLoading ? (
-                      <div className="p-3 space-y-2">
-                        <div className="h-3 w-2/3 rounded bg-muted/20" />
-                        <div className="h-3 w-1/2 rounded bg-muted/20" />
-                        <div className="h-3 w-3/4 rounded bg-muted/20" />
-                      </div>
-                    ) : (
-                      <div className="max-h-[260px] overflow-y-auto py-1">
-                        {agentsSorted.map((a) => {
-                          const last = parseIso(a.last_seen_at);
-                          const state: "online" | "offline" | "disabled" = a.is_revoked
-                            ? "disabled"
-                            : last && now - last <= onlineWindowMs
-                              ? "online"
-                              : "offline";
-
-                          const title = a.display_name ? `${a.display_name} (${a.agent_id})` : a.agent_id;
-                          const active = selectedAgentId === a.agent_id;
-
-                          return (
-                            <button
-                              key={a.agent_id}
-                              type="button"
-                              onClick={() => selectAgent(a.agent_id)}
-                              className={cx(
-                                "group flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
-                                active ? "bg-background/40 text-foreground" : "text-muted-foreground hover:bg-background/30 hover:text-foreground"
-                              )}
-                              title={title}
-                            >
-                              <Dot state={state} />
-
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate">
-                                  {a.display_name ? a.display_name : a.agent_id}
-                                </span>
-                                <span className="block truncate text-[10px] font-mono text-muted-foreground/80">
-                                  {a.agent_id}
-                                </span>
-                              </span>
-
-                              {a.is_revoked && (
-                                <span className="rounded border border-border/60 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
-                                  Disabled
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
+                <div className="ml-4 border-l border-border/50 pl-2 space-y-1">
+                  {/* Console (link de ação, sem estado "ativo") */}
+                  <Link
+                    to="/agents"
+                    className={cx(
+                      "flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+                      "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
                     )}
-                  </div>
+                    title="Open Agents console"
+                  >
+                    <span className="text-muted-foreground">
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <path
+                          d="M4 6h16v12H4V6Zm4 3h8M8 12h5"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+
+                    <span className="truncate">Console</span>
+
+                    <span className="ml-auto text-[10px] font-mono text-muted-foreground/70">↗</span>
+                  </Link>
+
+                  <button
+                    type="button"
+                    onClick={selectAllAgents}
+                    className={cx(
+                      "relative flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
+                      !selectedAgentId
+                        ? "bg-primary/10 text-foreground"
+                        : "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
+                    )}
+                    title="Select all agents"
+                  >
+                    <ActiveBar active={!selectedAgentId} />
+                    <span className="text-muted-foreground">
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <path
+                          d="M4 7h7l2 2h7v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                    <span className="truncate">All agents</span>
+                    <span className="ml-auto text-[10px] font-mono text-muted-foreground">{agentsSorted.length}</span>
+                  </button>
+
+                  <div className="h-px bg-border/60" />
+
+                  {isLoading ? (
+                    <div className="px-3 py-2 space-y-2">
+                      <div className="h-3 w-2/3 rounded bg-muted/20" />
+                      <div className="h-3 w-1/2 rounded bg-muted/20" />
+                      <div className="h-3 w-3/4 rounded bg-muted/20" />
+                    </div>
+                  ) : (
+                    <div className="max-h-[260px] overflow-y-auto py-1">
+                      {agentsSorted.map((a) => {
+                        const last = parseIso(a.last_seen_at);
+                        const state: "online" | "offline" | "disabled" = a.is_revoked
+                          ? "disabled"
+                          : last && now - last <= onlineWindowMs
+                            ? "online"
+                            : "offline";
+
+                        const title = a.display_name ? `${a.display_name} (${a.agent_id})` : a.agent_id;
+                        const active = selectedAgentId === a.agent_id;
+
+                        return (
+                          <button
+                            key={a.agent_id}
+                            type="button"
+                            onClick={() => selectAgent(a.agent_id)}
+                            className={cx(
+                              "relative group flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
+                              active
+                                ? "bg-primary/10 text-foreground"
+                                : "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
+                            )}
+                            title={title}
+                          >
+                            <ActiveBar active={active} />
+                            <Dot state={state} />
+
+                            <span className="min-w-0 flex-1 truncate">{a.display_name ? a.display_name : a.agent_id}</span>
+
+                            <span className="ml-auto hidden max-w-[140px] truncate text-[10px] font-mono text-muted-foreground/80 md:inline">
+                              {a.agent_id}
+                            </span>
+
+                            {a.is_revoked && (
+                              <span className="rounded border border-border/60 bg-background/20 px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                                Disabled
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {error && (
-                    <div className="mt-2 rounded-md border border-border/60 bg-background/20 px-3 py-2 text-[11px] text-muted-foreground">
+                    <div className="mt-1 rounded-md border border-border/60 bg-background/20 px-3 py-2 text-[11px] text-muted-foreground">
                       {error}
                     </div>
                   )}
