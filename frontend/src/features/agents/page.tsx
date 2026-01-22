@@ -4,7 +4,6 @@ import { useSearchParams } from "react-router-dom";
 
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
-import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 
 import { useAgentsCatalog } from "@/app/providers";
@@ -23,7 +22,6 @@ import type { AgentDetail, AgentPublic, AgentUpdateIn } from "./types";
 // Grafana-like fixed panel heights.
 const H_PANEL_SM = 240;
 const H_PANEL_MD = 320;
-const H_PANEL_LIST = 380;
 const H_PANEL_STREAM = 520;
 
 const DEFAULT_WINDOW_MINUTES = 60;
@@ -128,7 +126,6 @@ function Panel({
         <h3 className="text-xs font-bold uppercase tracking-widest font-mono text-primary/90">{title}</h3>
         {right && <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">{right}</div>}
       </div>
-      {/* ALTERAÇÃO: overflow-hidden explícito aqui também para reforçar */}
       <div className={cx("p-3 flex-1 min-h-0", scrollY ? "overflow-y-auto" : "overflow-hidden")}>{children}</div>
     </div>
   );
@@ -196,12 +193,11 @@ function pickTimingKeys(config: Record<string, any>): string[] {
     if (!re.test(k)) continue;
     if (typeof v === "number" && Number.isFinite(v)) keys.push(k);
   }
-  // Prefer stable ordering.
   return keys.sort().slice(0, 12);
 }
 
 export default function AgentsPage() {
-  const { agents, isLoading: agentsLoading, error: agentsError, selectedAgentId, setSelectedAgentId, refresh } = useAgentsCatalog();
+  const { agents, selectedAgentId, setSelectedAgentId, refresh } = useAgentsCatalog();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [agent, setAgent] = useState<AgentDetail | null>(null);
@@ -233,25 +229,17 @@ export default function AgentsPage() {
 
   const inFlightTelemetry = useRef(false);
 
-  // Allow deep-linking: /agents?agent_id=...
+  const lastUrlId = useRef<string | null>(null);
+
   useEffect(() => {
     const q = (searchParams.get("agent_id") || "").trim();
-    if (q && q !== selectedAgentId) setSelectedAgentId(q);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
-  useEffect(() => {
-    if (!selectedAgentId) {
-      setAgent(null);
-      setSnapshot(null);
-      setEvents([]);
-      setAgentError(null);
-      setTelemetryError(null);
-      return;
-    }
+    // Só aplica quando de fato houve mudança na URL
+    if (lastUrlId.current === q) return;
+    lastUrlId.current = q;
 
-    setSearchParams({ agent_id: selectedAgentId });
-  }, [selectedAgentId, setSearchParams]);
+    setSelectedAgentId(q);
+  }, [searchParams, setSelectedAgentId]);
 
   const selectedAgentRow = useMemo<AgentPublic | null>(() => {
     if (!selectedAgentId) return null;
@@ -301,8 +289,15 @@ export default function AgentsPage() {
     }
   }, [eventsLimit, windowMinutes]);
 
+  // Recarrega os dados quando o selectedAgentId muda
   useEffect(() => {
-    if (!selectedAgentId) return;
+    if (!selectedAgentId) {
+      // Limpa os dados se nenhum agente estiver selecionado
+      setAgent(null);
+      setSnapshot(null);
+      setEvents([]);
+      return;
+    }
     loadAgent(selectedAgentId);
     loadTelemetry(selectedAgentId);
   }, [selectedAgentId, loadAgent, loadTelemetry]);
@@ -313,7 +308,6 @@ export default function AgentsPage() {
 
     const t = window.setInterval(() => {
       loadTelemetry(selectedAgentId);
-      // Refresh the agent catalog occasionally (keeps sidebar correct).
       refresh();
     }, Math.max(2000, pollMs));
 
@@ -476,54 +470,37 @@ export default function AgentsPage() {
     };
   }, [snapshot]);
 
-  const agentColumns = useMemo(() => {
-    return [
-      {
-        key: "status",
-        title: "Status",
-        width: 90,
-        render: (a: AgentPublic) => {
-          const online = isOnline(a.last_seen_at);
-          const label = a.is_revoked ? "DISABLED" : online ? "ONLINE" : "OFFLINE";
-          const tone = a.is_revoked ? "text-orange-500" : online ? "text-green-500" : "text-muted-foreground";
-          return <span className={cx("font-mono text-[10px] uppercase tracking-widest", tone)}>{label}</span>;
-        }
-      },
-      {
-        key: "agent_id",
-        title: "Agent",
-        render: (a: AgentPublic) => (
-          <div className="space-y-1">
-            <div className="font-mono text-[11px]">{a.agent_id}</div>
-            {a.display_name && <div className="text-[11px] text-muted-foreground">{a.display_name}</div>}
-          </div>
-        )
-      },
-      {
-        key: "last_seen_at",
-        title: "Last seen",
-        width: 160,
-        render: (a: AgentPublic) => {
-          if (!a.last_seen_at) return <span className="text-muted-foreground">-</span>;
-          const d = new Date(a.last_seen_at);
-          return <span className="font-mono text-[11px]">{Number.isNaN(d.getTime()) ? a.last_seen_at : fmtDateTime(d)}</span>;
-        }
-      }
-    ];
-  }, []);
-
   const eventsRate = useMemo(() => {
     if (!snapshot) return "-";
     return String(snapshot.kpis.events_5m);
   }, [snapshot]);
 
+  // --- RENDER ---
+
+  if (!selectedAgentId) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-semibold">Agents</h1>
+        <div className="min-h-[60vh] flex flex-col items-center justify-center border border-dashed border-border/60 bg-background/20 rounded-lg">
+          <EmptyState
+            title="No Agent Selected"
+            hint="Select an agent from the sidebar to view details, configure settings, and inspect telemetry."
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-1">
-          <h1 className="text-xl font-semibold">Agents</h1>
-          <div className="text-sm text-muted-foreground">
-            Manage agent identity, configuration and runtime state. Inspect charts and raw events per agent.
+          <h1 className="text-xl font-semibold flex items-center gap-2">
+            <span className="text-muted-foreground font-normal">Agent /</span>
+            <span>{agent?.display_name || selectedAgentId}</span>
+          </h1>
+          <div className="text-sm text-muted-foreground font-mono text-[11px] opacity-70">
+            ID: {selectedAgentId}
           </div>
         </div>
 
@@ -531,10 +508,8 @@ export default function AgentsPage() {
           <button
             type="button"
             onClick={() => {
-              if (selectedAgentId) {
-                loadAgent(selectedAgentId);
-                loadTelemetry(selectedAgentId);
-              }
+              loadAgent(selectedAgentId);
+              loadTelemetry(selectedAgentId);
               refresh();
             }}
             className={cx(
@@ -573,73 +548,15 @@ export default function AgentsPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-12">
-        {/* LEFT: catalog + management */}
+        {/* LEFT COLUMN: MANAGEMENT (Identity, Config) */}
         <div className="xl:col-span-4 space-y-4">
-          <Panel
-            title="Catalog"
-            right={
-              agentsLoading ? "Loading" : agentsError ? "Error" : `${agents.length} agents`
-            }
-            style={{ height: H_PANEL_LIST }}
-          >
-            {agentsLoading ? (
-              <Loading label="Loading agents..." />
-            ) : agents.length === 0 ? (
-              <EmptyState
-                title="No agents"
-                hint="Enroll an agent, then refresh this page."
-              />
-            ) : (
-              <div className="h-full overflow-auto">
-                <Table
-                  columns={agentColumns}
-                  rows={agents}
-                  rowKey={(r) => r.agent_id}
-                  className="text-sm"
-                />
-
-                <div className="mt-2 text-[11px] text-muted-foreground">
-                  Tip: use the sidebar dropdown to jump directly to an agent.
-                </div>
-              </div>
-            )}
-
-            {agentsError && <div className="mt-2 text-[11px] text-red-400">{agentsError}</div>}
-          </Panel>
-
-          <Panel title="Selected" style={{ height: H_PANEL_SM }}>
-            {!selectedAgentId ? (
-              <EmptyState title="Select an agent" hint="Pick an agent from the sidebar dropdown or the catalog." />
-            ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <StatTile label="Status" value={topStats.status} tone={topStats.online ? "good" : selectedAgentRow?.is_revoked ? "warn" : "default"} />
-                  <StatTile label="Events / 5m" value={eventsRate} />
-                </div>
-
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Agent ID</span>
-                    <span className="font-mono">{selectedAgentId}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Last seen</span>
-                    <span className="font-mono">{topStats.lastSeen}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </Panel>
-
           <Panel
             title="Identity & State"
             right={agent?.is_revoked ? "Disabled" : "Enabled"}
             scrollY
             style={{ height: H_PANEL_MD }}
           >
-            {!selectedAgentId ? (
-              <EmptyState title="No agent selected" />
-            ) : agentLoading ? (
+            {agentLoading ? (
               <Loading label="Loading agent details..." />
             ) : !agent ? (
               <EmptyState title="Agent not loaded" hint="Check connectivity and admin token." />
@@ -676,24 +593,21 @@ export default function AgentsPage() {
                     placeholder="prod, web, ssh, dmz"
                     disabled={saveBusy}
                   />
-                  <div className="mt-1 text-[11px] text-muted-foreground">Comma-separated. Stored as a list.</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">Comma-separated.</div>
                 </div>
 
                 <div>
-                  <FieldLabel>Metadata (JSON object)</FieldLabel>
+                  <FieldLabel>Metadata (JSON)</FieldLabel>
                   <textarea
                     className={textAreaClassName(saveBusy)}
-                    rows={6}
+                    rows={4}
                     value={draftMetaText}
                     onChange={(e) => setDraftMetaText(e.target.value)}
                     disabled={saveBusy}
                   />
-                  <div className="mt-1 text-[11px] text-muted-foreground">
-                    This is stored in the database and can be used for filtering and automation.
-                  </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center justify-between gap-3 pt-2">
                   <button
                     type="button"
                     onClick={onSaveAgent}
@@ -726,13 +640,12 @@ export default function AgentsPage() {
                 </div>
               </div>
             )}
-
             {agentError && <div className="mt-3 text-[11px] text-red-400">{agentError}</div>}
           </Panel>
 
           <Panel title="Config" scrollY style={{ height: H_PANEL_STREAM }}>
             {!agent ? (
-              <EmptyState title="Select an agent" hint="Config is per-agent." />
+              <EmptyState title="Agent not loaded" />
             ) : (
               <div className="space-y-4">
                 {timingKeys.length > 0 && (
@@ -756,27 +669,21 @@ export default function AgentsPage() {
                         </div>
                       ))}
                     </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      These fields are detected automatically from the config root object.
-                    </div>
                   </div>
                 )}
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <FieldLabel>Raw config (JSON object)</FieldLabel>
+                    <FieldLabel>Raw config</FieldLabel>
                     <button
                       type="button"
                       onClick={() => {
                         const parsed = safeJsonParse(configText);
                         if (parsed.ok) setConfigText(prettyJson(parsed.value));
                       }}
-                      className={cx(
-                        "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                        "hover:bg-primary/5"
-                      )}
+                      className="text-[10px] text-primary hover:underline"
                     >
-                      Beautify
+                      Format
                     </button>
                   </div>
 
@@ -791,44 +698,13 @@ export default function AgentsPage() {
                   {configParseError && <div className="mt-2 text-[11px] text-red-400">Config: {configParseError}</div>}
                 </div>
 
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <FieldLabel>Window</FieldLabel>
-                    <select
-                      className={cx(
-                        "border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-                        "focus:ring-2 focus:ring-primary/30"
-                      )}
-                      value={String(windowMinutes)}
-                      onChange={(e) => setWindowMinutes(Number(e.target.value))}
-                    >
-                      <option value={15}>15m</option>
-                      <option value={60}>60m</option>
-                      <option value={360}>6h</option>
-                      <option value={1440}>24h</option>
-                    </select>
-
-                    <FieldLabel>Events</FieldLabel>
-                    <select
-                      className={cx(
-                        "border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-                        "focus:ring-2 focus:ring-primary/30"
-                      )}
-                      value={String(eventsLimit)}
-                      onChange={(e) => setEventsLimit(Number(e.target.value))}
-                    >
-                      <option value={200}>200</option>
-                      <option value={500}>500</option>
-                      <option value={1000}>1000</option>
-                    </select>
-                  </div>
-
+                <div className="flex items-center justify-between gap-3 pt-2">
                   <button
                     type="button"
                     onClick={onApplyConfig}
                     disabled={configBusy || Boolean(configParseError)}
                     className={cx(
-                      "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                      "w-full border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
                       "hover:bg-primary/5",
                       (configBusy || Boolean(configParseError)) && "opacity-60 cursor-not-allowed"
                     )}
@@ -836,26 +712,25 @@ export default function AgentsPage() {
                     {configBusy ? "Pushing..." : "Push config"}
                   </button>
                 </div>
-
-                <div className="text-[11px] text-muted-foreground">
-                  Pushing config updates the agent's next config pull. Disable/enable controls whether the backend will
-                  serve config and accept telemetry for this agent.
-                </div>
               </div>
             )}
           </Panel>
         </div>
 
-        {/* RIGHT: charts + events */}
+        {/* RIGHT COLUMN: TELEMETRY (Stats, Charts, Events) */}
         <div className="xl:col-span-8 space-y-4">
+          <Panel title="Live Status" style={{ height: 100 }}>
+             <div className="grid grid-cols-2 gap-4 h-full items-center">
+                <StatTile label="Status" value={topStats.status} tone={topStats.online ? "good" : selectedAgentRow?.is_revoked ? "warn" : "default"} />
+                <StatTile label="Events / 5m" value={eventsRate} />
+             </div>
+          </Panel>
+
           <div className="grid gap-4 lg:grid-cols-2">
             <Panel title="Traffic" style={{ height: H_PANEL_MD }}>
-              {!selectedAgentId ? (
-                <EmptyState title="Select an agent" />
-              ) : !charts.traffic ? (
+              {!charts.traffic ? (
                 <Loading label="Loading chart..." />
               ) : (
-                // ALTERAÇÃO: Wrapper para centralizar, cortar scroll e fixar gráfico
                 <div className="h-full w-full flex items-center justify-center overflow-hidden">
                   <div className="w-full max-w-full flex justify-center">
                     <SimpleTimeSeries 
@@ -870,12 +745,9 @@ export default function AgentsPage() {
             </Panel>
 
             <Panel title="SSH failures" style={{ height: H_PANEL_MD }}>
-              {!selectedAgentId ? (
-                <EmptyState title="Select an agent" />
-              ) : !charts.ssh ? (
+              {!charts.ssh ? (
                 <Loading label="Loading chart..." />
               ) : (
-                // ALTERAÇÃO: Wrapper para centralizar, cortar scroll e fixar gráfico
                 <div className="h-full w-full flex items-center justify-center overflow-hidden">
                   <div className="w-full max-w-full flex justify-center">
                     <SimpleTimeSeries 
@@ -890,12 +762,9 @@ export default function AgentsPage() {
             </Panel>
 
             <Panel title="DDoS" style={{ height: H_PANEL_MD }}>
-              {!selectedAgentId ? (
-                <EmptyState title="Select an agent" />
-              ) : !charts.ddos ? (
+              {!charts.ddos ? (
                 <Loading label="Loading chart..." />
               ) : (
-                // ALTERAÇÃO: Wrapper para centralizar, cortar scroll e fixar gráfico
                 <div className="h-full w-full flex items-center justify-center overflow-hidden">
                   <div className="w-full max-w-full flex justify-center">
                     <SimpleTimeSeries 
@@ -910,12 +779,9 @@ export default function AgentsPage() {
             </Panel>
 
             <Panel title="Alert severity" style={{ height: H_PANEL_MD }}>
-              {!selectedAgentId ? (
-                <EmptyState title="Select an agent" />
-              ) : !charts.sev ? (
+              {!charts.sev ? (
                 <Loading label="Loading chart..." />
               ) : (
-                // ALTERAÇÃO: Wrapper para centralizar, cortar scroll e fixar gráfico
                 <div className="h-full w-full flex items-center justify-center overflow-hidden">
                   <div className="w-full max-w-full flex justify-center">
                     <SimpleTimeSeries 
@@ -936,9 +802,7 @@ export default function AgentsPage() {
             scrollY
             style={{ height: H_PANEL_STREAM }}
           >
-            {!selectedAgentId ? (
-              <EmptyState title="Select an agent" hint="Events will stream for the selected agent." />
-            ) : telemetryError ? (
+            {telemetryError ? (
               <EmptyState title="Telemetry error" hint={telemetryError} />
             ) : events.length === 0 ? (
               <EmptyState title="No events" hint="This agent has no recent telemetry." />
@@ -949,10 +813,7 @@ export default function AgentsPage() {
                   selectedId={null}
                   compact
                   showExtra
-                  onSelect={() => {
-                    // This page intentionally keeps the events stream compact.
-                    // Use the Events page for deep inspection.
-                  }}
+                  onSelect={() => {}}
                 />
               </div>
             )}
