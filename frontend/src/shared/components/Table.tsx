@@ -12,15 +12,18 @@ export function Table<T>({
   columns,
   rows,
   rowKey,
-  className
+  className,
+  scrollX = true
 }: {
   columns: Array<Column<T>>;
   rows: T[];
   rowKey: (row: T, idx: number) => string;
   className?: string;
+  /** Enable horizontal scrolling when the table content is wider than its container. */
+  scrollX?: boolean;
 }) {
   return (
-    <div className="overflow-auto border border-border/60 bg-background/30">
+    <div className={`border border-border/60 bg-background/30 overflow-y-auto ${scrollX ? "overflow-x-auto" : "overflow-x-hidden"}`}>
       <table className={`w-full ${className || "text-sm"}`}>
         <thead className="bg-muted/10 text-left text-[10px] text-muted-foreground font-mono uppercase tracking-widest">
           <tr>

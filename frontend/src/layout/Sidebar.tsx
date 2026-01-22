@@ -1,5 +1,3 @@
-// frontend/src/layout/Sidebar.tsx
-
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
@@ -164,8 +162,6 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
     return copy;
   }, [agents]);
 
-  // Determine if the parent "Agents" button should be visually active (blue).
-  // Only if the current route starts with "/agents".
   const isAgentsRoute = location.pathname.startsWith("/agents");
 
   const [agentsOpen, setAgentsOpen] = useState<boolean>(() => {
@@ -191,29 +187,19 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
     } catch {
       // no-op
     }
-  }
 
-  function updateUrlAgentParam(agentId: string) {
-    const safe = (agentId || "").trim();
-    const sp = new URLSearchParams(location.search);
-    if (safe) sp.set("agent_id", safe);
-    else sp.delete("agent_id");
-
-    const search = sp.toString();
-
-    // If user is already on the agents console, keep the canonical /agents route.
-    if (location.pathname.startsWith("/agents")) {
-      nav(safe ? `/agents?agent_id=${encodeURIComponent(safe)}` : "/agents", { replace: true });
-      return;
+    // Se o usuário abriu a árvore de Agents fora da rota /agents,
+    // navegue para /agents para fazer sentido visual/funcional.
+    if (next && !isAgentsRoute) {
+      nav("/agents");
     }
-
-    // On any other screen, just reflect the selection in the query param without changing routes.
-    nav({ pathname: location.pathname, search: search ? `?${search}` : "" }, { replace: true });
   }
 
+  // CORREÇÃO: selecionar agente deve levar para /agents (não apenas mudar query na rota atual)
   function selectAgent(agentId: string) {
-    setSelectedAgentId(agentId);
-    updateUrlAgentParam(agentId);
+    const safe = (agentId || "").trim();
+    setSelectedAgentId(safe);
+    nav(safe ? `/agents?agent_id=${encodeURIComponent(safe)}` : "/agents");
   }
 
   const now = Date.now();
@@ -256,7 +242,6 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
           )}
 
           <div className="space-y-1">
-            {/* Agents (explorer-style) */}
             <div className="space-y-1">
               <button
                 type="button"
@@ -265,7 +250,6 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
                 className={cx(
                   "relative flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
                   collapsed && "justify-center px-2",
-                  // Only use isAgentsRoute to define active style
                   isAgentsRoute
                     ? "bg-primary/10 text-foreground"
                     : "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
@@ -295,7 +279,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
                           No agents found
                         </div>
                       )}
-                      
+
                       {agentsSorted.map((a) => {
                         const last = parseIso(a.last_seen_at);
                         const state: "online" | "offline" | "disabled" = a.is_revoked
@@ -322,7 +306,6 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
                           >
                             <ActiveBar active={active} />
                             <Dot state={state} />
-
                             <span className="min-w-0 flex-1 truncate">{a.display_name ? a.display_name : a.agent_id}</span>
                           </button>
                         );

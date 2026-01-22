@@ -386,10 +386,10 @@ export default function OverviewPage() {
             {snapshot.recent_ssh.length === 0 ? (
               <EmptyState title="NO SSH EVENTS" hint="No SSH auth events available in the current window." />
             ) : (
-              <div className="min-w-[860px]">
-                <Table
-                  className="text-xs"
-                  columns={[
+              <Table
+                scrollX={false}
+                className="text-xs"
+                columns={[
                     {
                       key: "time",
                       title: "TIME",
@@ -446,8 +446,7 @@ export default function OverviewPage() {
                   ]}
                   rows={snapshot.recent_ssh as any}
                   rowKey={(r: any, i) => `${r.ts || r.time || r.timestamp || i}`}
-                />
-              </div>
+              />
             )}
           </CyberPanel>
 
@@ -464,10 +463,10 @@ export default function OverviewPage() {
             {snapshot.recent_alerts.length === 0 ? (
               <EmptyState title="NO ALERTS" hint="No alerts found in the current window." />
             ) : (
-              <div className="min-w-[720px]">
-                <Table
-                  className="text-xs"
-                  columns={[
+              <Table
+                scrollX={false}
+                className="text-xs"
+                columns={[
                     {
                       key: "created_at",
                       title: "TIME",
@@ -481,8 +480,7 @@ export default function OverviewPage() {
                   ]}
                   rows={snapshot.recent_alerts}
                   rowKey={(r) => String(r.id)}
-                />
-              </div>
+              />
             )}
           </CyberPanel>
         </div>
@@ -541,10 +539,10 @@ export default function OverviewPage() {
           {snapshot.raw_events.length === 0 ? (
             <EmptyState title="NO EVENTS" hint="No raw events are available." />
           ) : (
-            <div className="min-w-[860px]">
-              <Table
-                className="text-xs"
-                columns={[
+            <Table
+              scrollX={false}
+              className="text-xs"
+              columns={[
                   {
                     key: "timestamp",
                     title: "TIME",
@@ -559,8 +557,7 @@ export default function OverviewPage() {
                 ]}
                 rows={snapshot.raw_events}
                 rowKey={(r: any) => String(r.id)}
-              />
-            </div>
+            />
           )}
         </CyberPanel>
       </DashboardSection>
@@ -595,10 +592,10 @@ export default function OverviewPage() {
             {snapshot.ddos_alerts.length === 0 ? (
               <EmptyState title="NO DDOS ALERTS" hint="No critical/high DoS/DDoS alerts found." />
             ) : (
-              <div className="min-w-[860px]">
-                <Table
-                  className="text-xs"
-                  columns={[
+              <Table
+                scrollX={false}
+                className="text-xs"
+                columns={[
                     {
                       key: "created_at",
                       title: "TIME",
@@ -614,8 +611,7 @@ export default function OverviewPage() {
                   ]}
                   rows={snapshot.ddos_alerts}
                   rowKey={(r) => String(r.id)}
-                />
-              </div>
+              />
             )}
           </CyberPanel>
         </div>

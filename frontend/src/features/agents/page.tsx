@@ -23,6 +23,8 @@ import type { AgentDetail, AgentPublic, AgentUpdateIn } from "./types";
 const H_PANEL_SM = 240;
 const H_PANEL_MD = 320;
 const H_PANEL_STREAM = 520;
+// FIX: Increased height for Live Status panel to prevent cutting off content
+const H_PANEL_LIVE_STATUS = 140; 
 
 const DEFAULT_WINDOW_MINUTES = 60;
 const DEFAULT_EVENTS_LIMIT = 500;
@@ -229,17 +231,15 @@ export default function AgentsPage() {
 
   const inFlightTelemetry = useRef(false);
 
-  const lastUrlId = useRef<string | null>(null);
-
+  // Sync URL -> State
   useEffect(() => {
     const q = (searchParams.get("agent_id") || "").trim();
-
-    // Só aplica quando de fato houve mudança na URL
-    if (lastUrlId.current === q) return;
-    lastUrlId.current = q;
-
-    setSelectedAgentId(q);
-  }, [searchParams, setSelectedAgentId]);
+    if (q && q !== selectedAgentId) {
+      setSelectedAgentId(q);
+    } else if (!q && selectedAgentId) {
+      setSelectedAgentId(""); 
+    }
+  }, [searchParams, selectedAgentId, setSelectedAgentId]);
 
   const selectedAgentRow = useMemo<AgentPublic | null>(() => {
     if (!selectedAgentId) return null;
@@ -289,10 +289,9 @@ export default function AgentsPage() {
     }
   }, [eventsLimit, windowMinutes]);
 
-  // Recarrega os dados quando o selectedAgentId muda
+  // Reload data when selectedAgentId changes
   useEffect(() => {
     if (!selectedAgentId) {
-      // Limpa os dados se nenhum agente estiver selecionado
       setAgent(null);
       setSnapshot(null);
       setEvents([]);
@@ -719,7 +718,8 @@ export default function AgentsPage() {
 
         {/* RIGHT COLUMN: TELEMETRY (Stats, Charts, Events) */}
         <div className="xl:col-span-8 space-y-4">
-          <Panel title="Live Status" style={{ height: 100 }}>
+          {/* FIX: Increased panel height from 100 to H_PANEL_LIVE_STATUS (140) */}
+          <Panel title="Live Status" style={{ height: H_PANEL_LIVE_STATUS }}>
              <div className="grid grid-cols-2 gap-4 h-full items-center">
                 <StatTile label="Status" value={topStats.status} tone={topStats.online ? "good" : selectedAgentRow?.is_revoked ? "warn" : "default"} />
                 <StatTile label="Events / 5m" value={eventsRate} />
