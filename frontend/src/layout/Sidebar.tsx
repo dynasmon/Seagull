@@ -1,3 +1,5 @@
+// frontend/src/layout/Sidebar.tsx
+
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
@@ -13,7 +15,7 @@ function ActiveBar({ active }: { active: boolean }) {
 }
 
 function ItemIcon({
-  name,
+  name
 }: {
   name: "dashboard" | "events" | "alerts" | "agents" | "inventory" | "settings";
 }) {
@@ -87,6 +89,7 @@ function Chevron({ open }: { open: boolean }) {
       className={cx("h-4 w-4 transition-transform", open ? "rotate-90" : "rotate-0")}
       viewBox="0 0 24 24"
       fill="none"
+      aria-hidden
     >
       <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
@@ -103,7 +106,7 @@ function NavItem({
   collapsed,
   to,
   label,
-  icon,
+  icon
 }: {
   collapsed: boolean;
   to: string;
@@ -187,18 +190,12 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
     } catch {
       // no-op
     }
-
-    // Se o usuário abriu a árvore de Agents fora da rota /agents,
-    // navegue para /agents para fazer sentido visual/funcional.
-    if (next && !isAgentsRoute) {
-      nav("/agents");
-    }
   }
 
-  // CORREÇÃO: selecionar agente deve levar para /agents (não apenas mudar query na rota atual)
   function selectAgent(agentId: string) {
     const safe = (agentId || "").trim();
     setSelectedAgentId(safe);
+    // VSCode-like behavior: selecting an agent opens its “editor” (agents console).
     nav(safe ? `/agents?agent_id=${encodeURIComponent(safe)}` : "/agents");
   }
 
@@ -242,10 +239,17 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
           )}
 
           <div className="space-y-1">
+            {/* Agents (explorer-style) */}
             <div className="space-y-1">
               <button
                 type="button"
-                onClick={toggleAgentsOpen}
+                onClick={() => {
+                  if (collapsed) {
+                    nav("/agents");
+                    return;
+                  }
+                  toggleAgentsOpen();
+                }}
                 title={collapsed ? "Agents" : undefined}
                 className={cx(
                   "relative flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
@@ -257,7 +261,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
                 aria-expanded={agentsOpen}
               >
                 <ActiveBar active={isAgentsRoute} />
-                <Chevron open={agentsOpen} />
+                {!collapsed && <Chevron open={agentsOpen} />}
                 <span className="text-primary">
                   <ItemIcon name="agents" />
                 </span>
@@ -275,9 +279,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
                   ) : (
                     <div className="max-h-[260px] overflow-y-auto py-1">
                       {agentsSorted.length === 0 && (
-                        <div className="px-2 py-1 text-[11px] text-muted-foreground italic">
-                          No agents found
-                        </div>
+                        <div className="px-2 py-1 text-[11px] text-muted-foreground italic">No agents found</div>
                       )}
 
                       {agentsSorted.map((a) => {

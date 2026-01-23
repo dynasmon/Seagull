@@ -14,17 +14,17 @@ import type { OverviewSnapshot } from "@/features/overview/types";
 
 import { getRecentEvents } from "@/features/events/api";
 import EventsTable from "@/features/events/components/EventsTable";
+import EventDetailsPanel from "@/features/events/components/EventDetailsPanel";
 import type { NetEvent } from "@/features/events/types";
+
+import DdosDeepDive from "@/features/events/views/ddos/DdosDeepDive";
 
 import { disableAgent, enableAgent, getAgent, setAgentConfig, updateAgent } from "./api";
 import type { AgentDetail, AgentPublic, AgentUpdateIn } from "./types";
 
 // Grafana-like fixed panel heights.
-const H_PANEL_SM = 240;
 const H_PANEL_MD = 320;
 const H_PANEL_STREAM = 520;
-// FIX: Increased height for Live Status panel to prevent cutting off content
-const H_PANEL_LIVE_STATUS = 140; 
 
 const DEFAULT_WINDOW_MINUTES = 60;
 const DEFAULT_EVENTS_LIMIT = 500;
@@ -200,7 +200,7 @@ function pickTimingKeys(config: Record<string, any>): string[] {
 
 export default function AgentsPage() {
   const { agents, selectedAgentId, setSelectedAgentId, refresh } = useAgentsCatalog();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
 
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [agentLoading, setAgentLoading] = useState(false);
@@ -208,12 +208,14 @@ export default function AgentsPage() {
 
   const [snapshot, setSnapshot] = useState<OverviewSnapshot | null>(null);
   const [events, setEvents] = useState<NetEvent[]>([]);
+  const [selectedEvent, setSelectedEvent] = useState<NetEvent | null>(null);
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
+
 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [pollMs, setPollMs] = useState(DEFAULT_POLL_MS);
-  const [windowMinutes, setWindowMinutes] = useState(DEFAULT_WINDOW_MINUTES);
-  const [eventsLimit, setEventsLimit] = useState(DEFAULT_EVENTS_LIMIT);
+  const [windowMinutes] = useState(DEFAULT_WINDOW_MINUTES);
+  const [eventsLimit] = useState(DEFAULT_EVENTS_LIMIT);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const [draftName, setDraftName] = useState("");
@@ -231,15 +233,17 @@ export default function AgentsPage() {
 
   const inFlightTelemetry = useRef(false);
 
-  // Sync URL -> State
+  const lastUrlId = useRef<string | null>(null);
+
   useEffect(() => {
     const q = (searchParams.get("agent_id") || "").trim();
-    if (q && q !== selectedAgentId) {
-      setSelectedAgentId(q);
-    } else if (!q && selectedAgentId) {
-      setSelectedAgentId(""); 
-    }
-  }, [searchParams, selectedAgentId, setSelectedAgentId]);
+
+    // Só aplica quando de fato houve mudança na URL
+    if (lastUrlId.current === q) return;
+    lastUrlId.current = q;
+
+    setSelectedAgentId(q);
+  }, [searchParams, setSelectedAgentId]);
 
   const selectedAgentRow = useMemo<AgentPublic | null>(() => {
     if (!selectedAgentId) return null;
@@ -280,6 +284,12 @@ export default function AgentsPage() {
       ]);
       setSnapshot(snap);
       setEvents(ev);
+      setSelectedEvent((prev) => {
+        if (!prev) return ev[0] || null;
+        // Preserve selection if still present.
+        const still = ev.find((x) => x.id === prev.id);
+        return still || ev[0] || null;
+      });
       setTelemetryError(null);
       setLastUpdatedAt(new Date());
     } catch (e: any) {
@@ -289,14 +299,15 @@ export default function AgentsPage() {
     }
   }, [eventsLimit, windowMinutes]);
 
-  // Reload data when selectedAgentId changes
   useEffect(() => {
     if (!selectedAgentId) {
       setAgent(null);
       setSnapshot(null);
       setEvents([]);
+      setSelectedEvent(null);
       return;
     }
+    setSelectedEvent(null);
     loadAgent(selectedAgentId);
     loadTelemetry(selectedAgentId);
   }, [selectedAgentId, loadAgent, loadTelemetry]);
@@ -468,6 +479,10 @@ export default function AgentsPage() {
       sev: snapshot.alert_severity
     };
   }, [snapshot]);
+
+  const ddosEvents = useMemo(() => {
+    return (events || []).filter((e) => e.event_type === "dos_attack");
+  }, [events]);
 
   const eventsRate = useMemo(() => {
     if (!snapshot) return "-";
@@ -718,8 +733,7 @@ export default function AgentsPage() {
 
         {/* RIGHT COLUMN: TELEMETRY (Stats, Charts, Events) */}
         <div className="xl:col-span-8 space-y-4">
-          {/* FIX: Increased panel height from 100 to H_PANEL_LIVE_STATUS (140) */}
-          <Panel title="Live Status" style={{ height: H_PANEL_LIVE_STATUS }}>
+          <Panel title="Live Status" style={{ height: 100 }}>
              <div className="grid grid-cols-2 gap-4 h-full items-center">
                 <StatTile label="Status" value={topStats.status} tone={topStats.online ? "good" : selectedAgentRow?.is_revoked ? "warn" : "default"} />
                 <StatTile label="Events / 5m" value={eventsRate} />
@@ -797,27 +811,54 @@ export default function AgentsPage() {
           </div>
 
           <Panel
-            title="Recent events"
-            right={telemetryError ? "Error" : `${events.length} events`}
+            title="DDoS Deep Dive"
+            right={ddosEvents.length ? `${ddosEvents.length} events` : ""}
             scrollY
             style={{ height: H_PANEL_STREAM }}
           >
-            {telemetryError ? (
-              <EmptyState title="Telemetry error" hint={telemetryError} />
-            ) : events.length === 0 ? (
-              <EmptyState title="No events" hint="This agent has no recent telemetry." />
+            {ddosEvents.length === 0 ? (
+              <EmptyState title="No DDoS events" hint="This agent has no dos_attack telemetry in the current window." />
             ) : (
-              <div className="h-full">
-                <EventsTable
-                  rows={events}
-                  selectedId={null}
-                  compact
-                  showExtra
-                  onSelect={() => {}}
-                />
-              </div>
+              <DdosDeepDive
+                events={ddosEvents}
+                selectedId={selectedEvent?.id ?? null}
+                onSelect={(e) => setSelectedEvent(e)}
+              />
             )}
           </Panel>
+
+          <div className="grid gap-4 lg:grid-cols-12">
+            <div className="lg:col-span-7">
+              <Panel
+                title="Recent events"
+                right={telemetryError ? "Error" : `${events.length} events`}
+                scrollY
+                style={{ height: H_PANEL_STREAM }}
+              >
+                {telemetryError ? (
+                  <EmptyState title="Telemetry error" hint={telemetryError} />
+                ) : events.length === 0 ? (
+                  <EmptyState title="No events" hint="This agent has no recent telemetry." />
+                ) : (
+                  <div className="h-full">
+                    <EventsTable
+                      rows={events}
+                      selectedId={selectedEvent?.id ?? null}
+                      compact
+                      showExtra
+                      onSelect={(e) => setSelectedEvent(e)}
+                    />
+                  </div>
+                )}
+              </Panel>
+            </div>
+
+            <div className="lg:col-span-5">
+              <Panel title="Event details" scrollY style={{ height: H_PANEL_STREAM }}>
+                <EventDetailsPanel event={selectedEvent} />
+              </Panel>
+            </div>
+          </div>
         </div>
       </div>
     </div>

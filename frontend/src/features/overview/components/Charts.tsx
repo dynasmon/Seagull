@@ -47,9 +47,6 @@ export function SimpleTimeSeries({
   minWidth?: number;
   allowHorizontalScroll?: boolean;
 }) {
-  // IMPORTANT:
-  // - allowHorizontalScroll=true: wrapper is scrollable (overflow-x-auto)
-  // - allowHorizontalScroll=false: wrapper is strictly clipped (overflow-hidden) to prevent scrollbars/flickering
   return (
     <div className={allowHorizontalScroll ? "w-full overflow-x-auto" : "w-full overflow-hidden"}>
       <div style={allowHorizontalScroll ? { minWidth } : { width: "100%" }}>
@@ -64,7 +61,6 @@ export function SimpleTimeSeries({
               {seriesKeys.map((k, idx) => (
                 <Line
                   key={k}
-                  // CHANGE: "linear" makes lines straight (Grafana style) instead of curved ("monotone")
                   type="linear"
                   dataKey={k}
                   dot={false}

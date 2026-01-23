@@ -36,7 +36,6 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       setError(null);
       setLastUpdatedAt(new Date());
     } catch (e: any) {
-      // Mantém o último snapshot renderizado e apenas sinaliza erro
       setError(e?.message || "Failed to load overview");
     } finally {
       setIsLoading(false);
@@ -47,10 +46,8 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
 
-    // inicial
     refresh();
 
-    // live polling
     const timer = window.setInterval(() => {
       if (!alive) return;
       refresh();
