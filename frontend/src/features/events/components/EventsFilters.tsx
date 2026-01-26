@@ -15,20 +15,16 @@ type AgentOption = {
 };
 
 type Props = {
-  // Accept both names to stay compatible with older pages
   config?: EventsViewConfig;
   value?: EventsViewConfig;
 
-  // Update callback
   onChange?: (next: EventsViewConfig) => void;
 
-  // Agent list (optional)
   agents?: AgentOption[];
 
-  // When set, agent selection is locked to this agent id (sidebar rule)
+  // When set, agent selection is driven by the sidebar (global scope).
   lockAgentId?: string | null;
 
-  // Disable inputs while loading
   busy?: boolean;
 };
 
@@ -52,60 +48,79 @@ function norm(cfg: EventsViewConfig | undefined | null): EventsViewConfig {
 export default function EventsFilters(props: Props) {
   const cfg = useMemo(() => norm(props.config ?? props.value), [props.config, props.value]);
 
-  // Sidebar-selected agent always wins (lock)
-  const effectiveAgentId = (props.lockAgentId ?? cfg.agent_id ?? null) || null;
+  const lockedAgentId = (props.lockAgentId ?? null) || null;
+  const effectiveAgentId = lockedAgentId ? lockedAgentId : (cfg.agent_id ?? null);
 
   const effectiveCfg = useMemo<EventsViewConfig>(() => {
-    const merged: EventsViewConfig = { ...cfg, agent_id: effectiveAgentId };
-    return norm(merged);
+    return norm({ ...cfg, agent_id: effectiveAgentId });
   }, [cfg, effectiveAgentId]);
 
-  // Auto-sync config once when lockAgentId changes (prevents mismatched state)
+  // Keep config consistent when the sidebar selection changes.
   useEffect(() => {
     if (!props.onChange) return;
-
     const a = JSON.stringify(cfg);
     const b = JSON.stringify(effectiveCfg);
     if (a !== b) props.onChange(effectiveCfg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveAgentId]);
+  }, [lockedAgentId]);
 
   function patch(next: Partial<EventsViewConfig>) {
     const merged = norm({ ...effectiveCfg, ...next });
-
-    // Enforce lock
-    if (props.lockAgentId) merged.agent_id = props.lockAgentId;
-
+    if (lockedAgentId) merged.agent_id = lockedAgentId;
     props.onChange?.(merged);
   }
 
   const agents = props.agents ?? [];
   const busy = Boolean(props.busy);
 
+  const agentLabel = useMemo(() => {
+    if (!effectiveCfg.agent_id) return "";
+    const found = agents.find((a) => a.agent_id === effectiveCfg.agent_id);
+    if (!found) return effectiveCfg.agent_id;
+    return found.display_name ? `${found.display_name} (${found.agent_id})` : found.agent_id;
+  }, [agents, effectiveCfg.agent_id]);
+
   return (
     <div className="space-y-3">
-      {/* Agent */}
+      {/* Agent scope */}
       <div>
         <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Agent</div>
-        <select
-          value={effectiveCfg.agent_id ?? ""}
-          onChange={(e) => patch({ agent_id: e.target.value ? e.target.value : null })}
-          disabled={busy || Boolean(props.lockAgentId)}
-          className={cx(
-            "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-            "focus:ring-2 focus:ring-primary/30",
-            (busy || Boolean(props.lockAgentId)) && "opacity-60 cursor-not-allowed"
-          )}
-        >
-          <option value="">All agents</option>
-          {agents.map((a) => (
-            <option key={a.agent_id} value={a.agent_id}>
-              {a.display_name ? a.display_name : a.agent_id}
-            </option>
-          ))}
-        </select>
 
-        {props.lockAgentId && <div className="mt-1 text-[11px] text-muted-foreground">Locked by sidebar selection</div>}
+        {lockedAgentId ? (
+          <>
+            <input
+              value={agentLabel || lockedAgentId}
+              readOnly
+              className={cx(
+                "mt-1 w-full border border-border/60 bg-background/30 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
+                "opacity-80"
+              )}
+            />
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              Scope is set in the sidebar (Agent picker).
+            </div>
+          </>
+        ) : (
+          <select
+            value={effectiveCfg.agent_id ?? ""}
+            onChange={(e) => patch({ agent_id: e.target.value ? e.target.value : null })}
+            disabled={busy}
+            className={cx(
+              "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
+              "focus:ring-2 focus:ring-primary/30",
+              busy && "opacity-60 cursor-not-allowed"
+            )}
+          >
+            <option value="" disabled>
+              Select an agent...
+            </option>
+            {agents.map((a) => (
+              <option key={a.agent_id} value={a.agent_id}>
+                {a.display_name ? a.display_name : a.agent_id}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Event type */}
@@ -149,7 +164,9 @@ export default function EventsFilters(props: Props) {
       {/* Window + Limit */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Window (min)</div>
+          <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
+            Window (min)
+          </div>
           <input
             type="number"
             value={String(effectiveCfg.window_minutes ?? DEFAULTS.window_minutes)}

@@ -1,5 +1,6 @@
 import { Badge } from "@/shared/components/Badge";
 import { cx } from "@/shared/lib/cx";
+
 import type { NetEvent } from "../types";
 
 function fmtTs(ts: string) {
@@ -14,140 +15,133 @@ function fmtTs(ts: string) {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
-function badgeVariantForType(eventType: string) {
-  const t = (eventType || "").toLowerCase();
-  if (t.includes("ddos")) return "critical" as const;
-  if (t.includes("scan")) return "high" as const;
-  if (t.includes("ssh") && t.includes("fail")) return "medium" as const;
-  if (t.includes("flow") || t.includes("conn")) return "neutral" as const;
-  return "info" as const;
+function summarizeExtra(e: NetEvent) {
+  const extra = (e.extra || {}) as Record<string, any>;
+
+  const tokens: string[] = [];
+
+  const push = (k: string, v: any) => {
+    if (v === undefined || v === null || v === "") return;
+    const s = typeof v === "object" ? JSON.stringify(v) : String(v);
+    tokens.push(`${k}=${s}`);
+  };
+
+  // Priority keys (keep concise but information-dense)
+  push("rule", extra.rule_id);
+  push("user", extra.user || extra.username);
+  push("action", extra.action);
+  push("reason", extra.reason);
+
+  // DDoS-specific signals
+  push("uniq_src", extra.unique_src_ips);
+  push("pps", extra.pps);
+  push("bps", extra.bps);
+  push("syn_ratio", extra.tcp_syn_ratio);
+  push("entropy", extra.src_entropy_norm);
+  push("conf", extra.confidence);
+
+  // Scan/SSH common fields
+  push("port", extra.port || extra.dst_port);
+  push("proto", extra.proto);
+
+  return tokens.slice(0, 6).join(" · ");
 }
 
-function shortExtra(e: NetEvent): string {
-  const x: any = e.extra || {};
-  const keys = ["attack", "vector", "reason", "action", "user", "rule_id", "confidence"];
-  for (const k of keys) {
-    const v = x[k];
-    if (typeof v === "string" && v.trim()) return `${k}:${v}`;
-    if (typeof v === "number") return `${k}:${v}`;
+function srcLabel(e: NetEvent) {
+  if (e.src_ip) return e.src_ip;
+  const extra = (e.extra || {}) as Record<string, any>;
+  if (typeof extra.unique_src_ips === "number" && extra.unique_src_ips > 0) {
+    return `many (${extra.unique_src_ips})`;
   }
-  return "";
+  return "-";
 }
 
-export default function EventsTable({
-  rows,
-  selectedId,
-  compact,
-  showExtra,
-  onSelect
-}: {
+function agentLabel(agent_id: string, agentNameById?: Record<string, string>) {
+  const name = agentNameById?.[agent_id];
+  if (!name || name === agent_id) return agent_id;
+  return `${name} (${agent_id})`;
+}
+
+export default function EventsTable(props: {
   rows: NetEvent[];
   selectedId: number | null;
-  compact: boolean;
-  showExtra: boolean;
-  onSelect: (e: NetEvent) => void;
+  onSelect: (ev: NetEvent) => void;
+  compact?: boolean;
+  showExtra?: boolean;
+  agentNameById?: Record<string, string>;
 }) {
   return (
-    <div className="border border-border/60 bg-background/30 overflow-auto h-full">
+    <div className="w-full overflow-auto">
       <table className="w-full text-sm">
-        <thead className="sticky top-0 bg-muted/10 text-left text-[10px] text-muted-foreground font-mono uppercase tracking-widest">
-          <tr>
-            <th className="px-3 py-2 font-bold whitespace-nowrap">Time</th>
-            <th className="px-3 py-2 font-bold whitespace-nowrap">Agent</th>
-            <th className="px-3 py-2 font-bold whitespace-nowrap">Type</th>
-            <th className="px-3 py-2 font-bold whitespace-nowrap">Src</th>
-            <th className="px-3 py-2 font-bold whitespace-nowrap">Dst</th>
-            <th className="px-3 py-2 font-bold whitespace-nowrap">Proto</th>
-            <th className="px-3 py-2 font-bold whitespace-nowrap">Bytes</th>
-            {showExtra && <th className="px-3 py-2 font-bold whitespace-nowrap">Extra</th>}
+        <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
+          <tr className="border-b border-border/60 text-muted-foreground">
+            <th className="text-left font-medium px-3 py-2 w-[180px]">Time</th>
+            <th className="text-left font-medium px-3 py-2 w-[220px]">Agent</th>
+            <th className="text-left font-medium px-3 py-2 w-[180px]">Type</th>
+            <th className="text-left font-medium px-3 py-2 w-[160px]">Source</th>
+            <th className="text-left font-medium px-3 py-2 w-[160px]">Dest</th>
+            {props.showExtra ? (
+              <th className="text-left font-medium px-3 py-2">Details</th>
+            ) : null}
           </tr>
         </thead>
 
         <tbody>
-          {rows.map((e) => {
-            const isSelected = selectedId === e.id;
-            const src = e.src_ip ? `${e.src_ip}${e.src_port ? `:${e.src_port}` : ""}` : "-";
-            const dst = e.dst_ip ? `${e.dst_ip}${e.dst_port ? `:${e.dst_port}` : ""}` : "-";
-            const extra = shortExtra(e);
+          {props.rows.map((e) => {
+            const selected = props.selectedId !== null && e.id === props.selectedId;
 
             return (
               <tr
-                key={String(e.id)}
+                key={e.id}
                 className={cx(
-                  "border-t border-border/40 cursor-pointer",
-                  "hover:bg-primary/5",
-                  isSelected && "bg-primary/10"
+                  "border-b border-border/40 hover:bg-muted/30 cursor-pointer",
+                  selected && "bg-muted/40"
                 )}
-                onClick={() => onSelect(e)}
+                onClick={() => props.onSelect(e)}
               >
-                <td
-                  className={cx(
-                    "px-3",
-                    compact ? "py-1.5" : "py-2",
-                    "whitespace-nowrap font-mono text-[11px]"
-                  )}
-                >
+                <td className="px-3 py-2 font-mono text-[12px] text-muted-foreground">
                   {fmtTs(e.timestamp)}
                 </td>
-                <td
-                  className={cx(
-                    "px-3",
-                    compact ? "py-1.5" : "py-2",
-                    "whitespace-nowrap font-mono text-[11px]"
+
+                <td className="px-3 py-2">
+                  <div className="font-mono text-[12px]">
+                    {agentLabel(e.agent_id, props.agentNameById)}
+                  </div>
+                </td>
+
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <Badge>{e.event_type}</Badge>
+                    {!props.compact && e.schema_version ? (
+                      <span className="text-[11px] text-muted-foreground font-mono opacity-80">
+                        v{e.schema_version}
+                      </span>
+                    ) : null}
+                  </div>
+                </td>
+
+                <td className="px-3 py-2 font-mono text-[12px]">
+                  {srcLabel(e)}
+                </td>
+
+                <td className="px-3 py-2 font-mono text-[12px]">
+                  {e.dst_ip ? (
+                    <span>{e.dst_ip}</span>
+                  ) : (
+                    <span className="text-muted-foreground">-</span>
                   )}
-                >
-                  {e.agent_id}
+                  {typeof e.dst_port === "number" ? (
+                    <span className="text-muted-foreground">:{e.dst_port}</span>
+                  ) : null}
                 </td>
-                <td className={cx("px-3", compact ? "py-1.5" : "py-2", "whitespace-nowrap")}>
-                  <Badge variant={badgeVariantForType(e.event_type)}>{e.event_type}</Badge>
-                </td>
-                <td
-                  className={cx(
-                    "px-3",
-                    compact ? "py-1.5" : "py-2",
-                    "whitespace-nowrap font-mono text-[11px]"
-                  )}
-                >
-                  {src}
-                </td>
-                <td
-                  className={cx(
-                    "px-3",
-                    compact ? "py-1.5" : "py-2",
-                    "whitespace-nowrap font-mono text-[11px]"
-                  )}
-                >
-                  {dst}
-                </td>
-                <td
-                  className={cx(
-                    "px-3",
-                    compact ? "py-1.5" : "py-2",
-                    "whitespace-nowrap font-mono text-[11px]"
-                  )}
-                >
-                  {e.proto || "-"}
-                </td>
-                <td
-                  className={cx(
-                    "px-3",
-                    compact ? "py-1.5" : "py-2",
-                    "whitespace-nowrap font-mono text-[11px]"
-                  )}
-                >
-                  {typeof e.bytes === "number" ? e.bytes.toLocaleString() : "-"}
-                </td>
-                {showExtra && (
-                  <td
-                    className={cx(
-                      "px-3",
-                      compact ? "py-1.5" : "py-2",
-                      "whitespace-nowrap font-mono text-[11px] text-muted-foreground"
-                    )}
-                  >
-                    {extra || "-"}
+
+                {props.showExtra ? (
+                  <td className="px-3 py-2">
+                    <div className="text-[12px] text-muted-foreground">
+                      {summarizeExtra(e) || <span className="opacity-60">-</span>}
+                    </div>
                   </td>
-                )}
+                ) : null}
               </tr>
             );
           })}

@@ -445,7 +445,7 @@ export default function OverviewPage() {
                     }
                   ]}
                   rows={snapshot.recent_ssh as any}
-                  rowKey={(r: any, i) => `${r.ts || r.time || r.timestamp || i}`}
+                  rowKey={(r: any, i) => `${r.ts || r.time || r.timestamp || "row"}-${i}`}
               />
             )}
           </CyberPanel>

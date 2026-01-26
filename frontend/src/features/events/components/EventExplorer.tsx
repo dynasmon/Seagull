@@ -4,6 +4,23 @@ import { cx } from "@/shared/lib/cx";
 
 type Row = { key: string; count: number };
 
+type NewTypeRow = { key?: string; type?: string; count: number };
+
+type Props = {
+  title?: string;
+
+  // Legacy API (older pages)
+  rows?: Row[];
+  selectedKey?: string | null;
+  onSelect?: (key: string) => void;
+
+  // New API (events page v2)
+  activeType?: string | null;
+  types?: NewTypeRow[];
+  onSelectType?: (t: string) => void;
+  onClearType?: () => void;
+};
+
 function ActiveBar({ active }: { active: boolean }) {
   if (!active) return null;
   return <span className="absolute left-0 top-1 bottom-1 w-[3px] rounded-r bg-primary" />;
@@ -17,23 +34,59 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-export default function EventExplorer({
-  title = "Explorer",
-  rows,
-  selectedKey,
-  onSelect
-}: {
-  title?: string;
-  rows: Row[];
-  selectedKey: string;
-  onSelect: (key: string) => void;
-}) {
+function normalizeRowsFromTypes(types: NewTypeRow[] | undefined | null): Row[] {
+  const list = (types ?? []).map((t) => ({
+    key: (t.key ?? t.type ?? "").trim(),
+    count: Number.isFinite(Number((t as any).count)) ? Number((t as any).count) : 0
+  }));
+  return list.filter((r) => r.key);
+}
+
+export default function EventExplorer(props: Props) {
+  const {
+    title = "Explorer",
+    rows,
+    selectedKey,
+    onSelect,
+    activeType,
+    types,
+    onSelectType,
+    onClearType
+  } = props;
+
   const [open, setOpen] = useState(true);
 
+  // Detect the "new" contract by presence of any of the new props.
+  const isNew = typeof onSelectType === "function" || typeof onClearType === "function" || Array.isArray(types) || activeType !== undefined;
+
+  const effectiveRows: Row[] = useMemo(() => {
+    return isNew ? normalizeRowsFromTypes(types) : (rows ?? []);
+  }, [isNew, types, rows]);
+
   const items = useMemo(() => {
-    const base: Row[] = [{ key: "", count: rows.reduce((acc, r) => acc + (r.count || 0), 0) }, ...rows];
+    const total = (effectiveRows ?? []).reduce((acc, r) => acc + (r.count || 0), 0);
+    const base: Row[] = [{ key: "", count: total }, ...(effectiveRows ?? [])];
     return base;
-  }, [rows]);
+  }, [effectiveRows]);
+
+  const effectiveSelectedKey = (isNew ? (activeType ?? "") : (selectedKey ?? "")) || "";
+
+  function handleSelect(key: string) {
+    const k = (key ?? "").trim();
+
+    if (isNew) {
+      if (!k) {
+        onClearType?.();
+        // If the caller didn't provide onClearType, we still call onSelectType("") as a fallback.
+        if (!onClearType) onSelectType?.("");
+        return;
+      }
+      onSelectType?.(k);
+      return;
+    }
+
+    onSelect?.(k);
+  }
 
   return (
     <div className="border border-border/60 bg-background/70 backdrop-blur-sm">
@@ -52,13 +105,13 @@ export default function EventExplorer({
       {open && (
         <div className="py-2">
           {items.map((r) => {
-            const active = (selectedKey || "") === (r.key || "");
+            const active = effectiveSelectedKey === (r.key || "");
             const label = r.key ? r.key : "All events";
             return (
               <button
                 key={r.key || "__all__"}
                 type="button"
-                onClick={() => onSelect(r.key)}
+                onClick={() => handleSelect(r.key)}
                 className={cx(
                   "relative w-full px-3 py-2 flex items-center justify-between gap-3 text-left text-sm transition-colors",
                   active ? "bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-muted/10 hover:text-foreground"

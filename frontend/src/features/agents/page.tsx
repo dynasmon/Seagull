@@ -23,12 +23,20 @@ import { disableAgent, enableAgent, getAgent, setAgentConfig, updateAgent } from
 import type { AgentDetail, AgentPublic, AgentUpdateIn } from "./types";
 
 // Grafana-like fixed panel heights.
-const H_PANEL_MD = 320;
-const H_PANEL_STREAM = 520;
+const H_PANEL_MD = 340;
+const H_PANEL_STREAM = 620;
+const H_PANEL_TALL = 720;
 
 const DEFAULT_WINDOW_MINUTES = 60;
 const DEFAULT_EVENTS_LIMIT = 500;
 const DEFAULT_POLL_MS = 5000;
+
+type EventsCfg = {
+  event_type: string; // empty = all
+  search: string;
+  window_minutes: number;
+  limit: number;
+};
 
 function fmtDateTime(d: Date) {
   const yyyy = d.getFullYear();
@@ -76,7 +84,7 @@ function Switch({
   label: string;
 }) {
   return (
-    <div className={cx("flex items-center justify-between gap-3", disabled && "opacity-60")}> 
+    <div className={cx("flex items-center justify-between gap-3", disabled && "opacity-60")}>
       <span className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
         {label}
       </span>
@@ -128,7 +136,7 @@ function Panel({
         <h3 className="text-xs font-bold uppercase tracking-widest font-mono text-primary/90">{title}</h3>
         {right && <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">{right}</div>}
       </div>
-      <div className={cx("p-3 flex-1 min-h-0", scrollY ? "overflow-y-auto" : "overflow-hidden")}>{children}</div>
+      <div className={cx("p-4 flex-1 min-h-0", scrollY ? "overflow-y-auto" : "overflow-hidden")}>{children}</div>
     </div>
   );
 }
@@ -176,7 +184,11 @@ function textAreaClassName(disabled?: boolean) {
 }
 
 function FieldLabel({ children }: { children: ReactNode }) {
-  return <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">{children}</div>;
+  return (
+    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
+      {children}
+    </div>
+  );
 }
 
 function prettyJson(v: any) {
@@ -198,6 +210,47 @@ function pickTimingKeys(config: Record<string, any>): string[] {
   return keys.sort().slice(0, 12);
 }
 
+function safeNumber(v: any, fallback: number) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return n;
+}
+
+function eventMatchesSearch(e: NetEvent, query: string) {
+  const q = (query || "").trim().toLowerCase();
+  if (!q) return true;
+
+  const parts: string[] = [];
+  parts.push(e.event_type || "");
+  parts.push(e.agent_id || "");
+  parts.push(e.src_ip || "");
+  parts.push(e.dst_ip || "");
+  if (typeof e.dst_port === "number") parts.push(String(e.dst_port));
+  if (typeof (e as any).src_port === "number") parts.push(String((e as any).src_port));
+
+  try {
+    parts.push(JSON.stringify((e as any).extra || {}));
+  } catch {
+    // no-op
+  }
+
+  const hay = parts.join(" ").toLowerCase();
+  return hay.includes(q);
+}
+
+function buildTopCounts(values: string[], limit: number) {
+  const map = new Map<string, number>();
+  for (const v of values) {
+    const k = (v || "").trim();
+    if (!k) continue;
+    map.set(k, (map.get(k) || 0) + 1);
+  }
+  return Array.from(map.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, Math.max(1, limit))
+    .map(([key, count]) => ({ key, count }));
+}
+
 export default function AgentsPage() {
   const { agents, selectedAgentId, setSelectedAgentId, refresh } = useAgentsCatalog();
   const [searchParams] = useSearchParams();
@@ -209,14 +262,26 @@ export default function AgentsPage() {
   const [snapshot, setSnapshot] = useState<OverviewSnapshot | null>(null);
   const [events, setEvents] = useState<NetEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<NetEvent | null>(null);
-  const [telemetryError, setTelemetryError] = useState<string | null>(null);
 
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+  const [eventsLoading, setEventsLoading] = useState(false);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [pollMs, setPollMs] = useState(DEFAULT_POLL_MS);
-  const [windowMinutes] = useState(DEFAULT_WINDOW_MINUTES);
-  const [eventsLimit] = useState(DEFAULT_EVENTS_LIMIT);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+
+  const [eventsCfg, setEventsCfg] = useState<EventsCfg>(() => ({
+    event_type: "",
+    search: "",
+    window_minutes: DEFAULT_WINDOW_MINUTES,
+    limit: DEFAULT_EVENTS_LIMIT
+  }));
+
+  const eventsCfgRef = useRef<EventsCfg>(eventsCfg);
+  useEffect(() => {
+    eventsCfgRef.current = eventsCfg;
+  }, [eventsCfg]);
 
   const [draftName, setDraftName] = useState("");
   const [draftDesc, setDraftDesc] = useState("");
@@ -231,14 +296,15 @@ export default function AgentsPage() {
   const [configBusy, setConfigBusy] = useState(false);
   const [toggleBusy, setToggleBusy] = useState(false);
 
-  const inFlightTelemetry = useRef(false);
+  const inFlightSnapshot = useRef(false);
+  const inFlightEvents = useRef(false);
 
   const lastUrlId = useRef<string | null>(null);
 
   useEffect(() => {
     const q = (searchParams.get("agent_id") || "").trim();
 
-    // Só aplica quando de fato houve mudança na URL
+    // Apply only when the URL actually changes.
     if (lastUrlId.current === q) return;
     lastUrlId.current = q;
 
@@ -273,31 +339,50 @@ export default function AgentsPage() {
     }
   }, []);
 
-  const loadTelemetry = useCallback(async (agentId: string) => {
-    if (inFlightTelemetry.current) return;
-    inFlightTelemetry.current = true;
+  const loadSnapshot = useCallback(async (agentId: string, cfg: EventsCfg) => {
+    if (inFlightSnapshot.current) return;
+    inFlightSnapshot.current = true;
 
     try {
-      const [snap, ev] = await Promise.all([
-        getOverview({ window_minutes: windowMinutes, agent_id: agentId }),
-        getRecentEvents({ limit: eventsLimit, agent_id: agentId })
-      ]);
+      const win = Math.max(1, safeNumber(cfg.window_minutes, DEFAULT_WINDOW_MINUTES));
+      const snap = await getOverview({ window_minutes: win, agent_id: agentId });
       setSnapshot(snap);
+      setSnapshotError(null);
+      setLastUpdatedAt(new Date());
+    } catch (e: any) {
+      setSnapshotError(e?.message || "Failed to load overview");
+    } finally {
+      inFlightSnapshot.current = false;
+    }
+  }, []);
+
+  const loadEvents = useCallback(async (agentId: string, cfg: EventsCfg) => {
+    if (inFlightEvents.current) return;
+    inFlightEvents.current = true;
+
+    setEventsLoading(true);
+    try {
+      const lim = Math.max(50, Math.min(5000, safeNumber(cfg.limit, DEFAULT_EVENTS_LIMIT)));
+      const ev = await getRecentEvents({ limit: lim, agent_id: agentId });
+
       setEvents(ev);
       setSelectedEvent((prev) => {
         if (!prev) return ev[0] || null;
-        // Preserve selection if still present.
         const still = ev.find((x) => x.id === prev.id);
         return still || ev[0] || null;
       });
-      setTelemetryError(null);
+
+      setEventsError(null);
       setLastUpdatedAt(new Date());
     } catch (e: any) {
-      setTelemetryError(e?.message || "Failed to load telemetry");
+      setEventsError(e?.message || "Failed to load events");
+      setEvents([]);
+      setSelectedEvent(null);
     } finally {
-      inFlightTelemetry.current = false;
+      setEventsLoading(false);
+      inFlightEvents.current = false;
     }
-  }, [eventsLimit, windowMinutes]);
+  }, []);
 
   useEffect(() => {
     if (!selectedAgentId) {
@@ -305,24 +390,45 @@ export default function AgentsPage() {
       setSnapshot(null);
       setEvents([]);
       setSelectedEvent(null);
+      setSnapshotError(null);
+      setEventsError(null);
       return;
     }
+
     setSelectedEvent(null);
     loadAgent(selectedAgentId);
-    loadTelemetry(selectedAgentId);
-  }, [selectedAgentId, loadAgent, loadTelemetry]);
+
+    const cfg = eventsCfgRef.current;
+    loadSnapshot(selectedAgentId, cfg);
+    loadEvents(selectedAgentId, cfg);
+    refresh();
+  }, [selectedAgentId, loadAgent, loadSnapshot, loadEvents, refresh]);
+
+  useEffect(() => {
+    if (!selectedAgentId) return;
+
+    const t = window.setTimeout(() => {
+      const cfg = eventsCfgRef.current;
+      loadSnapshot(selectedAgentId, cfg);
+      loadEvents(selectedAgentId, cfg);
+    }, 300);
+
+    return () => window.clearTimeout(t);
+  }, [selectedAgentId, eventsCfg.window_minutes, eventsCfg.limit, loadSnapshot, loadEvents]);
 
   useEffect(() => {
     if (!selectedAgentId) return;
     if (!autoRefresh) return;
 
     const t = window.setInterval(() => {
-      loadTelemetry(selectedAgentId);
+      const cfg = eventsCfgRef.current;
+      loadSnapshot(selectedAgentId, cfg);
+      loadEvents(selectedAgentId, cfg);
       refresh();
     }, Math.max(2000, pollMs));
 
     return () => window.clearInterval(t);
-  }, [selectedAgentId, autoRefresh, pollMs, loadTelemetry, refresh]);
+  }, [selectedAgentId, autoRefresh, pollMs, loadSnapshot, loadEvents, refresh]);
 
   const timingKeys = useMemo(() => pickTimingKeys(configObj), [configObj]);
 
@@ -388,9 +494,7 @@ export default function AgentsPage() {
     if (!agent) return;
     setToggleBusy(true);
     try {
-      const updated = agent.is_revoked
-        ? await enableAgent(agent.agent_id)
-        : await disableAgent(agent.agent_id);
+      const updated = agent.is_revoked ? await enableAgent(agent.agent_id) : await disableAgent(agent.agent_id);
       setAgent(updated);
       setAgentError(null);
       refresh();
@@ -480,14 +584,50 @@ export default function AgentsPage() {
     };
   }, [snapshot]);
 
-  const ddosEvents = useMemo(() => {
-    return (events || []).filter((e) => e.event_type === "dos_attack");
-  }, [events]);
-
   const eventsRate = useMemo(() => {
     if (!snapshot) return "-";
     return String(snapshot.kpis.events_5m);
   }, [snapshot]);
+
+  const windowedEvents = useMemo(() => {
+    const mins = Math.max(1, safeNumber(eventsCfg.window_minutes, DEFAULT_WINDOW_MINUTES));
+    const cutoff = Date.now() - mins * 60_000;
+
+    return (events || []).filter((e) => {
+      const t = new Date(e.timestamp).getTime();
+      if (!Number.isFinite(t)) return true;
+      return t >= cutoff;
+    });
+  }, [events, eventsCfg.window_minutes]);
+
+  const availableTypes = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of windowedEvents) set.add(e.event_type);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [windowedEvents]);
+
+  const explorerBase = useMemo(() => {
+    const q = (eventsCfg.search || "").trim();
+    if (!q) return windowedEvents;
+    return windowedEvents.filter((e) => eventMatchesSearch(e, q));
+  }, [windowedEvents, eventsCfg.search]);
+
+  const topTypes = useMemo(() => {
+    return buildTopCounts(explorerBase.map((e) => e.event_type), 12);
+  }, [explorerBase]);
+
+  const filteredEvents = useMemo(() => {
+    const type = (eventsCfg.event_type || "").trim();
+    const q = (eventsCfg.search || "").trim();
+    return windowedEvents.filter((e) => {
+      if (type && e.event_type !== type) return false;
+      if (q && !eventMatchesSearch(e, q)) return false;
+      return true;
+    });
+  }, [windowedEvents, eventsCfg.event_type, eventsCfg.search]);
+
+  const ddosMode = (eventsCfg.event_type || "").trim() === "dos_attack";
+  const ddosEvents = useMemo(() => filteredEvents.filter((e) => e.event_type === "dos_attack"), [filteredEvents]);
 
   // --- RENDER ---
 
@@ -513,17 +653,17 @@ export default function AgentsPage() {
             <span className="text-muted-foreground font-normal">Agent /</span>
             <span>{agent?.display_name || selectedAgentId}</span>
           </h1>
-          <div className="text-sm text-muted-foreground font-mono text-[11px] opacity-70">
-            ID: {selectedAgentId}
-          </div>
+          <div className="text-sm text-muted-foreground font-mono text-[11px] opacity-70">ID: {selectedAgentId}</div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => {
+              const cfg = eventsCfgRef.current;
               loadAgent(selectedAgentId);
-              loadTelemetry(selectedAgentId);
+              loadSnapshot(selectedAgentId, cfg);
+              loadEvents(selectedAgentId, cfg);
               refresh();
             }}
             className={cx(
@@ -562,14 +702,9 @@ export default function AgentsPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-12">
-        {/* LEFT COLUMN: MANAGEMENT (Identity, Config) */}
+        {/* LEFT COLUMN: MANAGEMENT */}
         <div className="xl:col-span-4 space-y-4">
-          <Panel
-            title="Identity & State"
-            right={agent?.is_revoked ? "Disabled" : "Enabled"}
-            scrollY
-            style={{ height: H_PANEL_MD }}
-          >
+          <Panel title="Identity & State" right={agent?.is_revoked ? "Disabled" : "Enabled"} scrollY style={{ height: H_PANEL_MD }}>
             {agentLoading ? (
               <Loading label="Loading agent details..." />
             ) : !agent ? (
@@ -645,11 +780,7 @@ export default function AgentsPage() {
                       toggleBusy && "opacity-60 cursor-not-allowed"
                     )}
                   >
-                    {toggleBusy
-                      ? "Working..."
-                      : agent.is_revoked
-                        ? "Enable agent"
-                        : "Disable agent"}
+                    {toggleBusy ? "Working..." : agent.is_revoked ? "Enable agent" : "Disable agent"}
                   </button>
                 </div>
               </div>
@@ -664,15 +795,11 @@ export default function AgentsPage() {
               <div className="space-y-4">
                 {timingKeys.length > 0 && (
                   <div className="border border-border/60 bg-background/40 p-3 space-y-3">
-                    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
-                      Timings
-                    </div>
+                    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Timings</div>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {timingKeys.map((k) => (
                         <div key={k}>
-                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                            {k}
-                          </div>
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{k}</div>
                           <input
                             type="number"
                             className={inputClassName(configBusy)}
@@ -701,13 +828,7 @@ export default function AgentsPage() {
                     </button>
                   </div>
 
-                  <textarea
-                    className={textAreaClassName(configBusy)}
-                    rows={14}
-                    value={configText}
-                    onChange={(e) => onConfigTextChange(e.target.value)}
-                    disabled={configBusy}
-                  />
+                  <textarea className={textAreaClassName(configBusy)} rows={14} value={configText} onChange={(e) => onConfigTextChange(e.target.value)} disabled={configBusy} />
 
                   {configParseError && <div className="mt-2 text-[11px] text-red-400">Config: {configParseError}</div>}
                 </div>
@@ -731,14 +852,24 @@ export default function AgentsPage() {
           </Panel>
         </div>
 
-        {/* RIGHT COLUMN: TELEMETRY (Stats, Charts, Events) */}
+        {/* RIGHT COLUMN: TELEMETRY + EVENTS WORKBENCH */}
         <div className="xl:col-span-8 space-y-4">
-          <Panel title="Live Status" style={{ height: 100 }}>
-             <div className="grid grid-cols-2 gap-4 h-full items-center">
-                <StatTile label="Status" value={topStats.status} tone={topStats.online ? "good" : selectedAgentRow?.is_revoked ? "warn" : "default"} />
-                <StatTile label="Events / 5m" value={eventsRate} />
-             </div>
+          <Panel title="Live Status" style={{ height: 150 }}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <StatTile
+                label="Status"
+                value={topStats.status}
+                tone={topStats.online ? "good" : selectedAgentRow?.is_revoked ? "warn" : "default"}
+              />
+              <StatTile label="Events / 5m" value={eventsRate} />
+            </div>
           </Panel>
+
+          {snapshotError && (
+            <div className="border border-border/60 bg-background/40 p-3 text-[11px] text-red-400">
+              Overview: {snapshotError}
+            </div>
+          )}
 
           <div className="grid gap-4 lg:grid-cols-2">
             <Panel title="Traffic" style={{ height: H_PANEL_MD }}>
@@ -747,12 +878,7 @@ export default function AgentsPage() {
               ) : (
                 <div className="h-full w-full flex items-center justify-center overflow-hidden">
                   <div className="w-full max-w-full flex justify-center">
-                    <SimpleTimeSeries 
-                      data={charts.traffic.data} 
-                      seriesKeys={charts.traffic.series} 
-                      height={H_PANEL_MD - 100} 
-                      allowHorizontalScroll={false} 
-                    />
+                    <SimpleTimeSeries data={charts.traffic.data} seriesKeys={charts.traffic.series} height={H_PANEL_MD - 100} allowHorizontalScroll={false} />
                   </div>
                 </div>
               )}
@@ -764,12 +890,7 @@ export default function AgentsPage() {
               ) : (
                 <div className="h-full w-full flex items-center justify-center overflow-hidden">
                   <div className="w-full max-w-full flex justify-center">
-                    <SimpleTimeSeries 
-                      data={charts.ssh.data} 
-                      seriesKeys={charts.ssh.series} 
-                      height={H_PANEL_MD - 100} 
-                      allowHorizontalScroll={false} 
-                    />
+                    <SimpleTimeSeries data={charts.ssh.data} seriesKeys={charts.ssh.series} height={H_PANEL_MD - 100} allowHorizontalScroll={false} />
                   </div>
                 </div>
               )}
@@ -781,12 +902,7 @@ export default function AgentsPage() {
               ) : (
                 <div className="h-full w-full flex items-center justify-center overflow-hidden">
                   <div className="w-full max-w-full flex justify-center">
-                    <SimpleTimeSeries 
-                      data={charts.ddos.data} 
-                      seriesKeys={charts.ddos.series} 
-                      height={H_PANEL_MD - 100} 
-                      allowHorizontalScroll={false} 
-                    />
+                    <SimpleTimeSeries data={charts.ddos.data} seriesKeys={charts.ddos.series} height={H_PANEL_MD - 100} allowHorizontalScroll={false} />
                   </div>
                 </div>
               )}
@@ -798,64 +914,183 @@ export default function AgentsPage() {
               ) : (
                 <div className="h-full w-full flex items-center justify-center overflow-hidden">
                   <div className="w-full max-w-full flex justify-center">
-                    <SimpleTimeSeries 
-                      data={charts.sev.data} 
-                      seriesKeys={charts.sev.series} 
-                      height={H_PANEL_MD - 100} 
-                      allowHorizontalScroll={false} 
-                    />
+                    <SimpleTimeSeries data={charts.sev.data} seriesKeys={charts.sev.series} height={H_PANEL_MD - 100} allowHorizontalScroll={false} />
                   </div>
                 </div>
               )}
             </Panel>
           </div>
 
-          <Panel
-            title="DDoS Deep Dive"
-            right={ddosEvents.length ? `${ddosEvents.length} events` : ""}
-            scrollY
-            style={{ height: H_PANEL_STREAM }}
-          >
-            {ddosEvents.length === 0 ? (
-              <EmptyState title="No DDoS events" hint="This agent has no dos_attack telemetry in the current window." />
-            ) : (
-              <DdosDeepDive
-                events={ddosEvents}
-                selectedId={selectedEvent?.id ?? null}
-                onSelect={(e) => setSelectedEvent(e)}
-              />
-            )}
-          </Panel>
-
-          <div className="grid gap-4 lg:grid-cols-12">
-            <div className="lg:col-span-7">
-              <Panel
-                title="Recent events"
-                right={telemetryError ? "Error" : `${events.length} events`}
-                scrollY
-                style={{ height: H_PANEL_STREAM }}
-              >
-                {telemetryError ? (
-                  <EmptyState title="Telemetry error" hint={telemetryError} />
-                ) : events.length === 0 ? (
-                  <EmptyState title="No events" hint="This agent has no recent telemetry." />
-                ) : (
-                  <div className="h-full">
-                    <EventsTable
-                      rows={events}
-                      selectedId={selectedEvent?.id ?? null}
-                      compact
-                      showExtra
-                      onSelect={(e) => setSelectedEvent(e)}
-                    />
+          {/* Agent-scoped Events workbench (wider, uses full space) */}
+          <div className="grid gap-4 2xl:grid-cols-12 min-w-0">
+            {/* LEFT: Filters/Explorer/Details (wider) */}
+            <div className="2xl:col-span-5 space-y-4 min-h-0 min-w-0">
+              <Panel title="Event filters" scrollY style={{ height: 320 }}>
+                <div className="space-y-3">
+                  <div>
+                    <FieldLabel>Event type</FieldLabel>
+                    <select
+                      className={cx(
+                        "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
+                        "focus:ring-2 focus:ring-primary/30"
+                      )}
+                      value={eventsCfg.event_type}
+                      onChange={(e) => setEventsCfg((p) => ({ ...p, event_type: e.target.value }))}
+                    >
+                      <option value="">All types</option>
+                      {availableTypes.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                )}
+
+                  <div>
+                    <FieldLabel>Search</FieldLabel>
+                    <input
+                      className={inputClassName(false)}
+                      value={eventsCfg.search}
+                      onChange={(e) => setEventsCfg((p) => ({ ...p, search: e.target.value }))}
+                      placeholder="ip, user, rule, port, vector..."
+                    />
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      Client-side search over event fields + extra JSON.
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <FieldLabel>Window (min)</FieldLabel>
+                      <input
+                        type="number"
+                        className={inputClassName(false)}
+                        value={String(eventsCfg.window_minutes)}
+                        onChange={(e) =>
+                          setEventsCfg((p) => ({ ...p, window_minutes: Math.max(1, Number(e.target.value || 1)) }))
+                        }
+                      />
+                    </div>
+
+                    <div>
+                      <FieldLabel>Limit</FieldLabel>
+                      <input
+                        type="number"
+                        className={inputClassName(false)}
+                        value={String(eventsCfg.limit)}
+                        onChange={(e) =>
+                          setEventsCfg((p) => ({ ...p, limit: Math.max(50, Number(e.target.value || 50)) }))
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setEventsCfg((p) => ({ ...p, event_type: "", search: "" }))}
+                      className={cx(
+                        "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                        "hover:bg-primary/5"
+                      )}
+                    >
+                      Clear filters
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cfg = eventsCfgRef.current;
+                        loadSnapshot(selectedAgentId, cfg);
+                        loadEvents(selectedAgentId, cfg);
+                      }}
+                      className={cx(
+                        "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                        "hover:bg-primary/5",
+                        eventsLoading && "opacity-60 cursor-not-allowed"
+                      )}
+                      disabled={eventsLoading}
+                    >
+                      {eventsLoading ? "Loading..." : "Reload events"}
+                    </button>
+                  </div>
+                </div>
+              </Panel>
+
+              <Panel title="Explorer" scrollY style={{ height: 300 }}>
+                <div className="space-y-1">
+                  <button
+                    type="button"
+                    className={cx(
+                      "w-full text-left px-3 py-2 rounded-md border border-border/60 bg-background/30",
+                      "hover:bg-muted/10",
+                      !eventsCfg.event_type && "bg-primary/10"
+                    )}
+                    onClick={() => setEventsCfg((p) => ({ ...p, event_type: "" }))}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-mono">All types</div>
+                      <div className="text-[10px] font-mono text-muted-foreground">{explorerBase.length}</div>
+                    </div>
+                  </button>
+
+                  {topTypes.map((x) => {
+                    const active = eventsCfg.event_type === x.key;
+                    return (
+                      <button
+                        key={x.key}
+                        type="button"
+                        className={cx(
+                          "w-full text-left px-3 py-2 rounded-md border border-border/60 bg-background/20",
+                          "hover:bg-muted/10",
+                          active && "bg-primary/10"
+                        )}
+                        onClick={() => setEventsCfg((p) => ({ ...p, event_type: x.key }))}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-mono truncate">{x.key}</div>
+                          <div className="text-[10px] font-mono text-muted-foreground">{x.count}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </Panel>
+
+              <Panel title="Event details" scrollY style={{ height: H_PANEL_TALL }}>
+                <EventDetailsPanel event={selectedEvent} />
               </Panel>
             </div>
 
-            <div className="lg:col-span-5">
-              <Panel title="Event details" scrollY style={{ height: H_PANEL_STREAM }}>
-                <EventDetailsPanel event={selectedEvent} />
+            {/* RIGHT: Deep Dive + Stream (wider) */}
+            <div className="2xl:col-span-7 space-y-4 min-h-0 min-w-0">
+              {ddosMode && (
+                <Panel
+                  title="DDoS Deep Dive"
+                  right={ddosEvents.length ? `${ddosEvents.length} events` : ""}
+                  scrollY
+                  style={{ height: H_PANEL_TALL }}
+                >
+                  {ddosEvents.length === 0 ? (
+                    <EmptyState title="No DDoS events" hint="No dos_attack telemetry matches the current filters/window." />
+                  ) : (
+                    <DdosDeepDive events={ddosEvents} selectedId={selectedEvent?.id ?? null} onSelect={(e) => setSelectedEvent(e)} />
+                  )}
+                </Panel>
+              )}
+
+              <Panel title="Event stream" right={eventsError ? "Error" : `${filteredEvents.length} events`} scrollY style={{ height: H_PANEL_TALL }}>
+                {eventsError ? (
+                  <EmptyState title="Events error" hint={eventsError} />
+                ) : eventsLoading && filteredEvents.length === 0 ? (
+                  <Loading label="Loading events..." />
+                ) : filteredEvents.length === 0 ? (
+                  <EmptyState title="No events" hint="No events match the current filters/window." />
+                ) : (
+                  <div className="h-full min-w-0">
+                    <EventsTable rows={filteredEvents} selectedId={selectedEvent?.id ?? null} compact showExtra onSelect={(e) => setSelectedEvent(e)} />
+                  </div>
+                )}
               </Panel>
             </div>
           </div>

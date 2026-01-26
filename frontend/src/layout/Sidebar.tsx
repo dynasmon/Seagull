@@ -1,17 +1,25 @@
-// frontend/src/layout/Sidebar.tsx
-
-import { useEffect, useMemo, useState } from "react";
+// src/layout/Sidebar.tsx
+import { useMemo, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
+import { cx } from "@/shared/lib/cx";
 import { useAgentsCatalog } from "@/app/providers";
-
-function cx(...v: Array<string | false | undefined | null>) {
-  return v.filter(Boolean).join(" ");
-}
 
 function ActiveBar({ active }: { active: boolean }) {
   if (!active) return null;
   return <span className="absolute left-0 top-1 bottom-1 w-[3px] rounded-r bg-primary" />;
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={cx("h-4 w-4 text-muted-foreground transition-transform", open ? "rotate-90" : "rotate-0")}
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 function ItemIcon({
@@ -83,23 +91,36 @@ function ItemIcon({
   }
 }
 
-function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      className={cx("h-4 w-4 transition-transform", open ? "rotate-90" : "rotate-0")}
-      viewBox="0 0 24 24"
-      fill="none"
-      aria-hidden
-    >
-      <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 function Dot({ state }: { state: "online" | "offline" | "disabled" }) {
   const klass =
-    state === "disabled" ? "bg-muted-foreground/70" : state === "online" ? "bg-emerald-400/90" : "bg-amber-400/90";
+    state === "disabled"
+      ? "bg-muted-foreground/60"
+      : state === "online"
+        ? "bg-emerald-400/90"
+        : "bg-amber-400/90";
   return <span className={cx("h-2 w-2 rounded-full", klass)} />;
+}
+
+function parseIso(iso?: string | null) {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  return t;
+}
+
+function fmtLastSeen(lastSeenAt?: string | null) {
+  const t = parseIso(lastSeenAt);
+  if (!t) return "never";
+  const delta = Date.now() - t;
+  if (delta < 15_000) return "just now";
+  const sec = Math.floor(delta / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
 }
 
 function NavItem({
@@ -138,19 +159,13 @@ function NavItem({
   );
 }
 
-const AGENTS_OPEN_KEY = "nw_sidebar_agents_open";
-
-function parseIso(iso?: string | null) {
-  if (!iso) return null;
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return null;
-  return t;
-}
-
 export default function Sidebar({ collapsed }: { collapsed: boolean }) {
   const nav = useNavigate();
   const location = useLocation();
   const { agents, isLoading, error, selectedAgentId, setSelectedAgentId } = useAgentsCatalog();
+
+  // VSCode-like behavior: click "Agents" to expand/collapse the list below.
+  const [agentsOpen, setAgentsOpen] = useState(true);
 
   const agentsSorted = useMemo(() => {
     const copy = [...agents];
@@ -165,42 +180,24 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
     return copy;
   }, [agents]);
 
-  const isAgentsRoute = location.pathname.startsWith("/agents");
-
-  const [agentsOpen, setAgentsOpen] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem(AGENTS_OPEN_KEY);
-      if (saved === "1") return true;
-      if (saved === "0") return false;
-    } catch {
-      // no-op
-    }
-    return isAgentsRoute || !!selectedAgentId;
-  });
-
-  useEffect(() => {
-    if (isAgentsRoute) setAgentsOpen(true);
-  }, [isAgentsRoute]);
-
-  function toggleAgentsOpen() {
-    const next = !agentsOpen;
-    setAgentsOpen(next);
-    try {
-      localStorage.setItem(AGENTS_OPEN_KEY, next ? "1" : "0");
-    } catch {
-      // no-op
-    }
-  }
+  const now = Date.now();
+  const onlineWindowMs = 90_000;
 
   function selectAgent(agentId: string) {
     const safe = (agentId || "").trim();
     setSelectedAgentId(safe);
-    // VSCode-like behavior: selecting an agent opens its “editor” (agents console).
-    nav(safe ? `/agents?agent_id=${encodeURIComponent(safe)}` : "/agents");
+
+    // Keep the user in the current section; only sync query param when already on /agents.
+    if (location.pathname.startsWith("/agents")) {
+      nav(safe ? `/agents?agent_id=${encodeURIComponent(safe)}` : "/agents");
+    }
   }
 
-  const now = Date.now();
-  const onlineWindowMs = 90_000;
+  const selectedAgentLabel = useMemo(() => {
+    if (!selectedAgentId) return null;
+    const a = agents.find((x) => x.agent_id === selectedAgentId);
+    return a?.display_name?.trim() ? a.display_name : selectedAgentId;
+  }, [agents, selectedAgentId]);
 
   return (
     <aside
@@ -218,6 +215,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
       </div>
 
       <nav className="px-2 pb-4 space-y-4">
+        {/* TELEMETRY */}
         <div>
           {!collapsed && (
             <div className="px-3 pb-2 text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
@@ -231,6 +229,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
           </div>
         </div>
 
+        {/* ASSETS */}
         <div>
           {!collapsed && (
             <div className="px-3 pb-2 text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
@@ -238,96 +237,109 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
             </div>
           )}
 
-          <div className="space-y-1">
-            {/* Agents (explorer-style) */}
-            <div className="space-y-1">
-              <button
-                type="button"
-                onClick={() => {
-                  if (collapsed) {
-                    nav("/agents");
-                    return;
-                  }
-                  toggleAgentsOpen();
-                }}
-                title={collapsed ? "Agents" : undefined}
-                className={cx(
-                  "relative flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors",
-                  collapsed && "justify-center px-2",
-                  isAgentsRoute
-                    ? "bg-primary/10 text-foreground"
-                    : "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
-                )}
-                aria-expanded={agentsOpen}
-              >
-                <ActiveBar active={isAgentsRoute} />
-                {!collapsed && <Chevron open={agentsOpen} />}
+          <div className="space-y-2">
+            {/* VSCode-like folder: click to expand list underneath */}
+            <button
+              type="button"
+              title={collapsed ? "Agents" : undefined}
+              onClick={() => setAgentsOpen((v) => !v)}
+              className={cx(
+                "w-full relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                collapsed ? "justify-center px-2" : "justify-between",
+                "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
+              )}
+            >
+              <div className={cx("flex items-center gap-3 min-w-0", collapsed && "justify-center")}>
                 <span className="text-primary">
                   <ItemIcon name="agents" />
                 </span>
-                {!collapsed && <span className="truncate">Agents</span>}
-              </button>
+                {!collapsed && (
+                  <div className="min-w-0 flex items-center gap-2">
+                    <span className="truncate">Agents</span>
+                    {selectedAgentLabel && (
+                      <span className="max-w-[10rem] truncate rounded-md border border-border/60 bg-background/40 px-2 py-0.5 text-[10px] font-mono text-foreground">
+                        {selectedAgentLabel}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
 
-              {!collapsed && agentsOpen && (
-                <div className="ml-4 border-l border-border/50 pl-2 space-y-1">
+              {!collapsed && <Chevron open={agentsOpen} />}
+            </button>
+
+            {!collapsed && agentsOpen && (
+              <div className="rounded-md border border-border/60 bg-background/20">
+                <div className="max-h-[340px] overflow-y-auto py-1">
                   {isLoading ? (
                     <div className="px-3 py-2 space-y-2">
                       <div className="h-3 w-2/3 rounded bg-muted/20" />
                       <div className="h-3 w-1/2 rounded bg-muted/20" />
                       <div className="h-3 w-3/4 rounded bg-muted/20" />
                     </div>
+                  ) : agentsSorted.length === 0 ? (
+                    <div className="px-3 py-2 text-[11px] text-muted-foreground italic">No agents found</div>
                   ) : (
-                    <div className="max-h-[260px] overflow-y-auto py-1">
-                      {agentsSorted.length === 0 && (
-                        <div className="px-2 py-1 text-[11px] text-muted-foreground italic">No agents found</div>
-                      )}
+                    agentsSorted.map((a) => {
+                      const last = parseIso(a.last_seen_at);
+                      const state: "online" | "offline" | "disabled" = a.is_revoked
+                        ? "disabled"
+                        : last && now - last <= onlineWindowMs
+                          ? "online"
+                          : "offline";
 
-                      {agentsSorted.map((a) => {
-                        const last = parseIso(a.last_seen_at);
-                        const state: "online" | "offline" | "disabled" = a.is_revoked
-                          ? "disabled"
-                          : last && now - last <= onlineWindowMs
-                            ? "online"
-                            : "offline";
+                      const active = selectedAgentId === a.agent_id;
 
-                        const title = a.display_name ? `${a.display_name} (${a.agent_id})` : a.agent_id;
-                        const active = selectedAgentId === a.agent_id;
-
-                        return (
-                          <button
-                            key={a.agent_id}
-                            type="button"
-                            onClick={() => selectAgent(a.agent_id)}
-                            className={cx(
-                              "relative group flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors",
-                              active
-                                ? "bg-primary/10 text-foreground"
-                                : "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
-                            )}
-                            title={title}
-                          >
-                            <ActiveBar active={active} />
+                      return (
+                        <button
+                          key={a.agent_id}
+                          type="button"
+                          onClick={() => selectAgent(a.agent_id)}
+                          className={cx(
+                            "relative group flex w-full items-start gap-2 rounded-md px-3 py-2 text-left transition-colors",
+                            active
+                              ? "bg-primary/10 text-foreground"
+                              : "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
+                          )}
+                          title={a.display_name ? `${a.display_name} (${a.agent_id})` : a.agent_id}
+                        >
+                          <ActiveBar active={active} />
+                          <div className="mt-[6px]">
                             <Dot state={state} />
-                            <span className="min-w-0 flex-1 truncate">{a.display_name ? a.display_name : a.agent_id}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="truncate text-sm font-medium">
+                                {a.display_name?.trim() ? a.display_name : a.agent_id}
+                              </div>
+                              <div className="shrink-0 text-[10px] font-mono text-muted-foreground/80">
+                                {fmtLastSeen(a.last_seen_at)}
+                              </div>
+                            </div>
+                            <div className="truncate text-[10px] font-mono text-muted-foreground/80">
+                              {a.agent_id}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })
                   )}
 
                   {error && (
-                    <div className="mt-1 rounded-md border border-border/60 bg-background/20 px-3 py-2 text-[11px] text-muted-foreground">
+                    <div className="m-2 rounded-md border border-border/60 bg-background/20 px-3 py-2 text-[11px] text-muted-foreground">
                       {error}
                     </div>
                   )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             <NavItem collapsed={collapsed} to="/inventory" label="Inventory" icon="inventory" />
           </div>
         </div>
 
+        {/* ADMIN */}
         <div>
           {!collapsed && (
             <div className="px-3 pb-2 text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">

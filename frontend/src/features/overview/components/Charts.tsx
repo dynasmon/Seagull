@@ -48,10 +48,10 @@ export function SimpleTimeSeries({
   allowHorizontalScroll?: boolean;
 }) {
   return (
-    <div className={allowHorizontalScroll ? "w-full overflow-x-auto" : "w-full overflow-hidden"}>
-      <div style={allowHorizontalScroll ? { minWidth } : { width: "100%" }}>
+    <div className={allowHorizontalScroll ? "w-full min-w-0 overflow-x-auto" : "w-full min-w-0 overflow-hidden"}>
+      <div style={allowHorizontalScroll ? { minWidth, width: "100%", minHeight: 0 } : { width: "100%", minWidth: 0, minHeight: 0 }}>
         <div style={{ width: "100%", height }}>
-          <ResponsiveContainer>
+          <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
               <XAxis dataKey="t" tick={{ fontSize: 12 }} />
