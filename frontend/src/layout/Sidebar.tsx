@@ -1,5 +1,6 @@
 // src/layout/Sidebar.tsx
 import { useMemo, useState } from "react";
+import type { To } from "react-router-dom";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
 import { cx } from "@/shared/lib/cx";
@@ -130,7 +131,7 @@ function NavItem({
   icon
 }: {
   collapsed: boolean;
-  to: string;
+  to: To;
   label: string;
   icon: Parameters<typeof ItemIcon>[0]["name"];
 }) {
@@ -164,8 +165,20 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
   const location = useLocation();
   const { agents, isLoading, error, selectedAgentId, setSelectedAgentId } = useAgentsCatalog();
 
-  // VSCode-like behavior: click "Agents" to expand/collapse the list below.
   const [agentsOpen, setAgentsOpen] = useState(true);
+
+  // Prefer URL agent_id, fallback to selectedAgentId from catalog
+  const urlAgentId = useMemo(() => {
+    const sp = new URLSearchParams(location.search);
+    return (sp.get("agent_id") || "").trim();
+  }, [location.search]);
+
+  const effectiveAgentId = (urlAgentId || selectedAgentId || "").trim();
+
+  function toWithAgentId(pathname: string): To {
+    if (!effectiveAgentId) return { pathname, search: "" };
+    return { pathname, search: `?agent_id=${encodeURIComponent(effectiveAgentId)}` };
+  }
 
   const agentsSorted = useMemo(() => {
     const copy = [...agents];
@@ -187,17 +200,20 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
     const safe = (agentId || "").trim();
     setSelectedAgentId(safe);
 
-    // Keep the user in the current section; only sync query param when already on /agents.
-    if (location.pathname.startsWith("/agents")) {
-      nav(safe ? `/agents?agent_id=${encodeURIComponent(safe)}` : "/agents");
-    }
+    // Redirect to Agents page immediately (your requested flow)
+    nav(
+      safe
+        ? { pathname: "/agents", search: `?agent_id=${encodeURIComponent(safe)}` }
+        : { pathname: "/agents", search: "" },
+      { replace: true }
+    );
   }
 
   const selectedAgentLabel = useMemo(() => {
-    if (!selectedAgentId) return null;
-    const a = agents.find((x) => x.agent_id === selectedAgentId);
-    return a?.display_name?.trim() ? a.display_name : selectedAgentId;
-  }, [agents, selectedAgentId]);
+    if (!effectiveAgentId) return null;
+    const a = agents.find((x) => x.agent_id === effectiveAgentId);
+    return a?.display_name?.trim() ? a.display_name : effectiveAgentId;
+  }, [agents, effectiveAgentId]);
 
   return (
     <aside
@@ -223,9 +239,9 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
             </div>
           )}
           <div className="space-y-1">
-            <NavItem collapsed={collapsed} to="/overview" label="Overview" icon="dashboard" />
-            <NavItem collapsed={collapsed} to="/events" label="Events" icon="events" />
-            <NavItem collapsed={collapsed} to="/alerts" label="Alerts" icon="alerts" />
+            <NavItem collapsed={collapsed} to={toWithAgentId("/overview")} label="Overview" icon="dashboard" />
+            <NavItem collapsed={collapsed} to={toWithAgentId("/events")} label="Events" icon="events" />
+            <NavItem collapsed={collapsed} to={toWithAgentId("/alerts")} label="Alerts" icon="alerts" />
           </div>
         </div>
 
@@ -238,7 +254,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
           )}
 
           <div className="space-y-2">
-            {/* VSCode-like folder: click to expand list underneath */}
+            {/* VSCode-like: click "Agents" to expand */}
             <button
               type="button"
               title={collapsed ? "Agents" : undefined}
@@ -253,6 +269,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
                 <span className="text-primary">
                   <ItemIcon name="agents" />
                 </span>
+
                 {!collapsed && (
                   <div className="min-w-0 flex items-center gap-2">
                     <span className="truncate">Agents</span>
@@ -288,7 +305,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
                           ? "online"
                           : "offline";
 
-                      const active = selectedAgentId === a.agent_id;
+                      const active = effectiveAgentId === a.agent_id;
 
                       return (
                         <button
@@ -317,9 +334,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
                                 {fmtLastSeen(a.last_seen_at)}
                               </div>
                             </div>
-                            <div className="truncate text-[10px] font-mono text-muted-foreground/80">
-                              {a.agent_id}
-                            </div>
+                            <div className="truncate text-[10px] font-mono text-muted-foreground/80">{a.agent_id}</div>
                           </div>
                         </button>
                       );
@@ -335,7 +350,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
               </div>
             )}
 
-            <NavItem collapsed={collapsed} to="/inventory" label="Inventory" icon="inventory" />
+            <NavItem collapsed={collapsed} to={toWithAgentId("/inventory")} label="Inventory" icon="inventory" />
           </div>
         </div>
 
@@ -347,7 +362,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
             </div>
           )}
           <div className="space-y-1">
-            <NavItem collapsed={collapsed} to="/settings" label="Settings" icon="settings" />
+            <NavItem collapsed={collapsed} to={toWithAgentId("/settings")} label="Settings" icon="settings" />
           </div>
         </div>
       </nav>
