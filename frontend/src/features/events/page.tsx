@@ -38,11 +38,15 @@ function Panel(props: {
 }
 
 export default function EventsPage() {
-  const { agents, selectedAgentId } = useAgentsCatalog();
+  const { agents } = useAgentsCatalog();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const agentIdFromUrl = (searchParams.get("agent_id") || "").trim();
-  const effectiveAgentId = (agentIdFromUrl || selectedAgentId || "").trim();
+  // IMPORTANT UX: Events must be independent.
+  // - Default scope is ALWAYS "All agents" when you open /events.
+  // - If the URL includes ?agent_id=..., we honor it.
+  // - No fallback to sidebar selection.
+  const effectiveAgentId = (searchParams.get("agent_id") ?? "").trim();
+  const agentIdForApi = effectiveAgentId ? effectiveAgentId : undefined;
 
   const agentNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -64,28 +68,18 @@ export default function EventsPage() {
 
   const reqSeq = useRef(0);
 
-  useEffect(() => {
-    // Keep URL in sync when we have a selectedAgentId but no agent_id in query.
-    // This helps the whole app behave consistently.
-    if (!agentIdFromUrl && selectedAgentId) {
-      const sp = new URLSearchParams(searchParams);
-      sp.set("agent_id", selectedAgentId);
-      setSearchParams(sp, { replace: true });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentIdFromUrl, selectedAgentId]);
+  function setAgentScope(nextAgentId: string) {
+    const next = (nextAgentId ?? "").trim();
+    const sp = new URLSearchParams(searchParams);
+
+    // Keep the URL clean: "All agents" == no agent_id param.
+    if (!next) sp.delete("agent_id");
+    else sp.set("agent_id", next);
+    setSearchParams(sp, { replace: true });
+  }
 
   useEffect(() => {
-    const agentId = effectiveAgentId;
-
-    // If no agent selected, do not hit the backend.
-    if (!agentId) {
-      setLoading(false);
-      setError(null);
-      setEvents([]);
-      setSelected(null);
-      return;
-    }
+    const agentId = agentIdForApi;
 
     const mySeq = ++reqSeq.current;
 
@@ -119,13 +113,12 @@ export default function EventsPage() {
         setLoading(false);
       }
     })();
-  }, [effectiveAgentId]);
+  }, [agentIdForApi]);
 
   const headerRight = useMemo(() => {
-    if (!effectiveAgentId) return "Select an agent";
     if (loading) return "Loading...";
     return `${events.length} events`;
-  }, [effectiveAgentId, loading, events.length]);
+  }, [loading, events.length]);
 
   return (
     <div className="space-y-4">
@@ -135,44 +128,49 @@ export default function EventsPage() {
           <div className="text-xs text-muted-foreground">
             {selectedAgentLabel ? (
               <>
-                Agent stream: <span className="text-foreground">{selectedAgentLabel}</span>
+                Scope: <span className="text-foreground">{selectedAgentLabel}</span>
               </>
             ) : (
-              "Select an agent from the sidebar to view its event stream"
+              "Scope: All agents"
             )}
           </div>
         </div>
 
-        {effectiveAgentId ? (
-          <button
-            type="button"
-            onClick={() => {
-              const sp = new URLSearchParams(searchParams);
-              sp.delete("agent_id");
-              setSearchParams(sp, { replace: true });
-            }}
+        <div className="flex items-center gap-2">
+          <select
+            value={effectiveAgentId}
+            onChange={(e) => setAgentScope(e.target.value)}
             className={cx(
               "border border-border/60 bg-background/40 px-3 py-2",
-              "text-[10px] font-mono font-bold uppercase tracking-widest",
-              "hover:bg-primary/5"
+              "text-[11px] font-mono text-foreground outline-none",
+              "focus:ring-2 focus:ring-primary/30"
             )}
+            title="Agent scope"
           >
-            Clear agent
-          </button>
-        ) : null}
+            <option value="">All agents</option>
+            {agents.map((a) => (
+              <option key={a.agent_id} value={a.agent_id}>
+                {a.display_name?.trim() ? a.display_name : a.agent_id}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <Panel title="Event stream" right={headerRight} scrollY style={{ height: H_TABLE }}>
-        {!effectiveAgentId ? (
-          <div className="min-h-[520px] flex items-center justify-center">
-            <EmptyState title="No agent selected" hint="Open 'Agents' in the sidebar and click an agent to load events." />
-          </div>
-        ) : loading ? (
+        {loading ? (
           <Loading label="Loading events..." />
         ) : error ? (
           <EmptyState title="Events error" hint={error} />
         ) : events.length === 0 ? (
-          <EmptyState title="No events" hint="No telemetry events were returned for this agent in the current window." />
+          <EmptyState
+            title="No events"
+            hint={
+              selectedAgentLabel
+                ? "No telemetry events were returned for this agent in the current window."
+                : "No telemetry events were returned for any agent in the current window."
+            }
+          />
         ) : (
           <div className="h-full">
             <EventsTable

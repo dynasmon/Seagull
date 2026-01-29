@@ -209,12 +209,6 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
     );
   }
 
-  const selectedAgentLabel = useMemo(() => {
-    if (!effectiveAgentId) return null;
-    const a = agents.find((x) => x.agent_id === effectiveAgentId);
-    return a?.display_name?.trim() ? a.display_name : effectiveAgentId;
-  }, [agents, effectiveAgentId]);
-
   return (
     <aside
       className={cx(
@@ -240,7 +234,8 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
           )}
           <div className="space-y-1">
             <NavItem collapsed={collapsed} to={toWithAgentId("/overview")} label="Overview" icon="dashboard" />
-            <NavItem collapsed={collapsed} to={toWithAgentId("/events")} label="Events" icon="events" />
+            {/* Events is ALWAYS independent: default scope is "All agents" */}
+            <NavItem collapsed={collapsed} to="/events" label="Events" icon="events" />
             <NavItem collapsed={collapsed} to={toWithAgentId("/alerts")} label="Alerts" icon="alerts" />
           </div>
         </div>
@@ -273,11 +268,6 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
                 {!collapsed && (
                   <div className="min-w-0 flex items-center gap-2">
                     <span className="truncate">Agents</span>
-                    {selectedAgentLabel && (
-                      <span className="max-w-[10rem] truncate rounded-md border border-border/60 bg-background/40 px-2 py-0.5 text-[10px] font-mono text-foreground">
-                        {selectedAgentLabel}
-                      </span>
-                    )}
                   </div>
                 )}
               </div>
