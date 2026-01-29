@@ -23,9 +23,9 @@ import { disableAgent, enableAgent, getAgent, setAgentConfig, updateAgent } from
 import type { AgentDetail, AgentPublic, AgentUpdateIn } from "./types";
 
 // Grafana-like fixed panel heights.
-const H_PANEL_MD = 340;
-const H_PANEL_STREAM = 620;
-const H_PANEL_TALL = 720;
+const H_PANEL_MD = 420;
+const H_PANEL_STREAM = 760;
+const H_PANEL_TALL = 860;
 
 const DEFAULT_WINDOW_MINUTES = 60;
 const DEFAULT_EVENTS_LIMIT = 500;
@@ -131,12 +131,18 @@ function Panel({
   style?: CSSProperties;
 }) {
   return (
-    <div className={cx("border border-border/60 bg-background/70 backdrop-blur-sm flex flex-col", className)} style={style}>
-      <div className="flex items-center justify-between border-b border-border/60 bg-muted/10 px-3 py-2 shrink-0">
-        <h3 className="text-xs font-bold uppercase tracking-widest font-mono text-primary/90">{title}</h3>
+    <div
+      className={cx(
+        "rounded-lg border border-border/60 bg-background/60 backdrop-blur-sm flex flex-col shadow-sm overflow-hidden min-w-0",
+        className
+      )}
+      style={style}
+    >
+      <div className="flex items-center justify-between border-b border-border/60 bg-muted/10 px-4 py-3 shrink-0">
+        <h3 className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-primary/90">{title}</h3>
         {right && <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">{right}</div>}
       </div>
-      <div className={cx("p-4 flex-1 min-h-0", scrollY ? "overflow-y-auto" : "overflow-hidden")}>{children}</div>
+      <div className={cx("p-4 flex-1 min-h-0 min-w-0", scrollY ? "overflow-y-auto" : "overflow-hidden")}>{children}</div>
     </div>
   );
 }
@@ -152,14 +158,20 @@ function StatTile({
   hint?: string;
   tone?: "default" | "good" | "warn";
 }) {
-  const valueClass =
-    tone === "warn" ? "text-red-500" : tone === "good" ? "text-green-500" : "text-foreground";
+  const raw = String(value);
+  const isLong = raw.length > 18;
+  const isMid = raw.length > 12;
+  const valueSize = isLong ? "text-sm" : isMid ? "text-lg" : "text-3xl";
+
+  const valueClass = tone === "warn" ? "text-red-400" : tone === "good" ? "text-green-400" : "text-foreground";
 
   return (
-    <div className="border border-border/60 bg-background/80 backdrop-blur-md px-4 py-3">
+    <div className="rounded-lg border border-border/60 bg-background/50 backdrop-blur-sm px-4 py-4 shadow-sm min-w-0">
       <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1 font-mono">{label}</div>
-      <div className={cx("text-3xl font-bold font-mono tracking-tight leading-none", valueClass)}>{value}</div>
-      {hint && <div className="text-[10px] text-muted-foreground font-mono opacity-70 mt-1">{hint}</div>}
+      <div className={cx("font-mono font-bold tracking-tight leading-none truncate", valueSize, valueClass)} title={raw}>
+        {raw}
+      </div>
+      {hint && <div className="text-[10px] text-muted-foreground font-mono opacity-70 mt-2">{hint}</div>}
     </div>
   );
 }
@@ -589,6 +601,20 @@ export default function AgentsPage() {
     return String(snapshot.kpis.events_5m);
   }, [snapshot]);
 
+  const alerts60m = useMemo(() => {
+    if (!snapshot) return "-";
+    return String(snapshot.kpis.alerts_60m);
+  }, [snapshot]);
+
+  const lastEventAge = useMemo(() => {
+    if (!snapshot) return "-";
+    const v = snapshot.kpis.last_event_age_m;
+    if (v === null || v === undefined) return "-";
+    if (typeof v !== "number" || !Number.isFinite(v)) return "-";
+    return `${Math.round(v)}m`;
+  }, [snapshot]);
+
+
   const windowedEvents = useMemo(() => {
     const mins = Math.max(1, safeNumber(eventsCfg.window_minutes, DEFAULT_WINDOW_MINUTES));
     const cutoff = Date.now() - mins * 60_000;
@@ -633,7 +659,7 @@ export default function AgentsPage() {
 
   if (!selectedAgentId) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         <h1 className="text-xl font-semibold">Agents</h1>
         <div className="min-h-[60vh] flex flex-col items-center justify-center border border-dashed border-border/60 bg-background/20 rounded-lg">
           <EmptyState
@@ -646,7 +672,7 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-1">
           <h1 className="text-xl font-semibold flex items-center gap-2">
@@ -701,9 +727,9 @@ export default function AgentsPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-12">
+      <div className="grid gap-6 xl:grid-cols-12 min-w-0">
         {/* LEFT COLUMN: MANAGEMENT */}
-        <div className="xl:col-span-4 space-y-4">
+        <div className="xl:col-span-4 space-y-6 min-w-0">
           <Panel title="Identity & State" right={agent?.is_revoked ? "Disabled" : "Enabled"} scrollY style={{ height: H_PANEL_MD }}>
             {agentLoading ? (
               <Loading label="Loading agent details..." />
@@ -853,15 +879,22 @@ export default function AgentsPage() {
         </div>
 
         {/* RIGHT COLUMN: TELEMETRY + EVENTS WORKBENCH */}
-        <div className="xl:col-span-8 space-y-4">
-          <Panel title="Live Status" style={{ height: 150 }}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="xl:col-span-8 space-y-6 min-w-0">
+          <Panel
+            title="At a glance"
+            right={topStats.online ? "Online" : selectedAgentRow?.is_revoked ? "Disabled" : ""}
+            style={{ height: 220 }}
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 min-w-0">
               <StatTile
                 label="Status"
                 value={topStats.status}
                 tone={topStats.online ? "good" : selectedAgentRow?.is_revoked ? "warn" : "default"}
               />
+              <StatTile label="Last seen" value={topStats.lastSeen} />
               <StatTile label="Events / 5m" value={eventsRate} />
+              <StatTile label="Alerts / 60m" value={alerts60m} tone={Number(alerts60m) > 0 ? "warn" : "default"} />
+              <StatTile label="Last event age" value={lastEventAge} />
             </div>
           </Panel>
 
@@ -871,15 +904,13 @@ export default function AgentsPage() {
             </div>
           )}
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-2 min-w-0">
             <Panel title="Traffic" style={{ height: H_PANEL_MD }}>
               {!charts.traffic ? (
                 <Loading label="Loading chart..." />
               ) : (
-                <div className="h-full w-full flex items-center justify-center overflow-hidden">
-                  <div className="w-full max-w-full flex justify-center">
-                    <SimpleTimeSeries data={charts.traffic.data} seriesKeys={charts.traffic.series} height={H_PANEL_MD - 100} allowHorizontalScroll={false} />
-                  </div>
+                <div className="h-full w-full min-w-0 overflow-hidden">
+                  <SimpleTimeSeries data={charts.traffic.data} seriesKeys={charts.traffic.series} height={Math.max(180, H_PANEL_MD - 120)} allowHorizontalScroll={false} />
                 </div>
               )}
             </Panel>
@@ -888,10 +919,8 @@ export default function AgentsPage() {
               {!charts.ssh ? (
                 <Loading label="Loading chart..." />
               ) : (
-                <div className="h-full w-full flex items-center justify-center overflow-hidden">
-                  <div className="w-full max-w-full flex justify-center">
-                    <SimpleTimeSeries data={charts.ssh.data} seriesKeys={charts.ssh.series} height={H_PANEL_MD - 100} allowHorizontalScroll={false} />
-                  </div>
+                <div className="h-full w-full min-w-0 overflow-hidden">
+                  <SimpleTimeSeries data={charts.ssh.data} seriesKeys={charts.ssh.series} height={Math.max(180, H_PANEL_MD - 120)} allowHorizontalScroll={false} />
                 </div>
               )}
             </Panel>
@@ -900,10 +929,8 @@ export default function AgentsPage() {
               {!charts.ddos ? (
                 <Loading label="Loading chart..." />
               ) : (
-                <div className="h-full w-full flex items-center justify-center overflow-hidden">
-                  <div className="w-full max-w-full flex justify-center">
-                    <SimpleTimeSeries data={charts.ddos.data} seriesKeys={charts.ddos.series} height={H_PANEL_MD - 100} allowHorizontalScroll={false} />
-                  </div>
+                <div className="h-full w-full min-w-0 overflow-hidden">
+                  <SimpleTimeSeries data={charts.ddos.data} seriesKeys={charts.ddos.series} height={Math.max(180, H_PANEL_MD - 120)} allowHorizontalScroll={false} />
                 </div>
               )}
             </Panel>
@@ -912,20 +939,22 @@ export default function AgentsPage() {
               {!charts.sev ? (
                 <Loading label="Loading chart..." />
               ) : (
-                <div className="h-full w-full flex items-center justify-center overflow-hidden">
-                  <div className="w-full max-w-full flex justify-center">
-                    <SimpleTimeSeries data={charts.sev.data} seriesKeys={charts.sev.series} height={H_PANEL_MD - 100} allowHorizontalScroll={false} />
-                  </div>
+                <div className="h-full w-full min-w-0 overflow-hidden">
+                  <SimpleTimeSeries data={charts.sev.data} seriesKeys={charts.sev.series} height={Math.max(180, H_PANEL_MD - 120)} allowHorizontalScroll={false} />
                 </div>
               )}
             </Panel>
           </div>
 
-          {/* Agent-scoped Events workbench (wider, uses full space) */}
-          <div className="grid gap-4 2xl:grid-cols-12 min-w-0">
+
+        </div>
+      </div>
+
+      {/* EVENTS WORKBENCH (full-width) */}
+      <div className="grid gap-6 xl:grid-cols-12 min-w-0">
             {/* LEFT: Filters/Explorer/Details (wider) */}
-            <div className="2xl:col-span-5 space-y-4 min-h-0 min-w-0">
-              <Panel title="Event filters" scrollY style={{ height: 320 }}>
+            <div className="xl:col-span-4 space-y-6 min-h-0 min-w-0">
+              <Panel title="Event filters" scrollY style={{ height: 420 }}>
                 <div className="space-y-3">
                   <div>
                     <FieldLabel>Event type</FieldLabel>
@@ -1017,7 +1046,7 @@ export default function AgentsPage() {
                 </div>
               </Panel>
 
-              <Panel title="Explorer" scrollY style={{ height: 300 }}>
+              <Panel title="Explorer" scrollY style={{ height: 360 }}>
                 <div className="space-y-1">
                   <button
                     type="button"
@@ -1063,7 +1092,7 @@ export default function AgentsPage() {
             </div>
 
             {/* RIGHT: Deep Dive + Stream (wider) */}
-            <div className="2xl:col-span-7 space-y-4 min-h-0 min-w-0">
+            <div className="xl:col-span-8 space-y-6 min-h-0 min-w-0">
               {ddosMode && (
                 <Panel
                   title="DDoS Deep Dive"
@@ -1093,9 +1122,8 @@ export default function AgentsPage() {
                 )}
               </Panel>
             </div>
-          </div>
-        </div>
       </div>
+
     </div>
   );
 }
