@@ -196,6 +196,30 @@ def bootstrap_schema(engine) -> None:
             END IF;
         END $$;
         """,
+        # Rule overrides (portal-managed)
+        """
+        CREATE TABLE IF NOT EXISTS alert_rule_overrides (
+            rule_id VARCHAR(64) PRIMARY KEY,
+            enabled BOOLEAN,
+            severity VARCHAR(16),
+            window VARCHAR(16),
+            cooldown VARCHAR(16),
+            min_events INTEGER,
+            condition JSONB NOT NULL DEFAULT '{}'::jsonb,
+            schedule JSONB NOT NULL DEFAULT '{}'::jsonb,
+            patch JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """,
+        """
+        DO $$
+        BEGIN
+            IF to_regclass('public.alert_rule_overrides') IS NOT NULL THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_alert_rule_overrides_updated_at ON alert_rule_overrides (updated_at DESC)';
+            END IF;
+        END $$;
+        """,
         # Inventory table (safe if DB is fresh and backend hasn't created tables yet)
         """
         CREATE TABLE IF NOT EXISTS agent_inventory_snapshots (

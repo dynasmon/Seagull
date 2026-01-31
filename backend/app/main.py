@@ -22,6 +22,7 @@ def on_startup():
     # Ensure all models are registered on Base.metadata before create_all.
     from app.models import agents as _agents  # noqa: F401
     from app.models import alerts as _alerts  # noqa: F401
+    from app.models import alert_rule_overrides as _alert_rule_overrides  # noqa: F401
     from app.models import events as _events  # noqa: F401
     from app.models import inventory as _inventory  # noqa: F401
 

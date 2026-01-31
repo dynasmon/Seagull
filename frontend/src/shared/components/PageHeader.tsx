@@ -1,21 +1,24 @@
+import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
-type Tab = { label: string; to: string };
+export type PageHeaderTab = { label: string; to: string };
 
 function cx(...v: Array<string | false | undefined>) {
   return v.filter(Boolean).join(" ");
 }
 
-export default function PageHeader({
+export function PageHeader({
   title,
   breadcrumb,
+  description,
   tabs,
   toolbarRight
 }: {
   title: string;
   breadcrumb?: string[];
-  tabs?: Tab[];
-  toolbarRight?: React.ReactNode;
+  description?: string | ReactNode;
+  tabs?: PageHeaderTab[];
+  toolbarRight?: ReactNode;
 }) {
   return (
     <div className="mb-6">
@@ -23,8 +26,14 @@ export default function PageHeader({
         <div className="text-xs text-muted">{breadcrumb.join(" / ")}</div>
       )}
 
-      <div className="mt-1 flex items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">{title}</h1>
+      <div className="mt-1 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold">{title}</h1>
+          {description ? (
+            <div className="mt-1 text-sm text-muted">{description}</div>
+          ) : null}
+        </div>
+
         {toolbarRight}
       </div>
 
@@ -53,3 +62,5 @@ export default function PageHeader({
     </div>
   );
 }
+
+export default PageHeader;

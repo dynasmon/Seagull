@@ -236,7 +236,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
             <NavItem collapsed={collapsed} to={toWithAgentId("/overview")} label="Overview" icon="dashboard" />
             {/* Events is ALWAYS independent: default scope is "All agents" */}
             <NavItem collapsed={collapsed} to="/events" label="Events" icon="events" />
-            <NavItem collapsed={collapsed} to={toWithAgentId("/alerts")} label="Alerts" icon="alerts" />
+            <NavItem collapsed={collapsed} to="/alerts/queue" label="Alerts" icon="alerts" />
           </div>
         </div>
 

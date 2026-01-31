@@ -1,6 +1,8 @@
 import json
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
+from zoneinfo import ZoneInfo
 
 import yaml
 from sqlalchemy import and_, cast, func, select, or_
@@ -10,7 +12,7 @@ from sqlalchemy.sql.sqltypes import Float
 from app.core.db import SessionLocal
 from app.models.alerts import AlertModel
 from app.models.events import NetEventModel
-from app.workers.rules_loader import load_rules
+from app.workers.rules_registry import apply_override, fetch_overrides, load_baseline_rules, normalize_rule_list
 
 _ALLOWED_EVENT_FIELDS = {
     "agent_id",
@@ -108,10 +110,17 @@ def _recent_alert_index(
     return idx
 
 
+<<<<<<< HEAD
 def _recent_alert_exists_cached(
     idx: Dict, rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]
 ) -> bool:
     return _normalize_dedup_key(rule_id, src_ip, dst_ip, dst_port) in idx
+=======
+def _recent_alert_last_at(
+    idx: Dict, rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]
+) -> Optional[datetime]:
+    return idx.get(_normalize_dedup_key(rule_id, src_ip, dst_ip, dst_port))
+>>>>>>> 4fbb799 (added alerts view page and fixed git corruption)
 
 
 def _index_add(idx: Dict, rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]):
@@ -150,11 +159,76 @@ def _extra_numeric_col(key: str):
 def _build_match_filters(match: Dict, since: datetime, until: datetime) -> List:
     filters = [NetEventModel.timestamp >= since, NetEventModel.timestamp < until]
 
+    def _parse_field_op(raw_key: str) -> Tuple[Optional[str], Optional[str]]:
+        for suffix, op in (
+            ("_not_in", "not_in"),
+            ("_in", "in"),
+            ("_gte", "gte"),
+            ("_gt", "gt"),
+            ("_lte", "lte"),
+            ("_lt", "lt"),
+            ("_neq", "neq"),
+        ):
+            if raw_key.endswith(suffix):
+                return raw_key[: -len(suffix)], op
+        return None, None
+
     for key, val in (match or {}).items():
         if key in _ALLOWED_EVENT_FIELDS:
             col = _safe_col(key)
             filters.append(col == val)
             continue
+
+        # Allow simple operators on core event fields, e.g. dst_port_in: [22,80]
+        base_field, op2 = _parse_field_op(key)
+        if base_field and op2 and base_field in _ALLOWED_EVENT_FIELDS:
+            col = _safe_col(base_field)
+            if op2 in ("in", "not_in"):
+                items = val if isinstance(val, list) else [val]
+                items = [x for x in items if x is not None]
+                if not items:
+                    continue
+
+                # best-effort cast
+                if base_field in ("dst_port", "src_port", "bytes"):
+                    cast_items = []
+                    for x in items:
+                        try:
+                            cast_items.append(int(x))
+                        except Exception:
+                            pass
+                    items = cast_items
+                else:
+                    items = [str(x) for x in items]
+
+                if not items:
+                    continue
+                if op2 == "in":
+                    filters.append(col.in_(items))
+                else:
+                    filters.append(or_(col.is_(None), ~col.in_(items)))
+                continue
+
+            if op2 in ("gte", "gt", "lte", "lt"):
+                try:
+                    target = float(val)
+                except Exception:
+                    continue
+                # bytes can be BIGINT; cast to float for safe comparisons
+                lhs = cast(col, Float) if base_field in ("bytes",) else col
+                if op2 == "gte":
+                    filters.append(lhs >= target)
+                elif op2 == "gt":
+                    filters.append(lhs > target)
+                elif op2 == "lte":
+                    filters.append(lhs <= target)
+                else:
+                    filters.append(lhs < target)
+                continue
+
+            if op2 == "neq":
+                filters.append(col != val)
+                continue
 
         if not key.startswith("extra_"):
             continue
@@ -380,21 +454,107 @@ def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[A
     return out
 
 
+<<<<<<< HEAD
 def run_rules_once():
     rules = load_rules()
+=======
+def _schedule_allows(rule: Dict[str, Any], now_utc: datetime) -> bool:
+    schedule = rule.get("schedule")
+    if not isinstance(schedule, dict) or not schedule.get("enabled"):
+        return True
+>>>>>>> 4fbb799 (added alerts view page and fixed git corruption)
 
+    tz_name = (schedule.get("timezone") or "UTC").strip() or "UTC"
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = timezone.utc
+
+    local = now_utc.replace(tzinfo=timezone.utc).astimezone(tz)
+
+    # Day allowlist
+    days = schedule.get("days") or schedule.get("weekdays") or []
+    if isinstance(days, str):
+        days = [days]
+    allow = []
+    for d in (days or []):
+        s = str(d).strip().lower()[:3]
+        if s:
+            allow.append(s)
+    if allow:
+        wd = local.strftime("%a").strip().lower()[:3]
+        if wd not in set(allow):
+            return False
+
+    def _hhmm_to_min(s: str) -> Optional[int]:
+        s = str(s or "").strip()
+        if not s or ":" not in s:
+            return None
+        hh, mm = s.split(":", 1)
+        try:
+            h = int(hh)
+            m = int(mm)
+        except Exception:
+            return None
+        if h < 0 or h > 23 or m < 0 or m > 59:
+            return None
+        return h * 60 + m
+
+    start_m = _hhmm_to_min(schedule.get("start") or "00:00")
+    end_m = _hhmm_to_min(schedule.get("end") or "23:59")
+    if start_m is None or end_m is None:
+        return True
+
+    now_m = local.hour * 60 + local.minute
+
+    # Same start/end => always on
+    if start_m == end_m:
+        return True
+
+    # Non-wrapping window
+    if start_m < end_m:
+        return start_m <= now_m <= end_m
+
+    # Wrapping (crosses midnight)
+    return now_m >= start_m or now_m <= end_m
+
+
+def run_rules_once():
     now = datetime.utcnow()
     created_alerts: List[AlertModel] = []
 
     db = SessionLocal()
     try:
-        recent_idx = _recent_alert_index(db, timedelta(minutes=2))
+        base_rules = normalize_rule_list(load_baseline_rules(include_disabled=True))
+        overrides = fetch_overrides(db)
+
+        rules: List[Dict[str, Any]] = []
+        max_cooldown_s = 0
+        for base in base_rules:
+            rid = base.get("id")
+            eff, _ = apply_override(base, overrides.get(rid))
+            rules.append(eff)
+            try:
+                max_cooldown_s = max(max_cooldown_s, int(_parse_window(eff.get("cooldown") or "0")))
+            except Exception:
+                pass
+
+        # Build a "last alert" index that covers the maximum cooldown horizon.
+        # Keep a sane floor to avoid pathological small horizons.
+        horizon = timedelta(seconds=max(120, max_cooldown_s))
+        recent_idx = _recent_alert_index(db, horizon)
 
         for rule in rules:
             if not rule.get("enabled", True):
                 continue
 
+            if not _schedule_allows(rule, now):
+                continue
+
             rule_id = rule.get("id")
+            if not rule_id:
+                continue
+
             rule_type = rule.get("type")
             severity = rule.get("severity", "low")
             description = rule.get("description", "")
@@ -460,7 +620,12 @@ def run_rules_once():
                         dst_port,
                     )
 
+<<<<<<< HEAD
                     if _recent_alert_exists_cached(recent_idx, rule_id, src_ip, dst_ip, dst_port):
+=======
+                    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
+                    if last_at and cooldown.total_seconds() > 0 and (now - last_at) < cooldown:
+>>>>>>> 4fbb799 (added alerts view page and fixed git corruption)
                         continue
 
                     details = {
@@ -545,7 +710,12 @@ def run_rules_once():
                         dst_port,
                     )
 
+<<<<<<< HEAD
                     if _recent_alert_exists_cached(recent_idx, rule_id, src_ip, dst_ip, dst_port):
+=======
+                    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
+                    if last_at and cooldown.total_seconds() > 0 and (now - last_at) < cooldown:
+>>>>>>> 4fbb799 (added alerts view page and fixed git corruption)
                         continue
 
                     details = {
@@ -575,6 +745,105 @@ def run_rules_once():
                     created_alerts.append(alert)
                     _index_add(recent_idx, rule_id, src_ip, dst_ip, dst_port)
 
+            elif rule_type == "multi_distinct":
+                condition = rule.get("condition", {}) or {}
+                min_events = int(rule.get("min_events") or condition.get("min_events") or 0)
+
+                group_by = rule.get("group_by")
+                group_fields = group_by if isinstance(group_by, list) else [group_by] if isinstance(group_by, str) else []
+                group_fields = [f for f in group_fields if isinstance(f, str) and f in _ALLOWED_EVENT_FIELDS]
+                if not group_fields:
+                    continue
+
+                distinct_conditions = rule.get("distinct_conditions") or []
+                if not isinstance(distinct_conditions, list) or len(distinct_conditions) == 0:
+                    continue
+
+                # Validate distinct fields
+                dcs = []
+                for dc in distinct_conditions:
+                    if not isinstance(dc, dict):
+                        continue
+                    f = dc.get("field")
+                    if not isinstance(f, str) or f not in _ALLOWED_EVENT_FIELDS:
+                        continue
+                    dcs.append(dc)
+                if not dcs:
+                    continue
+
+                group_cols = [_safe_col(f) for f in group_fields]
+                # Build select list
+                sel = [c.label(f) for c, f in zip(group_cols, group_fields)]
+                sel.append(func.count().label("event_count"))
+                for i, dc in enumerate(dcs):
+                    f = dc.get("field")
+                    sel.append(func.count(func.distinct(_safe_col(f))).label(f"d{i}"))
+
+                stmt = select(*sel).where(and_(*filters)).group_by(*group_cols)
+                rows = db.execute(stmt).all()
+
+                for row in rows:
+                    group_key = {f: row._mapping.get(f) for f in group_fields}
+                    event_count = int(row.event_count)
+                    if min_events and event_count < min_events:
+                        continue
+
+                    # Evaluate each distinct condition
+                    distinct_result: Dict[str, int] = {}
+                    ok = True
+                    for i, dc in enumerate(dcs):
+                        value = int(row._mapping.get(f"d{i}") or 0)
+                        f = dc.get("field")
+                        distinct_result[f] = value
+                        if not _evaluate_condition(value, dc):
+                            ok = False
+                            break
+                    if not ok:
+                        continue
+
+                    src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
+
+                    src_ip, dst_ip, enrichment = _enrich_alert_ips(
+                        db,
+                        rule_id,
+                        match or {},
+                        group_key,
+                        since,
+                        until,
+                        src_ip,
+                        dst_ip,
+                        dst_port,
+                    )
+
+                    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
+                    if last_at and cooldown.total_seconds() > 0 and (now - last_at) < cooldown:
+                        continue
+
+                    details = {
+                        "type": rule_type,
+                        "group_by": group_fields,
+                        "group_key": group_key,
+                        "event_count": event_count,
+                        "distinct": distinct_result,
+                        "window_seconds": int(window.total_seconds()),
+                        "enrichment": enrichment,
+                    }
+                    if enrichment.get("src_ips"):
+                        details["src_ips"] = enrichment["src_ips"]
+                        details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
+
+                    alert = AlertModel(
+                        rule_id=rule_id,
+                        severity=severity,
+                        src_ip=src_ip,
+                        dst_ip=dst_ip,
+                        dst_port=dst_port,
+                        description=description,
+                        details=details,
+                    )
+                    db.add(alert)
+                    created_alerts.append(alert)
+                    _index_add(recent_idx, rule_id, src_ip, dst_ip, dst_port)
             else:
                 continue
 
