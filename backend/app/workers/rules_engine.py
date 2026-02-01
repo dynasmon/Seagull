@@ -110,17 +110,16 @@ def _recent_alert_index(
     return idx
 
 
-<<<<<<< HEAD
-def _recent_alert_exists_cached(
-    idx: Dict, rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]
-) -> bool:
-    return _normalize_dedup_key(rule_id, src_ip, dst_ip, dst_port) in idx
-=======
 def _recent_alert_last_at(
     idx: Dict, rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]
 ) -> Optional[datetime]:
     return idx.get(_normalize_dedup_key(rule_id, src_ip, dst_ip, dst_port))
->>>>>>> 4fbb799 (added alerts view page and fixed git corruption)
+
+
+def _recent_alert_exists_cached(
+    idx: Dict, rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]
+) -> bool:
+    return _recent_alert_last_at(idx, rule_id, src_ip, dst_ip, dst_port) is not None
 
 
 def _index_add(idx: Dict, rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]):
@@ -454,15 +453,10 @@ def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[A
     return out
 
 
-<<<<<<< HEAD
-def run_rules_once():
-    rules = load_rules()
-=======
 def _schedule_allows(rule: Dict[str, Any], now_utc: datetime) -> bool:
     schedule = rule.get("schedule")
     if not isinstance(schedule, dict) or not schedule.get("enabled"):
         return True
->>>>>>> 4fbb799 (added alerts view page and fixed git corruption)
 
     tz_name = (schedule.get("timezone") or "UTC").strip() or "UTC"
     try:
@@ -620,12 +614,8 @@ def run_rules_once():
                         dst_port,
                     )
 
-<<<<<<< HEAD
-                    if _recent_alert_exists_cached(recent_idx, rule_id, src_ip, dst_ip, dst_port):
-=======
                     last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
                     if last_at and cooldown.total_seconds() > 0 and (now - last_at) < cooldown:
->>>>>>> 4fbb799 (added alerts view page and fixed git corruption)
                         continue
 
                     details = {
@@ -710,12 +700,8 @@ def run_rules_once():
                         dst_port,
                     )
 
-<<<<<<< HEAD
-                    if _recent_alert_exists_cached(recent_idx, rule_id, src_ip, dst_ip, dst_port):
-=======
                     last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
                     if last_at and cooldown.total_seconds() > 0 and (now - last_at) < cooldown:
->>>>>>> 4fbb799 (added alerts view page and fixed git corruption)
                         continue
 
                     details = {

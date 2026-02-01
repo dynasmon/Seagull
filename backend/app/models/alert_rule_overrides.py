@@ -20,7 +20,9 @@ class AlertRuleOverrideModel(Base):
 
     enabled = Column(Boolean, nullable=True)
     severity = Column(String(16), nullable=True)
-    window = Column(String(16), nullable=True)
+    # NOTE: "window" is a reserved keyword in PostgreSQL (WINDOW clause).
+    # We force quoting so SQLAlchemy always emits it safely.
+    window = Column("window", String(16), nullable=True, quote=True)
     cooldown = Column(String(16), nullable=True)
     min_events = Column(Integer, nullable=True)
 

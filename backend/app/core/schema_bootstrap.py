@@ -202,7 +202,7 @@ def bootstrap_schema(engine) -> None:
             rule_id VARCHAR(64) PRIMARY KEY,
             enabled BOOLEAN,
             severity VARCHAR(16),
-            window VARCHAR(16),
+	        "window" VARCHAR(16),
             cooldown VARCHAR(16),
             min_events INTEGER,
             condition JSONB NOT NULL DEFAULT '{}'::jsonb,
