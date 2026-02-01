@@ -1,26 +1,12 @@
 // src/layout/Sidebar.tsx
-import { useMemo, useState } from "react";
 import type { To } from "react-router-dom";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 
 import { cx } from "@/shared/lib/cx";
-import { useAgentsCatalog } from "@/app/providers";
 
 function ActiveBar({ active }: { active: boolean }) {
   if (!active) return null;
   return <span className="absolute left-0 top-1 bottom-1 w-[3px] rounded-r bg-primary" />;
-}
-
-function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      className={cx("h-4 w-4 text-muted-foreground transition-transform", open ? "rotate-90" : "rotate-0")}
-      viewBox="0 0 24 24"
-      fill="none"
-    >
-      <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
 }
 
 function ItemIcon({
@@ -92,38 +78,6 @@ function ItemIcon({
   }
 }
 
-function Dot({ state }: { state: "online" | "offline" | "disabled" }) {
-  const klass =
-    state === "disabled"
-      ? "bg-muted-foreground/60"
-      : state === "online"
-        ? "bg-emerald-400/90"
-        : "bg-amber-400/90";
-  return <span className={cx("h-2 w-2 rounded-full", klass)} />;
-}
-
-function parseIso(iso?: string | null) {
-  if (!iso) return null;
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return null;
-  return t;
-}
-
-function fmtLastSeen(lastSeenAt?: string | null) {
-  const t = parseIso(lastSeenAt);
-  if (!t) return "never";
-  const delta = Date.now() - t;
-  if (delta < 15_000) return "just now";
-  const sec = Math.floor(delta / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  return `${day}d ago`;
-}
-
 function NavItem({
   collapsed,
   to,
@@ -161,52 +115,10 @@ function NavItem({
 }
 
 export default function Sidebar({ collapsed }: { collapsed: boolean }) {
-  const nav = useNavigate();
-  const location = useLocation();
-  const { agents, isLoading, error, selectedAgentId, setSelectedAgentId } = useAgentsCatalog();
-
-  const [agentsOpen, setAgentsOpen] = useState(true);
-
-  // Prefer URL agent_id, fallback to selectedAgentId from catalog
-  const urlAgentId = useMemo(() => {
-    const sp = new URLSearchParams(location.search);
-    return (sp.get("agent_id") || "").trim();
-  }, [location.search]);
-
-  const effectiveAgentId = (urlAgentId || selectedAgentId || "").trim();
-
-  function toWithAgentId(pathname: string): To {
-    if (!effectiveAgentId) return { pathname, search: "" };
-    return { pathname, search: `?agent_id=${encodeURIComponent(effectiveAgentId)}` };
-  }
-
-  const agentsSorted = useMemo(() => {
-    const copy = [...agents];
-    copy.sort((a, b) => {
-      const an = (a.display_name || "").trim().toLowerCase();
-      const bn = (b.display_name || "").trim().toLowerCase();
-      if (an && bn && an !== bn) return an.localeCompare(bn);
-      if (an && !bn) return -1;
-      if (!an && bn) return 1;
-      return a.agent_id.localeCompare(b.agent_id);
-    });
-    return copy;
-  }, [agents]);
-
-  const now = Date.now();
-  const onlineWindowMs = 90_000;
-
-  function selectAgent(agentId: string) {
-    const safe = (agentId || "").trim();
-    setSelectedAgentId(safe);
-
-    // Redirect to Agents page immediately (your requested flow)
-    nav(
-      safe
-        ? { pathname: "/agents", search: `?agent_id=${encodeURIComponent(safe)}` }
-        : { pathname: "/agents", search: "" },
-      { replace: true }
-    );
+  // NOTE: agent selection is intentionally NOT in the sidebar anymore.
+  // Selection lives inside the Agents page (and other pages default to "All agents").
+  function toPlain(pathname: string): To {
+    return { pathname, search: "" };
   }
 
   return (
@@ -233,7 +145,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
             </div>
           )}
           <div className="space-y-1">
-            <NavItem collapsed={collapsed} to={toWithAgentId("/overview")} label="Overview" icon="dashboard" />
+            <NavItem collapsed={collapsed} to={toPlain("/overview")} label="Overview" icon="dashboard" />
             {/* Events is ALWAYS independent: default scope is "All agents" */}
             <NavItem collapsed={collapsed} to="/events" label="Events" icon="events" />
             <NavItem collapsed={collapsed} to="/alerts/queue" label="Alerts" icon="alerts" />
@@ -249,98 +161,8 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
           )}
 
           <div className="space-y-2">
-            {/* VSCode-like: click "Agents" to expand */}
-            <button
-              type="button"
-              title={collapsed ? "Agents" : undefined}
-              onClick={() => setAgentsOpen((v) => !v)}
-              className={cx(
-                "w-full relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                collapsed ? "justify-center px-2" : "justify-between",
-                "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
-              )}
-            >
-              <div className={cx("flex items-center gap-3 min-w-0", collapsed && "justify-center")}>
-                <span className="text-primary">
-                  <ItemIcon name="agents" />
-                </span>
-
-                {!collapsed && (
-                  <div className="min-w-0 flex items-center gap-2">
-                    <span className="truncate">Agents</span>
-                  </div>
-                )}
-              </div>
-
-              {!collapsed && <Chevron open={agentsOpen} />}
-            </button>
-
-            {!collapsed && agentsOpen && (
-              <div className="rounded-md border border-border/60 bg-background/20">
-                <div className="max-h-[340px] overflow-y-auto py-1">
-                  {isLoading ? (
-                    <div className="px-3 py-2 space-y-2">
-                      <div className="h-3 w-2/3 rounded bg-muted/20" />
-                      <div className="h-3 w-1/2 rounded bg-muted/20" />
-                      <div className="h-3 w-3/4 rounded bg-muted/20" />
-                    </div>
-                  ) : agentsSorted.length === 0 ? (
-                    <div className="px-3 py-2 text-[11px] text-muted-foreground italic">No agents found</div>
-                  ) : (
-                    agentsSorted.map((a) => {
-                      const last = parseIso(a.last_seen_at);
-                      const state: "online" | "offline" | "disabled" = a.is_revoked
-                        ? "disabled"
-                        : last && now - last <= onlineWindowMs
-                          ? "online"
-                          : "offline";
-
-                      const active = effectiveAgentId === a.agent_id;
-
-                      return (
-                        <button
-                          key={a.agent_id}
-                          type="button"
-                          onClick={() => selectAgent(a.agent_id)}
-                          className={cx(
-                            "relative group flex w-full items-start gap-2 rounded-md px-3 py-2 text-left transition-colors",
-                            active
-                              ? "bg-primary/10 text-foreground"
-                              : "text-muted-foreground hover:bg-muted/10 hover:text-foreground"
-                          )}
-                          title={a.display_name ? `${a.display_name} (${a.agent_id})` : a.agent_id}
-                        >
-                          <ActiveBar active={active} />
-                          <div className="mt-[6px]">
-                            <Dot state={state} />
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="truncate text-sm font-medium">
-                                {a.display_name?.trim() ? a.display_name : a.agent_id}
-                              </div>
-                              <div className="shrink-0 text-[10px] font-mono text-muted-foreground/80">
-                                {fmtLastSeen(a.last_seen_at)}
-                              </div>
-                            </div>
-                            <div className="truncate text-[10px] font-mono text-muted-foreground/80">{a.agent_id}</div>
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-
-                  {error && (
-                    <div className="m-2 rounded-md border border-border/60 bg-background/20 px-3 py-2 text-[11px] text-muted-foreground">
-                      {error}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <NavItem collapsed={collapsed} to={toWithAgentId("/inventory")} label="Inventory" icon="inventory" />
+            <NavItem collapsed={collapsed} to={toPlain("/agents")} label="Agents" icon="agents" />
+            <NavItem collapsed={collapsed} to={toPlain("/inventory")} label="Inventory" icon="inventory" />
           </div>
         </div>
 
@@ -352,7 +174,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
             </div>
           )}
           <div className="space-y-1">
-            <NavItem collapsed={collapsed} to={toWithAgentId("/settings")} label="Settings" icon="settings" />
+            <NavItem collapsed={collapsed} to={toPlain("/settings")} label="Settings" icon="settings" />
           </div>
         </div>
       </nav>

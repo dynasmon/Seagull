@@ -39,7 +39,8 @@ export default function Drawer({
 
   if (!open) return null;
 
-  // Render in document.body to avoid parent stacking contexts breaking `position: fixed`.
+  // IMPORTANT: render into document.body so we are not affected by any parent
+  // stacking contexts (e.g., transform/backdrop/filters) that break `position: fixed`.
   if (typeof document === "undefined") return null;
 
   return createPortal(

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import EmptyState from "@/shared/components/EmptyState";
+import Drawer from "@/shared/components/Drawer";
 import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
 
@@ -70,6 +71,38 @@ function isOnline(lastSeenAt?: string | null): boolean {
   const t = new Date(lastSeenAt).getTime();
   if (!Number.isFinite(t)) return false;
   return Date.now() - t <= 5 * 60_000;
+}
+
+function parseIso(iso?: string | null) {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  return t;
+}
+
+function fmtLastSeen(lastSeenAt?: string | null) {
+  const t = parseIso(lastSeenAt);
+  if (!t) return "never";
+  const delta = Date.now() - t;
+  if (delta < 15_000) return "just now";
+  const sec = Math.floor(delta / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
+}
+
+function Dot({ state }: { state: "online" | "offline" | "disabled" }) {
+  const klass =
+    state === "disabled"
+      ? "bg-muted-foreground/60"
+      : state === "online"
+        ? "bg-emerald-400/90"
+        : "bg-amber-400/90";
+  return <span className={cx("h-2.5 w-2.5 rounded-full", klass)} />;
 }
 
 function Switch({
@@ -265,7 +298,36 @@ function buildTopCounts(values: string[], limit: number) {
 
 export default function AgentsPage() {
   const { agents, selectedAgentId, setSelectedAgentId, refresh } = useAgentsCatalog();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [agentQuery, setAgentQuery] = useState("");
+  const [configOpen, setConfigOpen] = useState(false);
+
+  const agentsSorted = useMemo(() => {
+    return [...(agents || [])].sort((a, b) => {
+      const ad = a.display_name || a.agent_id;
+      const bd = b.display_name || b.agent_id;
+      return ad.localeCompare(bd);
+    });
+  }, [agents]);
+
+  const agentsFiltered = useMemo(() => {
+    const q = agentQuery.trim().toLowerCase();
+    if (!q) return agentsSorted;
+    return agentsSorted.filter((a) => {
+      const parts = [a.display_name, a.agent_id, ...(a.tags || [])].filter(Boolean).join(" ").toLowerCase();
+      return parts.includes(q);
+    });
+  }, [agentsSorted, agentQuery]);
+
+  const selectAgent = (agentId: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (agentId) next.set("agent_id", agentId);
+    else next.delete("agent_id");
+    setSearchParams(next, { replace: true });
+    setSelectedAgentId(agentId);
+    setConfigOpen(false);
+  };
 
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [agentLoading, setAgentLoading] = useState(false);
@@ -660,12 +722,100 @@ export default function AgentsPage() {
   if (!selectedAgentId) {
     return (
       <div className="space-y-6">
-        <h1 className="text-xl font-semibold">Agents</h1>
-        <div className="min-h-[60vh] flex flex-col items-center justify-center border border-dashed border-border/60 bg-background/20 rounded-lg">
-          <EmptyState
-            title="No Agent Selected"
-            hint="Select an agent from the sidebar to view details, configure settings, and inspect telemetry."
-          />
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-1">
+            <h1 className="text-xl font-semibold">Agents</h1>
+            <div className="text-sm text-muted-foreground">Select an agent to inspect telemetry and configure settings.</div>
+          </div>
+
+          <button
+            type="button"
+            onClick={refresh}
+            className={cx(
+              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+              "hover:bg-primary/5"
+            )}
+          >
+            Refresh catalog
+          </button>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-12 min-w-0">
+          <div className="xl:col-span-4 min-w-0">
+            <Panel title="Agents" right={`${agentsFiltered.length}/${agentsSorted.length}`} scrollY style={{ height: H_PANEL_TALL }}>
+              <div className="space-y-3">
+                <input
+                  value={agentQuery}
+                  onChange={(e) => setAgentQuery(e.target.value)}
+                  placeholder="Search agents (name, id, tags)…"
+                  className={inputClassName(false)}
+                />
+
+                <div className="space-y-2">
+                  {agentsFiltered.length === 0 ? (
+                    <EmptyState title="No matches" hint="Try a different search query." />
+                  ) : (
+                    agentsFiltered.map((a) => {
+                      const disabled = Boolean(a.is_revoked);
+                      const online = !disabled && isOnline(a.last_seen_at);
+                      const state = disabled ? "disabled" : online ? "online" : "offline";
+                      return (
+                        <button
+                          key={a.agent_id}
+                          type="button"
+                          onClick={() => selectAgent(a.agent_id)}
+                          className={cx(
+                            "w-full text-left rounded-md border border-border/60 bg-background/20 px-3 py-2",
+                            "hover:bg-muted/10",
+                            "focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <Dot state={state} />
+                              <div className="min-w-0">
+                                <div className="text-sm font-mono truncate">{a.display_name || a.agent_id}</div>
+                                <div className="text-[10px] font-mono text-muted-foreground truncate">{a.agent_id}</div>
+                              </div>
+                            </div>
+                            <div className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
+                              {fmtLastSeen(a.last_seen_at)}
+                            </div>
+                          </div>
+                          {a.tags && a.tags.length ? (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {a.tags.slice(0, 5).map((t) => (
+                                <span
+                                  key={t}
+                                  className="rounded border border-border/60 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground"
+                                >
+                                  {t}
+                                </span>
+                              ))}
+                              {a.tags.length > 5 ? (
+                                <span className="rounded border border-border/60 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                                  +{a.tags.length - 5}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </Panel>
+          </div>
+
+          <div className="xl:col-span-8 min-w-0">
+            <div className="min-h-[60vh] flex flex-col items-center justify-center border border-dashed border-border/60 bg-background/20 rounded-lg">
+              <EmptyState
+                title="Select an agent"
+                hint="Pick an agent from the list on the left. You can configure it using the drawer once selected."
+              />
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -683,6 +833,17 @@ export default function AgentsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setConfigOpen(true)}
+            className={cx(
+              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+              "hover:bg-primary/5"
+            )}
+          >
+            Configure
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -728,72 +889,99 @@ export default function AgentsPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-12 min-w-0">
-        {/* LEFT COLUMN: MANAGEMENT */}
+        {/* LEFT COLUMN: AGENTS LIST + QUICK ACTIONS */}
         <div className="xl:col-span-4 space-y-6 min-w-0">
-          <Panel title="Identity & State" right={agent?.is_revoked ? "Disabled" : "Enabled"} scrollY style={{ height: H_PANEL_MD }}>
-            {agentLoading ? (
-              <Loading label="Loading agent details..." />
-            ) : !agent ? (
-              <EmptyState title="Agent not loaded" hint="Check connectivity and admin token." />
+          <Panel title="Agents" right={`${agentsFiltered.length}/${agentsSorted.length}`} scrollY style={{ height: H_PANEL_TALL }}>
+            <div className="space-y-3">
+              <input
+                value={agentQuery}
+                onChange={(e) => setAgentQuery(e.target.value)}
+                placeholder="Search agents (name, id, tags)…"
+                className={inputClassName(false)}
+              />
+
+              <div className="space-y-2">
+                {agentsFiltered.length === 0 ? (
+                  <EmptyState title="No matches" hint="Try a different search query." />
+                ) : (
+                  agentsFiltered.map((a) => {
+                    const disabled = Boolean(a.is_revoked);
+                    const online = !disabled && isOnline(a.last_seen_at);
+                    const state = disabled ? "disabled" : online ? "online" : "offline";
+                    const active = a.agent_id === selectedAgentId;
+
+                    return (
+                      <button
+                        key={a.agent_id}
+                        type="button"
+                        onClick={() => selectAgent(a.agent_id)}
+                        className={cx(
+                          "w-full text-left rounded-md border border-border/60 px-3 py-2",
+                          active ? "bg-primary/10" : "bg-background/20",
+                          "hover:bg-muted/10",
+                          "focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <Dot state={state} />
+                            <div className="min-w-0">
+                              <div className="text-sm font-mono truncate">{a.display_name || a.agent_id}</div>
+                              <div className="text-[10px] font-mono text-muted-foreground truncate">{a.agent_id}</div>
+                            </div>
+                          </div>
+                          <div className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
+                            {fmtLastSeen(a.last_seen_at)}
+                          </div>
+                        </div>
+                        {a.tags && a.tags.length ? (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {a.tags.slice(0, 4).map((t) => (
+                              <span
+                                key={t}
+                                className="rounded border border-border/60 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground"
+                              >
+                                {t}
+                              </span>
+                            ))}
+                            {a.tags.length > 4 ? (
+                              <span className="rounded border border-border/60 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                                +{a.tags.length - 4}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </Panel>
+
+          <Panel title="Actions" right={agent?.is_revoked ? "Disabled" : "Enabled"} style={{ height: 220 }}>
+            {!agent ? (
+              <EmptyState title="Agent not loaded" hint="Try refresh or check API connectivity." />
             ) : (
-              <div className="space-y-4">
-                <div>
-                  <FieldLabel>Display name</FieldLabel>
-                  <input
-                    className={inputClassName(saveBusy)}
-                    value={draftName}
-                    onChange={(e) => setDraftName(e.target.value)}
-                    placeholder="e.g., Web Server - PROD"
-                    disabled={saveBusy}
-                  />
+              <div className="h-full flex flex-col justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
+                    Selected
+                  </div>
+                  <div className="text-sm font-mono truncate">{agent.display_name || agent.agent_id}</div>
+                  <div className="text-[10px] font-mono text-muted-foreground truncate">{agent.agent_id}</div>
                 </div>
 
-                <div>
-                  <FieldLabel>Description</FieldLabel>
-                  <input
-                    className={inputClassName(saveBusy)}
-                    value={draftDesc}
-                    onChange={(e) => setDraftDesc(e.target.value)}
-                    placeholder="Short context about what this agent protects"
-                    disabled={saveBusy}
-                  />
-                </div>
-
-                <div>
-                  <FieldLabel>Tags</FieldLabel>
-                  <input
-                    className={inputClassName(saveBusy)}
-                    value={draftTags}
-                    onChange={(e) => setDraftTags(e.target.value)}
-                    placeholder="prod, web, ssh, dmz"
-                    disabled={saveBusy}
-                  />
-                  <div className="mt-1 text-[11px] text-muted-foreground">Comma-separated.</div>
-                </div>
-
-                <div>
-                  <FieldLabel>Metadata (JSON)</FieldLabel>
-                  <textarea
-                    className={textAreaClassName(saveBusy)}
-                    rows={4}
-                    value={draftMetaText}
-                    onChange={(e) => setDraftMetaText(e.target.value)}
-                    disabled={saveBusy}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between gap-3 pt-2">
+                <div className="flex flex-col gap-2">
                   <button
                     type="button"
-                    onClick={onSaveAgent}
-                    disabled={!canSaveAgent}
+                    onClick={() => setConfigOpen(true)}
                     className={cx(
                       "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                      "hover:bg-primary/5",
-                      (!canSaveAgent || saveBusy) && "opacity-60 cursor-not-allowed"
+                      "hover:bg-primary/5"
                     )}
                   >
-                    {saveBusy ? "Saving..." : "Save"}
+                    Open configuration
                   </button>
 
                   <button
@@ -809,70 +997,8 @@ export default function AgentsPage() {
                     {toggleBusy ? "Working..." : agent.is_revoked ? "Enable agent" : "Disable agent"}
                   </button>
                 </div>
-              </div>
-            )}
-            {agentError && <div className="mt-3 text-[11px] text-red-400">{agentError}</div>}
-          </Panel>
 
-          <Panel title="Config" scrollY style={{ height: H_PANEL_STREAM }}>
-            {!agent ? (
-              <EmptyState title="Agent not loaded" />
-            ) : (
-              <div className="space-y-4">
-                {timingKeys.length > 0 && (
-                  <div className="border border-border/60 bg-background/40 p-3 space-y-3">
-                    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Timings</div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {timingKeys.map((k) => (
-                        <div key={k}>
-                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{k}</div>
-                          <input
-                            type="number"
-                            className={inputClassName(configBusy)}
-                            value={String((configObj as any)[k] ?? "")}
-                            onChange={(e) => onUpdateTiming(k, Number(e.target.value))}
-                            disabled={configBusy}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <div className="flex items-center justify-between">
-                    <FieldLabel>Raw config</FieldLabel>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const parsed = safeJsonParse(configText);
-                        if (parsed.ok) setConfigText(prettyJson(parsed.value));
-                      }}
-                      className="text-[10px] text-primary hover:underline"
-                    >
-                      Format
-                    </button>
-                  </div>
-
-                  <textarea className={textAreaClassName(configBusy)} rows={14} value={configText} onChange={(e) => onConfigTextChange(e.target.value)} disabled={configBusy} />
-
-                  {configParseError && <div className="mt-2 text-[11px] text-red-400">Config: {configParseError}</div>}
-                </div>
-
-                <div className="flex items-center justify-between gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={onApplyConfig}
-                    disabled={configBusy || Boolean(configParseError)}
-                    className={cx(
-                      "w-full border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                      "hover:bg-primary/5",
-                      (configBusy || Boolean(configParseError)) && "opacity-60 cursor-not-allowed"
-                    )}
-                  >
-                    {configBusy ? "Pushing..." : "Push config"}
-                  </button>
-                </div>
+                {agentError && <div className="text-[11px] text-red-400">{agentError}</div>}
               </div>
             )}
           </Panel>
@@ -1123,6 +1249,187 @@ export default function AgentsPage() {
               </Panel>
             </div>
       </div>
+
+      <Drawer
+        open={configOpen}
+        onClose={() => setConfigOpen(false)}
+        title={`Agent settings • ${agent?.display_name || selectedAgentId}`}
+        description="Identity + configuration. Changes apply immediately."
+      >
+        {!agent ? (
+          <div className="space-y-4">
+            <EmptyState title="Agent not loaded" hint="Try refresh or check API connectivity." />
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Panel title="Identity">
+                <div className="space-y-4">
+                  <div>
+                    <FieldLabel>Display name</FieldLabel>
+                    <input
+                      className={inputClassName(saveBusy)}
+                      value={draftName}
+                      onChange={(e) => setDraftName(e.target.value)}
+                      placeholder="e.g., Web Server - PROD"
+                      disabled={saveBusy}
+                    />
+                  </div>
+
+                  <div>
+                    <FieldLabel>Description</FieldLabel>
+                    <input
+                      className={inputClassName(saveBusy)}
+                      value={draftDesc}
+                      onChange={(e) => setDraftDesc(e.target.value)}
+                      placeholder="Short context about what this agent protects"
+                      disabled={saveBusy}
+                    />
+                  </div>
+
+                  <div>
+                    <FieldLabel>Tags</FieldLabel>
+                    <input
+                      className={inputClassName(saveBusy)}
+                      value={draftTags}
+                      onChange={(e) => setDraftTags(e.target.value)}
+                      placeholder="prod, web, ssh, dmz"
+                      disabled={saveBusy}
+                    />
+                    <div className="mt-1 text-[11px] text-muted-foreground">Comma-separated.</div>
+                  </div>
+
+                  <div>
+                    <FieldLabel>Metadata (JSON)</FieldLabel>
+                    <textarea
+                      className={textAreaClassName(saveBusy)}
+                      rows={6}
+                      value={draftMetaText}
+                      onChange={(e) => setDraftMetaText(e.target.value)}
+                      disabled={saveBusy}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={onSaveAgent}
+                      disabled={!canSaveAgent}
+                      className={cx(
+                        "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                        "hover:bg-primary/5",
+                        (!canSaveAgent || saveBusy) && "opacity-60 cursor-not-allowed"
+                      )}
+                    >
+                      {saveBusy ? "Saving..." : "Save"}
+                    </button>
+                  </div>
+                </div>
+              </Panel>
+
+              <Panel title="State" right={agent.is_revoked ? "Disabled" : isOnline(agent.last_seen_at) ? "Online" : "Offline"}>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="space-y-1 min-w-0">
+                      <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Agent</div>
+                      <div className="text-sm font-mono truncate">{agent.display_name || agent.agent_id}</div>
+                      <div className="text-[10px] font-mono text-muted-foreground truncate">{agent.agent_id}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Dot state={agent.is_revoked ? "disabled" : isOnline(agent.last_seen_at) ? "online" : "offline"} />
+                      <div className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">{fmtLastSeen(agent.last_seen_at)}</div>
+                    </div>
+                  </div>
+
+                  <div className="border border-border/60 bg-background/20 p-3 rounded-md">
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Actions</div>
+                    <div className="mt-3 flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={onToggleRevoked}
+                        disabled={toggleBusy}
+                        className={cx(
+                          "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                          "hover:bg-primary/5",
+                          toggleBusy && "opacity-60 cursor-not-allowed"
+                        )}
+                      >
+                        {toggleBusy ? "Working..." : agent.is_revoked ? "Enable agent" : "Disable agent"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {agentError && <div className="text-[11px] text-red-400">{agentError}</div>}
+                </div>
+              </Panel>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Panel title="Timings" right={timingKeys.length ? `${timingKeys.length} keys` : "-"}>
+                {timingKeys.length === 0 ? (
+                  <EmptyState title="No timing keys" hint="This agent config does not expose timing-related fields." />
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {timingKeys.map((k) => (
+                      <div key={k}>
+                        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{k}</div>
+                        <input
+                          type="number"
+                          className={inputClassName(configBusy)}
+                          value={String((configObj as any)[k] ?? "")}
+                          onChange={(e) => onUpdateTiming(k, Number(e.target.value))}
+                          disabled={configBusy}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Panel>
+
+              <Panel title="Raw config" right={configParseError ? "Invalid" : "JSON"}>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <FieldLabel>Config (JSON)</FieldLabel>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const parsed = safeJsonParse(configText);
+                        if (parsed.ok) setConfigText(prettyJson(parsed.value));
+                      }}
+                      className="text-[10px] text-primary hover:underline"
+                    >
+                      Format
+                    </button>
+                  </div>
+
+                  <textarea
+                    className={textAreaClassName(configBusy)}
+                    rows={14}
+                    value={configText}
+                    onChange={(e) => onConfigTextChange(e.target.value)}
+                    disabled={configBusy}
+                  />
+
+                  {configParseError && <div className="text-[11px] text-red-400">Config: {configParseError}</div>}
+
+                  <button
+                    type="button"
+                    onClick={onApplyConfig}
+                    disabled={configBusy || Boolean(configParseError)}
+                    className={cx(
+                      "w-full border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                      "hover:bg-primary/5",
+                      (configBusy || Boolean(configParseError)) && "opacity-60 cursor-not-allowed"
+                    )}
+                  >
+                    {configBusy ? "Pushing..." : "Push config"}
+                  </button>
+                </div>
+              </Panel>
+            </div>
+          </div>
+        )}
+      </Drawer>
 
     </div>
   );
