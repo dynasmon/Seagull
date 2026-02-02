@@ -1,18 +1,18 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
+import { Badge } from "@/shared/components/Badge";
+import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
 
 import { getRecentAlerts, runAllRules } from "../api";
-import AlertsTable from "../components/AlertsTable";
 import SeverityFilter from "../components/SeverityFilter";
 import type { Alert } from "../types";
 
 const DEFAULT_LIMIT = 500;
-
-type ViewMode = "balanced" | "focusQueue" | "focusDetails";
 type Density = "comfortable" | "compact";
 
 function Panel(props: {
@@ -31,10 +31,7 @@ function Panel(props: {
         {props.right ? <div className="text-xs text-muted-foreground truncate">{props.right}</div> : null}
       </div>
 
-      <div
-        className={cx("p-4 min-h-0", props.scrollY && "overflow-y-auto", props.bodyClassName)}
-        style={props.style}
-      >
+      <div className={cx("p-4 min-h-0", props.scrollY && "overflow-y-auto", props.bodyClassName)} style={props.style}>
         {props.children}
       </div>
     </div>
@@ -49,53 +46,127 @@ function safeJson(v: any) {
   }
 }
 
-function Segmented(props: {
-  value: ViewMode;
-  onChange: (v: ViewMode) => void;
-  className?: string;
+function fmtTs(ts: string) {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+function sevVariant(sev: string) {
+  const s = String(sev || "").toLowerCase();
+  if (s === "critical") return "critical";
+  if (s === "high") return "high";
+  if (s === "medium") return "medium";
+  if (s === "low") return "low";
+  return "neutral";
+}
+
+function AlertsQueueTable(props: {
+  rows: Alert[];
+  selectedId: number | null;
+  onEdit: (a: Alert) => void;
+  density?: Density;
 }) {
-  const items: Array<{ v: ViewMode; label: string }> = [
-    { v: "balanced", label: "Split" },
-    { v: "focusQueue", label: "Focus queue" },
-    { v: "focusDetails", label: "Focus details" }
-  ];
+  const dense = props.density === "compact";
 
   return (
-    <div className={cx("flex rounded-md border border-border/60 bg-background/40", props.className)}>
-      {items.map((it) => {
-        const active = props.value === it.v;
-        return (
-          <button
-            key={it.v}
-            type="button"
-            onClick={() => props.onChange(it.v)}
-            className={cx(
-              "h-9 px-3 text-sm",
-              "hover:bg-muted/30",
-              active ? "bg-muted/40 text-foreground" : "text-muted-foreground"
-            )}
-          >
-            {it.label}
-          </button>
-        );
-      })}
+    <div className="w-full overflow-auto">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
+          <tr className="border-b border-border/60 text-muted-foreground">
+            <th className="text-left font-medium px-3 py-2 w-[180px]">Time</th>
+            <th className="text-left font-medium px-3 py-2 w-[120px]">Severity</th>
+            <th className="text-left font-medium px-3 py-2 w-[260px]">Rule</th>
+            <th className="text-left font-medium px-3 py-2 w-[180px]">Source</th>
+            <th className="text-left font-medium px-3 py-2 w-[220px]">Destination</th>
+            <th className="text-left font-medium px-3 py-2">Description</th>
+            <th className="text-right font-medium px-3 py-2 w-[120px]">Actions</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {props.rows.map((a) => {
+            const selected = props.selectedId !== null && a.id === props.selectedId;
+            return (
+              <tr
+                key={a.id}
+                className={cx(
+                  "border-b border-border/40 hover:bg-muted/30",
+                  selected && "bg-muted/40"
+                )}
+              >
+                <td className={cx("px-3 font-mono text-[12px] text-muted-foreground", dense ? "py-1.5" : "py-2")}>
+                  {fmtTs(a.created_at)}
+                </td>
+
+                <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
+                  <Badge variant={sevVariant(String(a.severity || "unknown"))}>{String(a.severity || "unknown")}</Badge>
+                </td>
+
+                <td className={cx("px-3 font-mono text-[12px]", dense ? "py-1.5" : "py-2")}>{a.rule_id}</td>
+
+                <td className={cx("px-3 font-mono text-[12px]", dense ? "py-1.5" : "py-2")}>
+                  {a.src_ip || <span className="text-muted-foreground">-</span>}
+                </td>
+
+                <td className={cx("px-3 font-mono text-[12px]", dense ? "py-1.5" : "py-2")}>
+                  {a.dst_ip ? <span>{a.dst_ip}</span> : <span className="text-muted-foreground">-</span>}
+                  {typeof a.dst_port === "number" ? <span className="text-muted-foreground">:{a.dst_port}</span> : null}
+                </td>
+
+                <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
+                  <div className="text-[12px] text-muted-foreground line-clamp-2">{a.description || ""}</div>
+                </td>
+
+                <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2")}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onEdit(a);
+                    }}
+                    className={cx(
+                      "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
+                      "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                      "hover:bg-muted/15 hover:text-foreground",
+                      "focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    )}
+                    title="Open drawer"
+                  >
+                    Edit
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 export default function AlertsQueuePage() {
+  const nav = useNavigate();
+
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [selected, setSelected] = useState<Alert | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
   const [severity, setSeverity] = useState("all");
   const [q, setQ] = useState("");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   // UI preferences
-  const [view, setView] = useState<ViewMode>("balanced");
   const [wrapJson, setWrapJson] = useState(true);
   const [density, setDensity] = useState<Density>("comfortable");
   const [limit, setLimit] = useState<number>(DEFAULT_LIMIT);
@@ -107,21 +178,33 @@ export default function AlertsQueuePage() {
     const mySeq = ++reqSeq.current;
     setLoading(true);
     setError(null);
+
     try {
       const payload = await getRecentAlerts({ limit });
       if (reqSeq.current !== mySeq) return;
+
       setAlerts(payload);
+
+      // keep selection only if still present
       setSelected((prev) => {
-        if (!prev) return payload[0] || null;
+        if (!prev) return null;
         const still = payload.find((x) => x.id === prev.id);
-        return still || payload[0] || null;
+        return still || null;
       });
+
       setLastRefresh(new Date());
+
+      // if selection vanished while drawer is open, close it
+      if (drawerOpen && selected) {
+        const still = payload.find((x) => x.id === selected.id);
+        if (!still) setDrawerOpen(false);
+      }
     } catch (e: any) {
       if (reqSeq.current !== mySeq) return;
       setError(e?.message || "Failed to load alerts");
       setAlerts([]);
       setSelected(null);
+      setDrawerOpen(false);
     } finally {
       if (reqSeq.current !== mySeq) return;
       setLoading(false);
@@ -134,7 +217,6 @@ export default function AlertsQueuePage() {
   }, []);
 
   useEffect(() => {
-    // reload when user changes limit
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [limit]);
@@ -142,9 +224,11 @@ export default function AlertsQueuePage() {
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     const sev = severity.toLowerCase();
+
     return (alerts || []).filter((a) => {
       if (sev !== "all" && String(a.severity || "").toLowerCase() !== sev) return false;
       if (!qq) return true;
+
       const hay = [a.rule_id, a.src_ip, a.dst_ip, a.description].filter(Boolean).join(" ").toLowerCase();
       return hay.includes(qq);
     });
@@ -173,15 +257,6 @@ export default function AlertsQueuePage() {
     }
   }
 
-  const gridSpans = useMemo(() => {
-    // IMPORTANT: keep explicit Tailwind classes (no dynamic col-span strings), otherwise JIT might not include them.
-    if (view === "focusQueue") return { left: "xl:col-span-8", right: "xl:col-span-4" };
-    if (view === "focusDetails") return { left: "xl:col-span-4", right: "xl:col-span-8" };
-    return { left: "xl:col-span-6", right: "xl:col-span-6" };
-  }, [view]);
-
-  const panelHeightClass = "h-[560px] xl:h-[calc(100vh-270px)]";
-
   const detailsJson = useMemo(() => {
     if (!selected) return "";
     return safeJson({
@@ -207,6 +282,18 @@ export default function AlertsQueuePage() {
       // ignore
     }
   }
+
+  function openDrawerFor(a: Alert) {
+    setSelected(a);
+    setDrawerOpen(true);
+  }
+
+  function openRuleEditor() {
+    if (!selected?.rule_id) return;
+    nav(`/alerts/rules?rule_id=${encodeURIComponent(selected.rule_id)}`);
+  }
+
+  const panelHeightClass = "h-[560px] xl:h-[calc(100vh-270px)]";
 
   return (
     <div className="space-y-4">
@@ -242,14 +329,9 @@ export default function AlertsQueuePage() {
             <option value="1000">Last 1000</option>
           </select>
 
-          <Segmented value={view} onChange={setView} className="hidden 2xl:flex" />
-
           <button
             onClick={() => setDensity((d) => (d === "comfortable" ? "compact" : "comfortable"))}
-            className={cx(
-              "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-              "hover:bg-muted/30"
-            )}
+            className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30")}
             title="Toggle row density"
           >
             {density === "compact" ? "Compact" : "Comfort"}
@@ -258,10 +340,7 @@ export default function AlertsQueuePage() {
           <button
             onClick={() => reload()}
             disabled={loading}
-            className={cx(
-              "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-              "hover:bg-muted/30 disabled:opacity-60"
-            )}
+            className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30 disabled:opacity-60")}
             title="Refresh"
           >
             Refresh
@@ -270,20 +349,12 @@ export default function AlertsQueuePage() {
           <button
             onClick={handleRunAll}
             disabled={running}
-            className={cx(
-              "h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground",
-              "hover:opacity-95 disabled:opacity-60"
-            )}
+            className={cx("h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground", "hover:opacity-95 disabled:opacity-60")}
             title="Run all rules now"
           >
             {running ? "Running…" : "Run rules"}
           </button>
         </div>
-      </div>
-
-      {/* lightweight view toggle for smaller screens */}
-      <div className="2xl:hidden">
-        <Segmented value={view} onChange={setView} />
       </div>
 
       {error ? (
@@ -292,87 +363,101 @@ export default function AlertsQueuePage() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-        <Panel
-          title="Queue"
-          right={headerRight}
-          scrollY
-          className={cx(panelHeightClass, gridSpans.left, "xl:col-start-1")}
-        >
-          {loading ? (
-            <Loading label="Loading alerts…" />
-          ) : filtered.length === 0 ? (
-            <EmptyState title="No alerts" description="No alerts match the current filters." />
-          ) : (
-            <AlertsTable rows={filtered} selectedId={selected?.id ?? null} onSelect={(a) => setSelected(a)} density={density} />
-          )}
-        </Panel>
+      <Panel title="Queue" right={headerRight} scrollY className={cx(panelHeightClass)}>
+        {loading ? (
+          <Loading label="Loading alerts…" />
+        ) : filtered.length === 0 ? (
+          <EmptyState title="No alerts" description="No alerts match the current filters." />
+        ) : (
+          <AlertsQueueTable rows={filtered} selectedId={selected?.id ?? null} onEdit={openDrawerFor} density={density} />
+        )}
+      </Panel>
 
-        <Panel
-          title="Details"
-          right={selected ? selected.rule_id : "Select an alert"}
-          scrollY
-          className={cx(panelHeightClass, gridSpans.right)}
-          bodyClassName="space-y-4"
-        >
-          {!selected ? (
-            <EmptyState title="No selection" description="Select an alert in the table to view details." />
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-2">
-                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Source</div>
-                  <div className="font-mono text-sm truncate">{selected.src_ip || "-"}</div>
-                </div>
-                <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-2">
-                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Destination</div>
-                  <div className="font-mono text-sm truncate">
-                    {selected.dst_ip || "-"}
-                    {typeof selected.dst_port === "number" ? `:${selected.dst_port}` : ""}
-                  </div>
-                </div>
+      <Drawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        title={selected ? `Alert #${selected.id}` : "Alert"}
+        description={selected ? `${selected.rule_id} · ${fmtTs(selected.created_at)}` : undefined}
+        widthClassName="w-[860px]"
+      >
+        {!selected ? (
+          <EmptyState title="No selection" description="Select an alert using the Edit button." />
+        ) : (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Badge variant={sevVariant(String(selected.severity || "unknown"))}>{String(selected.severity || "unknown")}</Badge>
+                <div className="font-mono text-xs text-muted-foreground">{selected.rule_id}</div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={openRuleEditor}
+                  className={cx(
+                    "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
+                    "hover:bg-muted/30"
+                  )}
+                  title="Open rule editor"
+                >
+                  Edit rule
+                </button>
+
+                <button
+                  type="button"
+                  onClick={copyDetailsJson}
+                  className={cx(
+                    "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
+                    "hover:bg-muted/30"
+                  )}
+                  title="Copy JSON to clipboard"
+                >
+                  {copied ? "Copied" : "Copy JSON"}
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Source</div>
+                <div className="font-mono text-sm truncate">{selected.src_ip || "-"}</div>
               </div>
 
               <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Description</div>
-                <div className="text-sm leading-relaxed">{selected.description || ""}</div>
-              </div>
-
-              <div className="rounded-xl border border-border/60 bg-background/20">
-                <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-border/60">
-                  <div className="text-[11px] font-semibold">Raw event (JSON)</div>
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-2 text-[11px] text-muted-foreground select-none">
-                      <input type="checkbox" checked={wrapJson} onChange={(e) => setWrapJson(e.target.checked)} className="h-4 w-4" />
-                      Wrap
-                    </label>
-                    <button
-                      type="button"
-                      onClick={copyDetailsJson}
-                      className={cx(
-                        "h-8 rounded-md border border-border/60 bg-background/40 px-2 text-[11px]",
-                        "hover:bg-muted/30"
-                      )}
-                      title="Copy JSON to clipboard"
-                    >
-                      {copied ? "Copied" : "Copy"}
-                    </button>
-                  </div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Destination</div>
+                <div className="font-mono text-sm truncate">
+                  {selected.dst_ip || "-"}
+                  {typeof selected.dst_port === "number" ? `:${selected.dst_port}` : ""}
                 </div>
-
-                <pre
-                  className={cx(
-                    "p-3 text-[11px] leading-relaxed overflow-auto",
-                    wrapJson ? "whitespace-pre-wrap break-words" : "whitespace-pre"
-                  )}
-                >
-                  {detailsJson}
-                </pre>
               </div>
-            </>
-          )}
-        </Panel>
-      </div>
+            </div>
+
+            <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Description</div>
+              <div className="text-sm leading-relaxed">{selected.description || ""}</div>
+            </div>
+
+            <div className="rounded-xl border border-border/60 bg-background/20">
+              <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-border/60">
+                <div className="text-[11px] font-semibold">Raw event (JSON)</div>
+                <label className="flex items-center gap-2 text-[11px] text-muted-foreground select-none">
+                  <input type="checkbox" checked={wrapJson} onChange={(e) => setWrapJson(e.target.checked)} className="h-4 w-4" />
+                  Wrap
+                </label>
+              </div>
+
+              <pre
+                className={cx(
+                  "p-3 text-[11px] leading-relaxed overflow-auto",
+                  wrapJson ? "whitespace-pre-wrap break-words" : "whitespace-pre"
+                )}
+              >
+                {detailsJson}
+              </pre>
+            </div>
+          </div>
+        )}
+      </Drawer>
     </div>
   );
 }
