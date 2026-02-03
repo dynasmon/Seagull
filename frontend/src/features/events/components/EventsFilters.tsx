@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { cx } from "@/shared/lib/cx";
 
 export type EventsViewConfig = {
@@ -45,7 +45,7 @@ function norm(cfg: EventsViewConfig | undefined | null): EventsViewConfig {
   };
 }
 
-export default function EventsFilters(props: Props) {
+function EventsFiltersImpl(props: Props) {
   const cfg = useMemo(() => norm(props.config ?? props.value), [props.config, props.value]);
 
   const lockedAgentId = (props.lockAgentId ?? null) || null;
@@ -111,9 +111,7 @@ export default function EventsFilters(props: Props) {
               busy && "opacity-60 cursor-not-allowed"
             )}
           >
-            <option value="" disabled>
-              Select an agent...
-            </option>
+            <option value="">All agents</option>
             {agents.map((a) => (
               <option key={a.agent_id} value={a.agent_id}>
                 {a.display_name ? a.display_name : a.agent_id}
@@ -198,3 +196,5 @@ export default function EventsFilters(props: Props) {
     </div>
   );
 }
+
+export default memo(EventsFiltersImpl);

@@ -65,11 +65,14 @@ function agentLabel(agent_id: string, agentNameById?: Record<string, string>) {
 export default function EventsTable(props: {
   rows: NetEvent[];
   selectedId: number | null;
-  onSelect: (ev: NetEvent) => void;
+  onSelect?: (ev: NetEvent) => void;
+  onEdit?: (ev: NetEvent) => void;
   compact?: boolean;
   showExtra?: boolean;
   agentNameById?: Record<string, string>;
 }) {
+  const dense = Boolean(props.compact);
+
   return (
     <div className="w-full overflow-auto">
       <table className="w-full text-sm">
@@ -83,6 +86,7 @@ export default function EventsTable(props: {
             {props.showExtra ? (
               <th className="text-left font-medium px-3 py-2">Details</th>
             ) : null}
+            {props.onEdit ? <th className="text-right font-medium px-3 py-2 w-[120px]">Actions</th> : null}
           </tr>
         </thead>
 
@@ -94,22 +98,22 @@ export default function EventsTable(props: {
               <tr
                 key={e.id}
                 className={cx(
-                  "border-b border-border/40 hover:bg-muted/30 cursor-pointer",
+                  "border-b border-border/40 hover:bg-muted/30",
                   selected && "bg-muted/40"
                 )}
-                onClick={() => props.onSelect(e)}
+                onClick={() => props.onSelect?.(e)}
               >
-                <td className="px-3 py-2 font-mono text-[12px] text-muted-foreground">
+                <td className={cx("px-3 font-mono text-[12px] text-muted-foreground", dense ? "py-1.5" : "py-2")}>
                   {fmtTs(e.timestamp)}
                 </td>
 
-                <td className="px-3 py-2">
+                <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
                   <div className="font-mono text-[12px]">
                     {agentLabel(e.agent_id, props.agentNameById)}
                   </div>
                 </td>
 
-                <td className="px-3 py-2">
+                <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
                   <div className="flex items-center gap-2">
                     <Badge>{e.event_type}</Badge>
                     {!props.compact && e.schema_version ? (
@@ -120,11 +124,11 @@ export default function EventsTable(props: {
                   </div>
                 </td>
 
-                <td className="px-3 py-2 font-mono text-[12px]">
+                <td className={cx("px-3 font-mono text-[12px]", dense ? "py-1.5" : "py-2")}>
                   {srcLabel(e)}
                 </td>
 
-                <td className="px-3 py-2 font-mono text-[12px]">
+                <td className={cx("px-3 font-mono text-[12px]", dense ? "py-1.5" : "py-2")}>
                   {e.dst_ip ? (
                     <span>{e.dst_ip}</span>
                   ) : (
@@ -136,10 +140,31 @@ export default function EventsTable(props: {
                 </td>
 
                 {props.showExtra ? (
-                  <td className="px-3 py-2">
+                  <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
                     <div className="text-[12px] text-muted-foreground">
                       {summarizeExtra(e) || <span className="opacity-60">-</span>}
                     </div>
+                  </td>
+                ) : null}
+
+                {props.onEdit ? (
+                  <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2")}>
+                    <button
+                      type="button"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        props.onEdit?.(e);
+                      }}
+                      className={cx(
+                        "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
+                        "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                        "hover:bg-muted/15 hover:text-foreground",
+                        "focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      )}
+                      title="Open drawer"
+                    >
+                      Inspect
+                    </button>
                   </td>
                 ) : null}
               </tr>
