@@ -109,7 +109,7 @@ function Panel(props: {
       </div>
 
       <div
-        className={cx("p-4 min-h-0", props.scrollY && "overflow-y-auto", props.bodyClassName)}
+        className={cx("p-4 min-h-0 grow", props.scrollY && "overflow-y-auto", props.bodyClassName)}
         style={props.style}
       >
         {props.children}

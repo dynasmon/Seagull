@@ -31,7 +31,7 @@ export default function TopBar({ onToggleNav }: { onToggleNav?: () => void }) {
             className="inline-flex h-9 items-center justify-center border border-border/60 bg-background/40 px-3 text-[10px] font-mono uppercase tracking-widest hover:bg-background/60"
             aria-label="Toggle theme"
           >
-            {theme === "dark" ? "Dark" : "Light"}
+            {theme === "dark" ? "Light" : "Dark"}
           </button>
         </div>
       </div>
