@@ -292,6 +292,61 @@ def bootstrap_schema(engine) -> None:
         VALUES ('rollup_ssh_fail_1m', 0)
         ON CONFLICT (name) DO NOTHING;
         """,
+
+        # Portal auth tables (human operators)
+        """
+        CREATE TABLE IF NOT EXISTS portal_users (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(64) UNIQUE NOT NULL,
+            password_hash VARCHAR(256) NOT NULL,
+            role VARCHAR(32) NOT NULL DEFAULT 'admin',
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP NOT NULL DEFAULT now(),
+            last_login_at TIMESTAMP NULL,
+            failed_login_count INTEGER NOT NULL DEFAULT 0
+        );
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_portal_users_username ON portal_users (username);
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS portal_refresh_sessions (
+            id VARCHAR(36) PRIMARY KEY,
+            family_id VARCHAR(36) NOT NULL,
+            user_id INTEGER NOT NULL,
+            token_hash VARCHAR(64) UNIQUE NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT now(),
+            expires_at TIMESTAMP NOT NULL,
+            revoked_at TIMESTAMP NULL,
+            replaced_by_id VARCHAR(36) NULL,
+            last_ip VARCHAR(64) NULL,
+            last_user_agent VARCHAR(256) NULL
+        );
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_portal_refresh_user_id ON portal_refresh_sessions (user_id);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_portal_refresh_family_id ON portal_refresh_sessions (family_id);
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS portal_one_time_tokens (
+            id VARCHAR(36) PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_by_user_id INTEGER NULL,
+            label VARCHAR(128) NULL,
+            token_hash VARCHAR(64) UNIQUE NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT now(),
+            expires_at TIMESTAMP NOT NULL,
+            used_at TIMESTAMP NULL,
+            used_ip VARCHAR(64) NULL,
+            used_user_agent VARCHAR(256) NULL,
+            revoked_at TIMESTAMP NULL
+        );
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_portal_otp_user_id ON portal_one_time_tokens (user_id);
+        """,
     ]
 
     with engine.begin() as conn:

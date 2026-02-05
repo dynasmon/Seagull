@@ -2,11 +2,11 @@ import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, text
 
 from app.core.agent_auth import AgentPrincipal, get_current_agent
-from app.core.admin_auth import require_admin
+from app.core.portal_auth import get_current_user
 from app.core.db import SessionLocal
 from app.models.inventory import AgentInventorySnapshotModel
 from app.schemas.inventory import InventorySnapshotIn, InventorySnapshotOut, PackageEntry
@@ -129,8 +129,7 @@ async def get_my_inventory_history(
 
 
 @router.get("/{agent_id}/latest", response_model=InventorySnapshotOut)
-async def get_agent_latest_inventory(request: Request, agent_id: str):
-    require_admin(request)
+async def get_agent_latest_inventory(agent_id: str, _user=Depends(get_current_user)):
     db = SessionLocal()
     try:
         stmt = (
@@ -149,11 +148,10 @@ async def get_agent_latest_inventory(request: Request, agent_id: str):
 
 @router.get("/{agent_id}/history", response_model=List[InventorySnapshotOut])
 async def get_agent_inventory_history(
-    request: Request,
     agent_id: str,
     limit: int = Query(20, ge=1, le=200),
+    _user=Depends(get_current_user),
 ):
-    require_admin(request)
     db = SessionLocal()
     try:
         stmt = (
@@ -169,17 +167,15 @@ async def get_agent_inventory_history(
 
 @router.get("/overview")
 async def get_inventory_overview(
-    request: Request,
     window_minutes: int = Query(360, ge=30, le=7 * 24 * 60, description="Time window (minutes) for inventory charts"),
     agent_id: Optional[str] = Query(None, description="Optional agent filter. Use '__all' or omit for all agents."),
+    _user=Depends(get_current_user),
 ):
     """Aggregated snapshot for the Inventory page (Grafana-like).
 
     Mirrors the key panels from infra/grafana/provisioning/dashboards/netwatch-endpoint-sprint1.json
     while keeping the portal client simple (minimal client-side aggregation).
     """
-
-    require_admin(request)
 
     a = (agent_id or "").strip()
     if not a or a == "__all":

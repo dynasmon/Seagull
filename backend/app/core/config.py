@@ -22,7 +22,22 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    v = _env_str(name, None)
+    if v is None:
+        return default
+    s = v.strip().lower()
+    if s in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if s in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    return default
+
+
 class Settings:
+    # Environment
+    NETWATCH_ENV: str = (_env_str("NETWATCH_ENV", "dev") or "dev").lower()
+
     # Redis
     NETWATCH_REDIS_HOST: str = _env_str("NETWATCH_REDIS_HOST", "redis") or "redis"
     NETWATCH_REDIS_PORT: int = _env_int("NETWATCH_REDIS_PORT", 6379)
@@ -42,6 +57,22 @@ class Settings:
     
     # Enroll token
     NETWATCH_ENROLL_TOKEN: str | None = _env_str("NETWATCH_ENROLL_TOKEN", None)
+
+    # Portal auth
+    NETWATCH_JWT_SECRET: str | None = _env_str("NETWATCH_JWT_SECRET", None)
+    NETWATCH_TOKEN_PEPPER: str | None = _env_str("NETWATCH_TOKEN_PEPPER", None)
+
+    NETWATCH_ACCESS_TOKEN_TTL_SECONDS: int = _env_int("NETWATCH_ACCESS_TOKEN_TTL_SECONDS", 600)
+    NETWATCH_REFRESH_TOKEN_TTL_SECONDS: int = _env_int("NETWATCH_REFRESH_TOKEN_TTL_SECONDS", 60 * 60 * 24 * 7)
+    NETWATCH_OTP_TOKEN_TTL_SECONDS: int = _env_int("NETWATCH_OTP_TOKEN_TTL_SECONDS", 15 * 60)
+
+    NETWATCH_COOKIE_SECURE: bool = _env_bool("NETWATCH_COOKIE_SECURE", False)
+    NETWATCH_COOKIE_SAMESITE: str = (_env_str("NETWATCH_COOKIE_SAMESITE", "lax") or "lax").lower()
+    NETWATCH_COOKIE_DOMAIN: str | None = _env_str("NETWATCH_COOKIE_DOMAIN", None)
+
+    # Bootstrap admin user (required on first run).
+    NETWATCH_BOOTSTRAP_ADMIN_USERNAME: str = _env_str("NETWATCH_BOOTSTRAP_ADMIN_USERNAME", "admin") or "admin"
+    NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: str | None = _env_str("NETWATCH_BOOTSTRAP_ADMIN_PASSWORD", None)
 
     # Default agent configuration applied on first enroll (JSON object).
     NETWATCH_DEFAULT_AGENT_CONFIG_JSON: str = _env_str("NETWATCH_DEFAULT_AGENT_CONFIG_JSON", "{}") or "{}"
@@ -68,6 +99,11 @@ class Settings:
         except Exception:
             pass
         return {}
+
+    def token_pepper(self) -> str:
+        # Separate pepper allows rotating JWT secret without invalidating stored hashes.
+        # If not configured, fall back to the JWT secret.
+        return (self.NETWATCH_TOKEN_PEPPER or self.NETWATCH_JWT_SECRET or "").strip()
 
 
 settings = Settings()

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { OverviewLiveProvider } from "@/features/overview/live";
 import { listAgents } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
+import { AuthProvider, useAuth } from "@/features/auth/context";
 
 type Theme = "dark" | "light";
 
@@ -54,6 +55,25 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   const value = useMemo<ThemeCtx>(() => ({ theme, setTheme, toggleTheme }), [theme]);
 
+  return (
+    <ThemeContext.Provider value={value}>
+      <AuthProvider>
+        <AuthedProviders>{children}</AuthedProviders>
+      </AuthProvider>
+    </ThemeContext.Provider>
+  );
+}
+
+function AuthedProviders({ children }: { children: ReactNode }) {
+  const { status } = useAuth();
+
+  // The login screen is public; avoid polling protected APIs until authenticated.
+  if (status !== "authed") return <>{children}</>;
+
+  return <AgentsProvider>{children}</AgentsProvider>;
+}
+
+function AgentsProvider({ children }: { children: ReactNode }) {
   const [agents, setAgents] = useState<AgentPublic[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [agentsError, setAgentsError] = useState<string | null>(null);
@@ -123,15 +143,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
       setSelectedAgentId,
       refresh: refreshAgents
     }),
-    [agents, agentsLoading, agentsError, selectedAgentId]
+    [agents, agentsLoading, agentsError, selectedAgentId, refreshAgents]
   );
 
   return (
-    <ThemeContext.Provider value={value}>
-      <AgentsContext.Provider value={agentsValue}>
-        <OverviewLiveProvider>{children}</OverviewLiveProvider>
-      </AgentsContext.Provider>
-    </ThemeContext.Provider>
+    <AgentsContext.Provider value={agentsValue}>
+      <OverviewLiveProvider>{children}</OverviewLiveProvider>
+    </AgentsContext.Provider>
   );
 }
 

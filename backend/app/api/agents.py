@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.core.admin_auth import require_admin
+from app.core.portal_auth import PortalPrincipal, require_admin, get_current_user
 from app.core.agent_auth import AgentPrincipal, generate_agent_token, get_current_agent
 from app.core.config import settings
 from app.core.db import SessionLocal
@@ -144,9 +144,8 @@ async def enroll_agent(request: Request, payload: AgentEnrollIn):
 
 
 @router.put("/{agent_id}/config", status_code=status.HTTP_204_NO_CONTENT)
-async def set_agent_config(request: Request, agent_id: str, payload: AgentConfigUpdateIn):
+async def set_agent_config(agent_id: str, payload: AgentConfigUpdateIn, _admin: PortalPrincipal = Depends(require_admin)):
     """Admin: push a new config blob to an agent."""
-    require_admin(request)
 
     cfg: Dict[str, Any] = dict(payload.config or {})
     _safe_json_size(cfg, settings.NETWATCH_MAX_AGENT_CONFIG_BYTES, "config")
@@ -204,8 +203,7 @@ async def get_agent_config(agent: AgentPrincipal = Depends(get_current_agent)):
 
 
 @router.get("", response_model=List[AgentPublic])
-async def list_agents(request: Request):
-    require_admin(request)
+async def list_agents(_user=Depends(get_current_user)):
     db = SessionLocal()
     try:
         rows = db.query(AgentModel).order_by(AgentModel.agent_id.asc()).all()
@@ -215,8 +213,7 @@ async def list_agents(request: Request):
 
 
 @router.get("/{agent_id}", response_model=AgentDetail)
-async def get_agent(request: Request, agent_id: str):
-    require_admin(request)
+async def get_agent(agent_id: str, _user=Depends(get_current_user)):
     db = SessionLocal()
     try:
         row: AgentModel | None = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
@@ -228,8 +225,7 @@ async def get_agent(request: Request, agent_id: str):
 
 
 @router.patch("/{agent_id}", response_model=AgentDetail)
-async def update_agent(request: Request, agent_id: str, payload: AgentUpdateIn):
-    require_admin(request)
+async def update_agent(agent_id: str, payload: AgentUpdateIn, _admin: PortalPrincipal = Depends(require_admin)):
 
     db = SessionLocal()
     try:
@@ -272,8 +268,7 @@ async def update_agent(request: Request, agent_id: str, payload: AgentUpdateIn):
 
 
 @router.post("/{agent_id}/disable", status_code=status.HTTP_204_NO_CONTENT)
-async def disable_agent(request: Request, agent_id: str):
-    require_admin(request)
+async def disable_agent(agent_id: str, _admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
         row: AgentModel | None = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
@@ -288,8 +283,7 @@ async def disable_agent(request: Request, agent_id: str):
 
 
 @router.post("/{agent_id}/enable", status_code=status.HTTP_204_NO_CONTENT)
-async def enable_agent(request: Request, agent_id: str):
-    require_admin(request)
+async def enable_agent(agent_id: str, _admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
         row: AgentModel | None = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()

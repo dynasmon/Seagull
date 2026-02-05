@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Query, Depends, Request, HTTPException
+from fastapi import APIRouter, Query, Depends, HTTPException
 from sqlalchemy import select, func
 
 from app.core.db import SessionLocal
@@ -13,24 +13,13 @@ from app.schemas.alert_rules import RuleOut, RuleOverrideIn
 from app.workers.rules_engine import run_all_rules
 from app.workers.rules_registry import apply_override, fetch_overrides, load_baseline_rules, normalize_rule_list
 
-from app.core.admin_auth import require_admin
-
-
-def _admin_dep(request: Request) -> None:
-    require_admin(request)
-
-
-from app.core.admin_auth import require_admin
-
-
-def _admin_dep(request: Request) -> None:
-    require_admin(request)
+from app.core.portal_auth import require_admin
 
 
 router = APIRouter(
     prefix="/alerts",
     tags=["alerts"],
-    dependencies=[Depends(_admin_dep)],
+    dependencies=[Depends(require_admin)],
 )
 
 

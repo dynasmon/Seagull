@@ -1,22 +1,16 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 
-from app.core.admin_auth import require_admin
+from app.core.portal_auth import get_current_user
 from app.core.db import SessionLocal
 from app.models.events import NetEventModel
 from app.schemas.events import NetEventDB
-
-
-def _admin_dep(request: Request) -> None:
-    require_admin(request)
-
-
 router = APIRouter(
     prefix="/events",
     tags=["events"],
-    dependencies=[Depends(_admin_dep)],
+    dependencies=[Depends(get_current_user)],
 )
 
 
