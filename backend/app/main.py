@@ -10,6 +10,8 @@ from app.core.db import Base, engine
 from app.core.schema_bootstrap import bootstrap_schema
 from app.api.overview import router as overview_router
 from app.api.auth import router as auth_router
+from app.api.account import router as account_router
+from app.api.admin import router as admin_router
 from app.core.portal_bootstrap import bootstrap_portal_admin
 
 
@@ -48,6 +50,7 @@ def on_startup():
     from app.models import portal_users as _portal_users  # noqa: F401
     from app.models import portal_refresh_sessions as _portal_sessions  # noqa: F401
     from app.models import portal_otp_tokens as _portal_otp  # noqa: F401
+    from app.models import portal_login_events as _portal_login_events  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     bootstrap_schema(engine)
@@ -61,6 +64,8 @@ async def health():
 
 app.include_router(ingest_router)
 app.include_router(auth_router)
+app.include_router(account_router)
+app.include_router(admin_router)
 app.include_router(events_router)
 app.include_router(alerts_router)
 app.include_router(agents_router)

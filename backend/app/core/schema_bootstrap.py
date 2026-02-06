@@ -347,6 +347,28 @@ def bootstrap_schema(engine) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_portal_otp_user_id ON portal_one_time_tokens (user_id);
         """,
+        # Portal login audit events (human operators)
+        """
+        CREATE TABLE IF NOT EXISTS portal_login_events (
+            id VARCHAR(36) PRIMARY KEY,
+            user_id INTEGER NULL,
+            username VARCHAR(64) NULL,
+            method VARCHAR(16) NOT NULL,
+            succeeded BOOLEAN NOT NULL DEFAULT TRUE,
+            ip VARCHAR(64) NULL,
+            user_agent VARCHAR(256) NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT now()
+        );
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_portal_login_events_created_at ON portal_login_events (created_at DESC);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_portal_login_events_user_id_created_at ON portal_login_events (user_id, created_at DESC);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_portal_login_events_username_created_at ON portal_login_events (username, created_at DESC);
+        """,
     ]
 
     with engine.begin() as conn:

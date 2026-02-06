@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
@@ -18,10 +19,48 @@ from app.core.security import new_one_time_token, token_hash
 from app.core.db import SessionLocal
 from app.models.portal_users import PortalUserModel
 from app.models.portal_otp_tokens import PortalOneTimeTokenModel
+from app.models.portal_login_events import PortalLoginEventModel
 from app.schemas.auth import LoginIn, OtpCreateIn, OtpCreateOut, OtpLoginIn, TokenOut, UserOut
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _audit_login_event(
+    *,
+    db,
+    request: Request,
+    method: str,
+    succeeded: bool,
+    user_id: int | None,
+    username: str | None,
+) -> None:
+    """Best-effort login audit logging.
+
+    Audit must never break auth flows.
+    """
+    try:
+        ip = (request.client.host if request.client else "") or "unknown"
+        ua = (request.headers.get("user-agent") or "")[:256]
+        db.add(
+            PortalLoginEventModel(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                username=(username or None),
+                method=method,
+                succeeded=bool(succeeded),
+                ip=ip,
+                user_agent=ua,
+                created_at=datetime.utcnow(),
+            )
+        )
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return
 
 
 @router.post("/login", response_model=TokenOut)
@@ -32,6 +71,7 @@ def login_endpoint(body: LoginIn, request: Request, response: Response):
     try:
         user: PortalUserModel | None = db.query(PortalUserModel).filter(PortalUserModel.username == body.username).first()
         if not user or not user.is_active:
+            _audit_login_event(db=db, request=request, method="password", succeeded=False, user_id=None, username=body.username)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
         # Verify password without leaking timing info.
@@ -45,6 +85,7 @@ def login_endpoint(body: LoginIn, request: Request, response: Response):
                 db.commit()
             except Exception:
                 pass
+            _audit_login_event(db=db, request=request, method="password", succeeded=False, user_id=user.id, username=body.username)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
         user.failed_login_count = 0
@@ -52,6 +93,7 @@ def login_endpoint(body: LoginIn, request: Request, response: Response):
         db.add(user)
         db.commit()
         db.refresh(user)
+        _audit_login_event(db=db, request=request, method="password", succeeded=True, user_id=user.id, username=user.username)
 
         payload = issue_login_tokens(response, user=user, request=request)
         return payload
@@ -96,10 +138,12 @@ def otp_login_endpoint(body: OtpLoginIn, request: Request, response: Response):
             or row.used_at is not None
             or row.expires_at <= now
         ):
+            _audit_login_event(db=db, request=request, method="otp", succeeded=False, user_id=None, username=None)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
         user: PortalUserModel | None = db.get(PortalUserModel, row.user_id)
         if not user or not user.is_active:
+            _audit_login_event(db=db, request=request, method="otp", succeeded=False, user_id=(user.id if user else None), username=(user.username if user else None))
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
         # Mark token as used (single-use).
@@ -113,6 +157,7 @@ def otp_login_endpoint(body: OtpLoginIn, request: Request, response: Response):
         user.last_login_at = now
         db.add(user)
         db.commit()
+        _audit_login_event(db=db, request=request, method="otp", succeeded=True, user_id=user.id, username=user.username)
 
         payload = issue_login_tokens(response, user=user, request=request)
         return payload
