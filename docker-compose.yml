@@ -57,7 +57,7 @@ services:
     depends_on:
       - netwatch-backend
     ports:
-      - "${NETWATCH_PORTAL_PORT:-8085}:5173" 
+      - "${NETWATCH_PORTAL_PORT:-8085}:5173"
     environment:
       NETWATCH_API_BASE: http://netwatch-backend:8000
       CHOKIDAR_USEPOLLING: "true"
@@ -80,7 +80,6 @@ services:
     networks:
       - netwatch
     restart: unless-stopped
-
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
@@ -167,7 +166,6 @@ services:
       - netwatch
     restart: unless-stopped
 
-
   netwatch-es-indexer:
     build: ./backend
     container_name: netwatch-es-indexer
@@ -250,7 +248,7 @@ services:
     environment:
       <<: *agent-env
       NETWATCH_AGENT_ID: ${AGENT_SCAN_ID}
-      NETWATCH_SOURCES: scan
+      NETWATCH_SOURCES: scan,syscollector
     volumes:
       - agent-scan-state:/var/lib/netwatch
 
@@ -263,7 +261,7 @@ services:
     environment:
       <<: *agent-env
       NETWATCH_AGENT_ID: ${AGENT_LATERAL_ID}
-      NETWATCH_SOURCES: lateral
+      NETWATCH_SOURCES: lateral,syscollector
       NETWATCH_LATERAL_MODE: ${NETWATCH_LATERAL_MODE}
       NETWATCH_LATERAL_PCAP_IFACE: ${NETWATCH_LATERAL_PCAP_IFACE}
       NETWATCH_LATERAL_PORTS: ${NETWATCH_LATERAL_PORTS}
@@ -281,7 +279,7 @@ services:
     environment:
       <<: *agent-env
       NETWATCH_AGENT_ID: ${AGENT_DDOS_ID}
-      NETWATCH_SOURCES: ddos
+      NETWATCH_SOURCES: ddos,syscollector
       NETWATCH_DDOS_SUSTAIN_WINDOWS: ${NETWATCH_DDOS_SUSTAIN_WINDOWS}
       NETWATCH_DDOS_COOLDOWN: ${NETWATCH_DDOS_COOLDOWN}
     volumes:
