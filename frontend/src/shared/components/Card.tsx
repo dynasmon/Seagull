@@ -20,7 +20,7 @@ export function Card({
   return (
     <section
       className={cx(
-        "border border-border/60 bg-card/10 backdrop-blur-sm",
+        "border border-border/60 bg-background/70 backdrop-blur-sm",
         className
       )}
     >

@@ -23,11 +23,11 @@ function Panel(props: {
   return (
     <div
       className={cx(
-        "rounded-xl border border-border/60 bg-card/10 backdrop-blur-md flex flex-col min-h-0",
+        "rounded-xl border border-border/60 bg-background/70 backdrop-blur-md flex flex-col min-h-0",
         props.className
       )}
     >
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60 bg-muted/10">
         <div className="text-sm font-semibold tracking-tight truncate">{props.title}</div>
         {props.right ? <div className="text-xs text-muted-foreground truncate">{props.right}</div> : null}
       </div>
