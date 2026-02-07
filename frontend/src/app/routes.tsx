@@ -1,37 +1,45 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes as RRRoutes } from "react-router-dom";
 
-import ProtectedLayout from "@/app/ProtectedLayout";
-import LoginPage from "@/features/auth/login";
+const LoginPage = lazy(() => import("@/features/auth/login"));
+const ProtectedLayout = lazy(() => import("@/app/ProtectedLayout"));
 
-import OverviewPage from "@/features/overview/page";
-import AgentsPage from "@/features/agents/page";
-import EventsPage from "@/features/events/page";
+const OverviewPage = lazy(() => import("@/features/overview/page"));
+const AgentsPage = lazy(() => import("@/features/agents/page"));
+const EventsPage = lazy(() => import("@/features/events/page"));
 
-import AlertsLayout from "@/features/alerts/page";
-import AlertsQueuePage from "@/features/alerts/views/queue";
-import AlertsRulesPage from "@/features/alerts/views/rules";
-import InventoryPage from "@/features/inventory/page";
-import SettingsPage from "@/features/settings/page";
+const AlertsLayout = lazy(() => import("@/features/alerts/page"));
+const AlertsQueuePage = lazy(() => import("@/features/alerts/views/queue"));
+const AlertsRulesPage = lazy(() => import("@/features/alerts/views/rules"));
+
+const InventoryPage = lazy(() => import("@/features/inventory/page"));
+const SettingsPage = lazy(() => import("@/features/settings/page"));
+
+function Fallback() {
+  return <div className="p-4 text-sm text-muted-foreground">Loading…</div>;
+}
 
 export function Routes() {
   return (
-    <RRRoutes>
-      <Route path="/login" element={<LoginPage />} />
+    <Suspense fallback={<Fallback />}>
+      <RRRoutes>
+        <Route path="/login" element={<LoginPage />} />
 
-      <Route element={<ProtectedLayout />}>
-        <Route path="/" element={<Navigate to="/overview" replace />} />
-        <Route path="/overview" element={<OverviewPage />} />
-        <Route path="/agents" element={<AgentsPage />} />
-        <Route path="/events" element={<EventsPage />} />
-        <Route path="/alerts" element={<AlertsLayout />}>
-          <Route index element={<Navigate to="/alerts/queue" replace />} />
-          <Route path="queue" element={<AlertsQueuePage />} />
-          <Route path="rules" element={<AlertsRulesPage />} />
+        <Route element={<ProtectedLayout />}>
+          <Route path="/" element={<Navigate to="/overview" replace />} />
+          <Route path="/overview" element={<OverviewPage />} />
+          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/events" element={<EventsPage />} />
+          <Route path="/alerts" element={<AlertsLayout />}>
+            <Route index element={<Navigate to="/alerts/queue" replace />} />
+            <Route path="queue" element={<AlertsQueuePage />} />
+            <Route path="rules" element={<AlertsRulesPage />} />
+          </Route>
+          <Route path="/inventory" element={<InventoryPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/overview" replace />} />
         </Route>
-        <Route path="/inventory" element={<InventoryPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="*" element={<Navigate to="/overview" replace />} />
-      </Route>
-    </RRRoutes>
+      </RRRoutes>
+    </Suspense>
   );
 }

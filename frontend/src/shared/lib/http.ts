@@ -46,6 +46,14 @@ async function rawFetch(path: string, init?: RequestInit): Promise<Response> {
 }
 
 async function refreshAccessToken(): Promise<string | null> {
+  // If the CSRF cookie is missing, we are not in an authenticated session yet.
+  // Avoid calling /auth/refresh to prevent noisy 403s on the login screen.
+  const csrfCookie = getCookie("nw_csrf");
+  if (!csrfCookie) {
+    setAccessToken(null);
+    return null;
+  }
+
   if (refreshInFlight) {
     const r = await refreshInFlight;
     return r.accessToken;
@@ -53,7 +61,8 @@ async function refreshAccessToken(): Promise<string | null> {
 
   refreshInFlight = (async (): Promise<RefreshResult> => {
     try {
-      const csrf = getCookie("nw_csrf");
+      // Re-read in case cookies changed while awaiting.
+      const csrf = getCookie("nw_csrf") || csrfCookie;
       const res = await rawFetch("/api/auth/refresh", {
         method: "POST",
         headers: csrf ? { "X-CSRF-Token": csrf } : {},
@@ -85,11 +94,20 @@ async function refreshAccessToken(): Promise<string | null> {
  * IMPORTANT: requires the CSRF cookie to exist (double-submit protection).
  */
 export async function refreshSession(): Promise<RefreshResult> {
+  // Session restore only makes sense if the CSRF cookie exists.
+  // Without it, the backend will return 403 (double-submit CSRF protection).
+  const csrfCookie = getCookie("nw_csrf");
+  if (!csrfCookie) {
+    setAccessToken(null);
+    return { accessToken: null, user: null };
+  }
+
   if (refreshInFlight) return refreshInFlight;
 
   refreshInFlight = (async (): Promise<RefreshResult> => {
     try {
-      const csrf = getCookie("nw_csrf");
+      // Re-read in case cookies changed while awaiting.
+      const csrf = getCookie("nw_csrf") || csrfCookie;
       const res = await rawFetch("/api/auth/refresh", {
         method: "POST",
         headers: csrf ? { "X-CSRF-Token": csrf } : {},
