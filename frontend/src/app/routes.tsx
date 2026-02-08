@@ -34,6 +34,7 @@ export function Routes() {
           <Route path="/overview" element={<OverviewPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/events" element={<EventsPage />} />
+
           <Route path="/alerts" element={<AlertsLayout />}>
             <Route index element={<Navigate to="/alerts/queue" replace />} />
             <Route path="queue" element={<AlertsQueuePage />} />
@@ -45,6 +46,7 @@ export function Routes() {
             <Route path="findings" element={<CorrelationFindingsPage />} />
             <Route path="rules" element={<CorrelationRulesPage />} />
           </Route>
+
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/overview" replace />} />

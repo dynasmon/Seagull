@@ -214,7 +214,7 @@ export default function CorrelationFindingsPage() {
       // keep selection only if still present
       setSelected((prev) => {
         if (!prev) return null;
-        const still = (out.incidents || []).find((x) => x.id === prev.id);
+const still = (out.incidents || []).find((x: CorrelationIncident) => x.id === prev.id);
         return still || null;
       });
     } catch (e: any) {

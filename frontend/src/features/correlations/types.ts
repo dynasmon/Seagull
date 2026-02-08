@@ -53,7 +53,4 @@ export type CorrelationRunOut = {
   incidents: CorrelationIncident[];
 };
 
-export type CorrelationRuleIn = Omit<
-  CorrelationRule,
-  "id" | "created_at" | "updated_at"
->;
+export type CorrelationRuleIn = Omit<CorrelationRule, "id" | "created_at" | "updated_at">;
