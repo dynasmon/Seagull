@@ -12,6 +12,10 @@ const AlertsLayout = lazy(() => import("@/features/alerts/page"));
 const AlertsQueuePage = lazy(() => import("@/features/alerts/views/queue"));
 const AlertsRulesPage = lazy(() => import("@/features/alerts/views/rules"));
 
+const CorrelationsLayout = lazy(() => import("@/features/correlations/page"));
+const CorrelationFindingsPage = lazy(() => import("@/features/correlations/views/findings"));
+const CorrelationRulesPage = lazy(() => import("@/features/correlations/views/rules"));
+
 const InventoryPage = lazy(() => import("@/features/inventory/page"));
 const SettingsPage = lazy(() => import("@/features/settings/page"));
 
@@ -34,6 +38,12 @@ export function Routes() {
             <Route index element={<Navigate to="/alerts/queue" replace />} />
             <Route path="queue" element={<AlertsQueuePage />} />
             <Route path="rules" element={<AlertsRulesPage />} />
+          </Route>
+
+          <Route path="/correlations" element={<CorrelationsLayout />}>
+            <Route index element={<Navigate to="/correlations/findings" replace />} />
+            <Route path="findings" element={<CorrelationFindingsPage />} />
+            <Route path="rules" element={<CorrelationRulesPage />} />
           </Route>
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />

@@ -12,7 +12,7 @@ function ActiveBar({ active }: { active: boolean }) {
 function ItemIcon({
   name
 }: {
-  name: "dashboard" | "events" | "alerts" | "agents" | "inventory" | "settings";
+  name: "dashboard" | "events" | "alerts" | "correlations" | "agents" | "inventory" | "settings";
 }) {
   const common = "h-4 w-4";
   switch (name) {
@@ -33,6 +33,18 @@ function ItemIcon({
         <svg className={common} viewBox="0 0 24 24" fill="none">
           <path
             d="M12 9v4m0 4h.01M10.3 4.3 3 18h18L13.7 4.3a2 2 0 0 0-3.4 0Z"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case "correlations":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none">
+          <path
+            d="M7 7a3 3 0 1 0 0 .01V7Zm10 10a3 3 0 1 0 0 .01V17ZM9.1 8.9l5.8 5.8"
             stroke="currentColor"
             strokeWidth="2"
             strokeLinecap="round"
@@ -148,7 +160,19 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
             <NavItem collapsed={collapsed} to={toPlain("/overview")} label="Overview" icon="dashboard" />
             {/* Events is ALWAYS independent: default scope is "All agents" */}
             <NavItem collapsed={collapsed} to="/events" label="Events" icon="events" />
+          </div>
+        </div>
+
+        {/* DETECTION */}
+        <div>
+          {!collapsed && (
+            <div className="px-3 pb-2 text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
+              Detection
+            </div>
+          )}
+          <div className="space-y-1">
             <NavItem collapsed={collapsed} to="/alerts/queue" label="Alerts" icon="alerts" />
+            <NavItem collapsed={collapsed} to="/correlations/findings" label="Correlations" icon="correlations" />
           </div>
         </div>
 
