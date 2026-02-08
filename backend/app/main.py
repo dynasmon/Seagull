@@ -13,7 +13,7 @@ from app.api.auth import router as auth_router
 from app.api.account import router as account_router
 from app.api.admin import router as admin_router
 from app.api.correlations import router as correlations_router
-from app.core.portal_bootstrap import bootstrap_portal_admin
+from app.core.portal_bootstrap import bootstrap_portal_admin, bootstrap_correlation_rules
 
 
 app = FastAPI(
@@ -57,6 +57,7 @@ def on_startup():
     Base.metadata.create_all(bind=engine)
     bootstrap_schema(engine)
     bootstrap_portal_admin()
+    bootstrap_correlation_rules()
 
 
 @app.get("/health")

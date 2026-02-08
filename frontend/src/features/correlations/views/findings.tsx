@@ -1,6 +1,8 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { Link } from "react-router-dom";
+
 import { Badge } from "@/shared/components/Badge";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
@@ -377,6 +379,28 @@ export default function CorrelationFindingsPage() {
       <Panel title="Findings" right={headerRight} scrollY className={cx(panelHeightClass)}>
         {loading ? (
           <Loading label="Running correlations…" />
+        ) : (payload?.rules_evaluated ?? 0) === 0 ? (
+          <EmptyState
+            title="No correlation rules"
+            description={
+              <div className="space-y-3">
+                <div className="text-sm text-muted-foreground">
+                  Create a correlation rule to start grouping alerts into higher-level incidents.
+                </div>
+                <div>
+                  <Link
+                    to="/correlations/rules"
+                    className={cx(
+                      "inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground",
+                      "hover:opacity-95"
+                    )}
+                  >
+                    Go to rules
+                  </Link>
+                </div>
+              </div>
+            }
+          />
         ) : filtered.length === 0 ? (
           <EmptyState
             title="No findings"
