@@ -293,6 +293,45 @@ def bootstrap_schema(engine) -> None:
         ON CONFLICT (name) DO NOTHING;
         """,
 
+
+        # Lupe (ipinfo) enrichment cache
+        """
+        CREATE TABLE IF NOT EXISTS ip_enrichment_cache (
+            ip VARCHAR(45) PRIMARY KEY,
+            country VARCHAR(8) NULL,
+            region VARCHAR(128) NULL,
+            city VARCHAR(128) NULL,
+            loc VARCHAR(32) NULL,
+            org VARCHAR(256) NULL,
+            asn VARCHAR(32) NULL,
+            asn_org VARCHAR(256) NULL,
+            data JSONB NOT NULL DEFAULT '{}'::jsonb,
+            fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days')
+        );
+        """,
+        """
+        DO $$
+        BEGIN
+            IF to_regclass('public.ip_enrichment_cache') IS NOT NULL THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_ip_enrichment_cache_expires_at ON ip_enrichment_cache (expires_at)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_ip_enrichment_cache_country ON ip_enrichment_cache (country)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_ip_enrichment_cache_asn ON ip_enrichment_cache (asn)';
+            END IF;
+
+            IF to_regclass('public.net_events') IS NOT NULL THEN
+                -- Expression indexes for enriched SSH data (fast filters by country/ASN/org)
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_net_events_ssh_geo_country_ts ON net_events ((extra->>''geo_country''), "timestamp") WHERE event_type = ''ssh_auth''';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_net_events_ssh_geo_org_ts ON net_events ((extra->>''geo_org''), "timestamp") WHERE event_type = ''ssh_auth''';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_net_events_ssh_asn_ts ON net_events ((extra->>''asn''), "timestamp") WHERE event_type = ''ssh_auth''';
+            END IF;
+        END $$;
+        """,
+        """
+        INSERT INTO search_index_offsets (name, last_id)
+        VALUES ('lupe_enricher_ssh_v1', 0)
+        ON CONFLICT (name) DO NOTHING;
+        """,
         # Portal auth tables (human operators)
         """
         CREATE TABLE IF NOT EXISTS portal_users (

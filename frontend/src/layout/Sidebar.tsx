@@ -94,16 +94,23 @@ function NavItem({
   collapsed,
   to,
   label,
-  icon
+  icon,
+  end
 }: {
   collapsed: boolean;
   to: To;
   label: string;
   icon: Parameters<typeof ItemIcon>[0]["name"];
+  /**
+   * When true, only mark as active for an exact match.
+   * Useful for parent routes like /events so /events/ssh doesn't highlight both.
+   */
+  end?: boolean;
 }) {
   return (
     <NavLink
       to={to}
+      end={end}
       title={collapsed ? label : undefined}
       className={({ isActive }) =>
         cx(
@@ -159,7 +166,8 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
           <div className="space-y-1">
             <NavItem collapsed={collapsed} to={toPlain("/overview")} label="Overview" icon="dashboard" />
             {/* Events is ALWAYS independent: default scope is "All agents" */}
-            <NavItem collapsed={collapsed} to="/events" label="Events" icon="events" />
+            <NavItem collapsed={collapsed} to="/events" label="Events" icon="events" end />
+            <NavItem collapsed={collapsed} to="/events/ssh" label="SSH Insights" icon="events" />
           </div>
         </div>
 

@@ -15,6 +15,7 @@ OFFSET_EVENTS = "rollup_events_1m"
 OFFSET_SSH_FAIL = "rollup_ssh_fail_1m"
 
 SSH_FAIL_ACTIONS: tuple[str, ...] = (
+    "failed_password",
     "invalid_password",
     "invalid_user",
     "max_auth_attempts",

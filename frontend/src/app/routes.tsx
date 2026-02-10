@@ -7,6 +7,7 @@ const ProtectedLayout = lazy(() => import("@/app/ProtectedLayout"));
 const OverviewPage = lazy(() => import("@/features/overview/page"));
 const AgentsPage = lazy(() => import("@/features/agents/page"));
 const EventsPage = lazy(() => import("@/features/events/page"));
+const SshInsightsPage = lazy(() => import("@/features/events/views/ssh/page"));
 
 const AlertsLayout = lazy(() => import("@/features/alerts/page"));
 const AlertsQueuePage = lazy(() => import("@/features/alerts/views/queue"));
@@ -33,6 +34,7 @@ export function Routes() {
           <Route path="/" element={<Navigate to="/overview" replace />} />
           <Route path="/overview" element={<OverviewPage />} />
           <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/events/ssh" element={<SshInsightsPage />} />
           <Route path="/events" element={<EventsPage />} />
 
           <Route path="/alerts" element={<AlertsLayout />}>

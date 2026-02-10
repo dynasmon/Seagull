@@ -206,6 +206,27 @@ services:
       - netwatch
     restart: unless-stopped
 
+  netwatch-lupe-enricher:
+    build: ./backend
+    container_name: netwatch-lupe-enricher
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NETWATCH_DB_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      NETWATCH_IPINFO_TOKEN: ${NETWATCH_IPINFO_TOKEN}
+      NETWATCH_LUPE_EVERY_SECONDS: ${NETWATCH_LUPE_EVERY_SECONDS:-1}
+      NETWATCH_LUPE_IDLE_SLEEP_SECONDS: ${NETWATCH_LUPE_IDLE_SLEEP_SECONDS:-2}
+      NETWATCH_LUPE_MAX_ROWS: ${NETWATCH_LUPE_MAX_ROWS:-2000}
+      NETWATCH_LUPE_BATCH_SIZE: ${NETWATCH_LUPE_BATCH_SIZE:-200}
+      NETWATCH_LUPE_HTTP_TIMEOUT_SECONDS: ${NETWATCH_LUPE_HTTP_TIMEOUT_SECONDS:-8}
+      NETWATCH_LUPE_CACHE_TTL_DAYS: ${NETWATCH_LUPE_CACHE_TTL_DAYS:-7}
+      NETWATCH_LUPE_SKIP_PRIVATE: ${NETWATCH_LUPE_SKIP_PRIVATE:-true}
+    command: ["python", "-m", "app.workers.lupe_enricher"]
+    networks:
+      - netwatch
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana-oss:latest
     container_name: netwatch-grafana
