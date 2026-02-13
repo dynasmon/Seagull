@@ -2,13 +2,15 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Query, Depends, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import and_, func, or_, select
 
 from app.core.db import SessionLocal
+from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.models.events import NetEventModel
 from app.models.alerts import AlertModel
 from app.models.alert_rule_overrides import AlertRuleOverrideModel
 from app.schemas.alerts import AlertOut
+from app.schemas.pagination import CursorPage
 from app.schemas.alert_rules import RuleOut, RuleOverrideIn
 from app.workers.rules_engine import run_all_rules
 from app.workers.rules_registry import apply_override, fetch_overrides, load_baseline_rules, normalize_rule_list
@@ -21,6 +23,55 @@ router = APIRouter(
     tags=["alerts"],
     dependencies=[Depends(require_admin)],
 )
+
+
+@router.get("", response_model=CursorPage[AlertOut])
+def list_alerts(
+    page_size: int = Query(50, ge=1, le=200, description="Page size (max 200)"),
+    cursor: Optional[str] = Query(None, description="Opaque cursor from a previous call"),
+    severity: Optional[str] = Query(None, min_length=1, max_length=16, description="Optional severity filter"),
+    rule_id: Optional[str] = Query(None, min_length=1, max_length=64, description="Optional rule id filter"),
+):
+    """Cursor-paginated alerts timeline.
+
+    Returns the most recent alerts first (DESC). To fetch the next page, pass the
+    `next_cursor` from the previous response.
+
+    This endpoint is the recommended replacement for `/alerts/recent` when you
+    want a paginated UI.
+    """
+
+    db = SessionLocal()
+    try:
+        stmt = select(AlertModel).order_by(AlertModel.created_at.desc(), AlertModel.id.desc())
+
+        if severity:
+            stmt = stmt.where(AlertModel.severity == severity)
+        if rule_id:
+            stmt = stmt.where(AlertModel.rule_id == rule_id)
+
+        if cursor:
+            c_ts, c_id = parse_cursor_ts_id(cursor)
+            stmt = stmt.where(
+                or_(
+                    AlertModel.created_at < c_ts,
+                    and_(AlertModel.created_at == c_ts, AlertModel.id < c_id),
+                )
+            )
+
+        rows = db.execute(stmt.limit(page_size + 1)).scalars().all()
+
+        has_more = len(rows) > page_size
+        items = rows[:page_size]
+
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = make_cursor_ts_id(last.created_at, last.id)
+
+        return CursorPage(items=items, next_cursor=next_cursor, has_more=has_more)
+    finally:
+        db.close()
 
 
 @router.post("/run/ssh-bruteforce", response_model=List[AlertOut])

@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/shared/lib/http";
+import type { CursorPage } from "@/shared/types/pagination";
 
 import type { Alert, RuleOverrideIn, RuleOut } from "./types";
 
@@ -6,6 +7,24 @@ export function getRecentAlerts(params?: { limit?: number }) {
   const q = new URLSearchParams();
   q.set("limit", String(params?.limit ?? 200));
   return apiGet<Alert[]>(`/api/alerts/recent?${q.toString()}`);
+}
+
+/**
+ * Cursor/keyset pagination endpoint (recommended).
+ * Returns newest alerts first. Use `next_cursor` to fetch older pages.
+ */
+export function getAlertsPage(params?: {
+  page_size?: number;
+  cursor?: string | null;
+  severity?: string;
+  rule_id?: string;
+}) {
+  const q = new URLSearchParams();
+  q.set("page_size", String(params?.page_size ?? 200));
+  if (params?.cursor) q.set("cursor", params.cursor);
+  if (params?.severity) q.set("severity", params.severity);
+  if (params?.rule_id) q.set("rule_id", params.rule_id);
+  return apiGet<CursorPage<Alert>>(`/api/alerts?${q.toString()}`);
 }
 
 export function runAllRules() {

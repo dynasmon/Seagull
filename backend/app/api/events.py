@@ -2,11 +2,13 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select, text
+from sqlalchemy import and_, func, or_, select, text
 
 from app.core.portal_auth import get_current_user
+from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.db import SessionLocal
 from app.models.events import NetEventModel
+from app.schemas.pagination import CursorPage
 from app.schemas.events import (
     NetEventDB,
     SshIpStat,
@@ -20,6 +22,56 @@ router = APIRouter(
     tags=["events"],
     dependencies=[Depends(get_current_user)],
 )
+
+
+@router.get("", response_model=CursorPage[NetEventDB])
+def list_events(
+    page_size: int = Query(50, ge=1, le=200, description="Page size (max 200)"),
+    cursor: Optional[str] = Query(None, description="Opaque cursor from a previous call"),
+    agent_id: Optional[str] = Query(None, min_length=1, max_length=64, description="Filter by agent identifier"),
+    event_type: Optional[str] = Query(None, min_length=1, max_length=32, description="Filter by event type"),
+):
+    """Cursor-paginated event timeline.
+
+    Returns the most recent events first (DESC). To fetch the next page, pass the
+    `next_cursor` from the previous response.
+
+    This endpoint is the recommended replacement for `/events/recent` when you
+    want an infinite-scroll / paginated UI.
+    """
+
+    db = SessionLocal()
+    try:
+        stmt = select(NetEventModel).order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
+
+        if agent_id:
+            stmt = stmt.where(NetEventModel.agent_id == agent_id)
+        if event_type:
+            stmt = stmt.where(NetEventModel.event_type == event_type)
+
+        if cursor:
+            c_ts, c_id = parse_cursor_ts_id(cursor)
+            # Keyset pagination for DESC order.
+            stmt = stmt.where(
+                or_(
+                    NetEventModel.timestamp < c_ts,
+                    and_(NetEventModel.timestamp == c_ts, NetEventModel.id < c_id),
+                )
+            )
+
+        rows = db.execute(stmt.limit(page_size + 1)).scalars().all()
+
+        has_more = len(rows) > page_size
+        items = rows[:page_size]
+
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = make_cursor_ts_id(last.timestamp, last.id)
+
+        return CursorPage(items=items, next_cursor=next_cursor, has_more=has_more)
+    finally:
+        db.close()
 
 
 @router.get("/recent", response_model=List[NetEventDB])

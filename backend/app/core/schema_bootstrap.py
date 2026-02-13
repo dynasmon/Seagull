@@ -174,6 +174,10 @@ def bootstrap_schema(engine) -> None:
                 EXECUTE 'CREATE INDEX IF NOT EXISTS idx_net_events_type_ts ON net_events (event_type, "timestamp")';
                 EXECUTE 'CREATE INDEX IF NOT EXISTS idx_net_events_agent_ts ON net_events (agent_id, "timestamp")';
 
+                -- Cursor pagination uses ORDER BY (timestamp DESC, id DESC)
+                -- A composite index helps Postgres satisfy both the filter and the sort efficiently.
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_net_events_ts_id ON net_events ("timestamp", id)';
+
                 -- Partial indexes for hot event types (reduce CPU for dashboards under load)
                 EXECUTE 'CREATE INDEX IF NOT EXISTS idx_net_events_flow_ts ON net_events ("timestamp") WHERE event_type = ''flow''';
                 EXECUTE 'CREATE INDEX IF NOT EXISTS idx_net_events_dos_ts ON net_events ("timestamp") WHERE event_type = ''dos_attack''';
@@ -193,6 +197,18 @@ def bootstrap_schema(engine) -> None:
             IF to_regclass('public.alerts') IS NOT NULL THEN
                 EXECUTE 'CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON alerts (created_at)';
                 EXECUTE 'CREATE INDEX IF NOT EXISTS idx_alerts_sev_created_at ON alerts (severity, created_at)';
+
+                -- Cursor pagination uses ORDER BY (created_at DESC, id DESC)
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_alerts_created_at_id ON alerts (created_at, id)';
+            END IF;
+        END $$;
+        """,
+        # Indexes: inventory snapshots (history pagination)
+        """
+        DO $$
+        BEGIN
+            IF to_regclass('public.agent_inventory_snapshots') IS NOT NULL THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_inv_agent_collected_id ON agent_inventory_snapshots (agent_id, collected_at, id)';
             END IF;
         END $$;
         """,

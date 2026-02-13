@@ -3,12 +3,14 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, text
+from sqlalchemy import and_, or_, select, text
 
 from app.core.agent_auth import AgentPrincipal, get_current_agent
 from app.core.portal_auth import get_current_user
+from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.db import SessionLocal
 from app.models.inventory import AgentInventorySnapshotModel
+from app.schemas.pagination import CursorPage
 from app.schemas.inventory import InventorySnapshotIn, InventorySnapshotOut, PackageEntry
 
 
@@ -128,6 +130,48 @@ async def get_my_inventory_history(
         db.close()
 
 
+@router.get("/me/history/page", response_model=CursorPage[InventorySnapshotOut])
+async def get_my_inventory_history_page(
+    page_size: int = Query(50, ge=1, le=200, description="Page size (max 200)"),
+    cursor: Optional[str] = Query(None, description="Opaque cursor from a previous call"),
+    agent: AgentPrincipal = Depends(get_current_agent),
+):
+    """Cursor-paginated inventory history (agent-auth).
+
+    Recommended replacement for `/inventory/me/history` when you want paging.
+    """
+
+    db = SessionLocal()
+    try:
+        stmt = (
+            select(AgentInventorySnapshotModel)
+            .where(AgentInventorySnapshotModel.agent_id == agent.agent_id)
+            .order_by(AgentInventorySnapshotModel.collected_at.desc(), AgentInventorySnapshotModel.id.desc())
+        )
+
+        if cursor:
+            c_ts, c_id = parse_cursor_ts_id(cursor)
+            stmt = stmt.where(
+                or_(
+                    AgentInventorySnapshotModel.collected_at < c_ts,
+                    and_(AgentInventorySnapshotModel.collected_at == c_ts, AgentInventorySnapshotModel.id < c_id),
+                )
+            )
+
+        rows = db.execute(stmt.limit(page_size + 1)).scalars().all()
+        has_more = len(rows) > page_size
+        items = rows[:page_size]
+
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = make_cursor_ts_id(last.collected_at, last.id)
+
+        return CursorPage(items=items, next_cursor=next_cursor, has_more=has_more)
+    finally:
+        db.close()
+
+
 @router.get("/{agent_id}/latest", response_model=InventorySnapshotOut)
 async def get_agent_latest_inventory(agent_id: str, _user=Depends(get_current_user)):
     db = SessionLocal()
@@ -161,6 +205,46 @@ async def get_agent_inventory_history(
             .limit(limit)
         )
         return db.execute(stmt).scalars().all()
+    finally:
+        db.close()
+
+
+@router.get("/{agent_id}/history/page", response_model=CursorPage[InventorySnapshotOut])
+async def get_agent_inventory_history_page(
+    agent_id: str,
+    page_size: int = Query(50, ge=1, le=200, description="Page size (max 200)"),
+    cursor: Optional[str] = Query(None, description="Opaque cursor from a previous call"),
+    _user=Depends(get_current_user),
+):
+    """Cursor-paginated inventory history (portal-auth)."""
+
+    db = SessionLocal()
+    try:
+        stmt = (
+            select(AgentInventorySnapshotModel)
+            .where(AgentInventorySnapshotModel.agent_id == agent_id)
+            .order_by(AgentInventorySnapshotModel.collected_at.desc(), AgentInventorySnapshotModel.id.desc())
+        )
+
+        if cursor:
+            c_ts, c_id = parse_cursor_ts_id(cursor)
+            stmt = stmt.where(
+                or_(
+                    AgentInventorySnapshotModel.collected_at < c_ts,
+                    and_(AgentInventorySnapshotModel.collected_at == c_ts, AgentInventorySnapshotModel.id < c_id),
+                )
+            )
+
+        rows = db.execute(stmt.limit(page_size + 1)).scalars().all()
+        has_more = len(rows) > page_size
+        items = rows[:page_size]
+
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = make_cursor_ts_id(last.collected_at, last.id)
+
+        return CursorPage(items=items, next_cursor=next_cursor, has_more=has_more)
     finally:
         db.close()
 
