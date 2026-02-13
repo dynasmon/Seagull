@@ -86,7 +86,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '5 minutes' AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}');",
+          "rawSql": "SELECT NOW() AS time, COALESCE(SUM(count),0)::bigint AS value\nFROM event_rollups_1m\nWHERE bucket_ts >= NOW() - interval '5 minutes'\n  AND ('${agent}' = '%' OR agent_id = '${agent}')\n  AND ('${event_type}' = '%' OR event_type = '${event_type}');",
           "refId": "A"
         }
       ],
@@ -145,7 +145,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(*)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '1 hour' AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}');",
+          "rawSql": "SELECT NOW() AS time, COALESCE(SUM(count),0)::bigint AS value\nFROM event_rollups_1m\nWHERE bucket_ts >= NOW() - interval '1 hour'\n  AND ('${agent}' = '%' OR agent_id = '${agent}')\n  AND ('${event_type}' = '%' OR event_type = '${event_type}');",
           "refId": "A"
         }
       ],
@@ -204,7 +204,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT NOW() AS time, COUNT(DISTINCT agent_id)::bigint AS value FROM net_events WHERE \"timestamp\" >= NOW() - interval '1 hour';",
+          "rawSql": "SELECT NOW() AS time, COUNT(DISTINCT agent_id)::bigint AS value\nFROM event_rollups_1m\nWHERE bucket_ts >= NOW() - interval '1 hour';",
           "refId": "A"
         }
       ],
@@ -427,7 +427,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), event_type AS metric, COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND ('${event_type}' = '%' OR event_type = '${event_type}') GROUP BY 1, 2 ORDER BY 1;",
+          "rawSql": "SELECT $__timeGroupAlias(bucket_ts, '1m'), event_type AS metric, SUM(count)::bigint AS value\nFROM event_rollups_1m\nWHERE $__timeFilter(bucket_ts)\n  AND ('${agent}' = '%' OR agent_id = '${agent}')\n  AND ('${event_type}' = '%' OR event_type = '${event_type}')\nGROUP BY 1, 2\nORDER BY 1;",
           "refId": "A"
         }
       ],
@@ -519,7 +519,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'flow' GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT $__timeGroupAlias(bucket_ts, '1m'), SUM(count)::bigint AS value\nFROM event_rollups_1m\nWHERE $__timeFilter(bucket_ts)\n  AND ('${agent}' = '%' OR agent_id = '${agent}')\n  AND event_type = 'flow'\nGROUP BY 1\nORDER BY 1;",
           "refId": "A"
         }
       ],
@@ -611,7 +611,7 @@
       "targets": [
         {
           "format": "time_series",
-          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", '1m'), COUNT(*)::bigint AS value FROM net_events WHERE $__timeFilter(\"timestamp\") AND ('${agent}' = '%' OR agent_id = '${agent}') AND event_type = 'ssh_auth' AND COALESCE(extra->>'action','') IN ('failed_password','invalid_user','max_auth_attempts') GROUP BY 1 ORDER BY 1;",
+          "rawSql": "SELECT $__timeGroupAlias(bucket_ts, '1m'), SUM(count)::bigint AS value\nFROM ssh_fail_rollups_1m\nWHERE $__timeFilter(bucket_ts)\n  AND ('${agent}' = '%' OR agent_id = '${agent}')\n  AND action IN ('invalid_password','invalid_user','max_auth_attempts')\nGROUP BY 1\nORDER BY 1;",
           "refId": "A"
         }
       ],
@@ -1999,7 +1999,7 @@
     }
   ],
   "preload": false,
-  "refresh": "5s",
+  "refresh": "10s",
   "schemaVersion": 42,
   "tags": [
     "netwatch",

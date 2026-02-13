@@ -19,3 +19,17 @@ datasources:
       connMaxLifetime: 14400
       postgresVersion: 1400
       timescaledb: false
+
+  - name: NetWatch Elasticsearch
+    type: elasticsearch
+    access: proxy
+    orgId: 1
+    uid: netwatch-elasticsearch
+    isDefault: false
+    url: http://elasticsearch:9200
+    jsonData:
+      index: 'netwatch-events-*'
+      timeField: '@timestamp'
+      esVersion: 80
+      interval: Daily
+      maxConcurrentShardRequests: 5

@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Design system
+  - Uses RGB triplets so Tailwind can apply alpha via: rgb(var(--token) / <alpha-value>)
+  - Clean cyber (dark-first)
+*/
+
+:root {
+  /* Ice white (cool, slightly bluish) */
+  --background: 244 248 255;
+  --foreground: 15 23 42;
+
+  /* Surfaces */
+  --card: 252 254 255;
+  --muted: 236 242 250;
+  --muted-foreground: 86 102 126;
+
+  /* Lines */
+  --border: 182 195 214;
+
+  /* Brand */
+  --primary: 2 132 199;
+  --primary-foreground: 255 255 255;
+}
+
+
+html.dark {
+  color-scheme: dark;
+
+  --background: 11 18 32;
+  --foreground: 229 231 235;
+
+  /*
+    Keep cards readable by using a white-based card token and controlling opacity
+    with Tailwind alpha (e.g., bg-card/30).
+  */
+  --card: 255 255 255;
+  --muted: 255 255 255;
+  --muted-foreground: 148 163 184;
+
+  --border: 71 85 105;
+
+  --primary: 34 211 238;
+  --primary-foreground: 15 23 42;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: rgb(var(--background));
+    color: rgb(var(--foreground));
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
+      Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none; /* IE/Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+  }
+}

@@ -1,19 +1,77 @@
 from datetime import datetime, timedelta
-from typing import List
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Query
-from sqlalchemy import select, func
+from fastapi import APIRouter, Query, Depends, HTTPException
+from sqlalchemy import and_, func, or_, select
 
 from app.core.db import SessionLocal
+from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.models.events import NetEventModel
 from app.models.alerts import AlertModel
+from app.models.alert_rule_overrides import AlertRuleOverrideModel
 from app.schemas.alerts import AlertOut
+from app.schemas.pagination import CursorPage
+from app.schemas.alert_rules import RuleOut, RuleOverrideIn
 from app.workers.rules_engine import run_all_rules
+from app.workers.rules_registry import apply_override, fetch_overrides, load_baseline_rules, normalize_rule_list
+
+from app.core.portal_auth import require_admin
+
 
 router = APIRouter(
     prefix="/alerts",
     tags=["alerts"],
+    dependencies=[Depends(require_admin)],
 )
+
+
+@router.get("", response_model=CursorPage[AlertOut])
+def list_alerts(
+    page_size: int = Query(50, ge=1, le=200, description="Page size (max 200)"),
+    cursor: Optional[str] = Query(None, description="Opaque cursor from a previous call"),
+    severity: Optional[str] = Query(None, min_length=1, max_length=16, description="Optional severity filter"),
+    rule_id: Optional[str] = Query(None, min_length=1, max_length=64, description="Optional rule id filter"),
+):
+    """Cursor-paginated alerts timeline.
+
+    Returns the most recent alerts first (DESC). To fetch the next page, pass the
+    `next_cursor` from the previous response.
+
+    This endpoint is the recommended replacement for `/alerts/recent` when you
+    want a paginated UI.
+    """
+
+    db = SessionLocal()
+    try:
+        stmt = select(AlertModel).order_by(AlertModel.created_at.desc(), AlertModel.id.desc())
+
+        if severity:
+            stmt = stmt.where(AlertModel.severity == severity)
+        if rule_id:
+            stmt = stmt.where(AlertModel.rule_id == rule_id)
+
+        if cursor:
+            c_ts, c_id = parse_cursor_ts_id(cursor)
+            stmt = stmt.where(
+                or_(
+                    AlertModel.created_at < c_ts,
+                    and_(AlertModel.created_at == c_ts, AlertModel.id < c_id),
+                )
+            )
+
+        rows = db.execute(stmt.limit(page_size + 1)).scalars().all()
+
+        has_more = len(rows) > page_size
+        items = rows[:page_size]
+
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = make_cursor_ts_id(last.created_at, last.id)
+
+        return CursorPage(items=items, next_cursor=next_cursor, has_more=has_more)
+    finally:
+        db.close()
 
 
 @router.post("/run/ssh-bruteforce", response_model=List[AlertOut])
@@ -375,3 +433,121 @@ def run_all_rules_endpoint():
     """
     alerts = run_all_rules()
     return alerts
+
+
+@router.get("/rules", response_model=List[RuleOut])
+def list_alert_rules():
+    """List baseline rules merged with DB overrides (effective view)."""
+    db = SessionLocal()
+    try:
+        base_rules = normalize_rule_list(load_baseline_rules(include_disabled=True))
+        overrides = fetch_overrides(db)
+
+        out: List[RuleOut] = []
+        for base in base_rules:
+            rid = base.get("id")
+            if not rid:
+                continue
+
+            row = overrides.get(rid)
+            effective, override_payload = apply_override(base, row)
+
+            out.append(
+                RuleOut(
+                    id=rid,
+                    name=effective.get("name") or base.get("name"),
+                    description=effective.get("description") or base.get("description"),
+                    source_file=base.get("source_file"),
+                    enabled=bool(effective.get("enabled", True)),
+                    severity=str(effective.get("severity") or "low"),
+                    type=effective.get("type"),
+                    window=effective.get("window"),
+                    cooldown=effective.get("cooldown"),
+                    has_override=row is not None,
+                    updated_at=getattr(row, "updated_at", None) if row is not None else None,
+                    base=base,
+                    override=override_payload,
+                    effective=effective,
+                )
+            )
+
+        # Deterministic ordering: stable by rule id
+        out.sort(key=lambda r: (r.severity, r.id))
+        return out
+    finally:
+        db.close()
+
+
+@router.patch("/rules/{rule_id}", response_model=RuleOut)
+def patch_alert_rule(rule_id: str, body: RuleOverrideIn):
+    """Upsert overrides for a given rule."""
+    base_rules = normalize_rule_list(load_baseline_rules(include_disabled=True))
+    base = next((r for r in base_rules if r.get("id") == rule_id), None)
+    if not base:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    db = SessionLocal()
+    try:
+        row: Optional[AlertRuleOverrideModel] = db.get(AlertRuleOverrideModel, rule_id)
+        if row is None:
+            row = AlertRuleOverrideModel(rule_id=rule_id, condition={}, schedule={}, patch={})
+            db.add(row)
+
+        fields = getattr(body, "__fields_set__", set())
+
+        if "enabled" in fields:
+            row.enabled = body.enabled
+        if "severity" in fields:
+            row.severity = body.severity
+        if "window" in fields:
+            row.window = body.window
+        if "cooldown" in fields:
+            row.cooldown = body.cooldown
+        if "min_events" in fields:
+            row.min_events = body.min_events
+        if "condition" in fields:
+            row.condition = body.condition or {}
+        if "schedule" in fields:
+            row.schedule = body.schedule or {}
+        if "patch" in fields:
+            row.patch = body.patch or {}
+
+        row.updated_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(row)
+
+        effective, override_payload = apply_override(base, row)
+
+        return RuleOut(
+            id=rule_id,
+            name=effective.get("name") or base.get("name"),
+            description=effective.get("description") or base.get("description"),
+            source_file=base.get("source_file"),
+            enabled=bool(effective.get("enabled", True)),
+            severity=str(effective.get("severity") or "low"),
+            type=effective.get("type"),
+            window=effective.get("window"),
+            cooldown=effective.get("cooldown"),
+            has_override=True,
+            updated_at=row.updated_at,
+            base=base,
+            override=override_payload,
+            effective=effective,
+        )
+    finally:
+        db.close()
+
+
+@router.delete("/rules/{rule_id}", status_code=204)
+def delete_alert_rule_override(rule_id: str):
+    """Remove all overrides for a rule (reverts to baseline YAML)."""
+    db = SessionLocal()
+    try:
+        row = db.get(AlertRuleOverrideModel, rule_id)
+        if row is not None:
+            db.delete(row)
+            db.commit()
+        return None
+    finally:
+        db.close()
