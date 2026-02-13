@@ -1,6 +1,6 @@
 # Dynasmon NetWatch
 
-Dynasmon NetWatch is a threat hunting platform designed as a lightweight, opinionated mini‑SIEM. It started as a network telemetry pipeline and is evolving toward an “XDR‑foundation” architecture inspired by Wazuh‑style endpoint management.
+Dynasmon NetWatch is a threat hunting platform designed as a lightweight, opinionated mini‑SIEM. It started as a network telemetry pipeline and is evolving toward an “XDR‑foundation” architecture inspired by Wazuh endpoint management.
 
 At this stage, NetWatch provides an end‑to‑end pipeline:
 
@@ -20,7 +20,7 @@ These items used to be “future work” and are now part of the project:
   - Events: `GET /events`
   - Alerts (admin‑only): `GET /alerts`
   - Inventory history paging: `GET /inventory/{agent_id}/history/page`
-- **Lupe‑style SSH Insights** (`GET /events/ssh/summary`) + optional enrichment worker (`netwatch-lupe-enricher`) that adds Geo/ASN metadata, using my personal tool: https://github.com/dynasmon/lupe.
+- **Lupe SSH Insights** (`GET /events/ssh/summary`) + optional enrichment worker (`netwatch-lupe-enricher`) that adds Geo/ASN metadata, using my personal tool: https://github.com/dynasmon/lupe.
 - **Correlation Rules / Incidents** (admin‑only): CRUD correlation rules + run correlation to produce incident‑like findings.
 - **Rollup worker** (`netwatch-rollup-worker`) that pre‑aggregates data into 1‑minute buckets to keep Grafana responsive.
 - **Redis is now actively used** for portal rate‑limiting (best‑effort fail‑open) instead of being “reserved”.
@@ -256,7 +256,7 @@ These settings help drop traffic likely related to outbound connections where th
 
 ---
 
-## SSH Insights (Lupe‑style)
+## SSH Insights (Lupe)
 
 NetWatch includes an SSH Insights endpoint:
 
