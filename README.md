@@ -307,6 +307,9 @@ Planned enhancements (not yet implemented):
 5. **Production Hardening**
    - Reverse‑proxy templates (Caddy/Nginx), HTTPS defaults, tighter CSP, and improved RBAC.
 
+6. **Scalable Database**
+   - Use of Cassandra for better escallability and log analyses (Write-Heavy, Schema-free, Compliance)
+   
 ---
 
 ## Security Considerations
