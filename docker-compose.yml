@@ -206,26 +206,47 @@ services:
       - netwatch
     restart: unless-stopped
 
-  netwatch-lupe-enricher:
+  netwatch-ip-intel:
     build: ./backend
-    container_name: netwatch-lupe-enricher
+    container_name: netwatch-ip-intel
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       NETWATCH_DB_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       NETWATCH_IPINFO_TOKEN: ${NETWATCH_IPINFO_TOKEN}
-      NETWATCH_LUPE_EVERY_SECONDS: ${NETWATCH_LUPE_EVERY_SECONDS:-1}
-      NETWATCH_LUPE_IDLE_SLEEP_SECONDS: ${NETWATCH_LUPE_IDLE_SLEEP_SECONDS:-2}
-      NETWATCH_LUPE_MAX_ROWS: ${NETWATCH_LUPE_MAX_ROWS:-2000}
-      NETWATCH_LUPE_BATCH_SIZE: ${NETWATCH_LUPE_BATCH_SIZE:-200}
-      NETWATCH_LUPE_HTTP_TIMEOUT_SECONDS: ${NETWATCH_LUPE_HTTP_TIMEOUT_SECONDS:-8}
-      NETWATCH_LUPE_CACHE_TTL_DAYS: ${NETWATCH_LUPE_CACHE_TTL_DAYS:-7}
-      NETWATCH_LUPE_SKIP_PRIVATE: ${NETWATCH_LUPE_SKIP_PRIVATE:-true}
-    command: ["python", "-m", "app.workers.lupe_enricher"]
+      NETWATCH_IP_INTEL_EVERY_SECONDS: ${NETWATCH_IP_INTEL_EVERY_SECONDS:-1}
+      NETWATCH_IP_INTEL_IDLE_SLEEP_SECONDS: ${NETWATCH_IP_INTEL_IDLE_SLEEP_SECONDS:-2}
+      NETWATCH_IP_INTEL_MAX_ROWS: ${NETWATCH_IP_INTEL_MAX_ROWS:-2000}
+      NETWATCH_IP_INTEL_BATCH_SIZE: ${NETWATCH_IP_INTEL_BATCH_SIZE:-200}
+      NETWATCH_IP_INTEL_HTTP_TIMEOUT_SECONDS: ${NETWATCH_IP_INTEL_HTTP_TIMEOUT_SECONDS:-8}
+      NETWATCH_IP_INTEL_CACHE_TTL_DAYS: ${NETWATCH_IP_INTEL_CACHE_TTL_DAYS:-7}
+      NETWATCH_IP_INTEL_SKIP_PRIVATE: ${NETWATCH_IP_INTEL_SKIP_PRIVATE:-true}
+    command: ["python", "-m", "app.workers.ip_intel"]
     networks:
       - netwatch
-    restart: unless-stopped
+    restart: always
+
+  netwatch-proto-intel:
+    build: ./backend
+    container_name: netwatch-proto-intel
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Keep DB wiring consistent across workers.
+      NETWATCH_DB_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+
+      NETWATCH_PROTO_INTEL_EVERY_SECONDS: ${NETWATCH_PROTO_INTEL_EVERY_SECONDS:-1.0}
+      NETWATCH_PROTO_INTEL_IDLE_SLEEP_SECONDS: ${NETWATCH_PROTO_INTEL_IDLE_SLEEP_SECONDS:-2.0}
+      NETWATCH_PROTO_INTEL_MAX_ROWS: ${NETWATCH_PROTO_INTEL_MAX_ROWS:-5000}
+      NETWATCH_PROTO_INTEL_BATCH_SIZE: ${NETWATCH_PROTO_INTEL_BATCH_SIZE:-500}
+      NETWATCH_PROTO_INTEL_PAYLOAD_MAX_BYTES: ${NETWATCH_PROTO_INTEL_PAYLOAD_MAX_BYTES:-4096}
+    command: ["python", "-m", "app.workers.proto_intel"]
+    networks:
+      - netwatch
+    restart: always
 
   grafana:
     image: grafana/grafana-oss:latest
