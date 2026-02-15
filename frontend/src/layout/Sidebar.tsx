@@ -168,6 +168,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
             {/* Events is ALWAYS independent: default scope is "All agents" */}
             <NavItem collapsed={collapsed} to="/events" label="Events" icon="events" end />
             <NavItem collapsed={collapsed} to="/events/ssh" label="SSH Insights" icon="events" />
+            <NavItem collapsed={collapsed} to="/events/network" label="Protocol Intelligence" icon="events" />
           </div>
         </div>
 

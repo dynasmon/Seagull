@@ -11,6 +11,11 @@ from app.models.events import NetEventModel
 from app.schemas.pagination import CursorPage
 from app.schemas.events import (
     NetEventDB,
+    NetworkSummaryResponse,
+    NetworkSummaryTotals,
+    TopValueStat,
+    DnsQnameStat,
+    TlsJa4Stat,
     SshIpStat,
     SshLoginEvent,
     SshSummaryResponse,
@@ -282,6 +287,147 @@ def get_ssh_summary(
             root_logins=root_logins,
             users_attempted=users_attempted,
             sudo_recent=sudo_recent,
+        )
+    finally:
+        db.close()
+
+
+@router.get("/network/summary", response_model=NetworkSummaryResponse)
+def get_network_summary(
+    since_minutes: int = Query(60 * 24, ge=1, le=60 * 24 * 30, description="Lookback window in minutes"),
+    limit: int = Query(25, ge=5, le=200, description="Top-N limit for aggregations"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
+):
+    """Protocol intelligence summary.
+
+    Aggregates protocol-aware metadata that is produced by the proto_intel worker.
+    The worker patches JSONB (extra) with keys such as:
+
+    - dns_qname, dns_qtype, dns_risk
+    - http_host, http_method, http_path
+    - ja3, ja4, ja4_ptype, tls_sni, tls_alpn_first
+
+    This endpoint is intended for dashboards and fast pivoting. It is deliberately
+    "summary-first": once you find an interesting indicator, pivot to /events with
+    a hunt token.
+    """
+
+    since_ts = datetime.now(timezone.utc) - timedelta(minutes=int(since_minutes))
+    db = SessionLocal()
+    try:
+        params = {"since": since_ts, "limit": int(limit), "agent_id": agent_id}
+
+        def _count(where_extra: str | None = None) -> int:
+            extra_clause = f"AND ({where_extra})" if where_extra else ""
+            row = db.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*)::bigint AS c
+                    FROM net_events
+                    WHERE \"timestamp\" >= :since
+                      AND (:agent_id IS NULL OR agent_id = :agent_id)
+                      {extra_clause};
+                    """
+                ),
+                params,
+            ).mappings().first()
+            return int(row["c"] if row else 0)
+
+        totals = NetworkSummaryTotals(
+            total_events=_count(),
+            proto_intel_events=_count("extra ? 'proto_intel_at'"),
+            dns_events=_count("extra ? 'dns_qname'"),
+            http_events=_count("extra ? 'http_host'"),
+            tls_events=_count("(extra ? 'ja4') OR (extra ? 'ja3') OR (extra ? 'tls_sni')"),
+        )
+
+        def _top_value(expr: str, where_extra: str, out_field: str = "value") -> list[TopValueStat]:
+            rows = db.execute(
+                text(
+                    f"""
+                    SELECT {expr} AS {out_field}, COUNT(*)::bigint AS count
+                    FROM net_events
+                    WHERE \"timestamp\" >= :since
+                      AND (:agent_id IS NULL OR agent_id = :agent_id)
+                      AND ({where_extra})
+                    GROUP BY {out_field}
+                    ORDER BY count DESC
+                    LIMIT :limit;
+                    """
+                ),
+                params,
+            ).mappings().all()
+            out: list[TopValueStat] = []
+            for r in rows:
+                v = r.get(out_field)
+                if v is None or str(v).strip() == "":
+                    continue
+                out.append(TopValueStat(value=str(v), count=int(r.get("count") or 0)))
+            return out
+
+        app_proto = _top_value("extra->>'app_proto'", "extra ? 'app_proto'")
+        http_hosts = _top_value("extra->>'http_host'", "extra ? 'http_host'")
+        http_methods = _top_value("extra->>'http_method'", "extra ? 'http_method'")
+        tls_sni = _top_value("extra->>'tls_sni'", "extra ? 'tls_sni'")
+        tls_alpn = _top_value("extra->>'tls_alpn_first'", "extra ? 'tls_alpn_first'")
+        tls_ja3 = _top_value("extra->>'ja3'", "extra ? 'ja3'")
+        ja4_ptype = _top_value("extra->>'ja4_ptype'", "extra ? 'ja4_ptype'")
+
+        dns_rows = db.execute(
+            text(
+                """
+                SELECT
+                    (extra->>'dns_qname') AS qname,
+                    COUNT(*)::bigint AS count,
+                    MAX(COALESCE(NULLIF(extra->>'dns_risk',''), '0')::int) AS max_risk
+                FROM net_events
+                WHERE \"timestamp\" >= :since
+                  AND (:agent_id IS NULL OR agent_id = :agent_id)
+                  AND (extra ? 'dns_qname')
+                GROUP BY (extra->>'dns_qname')
+                ORDER BY count DESC
+                LIMIT :limit;
+                """
+            ),
+            params,
+        ).mappings().all()
+        dns_qnames = [DnsQnameStat(qname=str(r["qname"]), count=int(r["count"]), max_risk=int(r["max_risk"] or 0)) for r in dns_rows]
+
+        ja4_rows = db.execute(
+            text(
+                """
+                SELECT
+                    (extra->>'ja4') AS ja4,
+                    COUNT(*)::bigint AS count,
+                    MAX(extra->>'ja4_ptype') AS ptype
+                FROM net_events
+                WHERE \"timestamp\" >= :since
+                  AND (:agent_id IS NULL OR agent_id = :agent_id)
+                  AND (extra ? 'ja4')
+                GROUP BY (extra->>'ja4')
+                ORDER BY count DESC
+                LIMIT :limit;
+                """
+            ),
+            params,
+        ).mappings().all()
+        tls_ja4 = [TlsJa4Stat(ja4=str(r["ja4"]), count=int(r["count"]), ptype=(r.get("ptype") or None)) for r in ja4_rows]
+
+        return NetworkSummaryResponse(
+            generated_at=datetime.now(timezone.utc),
+            since_minutes=int(since_minutes),
+            limit=int(limit),
+            agent_id=agent_id,
+            totals=totals,
+            app_proto=app_proto,
+            dns_qnames=dns_qnames,
+            http_hosts=http_hosts,
+            http_methods=http_methods,
+            tls_sni=tls_sni,
+            tls_alpn=tls_alpn,
+            tls_ja4=tls_ja4,
+            tls_ja3=tls_ja3,
+            ja4_ptype=ja4_ptype,
         )
     finally:
         db.close()

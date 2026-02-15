@@ -79,3 +79,46 @@ class SshSummaryResponse(BaseModel):
     root_logins: list[SshLoginEvent]
     users_attempted: list[SshUserStat]
     sudo_recent: list[SudoEventSummary]
+
+
+class TopValueStat(BaseModel):
+    value: str
+    count: int
+
+
+class DnsQnameStat(BaseModel):
+    qname: str
+    count: int
+    max_risk: Optional[int] = None
+
+
+class TlsJa4Stat(BaseModel):
+    ja4: str
+    count: int
+    ptype: Optional[str] = None
+
+
+class NetworkSummaryTotals(BaseModel):
+    total_events: int
+    proto_intel_events: int
+    dns_events: int
+    http_events: int
+    tls_events: int
+
+
+class NetworkSummaryResponse(BaseModel):
+    generated_at: datetime
+    since_minutes: int
+    limit: int
+    agent_id: Optional[str] = None
+    totals: NetworkSummaryTotals
+
+    app_proto: list[TopValueStat]
+    dns_qnames: list[DnsQnameStat]
+    http_hosts: list[TopValueStat]
+    http_methods: list[TopValueStat]
+    tls_sni: list[TopValueStat]
+    tls_alpn: list[TopValueStat]
+    tls_ja4: list[TlsJa4Stat]
+    tls_ja3: list[TopValueStat]
+    ja4_ptype: list[TopValueStat]
