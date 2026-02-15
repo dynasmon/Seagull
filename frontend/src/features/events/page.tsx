@@ -413,6 +413,11 @@ export default function EventsPage() {
       <PageHeader
         title="Events"
         description="Fleet telemetry stream: filter, pivot and inspect individual events in a drawer."
+        tabs={[
+          { label: "Event Stream", to: "/events" },
+          { label: "SSH Insights", to: "/events/ssh" },
+          { label: "Protocol Intel", to: "/events/network" }
+        ]}
         toolbarRight={toolbarRight}
       />
 

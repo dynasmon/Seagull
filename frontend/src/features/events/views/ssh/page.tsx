@@ -340,6 +340,11 @@ export default function SshInsightsPage() {
       <PageHeader
         title="SSH Insights"
         description="Lupe-style summary for SSH auth + sudo activity using Lupe.sh tool"
+        tabs={[
+          { label: "Event Stream", to: "/events" },
+          { label: "SSH Insights", to: "/events/ssh" },
+          { label: "Protocol Intel", to: "/events/network" }
+        ]}
         toolbarRight={headerRight}
       />
 

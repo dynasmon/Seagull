@@ -1,737 +1,665 @@
-import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-
-import PageHeader from "@/shared/components/PageHeader";
-import Loading from "@/shared/components/Loading";
-import EmptyState from "@/shared/components/EmptyState";
-import { Card } from "@/shared/components/Card";
-import { Table } from "@/shared/components/Table";
-import { Badge } from "@/shared/components/Badge";
 
 import { useAgentsCatalog } from "@/app/providers";
+import { Badge } from "@/shared/components/Badge";
+import { Card } from "@/shared/components/Card";
+import EmptyState from "@/shared/components/EmptyState";
+import Loading from "@/shared/components/Loading";
+import PageHeader from "@/shared/components/PageHeader";
+import { Table, TBody, TD, TH, THead, TR } from "@/shared/components/Table";
+import { cx } from "@/shared/lib/cx";
 
-import { getNetworkSummary } from "./api";
-import type { DnsQnameStat, NetworkSummaryResponse, TlsJa4Stat, TopValue } from "./types";
-import NetworkIndicatorDrawer, { type IndicatorSelection, type IndicatorKind } from "./NetworkIndicatorDrawer";
+import { fmtDateTime } from "../../lib/aggregates";
+import { getProtocolIntelSummary } from "./api";
+import ProtocolIndicatorDrawer, { type ProtocolIndicatorSelection } from "./ProtocolIndicatorDrawer";
+import type { ProtocolIntelSummaryResponse, ProtocolIntelIndicatorKind } from "./types";
 
-function ActionButton({
-  children,
-  onClick,
-  disabled,
-  title
-}: {
-  children: any;
-  onClick: () => void;
-  disabled?: boolean;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={
-        "inline-flex items-center justify-center h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20 disabled:opacity-50"
-      }
-    >
-      {children}
-    </button>
-  );
-}
-
-type ViewCfg = {
-  agent_id: string; // empty = all agents
+type ViewState = {
+  agent_id: string;
   since_minutes: number;
-  limit: number;
-  auto_refresh: boolean;
+  top_n: number;
   refresh_ms: number;
-  samples_window_minutes: number;
+  auto_refresh: boolean;
 };
 
-const LS_KEY = "nw_network_intel_view_v1";
-
-const DEFAULTS: ViewCfg = {
+const DEFAULTS: ViewState = {
   agent_id: "",
-  since_minutes: 60 * 24,
-  limit: 25,
-  auto_refresh: true,
-  refresh_ms: 15000,
-  samples_window_minutes: 60 * 6
+  since_minutes: 60 * 12,
+  top_n: 25,
+  refresh_ms: 20_000,
+  auto_refresh: true
 };
+
+const LS_KEY = "nw_protocol_intel_view_v1";
 
 function clampInt(v: any, min: number, max: number, fallback: number) {
-  const n = Number.parseInt(String(v ?? ""), 10);
+  const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
+  return Math.max(min, Math.min(max, Math.trunc(n)));
 }
 
-function safeLoadView(): ViewCfg {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return DEFAULTS;
-    const parsed = JSON.parse(raw) as Partial<ViewCfg>;
-    return {
-      ...DEFAULTS,
-      ...parsed,
-      agent_id: (parsed.agent_id ?? "").trim(),
-      since_minutes: clampInt(parsed.since_minutes, 1, 60 * 24 * 30, DEFAULTS.since_minutes),
-      limit: clampInt(parsed.limit, 5, 200, DEFAULTS.limit),
-      refresh_ms: clampInt(parsed.refresh_ms, 2000, 300000, DEFAULTS.refresh_ms),
-      samples_window_minutes: clampInt(parsed.samples_window_minutes, 5, 60 * 24 * 7, DEFAULTS.samples_window_minutes),
-      auto_refresh: Boolean(parsed.auto_refresh)
-    };
-  } catch {
-    return DEFAULTS;
-  }
+function fmtPct(num: number, den: number) {
+  if (!Number.isFinite(num) || !Number.isFinite(den) || den <= 0) return "0%";
+  const p = Math.round((num / den) * 100);
+  return `${p}%`;
 }
 
-function persistView(v: ViewCfg) {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(v));
-  } catch {
-    // no-op
-  }
+function RiskPill({ risk }: { risk: number }) {
+  const r = clampInt(risk, 0, 5, 0);
+  const label = r === 0 ? "low" : r === 1 ? "medium" : r === 2 ? "high" : "critical";
+  const variant = label as any;
+  return <Badge variant={variant}>{label}</Badge>;
 }
 
-function fmtWhen(iso?: string | null) {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleString();
-}
-
-function fmtAgo(ms: number) {
-  if (!Number.isFinite(ms) || ms <= 0) return "";
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  return `${h}h ago`;
-}
-
-function ptypeBadge(v?: string | null) {
-  const x = String(v || "").toLowerCase();
-  if (x === "q") return <Badge variant="info">quic</Badge>;
-  if (x === "d") return <Badge variant="medium">dtls</Badge>;
-  if (x === "t") return <Badge variant="neutral">tls</Badge>;
-  return <Badge variant="neutral">unknown</Badge>;
-}
-
-function riskBadge(r: number | null | undefined) {
-  const rr = typeof r === "number" ? r : 0;
-  if (rr >= 70) return <Badge variant="critical">risk {rr}</Badge>;
-  if (rr >= 40) return <Badge variant="high">risk {rr}</Badge>;
-  if (rr >= 20) return <Badge variant="medium">risk {rr}</Badge>;
-  return <Badge variant="neutral">risk {rr}</Badge>;
-}
-
-function StatTile({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
+function Section({ title, right, children }: { title: string; right?: any; children: any }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
+    <Card className="rounded-xl border border-border/60 bg-card/10 backdrop-blur-md">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60">
+        <div className="text-[11px] font-mono font-bold uppercase tracking-[0.35em] text-cyan-300/90">{title}</div>
+        {right ? <div className="text-[11px] font-mono text-muted-foreground">{right}</div> : null}
+      </div>
+      <div className="p-4">{children}</div>
+    </Card>
+  );
+}
+
+function Stat({ label, value, sub }: { label: string; value: any; sub?: any }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/40 p-4">
       <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className="mt-1 text-xl font-semibold tracking-tight">{value}</div>
-      {hint ? <div className="mt-1 text-[11px] text-muted-foreground">{hint}</div> : null}
+      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
+      {sub ? <div className="mt-1 text-xs text-muted-foreground">{sub}</div> : null}
     </div>
   );
 }
 
-function MiniSelect({
-  label,
-  value,
-  onChange,
-  children
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  children: ReactNode;
-}) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 rounded-md border border-border/60 bg-background/40 px-2 text-sm"
-      >
-        {children}
-      </select>
-    </label>
-  );
+function TableEmpty({ title, desc }: { title: string; desc?: string }) {
+  return <EmptyState title={title} description={desc ?? "No results for the selected scope."} />;
 }
 
-function MiniInput({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  step
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  min: number;
-  max: number;
-  step?: number;
-}) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</span>
-      <input
-        type="number"
-        value={value}
-        min={min}
-        max={max}
-        step={step ?? 1}
-        onChange={(e) => onChange(clampInt(e.target.value, min, max, value))}
-        className="h-9 rounded-md border border-border/60 bg-background/40 px-2 text-sm"
-      />
-    </label>
-  );
-}
-
-function MiniToggle({
-  label,
-  checked,
-  onChange,
-  hint
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  hint?: string;
-}) {
-  return (
-    <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/40 px-3 py-2">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-1" />
-      <div className="min-w-0">
-        <div className="text-[12px] font-mono text-foreground">{label}</div>
-        {hint ? <div className="mt-1 text-[11px] text-muted-foreground">{hint}</div> : null}
-      </div>
-    </label>
-  );
-}
-
-function toEventsLink(params: { agent_id?: string; search?: string }): string {
-  const q = new URLSearchParams();
-  if (params.agent_id) q.set("agent_id", params.agent_id);
-  if (params.search) q.set("search", params.search);
-  const s = q.toString();
-  return s ? `/events?${s}` : "/events";
-}
-
-function huntToken(key: string, value: string): string {
-  // Search is substring-based; using a JSON-ish token reduces false positives.
-  return `"${key}":${JSON.stringify(String(value))}`;
-}
-
-function withBars<T extends { count: number }>(rows: T[]) {
-  const max = rows.reduce((acc, r) => Math.max(acc, r.count), 0) || 1;
-  return { rows, max };
-}
-
-function bar(count: number, max: number) {
-  const pct = Math.max(0, Math.min(100, Math.round((count / max) * 100)));
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-2 w-24 rounded bg-muted/20">
-        <div className="h-2 rounded bg-primary/40" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-xs font-mono">{count}</span>
-    </div>
-  );
-}
-
-export default function NetworkIntelPage() {
+export default function ProtocolIntelPage() {
   const { agents } = useAgentsCatalog();
-  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [view, setView] = useState<ViewCfg>(() => safeLoadView());
+  const [view, setView] = useState<ViewState>(() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return DEFAULTS;
+      const parsed = JSON.parse(raw);
+      return {
+        agent_id: typeof parsed?.agent_id === "string" ? parsed.agent_id : "",
+        since_minutes: clampInt(parsed?.since_minutes, 1, 60 * 24 * 30, DEFAULTS.since_minutes),
+        top_n: clampInt(parsed?.top_n, 5, 200, DEFAULTS.top_n),
+        refresh_ms: clampInt(parsed?.refresh_ms, 10_000, 120_000, DEFAULTS.refresh_ms),
+        auto_refresh: typeof parsed?.auto_refresh === "boolean" ? parsed.auto_refresh : DEFAULTS.auto_refresh
+      };
+    } catch {
+      return DEFAULTS;
+    }
+  });
+
   const viewRef = useRef(view);
   useEffect(() => {
     viewRef.current = view;
-    persistView(view);
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(view));
+    } catch {
+      // ignore
+    }
   }, [view]);
 
-  const didInitFromUrl = useRef(false);
+  // Safety guard: auto-refresh + very large windows can hammer the DB and the browser.
   useEffect(() => {
-    if (didInitFromUrl.current) return;
-    didInitFromUrl.current = true;
-
-    const agent_id = (searchParams.get("agent_id") ?? "").trim();
-    const since_minutes = clampInt(searchParams.get("since_minutes"), 1, 60 * 24 * 30, viewRef.current.since_minutes);
-    const limit = clampInt(searchParams.get("limit"), 5, 200, viewRef.current.limit);
-
-    if (agent_id || since_minutes !== viewRef.current.since_minutes || limit !== viewRef.current.limit) {
-      setView((prev) => ({ ...prev, agent_id, since_minutes, limit }));
+    if (view.since_minutes > 60 * 24 && view.auto_refresh) {
+      setView((v) => ({ ...v, auto_refresh: false, refresh_ms: Math.max(v.refresh_ms, 60_000) }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (view.auto_refresh && view.since_minutes > 60 * 12 && view.refresh_ms < 45_000) {
+      setView((v) => ({ ...v, refresh_ms: 45_000 }));
+    }
+  }, [view.since_minutes, view.auto_refresh, view.refresh_ms]);
 
-  useEffect(() => {
-    const q = new URLSearchParams();
-    if (view.agent_id) q.set("agent_id", view.agent_id);
-    q.set("since_minutes", String(view.since_minutes));
-    q.set("limit", String(view.limit));
-    setSearchParams(q, { replace: true });
-  }, [view.agent_id, view.since_minutes, view.limit, setSearchParams]);
+  const agentNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const a of agents || []) {
+      if (!a?.agent_id) continue;
+      map[a.agent_id] = a.display_name || a.agent_id;
+    }
+    return map;
+  }, [agents]);
 
-  const [data, setData] = useState<NetworkSummaryResponse | null>(null);
+  const agentOptions = useMemo(() => {
+    return (agents || []).map((a) => ({ agent_id: a.agent_id, display_name: a.display_name || a.agent_id }));
+  }, [agents]);
+
+  const reqSeq = useRef(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
+  const [data, setData] = useState<ProtocolIntelSummaryResponse | null>(null);
+  const [lastOkAt, setLastOkAt] = useState<Date | null>(null);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerSel, setDrawerSel] = useState<IndicatorSelection | null>(null);
+  const [drawerSel, setDrawerSel] = useState<ProtocolIndicatorSelection | null>(null);
 
-  const openDrawer = useCallback((kind: IndicatorKind, value: string, count?: number) => {
-    setDrawerSel({ kind, value, count });
-    setDrawerOpen(true);
-  }, []);
-
-  const refresh = useCallback(async () => {
+  const load = useCallback(async () => {
+    const mySeq = ++reqSeq.current;
     setLoading(true);
+    setError(null);
+
+    const agent_id = viewRef.current.agent_id ? viewRef.current.agent_id : undefined;
+    const since_minutes = viewRef.current.since_minutes;
+    const limit = viewRef.current.top_n;
+
     try {
-      const r = await getNetworkSummary({
-        agent_id: viewRef.current.agent_id || undefined,
-        since_minutes: viewRef.current.since_minutes,
-        limit: viewRef.current.limit
-      });
-      setData(r);
-      setError(null);
-      setLastLoadedAt(Date.now());
+      const res = await getProtocolIntelSummary({ agent_id, since_minutes, limit });
+      if (reqSeq.current !== mySeq) return;
+      setData(res);
+      setLastOkAt(new Date());
     } catch (e: any) {
-      setError(e?.message || "Failed to load protocol intelligence");
-      setData(null);
+      if (reqSeq.current !== mySeq) return;
+      const msg = typeof e?.message === "string" ? e.message : "Failed to load summary";
+      setError(msg);
     } finally {
+      if (reqSeq.current !== mySeq) return;
       setLoading(false);
     }
   }, []);
 
+  // Debounced auto-load when the scope changes.
   useEffect(() => {
-    refresh();
-  }, [view.agent_id, view.since_minutes, view.limit, refresh]);
+    const t = window.setTimeout(() => load(), 220);
+    return () => window.clearTimeout(t);
+  }, [view.agent_id, view.since_minutes, view.top_n, load]);
 
+  // Auto refresh timer.
   useEffect(() => {
     if (!view.auto_refresh) return;
-    const t = window.setInterval(() => refresh(), view.refresh_ms);
-    return () => window.clearInterval(t);
-  }, [view.auto_refresh, view.refresh_ms, refresh]);
+    const id = window.setInterval(() => {
+      load();
+    }, view.refresh_ms);
+    return () => window.clearInterval(id);
+  }, [view.auto_refresh, view.refresh_ms, load]);
 
-  const headerRight = useMemo(() => {
-    const lastAgo = lastLoadedAt ? fmtAgo(Date.now() - lastLoadedAt) : "";
-    return (
-      <div className="flex flex-wrap items-end justify-end gap-3">
-        <MiniSelect
-          label="Agent"
-          value={view.agent_id}
-          onChange={(v) => setView((p) => ({ ...p, agent_id: v }))}
-        >
-          <option value="">All agents</option>
-          {agents.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.id}
-            </option>
-          ))}
-        </MiniSelect>
+  const coverage = useMemo(() => {
+    const total = data?.total_events ?? 0;
+    const withMeta = data?.with_proto_metadata ?? 0;
+    return fmtPct(withMeta, total);
+  }, [data]);
 
-        <MiniInput
-          label="Lookback (min)"
-          value={view.since_minutes}
-          min={1}
-          max={60 * 24 * 30}
-          onChange={(v) => setView((p) => ({ ...p, since_minutes: v }))}
-        />
+  const generatedAt = useMemo(() => {
+    if (!data?.generated_at) return "-";
+    const d = new Date(data.generated_at);
+    if (Number.isNaN(d.getTime())) return data.generated_at;
+    return fmtDateTime(d);
+  }, [data]);
 
-        <MiniInput label="Top-N" value={view.limit} min={5} max={200} onChange={(v) => setView((p) => ({ ...p, limit: v }))} />
+  const shouldWarnNoCoverage = useMemo(() => {
+    if (!data) return false;
+    return data.total_events > 0 && data.with_proto_metadata === 0;
+  }, [data]);
 
-        <MiniInput
-          label="Refresh (ms)"
-          value={view.refresh_ms}
-          min={2000}
-          max={300000}
-          step={500}
-          onChange={(v) => setView((p) => ({ ...p, refresh_ms: v }))}
-        />
-
-        <MiniInput
-          label="Samples window (min)"
-          value={view.samples_window_minutes}
-          min={5}
-          max={60 * 24 * 7}
-          onChange={(v) => setView((p) => ({ ...p, samples_window_minutes: v }))}
-        />
-
-        <div className="flex flex-col gap-1">
-          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Actions</span>
-          <div className="flex gap-2">
-            <ActionButton onClick={refresh} disabled={loading} title="Refresh now">
-              Refresh
-            </ActionButton>
-            <Link
-              to={toEventsLink({ agent_id: view.agent_id || undefined, search: "proto_intel_at" })}
-              className={
-                "inline-flex items-center justify-center h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
-              }
-              title="Jump to Events with protocol metadata"
-            >
-              Hunt
-            </Link>
-          </div>
-        </div>
-
-        <div className="w-[280px]">
-          <MiniToggle
-            label="Auto refresh"
-            checked={view.auto_refresh}
-            onChange={(v) => setView((p) => ({ ...p, auto_refresh: v }))}
-            hint={lastAgo ? `Last updated: ${lastAgo}` : undefined}
-          />
-        </div>
-      </div>
-    );
-  }, [agents, view, loading, refresh, lastLoadedAt]);
-
-  const totals = data?.totals;
-  const coveragePct = useMemo(() => {
-    if (!totals) return 0;
-    if (!totals.total_events) return 0;
-    return Math.round((totals.proto_intel_events / totals.total_events) * 100);
-  }, [totals]);
-
-  const appProtoBars = useMemo(() => withBars((data?.app_proto || []).map((r) => ({ ...r, count: r.count }))), [data]);
-
-  const dnsRows = data?.dns_qnames || [];
-  const dnsBars = useMemo(() => withBars(dnsRows.map((r) => ({ ...r, count: r.count }))), [dnsRows]);
-
-  const httpHosts = data?.http_hosts || [];
-  const httpHostBars = useMemo(() => withBars(httpHosts.map((r) => ({ ...r, count: r.count }))), [httpHosts]);
-
-  const tlsJa4 = data?.tls_ja4 || [];
-  const tlsJa4Bars = useMemo(() => withBars(tlsJa4.map((r) => ({ ...r, count: r.count }))), [tlsJa4]);
-
-  const tlsSni = data?.tls_sni || [];
-  const tlsSniBars = useMemo(() => withBars(tlsSni.map((r) => ({ ...r, count: r.count }))), [tlsSni]);
-
-  const httpMethods = data?.http_methods || [];
-  const httpMethodBars = useMemo(() => withBars(httpMethods.map((r) => ({ ...r, count: r.count }))), [httpMethods]);
-
-  const ja4Ptypes = data?.ja4_ptype || [];
-  const ja4PtypeBars = useMemo(() => withBars(ja4Ptypes.map((r) => ({ ...r, count: r.count }))), [ja4Ptypes]);
-
-  const tlsAlpn = data?.tls_alpn || [];
-  const tlsAlpnBars = useMemo(() => withBars(tlsAlpn.map((r) => ({ ...r, count: r.count }))), [tlsAlpn]);
-
-  const ja3Rows = data?.tls_ja3 || [];
-  const ja3Bars = useMemo(() => withBars(ja3Rows.map((r) => ({ ...r, count: r.count }))), [ja3Rows]);
-
-  const dnsCols = useMemo(
-    () => [
-      {
-        key: "qname",
-        title: "QNAME",
-        render: (r: DnsQnameStat) => <span className="font-mono text-xs break-all">{r.qname}</span>
-      },
-      {
-        key: "risk",
-        title: "Risk",
-        width: 110,
-        render: (r: DnsQnameStat) => riskBadge(r.max_risk ?? 0)
-      },
-      {
-        key: "count",
-        title: "Count",
-        width: 160,
-        render: (r: DnsQnameStat) => bar(r.count, dnsBars.max)
-      },
-      {
-        key: "actions",
-        title: "",
-        width: 170,
-        render: (r: DnsQnameStat) => (
-          <div className="flex items-center justify-end gap-2">
-            <ActionButton onClick={() => openDrawer("dns_qname", r.qname, r.count)}>Inspect</ActionButton>
-            <Link
-              to={toEventsLink({ agent_id: view.agent_id || undefined, search: huntToken("dns_qname", r.qname) })}
-              className={
-                "inline-flex items-center justify-center h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
-              }
-            >
-              Hunt
-            </Link>
-          </div>
-        )
-      }
-    ],
-    [dnsBars.max, openDrawer, view.agent_id]
+  const onPick = useCallback(
+    (sel: ProtocolIndicatorSelection) => {
+      setDrawerSel(sel);
+      setDrawerOpen(true);
+    },
+    [setDrawerSel, setDrawerOpen]
   );
 
-  const simpleCols = useCallback(
-    (kind: IndicatorKind, label: string, rows: TopValue[], max: number) => [
-      {
-        key: "value",
-        title: label,
-        render: (r: TopValue) => <span className="font-mono text-xs break-all">{r.value}</span>
-      },
-      {
-        key: "count",
-        title: "Count",
-        width: 160,
-        render: (r: TopValue) => bar(r.count, max)
-      },
-      {
-        key: "actions",
-        title: "",
-        width: 170,
-        render: (r: TopValue) => (
-          <div className="flex items-center justify-end gap-2">
-            <ActionButton onClick={() => openDrawer(kind, r.value, r.count)}>Inspect</ActionButton>
-            <Link
-              to={toEventsLink({ agent_id: view.agent_id || undefined, search: huntToken(kind, r.value) })}
-              className={
-                "inline-flex items-center justify-center h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
-              }
-            >
-              Hunt
-            </Link>
-          </div>
-        )
-      }
-    ],
-    [openDrawer, view.agent_id]
+  const mkPick = useCallback(
+    (kind: ProtocolIntelIndicatorKind, value: string, label: string, count?: number, hint?: string) => {
+      onPick({ kind, value, label, count, hint });
+    },
+    [onPick]
   );
 
-  const ja4Cols = useMemo(
-    () => [
-      {
-        key: "ja4",
-        title: "JA4",
-        render: (r: TlsJa4Stat) => <span className="font-mono text-xs break-all">{r.ja4}</span>
-      },
-      {
-        key: "ptype",
-        title: "PType",
-        width: 110,
-        render: (r: TlsJa4Stat) => ptypeBadge(r.ptype)
-      },
-      {
-        key: "count",
-        title: "Count",
-        width: 160,
-        render: (r: TlsJa4Stat) => bar(r.count, tlsJa4Bars.max)
-      },
-      {
-        key: "actions",
-        title: "",
-        width: 170,
-        render: (r: TlsJa4Stat) => (
-          <div className="flex items-center justify-end gap-2">
-            <ActionButton onClick={() => openDrawer("ja4", r.ja4, r.count)}>Inspect</ActionButton>
-            <Link
-              to={toEventsLink({ agent_id: view.agent_id || undefined, search: huntToken("ja4", r.ja4) })}
-              className={
-                "inline-flex items-center justify-center h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
-              }
-            >
-              Hunt
-            </Link>
-          </div>
-        )
-      }
-    ],
-    [openDrawer, tlsJa4Bars.max, view.agent_id]
-  );
-
-  const protoCols = useMemo(
-    () => [
-      {
-        key: "value",
-        title: "App proto",
-        render: (r: TopValue) => <Badge variant="neutral">{r.value || "unknown"}</Badge>
-      },
-      {
-        key: "count",
-        title: "Count",
-        width: 160,
-        render: (r: TopValue) => bar(r.count, appProtoBars.max)
-      },
-      {
-        key: "actions",
-        title: "",
-        width: 170,
-        render: (r: TopValue) => (
-          <div className="flex items-center justify-end gap-2">
-            <ActionButton
-              onClick={() => openDrawer("http_host", r.value, r.count)}
-              disabled
-              title="Distribution rows are not indicators; open one of the tables below to inspect details"
-            >
-              Inspect
-            </ActionButton>
-            <Link
-              to={toEventsLink({ agent_id: view.agent_id || undefined, search: huntToken("app_proto", r.value) })}
-              className={
-                "inline-flex items-center justify-center h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
-              }
-            >
-              Hunt
-            </Link>
-          </div>
-        )
-      }
-    ],
-    [appProtoBars.max, openDrawer, view.agent_id]
-  );
+  const tabs = useMemo(() => {
+    return [
+      { label: "Event Stream", to: "/events" },
+      { label: "SSH Insights", to: "/events/ssh" },
+      { label: "Protocol Intel", to: "/events/network" }
+    ];
+  }, []);
 
   return (
-    <div>
+    <div className="p-5 space-y-5">
       <PageHeader
+        breadcrumb="Telemetry / Events"
         title="Protocol Intelligence"
-        breadcrumb={["Telemetry", "Events"]}
-        description={
-          <span>
-            Deep, protocol-aware metadata derived from raw network signals: DNS queries, HTTP hosts/methods, and TLS/DTLS/QUIC
-            fingerprints (JA3/JA4). Use this page to pivot from high-volume indicators to the raw event timeline.
-          </span>
+        description="Protocol-aware metadata derived from network signals: DNS queries, HTTP hosts/methods, and TLS/DTLS/QUIC fingerprints (JA3/JA4)."
+        tabs={tabs}
+        toolbarRight={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => load()}
+              className={cx(
+                "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
+                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                "hover:bg-muted/15 hover:text-foreground",
+                "focus:outline-none focus:ring-2 focus:ring-primary/30"
+              )}
+            >
+              Refresh
+            </button>
+          </div>
         }
-        toolbarRight={headerRight}
       />
 
-      {loading ? <Loading /> : null}
-      {error ? (
-        <EmptyState
-          title="Unable to load protocol intelligence"
-          description={
-            <span>
-              {error}. If you recently enabled the <span className="font-mono">proto_intel</span> worker, wait a bit and
-              refresh.
-            </span>
-          }
-        />
-      ) : null}
+      <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-5">
+        <div className="space-y-5">
+          <Section title="Scope" right={view.auto_refresh ? `auto every ${Math.round(view.refresh_ms / 1000)}s` : "manual"}>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Agent</div>
+                  <select
+                    value={view.agent_id}
+                    onChange={(e) => setView((v) => ({ ...v, agent_id: e.target.value }))}
+                    className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                  >
+                    <option value="">All agents</option>
+                    {agentOptions.map((a) => (
+                      <option key={a.agent_id} value={a.agent_id}>
+                        {a.display_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-      {!loading && !error && data ? (
-        <div className="grid grid-cols-1 gap-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
-            <StatTile label="Total events" value={totals?.total_events ?? 0} hint={`Lookback: ${data.since_minutes} min`} />
-            <StatTile
-              label="With protocol metadata"
-              value={totals?.proto_intel_events ?? 0}
-              hint={`Coverage: ${coveragePct}%`}
-            />
-            <StatTile label="DNS" value={totals?.dns_events ?? 0} />
-            <StatTile label="HTTP" value={totals?.http_events ?? 0} />
-            <StatTile label="TLS/QUIC/DTLS" value={totals?.tls_events ?? 0} />
-          </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Lookback (min)</div>
+                    <input
+                      type="number"
+                      value={view.since_minutes}
+                      min={1}
+                      max={60 * 24 * 30}
+                      onChange={(e) => {
+                        const v = clampInt(e.target.value, 1, 60 * 24 * 30, DEFAULTS.since_minutes);
+                        setView((s) => ({ ...s, since_minutes: v }));
+                      }}
+                      className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                    />
+                  </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            <Card
-              title="Application protocols"
-              right={
-                <span>
-                  Generated <span className="font-mono">{fmtWhen(data.generated_at)}</span>
-                </span>
-              }
-            >
-              <Table
-                columns={protoCols as any}
-                rows={data.app_proto}
-                rowKey={(r: TopValue) => r.value}
-                className="text-sm"
-              />
-            </Card>
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Top-N</div>
+                    <input
+                      type="number"
+                      value={view.top_n}
+                      min={5}
+                      max={200}
+                      onChange={(e) => {
+                        const v = clampInt(e.target.value, 5, 200, DEFAULTS.top_n);
+                        setView((s) => ({ ...s, top_n: v }));
+                      }}
+                      className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
 
-            <Card title="JA4 ptype distribution" right="q=QUIC, d=DTLS, t=TLS">
-              <Table
-                columns={simpleCols("ja4_ptype", "PType", ja4Ptypes, ja4PtypeBars.max) as any}
-                rows={ja4Ptypes}
-                rowKey={(r: TopValue) => r.value}
-                className="text-sm"
-              />
-            </Card>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Refresh (ms)</div>
+                    <input
+                      type="number"
+                      value={view.refresh_ms}
+                      min={10_000}
+                      max={120_000}
+                      step={1000}
+                      onChange={(e) => {
+                        const v = clampInt(e.target.value, 10_000, 120_000, DEFAULTS.refresh_ms);
+                        setView((s) => ({ ...s, refresh_ms: v }));
+                      }}
+                      className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                      disabled={!view.auto_refresh}
+                    />
+                  </div>
 
-            <Card title="HTTP methods" right="From HTTP/1 request parsing">
-              <Table
-                columns={simpleCols("http_method", "Method", httpMethods, httpMethodBars.max) as any}
-                rows={httpMethods}
-                rowKey={(r: TopValue) => r.value}
-                className="text-sm"
-              />
-            </Card>
-          </div>
+                  <div className="flex items-end">
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={view.auto_refresh}
+                        onChange={(e) => setView((s) => ({ ...s, auto_refresh: e.target.checked }))}
+                      />
+                      <span className="text-[12px] font-mono text-muted-foreground">Auto refresh</span>
+                    </label>
+                  </div>
+                </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <Card title="Top DNS queries" right={`Top ${data.limit} by volume`}>
-              <Table
-                columns={dnsCols as any}
-                rows={dnsRows}
-                rowKey={(r: DnsQnameStat) => r.qname}
-                className="text-sm"
-              />
-            </Card>
+                {view.since_minutes > 60 * 24 ? (
+                  <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-200">
+                    Large lookback windows can be expensive. Auto refresh is disabled above 24h to protect CPU/DB.
+                  </div>
+                ) : view.since_minutes > 60 * 12 && view.auto_refresh ? (
+                  <div className="rounded-md border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
+                    Refresh interval was increased to reduce CPU load for large windows.
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </Section>
 
-            <Card title="Top HTTP hosts" right={`Top ${data.limit} by volume`}>
-              <Table
-                columns={simpleCols("http_host", "Host", httpHosts, httpHostBars.max) as any}
-                rows={httpHosts}
-                rowKey={(r: TopValue) => r.value}
-                className="text-sm"
-              />
-            </Card>
-          </div>
+          <Section title="Coverage" right={data ? `generated ${generatedAt}` : ""}>
+            <div className="grid grid-cols-2 gap-3">
+              <Stat label="Total events" value={data ? data.total_events : "-"} sub={`Lookback ${view.since_minutes} min`} />
+              <Stat label="With protocol metadata" value={data ? data.with_proto_metadata : "-"} sub={`Coverage ${coverage}`} />
+              <Stat label="DNS" value={data ? data.dns_events : "-"} />
+              <Stat label="HTTP" value={data ? data.http_events : "-"} />
+              <Stat label="TLS/DTLS/QUIC" value={data ? data.tls_events : "-"} />
+              <Stat label="Last updated" value={lastOkAt ? fmtDateTime(lastOkAt) : "-"} />
+            </div>
+          </Section>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <Card title="Top TLS SNI" right={`Top ${data.limit} by volume`}>
-              <Table
-                columns={simpleCols("tls_sni", "SNI", tlsSni, tlsSniBars.max) as any}
-                rows={tlsSni}
-                rowKey={(r: TopValue) => r.value}
-                className="text-sm"
-              />
-            </Card>
-
-            <Card title="Top TLS/QUIC ALPN" right={`Top ${data.limit} by volume`}>
-              <Table
-                columns={simpleCols("tls_alpn_first", "ALPN", tlsAlpn, tlsAlpnBars.max) as any}
-                rows={tlsAlpn}
-                rowKey={(r: TopValue) => r.value}
-                className="text-sm"
-              />
-            </Card>
-          </div>
-
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <Card title="Top JA4 fingerprints" right={`Top ${data.limit} by volume`}>
-              <Table
-                columns={ja4Cols as any}
-                rows={tlsJa4}
-                rowKey={(r: TlsJa4Stat) => r.ja4}
-                className="text-sm"
-              />
-            </Card>
-
-            <Card title="Top JA3 fingerprints" right={`Top ${data.limit} by volume`}>
-              <Table
-                columns={simpleCols("ja3", "JA3", ja3Rows, ja3Bars.max) as any}
-                rows={ja3Rows}
-                rowKey={(r: TopValue) => r.value}
-                className="text-sm"
-              />
-            </Card>
-          </div>
+          <Section title="Health hints">
+            <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
+              <div>
+                This view is powered by the <span className="font-mono">netwatch-proto-intel</span> worker. If tables stay empty:
+              </div>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Confirm the worker is running: <span className="font-mono">docker ps | grep proto-intel</span></li>
+                <li>Check logs for parsing errors: <span className="font-mono">docker logs -f netwatch-proto-intel</span></li>
+                <li>Generate traffic: DNS lookups, HTTP requests, and TLS handshakes.</li>
+                <li>If you haven’t implemented L7 evidence in the Go agent yet, you will mostly see <span className="font-mono">app_proto</span> guesses (ports).
+                </li>
+              </ul>
+            </div>
+          </Section>
         </div>
-      ) : null}
 
-      <NetworkIndicatorDrawer
+        <div className="space-y-5">
+          {error ? (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>
+          ) : null}
+
+          {shouldWarnNoCoverage ? (
+            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-200">
+              No protocol-aware metadata was found in the selected window. This usually means agents are not sending evidence
+              (DNS/HTTP payloads, TLS handshakes) or the worker is not running.
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <Section title="Application protocols" right={`top ${view.top_n}`}>
+              {loading && !data ? <Loading label="Loading..." /> : null}
+              {!loading && data && data.app_protocols.length === 0 ? <TableEmpty title="No app_proto yet" /> : null}
+              {data && data.app_protocols.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table>
+                    <THead>
+                      <TR>
+                        <TH>app_proto</TH>
+                        <TH className="text-right">count</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {data.app_protocols.map((r) => (
+                        <TR
+                          key={r.key}
+                          className="cursor-pointer hover:bg-muted/10"
+                          onClick={() => mkPick("app_proto", r.key, "Application protocol", r.count, "Top application protocol classification")}
+                        >
+                          <TD className="font-mono text-[12px]">{r.key}</TD>
+                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </div>
+              ) : null}
+            </Section>
+
+            <Section title="JA4 ptype distribution" right="q=QUIC, d=DTLS, t=TLS">
+              {!loading && data && data.ja4_ptypes.length === 0 ? <TableEmpty title="No JA4 ptype" /> : null}
+              {data && data.ja4_ptypes.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table>
+                    <THead>
+                      <TR>
+                        <TH>ptype</TH>
+                        <TH className="text-right">count</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {data.ja4_ptypes.map((r) => (
+                        <TR
+                          key={r.key}
+                          className="cursor-pointer hover:bg-muted/10"
+                          onClick={() => mkPick("ja4_ptype", r.key, "JA4 ptype", r.count, "Distribution of JA4 transport type")}
+                        >
+                          <TD className="font-mono text-[12px]">{r.key}</TD>
+                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </div>
+              ) : null}
+            </Section>
+
+            <Section title="HTTP methods" right="from HTTP/1 request parsing">
+              {!loading && data && data.http_methods.length === 0 ? <TableEmpty title="No HTTP methods" /> : null}
+              {data && data.http_methods.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table>
+                    <THead>
+                      <TR>
+                        <TH>method</TH>
+                        <TH className="text-right">count</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {data.http_methods.map((r) => (
+                        <TR
+                          key={r.key}
+                          className="cursor-pointer hover:bg-muted/10"
+                          onClick={() => mkPick("http_method", r.key, "HTTP method", r.count, "HTTP request methods")}
+                        >
+                          <TD className="font-mono text-[12px]">{r.key}</TD>
+                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </div>
+              ) : null}
+            </Section>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <Section title="Top DNS queries" right={`top ${view.top_n} by volume`}>
+              {!loading && data && data.top_dns_queries.length === 0 ? <TableEmpty title="No DNS evidence" desc="DNS queries require payload evidence." /> : null}
+              {data && data.top_dns_queries.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table>
+                    <THead>
+                      <TR>
+                        <TH>qname</TH>
+                        <TH>risk</TH>
+                        <TH className="text-right">count</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {data.top_dns_queries.map((r) => (
+                        <TR
+                          key={r.qname}
+                          className="cursor-pointer hover:bg-muted/10"
+                          onClick={() => mkPick("dns_qname", r.qname, "DNS qname", r.count, "Top DNS queries")}
+                        >
+                          <TD className="font-mono text-[12px] break-all">{r.qname}</TD>
+                          <TD className="text-[12px]"><RiskPill risk={r.risk} /></TD>
+                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </div>
+              ) : null}
+            </Section>
+
+            <Section title="Top HTTP hosts" right={`top ${view.top_n} by volume`}>
+              {!loading && data && data.top_http_hosts.length === 0 ? <TableEmpty title="No HTTP evidence" desc="HTTP hosts require payload evidence." /> : null}
+              {data && data.top_http_hosts.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table>
+                    <THead>
+                      <TR>
+                        <TH>host</TH>
+                        <TH className="text-right">count</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {data.top_http_hosts.map((r) => (
+                        <TR
+                          key={r.key}
+                          className="cursor-pointer hover:bg-muted/10"
+                          onClick={() => mkPick("http_host", r.key, "HTTP host", r.count, "Top HTTP Host headers")}
+                        >
+                          <TD className="font-mono text-[12px] break-all">{r.key}</TD>
+                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </div>
+              ) : null}
+            </Section>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <Section title="Top TLS SNI" right={`top ${view.top_n} by volume`}>
+              {!loading && data && data.top_tls_sni.length === 0 ? <TableEmpty title="No SNI" desc="SNI requires TLS ClientHello evidence." /> : null}
+              {data && data.top_tls_sni.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table>
+                    <THead>
+                      <TR>
+                        <TH>sni</TH>
+                        <TH className="text-right">count</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {data.top_tls_sni.map((r) => (
+                        <TR
+                          key={r.key}
+                          className="cursor-pointer hover:bg-muted/10"
+                          onClick={() => mkPick("tls_sni", r.key, "TLS SNI", r.count, "Top SNI values")}
+                        >
+                          <TD className="font-mono text-[12px] break-all">{r.key}</TD>
+                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </div>
+              ) : null}
+            </Section>
+
+            <Section title="Top TLS/QUIC ALPN" right={`top ${view.top_n} by volume`}>
+              {!loading && data && data.top_alpn.length === 0 ? <TableEmpty title="No ALPN" desc="ALPN requires TLS ClientHello evidence." /> : null}
+              {data && data.top_alpn.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table>
+                    <THead>
+                      <TR>
+                        <TH>alpn</TH>
+                        <TH className="text-right">count</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {data.top_alpn.map((r) => (
+                        <TR
+                          key={r.key}
+                          className="cursor-pointer hover:bg-muted/10"
+                          onClick={() => mkPick("tls_alpn_first", r.key, "ALPN", r.count, "Top ALPN values")}
+                        >
+                          <TD className="font-mono text-[12px] break-all">{r.key}</TD>
+                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </div>
+              ) : null}
+            </Section>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <Section title="Top JA4 fingerprints" right={`top ${view.top_n} by volume`}>
+              {!loading && data && data.top_ja4.length === 0 ? <TableEmpty title="No JA4" desc="JA4 requires TLS/DTLS/QUIC fingerprint evidence." /> : null}
+              {data && data.top_ja4.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table>
+                    <THead>
+                      <TR>
+                        <TH>ja4</TH>
+                        <TH>ptype</TH>
+                        <TH className="text-right">count</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {data.top_ja4.map((r) => (
+                        <TR
+                          key={r.ja4}
+                          className="cursor-pointer hover:bg-muted/10"
+                          onClick={() => mkPick("ja4", r.ja4, "JA4 fingerprint", r.count, `ptype=${r.ptype}`)}
+                        >
+                          <TD className="font-mono text-[12px] break-all">{r.ja4}</TD>
+                          <TD className="font-mono text-[12px]"><Badge>{r.ptype || "t"}</Badge></TD>
+                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </div>
+              ) : null}
+            </Section>
+
+            <Section title="Top JA3 fingerprints" right={`top ${view.top_n} by volume`}>
+              {!loading && data && data.top_ja3.length === 0 ? <TableEmpty title="No JA3" desc="JA3 requires TLS ClientHello evidence." /> : null}
+              {data && data.top_ja3.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table>
+                    <THead>
+                      <TR>
+                        <TH>ja3</TH>
+                        <TH className="text-right">count</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {data.top_ja3.map((r) => (
+                        <TR
+                          key={r.key}
+                          className="cursor-pointer hover:bg-muted/10"
+                          onClick={() => mkPick("ja3", r.key, "JA3 fingerprint", r.count)}
+                        >
+                          <TD className="font-mono text-[12px] break-all">{r.key}</TD>
+                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </div>
+              ) : null}
+            </Section>
+          </div>
+
+          {loading && data ? (
+            <div className="text-xs text-muted-foreground">Refreshing…</div>
+          ) : null}
+        </div>
+      </div>
+
+      <ProtocolIndicatorDrawer
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
         selection={drawerSel}
-        agent_id={view.agent_id}
-        window_minutes={view.samples_window_minutes}
+        onClose={() => {
+          setDrawerOpen(false);
+          setDrawerSel(null);
+        }}
+        agentId={view.agent_id || undefined}
+        sinceMinutes={view.since_minutes}
+        agentNameById={agentNameById}
       />
     </div>
   );

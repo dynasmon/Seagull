@@ -81,44 +81,41 @@ class SshSummaryResponse(BaseModel):
     sudo_recent: list[SudoEventSummary]
 
 
-class TopValueStat(BaseModel):
-    value: str
+class ProtoCount(BaseModel):
+    key: str
     count: int
 
 
-class DnsQnameStat(BaseModel):
+class ProtoDnsQueryStat(BaseModel):
     qname: str
+    risk: int = 0
     count: int
-    max_risk: Optional[int] = None
 
 
-class TlsJa4Stat(BaseModel):
+class ProtoJa4Stat(BaseModel):
     ja4: str
+    ptype: str = "t"
     count: int
-    ptype: Optional[str] = None
 
 
-class NetworkSummaryTotals(BaseModel):
+class ProtocolIntelSummaryResponse(BaseModel):
+    generated_at: datetime
+    since_minutes: int
+    agent_id: Optional[str] = None
+
     total_events: int
-    proto_intel_events: int
+    with_proto_metadata: int
     dns_events: int
     http_events: int
     tls_events: int
 
+    app_protocols: list[ProtoCount]
+    ja4_ptypes: list[ProtoCount]
+    http_methods: list[ProtoCount]
 
-class NetworkSummaryResponse(BaseModel):
-    generated_at: datetime
-    since_minutes: int
-    limit: int
-    agent_id: Optional[str] = None
-    totals: NetworkSummaryTotals
-
-    app_proto: list[TopValueStat]
-    dns_qnames: list[DnsQnameStat]
-    http_hosts: list[TopValueStat]
-    http_methods: list[TopValueStat]
-    tls_sni: list[TopValueStat]
-    tls_alpn: list[TopValueStat]
-    tls_ja4: list[TlsJa4Stat]
-    tls_ja3: list[TopValueStat]
-    ja4_ptype: list[TopValueStat]
+    top_dns_queries: list[ProtoDnsQueryStat]
+    top_http_hosts: list[ProtoCount]
+    top_tls_sni: list[ProtoCount]
+    top_alpn: list[ProtoCount]
+    top_ja4: list[ProtoJa4Stat]
+    top_ja3: list[ProtoCount]

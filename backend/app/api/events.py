@@ -11,11 +11,10 @@ from app.models.events import NetEventModel
 from app.schemas.pagination import CursorPage
 from app.schemas.events import (
     NetEventDB,
-    NetworkSummaryResponse,
-    NetworkSummaryTotals,
-    TopValueStat,
-    DnsQnameStat,
-    TlsJa4Stat,
+    ProtocolIntelSummaryResponse,
+    ProtoCount,
+    ProtoDnsQueryStat,
+    ProtoJa4Stat,
     SshIpStat,
     SshLoginEvent,
     SshSummaryResponse,
@@ -292,142 +291,265 @@ def get_ssh_summary(
         db.close()
 
 
-@router.get("/network/summary", response_model=NetworkSummaryResponse)
-def get_network_summary(
-    since_minutes: int = Query(60 * 24, ge=1, le=60 * 24 * 30, description="Lookback window in minutes"),
-    limit: int = Query(25, ge=5, le=200, description="Top-N limit for aggregations"),
+def _strip_large_extra(extra: dict) -> dict:
+    """Remove large payload fields before returning samples to the UI."""
+
+    if not isinstance(extra, dict):
+        return {}
+    out = dict(extra)
+    for k in ["payload_b64", "l7_payload_b64", "raw_payload_b64", "packet_b64", "pcap_b64"]:
+        if k in out:
+            out.pop(k, None)
+    return out
+
+
+@router.get("/network/summary", response_model=ProtocolIntelSummaryResponse)
+def get_protocol_intel_summary(
+    since_minutes: int = Query(60 * 12, ge=1, le=60 * 24 * 30, description="Lookback window in minutes"),
+    limit: int = Query(25, ge=1, le=200, description="Top-N limit for aggregations"),
     agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
 ):
-    """Protocol intelligence summary.
+    """Protocol Intelligence summary.
 
-    Aggregates protocol-aware metadata that is produced by the proto_intel worker.
-    The worker patches JSONB (extra) with keys such as:
-
-    - dns_qname, dns_qtype, dns_risk
-    - http_host, http_method, http_path
-    - ja3, ja4, ja4_ptype, tls_sni, tls_alpn_first
-
-    This endpoint is intended for dashboards and fast pivoting. It is deliberately
-    "summary-first": once you find an interesting indicator, pivot to /events with
-    a hunt token.
+    Aggregates protocol-aware metadata produced by the protocol_intel worker:
+    DNS (qname/risk), HTTP (host/method), TLS/DTLS/QUIC (JA3/JA4 + ptype, SNI, ALPN),
+    and a best-effort app_proto classification.
     """
 
     since_ts = datetime.now(timezone.utc) - timedelta(minutes=int(since_minutes))
+
     db = SessionLocal()
     try:
-        params = {"since": since_ts, "limit": int(limit), "agent_id": agent_id}
+        params_base = {
+            "since": since_ts,
+            "limit": int(limit),
+            "agent_id": agent_id,
+        }
 
-        def _count(where_extra: str | None = None) -> int:
-            extra_clause = f"AND ({where_extra})" if where_extra else ""
-            row = db.execute(
-                text(
-                    f"""
-                    SELECT COUNT(*)::bigint AS c
-                    FROM net_events
-                    WHERE \"timestamp\" >= :since
-                      AND (:agent_id IS NULL OR agent_id = :agent_id)
-                      {extra_clause};
-                    """
-                ),
-                params,
-            ).mappings().first()
-            return int(row["c"] if row else 0)
+        def _scalar(sql: str, params: dict) -> int:
+            v = db.execute(text(sql), params).scalar_one()
+            return int(v or 0)
 
-        totals = NetworkSummaryTotals(
-            total_events=_count(),
-            proto_intel_events=_count("extra ? 'proto_intel_at'"),
-            dns_events=_count("extra ? 'dns_qname'"),
-            http_events=_count("extra ? 'http_host'"),
-            tls_events=_count("(extra ? 'ja4') OR (extra ? 'ja3') OR (extra ? 'tls_sni')"),
+        total_events = _scalar(
+            """
+            SELECT COUNT(*)::bigint
+            FROM net_events
+            WHERE "timestamp" >= :since
+              AND (:agent_id IS NULL OR agent_id = :agent_id);
+            """,
+            params_base,
         )
 
-        def _top_value(expr: str, where_extra: str, out_field: str = "value") -> list[TopValueStat]:
+        with_proto_metadata = _scalar(
+            """
+            SELECT COUNT(*)::bigint
+            FROM net_events
+            WHERE "timestamp" >= :since
+              AND (:agent_id IS NULL OR agent_id = :agent_id)
+              AND (
+                (extra ? 'app_proto') OR (extra ? 'dns_qname') OR (extra ? 'http_host')
+                OR (extra ? 'ja4') OR (extra ? 'ja3') OR (extra ? 'tls_sni')
+              );
+            """,
+            params_base,
+        )
+
+        dns_events = _scalar(
+            """
+            SELECT COUNT(*)::bigint
+            FROM net_events
+            WHERE "timestamp" >= :since
+              AND (:agent_id IS NULL OR agent_id = :agent_id)
+              AND (extra ? 'dns_qname');
+            """,
+            params_base,
+        )
+
+        http_events = _scalar(
+            """
+            SELECT COUNT(*)::bigint
+            FROM net_events
+            WHERE "timestamp" >= :since
+              AND (:agent_id IS NULL OR agent_id = :agent_id)
+              AND ((extra ? 'http_host') OR (extra ? 'http_method'));
+            """,
+            params_base,
+        )
+
+        tls_events = _scalar(
+            """
+            SELECT COUNT(*)::bigint
+            FROM net_events
+            WHERE "timestamp" >= :since
+              AND (:agent_id IS NULL OR agent_id = :agent_id)
+              AND ((extra ? 'ja4') OR (extra ? 'ja3') OR (extra ? 'tls_sni'));
+            """,
+            params_base,
+        )
+
+        def _top_k(expr: str, where_key: str | None = None) -> list[ProtoCount]:
+            where = "" if not where_key else f"AND (extra ? '{where_key}')"
             rows = db.execute(
                 text(
                     f"""
-                    SELECT {expr} AS {out_field}, COUNT(*)::bigint AS count
+                    SELECT {expr} AS key, COUNT(*)::bigint AS count
                     FROM net_events
-                    WHERE \"timestamp\" >= :since
+                    WHERE "timestamp" >= :since
                       AND (:agent_id IS NULL OR agent_id = :agent_id)
-                      AND ({where_extra})
-                    GROUP BY {out_field}
+                      {where}
+                      AND {expr} IS NOT NULL
+                      AND {expr} <> ''
+                    GROUP BY {expr}
                     ORDER BY count DESC
                     LIMIT :limit;
                     """
                 ),
-                params,
+                params_base,
             ).mappings().all()
-            out: list[TopValueStat] = []
-            for r in rows:
-                v = r.get(out_field)
-                if v is None or str(v).strip() == "":
-                    continue
-                out.append(TopValueStat(value=str(v), count=int(r.get("count") or 0)))
-            return out
+            return [ProtoCount(**dict(r)) for r in rows]
 
-        app_proto = _top_value("extra->>'app_proto'", "extra ? 'app_proto'")
-        http_hosts = _top_value("extra->>'http_host'", "extra ? 'http_host'")
-        http_methods = _top_value("extra->>'http_method'", "extra ? 'http_method'")
-        tls_sni = _top_value("extra->>'tls_sni'", "extra ? 'tls_sni'")
-        tls_alpn = _top_value("extra->>'tls_alpn_first'", "extra ? 'tls_alpn_first'")
-        tls_ja3 = _top_value("extra->>'ja3'", "extra ? 'ja3'")
-        ja4_ptype = _top_value("extra->>'ja4_ptype'", "extra ? 'ja4_ptype'")
+        app_protocols = _top_k("extra->>'app_proto'", "app_proto")
+        ja4_ptypes = _top_k("COALESCE(NULLIF(extra->>'ja4_ptype',''), 't')")
+        http_methods = _top_k("upper(extra->>'http_method')", "http_method")
 
         dns_rows = db.execute(
             text(
                 """
                 SELECT
                     (extra->>'dns_qname') AS qname,
-                    COUNT(*)::bigint AS count,
-                    MAX(COALESCE(NULLIF(extra->>'dns_risk',''), '0')::int) AS max_risk
+                    COALESCE(MAX((extra->>'dns_risk')::int), 0) AS risk,
+                    COUNT(*)::bigint AS count
                 FROM net_events
-                WHERE \"timestamp\" >= :since
+                WHERE "timestamp" >= :since
                   AND (:agent_id IS NULL OR agent_id = :agent_id)
                   AND (extra ? 'dns_qname')
+                  AND (extra->>'dns_qname') IS NOT NULL
+                  AND (extra->>'dns_qname') <> ''
                 GROUP BY (extra->>'dns_qname')
                 ORDER BY count DESC
                 LIMIT :limit;
                 """
             ),
-            params,
+            params_base,
         ).mappings().all()
-        dns_qnames = [DnsQnameStat(qname=str(r["qname"]), count=int(r["count"]), max_risk=int(r["max_risk"] or 0)) for r in dns_rows]
+        top_dns_queries = [ProtoDnsQueryStat(**dict(r)) for r in dns_rows]
+
+        top_http_hosts = _top_k("lower(extra->>'http_host')", "http_host")
+        top_tls_sni = _top_k("lower(extra->>'tls_sni')", "tls_sni")
+        top_alpn = _top_k("lower(extra->>'tls_alpn_first')", "tls_alpn_first")
 
         ja4_rows = db.execute(
             text(
                 """
                 SELECT
                     (extra->>'ja4') AS ja4,
-                    COUNT(*)::bigint AS count,
-                    MAX(extra->>'ja4_ptype') AS ptype
+                    COALESCE(NULLIF(MAX(extra->>'ja4_ptype'), ''), 't') AS ptype,
+                    COUNT(*)::bigint AS count
                 FROM net_events
-                WHERE \"timestamp\" >= :since
+                WHERE "timestamp" >= :since
                   AND (:agent_id IS NULL OR agent_id = :agent_id)
                   AND (extra ? 'ja4')
+                  AND (extra->>'ja4') IS NOT NULL
+                  AND (extra->>'ja4') <> ''
                 GROUP BY (extra->>'ja4')
                 ORDER BY count DESC
                 LIMIT :limit;
                 """
             ),
-            params,
+            params_base,
         ).mappings().all()
-        tls_ja4 = [TlsJa4Stat(ja4=str(r["ja4"]), count=int(r["count"]), ptype=(r.get("ptype") or None)) for r in ja4_rows]
+        top_ja4 = [ProtoJa4Stat(**dict(r)) for r in ja4_rows]
 
-        return NetworkSummaryResponse(
+        top_ja3 = _top_k("extra->>'ja3'", "ja3")
+
+        return ProtocolIntelSummaryResponse(
             generated_at=datetime.now(timezone.utc),
             since_minutes=int(since_minutes),
-            limit=int(limit),
             agent_id=agent_id,
-            totals=totals,
-            app_proto=app_proto,
-            dns_qnames=dns_qnames,
-            http_hosts=http_hosts,
+            total_events=total_events,
+            with_proto_metadata=with_proto_metadata,
+            dns_events=dns_events,
+            http_events=http_events,
+            tls_events=tls_events,
+            app_protocols=app_protocols,
+            ja4_ptypes=ja4_ptypes,
             http_methods=http_methods,
-            tls_sni=tls_sni,
-            tls_alpn=tls_alpn,
-            tls_ja4=tls_ja4,
-            tls_ja3=tls_ja3,
-            ja4_ptype=ja4_ptype,
+            top_dns_queries=top_dns_queries,
+            top_http_hosts=top_http_hosts,
+            top_tls_sni=top_tls_sni,
+            top_alpn=top_alpn,
+            top_ja4=top_ja4,
+            top_ja3=top_ja3,
         )
+    finally:
+        db.close()
+
+
+@router.get("/network/samples", response_model=List[NetEventDB])
+def get_protocol_intel_samples(
+    kind: str = Query(..., min_length=2, max_length=32, description="Which field to filter on"),
+    value: str = Query(..., min_length=1, max_length=512, description="Exact value for the selected field"),
+    since_minutes: int = Query(60 * 12, ge=1, le=60 * 24 * 30, description="Lookback window in minutes"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of events to return"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
+):
+    """Return recent events matching a specific protocol-intel indicator.
+
+    This endpoint is designed for the UI drawer and intentionally strips raw payload fields.
+    """
+
+    since_ts = datetime.now(timezone.utc) - timedelta(minutes=int(since_minutes))
+
+    # Whitelist to avoid SQL injection.
+    kind_map = {
+        "app_proto": "extra->>'app_proto'",
+        "dns_qname": "extra->>'dns_qname'",
+        "http_host": "lower(extra->>'http_host')",
+        "http_method": "upper(extra->>'http_method')",
+        "tls_sni": "lower(extra->>'tls_sni')",
+        "tls_alpn_first": "lower(extra->>'tls_alpn_first')",
+        "ja4": "extra->>'ja4'",
+        "ja4_ptype": "COALESCE(NULLIF(extra->>'ja4_ptype',''), 't')",
+        "ja3": "extra->>'ja3'",
+    }
+    expr = kind_map.get(kind)
+    if not expr:
+        # Keep it simple: return an empty list on unknown kind.
+        return []
+
+    value_norm = value
+    if kind in {"http_host", "tls_sni", "tls_alpn_first"}:
+        value_norm = value.lower()
+    elif kind == "http_method":
+        value_norm = value.upper()
+
+    db = SessionLocal()
+    try:
+        rows = db.execute(
+            text(
+                f"""
+                SELECT *
+                FROM net_events
+                WHERE "timestamp" >= :since
+                  AND (:agent_id IS NULL OR agent_id = :agent_id)
+                  AND {expr} = :value
+                ORDER BY "timestamp" DESC
+                LIMIT :limit;
+                """
+            ),
+            {
+                "since": since_ts,
+                "agent_id": agent_id,
+                "value": value_norm,
+                "limit": int(limit),
+            },
+        ).mappings().all()
+
+        out: list[NetEventDB] = []
+        for r in rows:
+            item = NetEventDB(**dict(r))
+            item.extra = _strip_large_extra(item.extra)
+            out.append(item)
+        return out
     finally:
         db.close()

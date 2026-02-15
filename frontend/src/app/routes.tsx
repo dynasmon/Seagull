@@ -8,7 +8,7 @@ const OverviewPage = lazy(() => import("@/features/overview/page"));
 const AgentsPage = lazy(() => import("@/features/agents/page"));
 const EventsPage = lazy(() => import("@/features/events/page"));
 const SshInsightsPage = lazy(() => import("@/features/events/views/ssh/page"));
-const NetworkIntelPage = lazy(() => import("@/features/events/views/network/page"));
+const ProtocolIntelPage = lazy(() => import("@/features/events/views/network/page"));
 
 const AlertsLayout = lazy(() => import("@/features/alerts/page"));
 const AlertsQueuePage = lazy(() => import("@/features/alerts/views/queue"));
@@ -35,8 +35,8 @@ export function Routes() {
           <Route path="/" element={<Navigate to="/overview" replace />} />
           <Route path="/overview" element={<OverviewPage />} />
           <Route path="/agents" element={<AgentsPage />} />
-          <Route path="/events/network" element={<NetworkIntelPage />} />
           <Route path="/events/ssh" element={<SshInsightsPage />} />
+          <Route path="/events/network" element={<ProtocolIntelPage />} />
           <Route path="/events" element={<EventsPage />} />
 
           <Route path="/alerts" element={<AlertsLayout />}>
