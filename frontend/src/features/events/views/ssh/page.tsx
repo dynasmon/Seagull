@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
-import PageHeader from "@/shared/components/PageHeader";
 import Loading from "@/shared/components/Loading";
 import EmptyState from "@/shared/components/EmptyState";
 import { Card } from "@/shared/components/Card";
@@ -336,17 +335,11 @@ export default function SshInsightsPage() {
   const current = data;
 
   return (
-    <div className="p-4 space-y-4">
-      <PageHeader
-        title="SSH Insights"
-        description="Lupe-style summary for SSH auth + sudo activity using Lupe.sh tool"
-        tabs={[
-          { label: "Event Stream", to: "/events" },
-          { label: "SSH Insights", to: "/events/ssh" },
-          { label: "Protocol Intel", to: "/events/network" }
-        ]}
-        toolbarRight={headerRight}
-      />
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold tracking-tight">SSH Insights</div>
+        {headerRight}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
         <div className="lg:col-span-8">

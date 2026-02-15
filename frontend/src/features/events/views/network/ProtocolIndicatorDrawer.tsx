@@ -5,7 +5,7 @@ import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Badge } from "@/shared/components/Badge";
-import { Table, TBody, TD, TH, THead, TR } from "@/shared/components/Table";
+import { Table, type Column } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 
 import type { NetEvent } from "../../types";
@@ -53,6 +53,74 @@ export default function ProtocolIndicatorDrawer({
   const [eventDrawerEvent, setEventDrawerEvent] = useState<NetEvent | null>(null);
 
   const title = selection ? selection.label : "Indicator";
+
+  const sampleColumns = useMemo<Array<Column<NetEvent>>>(() => {
+    return [
+      {
+        key: "when",
+        title: "WHEN",
+        width: 190,
+        render: (ev) => {
+          const ts = new Date(ev.timestamp);
+          const when = Number.isNaN(ts.getTime()) ? ev.timestamp : fmtDateTime(ts);
+          return <span className="font-mono text-[12px]">{when}</span>;
+        }
+      },
+      {
+        key: "agent",
+        title: "AGENT",
+        width: 160,
+        render: (ev) => <span className="text-[12px]">{agentNameById?.[ev.agent_id] || ev.agent_id}</span>
+      },
+      {
+        key: "type",
+        title: "TYPE",
+        width: 150,
+        render: (ev) => <span className="font-mono text-[12px]">{ev.event_type}</span>
+      },
+      {
+        key: "src",
+        title: "SRC",
+        width: 170,
+        render: (ev) => <span className="font-mono text-[12px]">{fmtAddr(ev.src_ip, ev.src_port)}</span>
+      },
+      {
+        key: "dst",
+        title: "DST",
+        width: 170,
+        render: (ev) => <span className="font-mono text-[12px]">{fmtAddr(ev.dst_ip, ev.dst_port)}</span>
+      },
+      {
+        key: "proto",
+        title: "PROTO",
+        width: 90,
+        render: (ev) => <span className="font-mono text-[12px]">{ev.proto || "-"}</span>
+      },
+      {
+        key: "open",
+        title: "",
+        width: 96,
+        className: "text-right",
+        render: (ev) => (
+          <button
+            type="button"
+            onClick={() => {
+              setEventDrawerEvent(ev);
+              setEventDrawerOpen(true);
+            }}
+            className={cx(
+              "inline-flex items-center rounded-md border border-border/60 bg-background/40",
+              "px-2 py-1 text-xs font-medium text-muted-foreground",
+              "hover:bg-muted/15 hover:text-foreground",
+              "focus:outline-none focus:ring-2 focus:ring-primary/30"
+            )}
+          >
+            Open
+          </button>
+        )
+      }
+    ];
+  }, [agentNameById]);
 
   const eventsLink = useMemo(() => {
     if (!selection) return "/events";
@@ -113,10 +181,10 @@ export default function ProtocolIndicatorDrawer({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge>{selection.kind}</Badge>
-                <span className="text-[11px] font-mono text-muted-foreground">value</span>
-                <span className="text-[12px] font-mono text-foreground break-all">{selection.value}</span>
+              <span className="text-xs text-muted-foreground">Value</span>
+              <span className="text-xs font-mono text-foreground break-all">{selection.value}</span>
                 {typeof selection.count === "number" ? (
-                  <span className="ml-2 text-[11px] font-mono text-muted-foreground">~{selection.count} hits</span>
+                <span className="ml-2 text-xs text-muted-foreground">~{selection.count} hits</span>
                 ) : null}
               </div>
 
@@ -125,7 +193,7 @@ export default function ProtocolIndicatorDrawer({
                   to={eventsLink}
                   className={cx(
                     "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                    "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                    "px-3 py-2 text-xs font-medium text-muted-foreground",
                     "hover:bg-muted/15 hover:text-foreground",
                     "focus:outline-none focus:ring-2 focus:ring-primary/30"
                   )}
@@ -136,9 +204,7 @@ export default function ProtocolIndicatorDrawer({
             </div>
 
             <div className="rounded-lg border border-border/60 bg-background/40 p-4">
-              <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
-                Matching samples
-              </div>
+              <div className="text-sm font-semibold tracking-tight">Matching samples</div>
 
               <div className="mt-3">
                 {loading ? <Loading label="Loading samples..." /> : null}
@@ -150,55 +216,15 @@ export default function ProtocolIndicatorDrawer({
 
                 {!loading && !error && items.length > 0 ? (
                   <div className="overflow-auto">
-                    <Table>
-                      <THead>
-                        <TR>
-                          <TH>When</TH>
-                          <TH>Agent</TH>
-                          <TH>Type</TH>
-                          <TH>Src</TH>
-                          <TH>Dst</TH>
-                          <TH>Proto</TH>
-                        </TR>
-                      </THead>
-                      <TBody>
-                        {items.map((ev) => {
-                          const agentLabel = agentNameById?.[ev.agent_id] || ev.agent_id;
-                          const ts = new Date(ev.timestamp);
-                          const when = Number.isNaN(ts.getTime()) ? ev.timestamp : fmtDateTime(ts);
-
-                          return (
-                            <TR
-                              key={ev.id}
-                              className={cx(
-                                "cursor-pointer",
-                                "hover:bg-muted/10"
-                              )}
-                              onClick={() => {
-                                setEventDrawerEvent(ev);
-                                setEventDrawerOpen(true);
-                              }}
-                            >
-                              <TD className="font-mono text-[12px]">{when}</TD>
-                              <TD className="text-[12px]">{agentLabel}</TD>
-                              <TD className="font-mono text-[12px]">{ev.event_type}</TD>
-                              <TD className="font-mono text-[12px]">{fmtAddr(ev.src_ip, ev.src_port)}</TD>
-                              <TD className="font-mono text-[12px]">{fmtAddr(ev.dst_ip, ev.dst_port)}</TD>
-                              <TD className="font-mono text-[12px]">{ev.proto || "-"}</TD>
-                            </TR>
-                          );
-                        })}
-                      </TBody>
-                    </Table>
+                    {/* Table.rowKey expects a string; id can be numeric depending on backend schema */}
+                    <Table columns={sampleColumns} rows={items} rowKey={(r) => String((r as any).id)} />
                   </div>
                 ) : null}
               </div>
             </div>
 
             <div className="rounded-lg border border-border/60 bg-background/40 p-4">
-              <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
-                Notes
-              </div>
+              <div className="text-sm font-semibold tracking-tight">Notes</div>
               <div className="mt-3 text-sm text-muted-foreground leading-relaxed">
                 These samples are scoped to your current lookback window and (optionally) agent selection.
                 If you expect results but see none, verify that the <span className="font-mono">netwatch-proto-intel</span> worker

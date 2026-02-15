@@ -5,8 +5,7 @@ import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
-import PageHeader from "@/shared/components/PageHeader";
-import { Table, TBody, TD, TH, THead, TR } from "@/shared/components/Table";
+import { Table, type Column } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 
 import { fmtDateTime } from "../../lib/aggregates";
@@ -19,6 +18,14 @@ type ViewState = {
   since_minutes: number;
   top_n: number;
   refresh_ms: number;
+  auto_refresh: boolean;
+};
+
+type DraftState = {
+  agent_id: string;
+  since_minutes: string;
+  top_n: string;
+  refresh_ms: string;
   auto_refresh: boolean;
 };
 
@@ -38,6 +45,25 @@ function clampInt(v: any, min: number, max: number, fallback: number) {
   return Math.max(min, Math.min(max, Math.trunc(n)));
 }
 
+function digitsOnly(v: string): string {
+  return String(v ?? "").replace(/[^0-9]/g, "");
+}
+
+function parseDraftInt(raw: string, fallback: number): number {
+  const n = Number.parseInt(String(raw ?? "").trim(), 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function draftFromView(v: ViewState): DraftState {
+  return {
+    agent_id: v.agent_id,
+    since_minutes: String(v.since_minutes),
+    top_n: String(v.top_n),
+    refresh_ms: String(v.refresh_ms),
+    auto_refresh: v.auto_refresh
+  };
+}
+
 function fmtPct(num: number, den: number) {
   if (!Number.isFinite(num) || !Number.isFinite(den) || den <= 0) return "0%";
   const p = Math.round((num / den) * 100);
@@ -53,10 +79,10 @@ function RiskPill({ risk }: { risk: number }) {
 
 function Section({ title, right, children }: { title: string; right?: any; children: any }) {
   return (
-    <Card className="rounded-xl border border-border/60 bg-card/10 backdrop-blur-md">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60">
-        <div className="text-[11px] font-mono font-bold uppercase tracking-[0.35em] text-cyan-300/90">{title}</div>
-        {right ? <div className="text-[11px] font-mono text-muted-foreground">{right}</div> : null}
+    <Card className="rounded-xl overflow-hidden">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60 bg-muted/10">
+        <div className="text-sm font-semibold tracking-tight">{title}</div>
+        {right ? <div className="text-xs text-muted-foreground">{right}</div> : null}
       </div>
       <div className="p-4">{children}</div>
     </Card>
@@ -66,7 +92,7 @@ function Section({ title, right, children }: { title: string; right?: any; child
 function Stat({ label, value, sub }: { label: string; value: any; sub?: any }) {
   return (
     <div className="rounded-lg border border-border/60 bg-background/40 p-4">
-      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
       {sub ? <div className="mt-1 text-xs text-muted-foreground">{sub}</div> : null}
     </div>
@@ -75,6 +101,23 @@ function Stat({ label, value, sub }: { label: string; value: any; sub?: any }) {
 
 function TableEmpty({ title, desc }: { title: string; desc?: string }) {
   return <EmptyState title={title} description={desc ?? "No results for the selected scope."} />;
+}
+
+function InspectButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cx(
+        "inline-flex items-center rounded-md border border-border/60 bg-background/40",
+        "px-2 py-1 text-xs text-muted-foreground",
+        "hover:bg-muted/15 hover:text-foreground",
+        "focus:outline-none focus:ring-2 focus:ring-primary/30"
+      )}
+    >
+      Inspect
+    </button>
+  );
 }
 
 export default function ProtocolIntelPage() {
@@ -96,6 +139,20 @@ export default function ProtocolIntelPage() {
       return DEFAULTS;
     }
   });
+
+  // Draft scope state: prevents hammering the API while typing large windows.
+  // Use string draft for numeric inputs so the value doesn't "jump" while the user types.
+  const [draft, setDraft] = useState<DraftState>(() => draftFromView(view));
+  useEffect(() => {
+    setDraft(draftFromView(view));
+  }, [view.agent_id, view.since_minutes, view.top_n, view.refresh_ms, view.auto_refresh]);
+
+  const isDirty =
+    draft.agent_id !== view.agent_id ||
+    draft.since_minutes !== String(view.since_minutes) ||
+    draft.top_n !== String(view.top_n) ||
+    draft.refresh_ms !== String(view.refresh_ms) ||
+    draft.auto_refresh !== view.auto_refresh;
 
   const viewRef = useRef(view);
   useEffect(() => {
@@ -138,6 +195,8 @@ export default function ProtocolIntelPage() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSel, setDrawerSel] = useState<ProtocolIndicatorSelection | null>(null);
+
+  const [healthOpen, setHealthOpen] = useState(false);
 
   const load = useCallback(async () => {
     const mySeq = ++reqSeq.current;
@@ -211,38 +270,56 @@ export default function ProtocolIntelPage() {
     [onPick]
   );
 
-  const tabs = useMemo(() => {
-    return [
-      { label: "Event Stream", to: "/events" },
-      { label: "SSH Insights", to: "/events/ssh" },
-      { label: "Protocol Intel", to: "/events/network" }
-    ];
-  }, []);
+  const applyDraft = useCallback(() => {
+    const next: ViewState = {
+      agent_id: typeof draft.agent_id === "string" ? draft.agent_id : "",
+      since_minutes: clampInt(parseDraftInt(draft.since_minutes, view.since_minutes), 1, 60 * 24 * 30, DEFAULTS.since_minutes),
+      top_n: clampInt(parseDraftInt(draft.top_n, view.top_n), 5, 200, DEFAULTS.top_n),
+      refresh_ms: clampInt(parseDraftInt(draft.refresh_ms, view.refresh_ms), 10_000, 120_000, DEFAULTS.refresh_ms),
+      auto_refresh: !!draft.auto_refresh
+    };
+    setView(next);
+    setDraft(draftFromView(next));
+  }, [draft, view.refresh_ms, view.since_minutes, view.top_n]);
+
+  const headerRight = (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {isDirty ? (
+        <button
+          type="button"
+          onClick={applyDraft}
+          className={cx(
+            "inline-flex items-center gap-2 rounded-md border border-border/60 bg-primary/15",
+            "px-3 py-2 text-xs font-medium text-primary",
+            "hover:bg-primary/20",
+            "focus:outline-none focus:ring-2 focus:ring-primary/30"
+          )}
+        >
+          Apply
+        </button>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => load()}
+        className={cx(
+          "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
+          "px-3 py-2 text-xs font-medium text-muted-foreground",
+          "hover:bg-muted/15 hover:text-foreground",
+          "focus:outline-none focus:ring-2 focus:ring-primary/30"
+        )}
+      >
+        Refresh
+      </button>
+    </div>
+  );
 
   return (
-    <div className="p-5 space-y-5">
-      <PageHeader
-        breadcrumb="Telemetry / Events"
-        title="Protocol Intelligence"
-        description="Protocol-aware metadata derived from network signals: DNS queries, HTTP hosts/methods, and TLS/DTLS/QUIC fingerprints (JA3/JA4)."
-        tabs={tabs}
-        toolbarRight={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => load()}
-              className={cx(
-                "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground",
-                "focus:outline-none focus:ring-2 focus:ring-primary/30"
-              )}
-            >
-              Refresh
-            </button>
-          </div>
-        }
-      />
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold tracking-tight">Protocol Intelligence</div>
+        {headerRight}
+      </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-5">
         <div className="space-y-5">
@@ -250,10 +327,15 @@ export default function ProtocolIntelPage() {
             <div className="space-y-3">
               <div className="grid grid-cols-1 gap-3">
                 <div>
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Agent</div>
+                  <div className="text-xs text-muted-foreground">Agent</div>
                   <select
-                    value={view.agent_id}
-                    onChange={(e) => setView((v) => ({ ...v, agent_id: e.target.value }))}
+                    value={draft.agent_id}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setDraft((s) => ({ ...s, agent_id: v }));
+                      // Agent changes are safe to apply immediately (single click, no typing spam).
+                      setView((cur) => ({ ...cur, agent_id: v }));
+                    }}
                     className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
                   >
                     <option value="">All agents</option>
@@ -267,71 +349,111 @@ export default function ProtocolIntelPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Lookback (min)</div>
+                    <div className="text-xs text-muted-foreground">Lookback (minutes)</div>
                     <input
-                      type="number"
-                      value={view.since_minutes}
-                      min={1}
-                      max={60 * 24 * 30}
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      type="text"
+                      value={draft.since_minutes}
                       onChange={(e) => {
-                        const v = clampInt(e.target.value, 1, 60 * 24 * 30, DEFAULTS.since_minutes);
-                        setView((s) => ({ ...s, since_minutes: v }));
+                        const raw = digitsOnly(e.target.value).slice(0, 6);
+                        setDraft((s) => ({ ...s, since_minutes: raw }));
                       }}
+                      placeholder={String(view.since_minutes)}
                       className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
                     />
+                    <div className="mt-1 text-[11px] text-muted-foreground">1–43200 (30 days)</div>
                   </div>
 
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Top-N</div>
+                    <div className="text-xs text-muted-foreground">Top-N</div>
                     <input
-                      type="number"
-                      value={view.top_n}
-                      min={5}
-                      max={200}
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      type="text"
+                      value={draft.top_n}
                       onChange={(e) => {
-                        const v = clampInt(e.target.value, 5, 200, DEFAULTS.top_n);
-                        setView((s) => ({ ...s, top_n: v }));
+                        const raw = digitsOnly(e.target.value).slice(0, 3);
+                        setDraft((s) => ({ ...s, top_n: raw }));
                       }}
+                      placeholder={String(view.top_n)}
                       className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
                     />
+                    <div className="mt-1 text-[11px] text-muted-foreground">5–200</div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Refresh (ms)</div>
+                    <div className="text-xs text-muted-foreground">Refresh (ms)</div>
                     <input
-                      type="number"
-                      value={view.refresh_ms}
-                      min={10_000}
-                      max={120_000}
-                      step={1000}
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      type="text"
+                      value={draft.refresh_ms}
                       onChange={(e) => {
-                        const v = clampInt(e.target.value, 10_000, 120_000, DEFAULTS.refresh_ms);
-                        setView((s) => ({ ...s, refresh_ms: v }));
+                        const raw = digitsOnly(e.target.value).slice(0, 6);
+                        setDraft((s) => ({ ...s, refresh_ms: raw }));
                       }}
+                      placeholder={String(view.refresh_ms)}
                       className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
-                      disabled={!view.auto_refresh}
+                      disabled={!draft.auto_refresh}
                     />
+                    <div className="mt-1 text-[11px] text-muted-foreground">10000–120000</div>
                   </div>
 
                   <div className="flex items-end">
                     <label className="inline-flex items-center gap-2 text-sm">
                       <input
                         type="checkbox"
-                        checked={view.auto_refresh}
-                        onChange={(e) => setView((s) => ({ ...s, auto_refresh: e.target.checked }))}
+                        checked={draft.auto_refresh}
+                        onChange={(e) => setDraft((s) => ({ ...s, auto_refresh: e.target.checked }))}
                       />
-                      <span className="text-[12px] font-mono text-muted-foreground">Auto refresh</span>
+                      <span className="text-sm text-muted-foreground">Auto refresh</span>
                     </label>
                   </div>
                 </div>
 
-                {view.since_minutes > 60 * 24 ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <div className="text-[11px] text-muted-foreground">
+                    {isDirty ? "Draft changes pending. Click Apply to update the query scope." : "Scope applied."}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isDirty ? (
+                      <button
+                        type="button"
+                        onClick={applyDraft}
+                        className={cx(
+                          "inline-flex items-center gap-2 rounded-md border border-border/60 bg-primary/15",
+                          "px-3 py-2 text-xs font-medium text-primary",
+                          "hover:bg-primary/20",
+                          "focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        )}
+                      >
+                        Apply
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setDraft(draftFromView(view))}
+                      className={cx(
+                        "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
+                        "px-3 py-2 text-xs font-medium text-muted-foreground",
+                        "hover:bg-muted/15 hover:text-foreground",
+                        "focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      )}
+                      disabled={!isDirty}
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+
+                {parseDraftInt(draft.since_minutes, view.since_minutes) > 60 * 24 ? (
                   <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-200">
                     Large lookback windows can be expensive. Auto refresh is disabled above 24h to protect CPU/DB.
                   </div>
-                ) : view.since_minutes > 60 * 12 && view.auto_refresh ? (
+                ) : parseDraftInt(draft.since_minutes, view.since_minutes) > 60 * 12 && draft.auto_refresh ? (
                   <div className="rounded-md border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
                     Refresh interval was increased to reduce CPU load for large windows.
                   </div>
@@ -351,19 +473,42 @@ export default function ProtocolIntelPage() {
             </div>
           </Section>
 
-          <Section title="Health hints">
-            <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
-              <div>
-                This view is powered by the <span className="font-mono">netwatch-proto-intel</span> worker. If tables stay empty:
+          <Section
+            title="Health hints"
+            right={
+              <button
+                type="button"
+                onClick={() => setHealthOpen((v) => !v)}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                {healthOpen ? "Hide" : "Show"}
+              </button>
+            }
+          >
+            {!healthOpen ? (
+              <div className="text-sm text-muted-foreground">
+                Quick troubleshooting when the tables are empty.
               </div>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>Confirm the worker is running: <span className="font-mono">docker ps | grep proto-intel</span></li>
-                <li>Check logs for parsing errors: <span className="font-mono">docker logs -f netwatch-proto-intel</span></li>
-                <li>Generate traffic: DNS lookups, HTTP requests, and TLS handshakes.</li>
-                <li>If you haven’t implemented L7 evidence in the Go agent yet, you will mostly see <span className="font-mono">app_proto</span> guesses (ports).
-                </li>
-              </ul>
-            </div>
+            ) : (
+              <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
+                <div>
+                  This view is powered by the <span className="font-mono">netwatch-proto-intel</span> worker. If tables stay empty:
+                </div>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>
+                    Confirm the worker is running: <span className="font-mono">docker ps | grep proto-intel</span>
+                  </li>
+                  <li>
+                    Check logs for parsing errors: <span className="font-mono">docker logs -f netwatch-proto-intel</span>
+                  </li>
+                  <li>Generate traffic: DNS lookups, HTTP requests, and TLS handshakes.</li>
+                  <li>
+                    If you haven’t implemented L7 evidence in the Go agent yet, you will mostly see{" "}
+                    <span className="font-mono">app_proto</span> guesses (ports).
+                  </li>
+                </ul>
+              </div>
+            )}
           </Section>
         </div>
 
@@ -385,26 +530,37 @@ export default function ProtocolIntelPage() {
               {!loading && data && data.app_protocols.length === 0 ? <TableEmpty title="No app_proto yet" /> : null}
               {data && data.app_protocols.length > 0 ? (
                 <div className="overflow-auto">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>app_proto</TH>
-                        <TH className="text-right">count</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {data.app_protocols.map((r) => (
-                        <TR
-                          key={r.key}
-                          className="cursor-pointer hover:bg-muted/10"
-                          onClick={() => mkPick("app_proto", r.key, "Application protocol", r.count, "Top application protocol classification")}
-                        >
-                          <TD className="font-mono text-[12px]">{r.key}</TD>
-                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
+                  <Table
+                    columns={[
+                      {
+                        key: "key",
+                        title: "APP PROTO",
+                        render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => (
+                          <InspectButton
+                            onClick={() =>
+                              mkPick("app_proto", r.key, "Application protocol", r.count, "Top application protocol classification")
+                            }
+                          />
+                        )
+                      }
+                    ] satisfies Array<Column<(typeof data.app_protocols)[number]>>}
+                    rows={data.app_protocols}
+                    rowKey={(r) => r.key}
+                  />
                 </div>
               ) : null}
             </Section>
@@ -413,26 +569,38 @@ export default function ProtocolIntelPage() {
               {!loading && data && data.ja4_ptypes.length === 0 ? <TableEmpty title="No JA4 ptype" /> : null}
               {data && data.ja4_ptypes.length > 0 ? (
                 <div className="overflow-auto">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>ptype</TH>
-                        <TH className="text-right">count</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {data.ja4_ptypes.map((r) => (
-                        <TR
-                          key={r.key}
-                          className="cursor-pointer hover:bg-muted/10"
-                          onClick={() => mkPick("ja4_ptype", r.key, "JA4 ptype", r.count, "Distribution of JA4 transport type")}
-                        >
-                          <TD className="font-mono text-[12px]">{r.key}</TD>
-                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
+                  <Table
+                    columns={[
+                      {
+                        key: "key",
+                        title: "PTYPE",
+                        width: 140,
+                        render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => (
+                          <InspectButton
+                            onClick={() =>
+                              mkPick("ja4_ptype", r.key, "JA4 ptype", r.count, "Distribution of JA4 transport type")
+                            }
+                          />
+                        )
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.ja4_ptypes}
+                    rowKey={(r) => r.key}
+                  />
                 </div>
               ) : null}
             </Section>
@@ -441,26 +609,33 @@ export default function ProtocolIntelPage() {
               {!loading && data && data.http_methods.length === 0 ? <TableEmpty title="No HTTP methods" /> : null}
               {data && data.http_methods.length > 0 ? (
                 <div className="overflow-auto">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>method</TH>
-                        <TH className="text-right">count</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {data.http_methods.map((r) => (
-                        <TR
-                          key={r.key}
-                          className="cursor-pointer hover:bg-muted/10"
-                          onClick={() => mkPick("http_method", r.key, "HTTP method", r.count, "HTTP request methods")}
-                        >
-                          <TD className="font-mono text-[12px]">{r.key}</TD>
-                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
+                  <Table
+                    columns={[
+                      {
+                        key: "key",
+                        title: "METHOD",
+                        render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => (
+                          <InspectButton onClick={() => mkPick("http_method", r.key, "HTTP method", r.count, "HTTP request methods")} />
+                        )
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.http_methods}
+                    rowKey={(r) => r.key}
+                  />
                 </div>
               ) : null}
             </Section>
@@ -471,28 +646,37 @@ export default function ProtocolIntelPage() {
               {!loading && data && data.top_dns_queries.length === 0 ? <TableEmpty title="No DNS evidence" desc="DNS queries require payload evidence." /> : null}
               {data && data.top_dns_queries.length > 0 ? (
                 <div className="overflow-auto">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>qname</TH>
-                        <TH>risk</TH>
-                        <TH className="text-right">count</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {data.top_dns_queries.map((r) => (
-                        <TR
-                          key={r.qname}
-                          className="cursor-pointer hover:bg-muted/10"
-                          onClick={() => mkPick("dns_qname", r.qname, "DNS qname", r.count, "Top DNS queries")}
-                        >
-                          <TD className="font-mono text-[12px] break-all">{r.qname}</TD>
-                          <TD className="text-[12px]"><RiskPill risk={r.risk} /></TD>
-                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
+                  <Table
+                    columns={[
+                      {
+                        key: "qname",
+                        title: "QNAME",
+                        render: (r) => <span className="font-mono text-[12px] break-all">{r.qname}</span>
+                      },
+                      {
+                        key: "risk",
+                        title: "RISK",
+                        width: 120,
+                        render: (r) => <RiskPill risk={r.risk} />
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => <InspectButton onClick={() => mkPick("dns_qname", r.qname, "DNS qname", r.count, "Top DNS queries")} />
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.top_dns_queries}
+                    rowKey={(r, i) => `${r.qname}-${i}`}
+                  />
                 </div>
               ) : null}
             </Section>
@@ -501,26 +685,31 @@ export default function ProtocolIntelPage() {
               {!loading && data && data.top_http_hosts.length === 0 ? <TableEmpty title="No HTTP evidence" desc="HTTP hosts require payload evidence." /> : null}
               {data && data.top_http_hosts.length > 0 ? (
                 <div className="overflow-auto">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>host</TH>
-                        <TH className="text-right">count</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {data.top_http_hosts.map((r) => (
-                        <TR
-                          key={r.key}
-                          className="cursor-pointer hover:bg-muted/10"
-                          onClick={() => mkPick("http_host", r.key, "HTTP host", r.count, "Top HTTP Host headers")}
-                        >
-                          <TD className="font-mono text-[12px] break-all">{r.key}</TD>
-                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
+                  <Table
+                    columns={[
+                      {
+                        key: "key",
+                        title: "HOST",
+                        render: (r) => <span className="font-mono text-[12px] break-all">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => <InspectButton onClick={() => mkPick("http_host", r.key, "HTTP host", r.count, "Top HTTP Host headers")} />
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.top_http_hosts}
+                    rowKey={(r) => r.key}
+                  />
                 </div>
               ) : null}
             </Section>
@@ -531,26 +720,31 @@ export default function ProtocolIntelPage() {
               {!loading && data && data.top_tls_sni.length === 0 ? <TableEmpty title="No SNI" desc="SNI requires TLS ClientHello evidence." /> : null}
               {data && data.top_tls_sni.length > 0 ? (
                 <div className="overflow-auto">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>sni</TH>
-                        <TH className="text-right">count</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {data.top_tls_sni.map((r) => (
-                        <TR
-                          key={r.key}
-                          className="cursor-pointer hover:bg-muted/10"
-                          onClick={() => mkPick("tls_sni", r.key, "TLS SNI", r.count, "Top SNI values")}
-                        >
-                          <TD className="font-mono text-[12px] break-all">{r.key}</TD>
-                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
+                  <Table
+                    columns={[
+                      {
+                        key: "key",
+                        title: "SNI",
+                        render: (r) => <span className="font-mono text-[12px] break-all">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => <InspectButton onClick={() => mkPick("tls_sni", r.key, "TLS SNI", r.count, "Top SNI values")} />
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.top_tls_sni}
+                    rowKey={(r) => r.key}
+                  />
                 </div>
               ) : null}
             </Section>
@@ -559,26 +753,31 @@ export default function ProtocolIntelPage() {
               {!loading && data && data.top_alpn.length === 0 ? <TableEmpty title="No ALPN" desc="ALPN requires TLS ClientHello evidence." /> : null}
               {data && data.top_alpn.length > 0 ? (
                 <div className="overflow-auto">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>alpn</TH>
-                        <TH className="text-right">count</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {data.top_alpn.map((r) => (
-                        <TR
-                          key={r.key}
-                          className="cursor-pointer hover:bg-muted/10"
-                          onClick={() => mkPick("tls_alpn_first", r.key, "ALPN", r.count, "Top ALPN values")}
-                        >
-                          <TD className="font-mono text-[12px] break-all">{r.key}</TD>
-                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
+                  <Table
+                    columns={[
+                      {
+                        key: "key",
+                        title: "ALPN",
+                        render: (r) => <span className="font-mono text-[12px] break-all">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => <InspectButton onClick={() => mkPick("tls_alpn_first", r.key, "ALPN", r.count, "Top ALPN values")} />
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.top_alpn}
+                    rowKey={(r) => r.key}
+                  />
                 </div>
               ) : null}
             </Section>
@@ -589,28 +788,41 @@ export default function ProtocolIntelPage() {
               {!loading && data && data.top_ja4.length === 0 ? <TableEmpty title="No JA4" desc="JA4 requires TLS/DTLS/QUIC fingerprint evidence." /> : null}
               {data && data.top_ja4.length > 0 ? (
                 <div className="overflow-auto">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>ja4</TH>
-                        <TH>ptype</TH>
-                        <TH className="text-right">count</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {data.top_ja4.map((r) => (
-                        <TR
-                          key={r.ja4}
-                          className="cursor-pointer hover:bg-muted/10"
-                          onClick={() => mkPick("ja4", r.ja4, "JA4 fingerprint", r.count, `ptype=${r.ptype}`)}
-                        >
-                          <TD className="font-mono text-[12px] break-all">{r.ja4}</TD>
-                          <TD className="font-mono text-[12px]"><Badge>{r.ptype || "t"}</Badge></TD>
-                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
+                  <Table
+                    columns={[
+                      {
+                        key: "ja4",
+                        title: "JA4",
+                        render: (r) => <span className="font-mono text-[12px] break-all">{r.ja4}</span>
+                      },
+                      {
+                        key: "ptype",
+                        title: "PTYPE",
+                        width: 110,
+                        render: (r) => (
+                          <span className="font-mono text-[12px]">
+                            <Badge>{r.ptype || "t"}</Badge>
+                          </span>
+                        )
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => <InspectButton onClick={() => mkPick("ja4", r.ja4, "JA4 fingerprint", r.count, `ptype=${r.ptype}`)} />
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.top_ja4}
+                    rowKey={(r, i) => `${r.ja4}-${r.ptype || "t"}-${i}`}
+                  />
                 </div>
               ) : null}
             </Section>
@@ -619,26 +831,31 @@ export default function ProtocolIntelPage() {
               {!loading && data && data.top_ja3.length === 0 ? <TableEmpty title="No JA3" desc="JA3 requires TLS ClientHello evidence." /> : null}
               {data && data.top_ja3.length > 0 ? (
                 <div className="overflow-auto">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>ja3</TH>
-                        <TH className="text-right">count</TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {data.top_ja3.map((r) => (
-                        <TR
-                          key={r.key}
-                          className="cursor-pointer hover:bg-muted/10"
-                          onClick={() => mkPick("ja3", r.key, "JA3 fingerprint", r.count)}
-                        >
-                          <TD className="font-mono text-[12px] break-all">{r.key}</TD>
-                          <TD className="text-right font-mono text-[12px]">{r.count}</TD>
-                        </TR>
-                      ))}
-                    </TBody>
-                  </Table>
+                  <Table
+                    columns={[
+                      {
+                        key: "key",
+                        title: "JA3",
+                        render: (r) => <span className="font-mono text-[12px] break-all">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => <InspectButton onClick={() => mkPick("ja3", r.key, "JA3 fingerprint", r.count)} />
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.top_ja3}
+                    rowKey={(r) => r.key}
+                  />
                 </div>
               ) : null}
             </Section>

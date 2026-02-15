@@ -6,7 +6,8 @@ const ProtectedLayout = lazy(() => import("@/app/ProtectedLayout"));
 
 const OverviewPage = lazy(() => import("@/features/overview/page"));
 const AgentsPage = lazy(() => import("@/features/agents/page"));
-const EventsPage = lazy(() => import("@/features/events/page"));
+const EventsLayout = lazy(() => import("@/features/events/page"));
+const EventsStreamPage = lazy(() => import("@/features/events/views/stream/page"));
 const SshInsightsPage = lazy(() => import("@/features/events/views/ssh/page"));
 const ProtocolIntelPage = lazy(() => import("@/features/events/views/network/page"));
 
@@ -35,9 +36,11 @@ export function Routes() {
           <Route path="/" element={<Navigate to="/overview" replace />} />
           <Route path="/overview" element={<OverviewPage />} />
           <Route path="/agents" element={<AgentsPage />} />
-          <Route path="/events/ssh" element={<SshInsightsPage />} />
-          <Route path="/events/network" element={<ProtocolIntelPage />} />
-          <Route path="/events" element={<EventsPage />} />
+          <Route path="/events" element={<EventsLayout />}>
+            <Route index element={<EventsStreamPage />} />
+            <Route path="ssh" element={<SshInsightsPage />} />
+            <Route path="network" element={<ProtocolIntelPage />} />
+          </Route>
 
           <Route path="/alerts" element={<AlertsLayout />}>
             <Route index element={<Navigate to="/alerts/queue" replace />} />
