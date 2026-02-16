@@ -1,4 +1,6 @@
 import { memo, useEffect, useMemo } from "react";
+
+import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import { cx } from "@/shared/lib/cx";
 
 export type EventsViewConfig = {
@@ -165,31 +167,37 @@ function EventsFiltersImpl(props: Props) {
           <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
             Window (min)
           </div>
-          <input
-            type="number"
-            value={String(effectiveCfg.window_minutes ?? DEFAULTS.window_minutes)}
-            onChange={(e) => patch({ window_minutes: Number(e.target.value) })}
+          <DraftNumberInput
+            value={Number(effectiveCfg.window_minutes ?? DEFAULTS.window_minutes)}
+            min={1}
+            max={1440}
+            fallback={DEFAULTS.window_minutes}
+            onCommit={(v) => patch({ window_minutes: v })}
             disabled={busy}
             className={cx(
               "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
               "focus:ring-2 focus:ring-primary/30",
               busy && "opacity-60 cursor-not-allowed"
             )}
+            title="Lookback window (minutes)"
           />
         </div>
 
         <div>
           <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Limit</div>
-          <input
-            type="number"
-            value={String(effectiveCfg.limit ?? DEFAULTS.limit)}
-            onChange={(e) => patch({ limit: Number(e.target.value) })}
+          <DraftNumberInput
+            value={Number(effectiveCfg.limit ?? DEFAULTS.limit)}
+            min={10}
+            max={5000}
+            fallback={DEFAULTS.limit}
+            onCommit={(v) => patch({ limit: v })}
             disabled={busy}
             className={cx(
               "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
               "focus:ring-2 focus:ring-primary/30",
               busy && "opacity-60 cursor-not-allowed"
             )}
+            title="Max events to fetch"
           />
         </div>
       </div>

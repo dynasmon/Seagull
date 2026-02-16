@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/shared/components/Badge";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
+import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
 
@@ -516,22 +517,24 @@ export default function CorrelationRulesPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">Window (seconds)</label>
-              <input
-                type="number"
-                min={30}
+              <DraftNumberInput
                 value={windowSeconds}
-                onChange={(e) => setWindowSeconds(Number(e.target.value))}
+                min={30}
+                fallback={600}
+                onCommit={setWindowSeconds}
                 className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                title="Correlation window in seconds"
               />
             </div>
             <div>
               <label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">Min alerts</label>
-              <input
-                type="number"
-                min={1}
+              <DraftNumberInput
                 value={minAlerts}
-                onChange={(e) => setMinAlerts(Number(e.target.value))}
+                min={1}
+                fallback={2}
+                onCommit={setMinAlerts}
                 className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                title="Minimum alerts required"
               />
             </div>
           </div>
@@ -613,15 +616,15 @@ export default function CorrelationRulesPage() {
 
                         <div>
                           <label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">Min count</label>
-                          <input
-                            type="number"
-                            min={1}
+                          <DraftNumberInput
                             value={st.min_count}
-                            onChange={(e) => {
-                              const v = Number(e.target.value);
+                            min={1}
+                            fallback={1}
+                            onCommit={(v) => {
                               setStages((prev) => prev.map((x) => (x.key === st.key ? { ...x, min_count: v } : x)));
                             }}
                             className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                            title="Minimum matches for this stage"
                           />
                         </div>
                       </div>

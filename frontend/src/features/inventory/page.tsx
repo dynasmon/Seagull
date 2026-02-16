@@ -5,6 +5,7 @@ import PageHeader from "@/shared/components/PageHeader";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import Drawer from "@/shared/components/Drawer";
+import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 
@@ -502,14 +503,12 @@ export default function InventoryPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Window (min)</div>
-                <input
-                  type="number"
+                <DraftNumberInput
+                  value={windowMinutes}
                   min={30}
                   max={10080}
-                  value={String(windowMinutes)}
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    const safe = Number.isFinite(v) ? Math.max(30, Math.min(10080, v)) : 360;
+                  fallback={360}
+                  onCommit={(safe) => {
                     setWindowMinutes(safe);
                     pushUrl(agentScope, safe);
                   }}
@@ -518,6 +517,7 @@ export default function InventoryPage() {
                     "text-[11px] text-foreground outline-none font-mono",
                     "focus:ring-2 focus:ring-primary/30"
                   )}
+                  title="Lookback window (minutes)"
                 />
               </div>
 

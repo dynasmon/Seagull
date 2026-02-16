@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 
 import EmptyState from "@/shared/components/EmptyState";
 import Drawer from "@/shared/components/Drawer";
+import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
 
@@ -1117,25 +1118,27 @@ export default function AgentsPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <FieldLabel>Window (min)</FieldLabel>
-                      <input
-                        type="number"
+                      <DraftNumberInput
+                        value={eventsCfg.window_minutes}
+                        min={1}
+                        max={10080}
+                        fallback={DEFAULT_WINDOW_MINUTES}
+                        onCommit={(v) => setEventsCfg((p) => ({ ...p, window_minutes: v }))}
                         className={inputClassName(false)}
-                        value={String(eventsCfg.window_minutes)}
-                        onChange={(e) =>
-                          setEventsCfg((p) => ({ ...p, window_minutes: Math.max(1, Number(e.target.value || 1)) }))
-                        }
+                        title="Lookback window (minutes)"
                       />
                     </div>
 
                     <div>
                       <FieldLabel>Limit</FieldLabel>
-                      <input
-                        type="number"
+                      <DraftNumberInput
+                        value={eventsCfg.limit}
+                        min={50}
+                        max={5000}
+                        fallback={DEFAULT_EVENTS_LIMIT}
+                        onCommit={(v) => setEventsCfg((p) => ({ ...p, limit: v }))}
                         className={inputClassName(false)}
-                        value={String(eventsCfg.limit)}
-                        onChange={(e) =>
-                          setEventsCfg((p) => ({ ...p, limit: Math.max(50, Number(e.target.value || 50)) }))
-                        }
+                        title="Max events to fetch"
                       />
                     </div>
                   </div>
