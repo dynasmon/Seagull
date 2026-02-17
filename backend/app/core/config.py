@@ -54,7 +54,7 @@ class Settings:
 
     # Admin-only operations (e.g., pushing agent config)
     NETWATCH_ADMIN_TOKEN: str | None = _env_str("NETWATCH_ADMIN_TOKEN", None)
-    
+
     # Enroll token
     NETWATCH_ENROLL_TOKEN: str | None = _env_str("NETWATCH_ENROLL_TOKEN", None)
 
@@ -69,6 +69,22 @@ class Settings:
     NETWATCH_COOKIE_SECURE: bool = _env_bool("NETWATCH_COOKIE_SECURE", False)
     NETWATCH_COOKIE_SAMESITE: str = (_env_str("NETWATCH_COOKIE_SAMESITE", "lax") or "lax").lower()
     NETWATCH_COOKIE_DOMAIN: str | None = _env_str("NETWATCH_COOKIE_DOMAIN", None)
+
+    # Search backend selection:
+    # - auto: use Elasticsearch when available, fallback to Postgres
+    # - elasticsearch: require Elasticsearch (API returns 503 if ES is down)
+    # - postgres: always use Postgres
+    NETWATCH_SEARCH_BACKEND: str = (_env_str("NETWATCH_SEARCH_BACKEND", "auto") or "auto").lower()
+
+    # Elasticsearch connection (used by API hunting endpoints)
+    NETWATCH_ES_URL: str = _env_str("NETWATCH_ES_URL", "http://elasticsearch:9200") or "http://elasticsearch:9200"
+    NETWATCH_ES_INDEX_PREFIX: str = _env_str("NETWATCH_ES_INDEX_PREFIX", "netwatch-events") or "netwatch-events"
+    NETWATCH_ES_REQUEST_TIMEOUT_SECONDS: int = _env_int("NETWATCH_ES_REQUEST_TIMEOUT_SECONDS", 30)
+    NETWATCH_ES_USERNAME: str | None = _env_str("NETWATCH_ES_USERNAME", None)
+    NETWATCH_ES_PASSWORD: str | None = _env_str("NETWATCH_ES_PASSWORD", None)
+    NETWATCH_ES_VERIFY_CERTS: bool = _env_bool("NETWATCH_ES_VERIFY_CERTS", True)
+    NETWATCH_ES_CA_CERTS: str | None = _env_str("NETWATCH_ES_CA_CERTS", None)
+    NETWATCH_ES_PING_TTL_SECONDS: int = _env_int("NETWATCH_ES_PING_TTL_SECONDS", 2)
 
     # Bootstrap admin user (required on first run).
     NETWATCH_BOOTSTRAP_ADMIN_USERNAME: str = _env_str("NETWATCH_BOOTSTRAP_ADMIN_USERNAME", "admin") or "admin"
