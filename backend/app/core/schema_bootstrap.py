@@ -424,6 +424,43 @@ def bootstrap_schema(engine) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_portal_login_events_username_created_at ON portal_login_events (username, created_at DESC);
         """,
+
+        # Attack chain cases/steps (stateful incident narrative)
+        """
+        CREATE INDEX IF NOT EXISTS idx_attack_chain_cases_agent_status_last_seen
+            ON attack_chain_cases (agent_id, status, last_seen_at DESC, id DESC);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_attack_chain_cases_suspect_last_seen
+            ON attack_chain_cases (suspect_ip, last_seen_at DESC, id DESC);
+        """,
+        """
+        -- Prevent duplicate open cases per (agent_id, suspect_ip).
+        -- COALESCE keeps a single "local-only" chain per agent.
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_attack_chain_open_case
+            ON attack_chain_cases (agent_id, COALESCE(suspect_ip, ''))
+            WHERE status = 'open';
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_attack_chain_steps_case_time
+            ON attack_chain_steps (case_id, timestamp ASC, id ASC);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_attack_chain_steps_case_fp_created
+            ON attack_chain_steps (case_id, fingerprint, created_at DESC);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_attack_chain_steps_stage_time
+            ON attack_chain_steps (stage, timestamp DESC, id DESC);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS gin_attack_chain_cases_context
+            ON attack_chain_cases USING GIN (context);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS gin_attack_chain_steps_details
+            ON attack_chain_steps USING GIN (details);
+        """,
     ]
 
     with engine.begin() as conn:

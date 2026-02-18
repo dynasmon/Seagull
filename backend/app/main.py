@@ -13,6 +13,7 @@ from app.api.auth import router as auth_router
 from app.api.account import router as account_router
 from app.api.admin import router as admin_router
 from app.api.correlations import router as correlations_router
+from app.api.attack_chain import router as attack_chain_router
 from app.core.portal_bootstrap import bootstrap_portal_admin, bootstrap_correlation_rules
 
 
@@ -53,6 +54,7 @@ def on_startup():
     from app.models import portal_otp_tokens as _portal_otp  # noqa: F401
     from app.models import portal_login_events as _portal_login_events  # noqa: F401
     from app.models import correlation_rules as _correlation_rules  # noqa: F401
+    from app.models import attack_chain as _attack_chain  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     bootstrap_schema(engine)
@@ -72,6 +74,7 @@ app.include_router(admin_router)
 app.include_router(events_router)
 app.include_router(alerts_router)
 app.include_router(correlations_router)
+app.include_router(attack_chain_router)
 app.include_router(agents_router)
 app.include_router(inventory_router)
 app.include_router(overview_router)
