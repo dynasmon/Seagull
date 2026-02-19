@@ -148,11 +148,15 @@ export function SimpleTimeSeries({
       <div
         style={
           allowHorizontalScroll
-            ? { minWidth, width: "100%", minHeight: 0 }
-            : { width: "100%", minWidth: 0, minHeight: 0 }
+            ? { minWidth, width: "100%", minHeight: height }
+            : { width: "100%", minWidth: 0, minHeight: height }
         }
       >
-        <div style={{ width: "100%", height }}>
+        {/*
+          Recharts can emit width/height <= 0 warnings when containers momentarily measure to 0
+          during layout. We keep explicit minWidth/minHeight to avoid negative/zero measurements.
+        */}
+        <div style={{ width: "100%", height, minWidth: 1, minHeight: 1 }}>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={maskedData}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.2} />

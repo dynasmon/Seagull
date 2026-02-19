@@ -12,7 +12,7 @@ function ActiveBar({ active }: { active: boolean }) {
 function ItemIcon({
   name
 }: {
-  name: "dashboard" | "events" | "alerts" | "correlations" | "agents" | "inventory" | "settings";
+  name: "dashboard" | "events" | "alerts" | "attackchain" | "correlations" | "agents" | "inventory" | "settings";
 }) {
   const common = "h-4 w-4";
   switch (name) {
@@ -38,6 +38,19 @@ function ItemIcon({
             strokeLinecap="round"
             strokeLinejoin="round"
           />
+        </svg>
+      );
+    case "attackchain":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none">
+          <path
+            d="M10.5 13.5 9 15a4 4 0 0 1-5.7 0 4 4 0 0 1 0-5.7l1.5-1.5M13.5 10.5 15 9a4 4 0 0 1 5.7 0 4 4 0 0 1 0 5.7l-1.5 1.5"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="M8.5 15.5 15.5 8.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </svg>
       );
     case "correlations":
@@ -181,6 +194,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
           )}
           <div className="space-y-1">
             <NavItem collapsed={collapsed} to="/alerts/queue" label="Alerts" icon="alerts" />
+            <NavItem collapsed={collapsed} to={toPlain("/attack-chain")} label="Attack Chains" icon="attackchain" />
             <NavItem collapsed={collapsed} to="/correlations/findings" label="Correlations" icon="correlations" />
           </div>
         </div>

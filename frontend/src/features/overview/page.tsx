@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, CSSProperties } from "react";
 import { Link } from "react-router-dom";
 
@@ -8,6 +8,8 @@ import { cx } from "@/shared/lib/cx";
 import type { Alert } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
 import { useOverviewLive } from "./live";
+
+import { listAttackChainCases } from "@/features/attack_chain/api";
 
 // One overview snapshot covers this time window.
 const WINDOW_MINUTES = 60;
@@ -30,11 +32,36 @@ function normalizeDetails(raw: any): Record<string, any> {
   return {};
 }
 
-function fmtHHMM(d: Date) {
+function toDate(input: unknown): Date | null {
+  if (!input) return null;
+
+  if (input instanceof Date) {
+    return Number.isNaN(input.getTime()) ? null : input;
+  }
+
+  if (typeof input === "string" || typeof input === "number") {
+    const d = new Date(input);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // Defensive: handle common "{ value: ... }" patterns.
+  if (typeof input === "object" && (input as any).value) {
+    const d = new Date((input as any).value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  return null;
+}
+
+function fmtHHMM(input: unknown) {
+  const d = toDate(input);
+  if (!d) return "-";
   return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" });
 }
 
-function fmtDateTime(d: Date) {
+function fmtDateTime(input: unknown) {
+  const d = toDate(input);
+  if (!d) return "-";
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
@@ -186,6 +213,33 @@ function StatTile({
   );
 }
 
+function StatLinkTile({
+  to,
+  label,
+  value,
+  description
+}: {
+  to: string;
+  label: string;
+  value: string;
+  description?: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className={cx(
+        "rounded-xl border border-border/60 bg-background/70 backdrop-blur-md p-4",
+        "hover:bg-muted/15 transition-colors",
+        "focus:outline-none focus:ring-2 focus:ring-primary/30"
+      )}
+    >
+      <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">{label}</div>
+      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
+      {description ? <div className="mt-1 text-xs text-muted-foreground">{description}</div> : null}
+    </Link>
+  );
+}
+
 function SeverityBadge({ severity }: { severity: string }) {
   const s = (severity || "").toLowerCase();
   let color = "text-muted-foreground border-border/60 bg-muted/10";
@@ -258,6 +312,45 @@ export default function OverviewPage() {
     };
   }, [snapshot]);
 
+  const [acTile, setAcTile] = useState<{
+    loading: boolean;
+    error: string | null;
+    openCount: number;
+    hasMore: boolean;
+    maxScore: number;
+    lastSeen: string | null;
+  }>({ loading: true, error: null, openCount: 0, hasMore: false, maxScore: 0, lastSeen: null });
+  const acLastFetchRef = useRef(0);
+
+  // Lightweight attack-chain tile: kept independent of the overview snapshot API.
+  useEffect(() => {
+    if (!snapshot) return;
+    const now = Date.now();
+    if (now - acLastFetchRef.current < 15000) return;
+    acLastFetchRef.current = now;
+
+    const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    setAcTile((p) => ({ ...p, loading: true, error: null }));
+
+    listAttackChainCases({ status: "open", page_size: 200, since: sinceIso })
+      .then((out) => {
+        const items = out.items || [];
+        const maxScore = items.reduce((m, x) => Math.max(m, x.score || 0), 0);
+        const lastSeen = items.length ? items[0].last_seen_at : null;
+        setAcTile({
+          loading: false,
+          error: null,
+          openCount: items.length,
+          hasMore: Boolean(out.has_more),
+          maxScore,
+          lastSeen
+        });
+      })
+      .catch((e: any) => {
+        setAcTile((p) => ({ ...p, loading: false, error: e?.message || "Failed" }));
+      });
+  }, [snapshot, lastUpdatedAt]);
+
   if (isLoading && !snapshot) {
     return (
       <div className="min-h-screen p-6">
@@ -291,7 +384,7 @@ export default function OverviewPage() {
       </div>
 
       <DashboardSection id="ingestion" title="INGESTION & HEALTH" defaultOpen>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
           <StatTile label="EVENTS (last 5m)" value={derived.events5m} />
           <StatTile label={`EVENTS (last ${WINDOW_MINUTES}m)`} value={derived.events1h} />
           <StatTile
@@ -302,6 +395,17 @@ export default function OverviewPage() {
           />
           <StatTile label="LAST EVENT TS" value={derived.lastEventTs} tone={derived.lastEventTs === "-" ? "warn" : "default"} />
           <StatTile label="ALERTS (last 1h)" value={derived.alerts1h} tone={derived.alerts1h > 0 ? "warn" : "good"} />
+
+          <StatLinkTile
+            to="/attack-chain"
+            label="ATTACK CHAINS (open)"
+            value={acTile.loading ? "…" : acTile.hasMore ? `${acTile.openCount}+` : String(acTile.openCount)}
+            description={
+              acTile.error
+                ? `Error: ${acTile.error}`
+                : `Last 24h · max score ${acTile.maxScore}${acTile.lastSeen ? ` · last ${fmtDateTime(acTile.lastSeen)}` : ""}`
+            }
+          />
         </div>
       </DashboardSection>
 
