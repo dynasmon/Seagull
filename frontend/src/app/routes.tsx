@@ -19,6 +19,8 @@ const CorrelationsLayout = lazy(() => import("@/features/correlations/page"));
 const CorrelationFindingsPage = lazy(() => import("@/features/correlations/views/findings"));
 const CorrelationRulesPage = lazy(() => import("@/features/correlations/views/rules"));
 
+const AttackChainPage = lazy(() => import("@/features/attack_chain/page"));
+
 const InventoryPage = lazy(() => import("@/features/inventory/page"));
 const SettingsPage = lazy(() => import("@/features/settings/page"));
 
@@ -53,6 +55,8 @@ export function Routes() {
             <Route path="findings" element={<CorrelationFindingsPage />} />
             <Route path="rules" element={<CorrelationRulesPage />} />
           </Route>
+
+          <Route path="/attack-chain" element={<AttackChainPage />} />
 
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
