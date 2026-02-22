@@ -9,8 +9,15 @@ from sqlalchemy import and_, or_, select
 from app.core.db import SessionLocal
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.portal_auth import get_current_user, require_admin
-from app.models.attack_chain import AttackChainCaseModel, AttackChainStepModel
-from app.schemas.attack_chain import AttackChainCaseDB, AttackChainCaseWithSteps, AttackChainStepDB
+from app.models.attack_chain import AttackChainAllowlistModel, AttackChainCaseModel, AttackChainStepModel
+from app.schemas.attack_chain import (
+    AttackChainAllowlistCreate,
+    AttackChainAllowlistDB,
+    AttackChainAllowlistUpdate,
+    AttackChainCaseDB,
+    AttackChainCaseWithSteps,
+    AttackChainStepDB,
+)
 from app.schemas.pagination import CursorPage
 
 
@@ -19,6 +26,25 @@ router = APIRouter(
     tags=["attack_chain"],
     dependencies=[Depends(get_current_user)],
 )
+
+
+_ALLOWLIST_MODES = {"exact", "prefix", "contains"}
+
+
+def _norm_opt(v: Optional[str], *, max_len: int) -> Optional[str]:
+    if v is None:
+        return None
+    s = v.strip()
+    if not s:
+        return None
+    return s[:max_len]
+
+
+def _validate_allowlist_mode(mode: str) -> str:
+    m = (mode or "").strip().lower()
+    if m not in _ALLOWLIST_MODES:
+        raise HTTPException(status_code=422, detail=f"match_mode must be one of: {', '.join(sorted(_ALLOWLIST_MODES))}")
+    return m
 
 
 def _utc_now() -> datetime:
@@ -149,5 +175,102 @@ def close_case(case_id: int):
         db.add(case)
         db.commit()
         return {"status": "ok", "case_id": case.id}
+    finally:
+        db.close()
+
+
+# ------------------------
+# Allowlist (admin-only)
+# ------------------------
+
+
+@router.get("/allowlist", response_model=list[AttackChainAllowlistDB], dependencies=[Depends(require_admin)])
+def list_allowlist(rule_type: str = Query("sudo_cmd", min_length=1, max_length=32)):
+    db = SessionLocal()
+    try:
+        rt = (rule_type or "sudo_cmd").strip().lower()
+        stmt = (
+            select(AttackChainAllowlistModel)
+            .where(AttackChainAllowlistModel.rule_type == rt)
+            .order_by(AttackChainAllowlistModel.enabled.desc(), AttackChainAllowlistModel.updated_at.desc(), AttackChainAllowlistModel.id.desc())
+        )
+        return db.execute(stmt).scalars().all()
+    finally:
+        db.close()
+
+
+@router.post("/allowlist", response_model=AttackChainAllowlistDB, dependencies=[Depends(require_admin)])
+def create_allowlist(payload: AttackChainAllowlistCreate):
+    db = SessionLocal()
+    try:
+        mode = _validate_allowlist_mode(payload.match_mode)
+        pattern = (payload.pattern or "").strip()
+        if not pattern:
+            raise HTTPException(status_code=422, detail="pattern is required")
+
+        row = AttackChainAllowlistModel(
+            rule_type="sudo_cmd",
+            enabled=bool(payload.enabled),
+            match_mode=mode,
+            pattern=pattern[:512],
+            agent_id=_norm_opt(payload.agent_id, max_len=64),
+            username=_norm_opt(payload.username, max_len=128),
+            target_user=_norm_opt(payload.target_user, max_len=128),
+            notes=_norm_opt(payload.notes, max_len=256),
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+    finally:
+        db.close()
+
+
+@router.put("/allowlist/{rule_id}", response_model=AttackChainAllowlistDB, dependencies=[Depends(require_admin)])
+def update_allowlist(rule_id: int, payload: AttackChainAllowlistUpdate):
+    db = SessionLocal()
+    try:
+        row = db.get(AttackChainAllowlistModel, int(rule_id))
+        if not row:
+            raise HTTPException(status_code=404, detail="Allowlist rule not found")
+
+        if payload.enabled is not None:
+            row.enabled = bool(payload.enabled)
+        if payload.match_mode is not None:
+            row.match_mode = _validate_allowlist_mode(payload.match_mode)
+        if payload.pattern is not None:
+            p = (payload.pattern or "").strip()
+            if not p:
+                raise HTTPException(status_code=422, detail="pattern must not be empty")
+            row.pattern = p[:512]
+
+        # Optional scope fields: empty string clears.
+        if payload.agent_id is not None:
+            row.agent_id = _norm_opt(payload.agent_id, max_len=64)
+        if payload.username is not None:
+            row.username = _norm_opt(payload.username, max_len=128)
+        if payload.target_user is not None:
+            row.target_user = _norm_opt(payload.target_user, max_len=128)
+        if payload.notes is not None:
+            row.notes = _norm_opt(payload.notes, max_len=256)
+
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+    finally:
+        db.close()
+
+
+@router.delete("/allowlist/{rule_id}", dependencies=[Depends(require_admin)])
+def delete_allowlist(rule_id: int):
+    db = SessionLocal()
+    try:
+        row = db.get(AttackChainAllowlistModel, int(rule_id))
+        if not row:
+            raise HTTPException(status_code=404, detail="Allowlist rule not found")
+        db.delete(row)
+        db.commit()
+        return {"status": "ok", "deleted": True, "id": int(rule_id)}
     finally:
         db.close()

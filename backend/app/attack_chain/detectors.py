@@ -134,7 +134,51 @@ def _is_routine_privileged_cmd(cmd: str) -> bool:
     return False
 
 
-def _classify_sudo(username: str, target: str, cmd: str, cfg: AttackChainConfig) -> StepCandidate:
+def _allowlist_match(rule: Dict[str, Any], *, agent_id: str, username: str, target_user: str, command: str) -> bool:
+    """Return True if a rule matches the current sudo command.
+
+    Rules are intentionally limited to exact/prefix/contains to avoid ReDoS risks.
+    Matching is case-insensitive and uses normalized whitespace.
+    """
+
+    try:
+        if not rule.get("enabled", True):
+            return False
+        if (rule.get("rule_type") or "sudo_cmd") != "sudo_cmd":
+            return False
+
+        ra = (str(rule.get("agent_id") or "").strip())
+        if ra and ra != (agent_id or ""):
+            return False
+
+        ru = (str(rule.get("username") or "").strip().lower())
+        if ru and ru != (username or "").strip().lower():
+            return False
+
+        rt = (str(rule.get("target_user") or "").strip().lower())
+        if rt and rt != (target_user or "").strip().lower():
+            return False
+
+        mode = (str(rule.get("match_mode") or "contains").strip().lower())
+        pat = _cmd_norm(str(rule.get("pattern") or ""))
+        if not pat:
+            return False
+
+        cmd_n = _cmd_norm(command)
+        a = cmd_n.lower()
+        b = pat.lower()
+
+        if mode == "exact":
+            return a == b
+        if mode == "prefix":
+            return a.startswith(b)
+        # default: contains
+        return b in a
+    except Exception:
+        return False
+
+
+def _classify_sudo(agent_id: str, username: str, target: str, cmd: str, cfg: AttackChainConfig, allowlist: Optional[List[Dict[str, Any]]]) -> StepCandidate:
     """Classify a sudo command into an ATT&CK-aligned step.
 
     IMPORTANT: Running sudo itself is not inherently an attacker privilege escalation.
@@ -144,6 +188,25 @@ def _classify_sudo(username: str, target: str, cmd: str, cfg: AttackChainConfig)
     cmd_n = _cmd_norm(cmd)
     base = _cmd_base(cmd_n)
     tgt = (target or "").strip().lower()
+
+    # Allowlist suppression (admin-configurable from the portal).
+    if cmd_n and allowlist:
+        for r in allowlist:
+            if _allowlist_match(r, agent_id=agent_id, username=username, target_user=target, command=cmd_n):
+                rid = int(r.get("id") or 0) if str(r.get("id") or "").isdigit() else None
+                return StepCandidate(
+                    stage=AttackStage.execution,
+                    title="Allowlisted privileged command",
+                    description="Command matched an admin allowlist rule and was suppressed.",
+                    score_delta=0,
+                    fingerprint=f"sudo:allowlisted:{agent_id}:{username}:{cmd_n}",
+                    suspect_ip=None,
+                    details={"agent_id": agent_id, "username": username, "target_user": target, "command": cmd_n, "allowlist_rule_id": rid},
+                    kind="sudo_allowlisted",
+                    technique_id=None,
+                    confidence=5,
+                    emit=False,
+                )
 
     # Defense evasion (high confidence)
     if cmd_n and (_RE_SUSPICIOUS_LOG_TAMPER.search(cmd_n) or _RE_DISABLE_SECURITY.search(cmd_n)):
@@ -247,12 +310,13 @@ def _classify_sudo(username: str, target: str, cmd: str, cfg: AttackChainConfig)
     )
 
 
-def detect_steps(event: Dict[str, Any], cfg: AttackChainConfig) -> List[StepCandidate]:
+def detect_steps(event: Dict[str, Any], cfg: AttackChainConfig, *, allowlist: Optional[List[Dict[str, Any]]] = None) -> List[StepCandidate]:
     """Translate a raw net_event row into high-level attack-chain steps."""
 
     out: List[StepCandidate] = []
 
     et = _safe_str(event.get("event_type") or "")
+    agent_id = _safe_str(event.get("agent_id") or "")
     src_ip = _safe_str(event.get("src_ip") or "")
     extra = event.get("extra") if isinstance(event.get("extra"), dict) else {}
 
@@ -304,7 +368,7 @@ def detect_steps(event: Dict[str, Any], cfg: AttackChainConfig) -> List[StepCand
         username = _extra_username(extra)
         target = _extra_target_user(extra)
         cmd = _extra_command(extra)
-        out.append(_classify_sudo(username, target, cmd, cfg))
+        out.append(_classify_sudo(agent_id, username, target, cmd, cfg, allowlist))
 
     # --- Future-proof hooks (eBPF + FIM + C2/Exfil)
     # These are intentionally conservative so the backend is ready for the next agents.

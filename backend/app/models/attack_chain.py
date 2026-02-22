@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
@@ -69,3 +69,38 @@ class AttackChainStepModel(Base):
 
     # Step metadata intended for UI (aggregates, extracted fields, etc.)
     details = Column(JSONB, nullable=False, default=dict)
+
+
+class AttackChainAllowlistModel(Base):
+    """Portal-managed allowlist for Attack Chain detectors.
+
+    This is used to suppress known-benign activity (e.g., routine sudo commands)
+    without requiring environment variable changes or container rebuilds.
+
+    IMPORTANT: This is admin-only and should not be exposed to non-admin users.
+    """
+
+    __tablename__ = "attack_chain_allowlist"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Future-proofing: today we only use 'sudo_cmd'.
+    rule_type = Column(String(32), index=True, nullable=False, default="sudo_cmd")
+
+    enabled = Column(Boolean, index=True, nullable=False, default=True)
+
+    # Matching modes are intentionally limited (no regex) to avoid ReDoS.
+    match_mode = Column(String(16), nullable=False, default="contains")  # exact | prefix | contains
+
+    # Pattern is compared against the normalized command.
+    pattern = Column(Text, nullable=False)
+
+    # Optional scoping to reduce blast-radius.
+    agent_id = Column(String(64), index=True, nullable=True)
+    username = Column(String(128), index=True, nullable=True)
+    target_user = Column(String(128), index=True, nullable=True)
+
+    notes = Column(String(256), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

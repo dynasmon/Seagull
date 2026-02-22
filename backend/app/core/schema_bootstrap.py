@@ -461,6 +461,31 @@ def bootstrap_schema(engine) -> None:
         CREATE INDEX IF NOT EXISTS gin_attack_chain_steps_details
             ON attack_chain_steps USING GIN (details);
         """,
+
+        # Attack Chain allowlist (portal-managed)
+        """
+        CREATE TABLE IF NOT EXISTS attack_chain_allowlist (
+            id SERIAL PRIMARY KEY,
+            rule_type VARCHAR(32) NOT NULL DEFAULT 'sudo_cmd',
+            enabled BOOLEAN NOT NULL DEFAULT true,
+            match_mode VARCHAR(16) NOT NULL DEFAULT 'contains',
+            pattern TEXT NOT NULL,
+            agent_id VARCHAR(64) NULL,
+            username TEXT NULL,
+            target_user TEXT NULL,
+            notes VARCHAR(256) NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_attack_chain_allowlist_type_enabled_updated
+            ON attack_chain_allowlist (rule_type, enabled, updated_at DESC, id DESC);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_attack_chain_allowlist_scope
+            ON attack_chain_allowlist (agent_id, username, target_user);
+        """,
     ]
 
     with engine.begin() as conn:

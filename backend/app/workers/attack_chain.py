@@ -33,6 +33,41 @@ from app.core.db import engine
 OFFSET_NAME = "attack_chain_v1"
 
 
+_allowlist_cache: dict[str, Any] = {"loaded_at": 0.0, "rules": []}
+
+
+def _load_allowlist_rules(*, ttl_seconds: float = 10.0) -> List[Dict[str, Any]]:
+    """Load allowlist rules with a small TTL cache.
+
+    The allowlist is expected to be tiny, but we still avoid querying on every batch.
+    """
+
+    now_t = time.time()
+    loaded_at = float(_allowlist_cache.get("loaded_at") or 0.0)
+    if ttl_seconds > 0 and (now_t - loaded_at) < ttl_seconds:
+        return list(_allowlist_cache.get("rules") or [])
+
+    try:
+        with engine.begin() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT id, rule_type, enabled, match_mode, pattern, agent_id, username, target_user
+                    FROM attack_chain_allowlist
+                    WHERE rule_type = 'sudo_cmd' AND enabled = true
+                    ORDER BY updated_at DESC, id DESC;
+                    """
+                )
+            ).mappings().all()
+            rules = [dict(r) for r in rows]
+    except Exception:
+        rules = []
+
+    _allowlist_cache["loaded_at"] = now_t
+    _allowlist_cache["rules"] = rules
+    return list(rules)
+
+
 def _is_recent(ts: Optional[datetime], now: datetime, window_seconds: int) -> bool:
     if not ts or not isinstance(ts, datetime):
         return False
@@ -208,6 +243,35 @@ def _ensure_bootstrap() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_attack_chain_ssh_failures_last_seen ON attack_chain_ssh_failures (last_seen_at DESC);"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_attack_chain_login_baseline_last_seen ON attack_chain_login_baseline (last_seen_at DESC);"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_attack_chain_last_access_accepted_at ON attack_chain_last_access (accepted_at DESC);"))
+
+        # Portal-managed allowlist (admin-configurable)
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS attack_chain_allowlist (
+                    id SERIAL PRIMARY KEY,
+                    rule_type VARCHAR(32) NOT NULL DEFAULT 'sudo_cmd',
+                    enabled BOOLEAN NOT NULL DEFAULT true,
+                    match_mode VARCHAR(16) NOT NULL DEFAULT 'contains',
+                    pattern TEXT NOT NULL,
+                    agent_id VARCHAR(64) NULL,
+                    username TEXT NULL,
+                    target_user TEXT NULL,
+                    notes VARCHAR(256) NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS idx_attack_chain_allowlist_type_enabled_updated
+                    ON attack_chain_allowlist (rule_type, enabled, updated_at DESC, id DESC);
+                """
+            )
+        )
 
         # Ensure offset row.
         conn.execute(
@@ -534,9 +598,11 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
 
     touched_case_ids: set[int] = set()
 
+    allowlist_rules = _load_allowlist_rules(ttl_seconds=10.0)
+
     with engine.begin() as conn:
         for ev in events:
-            steps = detect_steps(ev, cfg)
+            steps = detect_steps(ev, cfg, allowlist=allowlist_rules)
             if not steps:
                 continue
 
