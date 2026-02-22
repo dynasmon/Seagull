@@ -20,14 +20,23 @@ export type AttackChainStep = {
   id: number;
   case_id: number;
   stage: string;
-  timestamp: string;
-  kind: string;
-  title: string;
-  description: string;
   fingerprint: string;
   score_delta: number;
-  details: any;
+  label: string;
+
+  event_id?: number | null;
+  event_type?: string | null;
+
+  timestamp: string;
   created_at: string;
+
+  src_ip?: string | null;
+  dst_ip?: string | null;
+  src_port?: number | null;
+  dst_port?: number | null;
+  proto?: string | null;
+
+  details: any;
 };
 
 export type AttackChainCaseWithSteps = {

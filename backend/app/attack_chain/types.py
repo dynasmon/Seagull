@@ -37,10 +37,22 @@ def stage_rank(stage: str) -> int:
 @dataclass(frozen=True)
 class StepCandidate:
     stage: AttackStage
-    label: str
+    # Short, human-readable title (used by UI)
+    title: str
+    # Optional longer description (used by UI)
+    description: str = ""
     score_delta: int
     # If set, used to avoid producing noisy duplicates.
     fingerprint: str
     # If set, the case should be keyed by this suspect ip.
     suspect_ip: Optional[str] = None
     details: Dict[str, Any] | None = None
+
+    # Metadata for downstream scoring / UI.
+    kind: str = "signal"  # e.g. ssh_fail, ssh_accept, sudo, c2
+    technique_id: Optional[str] = None  # MITRE ATT&CK technique (optional)
+    confidence: int = 50  # 0..100
+
+    # If False, the worker may still use the candidate to update baselines,
+    # but it should not be written as a visible step.
+    emit: bool = True

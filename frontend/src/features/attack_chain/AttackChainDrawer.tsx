@@ -25,6 +25,19 @@ import {
 
 type TabKey = "overview" | "timeline" | "investigation";
 
+type StepView = {
+  id: number;
+  stage: string;
+  at: string;
+  title: string;
+  description: string;
+  scoreDelta: number;
+  kind: string;
+  confidence: number;
+  techniqueId: string;
+  raw: AttackChainStep;
+};
+
 function fmtTs(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -46,9 +59,9 @@ function safeJson(v: any) {
 }
 
 function scoreVariant(score: number) {
-  if (score >= 700) return "critical";
-  if (score >= 450) return "high";
-  if (score >= 200) return "medium";
+  if (score >= 80) return "critical";
+  if (score >= 60) return "high";
+  if (score >= 40) return "medium";
   if (score > 0) return "low";
   return "neutral";
 }
@@ -58,6 +71,83 @@ function statusVariant(status: string) {
   if (s === "open") return "info";
   if (s === "closed") return "neutral";
   return "neutral";
+}
+
+function confidenceLabel(c: number) {
+  const v = Number.isFinite(c) ? c : 0;
+  if (v >= 80) return "High";
+  if (v >= 55) return "Medium";
+  if (v > 0) return "Low";
+  return "-";
+}
+
+function confidenceVariant(c: number) {
+  const v = Number.isFinite(c) ? c : 0;
+  if (v >= 80) return "high";
+  if (v >= 55) return "medium";
+  if (v > 0) return "low";
+  return "neutral";
+}
+
+function buildStepView(s: AttackChainStep): StepView {
+  const d = (s.details && typeof s.details === "object") ? s.details : {};
+  const title = String((s as any).label || "").trim() || "Step";
+  const desc = String(d.description || "").trim();
+  const kind = String(d.kind || s.event_type || "").trim() || "signal";
+  const confidence = Number(d.confidence);
+  const techniqueId = String(d.technique_id || "").trim();
+
+  // Operator-friendly fallbacks for common evidence.
+  let description = desc;
+  if (!description) {
+    if (kind.startsWith("ssh")) {
+      const u = String(d.username || "").trim();
+      const ip = String(d.src_ip || s.src_ip || "").trim();
+      const fc = Number(d.fail_count);
+      if (Number.isFinite(fc) && fc > 0) description = `${fc} failures from ${ip || "-"}${u ? ` as ${u}` : ""}`;
+      else if (ip || u) description = `${ip || "-"}${u ? ` as ${u}` : ""}`;
+    } else if (kind.startsWith("sudo") || kind === "context") {
+      const u = String(d.username || "").trim();
+      const tu = String(d.target_user || "").trim();
+      const cmd = String(d.command || "").trim();
+      const bits = [] as string[];
+      if (u) bits.push(`user=${u}`);
+      if (tu) bits.push(`as=${tu}`);
+      if (cmd) bits.push(cmd.length > 140 ? cmd.slice(0, 140) + "…" : cmd);
+      description = bits.join(" · ");
+    }
+  }
+
+  return {
+    id: s.id,
+    stage: s.stage,
+    at: s.timestamp,
+    title,
+    description,
+    scoreDelta: Number(s.score_delta) || 0,
+    kind,
+    confidence: Number.isFinite(confidence) ? confidence : 0,
+    techniqueId,
+    raw: s,
+  };
+}
+
+function assessCase(payload: AttackChainCaseWithSteps): { verdict: string; hint: string } {
+  const score = Number(payload.case.score) || 0;
+  const steps = (payload.steps || []).map(buildStepView);
+  const hi = steps.some((s) => s.confidence >= 80);
+  const med = steps.some((s) => s.confidence >= 55);
+
+  if (score >= 80 || (hi && score >= 60)) {
+    return { verdict: "High confidence", hint: "Multiple strong indicators are correlated. Treat as likely malicious until proven otherwise." };
+  }
+  if (score >= 55 || (med && score >= 40)) {
+    return { verdict: "Suspicious", hint: "Correlated activity is suspicious. Validate on-host artifacts and review the timeline." };
+  }
+  if (score > 0) {
+    return { verdict: "Low signal", hint: "Some indicators were observed but confidence is low. Often benign admin activity unless correlated with other alerts." };
+  }
+  return { verdict: "Informational", hint: "No scored indicators. This is usually context-only and can often be ignored." };
 }
 
 function TabButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
@@ -153,6 +243,8 @@ export default function AttackChainDrawer({
     ? `Agent ${payload.case.agent_id}${payload.case.suspect_ip ? ` · Suspect ${payload.case.suspect_ip}` : ""}`
     : "Attack chain timeline and investigation workflow";
 
+  const assessment = payload ? assessCase(payload) : null;
+
   const maxStageRank = useMemo(() => {
     if (!payload) return 0;
     return stageRank(payload.case.max_stage);
@@ -220,7 +312,7 @@ export default function AttackChainDrawer({
     setNoteText("");
   }
 
-  function StepRow({ s }: { s: AttackChainStep }) {
+  function StepRow({ s }: { s: StepView }) {
     return (
       <div className="rounded-xl border border-border/60 bg-background/40 p-4">
         <div className="flex items-start justify-between gap-3">
@@ -228,10 +320,12 @@ export default function AttackChainDrawer({
             <div className="flex items-center gap-2">
               <Badge variant="info">{stageLabel(s.stage)}</Badge>
               <div className="text-sm font-semibold truncate">{s.title}</div>
-              {s.score_delta ? <Badge variant={scoreVariant(Math.max(0, s.score_delta))}>+{s.score_delta}</Badge> : null}
+              {s.scoreDelta ? <Badge variant={scoreVariant(Math.max(0, s.scoreDelta))}>+{s.scoreDelta}</Badge> : null}
+              {s.techniqueId ? <Badge variant="neutral">{s.techniqueId}</Badge> : null}
+              {s.confidence ? <Badge variant={confidenceVariant(s.confidence)}>{confidenceLabel(s.confidence)}</Badge> : null}
             </div>
             {s.description ? <div className="mt-1 text-sm text-muted-foreground">{s.description}</div> : null}
-            <div className="mt-2 text-[11px] font-mono text-muted-foreground">{fmtTs(s.timestamp)}</div>
+            <div className="mt-2 text-[11px] font-mono text-muted-foreground">{fmtTs(s.at)}</div>
           </div>
 
           <div className="shrink-0 text-right">
@@ -240,11 +334,11 @@ export default function AttackChainDrawer({
           </div>
         </div>
 
-        {s.details ? (
+        {s.raw?.details ? (
           <details className="mt-3">
             <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Details (JSON)</summary>
             <pre className="mt-2 text-[11px] font-mono whitespace-pre-wrap break-words text-muted-foreground bg-background/30 border border-border/60 p-3 rounded-lg">
-              {safeJson(s.details)}
+              {safeJson(s.raw.details)}
             </pre>
           </details>
         ) : null}
@@ -332,10 +426,20 @@ export default function AttackChainDrawer({
                 })}
               </div>
               <div className="mt-3 text-[11px] text-muted-foreground">
-                Stages are inferred heuristically from telemetry. Confirm with host artifacts before taking action.
+                Stages are inferred from correlated telemetry and baselines. Validate on-host artifacts before taking action.
               </div>
             </div>
           </div>
+
+          {assessment ? (
+            <div className="rounded-xl border border-border/60 bg-background/40 p-4">
+              <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Assessment</div>
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <Badge variant={scoreVariant(payload.case.score)}>{assessment.verdict}</Badge>
+                <span className="text-sm text-muted-foreground">{assessment.hint}</span>
+              </div>
+            </div>
+          ) : null}
 
           <div className="rounded-xl border border-border/60 bg-background/40">
             <div className="flex items-center gap-2 border-b border-border/60 bg-muted/10 px-4">
@@ -397,8 +501,8 @@ export default function AttackChainDrawer({
               {tab === "timeline" ? (
                 <div className="space-y-3">
                   {payload.steps.length === 0 ? <EmptyState title="NO STEPS" hint="This case has no timeline entries." /> : null}
-                  {payload.steps.map((s) => (
-                    <StepRow key={s.id} s={s} />
+                  {payload.steps.map((raw) => (
+                    <StepRow key={raw.id} s={buildStepView(raw)} />
                   ))}
                 </div>
               ) : null}
