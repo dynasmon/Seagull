@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -26,11 +26,19 @@ from app.attack_chain.store import (
     insert_step_and_update_case,
     case_recent_step_exists,
 )
-from app.attack_chain.types import AttackStage
+from app.attack_chain.types import AttackStage, StepCandidate
 from app.core.db import engine
 
 
 OFFSET_NAME = "attack_chain_v1"
+
+
+def _is_recent(ts: Optional[datetime], now: datetime, window_seconds: int) -> bool:
+    if not ts or not isinstance(ts, datetime):
+        return False
+    if window_seconds <= 0:
+        return False
+    return ts >= (now - timedelta(seconds=int(window_seconds)))
 
 
 def _ensure_bootstrap() -> None:
@@ -154,6 +162,53 @@ def _ensure_bootstrap() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS gin_attack_chain_cases_context ON attack_chain_cases USING GIN (context);"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS gin_attack_chain_steps_details ON attack_chain_steps USING GIN (details);"))
 
+        # SSH correlation helpers (reduce noise and improve attribution).
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS attack_chain_ssh_failures (
+                    agent_id VARCHAR(64) NOT NULL,
+                    src_ip VARCHAR(45) NOT NULL,
+                    username TEXT NOT NULL DEFAULT '',
+                    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    fail_count INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (agent_id, src_ip, username)
+                );
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS attack_chain_login_baseline (
+                    agent_id VARCHAR(64) NOT NULL,
+                    username TEXT NOT NULL DEFAULT '',
+                    src_ip VARCHAR(45) NOT NULL,
+                    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    seen_count INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (agent_id, username, src_ip)
+                );
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS attack_chain_last_access (
+                    agent_id VARCHAR(64) PRIMARY KEY,
+                    username TEXT NULL,
+                    src_ip VARCHAR(45) NULL,
+                    accepted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                """
+            )
+        )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_attack_chain_ssh_failures_last_seen ON attack_chain_ssh_failures (last_seen_at DESC);"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_attack_chain_login_baseline_last_seen ON attack_chain_login_baseline (last_seen_at DESC);"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_attack_chain_last_access_accepted_at ON attack_chain_last_access (accepted_at DESC);"))
+
         # Ensure offset row.
         conn.execute(
             text(
@@ -243,6 +298,182 @@ def _fetch_events(after_id: int, limit: int) -> List[Dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+def _open_case_exists(conn, *, agent_id: str, suspect_ip: str) -> bool:
+    row = conn.execute(
+        text(
+            """
+            SELECT 1
+            FROM attack_chain_cases
+            WHERE agent_id = :agent_id
+              AND suspect_ip = :suspect_ip
+              AND status = 'open'
+            LIMIT 1;
+            """
+        ),
+        {"agent_id": agent_id, "suspect_ip": suspect_ip},
+    ).fetchone()
+    return row is not None
+
+
+def _upsert_last_access(conn, *, agent_id: str, username: str, src_ip: str, accepted_at: datetime) -> None:
+    conn.execute(
+        text(
+            """
+            INSERT INTO attack_chain_last_access (agent_id, username, src_ip, accepted_at)
+            VALUES (:agent_id, :username, :src_ip, :accepted_at)
+            ON CONFLICT (agent_id) DO UPDATE
+               SET username = EXCLUDED.username,
+                   src_ip = EXCLUDED.src_ip,
+                   accepted_at = EXCLUDED.accepted_at;
+            """
+        ),
+        {"agent_id": agent_id, "username": username or None, "src_ip": src_ip or None, "accepted_at": accepted_at},
+    )
+
+
+def _get_recent_last_access(conn, *, agent_id: str, now: datetime, window_seconds: int) -> Optional[Dict[str, Any]]:
+    if window_seconds <= 0:
+        return None
+    row = conn.execute(
+        text(
+            """
+            SELECT username, src_ip, accepted_at
+            FROM attack_chain_last_access
+            WHERE agent_id = :agent_id
+            LIMIT 1;
+            """
+        ),
+        {"agent_id": agent_id},
+    ).mappings().fetchone()
+    if not row:
+        return None
+    accepted_at = row.get("accepted_at")
+    if not isinstance(accepted_at, datetime):
+        return None
+    if accepted_at < (now - timedelta(seconds=int(window_seconds))):
+        return None
+    return {"username": str(row.get("username") or ""), "src_ip": str(row.get("src_ip") or ""), "accepted_at": accepted_at}
+
+
+def _baseline_mark_login(conn, *, agent_id: str, username: str, src_ip: str, ts: datetime) -> bool:
+    """Upsert a (agent_id, username, src_ip) baseline row.
+
+    Returns True if this is the first time we've seen this tuple.
+    """
+
+    row = conn.execute(
+        text(
+            """
+            SELECT seen_count
+            FROM attack_chain_login_baseline
+            WHERE agent_id = :agent_id AND username = :username AND src_ip = :src_ip
+            LIMIT 1;
+            """
+        ),
+        {"agent_id": agent_id, "username": username or "", "src_ip": src_ip},
+    ).fetchone()
+    first_time = row is None
+
+    conn.execute(
+        text(
+            """
+            INSERT INTO attack_chain_login_baseline (agent_id, username, src_ip, first_seen_at, last_seen_at, seen_count)
+            VALUES (:agent_id, :username, :src_ip, :ts, :ts, 1)
+            ON CONFLICT (agent_id, username, src_ip) DO UPDATE
+               SET last_seen_at = EXCLUDED.last_seen_at,
+                   seen_count = attack_chain_login_baseline.seen_count + 1;
+            """
+        ),
+        {"agent_id": agent_id, "username": username or "", "src_ip": src_ip, "ts": ts},
+    )
+
+    return first_time
+
+
+def _inc_ssh_failure(conn, *, agent_id: str, src_ip: str, username: str, now: datetime, window_seconds: int) -> int:
+    """Increment SSH failure counter within a rolling window."""
+
+    if window_seconds <= 0:
+        window_seconds = 10 * 60
+
+    row = conn.execute(
+        text(
+            """
+            SELECT first_seen_at, last_seen_at, fail_count
+            FROM attack_chain_ssh_failures
+            WHERE agent_id = :agent_id AND src_ip = :src_ip AND username = :username
+            LIMIT 1;
+            """
+        ),
+        {"agent_id": agent_id, "src_ip": src_ip, "username": username or ""},
+    ).mappings().fetchone()
+
+    if not row:
+        conn.execute(
+            text(
+                """
+                INSERT INTO attack_chain_ssh_failures (agent_id, src_ip, username, first_seen_at, last_seen_at, fail_count)
+                VALUES (:agent_id, :src_ip, :username, :now, :now, 1)
+                ON CONFLICT (agent_id, src_ip, username) DO UPDATE
+                   SET last_seen_at = EXCLUDED.last_seen_at,
+                       fail_count = attack_chain_ssh_failures.fail_count + 1;
+                """
+            ),
+            {"agent_id": agent_id, "src_ip": src_ip, "username": username or "", "now": now},
+        )
+        return 1
+
+    first_seen_at = row.get("first_seen_at")
+    last_seen_at = row.get("last_seen_at")
+    fail_count = int(row.get("fail_count") or 0)
+    if not isinstance(first_seen_at, datetime) or not isinstance(last_seen_at, datetime):
+        first_seen_at = now
+        last_seen_at = now
+        fail_count = 0
+
+    # Reset the counter if the window expired.
+    if last_seen_at < (now - timedelta(seconds=int(window_seconds))):
+        conn.execute(
+            text(
+                """
+                UPDATE attack_chain_ssh_failures
+                   SET first_seen_at = :now,
+                       last_seen_at = :now,
+                       fail_count = 1
+                 WHERE agent_id = :agent_id AND src_ip = :src_ip AND username = :username;
+                """
+            ),
+            {"agent_id": agent_id, "src_ip": src_ip, "username": username or "", "now": now},
+        )
+        return 1
+
+    new_count = fail_count + 1
+    conn.execute(
+        text(
+            """
+            UPDATE attack_chain_ssh_failures
+               SET last_seen_at = :now,
+                   fail_count = :c
+             WHERE agent_id = :agent_id AND src_ip = :src_ip AND username = :username;
+            """
+        ),
+        {"agent_id": agent_id, "src_ip": src_ip, "username": username or "", "now": now, "c": int(new_count)},
+    )
+    return int(new_count)
+
+
+def _clear_ssh_failures(conn, *, agent_id: str, src_ip: str, username: str) -> None:
+    conn.execute(
+        text(
+            """
+            DELETE FROM attack_chain_ssh_failures
+            WHERE agent_id = :agent_id AND src_ip = :src_ip AND username = :username;
+            """
+        ),
+        {"agent_id": agent_id, "src_ip": src_ip, "username": username or ""},
+    )
+
+
 def _get_max_event_id() -> int:
     with engine.begin() as conn:
         row = conn.execute(text("SELECT COALESCE(max(id), 0) FROM net_events")).fetchone()
@@ -317,13 +548,150 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
                 continue
 
             for cand in steps:
-                suspect_ip = cand.suspect_ip
-                context_patch: Dict[str, Any] = {}
+                # --- Correlation / noise suppression -----------------------
+                # Many low-level events are context (accepted logins, routine sudo).
+                # The worker decides when they become a visible step.
 
-                # Track accepted SSH logins in the case context to help attach local activity.
-                if cand.stage == AttackStage.initial_access and (cand.details or {}).get("action") == "accepted":
-                    context_patch["last_ssh_accept_at"] = (ev.get("timestamp") or now).isoformat()
-                    context_patch["last_ssh_src_ip"] = str(ev.get("src_ip") or "")
+                ev_ts = ev.get("timestamp")
+                if not isinstance(ev_ts, datetime):
+                    ev_ts = now
+
+                # SSH failures: track counts in a rolling window and emit only
+                # when the threshold is reached (reduces case spam).
+                if cand.kind == "ssh_fail":
+                    ip = str(cand.suspect_ip or "").strip()
+                    if not ip:
+                        continue
+                    username = str((cand.details or {}).get("username") or "")
+                    c = _inc_ssh_failure(
+                        conn,
+                        agent_id=agent_id,
+                        src_ip=ip,
+                        username=username,
+                        now=ev_ts,
+                        window_seconds=int(getattr(cfg, "ssh_fail_window_seconds", 10 * 60)),
+                    )
+
+                    thr = int(getattr(cfg, "ssh_fail_threshold", 6))
+                    if c < max(1, thr):
+                        continue
+
+                    # Promote to a real step only when the threshold is met.
+                    cand = StepCandidate(
+                        stage=AttackStage.initial_access,
+                        title="SSH brute-force activity",
+                        description=f"{c} authentication failures observed within a short window.",
+                        score_delta=int(getattr(cfg, "ssh_bruteforce_score", 28)),
+                        fingerprint=f"ssh_bruteforce:{ip}:{username}",
+                        suspect_ip=ip,
+                        details={"src_ip": ip, "username": username, "fail_count": c, "window_s": int(getattr(cfg, "ssh_fail_window_seconds", 10 * 60))},
+                        kind="ssh_bruteforce",
+                        technique_id="T1110.001",
+                        confidence=85,
+                        emit=True,
+                    )
+
+                # SSH accepts: update attribution baseline and emit only when
+                # correlated (after failures) or coming from a new source.
+                if cand.kind == "ssh_accept":
+                    ip = str(cand.suspect_ip or "").strip()
+                    username = str((cand.details or {}).get("username") or "")
+
+                    if ip:
+                        _upsert_last_access(conn, agent_id=agent_id, username=username, src_ip=ip, accepted_at=ev_ts)
+                        first_time = _baseline_mark_login(conn, agent_id=agent_id, username=username, src_ip=ip, ts=ev_ts)
+                    else:
+                        first_time = False
+
+                    if not ip:
+                        continue
+
+                    if _open_case_exists(conn, agent_id=agent_id, suspect_ip=ip):
+                        # If a brute-force case is already open, this is a high-confidence success.
+                        _clear_ssh_failures(conn, agent_id=agent_id, src_ip=ip, username=username)
+                        cand = StepCandidate(
+                            stage=AttackStage.initial_access,
+                            title="SSH login accepted after failures",
+                            description="Successful authentication after a burst of failures.",
+                            score_delta=int(getattr(cfg, "ssh_bruteforce_success_score", 34)),
+                            fingerprint=f"ssh_success_after_fail:{ip}:{username}",
+                            suspect_ip=ip,
+                            details={"src_ip": ip, "username": username, "reason": "success_after_failures"},
+                            kind="ssh_bruteforce_success",
+                            technique_id="T1078",
+                            confidence=90,
+                            emit=True,
+                        )
+                    elif first_time:
+                        # New login source: medium confidence.
+                        cand = StepCandidate(
+                            stage=AttackStage.initial_access,
+                            title="SSH login from new source",
+                            description="First time this source IP was seen for this user/host.",
+                            score_delta=int(getattr(cfg, "ssh_new_source_score", 14)),
+                            fingerprint=f"ssh_new_source:{ip}:{username}",
+                            suspect_ip=ip,
+                            details={"src_ip": ip, "username": username, "reason": "new_source_ip"},
+                            kind="ssh_new_source",
+                            technique_id="T1078",
+                            confidence=60,
+                            emit=True,
+                        )
+                    else:
+                        # Likely normal access (do not emit).
+                        continue
+
+                # Local activity (sudo/exec/persistence) can often be attributed
+                # to a recent remote login. This improves narratives.
+                suspect_ip = cand.suspect_ip
+                if not suspect_ip:
+                    la = _get_recent_last_access(
+                        conn,
+                        agent_id=agent_id,
+                        now=now,
+                        window_seconds=int(getattr(cfg, "attach_local_window_seconds", 20 * 60)),
+                    )
+                    if la and la.get("src_ip"):
+                        suspect_ip = str(la.get("src_ip") or "").strip() or None
+
+                # Routine sudo commands are suppressed unless they can be
+                # attached to an already-open case.
+                if not getattr(cand, "emit", True):
+                    # Only emit suppressed candidates as context if we can
+                    # attach them to an existing case.
+                    can_attach = False
+                    if suspect_ip and _open_case_exists(conn, agent_id=agent_id, suspect_ip=str(suspect_ip)):
+                        can_attach = True
+                    elif agent_id not in attach_cache:
+                        attach_cache[agent_id] = find_attachable_case_id(
+                            conn,
+                            agent_id=agent_id,
+                            now=now,
+                            attach_window_seconds=cfg.attach_local_window_seconds,
+                        )
+                        can_attach = bool(attach_cache.get(agent_id))
+
+                    if not can_attach:
+                        continue
+
+                    cand = StepCandidate(
+                        stage=cand.stage,
+                        title="Privileged command (context)",
+                        description="Privileged activity recorded as context during an active case.",
+                        score_delta=0,
+                        fingerprint=f"ctx:{cand.fingerprint}",
+                        suspect_ip=suspect_ip,
+                        details=dict(cand.details or {}),
+                        kind="context",
+                        technique_id=cand.technique_id,
+                        confidence=min(40, int(getattr(cand, "confidence", 20) or 20)),
+                        emit=True,
+                    )
+
+                context_patch: Dict[str, Any] = {}
+                if cand.kind in {"ssh_bruteforce_success", "ssh_new_source"} and suspect_ip:
+                    context_patch["last_ssh_accept_at"] = ev_ts.isoformat()
+                    context_patch["last_ssh_src_ip"] = str(suspect_ip)
                     context_patch["last_ssh_username"] = str((cand.details or {}).get("username") or "")
 
                 case: Optional[CaseRow] = None
@@ -331,14 +699,13 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
                     case, created = get_or_create_open_case_ex(
                         conn,
                         agent_id=agent_id,
-                        suspect_ip=suspect_ip,
+                        suspect_ip=str(suspect_ip),
                         now=now,
                         context_patch=context_patch or None,
                     )
                     if created:
                         stats["cases_created"] += 1
                 else:
-                    # Local-only steps: attach to the most recent open case for this agent.
                     if agent_id not in attach_cache:
                         attach_cache[agent_id] = find_attachable_case_id(
                             conn,
@@ -378,12 +745,16 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
 
                 details = dict(cand.details or {})
                 details.setdefault("raw_fingerprint", cand.fingerprint)
+                details.setdefault("kind", getattr(cand, "kind", "signal"))
+                details.setdefault("technique_id", getattr(cand, "technique_id", None))
+                details.setdefault("confidence", int(getattr(cand, "confidence", 50) or 50))
+                details.setdefault("description", getattr(cand, "description", ""))
 
                 step_id, new_score, new_max_stage = insert_step_and_update_case(
                     conn,
                     case=case,
                     stage=cand.stage,
-                    label=cand.label,
+                    label=cand.title,
                     fingerprint=fp,
                     score_delta=cand.score_delta,
                     now=now,
@@ -406,7 +777,7 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
                         f"case_id={case.id} step_id={step_id} stage={cand.stage.value} "
                         f"score_delta={int(cand.score_delta or 0)} new_score={new_score} max_stage={new_max_stage} "
                         f"ev_id={ev_id} ev_type={ev_type} src_ip={src_ip} dst_ip={dst_ip} "
-                        f"label={cand.label!r}"
+                        f"title={cand.title!r}"
                     )
 
         # Periodic stale-case closure keeps the UI clean and prevents infinite open cases.

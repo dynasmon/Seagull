@@ -82,10 +82,21 @@ class AttackChainConfig:
     max_score: int
 
     # Default weights (can evolve without DB migrations)
-    ssh_bruteforce_step_score: int
-    ssh_success_score: int
-    sudo_root_score: int
+    # SSH correlation
+    ssh_fail_window_seconds: int
+    ssh_fail_threshold: int
+    ssh_bruteforce_score: int
+    ssh_bruteforce_success_score: int
+    ssh_new_source_score: int
+
+    # Sudo correlation
+    sudo_exec_score: int
     sudo_lolbin_score: int
+    sudo_priv_escalation_score: int
+    sudo_remote_exec_score: int
+    sudo_defense_evasion_score: int
+
+    # Misc
     log_tamper_score: int
 
 
@@ -110,9 +121,21 @@ def load_config() -> AttackChainConfig:
         attach_local_window_seconds=_env_int("NETWATCH_ATTACK_CHAIN_ATTACH_LOCAL_WINDOW_SECONDS", 20 * 60),
         step_dedup_seconds=_env_int("NETWATCH_ATTACK_CHAIN_STEP_DEDUP_SECONDS", 60),
         max_score=_env_int("NETWATCH_ATTACK_CHAIN_MAX_SCORE", 100),
-        ssh_bruteforce_step_score=_env_int("NETWATCH_ATTACK_CHAIN_SSH_BRUTEFORCE_SCORE", 12),
-        ssh_success_score=_env_int("NETWATCH_ATTACK_CHAIN_SSH_SUCCESS_SCORE", 25),
-        sudo_root_score=_env_int("NETWATCH_ATTACK_CHAIN_SUDO_ROOT_SCORE", 20),
+
+        # SSH correlation
+        ssh_fail_window_seconds=_env_int("NETWATCH_ATTACK_CHAIN_SSH_FAIL_WINDOW_SECONDS", 10 * 60),
+        ssh_fail_threshold=_env_int("NETWATCH_ATTACK_CHAIN_SSH_FAIL_THRESHOLD", 6),
+        ssh_bruteforce_score=_env_int("NETWATCH_ATTACK_CHAIN_SSH_BRUTEFORCE_SCORE", 28),
+        ssh_bruteforce_success_score=_env_int("NETWATCH_ATTACK_CHAIN_SSH_BRUTEFORCE_SUCCESS_SCORE", 34),
+        ssh_new_source_score=_env_int("NETWATCH_ATTACK_CHAIN_SSH_NEW_SOURCE_SCORE", 14),
+
+        # Sudo correlation
+        sudo_exec_score=_env_int("NETWATCH_ATTACK_CHAIN_SUDO_EXEC_SCORE", 6),
         sudo_lolbin_score=_env_int("NETWATCH_ATTACK_CHAIN_SUDO_LOLBIN_SCORE", 14),
+        sudo_priv_escalation_score=_env_int("NETWATCH_ATTACK_CHAIN_SUDO_PRIV_ESCALATION_SCORE", 24),
+        sudo_remote_exec_score=_env_int("NETWATCH_ATTACK_CHAIN_SUDO_REMOTE_EXEC_SCORE", 26),
+        sudo_defense_evasion_score=_env_int("NETWATCH_ATTACK_CHAIN_SUDO_DEF_EVASION_SCORE", 30),
+
+        # Misc
         log_tamper_score=_env_int("NETWATCH_ATTACK_CHAIN_LOG_TAMPER_SCORE", 22),
     )

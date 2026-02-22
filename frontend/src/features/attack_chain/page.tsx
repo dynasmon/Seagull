@@ -63,9 +63,10 @@ function fmtTs(iso: string) {
 }
 
 function scoreVariant(score: number) {
-  if (score >= 700) return "critical";
-  if (score >= 450) return "high";
-  if (score >= 200) return "medium";
+  // Backend defaults to 0..100.
+  if (score >= 80) return "critical";
+  if (score >= 60) return "high";
+  if (score >= 40) return "medium";
   if (score > 0) return "low";
   return "neutral";
 }
