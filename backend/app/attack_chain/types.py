@@ -40,11 +40,9 @@ class StepCandidate:
     # Short, human-readable title (used by UI)
     title: str
     # Optional longer description (used by UI)
-    description: str = ""
     score_delta: int
-    # If set, used to avoid producing noisy duplicates.
     fingerprint: str
-    # If set, the case should be keyed by this suspect ip.
+    description: str = ""
     suspect_ip: Optional[str] = None
     details: Dict[str, Any] | None = None
 
