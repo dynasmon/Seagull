@@ -310,6 +310,87 @@ def bootstrap_schema(engine) -> None:
         """,
 
 
+        # Vulnerability scans + findings (source-of-truth in Postgres)
+        """
+        CREATE TABLE IF NOT EXISTS vuln_scans (
+            id SERIAL PRIMARY KEY,
+            scan_uuid VARCHAR(36) UNIQUE NOT NULL,
+            reporter_agent_id VARCHAR(64) NULL,
+            target TEXT NULL,
+            tool VARCHAR(64) NOT NULL DEFAULT 'unknown',
+            tool_version VARCHAR(64) NULL,
+            status VARCHAR(16) NOT NULL DEFAULT 'running',
+            started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            finished_at TIMESTAMPTZ NULL,
+            scope JSONB NOT NULL DEFAULT '{}'::jsonb,
+            config JSONB NOT NULL DEFAULT '{}'::jsonb,
+            stats JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS vuln_findings (
+            id SERIAL PRIMARY KEY,
+            scan_id INTEGER NULL,
+            asset_key VARCHAR(256) NOT NULL,
+            asset_agent_id VARCHAR(64) NULL,
+            reporter_agent_id VARCHAR(64) NULL,
+            target TEXT NULL,
+            asset JSONB NOT NULL DEFAULT '{}'::jsonb,
+            source VARCHAR(32) NOT NULL DEFAULT 'unknown',
+            external_id VARCHAR(128) NULL,
+            fingerprint VARCHAR(64) NOT NULL,
+            severity VARCHAR(16) NOT NULL DEFAULT 'unknown',
+            severity_rank SMALLINT NOT NULL DEFAULT 0,
+            confidence SMALLINT NOT NULL DEFAULT 50,
+            title TEXT NOT NULL,
+            description TEXT NULL,
+            remediation TEXT NULL,
+            cve VARCHAR(32) NULL,
+            cwe VARCHAR(32) NULL,
+            cvss VARCHAR(16) NULL,
+            location TEXT NULL,
+            tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+            evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+            status VARCHAR(16) NOT NULL DEFAULT 'open',
+            is_suppressed BOOLEAN NOT NULL DEFAULT false,
+            first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            occurrences INTEGER NOT NULL DEFAULT 1,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT uq_vuln_findings_asset_fp UNIQUE (asset_key, fingerprint)
+        );
+        """,
+        """
+        DO $$
+        BEGIN
+            IF to_regclass('public.vuln_scans') IS NOT NULL THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_vuln_scans_started_at_id ON vuln_scans (started_at DESC, id DESC)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_vuln_scans_reporter_started ON vuln_scans (reporter_agent_id, started_at DESC, id DESC)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_vuln_scans_status_started ON vuln_scans (status, started_at DESC, id DESC)';
+            END IF;
+
+            IF to_regclass('public.vuln_findings') IS NOT NULL THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_vuln_findings_last_seen_id ON vuln_findings (last_seen_at DESC, id DESC)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_vuln_findings_asset_agent_last_seen ON vuln_findings (asset_agent_id, last_seen_at DESC, id DESC)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_vuln_findings_reporter_last_seen ON vuln_findings (reporter_agent_id, last_seen_at DESC, id DESC)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_vuln_findings_status_last_seen ON vuln_findings (status, last_seen_at DESC, id DESC)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_vuln_findings_sev_last_seen ON vuln_findings (severity_rank DESC, last_seen_at DESC, id DESC)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_vuln_findings_cve_last_seen ON vuln_findings (cve, last_seen_at DESC, id DESC)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_vuln_findings_external_id ON vuln_findings (external_id)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS gin_vuln_findings_tags ON vuln_findings USING GIN (tags)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS gin_vuln_findings_asset ON vuln_findings USING GIN (asset)';
+            END IF;
+        END $$;
+        """,
+        """
+        INSERT INTO search_index_offsets (name, last_id)
+        VALUES ('vuln_findings', 0)
+        ON CONFLICT (name) DO NOTHING;
+        """,
+
+
         # Lupe (ipinfo) enrichment cache
         """
         CREATE TABLE IF NOT EXISTS ip_enrichment_cache (

@@ -1,0 +1,196 @@
+from __future__ import annotations
+
+import re
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, validator
+
+
+_CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,}$", re.IGNORECASE)
+
+
+def _norm(s: Optional[str]) -> Optional[str]:
+    if s is None:
+        return None
+    s2 = str(s).strip()
+    return s2 if s2 else None
+
+
+class VulnScanIn(BaseModel):
+    scan_uuid: Optional[str] = Field(None, min_length=8, max_length=36, description="Client scan id (UUID recommended)")
+    target: Optional[str] = Field(None, max_length=1024, description="Human label (CIDR/host/url)")
+
+    tool: str = Field("unknown", min_length=1, max_length=64)
+    tool_version: Optional[str] = Field(None, max_length=64)
+    status: str = Field("running", min_length=1, max_length=16)
+
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+    scope: Dict[str, Any] = Field(default_factory=dict)
+    config: Dict[str, Any] = Field(default_factory=dict)
+    stats: Dict[str, Any] = Field(default_factory=dict)
+
+    @validator("scan_uuid", pre=True)
+    def _v_scan_uuid(cls, v):
+        v = _norm(v)
+        return v
+
+    @validator("tool", "status", pre=True)
+    def _v_lower_trim(cls, v):
+        v = _norm(v) or ""
+        return v.lower() if v else v
+
+
+class VulnFindingIn(BaseModel):
+    asset_key: str = Field(..., min_length=3, max_length=256, description="Stable asset identity key")
+    asset_agent_id: Optional[str] = Field(None, min_length=1, max_length=64, description="Agent id when the asset is enrolled")
+    target: Optional[str] = Field(None, max_length=2048, description="Human label (ip/host/url)")
+    asset: Dict[str, Any] = Field(default_factory=dict, description="Structured asset metadata (ip/hostname/port/url/etc)")
+
+    source: str = Field("unknown", min_length=1, max_length=32, description="Scanner source (e.g., nuclei, osv, cve)")
+    external_id: Optional[str] = Field(None, max_length=128, description="Template/OSV id/etc")
+    fingerprint: Optional[str] = Field(None, min_length=16, max_length=64, description="Optional dedup fingerprint")
+
+    severity: str = Field("unknown", min_length=1, max_length=16)
+    confidence: int = Field(50, ge=0, le=100, description="Confidence (0-100)")
+
+    title: str = Field(..., min_length=3, max_length=4096)
+    description: Optional[str] = Field(None, max_length=65535)
+    remediation: Optional[str] = Field(None, max_length=65535)
+
+    cve: Optional[str] = Field(None, max_length=32)
+    cwe: Optional[str] = Field(None, max_length=32)
+    cvss: Optional[str] = Field(None, max_length=16, description="CVSS vector or numeric string")
+
+    location: Optional[str] = Field(None, max_length=4096)
+    tags: List[str] = Field(default_factory=list, description="Tags (max 50)")
+    evidence: Dict[str, Any] = Field(default_factory=dict)
+
+    last_seen_at: Optional[datetime] = None
+
+    @validator("asset_key", "asset_agent_id", "target", "external_id", "fingerprint", "cve", "cwe", "location", pre=True)
+    def _v_trim(cls, v):
+        return _norm(v)
+
+    @validator("source", "severity", pre=True)
+    def _v_lower(cls, v):
+        v = _norm(v) or ""
+        return v.lower() if v else v
+
+    @validator("tags")
+    def _v_tags(cls, v: List[str]):
+        if v is None:
+            return []
+        out: List[str] = []
+        for t in v[:50]:
+            t2 = _norm(t)
+            if not t2:
+                continue
+            if len(t2) > 64:
+                t2 = t2[:64]
+            out.append(t2)
+        return out
+
+    @validator("cve")
+    def _v_cve(cls, v: Optional[str]):
+        v2 = _norm(v)
+        if not v2:
+            return None
+        if not _CVE_RE.match(v2):
+            # Accept non-standard strings but keep them as-is.
+            return v2
+        return v2.upper()
+
+
+class VulnIngestBatch(BaseModel):
+    scan: Optional[VulnScanIn] = None
+    findings: List[VulnFindingIn] = Field(default_factory=list, description="Findings (max 2000 by default)")
+
+
+class VulnScanOut(BaseModel):
+    id: int
+    scan_uuid: str
+    reporter_agent_id: Optional[str] = None
+    target: Optional[str] = None
+    tool: str
+    tool_version: Optional[str] = None
+    status: str
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    scope: Dict[str, Any]
+    config: Dict[str, Any]
+    stats: Dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class VulnFindingOut(BaseModel):
+    id: int
+    scan_id: Optional[int] = None
+
+    asset_key: str
+    asset_agent_id: Optional[str] = None
+    reporter_agent_id: Optional[str] = None
+    target: Optional[str] = None
+    asset: Dict[str, Any]
+
+    source: str
+    external_id: Optional[str] = None
+    fingerprint: str
+
+    severity: str
+    severity_rank: int
+    confidence: int
+
+    title: str
+    description: Optional[str] = None
+    remediation: Optional[str] = None
+
+    cve: Optional[str] = None
+    cwe: Optional[str] = None
+    cvss: Optional[str] = None
+
+    location: Optional[str] = None
+    tags: List[str]
+    evidence: Dict[str, Any]
+
+    status: str
+    is_suppressed: bool
+
+    first_seen_at: datetime
+    last_seen_at: datetime
+    occurrences: int
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class VulnFindingPatchIn(BaseModel):
+    status: Optional[str] = Field(None, min_length=1, max_length=16)
+    is_suppressed: Optional[bool] = None
+
+    @validator("status", pre=True)
+    def _v_status(cls, v):
+        v2 = _norm(v)
+        return v2.lower() if v2 else None
+
+
+class VulnIngestResult(BaseModel):
+    scan_id: Optional[int] = None
+    scan_uuid: Optional[str] = None
+    received_findings: int
+    stored_findings: int
+
+
+class VulnSummaryOut(BaseModel):
+    generated_at: datetime
+    total_open: int
+    total_suppressed: int
+    by_severity: Dict[str, int]
+    by_status: Dict[str, int]
