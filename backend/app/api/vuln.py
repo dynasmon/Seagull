@@ -182,7 +182,9 @@ def ingest_findings(
                 )
                 VALUES (
                     :scan_uuid, :reporter_agent_id, :target, :tool, :tool_version, :status,
-                    :started_at, :finished_at, :scope::jsonb, :config::jsonb, :stats::jsonb, now()
+                    :started_at, :finished_at,
+                    CAST(:scope AS jsonb), CAST(:config AS jsonb), CAST(:stats AS jsonb),
+                    now()
                 )
                 ON CONFLICT (scan_uuid)
                 DO UPDATE SET
@@ -288,12 +290,12 @@ def ingest_findings(
                 first_seen_at, last_seen_at, occurrences, updated_at
             )
             VALUES (
-                :scan_id, :asset_key, :asset_agent_id, :reporter_agent_id, :target, :asset::jsonb,
+                :scan_id, :asset_key, :asset_agent_id, :reporter_agent_id, :target, CAST(:asset AS jsonb),
                 :source, :external_id, :fingerprint,
                 :severity, :severity_rank, :confidence,
                 :title, :description, :remediation,
                 :cve, :cwe, :cvss,
-                :location, :tags::jsonb, :evidence::jsonb,
+                :location, CAST(:tags AS jsonb), CAST(:evidence AS jsonb),
                 'open', false,
                 now(), :last_seen_at, 1, now()
             )
