@@ -12,7 +12,16 @@ function ActiveBar({ active }: { active: boolean }) {
 function ItemIcon({
   name
 }: {
-  name: "dashboard" | "events" | "alerts" | "attackchain" | "correlations" | "agents" | "inventory" | "settings";
+  name:
+    | "dashboard"
+    | "events"
+    | "alerts"
+    | "attackchain"
+    | "correlations"
+    | "vuln"
+    | "agents"
+    | "inventory"
+    | "settings";
 }) {
   const common = "h-4 w-4";
   switch (name) {
@@ -58,6 +67,24 @@ function ItemIcon({
         <svg className={common} viewBox="0 0 24 24" fill="none">
           <path
             d="M7 7a3 3 0 1 0 0 .01V7Zm10 10a3 3 0 1 0 0 .01V17ZM9.1 8.9l5.8 5.8"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case "vuln":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none">
+          <path
+            d="M12 2 20 6v6c0 5-3.3 9.6-8 10-4.7-.4-8-5-8-10V6l8-4Z"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M9.5 12.5 11 14l3.5-4"
             stroke="currentColor"
             strokeWidth="2"
             strokeLinecap="round"
@@ -196,6 +223,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
             <NavItem collapsed={collapsed} to="/alerts/queue" label="Alerts" icon="alerts" />
             <NavItem collapsed={collapsed} to={toPlain("/attack-chain")} label="Attack Chains" icon="attackchain" />
             <NavItem collapsed={collapsed} to="/correlations/findings" label="Correlations" icon="correlations" />
+            <NavItem collapsed={collapsed} to={toPlain("/vulnerabilities")} label="Vulnerabilities" icon="vuln" end />
           </div>
         </div>
 
