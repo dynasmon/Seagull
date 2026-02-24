@@ -374,6 +374,32 @@ services:
     volumes:
       - agent-ddos-state:/var/lib/netwatch
 
+  netwatch-agent-vuln:
+    <<: *agent-base
+    container_name: netwatch-agent-vuln
+    depends_on:
+      - netwatch-backend
+    environment:
+      <<: *agent-env
+      NETWATCH_AGENT_ID: ${AGENT_VULN_ID}
+      NETWATCH_SOURCES: vuln,syscollector
+      NETWATCH_HOST_ROOT: ${NETWATCH_VULN_HOST_ROOT}
+      NETWATCH_VULN_SCAN_EVERY: ${NETWATCH_VULN_SCAN_EVERY}
+      NETWATCH_VULN_HTTP_TIMEOUT: ${NETWATCH_VULN_HTTP_TIMEOUT}
+      NETWATCH_VULN_OSV_URL: ${NETWATCH_VULN_OSV_URL}
+      NETWATCH_VULN_MIN_SEVERITY: ${NETWATCH_VULN_MIN_SEVERITY}
+      NETWATCH_VULN_QUERY_BATCH_SIZE: ${NETWATCH_VULN_QUERY_BATCH_SIZE}
+      NETWATCH_VULN_CMD_TIMEOUT: ${NETWATCH_VULN_CMD_TIMEOUT}
+      NETWATCH_VULN_MAX_PACKAGES: ${NETWATCH_VULN_MAX_PACKAGES}
+      NETWATCH_VULN_HOST_ROOT: ${NETWATCH_VULN_HOST_ROOT}
+      NETWATCH_VULN_EMIT_SUMMARY_EVENT: ${NETWATCH_VULN_EMIT_SUMMARY_EVENT}
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - agent-vuln-state:/var/lib/netwatch
+      - /:/host:ro
+
 networks:
   netwatch:
     driver: bridge
@@ -386,3 +412,4 @@ volumes:
   agent-scan-state:
   agent-ddos-state:
   agent-lateral-state:
+  agent-vuln-state:
