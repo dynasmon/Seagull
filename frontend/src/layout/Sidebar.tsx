@@ -223,7 +223,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
             <NavItem collapsed={collapsed} to="/alerts/queue" label="Alerts" icon="alerts" />
             <NavItem collapsed={collapsed} to={toPlain("/attack-chain")} label="Attack Chains" icon="attackchain" />
             <NavItem collapsed={collapsed} to="/correlations/findings" label="Correlations" icon="correlations" />
-            <NavItem collapsed={collapsed} to={toPlain("/vulnerabilities")} label="Vulnerabilities" icon="vuln" end />
+            <NavItem collapsed={collapsed} to={toPlain("/vulnerabilities")} label="Vulnerabilities" icon="vuln" />
           </div>
         </div>
 
