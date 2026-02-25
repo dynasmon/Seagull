@@ -277,6 +277,10 @@ export default function VulnerabilitiesPage() {
         title="Vulnerabilities"
         breadcrumb={["Detection", "Vulnerabilities"]}
         description="Triage vulnerability findings reported by agents."
+        tabs={[
+          { label: "Findings", to: "/vulnerabilities" },
+          { label: "Scans", to: "/vulnerabilities/scans" },
+        ]}
         toolbarRight={
           <div className="flex flex-wrap items-center gap-2">
             <Toggle

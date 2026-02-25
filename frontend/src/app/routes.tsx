@@ -22,6 +22,7 @@ const CorrelationRulesPage = lazy(() => import("@/features/correlations/views/ru
 const AttackChainPage = lazy(() => import("@/features/attack_chain/page"));
 
 const VulnerabilitiesPage = lazy(() => import("@/features/vulnerabilities/page"));
+const VulnerabilityScansPage = lazy(() => import("@/features/vulnerabilities/scans"));
 
 const InventoryPage = lazy(() => import("@/features/inventory/page"));
 const SettingsPage = lazy(() => import("@/features/settings/page"));
@@ -61,6 +62,7 @@ export function Routes() {
           <Route path="/attack-chain" element={<AttackChainPage />} />
 
           <Route path="/vulnerabilities" element={<VulnerabilitiesPage />} />
+          <Route path="/vulnerabilities/scans" element={<VulnerabilityScansPage />} />
 
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
