@@ -55,14 +55,12 @@ class VulnFindingModel(Base):
     # Which agent produced the finding (can differ from asset_agent_id).
     reporter_agent_id = Column(String(64), index=True, nullable=True)
 
-    # A human-friendly target label (ip/hostname/url).
     target = Column(Text, nullable=True)
     asset = Column(JSONB, nullable=False, default=dict)
 
     source = Column(String(32), nullable=False, default="unknown")
     external_id = Column(String(128), nullable=True)
 
-    # Fingerprint is required for stable deduplication.
     fingerprint = Column(String(64), nullable=False)
 
     severity = Column(String(16), nullable=False, default="unknown")
