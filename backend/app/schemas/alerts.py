@@ -14,6 +14,12 @@ class AlertOut(BaseModel):
     dst_ip: Optional[str] = None
     dst_port: Optional[int] = None
 
+    # MITRE ATT&CK metadata (optional but first-class)
+    mitre_tactic: Optional[str] = None
+    mitre_technique_id: Optional[str] = None
+    mitre_technique: Optional[str] = None
+    confidence: int = 50
+
     description: str
     details: Dict[str, Any] = Field(default_factory=dict)
 

@@ -39,9 +39,31 @@ export type AttackChainStep = {
   details: any;
 };
 
+export type MitreTechniqueStat = {
+  technique_id: string;
+  technique?: string | null;
+  count: number;
+  max_confidence: number;
+  avg_confidence: number;
+};
+
+export type MitreTacticCoverage = {
+  tactic: string;
+  total: number;
+  max_confidence: number;
+  avg_confidence: number;
+  techniques: MitreTechniqueStat[];
+};
+
+export type MitreCaseSummary = {
+  progression: string[];
+  tactics: MitreTacticCoverage[];
+};
+
 export type AttackChainCaseWithSteps = {
   case: AttackChainCase;
   steps: AttackChainStep[];
+  mitre: MitreCaseSummary;
 };
 
 export type AttackChainCasesPage = CursorPage<AttackChainCase>;

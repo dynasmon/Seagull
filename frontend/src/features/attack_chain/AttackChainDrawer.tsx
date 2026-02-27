@@ -487,6 +487,69 @@ export default function AttackChainDrawer({
                     </div>
                   </div>
 
+                  <div className="rounded-xl border border-border/60 bg-background/30 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold">MITRE ATT&CK Coverage</div>
+                        <div className="text-xs text-muted-foreground">
+                          Summary derived from the case timeline (tactics + techniques + confidence).
+                        </div>
+                      </div>
+                      <Badge variant={confidenceVariant(payload.mitre?.tactics?.[0]?.max_confidence || 0)}>
+                        {payload.mitre?.tactics?.reduce((acc, t) => acc + (Number(t.total) || 0), 0) || 0}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-4">
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Progression</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {(payload.mitre?.progression || []).length === 0 ? (
+                          <div className="text-sm text-muted-foreground">No technique metadata attached to this case yet.</div>
+                        ) : (
+                          (payload.mitre?.progression || []).map((k) => (
+                            <Badge key={k} variant={"neutral" as any}>
+                              {stageLabel(k) || k}
+                            </Badge>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {(payload.mitre?.tactics || []).map((t) => (
+                        <div key={t.tactic} className="rounded-lg border border-border/60 bg-background/40 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                              {stageLabel(t.tactic) || t.tactic}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant={confidenceVariant(Number(t.max_confidence) || 0) as any}>
+                                {Number(t.max_confidence) || 0}%
+                              </Badge>
+                              <Badge variant={"info" as any}>{Number(t.total) || 0}</Badge>
+                            </div>
+                          </div>
+
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {(t.techniques || []).slice(0, 12).map((x) => (
+                              <div
+                                key={x.technique_id}
+                                className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background/50 px-2 py-1"
+                                title={x.technique || x.technique_id}
+                              >
+                                <span className="text-[11px] font-mono text-foreground">{x.technique_id}</span>
+                                <span className="text-[11px] text-muted-foreground">×{Number(x.count) || 0}</span>
+                              </div>
+                            ))}
+                            {(t.techniques || []).length > 12 ? (
+                              <div className="text-[11px] text-muted-foreground">+{(t.techniques || []).length - 12} more</div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   {payload.case.context ? (
                     <details>
                       <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Case context (JSON)</summary>

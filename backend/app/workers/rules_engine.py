@@ -14,6 +14,8 @@ from app.models.alerts import AlertModel
 from app.models.events import NetEventModel
 from app.workers.rules_registry import apply_override, fetch_overrides, load_baseline_rules, normalize_rule_list
 
+from app.mitre.catalog import technique_name
+
 _ALLOWED_EVENT_FIELDS = {
     "agent_id",
     "event_type",
@@ -25,6 +27,55 @@ _ALLOWED_EVENT_FIELDS = {
     "bytes",
 }
 
+
+
+def _clamp_int(v: Any, lo: int, hi: int, default: int) -> int:
+    try:
+        n = int(v)
+    except Exception:
+        return int(default)
+    return max(int(lo), min(int(hi), n))
+
+
+def _extract_mitre_meta(rule: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract and normalize MITRE ATT&CK metadata from a rule dict.
+
+    Expected schema in YAML:
+        mitre:
+          tactic: "discovery"
+          technique_id: "T1046"
+          technique: "Network Service Scanning"  # optional
+          confidence: 75
+
+    Returns an empty dict if no metadata is defined.
+    """
+
+    m = rule.get('mitre')
+    if not isinstance(m, dict):
+        return {}
+
+    tactic = str(m.get('tactic') or '').strip() or None
+    technique_id = str(m.get('technique_id') or m.get('technique') or '').strip() or None
+
+    # If the YAML uses 'technique' as the name, keep it separate.
+    technique = m.get('technique_name') if 'technique_name' in m else m.get('technique')
+    technique = str(technique or '').strip() or None
+
+    if technique_id and not technique:
+        technique = technique_name(technique_id)
+
+    confidence = _clamp_int(m.get('confidence', 50), 0, 100, 50)
+
+    out: Dict[str, Any] = {}
+    if tactic:
+        out['tactic'] = tactic
+    if technique_id:
+        out['technique_id'] = technique_id
+    if technique:
+        out['technique'] = technique
+    out['confidence'] = confidence
+
+    return out
 
 def _safe_col(field: str):
     if field not in _ALLOWED_EVENT_FIELDS:
@@ -439,12 +490,22 @@ def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[A
             src_ip=None,
             dst_ip=dst_ip,
             dst_port=a.dst_port,
+            mitre_tactic="impact",
+            mitre_technique_id="T1498",
+            mitre_technique=(technique_name("T1498") or "Network Denial of Service"),
+            confidence=85,
             description="Potential incident: DDoS/DoS correlated with additional hostile activity",
             details={
                 "type": "correlation",
                 "window_seconds": int(horizon.total_seconds()),
                 "correlated_rules": correlated,
                 "base_rule_id": a.rule_id,
+                "mitre": {
+                    "tactic": "impact",
+                    "technique_id": "T1498",
+                    "technique": (technique_name("T1498") or "Network Denial of Service"),
+                    "confidence": 85,
+                },
             },
         )
         db.add(incident)
@@ -552,6 +613,7 @@ def run_rules_once():
             rule_type = rule.get("type")
             severity = rule.get("severity", "low")
             description = rule.get("description", "")
+            mitre = _extract_mitre_meta(rule)
 
             window_s = rule.get("window", "5m")
             cooldown_s = rule.get("cooldown", "10m")
@@ -631,12 +693,18 @@ def run_rules_once():
                         details["src_ips"] = enrichment["src_ips"]
                         details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
 
+                    if mitre:
+                        details["mitre"] = mitre
                     alert = AlertModel(
                         rule_id=rule_id,
                         severity=severity,
                         src_ip=src_ip,
                         dst_ip=dst_ip,
                         dst_port=dst_port,
+                        mitre_tactic=mitre.get("tactic"),
+                        mitre_technique_id=mitre.get("technique_id"),
+                        mitre_technique=mitre.get("technique"),
+                        confidence=int(mitre.get("confidence", 50) or 50),
                         description=description,
                         details=details,
                     )
@@ -718,12 +786,18 @@ def run_rules_once():
                         details["src_ips"] = enrichment["src_ips"]
                         details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
 
+                    if mitre:
+                        details["mitre"] = mitre
                     alert = AlertModel(
                         rule_id=rule_id,
                         severity=severity,
                         src_ip=src_ip,
                         dst_ip=dst_ip,
                         dst_port=dst_port,
+                        mitre_tactic=mitre.get("tactic"),
+                        mitre_technique_id=mitre.get("technique_id"),
+                        mitre_technique=mitre.get("technique"),
+                        confidence=int(mitre.get("confidence", 50) or 50),
                         description=description,
                         details=details,
                     )
@@ -818,12 +892,18 @@ def run_rules_once():
                         details["src_ips"] = enrichment["src_ips"]
                         details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
 
+                    if mitre:
+                        details["mitre"] = mitre
                     alert = AlertModel(
                         rule_id=rule_id,
                         severity=severity,
                         src_ip=src_ip,
                         dst_ip=dst_ip,
                         dst_port=dst_port,
+                        mitre_tactic=mitre.get("tactic"),
+                        mitre_technique_id=mitre.get("technique_id"),
+                        mitre_technique=mitre.get("technique"),
+                        confidence=int(mitre.get("confidence", 50) or 50),
                         description=description,
                         details=details,
                     )
