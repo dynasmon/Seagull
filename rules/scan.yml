@@ -3,6 +3,11 @@ rules:
   - id: tcp_vertical_port_scan_v3
     name: "TCP vertical port scan"
     description: "One source probing many TCP ports on this host."
+    mitre:
+      tactic: "discovery"
+      technique_id: "T1046"
+      technique: "Network Service Scanning"
+      confidence: 85
     enabled: true
     severity: "high"
     type: "distinct_count"
@@ -23,6 +28,11 @@ rules:
   - id: udp_vertical_port_scan_v2
     name: "UDP vertical port scan"
     description: "One source probing many UDP ports on this host."
+    mitre:
+      tactic: "discovery"
+      technique_id: "T1046"
+      technique: "Network Service Scanning"
+      confidence: 80
     enabled: true
     severity: "high"
     type: "distinct_count"
@@ -43,6 +53,11 @@ rules:
   - id: tcp_scan_spray_v1
     name: "TCP scan spray (ports + source ports diversity)"
     description: "High-confidence scan pattern requiring port diversity."
+    mitre:
+      tactic: "discovery"
+      technique_id: "T1046"
+      technique: "Network Service Scanning"
+      confidence: 75
     enabled: true
     severity: "medium"
     type: "multi_distinct"

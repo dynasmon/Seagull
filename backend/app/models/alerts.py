@@ -19,5 +19,11 @@ class AlertModel(Base):
     dst_ip = Column(String(45), nullable=True, index=True)
     dst_port = Column(Integer, nullable=True)
 
+    # MITRE ATT&CK metadata (optional but first-class)
+    mitre_tactic = Column(String(64), nullable=True, index=True)
+    mitre_technique_id = Column(String(32), nullable=True, index=True)
+    mitre_technique = Column(String(128), nullable=True)
+    confidence = Column(Integer, nullable=False, default=50)
+
     description = Column(String(255), nullable=False)
     details = Column(JSONB, nullable=False, default=dict)

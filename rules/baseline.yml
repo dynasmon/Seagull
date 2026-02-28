@@ -2,6 +2,11 @@ rules:
   - id: ssh_bruteforce_authlog_v2
     name: "SSH brute force (authlog-based)"
     description: "Counts ssh_auth events per source IP."
+    mitre:
+      tactic: "credential_access"
+      technique_id: "T1110.001"
+      technique: "Brute Force: Password Guessing"
+      confidence: 80
     enabled: true
     severity: "high"
     type: "aggregate_count"
@@ -20,6 +25,11 @@ rules:
   - id: port_scan_pcap_v1
     name: "Vertical port scan (pcap)"
     description: "Distinct destination ports per source IP using scan_probe."
+    mitre:
+      tactic: "discovery"
+      technique_id: "T1046"
+      technique: "Network Service Scanning"
+      confidence: 85
     enabled: true
     severity: "high"
     type: "distinct_count"
@@ -40,6 +50,11 @@ rules:
   - id: horizontal_scan_pcap_v1
     name: "Horizontal scan on a single port (pcap)"
     description: "Distinct destination IPs per source IP for a fixed port using scan_probe."
+    mitre:
+      tactic: "discovery"
+      technique_id: "T1046"
+      technique: "Network Service Scanning"
+      confidence: 75
     enabled: true
     severity: "medium"
     type: "distinct_count"
@@ -76,6 +91,11 @@ rules:
   - id: horizontal_scan_ssh_pcap_v1
     name: "Horizontal scan on SSH (pcap)"
     description: "Distinct destination IPs per source IP on dst_port 22 using scan_probe."
+    mitre:
+      tactic: "discovery"
+      technique_id: "T1046"
+      technique: "Network Service Scanning"
+      confidence: 75
     enabled: true
     severity: "medium"
     type: "distinct_count"
@@ -95,6 +115,11 @@ rules:
   - id: lateral_admin_ports_burst_v1
     name: "Lateral burst on admin ports"
     description: "High rate of admin-port attempts from one source (host-based)."
+    mitre:
+      tactic: "lateral_movement"
+      technique_id: "T1021"
+      technique: "Remote Services"
+      confidence: 70
     enabled: true
     severity: "high"
     type: "aggregate_count"
@@ -112,6 +137,11 @@ rules:
   - id: lateral_admin_port_diversity_v1
     name: "Admin port diversity (host-based)"
     description: "One source touching many admin ports on this host."
+    mitre:
+      tactic: "lateral_movement"
+      technique_id: "T1021"
+      technique: "Remote Services"
+      confidence: 60
     enabled: true
     severity: "medium"
     type: "distinct_count"

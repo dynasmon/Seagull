@@ -187,7 +187,42 @@ def bootstrap_schema(engine) -> None:
             END IF;
         END $$;
         """,
-        # Indexes: agents / alerts
+                # Alerts: MITRE ATT&CK columns
+        """
+        DO $$
+        BEGIN
+            IF to_regclass('public.alerts') IS NOT NULL THEN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema='public' AND table_name='alerts' AND column_name='mitre_tactic'
+                ) THEN
+                    ALTER TABLE alerts ADD COLUMN mitre_tactic VARCHAR(64);
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema='public' AND table_name='alerts' AND column_name='mitre_technique_id'
+                ) THEN
+                    ALTER TABLE alerts ADD COLUMN mitre_technique_id VARCHAR(32);
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema='public' AND table_name='alerts' AND column_name='mitre_technique'
+                ) THEN
+                    ALTER TABLE alerts ADD COLUMN mitre_technique VARCHAR(128);
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema='public' AND table_name='alerts' AND column_name='confidence'
+                ) THEN
+                    ALTER TABLE alerts ADD COLUMN confidence SMALLINT NOT NULL DEFAULT 50;
+                END IF;
+            END IF;
+        END $$;
+        """,
+# Indexes: agents / alerts
         """
         DO $$
         BEGIN
@@ -200,6 +235,9 @@ def bootstrap_schema(engine) -> None:
 
                 -- Cursor pagination uses ORDER BY (created_at DESC, id DESC)
                 EXECUTE 'CREATE INDEX IF NOT EXISTS idx_alerts_created_at_id ON alerts (created_at, id)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_alerts_mitre_tactic_created_at_id ON alerts (mitre_tactic, created_at DESC, id DESC)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_alerts_mitre_technique_id_created_at_id ON alerts (mitre_technique_id, created_at DESC, id DESC)';
+                EXECUTE 'CREATE INDEX IF NOT EXISTS idx_alerts_confidence_created_at_id ON alerts (confidence, created_at DESC, id DESC)';
             END IF;
         END $$;
         """,
