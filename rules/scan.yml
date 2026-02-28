@@ -1,5 +1,4 @@
 rules:
-  # 1) TCP vertical scan: um host varrendo muitas portas TCP
   - id: tcp_vertical_port_scan_v3
     name: "TCP vertical port scan"
     description: "One source probing many TCP ports on this host."
@@ -24,7 +23,6 @@ rules:
       operator: ">="
       value: 20
 
-  # 2) UDP vertical scan: um host varrendo várias portas UDP
   - id: udp_vertical_port_scan_v2
     name: "UDP vertical port scan"
     description: "One source probing many UDP ports on this host."
@@ -49,7 +47,6 @@ rules:
       operator: ">="
       value: 15
 
-  # 3) TCP spray: confirma padrão de scan com diversidade de portas e portas de origem
   - id: tcp_scan_spray_v1
     name: "TCP scan spray (ports + source ports diversity)"
     description: "High-confidence scan pattern requiring port diversity."
