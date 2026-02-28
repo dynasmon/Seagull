@@ -1,5 +1,5 @@
 import { apiGet } from "@/shared/lib/http";
-import type { Agent, Alert, NetEvent, OverviewSnapshot } from "./types";
+import type { Agent, Alert, NetEvent, OverviewSnapshot, StormStatus } from "./types";
 
 export function getAgents() {
   return apiGet<Agent[]>("/api/agents");
@@ -29,4 +29,9 @@ export function getOverview(params?: { window_minutes?: number; agent_id?: strin
   if (params?.agent_id) q.set("agent_id", params.agent_id);
   const qs = q.toString();
   return apiGet<OverviewSnapshot>(`/api/overview${qs ? `?${qs}` : ""}`);
+}
+
+
+export function getStormStatus() {
+  return apiGet<StormStatus>("/api/ingest/storm/status");
 }

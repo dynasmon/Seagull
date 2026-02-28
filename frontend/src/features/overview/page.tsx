@@ -5,9 +5,11 @@ import { Link } from "react-router-dom";
 import EmptyState from "@/shared/components/EmptyState";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
-import type { Alert } from "./types";
+import type { Alert, StormStatus } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
 import { useOverviewLive } from "./live";
+
+import { getStormStatus } from "./api";
 
 import { listAttackChainCases } from "@/features/attack_chain/api";
 
@@ -255,6 +257,31 @@ function SeverityBadge({ severity }: { severity: string }) {
 export default function OverviewPage() {
   const { snapshot, isLoading, error, lastUpdatedAt } = useOverviewLive();
 
+  const [storm, setStorm] = useState<StormStatus | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+
+    const tick = async () => {
+      try {
+        const s = await getStormStatus();
+        if (!alive) return;
+        setStorm(s);
+      } catch {
+        if (!alive) return;
+        setStorm(null);
+      }
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 3000);
+
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
   const derived = useMemo(() => {
     if (!snapshot) {
       return {
@@ -405,6 +432,45 @@ export default function OverviewPage() {
                 ? `Error: ${acTile.error}`
                 : `Last 24h · max score ${acTile.maxScore}${acTile.lastSeen ? ` · last ${fmtDateTime(acTile.lastSeen)}` : ""}`
             }
+          />
+
+          <StatTile
+            label="STORM MODE"
+            value={storm?.active ? "ACTIVE" : "OK"}
+            hint={
+              storm
+                ? `${storm.reason}${storm.open_alert_id ? ` · alert #${storm.open_alert_id}` : ""}`
+                : "unavailable"
+            }
+            tone={storm?.active ? "warn" : "good"}
+          />
+
+          <StatTile
+            label="EPS (ingest)"
+            value={storm?.eps ?? 0}
+            hint={storm?.active ? "storm window" : "last second"}
+            tone={storm && storm.eps >= 8000 ? "warn" : "default"}
+          />
+
+          <StatTile
+            label="SAMPLE (hot/warm)"
+            value={storm ? `${storm.sample_hot_percent}% / ${storm.sample_warm_percent}%` : "-"}
+            hint="hot=Postgres · warm=ES"
+            tone={storm?.active ? "warn" : "default"}
+          />
+
+          <StatTile
+            label="DROP %"
+            value={storm ? `${storm.drop_percent}%` : "0%"}
+            hint="dropped from raw ingestion"
+            tone={storm && storm.drop_percent > 0 ? "warn" : "good"}
+          />
+
+          <StatTile
+            label="BACKLOG (events)"
+            value={storm?.backlog_events ?? 0}
+            hint={storm ? `messages: ${storm.backlog_messages}` : undefined}
+            tone={storm && storm.backlog_events > 50000 ? "warn" : "default"}
           />
         </div>
       </DashboardSection>

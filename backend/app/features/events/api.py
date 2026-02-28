@@ -14,6 +14,7 @@ from app.core.portal_auth import get_current_user
 from app.models.events import NetEventModel
 from app.schemas.events import (
     NetEventDB,
+    NetEventRollup1s,
     ProtocolIntelSummaryResponse,
     ProtoCount,
     ProtoDnsQueryStat,
@@ -258,6 +259,55 @@ def get_recent_events(
 
         result = db.execute(stmt)
         return result.scalars().all()
+    finally:
+        db.close()
+
+
+@router.get("/rollups/1s", response_model=List[NetEventRollup1s])
+def list_rollups_1s(
+    minutes: int = Query(60, ge=1, le=24 * 60, description="Lookback window in minutes"),
+    limit: int = Query(500, ge=1, le=5000, description="Max buckets to return"),
+    agent_id: Optional[str] = Query(None, min_length=1, max_length=64),
+    event_type: Optional[str] = Query(None, min_length=1, max_length=32),
+    dst_ip: Optional[str] = Query(None, min_length=1, max_length=45),
+    dst_port: Optional[int] = Query(None, ge=0, le=65535),
+):
+    """1-second rollups for high-rate telemetry.
+
+    This is especially useful during volumetric attacks when raw events may be sampled.
+    """
+
+    since = datetime.now(timezone.utc) - timedelta(minutes=int(minutes))
+
+    db = SessionLocal()
+    try:
+        stmt = text(
+            """
+            SELECT bucket_ts, agent_id, event_type, dst_ip, dst_port, proto, count, bytes_sum
+            FROM net_event_rollups_1s
+            WHERE bucket_ts >= :since
+              AND (:agent_id IS NULL OR agent_id = :agent_id)
+              AND (:event_type IS NULL OR event_type = :event_type)
+              AND (:dst_ip IS NULL OR dst_ip = :dst_ip)
+              AND (:dst_port IS NULL OR dst_port = :dst_port)
+            ORDER BY bucket_ts DESC
+            LIMIT :limit;
+            """
+        )
+
+        rows = db.execute(
+            stmt,
+            {
+                "since": since,
+                "agent_id": agent_id,
+                "event_type": event_type,
+                "dst_ip": dst_ip,
+                "dst_port": dst_port,
+                "limit": int(limit),
+            },
+        ).mappings().all()
+
+        return [NetEventRollup1s(**dict(r)) for r in rows]
     finally:
         db.close()
 

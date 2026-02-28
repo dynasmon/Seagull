@@ -35,6 +35,9 @@ class ESConfig:
     idle_sleep_seconds: float
     request_timeout_seconds: int
     bootstrap: bool
+    ilm_enabled: bool
+    ilm_delete_after_days: int
+    ilm_policy_name: str
     username: Optional[str]
     password: Optional[str]
     verify_certs: bool
@@ -86,6 +89,9 @@ def load_config() -> ESConfig:
         idle_sleep_seconds=max(0.25, _env_float("NETWATCH_ES_IDLE_SLEEP_SECONDS", 2.0)),
         request_timeout_seconds=max(5, _env_int("NETWATCH_ES_REQUEST_TIMEOUT_SECONDS", 30)),
         bootstrap=_env_bool("NETWATCH_ES_BOOTSTRAP", False),
+        ilm_enabled=_env_bool("NETWATCH_ES_ILM_ENABLED", True),
+        ilm_delete_after_days=max(1, _env_int("NETWATCH_ES_ILM_DELETE_AFTER_DAYS", 30)),
+        ilm_policy_name=_env_str("NETWATCH_ES_ILM_POLICY_NAME", "") or "",
         username=_env_str("NETWATCH_ES_USERNAME", None),
         password=_env_str("NETWATCH_ES_PASSWORD", None),
         verify_certs=_env_bool("NETWATCH_ES_VERIFY_CERTS", True),

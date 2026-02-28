@@ -72,3 +72,17 @@ export type OverviewSnapshot = {
     dst_port?: number | null;
   }>;
 };
+
+
+export type StormStatus = {
+  active: boolean;
+  eps: number;
+  sample_hot_percent: number;
+  sample_warm_percent: number;
+  drop_percent: number;
+  backlog_events: number;
+  backlog_messages: number;
+  reason: string;
+  since: string | null;
+  open_alert_id: number | null;
+};

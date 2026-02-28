@@ -1,0 +1,438 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "panels": [],
+      "title": "Storm Mode",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "text": "OK"
+                },
+                "1": {
+                  "text": "ACTIVE"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, COALESCE(MAX(CASE WHEN storm_active THEN 1 ELSE 0 END),0)::bigint AS value\nFROM ingest_stats_1s\nWHERE bucket_ts >= NOW() - interval '2 minutes';",
+          "refId": "A"
+        }
+      ],
+      "title": "Storm Active",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 8000
+              },
+              {
+                "color": "red",
+                "value": 20000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, COALESCE(SUM(received),0)::bigint AS value\nFROM ingest_stats_1s\nWHERE bucket_ts >= NOW() - interval '2 seconds';",
+          "refId": "A"
+        }
+      ],
+      "title": "EPS (last ~1s)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 0.02
+              },
+              {
+                "color": "red",
+                "value": 0.1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, COALESCE((SUM(dropped)::double precision / NULLIF(SUM(received),0)),0) AS value\nFROM ingest_stats_1s\nWHERE bucket_ts >= NOW() - interval '1 minute';",
+          "refId": "A"
+        }
+      ],
+      "title": "Drop Rate (last 1m)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 50000
+              },
+              {
+                "color": "red",
+                "value": 200000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT NOW() AS time, COALESCE(MAX(backlog_events),0)::bigint AS value\nFROM ingest_stats_1s\nWHERE bucket_ts >= NOW() - interval '1 minute';",
+          "refId": "A"
+        }
+      ],
+      "title": "Backlog Events (max 1m)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 5
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT time, metric, value FROM (\n  SELECT $__timeGroupAlias(bucket_ts, '1s') AS time, 'eps' AS metric, SUM(received)::bigint AS value\n  FROM ingest_stats_1s\n  WHERE $__timeFilter(bucket_ts)\n  GROUP BY 1\n  UNION ALL\n  SELECT $__timeGroupAlias(bucket_ts, '1s') AS time, 'dropped' AS metric, SUM(dropped)::bigint AS value\n  FROM ingest_stats_1s\n  WHERE $__timeFilter(bucket_ts)\n  GROUP BY 1\n  UNION ALL\n  SELECT $__timeGroupAlias(bucket_ts, '1s') AS time, 'rejected' AS metric, SUM(rejected)::bigint AS value\n  FROM ingest_stats_1s\n  WHERE $__timeFilter(bucket_ts)\n  GROUP BY 1\n) s\nORDER BY time;",
+          "refId": "A"
+        }
+      ],
+      "title": "Ingest EPS / Dropped / Rejected",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 5
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(bucket_ts, '10s') AS time, MAX(backlog_events)::bigint AS value\nFROM ingest_stats_1s\nWHERE $__timeFilter(bucket_ts)\nGROUP BY 1\nORDER BY 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "Backlog Events",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "netwatch-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "id": 20,
+      "options": {
+        "showHeader": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT bucket_ts AS time, received, hot_stored, warm_indexed, dropped, rejected, rollup_only, backlog_events, backlog_messages, sample_hot_percent, sample_warm_percent, storm_active\nFROM ingest_stats_1s\nWHERE $__timeFilter(bucket_ts)\nORDER BY bucket_ts DESC\nLIMIT 300;",
+          "refId": "A"
+        }
+      ],
+      "title": "Ingest Stats (1s)",
+      "type": "table"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [
+    "netwatch",
+    "ingest"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "NetWatch Ingest Storm",
+  "uid": "netwatch-ingest-storm",
+  "version": 1
+}
