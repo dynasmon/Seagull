@@ -154,6 +154,8 @@ def ingest_events(
     now = datetime.now(timezone.utc)
 
     # Storm control (best-effort; fails open).
+    # IMPORTANT: "storm" is strictly volumetric (events/sec). Backpressure (queue backlog)
+    # is treated separately so the UI can show "DRAINING" once the attack stops.
     decision = evaluate_storm(agent.agent_id, len(events))
 
     # Final mode
@@ -184,11 +186,13 @@ def ingest_events(
     if bp.mode == "rollup_only":
         mode = "rollup_only"
 
-    storm_active = bool(decision.storm_active) or mode != "normal"
-    storm_reason = decision.reason if decision.storm_active else bp.reason
+    storm_active = bool(decision.storm_active)
+    pressure_active = mode != "normal"
+    active_for_metrics = storm_active or pressure_active
+    storm_reason = decision.reason if decision.storm_active else ("draining" if pressure_active else "ok")
 
     rollup_always = _env_bool("NETWATCH_INGEST_ROLLUP_ALWAYS", False)
-    do_rollup = rollup_always or storm_active
+    do_rollup = rollup_always or active_for_metrics
 
     # Sampling policy (hot vs warm)
     if mode == "rollup_only":
@@ -361,15 +365,15 @@ def ingest_events(
             dropped=len(events) - stored,
             rejected=0,
             rollup_only=1 if mode == "rollup_only" else 0,
-            storm_active=storm_active,
+            storm_active=active_for_metrics,
             sample_hot=hot_pct,
             sample_warm=warm_pct,
         )
         maybe_flush_stats_to_db()
 
-        if storm_active:
-            mark_storm_active(reason=storm_reason, sample_hot=hot_pct, sample_warm=warm_pct)
-            storm_maybe_open_alert(reason=storm_reason, sample_hot=hot_pct, sample_warm=warm_pct)
+        if storm_active or bp.mode == "reject_429":
+            mark_storm_active(reason=decision.reason if decision.storm_active else bp.reason, sample_hot=hot_pct, sample_warm=warm_pct)
+            storm_maybe_open_alert(reason=decision.reason if decision.storm_active else bp.reason, sample_hot=hot_pct, sample_warm=warm_pct)
 
         return {
             "received": len(events),
@@ -393,15 +397,16 @@ def ingest_events(
         dropped=dropped,
         rejected=0,
         rollup_only=1 if mode == "rollup_only" else 0,
-        storm_active=storm_active,
+        storm_active=active_for_metrics,
         sample_hot=hot_pct,
         sample_warm=warm_pct,
     )
     maybe_flush_stats_to_db()
 
-    if storm_active:
-        mark_storm_active(reason=storm_reason, sample_hot=hot_pct, sample_warm=warm_pct)
-        storm_maybe_open_alert(reason=storm_reason, sample_hot=hot_pct, sample_warm=warm_pct)
+    # Open/refresh the storm key and system alert only for volumetric storm (or hard 429 backpressure).
+    if storm_active or bp.mode == "reject_429":
+        mark_storm_active(reason=decision.reason if decision.storm_active else bp.reason, sample_hot=hot_pct, sample_warm=warm_pct)
+        storm_maybe_open_alert(reason=decision.reason if decision.storm_active else bp.reason, sample_hot=hot_pct, sample_warm=warm_pct)
 
     return {
         "received": len(events),

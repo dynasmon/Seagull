@@ -53,6 +53,11 @@ def queue_key() -> str:
     return _env_str("NETWATCH_INGEST_QUEUE_KEY", "netwatch:ingest:queue")
 
 
+def processing_key() -> str:
+    qk = queue_key()
+    return _env_str("NETWATCH_INGEST_PROCESSING_KEY", f"{qk}:processing")
+
+
 def backlog_events_key() -> str:
     return _env_str("NETWATCH_INGEST_BACKLOG_EVENTS_KEY", "netwatch:ingest:backlog_events")
 
@@ -101,7 +106,8 @@ def get_backlog() -> Tuple[int, int]:
         return 0, 0
 
     try:
-        msgs = int(r.llen(queue_key()))
+        # Include items being processed by the worker.
+        msgs = int(r.llen(queue_key())) + int(r.llen(processing_key()))
     except Exception:
         msgs = 0
 
@@ -331,26 +337,41 @@ def storm_maybe_open_alert(*, reason: str, sample_hot: int, sample_warm: int) ->
     except Exception:
         return
 
-    now = datetime.now(timezone.utc)
-    session_id = str(uuid.uuid4())
-
-    # Create session keys atomically.
+    # Small lock to avoid stampeding Postgres under heavy load.
+    lock_key = "netwatch:ingest:storm_alert_open_lock"
     try:
-        pipe = r.pipeline()
-        pipe.setnx(storm_session_key(), session_id)
-        pipe.setnx(storm_since_key(), now.isoformat())
-        res = pipe.execute()
-        created = bool(res[0])
-        if not created:
-            # Another process won the race; bail out.
+        if not r.set(lock_key, "1", nx=True, ex=5):
             return
     except Exception:
         return
 
+    now = datetime.now(timezone.utc)
+
+    # Reuse session metadata if already created (important for retries).
+    try:
+        session_id = (r.get(storm_session_key()) or "").strip()
+        since_iso = (r.get(storm_since_key()) or "").strip()
+    except Exception:
+        session_id, since_iso = "", ""
+
+    if not session_id:
+        session_id = str(uuid.uuid4())
+        try:
+            r.setnx(storm_session_key(), session_id)
+        except Exception:
+            pass
+
+    if not since_iso:
+        since_iso = now.isoformat()
+        try:
+            r.setnx(storm_since_key(), since_iso)
+        except Exception:
+            pass
+
     details = {
         "storm": {
             "session_id": session_id,
-            "started_at": now.isoformat(),
+            "started_at": since_iso,
             "reason": reason,
             "sample_hot_percent": int(sample_hot),
             "sample_warm_percent": int(sample_warm),
@@ -392,8 +413,13 @@ def storm_maybe_open_alert(*, reason: str, sample_hot: int, sample_warm: int) ->
         if alert_id:
             r.setex(storm_alert_id_key(), _env_int("NETWATCH_INGEST_STORM_ALERT_TTL_SECONDS", 3600), str(alert_id))
     except Exception:
-        # fail open
+        # fail open; the lock will expire and we can retry later
         return
+    finally:
+        try:
+            r.delete(lock_key)
+        except Exception:
+            pass
 
 
 def storm_maybe_close_alert() -> None:
@@ -542,12 +568,19 @@ def get_storm_status() -> Dict[str, Any]:
         drop_pct = int(round((dropped / received) * 100.0))
 
     try:
-        active = bool(r.get(storm_active_key()))
+        storm_flag = bool(r.get(storm_active_key()))
     except Exception:
-        active = False
+        storm_flag = False
+
+    # "Draining" means the attack rate is back to normal, but the async queue still has backlog.
+    soft = _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000)
+    draining_flag = (not storm_flag) and soft > 0 and int(backlog_ev) >= int(soft)
+
+    phase = "storm" if storm_flag else ("draining" if draining_flag else "ok")
+    active = phase != "ok"
 
     try:
-        reason = (r.get("netwatch:ingest:storm_reason") or "").strip() or ("storm" if active else "ok")
+        reason = (r.get("netwatch:ingest:storm_reason") or "").strip() or (phase if active else "ok")
     except Exception:
         reason = "ok"
 
@@ -569,6 +602,7 @@ def get_storm_status() -> Dict[str, Any]:
 
     return {
         "active": bool(active),
+        "phase": phase,
         "eps": int(eps),
         "sample_hot_percent": int(max(0, min(sample_hot, 100))),
         "sample_warm_percent": int(max(0, min(sample_warm, 100))),

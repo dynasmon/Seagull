@@ -436,20 +436,28 @@ export default function OverviewPage() {
 
           <StatTile
             label="STORM MODE"
-            value={storm?.active ? "ACTIVE" : "OK"}
+            value={
+              storm?.phase === "storm"
+                ? "ATTACK"
+                : storm?.phase === "draining"
+                  ? "DRAINING"
+                  : storm?.active
+                    ? "ACTIVE"
+                    : "OK"
+            }
             hint={
               storm
                 ? `${storm.reason}${storm.open_alert_id ? ` · alert #${storm.open_alert_id}` : ""}`
                 : "unavailable"
             }
-            tone={storm?.active ? "warn" : "good"}
+            tone={storm?.phase === "storm" ? "warn" : storm?.phase === "draining" ? "default" : storm?.active ? "warn" : "good"}
           />
 
           <StatTile
             label="EPS (ingest)"
             value={storm?.eps ?? 0}
-            hint={storm?.active ? "storm window" : "last second"}
-            tone={storm && storm.eps >= 8000 ? "warn" : "default"}
+            hint={storm?.phase === "storm" ? "storm window" : "last second"}
+            tone={storm?.phase === "storm" ? "warn" : "default"}
           />
 
           <StatTile
