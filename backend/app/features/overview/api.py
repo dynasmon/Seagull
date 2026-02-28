@@ -17,6 +17,21 @@ router = APIRouter(
 )
 
 
+def _env_int(name: str, default: int) -> int:
+    import os
+
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    raw = raw.strip()
+    if not raw:
+        return default
+    try:
+        return int(raw, 10)
+    except Exception:
+        return default
+
+
 def _utc_now() -> datetime:
     """Return timezone-aware UTC 'now'."""
     return datetime.now(timezone.utc)
@@ -116,6 +131,23 @@ def get_overview(
         params = {"start_ts": start_ts, "end_ts": now, "agent_id": agent_id}
 
         # -----------------------------
+        # Ingest pressure detection
+        # If Storm/Backpressure is active, raw net_events may be heavily sampled.
+        # In that case, we pivot the Overview to net_event_rollups_1s so the UI
+        # remains useful during and after volumetric attacks.
+        # -----------------------------
+        q_pressure = text(
+            """
+            SELECT
+              COALESCE(MAX(CASE WHEN storm_active THEN 1 ELSE 0 END), 0)::int AS active
+            FROM ingest_stats_1s
+            WHERE bucket_ts >= (now() AT TIME ZONE 'utc') - interval '120 seconds';
+            """
+        )
+        pr = db.execute(q_pressure).mappings().first() or {}
+        use_ingest_rollups = int(pr.get("active") or 0) == 1
+
+        # -----------------------------
         # KPIs
         # -----------------------------
         q_kpis = text(
@@ -152,6 +184,26 @@ def get_overview(
             """
         )
         kpi_row = db.execute(q_kpis, {"agent_id": agent_id}).mappings().first() or {}
+
+        # If we are under ingest pressure, use net_event_rollups_1s for event KPIs.
+        if use_ingest_rollups:
+            q_roll_kpi = text(
+                """
+                SELECT
+                  COALESCE(SUM(count), 0)::bigint AS events_5m,
+                  MAX(bucket_ts) AS last_bucket_ts
+                FROM net_event_rollups_1s
+                WHERE bucket_ts >= (now() AT TIME ZONE 'utc') - interval '5 minutes'
+                  AND (:agent_id IS NULL OR agent_id = :agent_id);
+                """
+            )
+            rr = db.execute(q_roll_kpi, {"agent_id": agent_id}).mappings().first() or {}
+            kpi_row = dict(kpi_row)
+            kpi_row["events_5m"] = int(rr.get("events_5m") or 0)
+            # Prefer rollup timestamp for freshness.
+            if rr.get("last_bucket_ts") is not None:
+                # last_event_age_m is computed below from last_event_ts; store a compatible key.
+                kpi_row["last_event_ts"] = rr.get("last_bucket_ts")
         kpis = {
             "total_agents": int(kpi_row.get("total_agents") or 0),
             "online_agents": int(kpi_row.get("online_agents") or 0),
@@ -160,11 +212,38 @@ def get_overview(
             "last_event_age_m": kpi_row.get("last_event_age_m"),
         }
 
+        # If we injected a rollup-based last_event_ts, recompute age.
+        if use_ingest_rollups and kpi_row.get("last_event_ts") is not None:
+            try:
+                last_ts = kpi_row.get("last_event_ts")
+                if last_ts.tzinfo is None:
+                    last_ts = last_ts.replace(tzinfo=timezone.utc)
+                kpis["last_event_age_m"] = int(((now - last_ts).total_seconds()) // 60)
+            except Exception:
+                pass
+
         # -----------------------------
         # Traffic time-series (top 3 event_types + other)
         # Prefer rollups (event_rollups_1m).
         # -----------------------------
+        # For time-series: prefer event_rollups_1m (cheap). Under ingest pressure,
+        # fall back to net_event_rollups_1s aggregated by minute.
         top_types = _top_event_types(db, start_ts, now, agent_id)
+        if use_ingest_rollups and not top_types:
+            q_top = text(
+                """
+                SELECT event_type, SUM(count) AS total
+                FROM net_event_rollups_1s
+                WHERE bucket_ts >= :start_ts
+                  AND bucket_ts <= :end_ts
+                  AND (:agent_id IS NULL OR agent_id = :agent_id)
+                GROUP BY event_type
+                ORDER BY total DESC
+                LIMIT 3;
+                """
+            )
+            rows_top = db.execute(q_top, params).mappings().all()
+            top_types = [str(r["event_type"]) for r in rows_top if r.get("event_type")]
         while len(top_types) < 3:
             top_types.append(None)  # placeholder for query binding
 
@@ -203,6 +282,47 @@ def get_overview(
             """
         )
         traffic_rows = db.execute(q_traffic, {**params, "t1": t1, "t2": t2, "t3": t3}).mappings().all()
+
+        # Fallback for ingest pressure: build traffic series from net_event_rollups_1s.
+        # event_rollups_1m may lag or become sparse when raw net_events are sampled.
+        total_cnt = 0
+        for rr in traffic_rows:
+            total_cnt += int(rr.get("s1") or 0) + int(rr.get("s2") or 0) + int(rr.get("s3") or 0) + int(rr.get("other") or 0)
+
+        if use_ingest_rollups and total_cnt == 0:
+            q_traffic2 = text(
+                """
+                WITH buckets AS (
+                  SELECT generate_series(
+                    date_trunc('minute', :start_ts),
+                    date_trunc('minute', :end_ts),
+                    interval '1 minute'
+                  ) AS bucket_ts
+                ),
+                agg AS (
+                  SELECT
+                    date_trunc('minute', bucket_ts) AS bucket_ts,
+                    event_type,
+                    SUM(count)::bigint AS cnt
+                  FROM net_event_rollups_1s
+                  WHERE bucket_ts >= :start_ts
+                    AND bucket_ts <= :end_ts
+                    AND (:agent_id IS NULL OR agent_id = :agent_id)
+                  GROUP BY 1, 2
+                )
+                SELECT
+                  b.bucket_ts,
+                  COALESCE(SUM(CASE WHEN agg.event_type = :t1 THEN agg.cnt END), 0)::bigint AS s1,
+                  COALESCE(SUM(CASE WHEN agg.event_type = :t2 THEN agg.cnt END), 0)::bigint AS s2,
+                  COALESCE(SUM(CASE WHEN agg.event_type = :t3 THEN agg.cnt END), 0)::bigint AS s3,
+                  COALESCE(SUM(CASE WHEN agg.event_type IS NOT NULL AND agg.event_type NOT IN (:t1, :t2, :t3) THEN agg.cnt END), 0)::bigint AS other
+                FROM buckets b
+                LEFT JOIN agg ON agg.bucket_ts = b.bucket_ts
+                GROUP BY b.bucket_ts
+                ORDER BY b.bucket_ts ASC;
+                """
+            )
+            traffic_rows = db.execute(q_traffic2, {**params, "t1": t1, "t2": t2, "t3": t3}).mappings().all()
 
         traffic_series = [x for x in [t1, t2, t3] if x] + ["other"]
         alias_map = {"s1": t1 or "x1", "s2": t2 or "x2", "s3": t3 or "x3", "other": "other"}

@@ -76,6 +76,7 @@ export type OverviewSnapshot = {
 
 export type StormStatus = {
   active: boolean;
+  phase?: "ok" | "storm" | "draining";
   eps: number;
   sample_hot_percent: number;
   sample_warm_percent: number;
