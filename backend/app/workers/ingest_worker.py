@@ -399,23 +399,59 @@ def main() -> None:
 
                 # hot
                 for ev in msg.get("hot_events") or []:
+                    # Defensive: older queued messages may contain nulls / missing fields.
+                    agent_id = ev[0] if len(ev) > 0 else None
+                    event_type = ev[1] if len(ev) > 1 else None
+                    if not agent_id or not event_type:
+                        continue
+
                     try:
-                        ts = datetime.fromisoformat(ev[3])
+                        ts = datetime.fromisoformat(ev[3]) if (len(ev) > 3 and ev[3]) else datetime.utcnow()
                     except Exception:
                         ts = datetime.utcnow()
+
+                    try:
+                        schema_v = int(ev[2] or 1)
+                    except Exception:
+                        schema_v = 1
+
+                    src_ip = ev[4] if (len(ev) > 4 and ev[4]) else None
+                    dst_ip = ev[5] if (len(ev) > 5 and ev[5]) else None
+
+                    src_port = ev[6] if (len(ev) > 6) else None
+                    dst_port = ev[7] if (len(ev) > 7) else None
+                    try:
+                        src_port = int(src_port) if src_port is not None else None
+                    except Exception:
+                        src_port = None
+                    try:
+                        dst_port = int(dst_port) if dst_port is not None else None
+                    except Exception:
+                        dst_port = None
+
+                    proto = ev[8] if (len(ev) > 8 and ev[8]) else None
+
+                    bytes_v = ev[9] if (len(ev) > 9) else None
+                    try:
+                        bytes_v = int(bytes_v) if bytes_v is not None else 0
+                    except Exception:
+                        bytes_v = 0
+
+                    extra_v = ev[10] if (len(ev) > 10 and isinstance(ev[10], dict)) else {}
+
                     hot_rows.append(
                         (
-                            ev[0],
-                            ev[1],
-                            int(ev[2] or 1),
+                            agent_id,
+                            event_type,
+                            schema_v,
                             ts,
-                            ev[4],
-                            ev[5],
-                            ev[6],
-                            ev[7],
-                            ev[8],
-                            ev[9],
-                            Json(ev[10], dumps=json.dumps),
+                            src_ip,
+                            dst_ip,
+                            src_port,
+                            dst_port,
+                            proto,
+                            bytes_v,
+                            Json(extra_v, dumps=json.dumps),
                         )
                     )
 
@@ -441,24 +477,40 @@ def main() -> None:
                 # warm
                 if es is not None and cfg.warm_enabled:
                     for ev in msg.get("warm_events") or []:
+                        agent_id = ev[0] if len(ev) > 0 else None
+                        event_type = ev[1] if len(ev) > 1 else None
+                        if not agent_id or not event_type:
+                            continue
+
                         try:
-                            ts = datetime.fromisoformat(ev[3])
+                            ts = datetime.fromisoformat(ev[3]) if (len(ev) > 3 and ev[3]) else datetime.utcnow()
                         except Exception:
                             ts = datetime.utcnow()
 
+                        try:
+                            schema_v = int(ev[2] or 1)
+                        except Exception:
+                            schema_v = 1
+
+                        bytes_v = ev[9] if (len(ev) > 9) else None
+                        try:
+                            bytes_v = int(bytes_v) if bytes_v is not None else 0
+                        except Exception:
+                            bytes_v = 0
+
                         warm_docs.append(
                             {
-                                "agent_id": ev[0],
-                                "event_type": ev[1],
-                                "schema_version": int(ev[2] or 1),
+                                "agent_id": agent_id,
+                                "event_type": event_type,
+                                "schema_version": schema_v,
                                 "timestamp": ts,
-                                "src_ip": ev[4],
-                                "dst_ip": ev[5],
-                                "src_port": ev[6],
-                                "dst_port": ev[7],
-                                "proto": ev[8],
-                                "bytes": ev[9],
-                                "extra": ev[10] if isinstance(ev[10], dict) else {},
+                                "src_ip": ev[4] if (len(ev) > 4 and ev[4]) else None,
+                                "dst_ip": ev[5] if (len(ev) > 5 and ev[5]) else None,
+                                "src_port": int(ev[6]) if (len(ev) > 6 and ev[6] is not None) else None,
+                                "dst_port": int(ev[7]) if (len(ev) > 7 and ev[7] is not None) else None,
+                                "proto": ev[8] if (len(ev) > 8 and ev[8]) else None,
+                                "bytes": bytes_v,
+                                "extra": ev[10] if (len(ev) > 10 and isinstance(ev[10], dict)) else {},
                             }
                         )
 
@@ -539,7 +591,13 @@ def main() -> None:
             backoff = 0.25
 
         except Exception as e:
-            print(f"[INGEST] error={type(e).__name__} backoff={backoff}")
+            col = getattr(getattr(e, "diag", None), "column_name", None)
+            tbl = getattr(getattr(e, "diag", None), "table_name", None)
+            msg = f"[INGEST] error={type(e).__name__}"
+            if tbl or col:
+                msg += f" table={tbl} column={col}"
+            msg += f" backoff={backoff}"
+            print(msg)
             time.sleep(backoff)
             backoff = min(5.0, backoff * 1.8)
 
