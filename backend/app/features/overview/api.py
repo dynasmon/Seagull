@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import zlib
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -7,6 +9,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 
 from app.core.db import SessionLocal
+from app.core.es import es_is_available, get_es_client
+from app.core.redis_client import get_redis
 
 from app.core.portal_auth import get_current_user
 
@@ -35,6 +39,100 @@ def _env_int(name: str, default: int) -> int:
 def _utc_now() -> datetime:
     """Return timezone-aware UTC 'now'."""
     return datetime.now(timezone.utc)
+
+
+def _env_str(name: str, default: str) -> str:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    raw = raw.strip()
+    return raw if raw else default
+
+
+def _best_effort_ingest_backlog() -> Tuple[int, int]:
+    """Return (backlog_events, backlog_messages) from Redis best-effort."""
+
+    r = get_redis()
+    if r is None:
+        return (0, 0)
+
+    try:
+        backlog_key = _env_str("NETWATCH_INGEST_BACKLOG_EVENTS_KEY", "netwatch:ingest:backlog_events")
+        qk = _env_str("NETWATCH_INGEST_QUEUE_KEY", "netwatch:ingest:queue")
+        pk = _env_str("NETWATCH_INGEST_PROCESSING_KEY", f"{qk}:processing")
+
+        ev = int(r.get(backlog_key) or 0)
+        msgs = int(r.llen(qk) or 0) + int(r.llen(pk) or 0)
+        return (max(0, ev), max(0, msgs))
+    except Exception:
+        return (0, 0)
+
+
+def _warm_index_prefix() -> str:
+    return _env_str(
+        "NETWATCH_INGEST_WARM_INDEX_PREFIX",
+        _env_str("NETWATCH_ES_INDEX_PREFIX", "netwatch-events") + "-warm",
+    )
+
+
+def _warm_recent_events(*, agent_id: Optional[str], start_ts: datetime, end_ts: datetime, limit: int = 30) -> List[Dict[str, Any]]:
+    """Fetch a small sample of recent events from the warm tier (Elasticsearch).
+
+    This keeps the UI usable when hot (Postgres) storage is heavily sampled.
+    """
+
+    if not es_is_available():
+        return []
+
+    try:
+        es = get_es_client()
+
+        must: List[Dict[str, Any]] = []
+        if agent_id:
+            must.append({"term": {"agent_id": agent_id}})
+
+        # Keep it bounded so we don't scan large warm tiers.
+        must.append({"range": {"timestamp": {"gte": start_ts.isoformat(), "lte": end_ts.isoformat()}}})
+
+        q = {"bool": {"must": must}} if must else {"match_all": {}}
+
+        resp = es.search(
+            index=f"{_warm_index_prefix()}-*",
+            size=max(1, min(int(limit), 200)),
+            sort=[{"timestamp": {"order": "desc"}}],
+            query=q,
+            track_total_hits=False,
+            source=["timestamp", "agent_id", "event_type", "src_ip", "dst_ip", "dst_port"],
+        )
+
+        out: List[Dict[str, Any]] = []
+        for hit in (resp.get("hits") or {}).get("hits") or []:
+            src = hit.get("_source") or {}
+            ts = src.get("timestamp")
+            aid = src.get("agent_id")
+            et = src.get("event_type")
+            if not ts or not aid or not et:
+                continue
+
+            # UI expects a numeric id; generate a stable-ish one.
+            raw_id = f"{aid}|{et}|{ts}|{src.get('dst_ip','')}|{src.get('dst_port','')}"
+            eid = int(zlib.crc32(raw_id.encode("utf-8")) & 0xFFFFFFFF)
+
+            out.append(
+                {
+                    "id": eid,
+                    "timestamp": ts,
+                    "agent_id": aid,
+                    "event_type": et,
+                    "src_ip": src.get("src_ip"),
+                    "dst_ip": src.get("dst_ip"),
+                    "dst_port": src.get("dst_port"),
+                }
+            )
+
+        return out
+    except Exception:
+        return []
 
 
 def _fmt_hhmm(dt: datetime) -> str:
@@ -124,103 +222,140 @@ def get_overview(
     """
 
     now = _utc_now()
-    start_ts = now - timedelta(minutes=window_minutes)
+
+    # Redis-backed queue/backpressure is the authoritative indicator that we're under
+    # ingest pressure (storm or draining). We use this so the Overview stays useful
+    # even after the last ingest request (when ingest_stats_1s stops updating).
+    backlog_ev, backlog_msgs = _best_effort_ingest_backlog()
 
     db = SessionLocal()
     try:
-        params = {"start_ts": start_ts, "end_ts": now, "agent_id": agent_id}
-
         # -----------------------------
         # Ingest pressure detection
-        # If Storm/Backpressure is active, raw net_events may be heavily sampled.
-        # In that case, we pivot the Overview to net_event_rollups_1s so the UI
-        # remains useful during and after volumetric attacks.
         # -----------------------------
-        q_pressure = text(
-            """
-            SELECT
-              COALESCE(MAX(CASE WHEN storm_active THEN 1 ELSE 0 END), 0)::int AS active
-            FROM ingest_stats_1s
-            WHERE bucket_ts >= (now() AT TIME ZONE 'utc') - interval '120 seconds';
-            """
-        )
-        pr = db.execute(q_pressure).mappings().first() or {}
-        use_ingest_rollups = int(pr.get("active") or 0) == 1
+        use_ingest_rollups = False
+
+        # DB signal (fast): recent ingest_stats_1s rows indicate Storm was active.
+        try:
+            q_pressure = text(
+                """
+                SELECT
+                  COALESCE(MAX(CASE WHEN storm_active THEN 1 ELSE 0 END), 0)::int AS active
+                FROM ingest_stats_1s
+                WHERE bucket_ts >= (now() AT TIME ZONE 'utc') - interval '300 seconds';
+                """
+            )
+            pr = db.execute(q_pressure).mappings().first() or {}
+            use_ingest_rollups = int(pr.get("active") or 0) == 1
+        except Exception:
+            use_ingest_rollups = False
+
+        # Redis signal (authoritative): backlog/queue still exists even after the last ingest.
+        if backlog_ev > 0 or backlog_msgs > 0:
+            use_ingest_rollups = True
+
+        # Anchor the window to the freshest data when draining.
+        data_end_ts = now
+        last_roll_ts = None
+        if use_ingest_rollups:
+            try:
+                q_last_roll = text(
+                    """
+                    SELECT MAX(bucket_ts) AS last_bucket_ts
+                    FROM net_event_rollups_1s
+                    WHERE bucket_ts >= (now() AT TIME ZONE 'utc') - interval '2 days'
+                      AND (:agent_id IS NULL OR agent_id = :agent_id);
+                    """
+                )
+                rr = db.execute(q_last_roll, {"agent_id": agent_id}).mappings().first() or {}
+                last_roll_ts = rr.get("last_bucket_ts")
+                if last_roll_ts is not None:
+                    if last_roll_ts.tzinfo is None:
+                        last_roll_ts = last_roll_ts.replace(tzinfo=timezone.utc)
+                    data_end_ts = last_roll_ts
+            except Exception:
+                pass
+
+        start_ts = data_end_ts - timedelta(minutes=window_minutes)
+        params = {"start_ts": start_ts, "end_ts": data_end_ts, "agent_id": agent_id}
 
         # -----------------------------
         # KPIs
         # -----------------------------
-        q_kpis = text(
+        q_agents = text(
             """
-            WITH
-            a AS (
-              SELECT
-                COUNT(*)::int AS total_agents,
-                COUNT(*) FILTER (WHERE last_seen_at >= (now() AT TIME ZONE 'utc') - interval '5 minutes')::int AS online_agents
-              FROM agents
-            ),
-            e AS (
-              SELECT
-                COUNT(*) FILTER (WHERE "timestamp" >= (now() AT TIME ZONE 'utc') - interval '5 minutes')::int AS events_5m,
-                MAX("timestamp") AS last_event_ts
-              FROM net_events
-              WHERE (:agent_id IS NULL OR agent_id = :agent_id)
-            ),
-            al AS (
-              SELECT
-                COUNT(*) FILTER (WHERE created_at >= (now() AT TIME ZONE 'utc') - interval '60 minutes')::int AS alerts_60m
-              FROM alerts
-            )
             SELECT
-              a.total_agents,
-              a.online_agents,
-              e.events_5m,
-              al.alerts_60m,
-              CASE
-                WHEN e.last_event_ts IS NULL THEN NULL
-                ELSE FLOOR(EXTRACT(EPOCH FROM ((now() AT TIME ZONE 'utc') - e.last_event_ts)) / 60)::int
-              END AS last_event_age_m
-            FROM a, e, al;
+              COUNT(*)::int AS total_agents,
+              COUNT(*) FILTER (WHERE last_seen_at >= (now() AT TIME ZONE 'utc') - interval '5 minutes')::int AS online_agents
+            FROM agents;
             """
         )
-        kpi_row = db.execute(q_kpis, {"agent_id": agent_id}).mappings().first() or {}
+        ag = db.execute(q_agents).mappings().first() or {}
 
-        # If we are under ingest pressure, use net_event_rollups_1s for event KPIs.
+        q_alerts = text(
+            """
+            SELECT
+              COUNT(*) FILTER (WHERE created_at >= (now() AT TIME ZONE 'utc') - interval '60 minutes')::int AS alerts_60m
+            FROM alerts;
+            """
+        )
+        al = db.execute(q_alerts).mappings().first() or {}
+
+        events_5m = 0
+        last_event_ts = None
+
         if use_ingest_rollups:
-            q_roll_kpi = text(
+            # When draining, report event KPIs relative to the latest known data_end_ts.
+            q_ev = text(
                 """
                 SELECT
-                  COALESCE(SUM(count), 0)::bigint AS events_5m,
-                  MAX(bucket_ts) AS last_bucket_ts
+                  COALESCE(SUM(count), 0)::bigint AS events_5m
                 FROM net_event_rollups_1s
-                WHERE bucket_ts >= (now() AT TIME ZONE 'utc') - interval '5 minutes'
+                WHERE bucket_ts >= :start_5m
+                  AND bucket_ts <= :end_5m
                   AND (:agent_id IS NULL OR agent_id = :agent_id);
                 """
             )
-            rr = db.execute(q_roll_kpi, {"agent_id": agent_id}).mappings().first() or {}
-            kpi_row = dict(kpi_row)
-            kpi_row["events_5m"] = int(rr.get("events_5m") or 0)
-            # Prefer rollup timestamp for freshness.
-            if rr.get("last_bucket_ts") is not None:
-                # last_event_age_m is computed below from last_event_ts; store a compatible key.
-                kpi_row["last_event_ts"] = rr.get("last_bucket_ts")
-        kpis = {
-            "total_agents": int(kpi_row.get("total_agents") or 0),
-            "online_agents": int(kpi_row.get("online_agents") or 0),
-            "events_5m": int(kpi_row.get("events_5m") or 0),
-            "alerts_60m": int(kpi_row.get("alerts_60m") or 0),
-            "last_event_age_m": kpi_row.get("last_event_age_m"),
-        }
+            rr = db.execute(
+                q_ev,
+                {
+                    "start_5m": data_end_ts - timedelta(minutes=5),
+                    "end_5m": data_end_ts,
+                    "agent_id": agent_id,
+                },
+            ).mappings().first() or {}
+            events_5m = int(rr.get("events_5m") or 0)
+            last_event_ts = data_end_ts if last_roll_ts is not None else None
+        else:
+            q_ev2 = text(
+                """
+                SELECT
+                  COUNT(*) FILTER (WHERE "timestamp" >= (now() AT TIME ZONE 'utc') - interval '5 minutes')::int AS events_5m,
+                  MAX("timestamp") AS last_event_ts
+                FROM net_events
+                WHERE (:agent_id IS NULL OR agent_id = :agent_id);
+                """
+            )
+            rr2 = db.execute(q_ev2, {"agent_id": agent_id}).mappings().first() or {}
+            events_5m = int(rr2.get("events_5m") or 0)
+            last_event_ts = rr2.get("last_event_ts")
+            if last_event_ts is not None and last_event_ts.tzinfo is None:
+                last_event_ts = last_event_ts.replace(tzinfo=timezone.utc)
 
-        # If we injected a rollup-based last_event_ts, recompute age.
-        if use_ingest_rollups and kpi_row.get("last_event_ts") is not None:
+        last_event_age_m = None
+        if last_event_ts is not None:
             try:
-                last_ts = kpi_row.get("last_event_ts")
-                if last_ts.tzinfo is None:
-                    last_ts = last_ts.replace(tzinfo=timezone.utc)
-                kpis["last_event_age_m"] = int(((now - last_ts).total_seconds()) // 60)
+                last_event_age_m = int(((now - last_event_ts).total_seconds()) // 60)
             except Exception:
-                pass
+                last_event_age_m = None
+
+        kpis = {
+            "total_agents": int(ag.get("total_agents") or 0),
+            "online_agents": int(ag.get("online_agents") or 0),
+            "events_5m": int(events_5m),
+            "alerts_60m": int(al.get("alerts_60m") or 0),
+            "last_event_age_m": last_event_age_m,
+        }
 
         # -----------------------------
         # Traffic time-series (top 3 event_types + other)
@@ -228,8 +363,7 @@ def get_overview(
         # -----------------------------
         # For time-series: prefer event_rollups_1m (cheap). Under ingest pressure,
         # fall back to net_event_rollups_1s aggregated by minute.
-        top_types = _top_event_types(db, start_ts, now, agent_id)
-        if use_ingest_rollups and not top_types:
+        if use_ingest_rollups:
             q_top = text(
                 """
                 SELECT event_type, SUM(count) AS total
@@ -244,52 +378,15 @@ def get_overview(
             )
             rows_top = db.execute(q_top, params).mappings().all()
             top_types = [str(r["event_type"]) for r in rows_top if r.get("event_type")]
+        else:
+            top_types = _top_event_types(db, start_ts, data_end_ts, agent_id)
         while len(top_types) < 3:
             top_types.append(None)  # placeholder for query binding
 
         t1, t2, t3 = top_types[0], top_types[1], top_types[2]
 
-        q_traffic = text(
-            """
-            WITH buckets AS (
-              SELECT generate_series(
-                date_trunc('minute', :start_ts),
-                date_trunc('minute', :end_ts),
-                interval '1 minute'
-              ) AS bucket_ts
-            ),
-            agg AS (
-              SELECT
-                date_trunc('minute', bucket_ts) AS bucket_ts,
-                event_type,
-                SUM(count)::bigint AS cnt
-              FROM event_rollups_1m
-              WHERE bucket_ts >= :start_ts
-                AND bucket_ts <= :end_ts
-                AND (:agent_id IS NULL OR agent_id = :agent_id)
-              GROUP BY 1, 2
-            )
-            SELECT
-              b.bucket_ts,
-              COALESCE(SUM(CASE WHEN agg.event_type = :t1 THEN agg.cnt END), 0)::bigint AS s1,
-              COALESCE(SUM(CASE WHEN agg.event_type = :t2 THEN agg.cnt END), 0)::bigint AS s2,
-              COALESCE(SUM(CASE WHEN agg.event_type = :t3 THEN agg.cnt END), 0)::bigint AS s3,
-              COALESCE(SUM(CASE WHEN agg.event_type IS NOT NULL AND agg.event_type NOT IN (:t1, :t2, :t3) THEN agg.cnt END), 0)::bigint AS other
-            FROM buckets b
-            LEFT JOIN agg ON agg.bucket_ts = b.bucket_ts
-            GROUP BY b.bucket_ts
-            ORDER BY b.bucket_ts ASC;
-            """
-        )
-        traffic_rows = db.execute(q_traffic, {**params, "t1": t1, "t2": t2, "t3": t3}).mappings().all()
-
-        # Fallback for ingest pressure: build traffic series from net_event_rollups_1s.
-        # event_rollups_1m may lag or become sparse when raw net_events are sampled.
-        total_cnt = 0
-        for rr in traffic_rows:
-            total_cnt += int(rr.get("s1") or 0) + int(rr.get("s2") or 0) + int(rr.get("s3") or 0) + int(rr.get("other") or 0)
-
-        if use_ingest_rollups and total_cnt == 0:
+        if use_ingest_rollups:
+            # Under pressure/draining, always build from ingest rollups.
             q_traffic2 = text(
                 """
                 WITH buckets AS (
@@ -323,6 +420,40 @@ def get_overview(
                 """
             )
             traffic_rows = db.execute(q_traffic2, {**params, "t1": t1, "t2": t2, "t3": t3}).mappings().all()
+        else:
+            q_traffic = text(
+                """
+                WITH buckets AS (
+                  SELECT generate_series(
+                    date_trunc('minute', :start_ts),
+                    date_trunc('minute', :end_ts),
+                    interval '1 minute'
+                  ) AS bucket_ts
+                ),
+                agg AS (
+                  SELECT
+                    date_trunc('minute', bucket_ts) AS bucket_ts,
+                    event_type,
+                    SUM(count)::bigint AS cnt
+                  FROM event_rollups_1m
+                  WHERE bucket_ts >= :start_ts
+                    AND bucket_ts <= :end_ts
+                    AND (:agent_id IS NULL OR agent_id = :agent_id)
+                  GROUP BY 1, 2
+                )
+                SELECT
+                  b.bucket_ts,
+                  COALESCE(SUM(CASE WHEN agg.event_type = :t1 THEN agg.cnt END), 0)::bigint AS s1,
+                  COALESCE(SUM(CASE WHEN agg.event_type = :t2 THEN agg.cnt END), 0)::bigint AS s2,
+                  COALESCE(SUM(CASE WHEN agg.event_type = :t3 THEN agg.cnt END), 0)::bigint AS s3,
+                  COALESCE(SUM(CASE WHEN agg.event_type IS NOT NULL AND agg.event_type NOT IN (:t1, :t2, :t3) THEN agg.cnt END), 0)::bigint AS other
+                FROM buckets b
+                LEFT JOIN agg ON agg.bucket_ts = b.bucket_ts
+                GROUP BY b.bucket_ts
+                ORDER BY b.bucket_ts ASC;
+                """
+            )
+            traffic_rows = db.execute(q_traffic, {**params, "t1": t1, "t2": t2, "t3": t3}).mappings().all()
 
         traffic_series = [x for x in [t1, t2, t3] if x] + ["other"]
         alias_map = {"s1": t1 or "x1", "s2": t2 or "x2", "s3": t3 or "x3", "other": "other"}
@@ -466,26 +597,48 @@ def get_overview(
         # -----------------------------
         # Ports distribution (window)
         # -----------------------------
-        q_ports = text(
-            """
-            SELECT
-              dst_port AS port,
-              COUNT(*)::bigint AS count
-            FROM net_events
-            WHERE "timestamp" >= :start_ts
-              AND "timestamp" <= :end_ts
-              AND dst_port IS NOT NULL
-              AND (:agent_id IS NULL OR agent_id = :agent_id)
-            GROUP BY dst_port
-            ORDER BY count DESC
-            LIMIT 10;
-            """
-        )
-        ports = [
-            {"port": int(r["port"]), "count": int(r["count"] or 0)}
-            for r in db.execute(q_ports, params).mappings().all()
-            if r.get("port") is not None
-        ]
+        if use_ingest_rollups:
+            q_ports = text(
+                """
+                SELECT
+                  dst_port AS port,
+                  SUM(count)::bigint AS count
+                FROM net_event_rollups_1s
+                WHERE bucket_ts >= :start_ts
+                  AND bucket_ts <= :end_ts
+                  AND dst_port IS NOT NULL
+                  AND (:agent_id IS NULL OR agent_id = :agent_id)
+                GROUP BY dst_port
+                ORDER BY count DESC
+                LIMIT 10;
+                """
+            )
+            ports = [
+                {"port": int(r["port"]), "count": int(r["count"] or 0)}
+                for r in db.execute(q_ports, params).mappings().all()
+                if r.get("port") is not None
+            ]
+        else:
+            q_ports = text(
+                """
+                SELECT
+                  dst_port AS port,
+                  COUNT(*)::bigint AS count
+                FROM net_events
+                WHERE "timestamp" >= :start_ts
+                  AND "timestamp" <= :end_ts
+                  AND dst_port IS NOT NULL
+                  AND (:agent_id IS NULL OR agent_id = :agent_id)
+                GROUP BY dst_port
+                ORDER BY count DESC
+                LIMIT 10;
+                """
+            )
+            ports = [
+                {"port": int(r["port"]), "count": int(r["count"] or 0)}
+                for r in db.execute(q_ports, params).mappings().all()
+                if r.get("port") is not None
+            ]
 
         # -----------------------------
         # Top sources (window)
@@ -579,18 +732,45 @@ def get_overview(
         # -----------------------------
         # Raw event stream (optional table in UI)
         # -----------------------------
-        q_raw_events = text(
-            """
-            SELECT id, "timestamp", agent_id, event_type, src_ip, dst_ip, dst_port
-            FROM net_events
-            WHERE (:agent_id IS NULL OR agent_id = :agent_id)
-            ORDER BY "timestamp" DESC
-            LIMIT 30;
-            """
-        )
-        raw_events = [dict(r) for r in db.execute(q_raw_events, {"agent_id": agent_id}).mappings().all()]
+        raw_events: List[Dict[str, Any]]
+        if use_ingest_rollups:
+            # Prefer warm tier when hot storage is sampled.
+            raw_events = _warm_recent_events(agent_id=agent_id, start_ts=start_ts, end_ts=data_end_ts, limit=30)
+            if not raw_events and last_roll_ts is not None:
+                raw_events = [
+                    {
+                        "id": 0,
+                        "timestamp": last_roll_ts.isoformat(),
+                        "agent_id": agent_id or "-",
+                        "event_type": "rollup",
+                        "src_ip": None,
+                        "dst_ip": None,
+                        "dst_port": None,
+                    }
+                ]
+        else:
+            q_raw_events = text(
+                """
+                SELECT id, "timestamp", agent_id, event_type, src_ip, dst_ip, dst_port
+                FROM net_events
+                WHERE (:agent_id IS NULL OR agent_id = :agent_id)
+                ORDER BY "timestamp" DESC
+                LIMIT 30;
+                """
+            )
+            raw_events = [dict(r) for r in db.execute(q_raw_events, {"agent_id": agent_id}).mappings().all()]
+
+        data_lag_s = int(max(0.0, (now - data_end_ts).total_seconds()))
 
         return {
+            "meta": {
+                "use_ingest_rollups": bool(use_ingest_rollups),
+                "window_start": start_ts.isoformat(),
+                "window_end": data_end_ts.isoformat(),
+                "data_lag_seconds": data_lag_s,
+                "backlog_events": int(backlog_ev),
+                "backlog_messages": int(backlog_msgs),
+            },
             "kpis": kpis,
             "traffic": {"series": traffic_series, "data": traffic_data},
             "ssh_failures": {"series": ssh_series, "data": ssh_data},

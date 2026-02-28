@@ -329,11 +329,24 @@ def storm_maybe_open_alert(*, reason: str, sample_hot: int, sample_warm: int) ->
     if r is None:
         return
 
-    # If an alert is already open, nothing to do.
+    # If an alert id is cached, verify it still exists in Postgres.
+    # This protects us from stale Redis keys after crashes or manual DB resets.
     try:
-        existing = r.get(storm_alert_id_key())
+        existing = (r.get(storm_alert_id_key()) or "").strip()
         if existing:
-            return
+            try:
+                eid = int(existing)
+                with engine.begin() as conn:
+                    ok = conn.execute(text("SELECT 1 FROM alerts WHERE id = :id"), {"id": eid}).fetchone()
+                if ok:
+                    return
+                # stale key: allow re-open
+                r.delete(storm_alert_id_key())
+            except Exception:
+                try:
+                    r.delete(storm_alert_id_key())
+                except Exception:
+                    pass
     except Exception:
         return
 

@@ -27,7 +27,7 @@ from psycopg2.extras import Json, execute_values
 from app.core.db import engine
 from app.core.redis_client import get_redis
 from app.core.schema_bootstrap import bootstrap_schema
-from app.core.ingest_control import storm_maybe_close_alert
+from app.core.ingest_control import storm_maybe_close_alert, storm_maybe_open_alert
 
 
 @dataclass(frozen=True)
@@ -397,6 +397,21 @@ def main() -> None:
                 received = int(msg.get("received") or 0)
                 total_received += received
 
+                # Ensure the 'Ingest Storm Detected' alert exists even if the API
+                # couldn't write it during peak DB pressure.
+                try:
+                    mode = str(msg.get("mode") or "normal")
+                    pressure = bool(msg.get("storm_active")) or mode != "normal"
+                    if pressure:
+                        storm_maybe_open_alert(
+                            reason=str(msg.get("storm_reason") or mode)[:64],
+                            sample_hot=int(msg.get("sample_hot_percent") or 0),
+                            sample_warm=int(msg.get("sample_warm_percent") or 0),
+                        )
+                except Exception:
+                    # fail open
+                    pass
+
                 # hot
                 for ev in msg.get("hot_events") or []:
                     # Defensive: older queued messages may contain nulls / missing fields.
@@ -591,6 +606,13 @@ def main() -> None:
             backoff = 0.25
 
         except Exception as e:
+            # If the DB transaction failed, items may be stuck in the processing list.
+            # Re-queue them so we can retry after backoff.
+            try:
+                _requeue_processing(r, cfg)
+            except Exception:
+                pass
+
             col = getattr(getattr(e, "diag", None), "column_name", None)
             tbl = getattr(getattr(e, "diag", None), "table_name", None)
             msg = f"[INGEST] error={type(e).__name__}"
