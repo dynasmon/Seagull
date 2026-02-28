@@ -323,6 +323,49 @@ def bootstrap_schema(engine) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_ssh_fail_rollups_1m_bucket ON ssh_fail_rollups_1m (bucket_ts DESC);
         """,
+        # 1-second rollups for storm mode (protect Postgres under volumetric attacks)
+        """
+        CREATE TABLE IF NOT EXISTS net_event_rollups_1s (
+            bucket_ts TIMESTAMPTZ NOT NULL,
+            agent_id VARCHAR(64) NOT NULL,
+            event_type VARCHAR(32) NOT NULL,
+            dst_ip VARCHAR(45) NULL,
+            dst_port INTEGER NULL,
+            proto VARCHAR(16) NULL,
+            count BIGINT NOT NULL DEFAULT 0,
+            bytes_sum BIGINT NOT NULL DEFAULT 0,
+            PRIMARY KEY (bucket_ts, agent_id, event_type, dst_ip, dst_port, proto)
+        );
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_net_event_rollups_1s_bucket ON net_event_rollups_1s (bucket_ts DESC);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_net_event_rollups_1s_target_bucket ON net_event_rollups_1s (dst_ip, dst_port, bucket_ts DESC);
+        """,
+        # Ingest pipeline health metrics (1-second buckets)
+        """
+        CREATE TABLE IF NOT EXISTS ingest_stats_1s (
+            bucket_ts TIMESTAMPTZ NOT NULL PRIMARY KEY,
+            received BIGINT NOT NULL DEFAULT 0,
+            hot_stored BIGINT NOT NULL DEFAULT 0,
+            warm_indexed BIGINT NOT NULL DEFAULT 0,
+            dropped BIGINT NOT NULL DEFAULT 0,
+            rejected BIGINT NOT NULL DEFAULT 0,
+            rollup_only BIGINT NOT NULL DEFAULT 0,
+            backlog_messages BIGINT NOT NULL DEFAULT 0,
+            backlog_events BIGINT NOT NULL DEFAULT 0,
+            storm_active BOOLEAN NOT NULL DEFAULT false,
+            sample_hot_percent SMALLINT NOT NULL DEFAULT 100,
+            sample_warm_percent SMALLINT NOT NULL DEFAULT 0,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_ingest_stats_1s_bucket ON ingest_stats_1s (bucket_ts DESC);
+        """,
+
+
         # Generic pipeline offsets (Elasticsearch forwarders / rollups / etc.)
         """
         CREATE TABLE IF NOT EXISTS search_index_offsets (

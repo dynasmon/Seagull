@@ -33,6 +33,17 @@ class NetEventDB(NetEvent):
         orm_mode = True
 
 
+class NetEventRollup1s(BaseModel):
+    bucket_ts: datetime
+    agent_id: str
+    event_type: str
+    dst_ip: Optional[str] = None
+    dst_port: Optional[int] = None
+    proto: Optional[str] = None
+    count: int
+    bytes_sum: int
+
+
 class SshIpStat(BaseModel):
     src_ip: str
     count: int
