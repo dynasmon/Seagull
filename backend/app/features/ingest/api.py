@@ -189,7 +189,7 @@ def ingest_events(
     storm_active = bool(decision.storm_active)
     pressure_active = mode != "normal"
     active_for_metrics = storm_active or pressure_active
-    storm_reason = decision.reason if decision.storm_active else ("draining" if pressure_active else "ok")
+    storm_reason = decision.reason if decision.storm_active else (bp.reason if pressure_active else "ok")
 
     rollup_always = _env_bool("NETWATCH_INGEST_ROLLUP_ALWAYS", False)
     do_rollup = rollup_always or active_for_metrics
@@ -371,9 +371,9 @@ def ingest_events(
         )
         maybe_flush_stats_to_db()
 
-        if storm_active or bp.mode == "reject_429":
-            mark_storm_active(reason=decision.reason if decision.storm_active else bp.reason, sample_hot=hot_pct, sample_warm=warm_pct)
-            storm_maybe_open_alert(reason=decision.reason if decision.storm_active else bp.reason, sample_hot=hot_pct, sample_warm=warm_pct)
+        if active_for_metrics:
+            mark_storm_active(reason=storm_reason, sample_hot=hot_pct, sample_warm=warm_pct)
+            storm_maybe_open_alert(reason=storm_reason, sample_hot=hot_pct, sample_warm=warm_pct)
 
         return {
             "received": len(events),
@@ -403,10 +403,11 @@ def ingest_events(
     )
     maybe_flush_stats_to_db()
 
-    # Open/refresh the storm key and system alert only for volumetric storm (or hard 429 backpressure).
-    if storm_active or bp.mode == "reject_429":
-        mark_storm_active(reason=decision.reason if decision.storm_active else bp.reason, sample_hot=hot_pct, sample_warm=warm_pct)
-        storm_maybe_open_alert(reason=decision.reason if decision.storm_active else bp.reason, sample_hot=hot_pct, sample_warm=warm_pct)
+    # Open/refresh the ingest-shield key and system alert whenever protection is active.
+    # This ensures we still alert even if the storm is queue-driven (backpressure).
+    if active_for_metrics:
+        mark_storm_active(reason=storm_reason, sample_hot=hot_pct, sample_warm=warm_pct)
+        storm_maybe_open_alert(reason=storm_reason, sample_hot=hot_pct, sample_warm=warm_pct)
 
     return {
         "received": len(events),

@@ -567,16 +567,16 @@ def get_storm_status() -> Dict[str, Any]:
     if received > 0:
         drop_pct = int(round((dropped / received) * 100.0))
 
-    try:
-        storm_flag = bool(r.get(storm_active_key()))
-    except Exception:
-        storm_flag = False
-
-    # "Draining" means the attack rate is back to normal, but the async queue still has backlog.
+    # Determine phase using observed EPS and backlog.
+    # - storm: EPS above threshold (volumetric)
+    # - draining: backlog above soft limit but EPS is below threshold
+    storm_th = _env_int("NETWATCH_INGEST_STORM_EVENTS_PER_SECOND", 8000)
     soft = _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000)
-    draining_flag = (not storm_flag) and soft > 0 and int(backlog_ev) >= int(soft)
 
-    phase = "storm" if storm_flag else ("draining" if draining_flag else "ok")
+    storm_like = storm_th > 0 and int(eps) >= int(storm_th)
+    draining_flag = (not storm_like) and soft > 0 and int(backlog_ev) >= int(soft)
+
+    phase = "storm" if storm_like else ("draining" if draining_flag else "ok")
     active = phase != "ok"
 
     try:
