@@ -68,6 +68,20 @@ def _best_effort_ingest_backlog() -> Tuple[int, int]:
         return (0, 0)
 
 
+def _storm_key_active() -> bool:
+    """Return True if the ingest protection (storm/backpressure) key is active in Redis."""
+
+    r = get_redis()
+    if r is None:
+        return False
+
+    try:
+        k = _env_str("NETWATCH_INGEST_STORM_ACTIVE_KEY", "netwatch:ingest:storm_active")
+        return bool(r.get(k))
+    except Exception:
+        return False
+
+
 def _warm_index_prefix() -> str:
     return _env_str(
         "NETWATCH_INGEST_WARM_INDEX_PREFIX",
@@ -223,58 +237,77 @@ def get_overview(
 
     now = _utc_now()
 
-    # Redis-backed queue/backpressure is the authoritative indicator that we're under
-    # ingest pressure (storm or draining). We use this so the Overview stays useful
-    # even after the last ingest request (when ingest_stats_1s stops updating).
+    # Redis-backed queue/backpressure provides backlog + draining signals.
     backlog_ev, backlog_msgs = _best_effort_ingest_backlog()
 
     db = SessionLocal()
     try:
         # -----------------------------
-        # Ingest pressure detection
+        # Ingest pressure + rollup availability detection
         # -----------------------------
-        use_ingest_rollups = False
+        # IMPORTANT: the async ingest queue can be briefly non-empty even under
+        # normal traffic. Do NOT switch data sources based solely on backlog.
+        # Only use 1-second ingest rollups when they are actually being produced
+        # (storm/backpressure or explicit rollup-always).
 
-        # DB signal (fast): recent ingest_stats_1s rows indicate Storm was active.
+        pressure_window_s = max(30, _env_int("NETWATCH_OVERVIEW_PRESSURE_LOOKBACK_SECONDS", 120))
+        rollup_fresh_s = max(10, _env_int("NETWATCH_OVERVIEW_INGEST_ROLLUP_FRESH_SECONDS", 120))
+        draining_ev_threshold = max(0, _env_int("NETWATCH_OVERVIEW_DRAINING_BACKLOG_EVENTS_THRESHOLD", 25_000))
+        draining_msg_threshold = max(0, _env_int("NETWATCH_OVERVIEW_DRAINING_BACKLOG_MESSAGES_THRESHOLD", 5))
+
+        protection_active = _storm_key_active()
+
+        # DB signal: recent ingest_stats_1s rows (storm/backpressure paths only).
         try:
             q_pressure = text(
                 """
                 SELECT
-                  COALESCE(MAX(CASE WHEN storm_active THEN 1 ELSE 0 END), 0)::int AS active
+                  COALESCE(MAX(CASE WHEN storm_active THEN 1 ELSE 0 END), 0)::int AS storm_active,
+                  COALESCE(SUM(rollup_only), 0)::bigint AS rollup_only,
+                  COALESCE(MIN(sample_hot_percent), 100)::int AS min_hot
                 FROM ingest_stats_1s
-                WHERE bucket_ts >= (now() AT TIME ZONE 'utc') - interval '300 seconds';
+                WHERE bucket_ts >= (now() AT TIME ZONE 'utc') - (:window_s || ' seconds')::interval;
                 """
             )
-            pr = db.execute(q_pressure).mappings().first() or {}
-            use_ingest_rollups = int(pr.get("active") or 0) == 1
+            pr = db.execute(q_pressure, {"window_s": int(pressure_window_s)}).mappings().first() or {}
+            protection_active = protection_active or int(pr.get("storm_active") or 0) == 1
+            protection_active = protection_active or int(pr.get("rollup_only") or 0) > 0
+            protection_active = protection_active or int(pr.get("min_hot") or 100) < 100
         except Exception:
-            use_ingest_rollups = False
+            # Fail open: keep only the Redis key signal.
+            pass
 
-        # Redis signal (authoritative): backlog/queue still exists even after the last ingest.
-        if backlog_ev > 0 or backlog_msgs > 0:
-            use_ingest_rollups = True
-
-        # Anchor the window to the freshest data when draining.
-        data_end_ts = now
+        # Check whether ingest rollups exist and are fresh.
         last_roll_ts = None
-        if use_ingest_rollups:
+        try:
+            q_last_roll = text(
+                """
+                SELECT MAX(bucket_ts) AS last_bucket_ts
+                FROM net_event_rollups_1s
+                WHERE bucket_ts >= (now() AT TIME ZONE 'utc') - interval '2 days'
+                  AND (:agent_id IS NULL OR agent_id = :agent_id);
+                """
+            )
+            rr = db.execute(q_last_roll, {"agent_id": agent_id}).mappings().first() or {}
+            last_roll_ts = rr.get("last_bucket_ts")
+            if last_roll_ts is not None and last_roll_ts.tzinfo is None:
+                last_roll_ts = last_roll_ts.replace(tzinfo=timezone.utc)
+        except Exception:
+            last_roll_ts = None
+
+        rollups_fresh = False
+        if last_roll_ts is not None:
             try:
-                q_last_roll = text(
-                    """
-                    SELECT MAX(bucket_ts) AS last_bucket_ts
-                    FROM net_event_rollups_1s
-                    WHERE bucket_ts >= (now() AT TIME ZONE 'utc') - interval '2 days'
-                      AND (:agent_id IS NULL OR agent_id = :agent_id);
-                    """
-                )
-                rr = db.execute(q_last_roll, {"agent_id": agent_id}).mappings().first() or {}
-                last_roll_ts = rr.get("last_bucket_ts")
-                if last_roll_ts is not None:
-                    if last_roll_ts.tzinfo is None:
-                        last_roll_ts = last_roll_ts.replace(tzinfo=timezone.utc)
-                    data_end_ts = last_roll_ts
+                rollups_fresh = (now - last_roll_ts).total_seconds() <= float(rollup_fresh_s)
             except Exception:
-                pass
+                rollups_fresh = False
+
+        draining = (backlog_ev >= draining_ev_threshold and draining_ev_threshold > 0) or (backlog_msgs >= draining_msg_threshold and draining_msg_threshold > 0)
+
+        use_ingest_rollups = bool(rollups_fresh and (protection_active or draining))
+
+        # Anchor the window to the freshest data_end_ts when ingest rollups are used.
+        data_end_ts = last_roll_ts if (use_ingest_rollups and last_roll_ts is not None) else now
 
         start_ts = data_end_ts - timedelta(minutes=window_minutes)
         params = {"start_ts": start_ts, "end_ts": data_end_ts, "agent_id": agent_id}
@@ -705,13 +738,14 @@ def get_overview(
             """
             SELECT
               "timestamp" AS ts,
+              id,
               src_ip,
               dst_ip,
               extra
             FROM net_events
             WHERE event_type = 'ssh_auth'
               AND (:agent_id IS NULL OR agent_id = :agent_id)
-            ORDER BY "timestamp" DESC
+            ORDER BY "timestamp" DESC, id DESC
             LIMIT 20;
             """
         )
@@ -736,6 +770,21 @@ def get_overview(
         if use_ingest_rollups:
             # Prefer warm tier when hot storage is sampled.
             raw_events = _warm_recent_events(agent_id=agent_id, start_ts=start_ts, end_ts=data_end_ts, limit=30)
+
+            # Fallback to hot tier if ES is empty/unavailable (keeps UI stable).
+            if not raw_events:
+                q_hot_fallback = text(
+                    """
+                    SELECT id, "timestamp", agent_id, event_type, src_ip, dst_ip, dst_port
+                    FROM net_events
+                    WHERE (:agent_id IS NULL OR agent_id = :agent_id)
+                    ORDER BY "timestamp" DESC, id DESC
+                    LIMIT 30;
+                    """
+                )
+                raw_events = [dict(r) for r in db.execute(q_hot_fallback, {"agent_id": agent_id}).mappings().all()]
+
+            # Final fallback: expose last rollup timestamp as a placeholder row.
             if not raw_events and last_roll_ts is not None:
                 raw_events = [
                     {
@@ -754,7 +803,7 @@ def get_overview(
                 SELECT id, "timestamp", agent_id, event_type, src_ip, dst_ip, dst_port
                 FROM net_events
                 WHERE (:agent_id IS NULL OR agent_id = :agent_id)
-                ORDER BY "timestamp" DESC
+                ORDER BY "timestamp" DESC, id DESC
                 LIMIT 30;
                 """
             )
@@ -765,6 +814,10 @@ def get_overview(
         return {
             "meta": {
                 "use_ingest_rollups": bool(use_ingest_rollups),
+                "protection_active": bool(protection_active),
+                "draining": bool(draining),
+                "rollups_fresh": bool(rollups_fresh),
+                "rollups_last_bucket": (last_roll_ts.isoformat() if last_roll_ts is not None else None),
                 "window_start": start_ts.isoformat(),
                 "window_end": data_end_ts.isoformat(),
                 "data_lag_seconds": data_lag_s,

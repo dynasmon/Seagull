@@ -250,7 +250,8 @@ def get_recent_events(
     # Postgres fallback
     db = SessionLocal()
     try:
-        stmt = select(NetEventModel).order_by(NetEventModel.timestamp.desc())
+        # Deterministic ordering avoids flicker when many events share the same timestamp.
+        stmt = select(NetEventModel).order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
         if agent_id:
             stmt = stmt.where(NetEventModel.agent_id == agent_id)
         if event_type:

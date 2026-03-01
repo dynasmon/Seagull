@@ -116,7 +116,9 @@ def get_backlog() -> Tuple[int, int]:
     except Exception:
         ev = 0
 
-    return msgs, ev
+    # Never expose negative backlog values: they break backpressure decisions
+    # and cause the platform to oscillate under load.
+    return msgs, max(0, ev)
 
 
 def evaluate_backpressure(*, received: int) -> BackpressureDecision:
