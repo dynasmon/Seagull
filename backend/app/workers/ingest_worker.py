@@ -337,8 +337,22 @@ def _requeue_processing(r, cfg: WorkerConfig) -> None:
 
 
 def _decr_backlog_events(r, received: int) -> None:
+    """Decrease backlog counter and clamp to 0.
+
+    Under Redis hiccups or worker restarts, the counter can drift. Negative
+    values break backpressure evaluation (ingest may stop protecting itself).
+    """
+
     try:
-        r.decrby(_env_str("NETWATCH_INGEST_BACKLOG_EVENTS_KEY", "netwatch:ingest:backlog_events"), int(received))
+        key = _env_str("NETWATCH_INGEST_BACKLOG_EVENTS_KEY", "netwatch:ingest:backlog_events")
+        new_v = r.decrby(key, int(received))
+        try:
+            vv = int(new_v)
+            if vv < 0:
+                r.set(key, 0)
+        except Exception:
+            # If we can't parse the returned value, fail open.
+            pass
     except Exception:
         return
 
@@ -591,15 +605,26 @@ def main() -> None:
                     print(f"[INGEST] warm_index_error={type(e).__name__}")
 
             # Ack processing list
+            ack_ok = True
             try:
+                pipe = r.pipeline()
                 for raw in items:
-                    r.lrem(cfg.processing_key, 1, raw)
+                    pipe.lrem(cfg.processing_key, 1, raw)
+                pipe.execute()
             except Exception:
-                # If we fail to ack, worst case it gets re-queued on restart.
-                pass
+                # If we fail to ack, the message can be re-queued on restart.
+                # Keeping backlog counters intact is safer than going negative.
+                ack_ok = False
 
-            # Backlog counter
-            _decr_backlog_events(r, total_received)
+            if ack_ok:
+                # Backlog counter
+                _decr_backlog_events(r, total_received)
+            else:
+                try:
+                    plen = int(r.llen(cfg.processing_key) or 0)
+                except Exception:
+                    plen = -1
+                print(f"[INGEST] warn=ack_failed processing_len={plen}")
 
             storm_maybe_close_alert()
 
