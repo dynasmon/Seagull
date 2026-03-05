@@ -5,7 +5,7 @@ import binascii
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
-from .classify import guess_application_proto
+from .classify import confidence_band, guess_application_proto
 from .dns import parse_dns_message
 from .http import parse_http_request
 from .tls import parse_tls_client_hello
@@ -101,6 +101,7 @@ def analyze_event(
     if guess:
         patch["app_proto"] = guess
         patch["app_proto_confidence"] = confidence
+        patch["app_proto_conf_band"] = confidence_band(confidence)
         patch["app_proto_reason"] = reason
 
     payload = extract_l7_bytes(extra, payload_max_bytes)

@@ -16,6 +16,11 @@ export type ProtocolIntelSummaryResponse = {
   tls_events: number;
 
   app_protocols: ProtoCount[];
+  transport_protocols: ProtoCount[];
+  top_dst_ports: ProtoCount[];
+  top_src_ports: ProtoCount[];
+  app_proto_reasons: ProtoCount[];
+  app_proto_conf_bands: ProtoCount[];
   ja4_ptypes: ProtoCount[];
   http_methods: ProtoCount[];
 
@@ -29,6 +34,11 @@ export type ProtocolIntelSummaryResponse = {
 
 export type ProtocolIntelIndicatorKind =
   | "app_proto"
+  | "transport"
+  | "dst_port"
+  | "src_port"
+  | "app_proto_reason"
+  | "app_proto_conf_band"
   | "dns_qname"
   | "http_host"
   | "http_method"

@@ -859,6 +859,13 @@ def get_protocol_intel_summary(
                         }
                     },
                     "app_protocols": {"terms": {"field": "app_proto", "size": int(limit), "order": {"_count": "desc"}}},
+                    "transport_protocols": {"terms": {"field": "proto", "size": int(limit), "order": {"_count": "desc"}}},
+                    "top_dst_ports": {"terms": {"field": "dst_port", "size": int(limit), "order": {"_count": "desc"}}},
+                    "top_src_ports": {"terms": {"field": "src_port", "size": int(limit), "order": {"_count": "desc"}}},
+                    "app_proto_reasons": {"terms": {"field": "app_proto_reason", "size": int(limit), "order": {"_count": "desc"}}},
+                    "app_proto_conf_bands": {
+                        "terms": {"field": "app_proto_conf_band", "size": int(limit), "order": {"_count": "desc"}}
+                    },
                     "ja4_ptypes": {"terms": {"field": "ja4_ptype", "size": int(limit), "order": {"_count": "desc"}}},
                     "http_methods": {"terms": {"field": "http_method", "size": int(limit), "order": {"_count": "desc"}}},
                     "top_dns_queries": {
@@ -901,6 +908,11 @@ def get_protocol_intel_summary(
                 return ((aggs.get(name) or {}).get("buckets") or [])
 
             app_protocols = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("app_protocols") if b.get("key") is not None]
+            transport_protocols = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("transport_protocols") if b.get("key") is not None]
+            top_dst_ports = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("top_dst_ports") if b.get("key") is not None]
+            top_src_ports = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("top_src_ports") if b.get("key") is not None]
+            app_proto_reasons = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("app_proto_reasons") if b.get("key") is not None]
+            app_proto_conf_bands = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("app_proto_conf_bands") if b.get("key") is not None]
             ja4_ptypes = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("ja4_ptypes") if b.get("key") is not None]
             http_methods = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("http_methods") if b.get("key") is not None]
 
@@ -937,6 +949,11 @@ def get_protocol_intel_summary(
                 http_events=http_events,
                 tls_events=tls_events,
                 app_protocols=app_protocols,
+                transport_protocols=transport_protocols,
+                top_dst_ports=top_dst_ports,
+                top_src_ports=top_src_ports,
+                app_proto_reasons=app_proto_reasons,
+                app_proto_conf_bands=app_proto_conf_bands,
                 ja4_ptypes=ja4_ptypes,
                 http_methods=http_methods,
                 top_dns_queries=top_dns_queries,
@@ -1042,6 +1059,11 @@ def get_protocol_intel_summary(
             return [ProtoCount(**dict(r)) for r in rows]
 
         app_protocols = _top_k("extra->>'app_proto'", "app_proto")
+        transport_protocols = _top_k("lower(proto)")
+        top_dst_ports = _top_k("CAST(dst_port AS text)")
+        top_src_ports = _top_k("CAST(src_port AS text)")
+        app_proto_reasons = _top_k("extra->>'app_proto_reason'", "app_proto_reason")
+        app_proto_conf_bands = _top_k("extra->>'app_proto_conf_band'", "app_proto_conf_band")
         ja4_ptypes = _top_k("COALESCE(NULLIF(extra->>'ja4_ptype',''), 't')")
         http_methods = _top_k("upper(extra->>'http_method')", "http_method")
 
@@ -1105,6 +1127,11 @@ def get_protocol_intel_summary(
             http_events=http_events,
             tls_events=tls_events,
             app_protocols=app_protocols,
+            transport_protocols=transport_protocols,
+            top_dst_ports=top_dst_ports,
+            top_src_ports=top_src_ports,
+            app_proto_reasons=app_proto_reasons,
+            app_proto_conf_bands=app_proto_conf_bands,
             ja4_ptypes=ja4_ptypes,
             http_methods=http_methods,
             top_dns_queries=top_dns_queries,
@@ -1136,6 +1163,11 @@ def get_protocol_intel_samples(
     # Whitelist (avoid field injection)
     kind_map = {
         "app_proto": "app_proto",
+        "transport": "proto",
+        "dst_port": "dst_port",
+        "src_port": "src_port",
+        "app_proto_reason": "app_proto_reason",
+        "app_proto_conf_band": "app_proto_conf_band",
         "dns_qname": "dns_qname",
         "http_host": "http_host",
         "http_method": "http_method",
@@ -1149,11 +1181,18 @@ def get_protocol_intel_samples(
     if not es_field:
         return []
 
-    value_norm = value
+    value_norm: Any = value
     if kind in {"http_host", "tls_sni", "tls_alpn_first", "dns_qname"}:
         value_norm = value.lower()
     elif kind == "http_method":
         value_norm = value.upper()
+    elif kind == "transport":
+        value_norm = value.lower()
+    elif kind in {"dst_port", "src_port"}:
+        try:
+            value_norm = int(value)
+        except Exception:
+            return []
 
     es = _es_client_or_none()
     if es is not None:
@@ -1183,6 +1222,11 @@ def get_protocol_intel_samples(
     # Postgres fallback (original implementation)
     kind_map_pg = {
         "app_proto": "extra->>'app_proto'",
+        "transport": "lower(proto)",
+        "dst_port": "CAST(dst_port AS text)",
+        "src_port": "CAST(src_port AS text)",
+        "app_proto_reason": "extra->>'app_proto_reason'",
+        "app_proto_conf_band": "extra->>'app_proto_conf_band'",
         "dns_qname": "extra->>'dns_qname'",
         "http_host": "lower(extra->>'http_host')",
         "http_method": "upper(extra->>'http_method')",
@@ -1195,6 +1239,7 @@ def get_protocol_intel_samples(
     expr = kind_map_pg.get(kind)
     if not expr:
         return []
+    value_pg = str(value_norm) if kind in {"dst_port", "src_port"} else value_norm
 
     db = SessionLocal()
     try:
@@ -1213,7 +1258,7 @@ def get_protocol_intel_samples(
             {
                 "since": since_ts,
                 "agent_id": agent_id,
-                "value": value_norm,
+                "value": value_pg,
                 "limit": int(limit),
             },
         ).mappings().all()

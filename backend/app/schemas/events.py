@@ -121,6 +121,11 @@ class ProtocolIntelSummaryResponse(BaseModel):
     tls_events: int
 
     app_protocols: list[ProtoCount]
+    transport_protocols: list[ProtoCount]
+    top_dst_ports: list[ProtoCount]
+    top_src_ports: list[ProtoCount]
+    app_proto_reasons: list[ProtoCount]
+    app_proto_conf_bands: list[ProtoCount]
     ja4_ptypes: list[ProtoCount]
     http_methods: list[ProtoCount]
 
