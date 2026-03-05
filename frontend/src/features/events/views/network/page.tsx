@@ -565,6 +565,42 @@ export default function ProtocolIntelPage() {
               ) : null}
             </Section>
 
+            <Section title="Transport protocols (L4)" right={`top ${view.top_n}`}>
+              {!loading && data && data.transport_protocols.length === 0 ? <TableEmpty title="No transport protocols" /> : null}
+              {data && data.transport_protocols.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table
+                    columns={[
+                      {
+                        key: "key",
+                        title: "PROTO",
+                        width: 140,
+                        render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => (
+                          <InspectButton onClick={() => mkPick("transport", r.key, "Transport protocol", r.count, "Layer-4 protocol mix")} />
+                        )
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.transport_protocols}
+                    rowKey={(r) => r.key}
+                  />
+                </div>
+              ) : null}
+            </Section>
+
             <Section title="JA4 ptype distribution" right="q=QUIC, d=DTLS, t=TLS">
               {!loading && data && data.ja4_ptypes.length === 0 ? <TableEmpty title="No JA4 ptype" /> : null}
               {data && data.ja4_ptypes.length > 0 ? (
@@ -634,6 +670,155 @@ export default function ProtocolIntelPage() {
                       }
                     ] as Array<Column<any>>}
                     rows={data.http_methods}
+                    rowKey={(r) => r.key}
+                  />
+                </div>
+              ) : null}
+            </Section>
+
+            <Section title="Classification reasons" right={`top ${view.top_n}`}>
+              {!loading && data && data.app_proto_reasons.length === 0 ? <TableEmpty title="No classification reasons yet" /> : null}
+              {data && data.app_proto_reasons.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table
+                    columns={[
+                      {
+                        key: "key",
+                        title: "REASON",
+                        render: (r) => <span className="font-mono text-[12px] break-all">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => (
+                          <InspectButton
+                            onClick={() =>
+                              mkPick("app_proto_reason", r.key, "Classification reason", r.count, "Why app protocol was inferred")
+                            }
+                          />
+                        )
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.app_proto_reasons}
+                    rowKey={(r) => r.key}
+                  />
+                </div>
+              ) : null}
+            </Section>
+
+            <Section title="Confidence bands" right="app_proto confidence">
+              {!loading && data && data.app_proto_conf_bands.length === 0 ? <TableEmpty title="No confidence bands yet" /> : null}
+              {data && data.app_proto_conf_bands.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table
+                    columns={[
+                      {
+                        key: "key",
+                        title: "BAND",
+                        width: 160,
+                        render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => (
+                          <InspectButton
+                            onClick={() =>
+                              mkPick("app_proto_conf_band", r.key, "Confidence band", r.count, "Confidence range of app_proto inference")
+                            }
+                          />
+                        )
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.app_proto_conf_bands}
+                    rowKey={(r) => r.key}
+                  />
+                </div>
+              ) : null}
+            </Section>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <Section title="Top destination ports" right={`top ${view.top_n} by volume`}>
+              {!loading && data && data.top_dst_ports.length === 0 ? <TableEmpty title="No destination ports" /> : null}
+              {data && data.top_dst_ports.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table
+                    columns={[
+                      {
+                        key: "key",
+                        title: "DST PORT",
+                        width: 160,
+                        render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => <InspectButton onClick={() => mkPick("dst_port", r.key, "Destination port", r.count)} />
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.top_dst_ports}
+                    rowKey={(r) => r.key}
+                  />
+                </div>
+              ) : null}
+            </Section>
+
+            <Section title="Top source ports" right={`top ${view.top_n} by volume`}>
+              {!loading && data && data.top_src_ports.length === 0 ? <TableEmpty title="No source ports" /> : null}
+              {data && data.top_src_ports.length > 0 ? (
+                <div className="overflow-auto">
+                  <Table
+                    columns={[
+                      {
+                        key: "key",
+                        title: "SRC PORT",
+                        width: 160,
+                        render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 120,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
+                        width: 110,
+                        render: (r) => <InspectButton onClick={() => mkPick("src_port", r.key, "Source port", r.count)} />
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.top_src_ports}
                     rowKey={(r) => r.key}
                   />
                 </div>

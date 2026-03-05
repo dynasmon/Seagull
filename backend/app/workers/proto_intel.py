@@ -19,6 +19,7 @@ Environment:
 - NETWATCH_PROTO_INTEL_MAX_ROWS (default 5000)
 - NETWATCH_PROTO_INTEL_BATCH_SIZE (default 500)
 - NETWATCH_PROTO_INTEL_PAYLOAD_MAX_BYTES (default 4096)
+- NETWATCH_PROTO_INTEL_PORT_HINTS (optional custom port->protocol hints)
 
 Marker:
 - proto_intel_at (RFC3339 UTC)

@@ -1,3 +1,6 @@
 .env
 frontend/node_modules/
 frontend/package-lock.json
+__pycache__/
+**/__pycache__/
+*.pyc
