@@ -40,6 +40,42 @@ type EventsCfg = {
   limit: number;
 };
 
+type DdosConfigDraft = {
+  enabled: boolean;
+  iface: string;
+  window: string;
+  eval_every: string;
+  cooldown: string;
+  sustain_windows: number;
+  min_confidence: number;
+  min_pps: number;
+  min_bps: number;
+  max_batch: number;
+  backpressure_high_watermark: number;
+  backpressure_sample_every: number;
+  enable_l7: boolean;
+  min_http_rps: number;
+  min_tls_hs_rps: number;
+};
+
+const DEFAULT_DDOS_DRAFT: DdosConfigDraft = {
+  enabled: true,
+  iface: "",
+  window: "1s",
+  eval_every: "1s",
+  cooldown: "30s",
+  sustain_windows: 3,
+  min_confidence: 70,
+  min_pps: 3000,
+  min_bps: 500000,
+  max_batch: 200,
+  backpressure_high_watermark: 160,
+  backpressure_sample_every: 4,
+  enable_l7: true,
+  min_http_rps: 200,
+  min_tls_hs_rps: 200
+};
+
 function fmtDateTime(d: Date) {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -262,6 +298,75 @@ function safeNumber(v: any, fallback: number) {
   return n;
 }
 
+function normalizePositiveInt(v: any, fallback: number, min = 1) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.trunc(n));
+}
+
+function normalizePositiveFloat(v: any, fallback: number, min = 0) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, n);
+}
+
+function getDdosConfig(cfg: Record<string, any>): DdosConfigDraft {
+  const dd = ((cfg?.modules || {}) as any)?.ddos || {};
+  return {
+    enabled: typeof dd.enabled === "boolean" ? dd.enabled : DEFAULT_DDOS_DRAFT.enabled,
+    iface: typeof dd.iface === "string" ? dd.iface : DEFAULT_DDOS_DRAFT.iface,
+    window: typeof dd.window === "string" ? dd.window : DEFAULT_DDOS_DRAFT.window,
+    eval_every: typeof dd.eval_every === "string" ? dd.eval_every : DEFAULT_DDOS_DRAFT.eval_every,
+    cooldown: typeof dd.cooldown === "string" ? dd.cooldown : DEFAULT_DDOS_DRAFT.cooldown,
+    sustain_windows: normalizePositiveInt(dd.sustain_windows, DEFAULT_DDOS_DRAFT.sustain_windows),
+    min_confidence: normalizePositiveInt(dd.min_confidence, DEFAULT_DDOS_DRAFT.min_confidence),
+    min_pps: normalizePositiveFloat(dd.min_pps, DEFAULT_DDOS_DRAFT.min_pps),
+    min_bps: normalizePositiveFloat(dd.min_bps, DEFAULT_DDOS_DRAFT.min_bps),
+    max_batch: normalizePositiveInt(dd.max_batch, DEFAULT_DDOS_DRAFT.max_batch),
+    backpressure_high_watermark: normalizePositiveInt(
+      dd.backpressure_high_watermark,
+      DEFAULT_DDOS_DRAFT.backpressure_high_watermark
+    ),
+    backpressure_sample_every: normalizePositiveInt(
+      dd.backpressure_sample_every,
+      DEFAULT_DDOS_DRAFT.backpressure_sample_every
+    ),
+    enable_l7: typeof dd.enable_l7 === "boolean" ? dd.enable_l7 : DEFAULT_DDOS_DRAFT.enable_l7,
+    min_http_rps: normalizePositiveFloat(dd.min_http_rps, DEFAULT_DDOS_DRAFT.min_http_rps),
+    min_tls_hs_rps: normalizePositiveFloat(dd.min_tls_hs_rps, DEFAULT_DDOS_DRAFT.min_tls_hs_rps)
+  };
+}
+
+function withDdosConfig(baseCfg: Record<string, any>, dd: DdosConfigDraft): Record<string, any> {
+  const next = { ...(baseCfg || {}) };
+  const modules = { ...((next.modules as Record<string, any>) || {}) };
+  modules.ddos = {
+    enabled: !!dd.enabled,
+    iface: (dd.iface || "").trim(),
+    window: (dd.window || DEFAULT_DDOS_DRAFT.window).trim(),
+    eval_every: (dd.eval_every || DEFAULT_DDOS_DRAFT.eval_every).trim(),
+    cooldown: (dd.cooldown || DEFAULT_DDOS_DRAFT.cooldown).trim(),
+    sustain_windows: normalizePositiveInt(dd.sustain_windows, DEFAULT_DDOS_DRAFT.sustain_windows),
+    min_confidence: normalizePositiveInt(dd.min_confidence, DEFAULT_DDOS_DRAFT.min_confidence),
+    min_pps: normalizePositiveFloat(dd.min_pps, DEFAULT_DDOS_DRAFT.min_pps),
+    min_bps: normalizePositiveFloat(dd.min_bps, DEFAULT_DDOS_DRAFT.min_bps),
+    max_batch: normalizePositiveInt(dd.max_batch, DEFAULT_DDOS_DRAFT.max_batch),
+    backpressure_high_watermark: normalizePositiveInt(
+      dd.backpressure_high_watermark,
+      DEFAULT_DDOS_DRAFT.backpressure_high_watermark
+    ),
+    backpressure_sample_every: normalizePositiveInt(
+      dd.backpressure_sample_every,
+      DEFAULT_DDOS_DRAFT.backpressure_sample_every
+    ),
+    enable_l7: !!dd.enable_l7,
+    min_http_rps: normalizePositiveFloat(dd.min_http_rps, DEFAULT_DDOS_DRAFT.min_http_rps),
+    min_tls_hs_rps: normalizePositiveFloat(dd.min_tls_hs_rps, DEFAULT_DDOS_DRAFT.min_tls_hs_rps)
+  };
+  next.modules = modules;
+  return next;
+}
+
 function eventMatchesSearch(e: NetEvent, query: string) {
   const q = (query || "").trim().toLowerCase();
   if (!q) return true;
@@ -366,6 +471,7 @@ export default function AgentsPage() {
   const [configText, setConfigText] = useState("{}");
   const [configObj, setConfigObj] = useState<Record<string, any>>({});
   const [configParseError, setConfigParseError] = useState<string | null>(null);
+  const [ddosDraft, setDdosDraft] = useState<DdosConfigDraft>(DEFAULT_DDOS_DRAFT);
 
   const [saveBusy, setSaveBusy] = useState(false);
   const [configBusy, setConfigBusy] = useState(false);
@@ -405,6 +511,7 @@ export default function AgentsPage() {
 
       setConfigObj(a.config || {});
       setConfigText(prettyJson(a.config || {}));
+      setDdosDraft(getDdosConfig(a.config || {}));
       setConfigParseError(null);
     } catch (e: any) {
       setAgentError(e?.message || "Failed to load agent details");
@@ -580,6 +687,24 @@ export default function AgentsPage() {
     }
   };
 
+  const pushAgentConfig = async (nextConfig: Record<string, any>) => {
+    if (!agent) return;
+    setConfigBusy(true);
+    try {
+      const updated = await setAgentConfig(agent.agent_id, nextConfig);
+      setAgent(updated);
+      setConfigObj(updated.config || {});
+      setConfigText(prettyJson(updated.config || {}));
+      setDdosDraft(getDdosConfig(updated.config || {}));
+      setConfigParseError(null);
+      setAgentError(null);
+    } catch (e: any) {
+      setAgentError(e?.message || "Failed to push config");
+    } finally {
+      setConfigBusy(false);
+    }
+  };
+
   const onApplyConfig = async () => {
     if (!agent) return;
 
@@ -593,19 +718,16 @@ export default function AgentsPage() {
       return;
     }
 
-    setConfigBusy(true);
-    try {
-      const updated = await setAgentConfig(agent.agent_id, parsed.value as Record<string, any>);
-      setAgent(updated);
-      setConfigObj(updated.config || {});
-      setConfigText(prettyJson(updated.config || {}));
-      setConfigParseError(null);
-      setAgentError(null);
-    } catch (e: any) {
-      setAgentError(e?.message || "Failed to push config");
-    } finally {
-      setConfigBusy(false);
-    }
+    await pushAgentConfig(parsed.value as Record<string, any>);
+  };
+
+  const onApplyDdosConfig = async () => {
+    if (!agent) return;
+    const next = withDdosConfig(configObj || {}, ddosDraft);
+    setConfigObj(next);
+    setConfigText(prettyJson(next));
+    setConfigParseError(null);
+    await pushAgentConfig(next);
   };
 
   const onConfigTextChange = (v: string) => {
@@ -620,7 +742,9 @@ export default function AgentsPage() {
       return;
     }
     setConfigParseError(null);
-    setConfigObj(parsed.value as Record<string, any>);
+    const next = parsed.value as Record<string, any>;
+    setConfigObj(next);
+    setDdosDraft(getDdosConfig(next));
   };
 
   const onUpdateTiming = (key: string, value: number) => {
@@ -628,6 +752,7 @@ export default function AgentsPage() {
     next[key] = value;
     setConfigObj(next);
     setConfigText(prettyJson(next));
+    setDdosDraft(getDdosConfig(next));
     setConfigParseError(null);
   };
 
@@ -836,17 +961,6 @@ export default function AgentsPage() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            onClick={() => setConfigOpen(true)}
-            className={cx(
-              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-              "hover:bg-primary/5"
-            )}
-          >
-            Configure
-          </button>
-
-          <button
-            type="button"
             onClick={() => {
               const cfg = eventsCfgRef.current;
               loadAgent(selectedAgentId);
@@ -900,6 +1014,17 @@ export default function AgentsPage() {
                 placeholder="Search agents (name, id, tags)…"
                 className={inputClassName(false)}
               />
+
+              <button
+                type="button"
+                onClick={() => setConfigOpen(true)}
+                className={cx(
+                  "w-full border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                  "hover:bg-primary/5"
+                )}
+              >
+                Configure selected agent
+              </button>
 
               <div className="space-y-2">
                 {agentsFiltered.length === 0 ? (
@@ -1257,7 +1382,8 @@ export default function AgentsPage() {
         open={configOpen}
         onClose={() => setConfigOpen(false)}
         title={`Agent settings • ${agent?.display_name || selectedAgentId}`}
-        description="Identity + configuration. Changes apply immediately."
+        description="Identity + configuration. Capture-module tuning is applied on next agent restart."
+        widthClassName="w-[1200px]"
       >
         {!agent ? (
           <div className="space-y-4">
@@ -1368,6 +1494,195 @@ export default function AgentsPage() {
             </div>
 
             <div className="grid gap-6 lg:grid-cols-2">
+              <Panel title="DDoS / Backpressure">
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Switch
+                      checked={ddosDraft.enabled}
+                      onChange={(v) => setDdosDraft((s) => ({ ...s, enabled: v }))}
+                      disabled={configBusy}
+                      label="DDoS module"
+                    />
+                    <Switch
+                      checked={ddosDraft.enable_l7}
+                      onChange={(v) => setDdosDraft((s) => ({ ...s, enable_l7: v }))}
+                      disabled={configBusy}
+                      label="L7 detection"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <FieldLabel>Interface</FieldLabel>
+                      <input
+                        className={inputClassName(configBusy)}
+                        value={ddosDraft.iface}
+                        onChange={(e) => setDdosDraft((s) => ({ ...s, iface: e.target.value }))}
+                        placeholder="any / eth0"
+                        disabled={configBusy}
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>Window</FieldLabel>
+                      <input
+                        className={inputClassName(configBusy)}
+                        value={ddosDraft.window}
+                        onChange={(e) => setDdosDraft((s) => ({ ...s, window: e.target.value }))}
+                        placeholder="1s"
+                        disabled={configBusy}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <FieldLabel>Eval Every</FieldLabel>
+                      <input
+                        className={inputClassName(configBusy)}
+                        value={ddosDraft.eval_every}
+                        onChange={(e) => setDdosDraft((s) => ({ ...s, eval_every: e.target.value }))}
+                        placeholder="1s"
+                        disabled={configBusy}
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>Cooldown</FieldLabel>
+                      <input
+                        className={inputClassName(configBusy)}
+                        value={ddosDraft.cooldown}
+                        onChange={(e) => setDdosDraft((s) => ({ ...s, cooldown: e.target.value }))}
+                        placeholder="30s"
+                        disabled={configBusy}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <FieldLabel>Sustain</FieldLabel>
+                      <input
+                        type="number"
+                        className={inputClassName(configBusy)}
+                        value={String(ddosDraft.sustain_windows)}
+                        onChange={(e) => setDdosDraft((s) => ({ ...s, sustain_windows: Number(e.target.value) || 1 }))}
+                        disabled={configBusy}
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>Min Confidence</FieldLabel>
+                      <input
+                        type="number"
+                        className={inputClassName(configBusy)}
+                        value={String(ddosDraft.min_confidence)}
+                        onChange={(e) => setDdosDraft((s) => ({ ...s, min_confidence: Number(e.target.value) || 1 }))}
+                        disabled={configBusy}
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>Max Batch</FieldLabel>
+                      <input
+                        type="number"
+                        className={inputClassName(configBusy)}
+                        value={String(ddosDraft.max_batch)}
+                        onChange={(e) => setDdosDraft((s) => ({ ...s, max_batch: Number(e.target.value) || 1 }))}
+                        disabled={configBusy}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <FieldLabel>Min PPS</FieldLabel>
+                      <input
+                        type="number"
+                        className={inputClassName(configBusy)}
+                        value={String(ddosDraft.min_pps)}
+                        onChange={(e) => setDdosDraft((s) => ({ ...s, min_pps: Number(e.target.value) || 0 }))}
+                        disabled={configBusy}
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>Min BPS</FieldLabel>
+                      <input
+                        type="number"
+                        className={inputClassName(configBusy)}
+                        value={String(ddosDraft.min_bps)}
+                        onChange={(e) => setDdosDraft((s) => ({ ...s, min_bps: Number(e.target.value) || 0 }))}
+                        disabled={configBusy}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <FieldLabel>Min HTTP RPS</FieldLabel>
+                      <input
+                        type="number"
+                        className={inputClassName(configBusy)}
+                        value={String(ddosDraft.min_http_rps)}
+                        onChange={(e) => setDdosDraft((s) => ({ ...s, min_http_rps: Number(e.target.value) || 0 }))}
+                        disabled={configBusy}
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>Min TLS HS RPS</FieldLabel>
+                      <input
+                        type="number"
+                        className={inputClassName(configBusy)}
+                        value={String(ddosDraft.min_tls_hs_rps)}
+                        onChange={(e) => setDdosDraft((s) => ({ ...s, min_tls_hs_rps: Number(e.target.value) || 0 }))}
+                        disabled={configBusy}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <FieldLabel>BP High Watermark</FieldLabel>
+                      <input
+                        type="number"
+                        className={inputClassName(configBusy)}
+                        value={String(ddosDraft.backpressure_high_watermark)}
+                        onChange={(e) =>
+                          setDdosDraft((s) => ({ ...s, backpressure_high_watermark: Number(e.target.value) || 1 }))
+                        }
+                        disabled={configBusy}
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>BP Sample Every</FieldLabel>
+                      <input
+                        type="number"
+                        className={inputClassName(configBusy)}
+                        value={String(ddosDraft.backpressure_sample_every)}
+                        onChange={(e) =>
+                          setDdosDraft((s) => ({ ...s, backpressure_sample_every: Number(e.target.value) || 1 }))
+                        }
+                        disabled={configBusy}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-muted-foreground">
+                    These settings are saved in agent config (`modules.ddos`) and replace the need to edit `.env` for DDoS tuning.
+                    Restart the agent container to apply capture-level changes.
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={onApplyDdosConfig}
+                    disabled={configBusy}
+                    className={cx(
+                      "w-full border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                      "hover:bg-primary/5",
+                      configBusy && "opacity-60 cursor-not-allowed"
+                    )}
+                  >
+                    {configBusy ? "Saving..." : "Save DDoS settings"}
+                  </button>
+                </div>
+              </Panel>
+
               <Panel title="Timings" right={timingKeys.length ? `${timingKeys.length} keys` : "-"}>
                 {timingKeys.length === 0 ? (
                   <EmptyState title="No timing keys" hint="This agent config does not expose timing-related fields." />
