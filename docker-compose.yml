@@ -74,7 +74,16 @@ services:
   redis:
     image: redis:7-alpine
     container_name: netwatch-redis
-    command: ["redis-server", "--appendonly", "yes"]
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--appendfsync",
+        "everysec",
+        "--save",
+        "",
+      ]
     volumes:
       - redis-data:/data
     networks:
