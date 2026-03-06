@@ -537,17 +537,82 @@ def get_storm_status() -> Dict[str, Any]:
 
     r = get_redis()
     now_s = int(time.time())
+    storm_th = _env_int("NETWATCH_INGEST_STORM_EVENTS_PER_SECOND", 8000)
+    soft = _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000)
 
     if r is None:
+        # Redis is unavailable: fall back to the latest persisted ingest_stats_1s row.
+        # This keeps Overview usable without exposing internal transport errors as state.
+        try:
+            with engine.begin() as conn:
+                row = (
+                    conn.execute(
+                        text(
+                            """
+                            SELECT
+                              bucket_ts,
+                              received,
+                              dropped,
+                              backlog_events,
+                              backlog_messages,
+                              storm_active,
+                              sample_hot_percent,
+                              sample_warm_percent
+                            FROM ingest_stats_1s
+                            WHERE bucket_ts >= (now() AT TIME ZONE 'utc') - interval '5 minutes'
+                            ORDER BY bucket_ts DESC
+                            LIMIT 1;
+                            """
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+        except Exception:
+            row = None
+
+        if not row:
+            return {
+                "active": False,
+                "phase": "ok",
+                "eps": 0,
+                "sample_hot_percent": 100,
+                "sample_warm_percent": 0,
+                "drop_percent": 0,
+                "backlog_events": 0,
+                "backlog_messages": 0,
+                "reason": "ok",
+                "since": None,
+                "open_alert_id": None,
+            }
+
+        def _as_int(v: Any, default: int = 0) -> int:
+            try:
+                return int(v)
+            except Exception:
+                return default
+
+        eps = _as_int(row.get("received"), 0)
+        dropped = _as_int(row.get("dropped"), 0)
+        backlog_ev = max(0, _as_int(row.get("backlog_events"), 0))
+        backlog_msgs = max(0, _as_int(row.get("backlog_messages"), 0))
+
+        drop_pct = int(round((dropped / eps) * 100.0)) if eps > 0 else 0
+
+        storm_like = bool(row.get("storm_active")) or (storm_th > 0 and int(eps) >= int(storm_th))
+        draining_flag = (not storm_like) and soft > 0 and int(backlog_ev) >= int(soft)
+        phase = "storm" if storm_like else ("draining" if draining_flag else "ok")
+
         return {
-            "active": False,
-            "eps": 0,
-            "sample_hot_percent": 100,
-            "sample_warm_percent": 0,
-            "drop_percent": 0,
-            "backlog_events": 0,
-            "backlog_messages": 0,
-            "reason": "redis_unavailable",
+            "active": bool(phase != "ok"),
+            "phase": phase,
+            "eps": int(eps),
+            "sample_hot_percent": int(max(0, min(_as_int(row.get("sample_hot_percent"), 100), 100))),
+            "sample_warm_percent": int(max(0, min(_as_int(row.get("sample_warm_percent"), 0), 100))),
+            "drop_percent": int(max(0, min(drop_pct, 100))),
+            "backlog_events": int(backlog_ev),
+            "backlog_messages": int(backlog_msgs),
+            "reason": phase,
             "since": None,
             "open_alert_id": None,
         }
@@ -585,9 +650,6 @@ def get_storm_status() -> Dict[str, Any]:
     # Determine phase using observed EPS and backlog.
     # - storm: EPS above threshold (volumetric)
     # - draining: backlog above soft limit but EPS is below threshold
-    storm_th = _env_int("NETWATCH_INGEST_STORM_EVENTS_PER_SECOND", 8000)
-    soft = _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000)
-
     storm_like = storm_th > 0 and int(eps) >= int(storm_th)
     draining_flag = (not storm_like) and soft > 0 and int(backlog_ev) >= int(soft)
 

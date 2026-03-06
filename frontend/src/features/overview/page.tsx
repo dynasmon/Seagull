@@ -84,6 +84,55 @@ function sumRow(row: Record<string, any>): number {
   return total;
 }
 
+function fmtCompact(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+
+function inferAttackKindFromRule(ruleIdRaw: unknown): { attack: string; vector: string } {
+  const ruleId = String(ruleIdRaw || "").toLowerCase();
+  if (!ruleId) return { attack: "ddos", vector: "-" };
+
+  if (ruleId.includes("incident_ddos_correlated")) return { attack: "ddos", vector: "correlated" };
+  if (ruleId.includes("http_flood")) return { attack: "ddos", vector: "http_flood" };
+  if (ruleId.includes("tls_handshake_flood")) return { attack: "ddos", vector: "tls_handshake_flood" };
+  if (ruleId.startsWith("l7_")) return { attack: "ddos", vector: "l7_flood" };
+  if (ruleId.startsWith("ddos_")) return { attack: "ddos", vector: "flood" };
+  if (ruleId.startsWith("dos_")) return { attack: "dos", vector: "flood" };
+
+  return { attack: "ddos", vector: "-" };
+}
+
+function resolveAttackKind(alert: Alert): { attack: string; vector: string } {
+  const details: any = normalizeDetails(alert.details);
+
+  const attack =
+    details.attack ||
+    details.extra_attack ||
+    details.group_key?.attack ||
+    details.enrichment?.attack ||
+    null;
+
+  const vector =
+    details.vector ||
+    details.extra_vector ||
+    details.group_key?.vector ||
+    details.subtype ||
+    details.enrichment?.vector ||
+    null;
+
+  if (attack || vector) {
+    return { attack: String(attack || "ddos"), vector: String(vector || "-") };
+  }
+
+  // Correlation incidents usually carry base_rule_id with richer semantics.
+  if (details.base_rule_id) {
+    return inferAttackKindFromRule(details.base_rule_id);
+  }
+
+  return inferAttackKindFromRule(alert.rule_id);
+}
+
 function CyberPanel({
   title,
   children,
@@ -292,6 +341,8 @@ export default function OverviewPage() {
         alerts1h: 0,
         lastEventTs: "-",
         ddos5m: 0,
+        ddosPackets5m: 0,
+        ddosPeakPps: 0,
         ddosLastKind: "-",
         ddosLastTarget: "-"
       };
@@ -309,6 +360,9 @@ export default function OverviewPage() {
 
     const ddosRows = snapshot.ddos.data.slice(-5);
     const ddos5m = ddosRows.reduce((acc, row) => acc + sumRow(row), 0);
+    const ddosVolRows = snapshot.ddos_volume?.data?.slice(-5) || [];
+    const ddosPackets5m = ddosVolRows.reduce((acc, row) => acc + Number(row?.packets || 0), 0);
+    const ddosPeakPps = ddosVolRows.reduce((acc, row) => Math.max(acc, Number(row?.peak_pps || 0)), 0);
 
     const lastDdosAlert = snapshot.ddos_alerts?.[0] || null;
     let ddosLastKind = "-";
@@ -316,8 +370,7 @@ export default function OverviewPage() {
 
     if (lastDdosAlert) {
       const details: any = normalizeDetails(lastDdosAlert.details);
-      const attack = details.attack || details.kind || "ddos";
-      const vector = details.vector || details.subtype || "-";
+      const { attack, vector } = resolveAttackKind(lastDdosAlert);
       ddosLastKind = `${attack} / ${vector}`;
 
       const proto = (details.proto || details.protocol || "-") as string;
@@ -334,6 +387,8 @@ export default function OverviewPage() {
       alerts1h,
       lastEventTs,
       ddos5m,
+      ddosPackets5m,
+      ddosPeakPps,
       ddosLastKind,
       ddosLastTarget
     };
@@ -743,12 +798,18 @@ export default function OverviewPage() {
       <DashboardSection id="ddos" title="DOS / DDOS" defaultOpen>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <StatTile label="DoS/DDoS detections (last 5m)" value={derived.ddos5m} tone={derived.ddos5m > 0 ? "warn" : "good"} />
-          <StatTile label="Last attack kind" value={derived.ddosLastKind} />
+          <StatTile
+            label="DDoS packets est. (last 5m)"
+            value={derived.ddosPackets5m}
+            hint={`peak pps: ${fmtCompact(derived.ddosPeakPps)}`}
+            tone={derived.ddosPackets5m > 0 ? "warn" : "good"}
+          />
+          <StatTile label="Last attack kind" value={derived.ddosLastKind} hint={`peak pps: ${fmtCompact(derived.ddosPeakPps)}`} />
           <StatTile label="Last target" value={derived.ddosLastTarget} />
           <StatTile label="Alerts (critical/high)" value={snapshot.ddos_alerts.length} tone={snapshot.ddos_alerts.length > 0 ? "warn" : "good"} />
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <CyberPanel title="DoS/DDoS detections per minute" style={{ height: H_PANEL_SM }}>
             {snapshot.ddos.data.length === 0 ? (
               <EmptyState title="NO DDOS" hint="No DoS/DDoS detections available." />
@@ -758,6 +819,23 @@ export default function OverviewPage() {
                   <SimpleTimeSeries
                     data={snapshot.ddos.data}
                     seriesKeys={snapshot.ddos.series}
+                    height={160}
+                    allowHorizontalScroll={false}
+                  />
+                </div>
+              </div>
+            )}
+          </CyberPanel>
+
+          <CyberPanel title="Estimated DDoS packet volume / peak PPS" style={{ height: H_PANEL_SM }}>
+            {!snapshot.ddos_volume || snapshot.ddos_volume.data.length === 0 ? (
+              <EmptyState title="NO DDOS VOLUME" hint="No packet telemetry captured from dos_attack events." />
+            ) : (
+              <div className="h-full w-full flex items-center justify-center overflow-hidden">
+                <div className="w-full max-w-full flex justify-center">
+                  <SimpleTimeSeries
+                    data={snapshot.ddos_volume.data}
+                    seriesKeys={snapshot.ddos_volume.series}
                     height={160}
                     allowHorizontalScroll={false}
                   />

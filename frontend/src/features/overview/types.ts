@@ -57,6 +57,7 @@ export type OverviewSnapshot = {
   ssh_failures: TimeSeries;
   alert_severity: TimeSeries;
   ddos: TimeSeries;
+  ddos_volume: TimeSeries;
   ports: Array<{ port: number; count: number }>;
   top_sources: Array<{ src_ip: string; count: number }>;
   recent_alerts: Alert[];
