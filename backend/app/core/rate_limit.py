@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Optional
 
 import redis
@@ -10,25 +11,30 @@ from app.core.config import settings
 
 
 _redis_client: Optional[redis.Redis] = None
+_redis_unavailable_until: float = 0.0
+
+# Avoid repeated reconnect stalls when Redis is down.
+_REDIS_RETRY_COOLDOWN_SECONDS = 5.0
 
 
 def _get_redis() -> Optional[redis.Redis]:
-    global _redis_client
+    global _redis_client, _redis_unavailable_until
     if _redis_client is not None:
         return _redis_client
+    if time.monotonic() < _redis_unavailable_until:
+        return None
     try:
         _redis_client = redis.Redis(
             host=settings.NETWATCH_REDIS_HOST,
             port=settings.NETWATCH_REDIS_PORT,
             decode_responses=True,
-            socket_connect_timeout=0.5,
-            socket_timeout=0.5,
+            socket_connect_timeout=0.2,
+            socket_timeout=0.2,
         )
-        # best-effort connectivity check
-        _redis_client.ping()
         return _redis_client
     except Exception:
         _redis_client = None
+        _redis_unavailable_until = time.monotonic() + _REDIS_RETRY_COOLDOWN_SECONDS
         return None
 
 
@@ -65,6 +71,9 @@ def rate_limit(key: str, *, limit: int, window_seconds: int) -> RateLimitResult:
         ttl = r.ttl(key)
         ttl_i = int(ttl) if ttl is not None and int(ttl) > 0 else window_seconds
     except Exception:
+        global _redis_client, _redis_unavailable_until
+        _redis_client = None
+        _redis_unavailable_until = time.monotonic() + _REDIS_RETRY_COOLDOWN_SECONDS
         return RateLimitResult(allowed=True, remaining=limit, reset_seconds=window_seconds)
 
     remaining = max(0, limit - count)

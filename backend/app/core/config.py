@@ -34,6 +34,17 @@ def _env_bool(name: str, default: bool) -> bool:
     return default
 
 
+def _env_csv(name: str, default: str = "") -> list[str]:
+    raw = _env_str(name, default) or ""
+    out: list[str] = []
+    for part in raw.split(","):
+        v = part.strip()
+        if not v:
+            continue
+        out.append(v)
+    return out
+
+
 class Settings:
     # Environment
     NETWATCH_ENV: str = (_env_str("NETWATCH_ENV", "dev") or "dev").lower()
@@ -69,6 +80,9 @@ class Settings:
     NETWATCH_COOKIE_SECURE: bool = _env_bool("NETWATCH_COOKIE_SECURE", False)
     NETWATCH_COOKIE_SAMESITE: str = (_env_str("NETWATCH_COOKIE_SAMESITE", "lax") or "lax").lower()
     NETWATCH_COOKIE_DOMAIN: str | None = _env_str("NETWATCH_COOKIE_DOMAIN", None)
+    NETWATCH_ENABLE_HSTS: bool = _env_bool("NETWATCH_ENABLE_HSTS", False)
+    NETWATCH_ALLOWED_HOSTS: list[str] = _env_csv("NETWATCH_ALLOWED_HOSTS", "*")
+    NETWATCH_MAX_REQUEST_BODY_BYTES: int = _env_int("NETWATCH_MAX_REQUEST_BODY_BYTES", 2 * 1024 * 1024)
 
     # Search backend selection:
     # - auto: use Elasticsearch when available, fallback to Postgres

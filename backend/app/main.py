@@ -1,5 +1,8 @@
 from fastapi import FastAPI, Request
+from starlette import status
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.responses import JSONResponse
 
 from app.api.agents import router as agents_router
 from app.api.alerts import router as alerts_router
@@ -15,6 +18,7 @@ from app.api.admin import router as admin_router
 from app.api.correlations import router as correlations_router
 from app.api.attack_chain import router as attack_chain_router
 from app.api.vuln import router as vuln_router
+from app.core.config import settings
 from app.core.portal_bootstrap import bootstrap_portal_admin, bootstrap_correlation_rules
 
 
@@ -26,6 +30,24 @@ app = FastAPI(
 
 # ... add basic compression for JSON payloads (lowers bandwidth for dashboards)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+if settings.NETWATCH_ALLOWED_HOSTS and settings.NETWATCH_ALLOWED_HOSTS != ["*"]:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.NETWATCH_ALLOWED_HOSTS)
+
+
+@app.middleware("http")
+async def request_size_guard(request: Request, call_next):
+    max_body_bytes = max(1024, int(settings.NETWATCH_MAX_REQUEST_BODY_BYTES or 0))
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length, 10) > max_body_bytes:
+                return JSONResponse(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    content={"detail": "request payload too large"},
+                )
+        except ValueError:
+            pass
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -35,10 +57,19 @@ async def security_headers(request: Request, call_next):
     res.headers.setdefault("X-Content-Type-Options", "nosniff")
     res.headers.setdefault("X-Frame-Options", "DENY")
     res.headers.setdefault("Referrer-Policy", "no-referrer")
+    res.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    res.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     res.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
     # CSP intentionally minimal (portal is same-origin via reverse-proxy)
     # If you serve the portal from a different origin, tighten this.
     res.headers.setdefault("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; base-uri 'self'")
+    if settings.NETWATCH_ENABLE_HSTS or settings.NETWATCH_COOKIE_SECURE:
+        # Only effective on HTTPS; safe to emit when TLS is terminated before app.
+        res.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    if request.url.path.startswith("/auth/"):
+        # Authentication endpoints should never be cached by intermediaries.
+        res.headers.setdefault("Cache-Control", "no-store")
+        res.headers.setdefault("Pragma", "no-cache")
     return res
 
 
