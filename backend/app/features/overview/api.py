@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import threading
 import zlib
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -20,6 +22,9 @@ router = APIRouter(
     dependencies=[Depends(get_current_user)],
 )
 
+_overview_cache_lock = threading.Lock()
+_overview_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
 
 def _env_int(name: str, default: int) -> int:
     import os
@@ -34,6 +39,37 @@ def _env_int(name: str, default: int) -> int:
         return int(raw, 10)
     except Exception:
         return default
+
+
+def _overview_cache_get(key: str) -> Optional[Dict[str, Any]]:
+    ttl_s = max(0, _env_int("NETWATCH_OVERVIEW_CACHE_TTL_SECONDS", 3))
+    if ttl_s <= 0:
+        return None
+    now = time.time()
+    with _overview_cache_lock:
+        item = _overview_cache.get(key)
+        if not item:
+            return None
+        expires_at, payload = item
+        if expires_at <= now:
+            _overview_cache.pop(key, None)
+            return None
+        return payload
+
+
+def _overview_cache_set(key: str, payload: Dict[str, Any]) -> None:
+    ttl_s = max(0, _env_int("NETWATCH_OVERVIEW_CACHE_TTL_SECONDS", 3))
+    if ttl_s <= 0:
+        return
+    now = time.time()
+    max_entries = max(16, _env_int("NETWATCH_OVERVIEW_CACHE_MAX_ENTRIES", 128))
+    with _overview_cache_lock:
+        _overview_cache[key] = (now + float(ttl_s), payload)
+        if len(_overview_cache) > max_entries:
+            # Best-effort trim by expiry timestamp.
+            keys = sorted(_overview_cache.items(), key=lambda kv: kv[1][0])
+            for k, _ in keys[: max(1, len(_overview_cache) - max_entries)]:
+                _overview_cache.pop(k, None)
 
 
 def _utc_now() -> datetime:
@@ -231,6 +267,7 @@ def _top_event_types(db, start_ts: datetime, end_ts: datetime, agent_id: Optiona
 def get_overview(
     window_minutes: int = Query(60, ge=5, le=1440, description="Time window (minutes) for charts"),
     agent_id: Optional[str] = Query(None, description="Optional agent filter for charts/tables"),
+    lite: bool = Query(False, description="If true, skip heavy tables for faster first paint"),
 ):
     """Return an aggregated snapshot for the portal Overview page.
 
@@ -239,6 +276,11 @@ def get_overview(
     - Minimal client-side aggregation
     - Prefer rollup tables when available
     """
+
+    cache_key = f"w={int(window_minutes)}|a={agent_id or '*'}|lite={1 if lite else 0}"
+    cached = _overview_cache_get(cache_key)
+    if cached is not None:
+        return cached
 
     now = _utc_now()
 
@@ -698,153 +740,178 @@ def get_overview(
             for r in ddos_vol_rows
         ]
 
-        # -----------------------------
-        # Ports distribution (window)
-        # -----------------------------
-        if use_ingest_rollups:
-            q_ports = text(
+        ports: List[Dict[str, Any]] = []
+        top_sources: List[Dict[str, Any]] = []
+        recent_alerts: List[Dict[str, Any]] = []
+        ddos_alerts: List[Dict[str, Any]] = []
+        recent_ssh: List[Dict[str, Any]] = []
+        raw_events: List[Dict[str, Any]] = []
+
+        if not lite:
+            # -----------------------------
+            # Ports distribution (window)
+            # -----------------------------
+            if use_ingest_rollups:
+                q_ports = text(
+                    """
+                    SELECT
+                      dst_port AS port,
+                      SUM(count)::bigint AS count
+                    FROM net_event_rollups_1s
+                    WHERE bucket_ts >= :start_ts
+                      AND bucket_ts <= :end_ts
+                      AND dst_port IS NOT NULL
+                      AND (:agent_id IS NULL OR agent_id = :agent_id)
+                    GROUP BY dst_port
+                    ORDER BY count DESC
+                    LIMIT 10;
+                    """
+                )
+                ports = [
+                    {"port": int(r["port"]), "count": int(r["count"] or 0)}
+                    for r in db.execute(q_ports, params).mappings().all()
+                    if r.get("port") is not None
+                ]
+            else:
+                q_ports = text(
+                    """
+                    SELECT
+                      dst_port AS port,
+                      COUNT(*)::bigint AS count
+                    FROM net_events
+                    WHERE "timestamp" >= :start_ts
+                      AND "timestamp" <= :end_ts
+                      AND dst_port IS NOT NULL
+                      AND (:agent_id IS NULL OR agent_id = :agent_id)
+                    GROUP BY dst_port
+                    ORDER BY count DESC
+                    LIMIT 10;
+                    """
+                )
+                ports = [
+                    {"port": int(r["port"]), "count": int(r["count"] or 0)}
+                    for r in db.execute(q_ports, params).mappings().all()
+                    if r.get("port") is not None
+                ]
+
+            # -----------------------------
+            # Top sources (window)
+            # -----------------------------
+            q_sources = text(
                 """
                 SELECT
-                  dst_port AS port,
-                  SUM(count)::bigint AS count
-                FROM net_event_rollups_1s
-                WHERE bucket_ts >= :start_ts
-                  AND bucket_ts <= :end_ts
-                  AND dst_port IS NOT NULL
-                  AND (:agent_id IS NULL OR agent_id = :agent_id)
-                GROUP BY dst_port
-                ORDER BY count DESC
-                LIMIT 10;
-                """
-            )
-            ports = [
-                {"port": int(r["port"]), "count": int(r["count"] or 0)}
-                for r in db.execute(q_ports, params).mappings().all()
-                if r.get("port") is not None
-            ]
-        else:
-            q_ports = text(
-                """
-                SELECT
-                  dst_port AS port,
+                  src_ip,
                   COUNT(*)::bigint AS count
                 FROM net_events
                 WHERE "timestamp" >= :start_ts
                   AND "timestamp" <= :end_ts
-                  AND dst_port IS NOT NULL
+                  AND src_ip IS NOT NULL
                   AND (:agent_id IS NULL OR agent_id = :agent_id)
-                GROUP BY dst_port
+                GROUP BY src_ip
                 ORDER BY count DESC
                 LIMIT 10;
                 """
             )
-            ports = [
-                {"port": int(r["port"]), "count": int(r["count"] or 0)}
-                for r in db.execute(q_ports, params).mappings().all()
-                if r.get("port") is not None
+            top_sources = [
+                {"src_ip": str(r["src_ip"]), "count": int(r["count"] or 0)}
+                for r in db.execute(q_sources, params).mappings().all()
+                if r.get("src_ip")
             ]
 
-        # -----------------------------
-        # Top sources (window)
-        # -----------------------------
-        q_sources = text(
-            """
-            SELECT
-              src_ip,
-              COUNT(*)::bigint AS count
-            FROM net_events
-            WHERE "timestamp" >= :start_ts
-              AND "timestamp" <= :end_ts
-              AND src_ip IS NOT NULL
-              AND (:agent_id IS NULL OR agent_id = :agent_id)
-            GROUP BY src_ip
-            ORDER BY count DESC
-            LIMIT 10;
-            """
-        )
-        top_sources = [
-            {"src_ip": str(r["src_ip"]), "count": int(r["count"] or 0)}
-            for r in db.execute(q_sources, params).mappings().all()
-            if r.get("src_ip")
-        ]
-
-        # -----------------------------
-        # Recent alerts (table)
-        # -----------------------------
-        q_recent_alerts = text(
-            """
-            SELECT id, created_at, rule_id, severity, src_ip, dst_ip, dst_port, description, details
-            FROM alerts
-            ORDER BY created_at DESC
-            LIMIT 25;
-            """
-        )
-        recent_alerts = [dict(r) for r in db.execute(q_recent_alerts).mappings().all()]
-
-        # -----------------------------
-        # Recent DDoS alerts (table) - ONLY critical/high
-        # -----------------------------
-        q_ddos_alerts = text(
-            r"""
-            SELECT id, created_at, rule_id, severity, src_ip, dst_ip, dst_port, description, details
-            FROM alerts
-            WHERE lower(severity) IN ('critical','high')
-              AND (
-                rule_id = 'incident_ddos_correlated_v1'
-                OR rule_id LIKE 'ddos\_%' ESCAPE '\'
-                OR rule_id LIKE 'dos\_%'  ESCAPE '\'
-                OR rule_id LIKE 'l7\_%'   ESCAPE '\'
-              )
-            ORDER BY created_at DESC
-            LIMIT 15;
-            """
-        )
-        ddos_alerts = [dict(r) for r in db.execute(q_ddos_alerts).mappings().all()]
-
-        # -----------------------------
-        # Recent SSH stream (table)
-        # Pre-format small rows for the UI.
-        # -----------------------------
-        q_ssh_stream = text(
-            """
-            SELECT
-              "timestamp" AS ts,
-              id,
-              src_ip,
-              dst_ip,
-              extra
-            FROM net_events
-            WHERE event_type = 'ssh_auth'
-              AND (:agent_id IS NULL OR agent_id = :agent_id)
-            ORDER BY "timestamp" DESC, id DESC
-            LIMIT 20;
-            """
-        )
-        ssh_stream_rows = db.execute(q_ssh_stream, {"agent_id": agent_id}).mappings().all()
-        recent_ssh = []
-        for r in ssh_stream_rows:
-            extra = r.get("extra") or {}
-            recent_ssh.append(
-                {
-                    "ts": _fmt_hhmm(r["ts"]),
-                    "src": str(r.get("src_ip") or "-"),
-                    "dst": str(r.get("dst_ip") or "-"),
-                    "user": str((extra or {}).get("username") or "-"),
-                    "action": str((extra or {}).get("action") or "-"),
-                }
+            # -----------------------------
+            # Recent alerts (table)
+            # -----------------------------
+            q_recent_alerts = text(
+                """
+                SELECT id, created_at, rule_id, severity, src_ip, dst_ip, dst_port, description, details
+                FROM alerts
+                ORDER BY created_at DESC
+                LIMIT 25;
+                """
             )
+            recent_alerts = [dict(r) for r in db.execute(q_recent_alerts).mappings().all()]
 
-        # -----------------------------
-        # Raw event stream (optional table in UI)
-        # -----------------------------
-        raw_events: List[Dict[str, Any]]
-        if use_ingest_rollups:
-            # Prefer warm tier when hot storage is sampled.
-            raw_events = _warm_recent_events(agent_id=agent_id, start_ts=start_ts, end_ts=data_end_ts, limit=30)
+            # -----------------------------
+            # Recent DDoS alerts (table) - ONLY critical/high
+            # -----------------------------
+            q_ddos_alerts = text(
+                r"""
+                SELECT id, created_at, rule_id, severity, src_ip, dst_ip, dst_port, description, details
+                FROM alerts
+                WHERE lower(severity) IN ('critical','high')
+                  AND (
+                    rule_id = 'incident_ddos_correlated_v1'
+                    OR rule_id LIKE 'ddos\_%' ESCAPE '\'
+                    OR rule_id LIKE 'dos\_%'  ESCAPE '\'
+                    OR rule_id LIKE 'l7\_%'   ESCAPE '\'
+                  )
+                ORDER BY created_at DESC
+                LIMIT 15;
+                """
+            )
+            ddos_alerts = [dict(r) for r in db.execute(q_ddos_alerts).mappings().all()]
 
-            # Fallback to hot tier if ES is empty/unavailable (keeps UI stable).
-            if not raw_events:
-                q_hot_fallback = text(
+            # -----------------------------
+            # Recent SSH stream (table)
+            # -----------------------------
+            q_ssh_stream = text(
+                """
+                SELECT
+                  "timestamp" AS ts,
+                  id,
+                  src_ip,
+                  dst_ip,
+                  extra
+                FROM net_events
+                WHERE event_type = 'ssh_auth'
+                  AND (:agent_id IS NULL OR agent_id = :agent_id)
+                ORDER BY "timestamp" DESC, id DESC
+                LIMIT 20;
+                """
+            )
+            ssh_stream_rows = db.execute(q_ssh_stream, {"agent_id": agent_id}).mappings().all()
+            for r in ssh_stream_rows:
+                extra = r.get("extra") or {}
+                recent_ssh.append(
+                    {
+                        "ts": _fmt_hhmm(r["ts"]),
+                        "src": str(r.get("src_ip") or "-"),
+                        "dst": str(r.get("dst_ip") or "-"),
+                        "user": str((extra or {}).get("username") or "-"),
+                        "action": str((extra or {}).get("action") or "-"),
+                    }
+                )
+
+            # -----------------------------
+            # Raw event stream
+            # -----------------------------
+            if use_ingest_rollups:
+                raw_events = _warm_recent_events(agent_id=agent_id, start_ts=start_ts, end_ts=data_end_ts, limit=30)
+                if not raw_events:
+                    q_hot_fallback = text(
+                        """
+                        SELECT id, "timestamp", agent_id, event_type, src_ip, dst_ip, dst_port
+                        FROM net_events
+                        WHERE (:agent_id IS NULL OR agent_id = :agent_id)
+                        ORDER BY "timestamp" DESC, id DESC
+                        LIMIT 30;
+                        """
+                    )
+                    raw_events = [dict(r) for r in db.execute(q_hot_fallback, {"agent_id": agent_id}).mappings().all()]
+                if not raw_events and last_roll_ts is not None:
+                    raw_events = [
+                        {
+                            "id": 0,
+                            "timestamp": last_roll_ts.isoformat(),
+                            "agent_id": agent_id or "-",
+                            "event_type": "rollup",
+                            "src_ip": None,
+                            "dst_ip": None,
+                            "dst_port": None,
+                        }
+                    ]
+            else:
+                q_raw_events = text(
                     """
                     SELECT id, "timestamp", agent_id, event_type, src_ip, dst_ip, dst_port
                     FROM net_events
@@ -853,37 +920,13 @@ def get_overview(
                     LIMIT 30;
                     """
                 )
-                raw_events = [dict(r) for r in db.execute(q_hot_fallback, {"agent_id": agent_id}).mappings().all()]
-
-            # Final fallback: expose last rollup timestamp as a placeholder row.
-            if not raw_events and last_roll_ts is not None:
-                raw_events = [
-                    {
-                        "id": 0,
-                        "timestamp": last_roll_ts.isoformat(),
-                        "agent_id": agent_id or "-",
-                        "event_type": "rollup",
-                        "src_ip": None,
-                        "dst_ip": None,
-                        "dst_port": None,
-                    }
-                ]
-        else:
-            q_raw_events = text(
-                """
-                SELECT id, "timestamp", agent_id, event_type, src_ip, dst_ip, dst_port
-                FROM net_events
-                WHERE (:agent_id IS NULL OR agent_id = :agent_id)
-                ORDER BY "timestamp" DESC, id DESC
-                LIMIT 30;
-                """
-            )
-            raw_events = [dict(r) for r in db.execute(q_raw_events, {"agent_id": agent_id}).mappings().all()]
+                raw_events = [dict(r) for r in db.execute(q_raw_events, {"agent_id": agent_id}).mappings().all()]
 
         data_lag_s = int(max(0.0, (now - data_end_ts).total_seconds()))
 
-        return {
+        payload = {
             "meta": {
+                "lite": bool(lite),
                 "use_ingest_rollups": bool(use_ingest_rollups),
                 "protection_active": bool(protection_active),
                 "draining": bool(draining),
@@ -908,5 +951,7 @@ def get_overview(
             "recent_ssh": recent_ssh,
             "raw_events": raw_events,
         }
+        _overview_cache_set(cache_key, payload)
+        return payload
     finally:
         db.close()
