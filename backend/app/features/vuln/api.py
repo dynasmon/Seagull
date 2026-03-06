@@ -17,10 +17,13 @@ from app.core.portal_auth import require_admin
 from app.models.vuln import VulnFindingModel, VulnScanModel
 from app.schemas.pagination import CursorPage
 from app.schemas.vuln import (
+    VulnAssetRiskOut,
     VulnFindingOut,
     VulnFindingPatchIn,
     VulnIngestBatch,
     VulnIngestResult,
+    VulnPostureOut,
+    VulnRiskItemOut,
     VulnScanOut,
     VulnSummaryOut,
 )
@@ -131,6 +134,60 @@ def _env_bool(name: str, default: bool) -> bool:
     if v in {"0", "false", "f", "no", "n", "off"}:
         return False
     return default
+
+
+def _risk_score_sql() -> str:
+    """Return SQL expression (0-100) for finding risk prioritization."""
+
+    # Model:
+    # - severity dominates baseline
+    # - confidence + recurrence + recency raise urgency
+    # - CVSS/exposure/CVE/fixability improve exploitability/actionability ranking
+    return """
+        LEAST(
+          100.0,
+          (
+            (vf.severity_rank::float * 18.0)
+            + (LEAST(GREATEST(vf.confidence, 0), 100)::float * 0.12)
+            + (LEAST(GREATEST(vf.occurrences, 1), 50)::float * 0.45)
+            + (CASE WHEN vf.cve IS NOT NULL AND btrim(vf.cve) <> '' THEN 6.0 ELSE 0.0 END)
+            + (
+                CASE
+                  WHEN vf.cvss ~ '^[0-9]+(\\.[0-9]+)?$' THEN
+                    CASE
+                      WHEN (vf.cvss::double precision) >= 9.0 THEN 16.0
+                      WHEN (vf.cvss::double precision) >= 7.0 THEN 10.0
+                      WHEN (vf.cvss::double precision) >= 4.0 THEN 5.0
+                      ELSE 0.0
+                    END
+                  ELSE 0.0
+                END
+              )
+            + (
+                CASE
+                  WHEN upper(COALESCE(vf.cvss, '')) LIKE '%AV:N%' THEN 6.0
+                  ELSE 0.0
+                END
+              )
+            + (
+                CASE
+                  WHEN (
+                    (vf.evidence -> 'osv' ->> 'fixed') IS NOT NULL
+                    OR (vf.remediation IS NOT NULL AND btrim(vf.remediation) <> '')
+                  ) THEN 4.0
+                  ELSE 0.0
+                END
+              )
+            + (
+                CASE
+                  WHEN vf.last_seen_at >= ((now() AT TIME ZONE 'utc') - interval '24 hours') THEN 8.0
+                  WHEN vf.last_seen_at >= ((now() AT TIME ZONE 'utc') - interval '7 days') THEN 4.0
+                  ELSE 0.0
+                END
+              )
+          )
+        )
+    """
 
 
 @router.post(
@@ -556,3 +613,174 @@ def summary(
     finally:
         db.close()
 
+
+@router.get(
+    "/posture",
+    response_model=VulnPostureOut,
+    dependencies=[Depends(require_admin)],
+)
+def posture(
+    active_within_days: int = Query(30, ge=1, le=365),
+    include_suppressed: bool = Query(False),
+    top_n: int = Query(15, ge=5, le=50),
+):
+    """Actionable vulnerability posture with risk-based prioritization."""
+
+    db = SessionLocal()
+    try:
+        now = _utc_now()
+        since = now - timedelta(days=int(active_within_days))
+        stale_before = now - timedelta(days=30)
+        risk_expr = _risk_score_sql()
+
+        cond_sql = """
+            vf.status = 'open'
+            AND vf.last_seen_at >= :since
+            AND (:include_suppressed = true OR vf.is_suppressed = false)
+        """
+
+        q_totals = text(
+            f"""
+            WITH base AS (
+              SELECT
+                vf.*,
+                {risk_expr} AS risk_score
+              FROM vuln_findings vf
+              WHERE {cond_sql}
+            )
+            SELECT
+              COUNT(*)::bigint AS total_open,
+              COUNT(*) FILTER (WHERE severity = 'critical')::bigint AS critical_open,
+              COUNT(*) FILTER (WHERE severity = 'high')::bigint AS high_open,
+              COUNT(*) FILTER (
+                WHERE (
+                  (cvss ~ '^[0-9]+(\\.[0-9]+)?$' AND (cvss::double precision) >= 7.0)
+                  OR upper(COALESCE(cvss, '')) LIKE '%AV:N%'
+                  OR (cve IS NOT NULL AND btrim(cve) <> '' AND severity_rank >= 3)
+                )
+              )::bigint AS exploitable_open,
+              COUNT(*) FILTER (
+                WHERE (
+                  (evidence -> 'osv' ->> 'fixed') IS NOT NULL
+                  OR (remediation IS NOT NULL AND btrim(remediation) <> '')
+                )
+              )::bigint AS fixable_open,
+              COUNT(*) FILTER (WHERE last_seen_at < :stale_before)::bigint AS stale_open,
+              COALESCE(AVG(risk_score), 0)::double precision AS mean_risk,
+              COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY risk_score), 0)::double precision AS p95_risk
+            FROM base;
+            """
+        )
+        totals = (
+            db.execute(
+                q_totals,
+                {
+                    "since": since,
+                    "stale_before": stale_before,
+                    "include_suppressed": include_suppressed,
+                },
+            )
+            .mappings()
+            .first()
+            or {}
+        )
+
+        q_top = text(
+            f"""
+            SELECT
+              vf.id,
+              vf.asset_key,
+              vf.asset_agent_id,
+              vf.target,
+              vf.title,
+              vf.cve,
+              vf.severity,
+              vf.confidence,
+              vf.occurrences,
+              vf.last_seen_at,
+              vf.remediation,
+              vf.cvss,
+              (
+                CASE
+                  WHEN vf.cvss ~ '^[0-9]+(\\.[0-9]+)?$' THEN vf.cvss::double precision
+                  ELSE 0
+                END
+              )::double precision AS cvss_score,
+              (
+                (
+                  (vf.evidence -> 'osv' ->> 'fixed') IS NOT NULL
+                  OR (vf.remediation IS NOT NULL AND btrim(vf.remediation) <> '')
+                )
+              ) AS has_fix,
+              (upper(COALESCE(vf.cvss, '')) LIKE '%AV:N%') AS internet_exposed,
+              (
+                (vf.cvss ~ '^[0-9]+(\\.[0-9]+)?$' AND (vf.cvss::double precision) >= 7.0)
+                OR upper(COALESCE(vf.cvss, '')) LIKE '%AV:N%'
+                OR (vf.cve IS NOT NULL AND btrim(vf.cve) <> '' AND vf.severity_rank >= 3)
+              ) AS exploit_likely,
+              {risk_expr}::double precision AS risk_score
+            FROM vuln_findings vf
+            WHERE {cond_sql}
+            ORDER BY risk_score DESC, vf.last_seen_at DESC, vf.id DESC
+            LIMIT :top_n;
+            """
+        )
+        top_rows = db.execute(
+            q_top,
+            {
+                "since": since,
+                "include_suppressed": include_suppressed,
+                "top_n": int(top_n),
+            },
+        ).mappings().all()
+
+        q_assets = text(
+            f"""
+            WITH ranked AS (
+              SELECT
+                vf.asset_key,
+                vf.asset_agent_id,
+                vf.severity_rank,
+                vf.last_seen_at,
+                {risk_expr} AS risk_score
+              FROM vuln_findings vf
+              WHERE {cond_sql}
+            )
+            SELECT
+              asset_key,
+              MAX(asset_agent_id) AS asset_agent_id,
+              COUNT(*)::bigint AS open_findings,
+              COUNT(*) FILTER (WHERE severity_rank >= 3)::bigint AS critical_high,
+              COALESCE(MAX(risk_score), 0)::double precision AS max_risk,
+              COALESCE(AVG(risk_score), 0)::double precision AS avg_risk,
+              MAX(last_seen_at) AS last_seen_at
+            FROM ranked
+            GROUP BY asset_key
+            ORDER BY max_risk DESC, critical_high DESC, open_findings DESC
+            LIMIT 10;
+            """
+        )
+        asset_rows = db.execute(
+            q_assets,
+            {
+                "since": since,
+                "include_suppressed": include_suppressed,
+            },
+        ).mappings().all()
+
+        return VulnPostureOut(
+            generated_at=now,
+            active_within_days=int(active_within_days),
+            total_open=int(totals.get("total_open") or 0),
+            critical_open=int(totals.get("critical_open") or 0),
+            high_open=int(totals.get("high_open") or 0),
+            exploitable_open=int(totals.get("exploitable_open") or 0),
+            fixable_open=int(totals.get("fixable_open") or 0),
+            stale_open=int(totals.get("stale_open") or 0),
+            mean_risk=float(totals.get("mean_risk") or 0.0),
+            p95_risk=float(totals.get("p95_risk") or 0.0),
+            top_risks=[VulnRiskItemOut(**dict(r)) for r in top_rows],
+            top_assets=[VulnAssetRiskOut(**dict(r)) for r in asset_rows],
+        )
+    finally:
+        db.close()

@@ -194,3 +194,48 @@ class VulnSummaryOut(BaseModel):
     total_suppressed: int
     by_severity: Dict[str, int]
     by_status: Dict[str, int]
+
+
+class VulnRiskItemOut(BaseModel):
+    id: int
+    asset_key: str
+    asset_agent_id: Optional[str] = None
+    target: Optional[str] = None
+    title: str
+    cve: Optional[str] = None
+    severity: str
+    confidence: int
+    occurrences: int
+    last_seen_at: datetime
+    remediation: Optional[str] = None
+    cvss: Optional[str] = None
+    cvss_score: float
+    has_fix: bool
+    internet_exposed: bool
+    exploit_likely: bool
+    risk_score: float
+
+
+class VulnAssetRiskOut(BaseModel):
+    asset_key: str
+    asset_agent_id: Optional[str] = None
+    open_findings: int
+    critical_high: int
+    max_risk: float
+    avg_risk: float
+    last_seen_at: datetime
+
+
+class VulnPostureOut(BaseModel):
+    generated_at: datetime
+    active_within_days: int
+    total_open: int
+    critical_open: int
+    high_open: int
+    exploitable_open: int
+    fixable_open: int
+    stale_open: int
+    mean_risk: float
+    p95_risk: float
+    top_risks: List[VulnRiskItemOut]
+    top_assets: List[VulnAssetRiskOut]

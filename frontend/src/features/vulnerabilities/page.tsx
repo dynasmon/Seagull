@@ -10,9 +10,9 @@ import { cx } from "@/shared/lib/cx";
 
 import { useAuth } from "@/features/auth/context";
 
-import { getVulnFindingsPage, getVulnSummary } from "./api";
+import { getVulnFindingsPage, getVulnPosture, getVulnSummary } from "./api";
 import VulnFindingDrawer from "./VulnFindingDrawer";
-import type { VulnFinding, VulnSummary } from "./types";
+import type { VulnFinding, VulnPosture, VulnSummary } from "./types";
 
 type Density = "comfortable" | "compact";
 
@@ -65,6 +65,12 @@ function prettyAssetLabel(f: VulnFinding): string {
   return "-";
 }
 
+function fmtRisk(n: number | null | undefined): string {
+  const v = Number(n || 0);
+  if (!Number.isFinite(v)) return "0.0";
+  return v.toFixed(1);
+}
+
 function Toggle({
   value,
   onChange,
@@ -98,6 +104,8 @@ export default function VulnerabilitiesPage() {
 
   const [summary, setSummary] = useState<VulnSummary | null>(null);
   const [summaryBusy, setSummaryBusy] = useState(false);
+  const [posture, setPosture] = useState<VulnPosture | null>(null);
+  const [postureBusy, setPostureBusy] = useState(false);
 
   const [items, setItems] = useState<VulnFinding[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -147,6 +155,23 @@ export default function VulnerabilitiesPage() {
       setSummary(null);
     } finally {
       setSummaryBusy(false);
+    }
+  }
+
+  async function loadPosture(params?: { includeSuppressed?: boolean }) {
+    if (!isAdmin) return;
+    setPostureBusy(true);
+    try {
+      const out = await getVulnPosture({
+        active_within_days: activeDays,
+        include_suppressed: params?.includeSuppressed ?? filters.includeSuppressed,
+        top_n: 15,
+      });
+      setPosture(out);
+    } catch {
+      setPosture(null);
+    } finally {
+      setPostureBusy(false);
     }
   }
 
@@ -225,6 +250,7 @@ export default function VulnerabilitiesPage() {
   useEffect(() => {
     if (!isAdmin) return;
     loadSummary();
+    loadPosture();
     loadPage({ reset: true, cursor: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
@@ -232,6 +258,7 @@ export default function VulnerabilitiesPage() {
   useEffect(() => {
     if (!isAdmin) return;
     loadSummary();
+    loadPosture();
     loadPage({ reset: true, cursor: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, pageSize]);
@@ -239,6 +266,7 @@ export default function VulnerabilitiesPage() {
   useEffect(() => {
     if (!isAdmin) return;
     loadSummary();
+    loadPosture();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDays]);
 
@@ -293,6 +321,7 @@ export default function VulnerabilitiesPage() {
               type="button"
               onClick={() => {
                 loadSummary();
+                loadPosture();
                 loadPage({ reset: true, cursor: null });
               }}
               className={cx(
@@ -349,6 +378,122 @@ export default function VulnerabilitiesPage() {
               )}
             />
           </div>
+        </Card>
+      </div>
+
+      {/* Risk posture */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+        <Card title="Mean risk score" right={postureBusy ? "loading" : undefined} className="rounded-xl">
+          <div className="text-3xl font-semibold">{posture ? fmtRisk(posture.mean_risk) : "-"}</div>
+          <div className="mt-1 text-xs text-muted-foreground">p95: {posture ? fmtRisk(posture.p95_risk) : "-"}</div>
+        </Card>
+
+        <Card title="Critical/High" right={postureBusy ? "loading" : undefined} className="rounded-xl">
+          <div className="text-3xl font-semibold">
+            {posture ? posture.critical_open + posture.high_open : "-"}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            critical {posture?.critical_open ?? "-"} · high {posture?.high_open ?? "-"}
+          </div>
+        </Card>
+
+        <Card title="Exploitable likely" right={postureBusy ? "loading" : undefined} className="rounded-xl">
+          <div className="text-3xl font-semibold">{posture?.exploitable_open ?? "-"}</div>
+          <div className="mt-1 text-xs text-muted-foreground">CVE/CVSS/network exposure heuristics</div>
+        </Card>
+
+        <Card title="Fix available" right={postureBusy ? "loading" : undefined} className="rounded-xl">
+          <div className="text-3xl font-semibold">{posture?.fixable_open ?? "-"}</div>
+          <div className="mt-1 text-xs text-muted-foreground">remediation text or OSV fixed version</div>
+        </Card>
+
+        <Card title="Stale open (>30d)" right={postureBusy ? "loading" : undefined} className="rounded-xl">
+          <div className="text-3xl font-semibold">{posture?.stale_open ?? "-"}</div>
+          <div className="mt-1 text-xs text-muted-foreground">needs ownership/escalation</div>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Card
+          title="Top risky findings"
+          right={<span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{posture?.top_risks?.length ?? 0} items</span>}
+          className="rounded-xl"
+        >
+          {!posture || posture.top_risks.length === 0 ? (
+            <EmptyState title="No prioritized findings" description="No open findings in the selected window." />
+          ) : (
+            <div className="w-full overflow-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
+                  <tr className="border-b border-border/60 text-muted-foreground">
+                    <th className="text-left font-medium px-3 py-2 w-[86px]">Risk</th>
+                    <th className="text-left font-medium px-3 py-2">Finding</th>
+                    <th className="text-left font-medium px-3 py-2 w-[160px]">Asset</th>
+                    <th className="text-left font-medium px-3 py-2 w-[110px]">Fix</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {posture.top_risks.map((x) => (
+                    <tr
+                      key={x.id}
+                      className="border-b border-border/40 hover:bg-muted/30 cursor-pointer"
+                      onClick={() => {
+                        const row = items.find((it) => it.id === x.id);
+                        if (row) {
+                          setSelected(row);
+                          setDrawerOpen(true);
+                        }
+                      }}
+                    >
+                      <td className="px-3 py-2 font-mono text-[12px]">
+                        <span className={cx("inline-flex rounded-md border px-2 py-0.5", Number(x.risk_score) >= 80 ? "border-red-500/50 text-red-300" : Number(x.risk_score) >= 65 ? "border-orange-500/50 text-orange-300" : "border-border/60 text-foreground")}>
+                          {fmtRisk(x.risk_score)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-mono text-[12px] truncate" title={x.title}>
+                          {x.cve ? `${x.cve} — ${x.title}` : x.title}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          <Badge variant={sevVariant(x.severity)}>{x.severity}</Badge>
+                          <span className="ml-2">conf {x.confidence}</span>
+                          {x.internet_exposed ? <span className="ml-2">AV:N</span> : null}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 font-mono text-[12px] truncate" title={x.asset_key}>{x.asset_agent_id ? `agent:${x.asset_agent_id}` : x.asset_key}</td>
+                      <td className="px-3 py-2 text-[11px]">{x.has_fix ? "available" : "unknown"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        <Card
+          title="Most exposed assets"
+          right={<span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{posture?.top_assets?.length ?? 0} assets</span>}
+          className="rounded-xl"
+        >
+          {!posture || posture.top_assets.length === 0 ? (
+            <EmptyState title="No exposed assets" description="No asset-level risk found in the selected window." />
+          ) : (
+            <div className="space-y-2">
+              {posture.top_assets.map((a) => (
+                <div key={`${a.asset_key}-${a.asset_agent_id || "-"}`} className="rounded-lg border border-border/60 bg-background/40 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-mono text-[12px] truncate" title={a.asset_agent_id ? `agent:${a.asset_agent_id}` : a.asset_key}>
+                      {a.asset_agent_id ? `agent:${a.asset_agent_id}` : a.asset_key}
+                    </div>
+                    <div className="font-mono text-[12px] text-muted-foreground">max {fmtRisk(a.max_risk)}</div>
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    open {a.open_findings} · critical/high {a.critical_high} · avg {fmtRisk(a.avg_risk)} · seen {fmtAge(a.last_seen_at)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
       </div>
 
@@ -642,6 +787,7 @@ export default function VulnerabilitiesPage() {
           }
 
           loadSummary();
+          loadPosture();
         }}
       />
     </div>
