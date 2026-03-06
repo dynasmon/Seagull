@@ -189,13 +189,16 @@ def _top_event_types(db, start_ts: datetime, end_ts: datetime, agent_id: Optiona
     params = {"start_ts": start_ts, "end_ts": end_ts, "agent_id": agent_id}
 
     # Prefer rollups: much cheaper than scanning net_events.
+    # Exclude summary-only synthetic events so traffic charts keep operational signal.
     q_rollups = text(
-        """
+        r"""
         SELECT event_type, SUM(count) AS total
         FROM event_rollups_1m
         WHERE bucket_ts >= :start_ts
           AND bucket_ts <= :end_ts
           AND (:agent_id IS NULL OR agent_id = :agent_id)
+          AND event_type IS NOT NULL
+          AND event_type NOT LIKE '%\_summary' ESCAPE '\'
         GROUP BY event_type
         ORDER BY total DESC
         LIMIT 3;
@@ -207,12 +210,14 @@ def _top_event_types(db, start_ts: datetime, end_ts: datetime, agent_id: Optiona
 
     # Fallback: raw events
     q_raw = text(
-        """
+        r"""
         SELECT event_type, COUNT(*) AS total
         FROM net_events
         WHERE "timestamp" >= :start_ts
           AND "timestamp" <= :end_ts
           AND (:agent_id IS NULL OR agent_id = :agent_id)
+          AND event_type IS NOT NULL
+          AND event_type NOT LIKE '%\_summary' ESCAPE '\'
         GROUP BY event_type
         ORDER BY total DESC
         LIMIT 3;
@@ -398,12 +403,14 @@ def get_overview(
         # fall back to net_event_rollups_1s aggregated by minute.
         if use_ingest_rollups:
             q_top = text(
-                """
+                r"""
                 SELECT event_type, SUM(count) AS total
                 FROM net_event_rollups_1s
                 WHERE bucket_ts >= :start_ts
                   AND bucket_ts <= :end_ts
                   AND (:agent_id IS NULL OR agent_id = :agent_id)
+                  AND event_type IS NOT NULL
+                  AND event_type NOT LIKE '%\_summary' ESCAPE '\'
                 GROUP BY event_type
                 ORDER BY total DESC
                 LIMIT 3;
@@ -421,7 +428,7 @@ def get_overview(
         if use_ingest_rollups:
             # Under pressure/draining, always build from ingest rollups.
             q_traffic2 = text(
-                """
+                r"""
                 WITH buckets AS (
                   SELECT generate_series(
                     date_trunc('minute', :start_ts),
@@ -438,6 +445,8 @@ def get_overview(
                   WHERE bucket_ts >= :start_ts
                     AND bucket_ts <= :end_ts
                     AND (:agent_id IS NULL OR agent_id = :agent_id)
+                    AND event_type IS NOT NULL
+                    AND event_type NOT LIKE '%\_summary' ESCAPE '\'
                   GROUP BY 1, 2
                 )
                 SELECT
@@ -455,7 +464,7 @@ def get_overview(
             traffic_rows = db.execute(q_traffic2, {**params, "t1": t1, "t2": t2, "t3": t3}).mappings().all()
         else:
             q_traffic = text(
-                """
+                r"""
                 WITH buckets AS (
                   SELECT generate_series(
                     date_trunc('minute', :start_ts),
@@ -472,6 +481,8 @@ def get_overview(
                   WHERE bucket_ts >= :start_ts
                     AND bucket_ts <= :end_ts
                     AND (:agent_id IS NULL OR agent_id = :agent_id)
+                    AND event_type IS NOT NULL
+                    AND event_type NOT LIKE '%\_summary' ESCAPE '\'
                   GROUP BY 1, 2
                 )
                 SELECT
@@ -625,6 +636,66 @@ def get_overview(
                 "high": int(r["high"] or 0),
             }
             for r in ddos_rows
+        ]
+
+        # DDoS volume time-series (packets + peak pps) from dos_attack extras
+        q_ddos_volume = text(
+            r"""
+            WITH buckets AS (
+              SELECT generate_series(
+                date_trunc('minute', :start_ts),
+                date_trunc('minute', :end_ts),
+                interval '1 minute'
+              ) AS bucket_ts
+            ),
+            agg AS (
+              SELECT
+                date_trunc('minute', "timestamp") AS bucket_ts,
+                COALESCE(
+                  SUM(
+                    CASE
+                      WHEN (extra->>'packets') ~ '^[0-9]+(\.[0-9]+)?$'
+                      THEN (extra->>'packets')::double precision
+                      ELSE 0
+                    END
+                  ),
+                  0
+                )::bigint AS packets,
+                COALESCE(
+                  MAX(
+                    CASE
+                      WHEN (extra->>'pps') ~ '^[0-9]+(\.[0-9]+)?$'
+                      THEN (extra->>'pps')::double precision
+                      ELSE 0
+                    END
+                  ),
+                  0
+                ) AS peak_pps
+              FROM net_events
+              WHERE "timestamp" >= :start_ts
+                AND "timestamp" <= :end_ts
+                AND event_type = 'dos_attack'
+                AND (:agent_id IS NULL OR agent_id = :agent_id)
+              GROUP BY 1
+            )
+            SELECT
+              b.bucket_ts,
+              COALESCE(a.packets, 0)::bigint AS packets,
+              COALESCE(a.peak_pps, 0)::double precision AS peak_pps
+            FROM buckets b
+            LEFT JOIN agg a ON a.bucket_ts = b.bucket_ts
+            ORDER BY b.bucket_ts ASC;
+            """
+        )
+        ddos_vol_rows = db.execute(q_ddos_volume, params).mappings().all()
+        ddos_volume_series = ["packets", "peak_pps"]
+        ddos_volume_data = [
+            {
+                "t": _fmt_hhmm(r["bucket_ts"]),
+                "packets": int(r["packets"] or 0),
+                "peak_pps": float(r["peak_pps"] or 0),
+            }
+            for r in ddos_vol_rows
         ]
 
         # -----------------------------
@@ -829,6 +900,7 @@ def get_overview(
             "ssh_failures": {"series": ssh_series, "data": ssh_data},
             "alert_severity": {"series": sev_series, "data": sev_data},
             "ddos": {"series": ddos_series, "data": ddos_data},
+            "ddos_volume": {"series": ddos_volume_series, "data": ddos_volume_data},
             "ports": ports,
             "top_sources": top_sources,
             "recent_alerts": recent_alerts,
