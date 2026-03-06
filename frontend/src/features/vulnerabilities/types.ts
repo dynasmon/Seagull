@@ -50,6 +50,51 @@ export type VulnSummary = {
   by_status: Record<string, number>;
 };
 
+export type VulnRiskItem = {
+  id: number;
+  asset_key: string;
+  asset_agent_id: string | null;
+  target: string | null;
+  title: string;
+  cve: string | null;
+  severity: string;
+  confidence: number;
+  occurrences: number;
+  last_seen_at: string;
+  remediation: string | null;
+  cvss: string | null;
+  cvss_score: number;
+  has_fix: boolean;
+  internet_exposed: boolean;
+  exploit_likely: boolean;
+  risk_score: number;
+};
+
+export type VulnAssetRisk = {
+  asset_key: string;
+  asset_agent_id: string | null;
+  open_findings: number;
+  critical_high: number;
+  max_risk: number;
+  avg_risk: number;
+  last_seen_at: string;
+};
+
+export type VulnPosture = {
+  generated_at: string;
+  active_within_days: number;
+  total_open: number;
+  critical_open: number;
+  high_open: number;
+  exploitable_open: number;
+  fixable_open: number;
+  stale_open: number;
+  mean_risk: number;
+  p95_risk: number;
+  top_risks: VulnRiskItem[];
+  top_assets: VulnAssetRisk[];
+};
+
 export type VulnScan = {
   id: number;
   scan_uuid: string;
