@@ -20,6 +20,8 @@ let accessToken: string | null = null;
 type RefreshResult = { accessToken: string | null; user: AuthUser | null };
 
 let refreshInFlight: Promise<RefreshResult> | null = null;
+const getCache = new Map<string, { expiresAt: number; value: any }>();
+const getInFlight = new Map<string, Promise<any>>();
 
 export function setAccessToken(token: string | null) {
   accessToken = token;
@@ -139,6 +141,30 @@ function makeHttpError(status: number, body: any, message: string): HttpError {
   return err;
 }
 
+function cacheKey(path: string): string {
+  return String(path || "");
+}
+
+function defaultGetCacheMs(path: string): number {
+  if (!path.startsWith("/api/")) return 0;
+  if (path.startsWith("/api/auth/")) return 0;
+  if (path.startsWith("/api/overview")) return 0;
+  if (path.startsWith("/api/events/")) return 0;
+  if (path.startsWith("/api/ingest/storm/status")) return 0;
+  if (path.startsWith("/api/alerts/recent")) return 0;
+  return 8000;
+}
+
+function invalidateGetCache(prefix?: string) {
+  if (!prefix) {
+    getCache.clear();
+    return;
+  }
+  for (const k of Array.from(getCache.keys())) {
+    if (k.startsWith(prefix)) getCache.delete(k);
+  }
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const isAuthEndpoint = path.startsWith("/api/auth/");
 
@@ -200,7 +226,32 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return body as T;
 }
 
-export function apiGet<T>(path: string): Promise<T> {
+export function apiGet<T>(path: string, opts?: { cacheMs?: number; force?: boolean }): Promise<T> {
+  const ms = Math.max(0, opts?.cacheMs ?? defaultGetCacheMs(path));
+  const force = Boolean(opts?.force);
+
+  if (ms > 0 && !force) {
+    const key = cacheKey(path);
+    const now = Date.now();
+    const cached = getCache.get(key);
+    if (cached && cached.expiresAt > now) {
+      return Promise.resolve(cached.value as T);
+    }
+    const pending = getInFlight.get(key);
+    if (pending) return pending as Promise<T>;
+
+    const p = apiFetch<T>(path)
+      .then((out) => {
+        getCache.set(key, { expiresAt: Date.now() + ms, value: out });
+        return out;
+      })
+      .finally(() => {
+        getInFlight.delete(key);
+      });
+    getInFlight.set(key, p as Promise<any>);
+    return p;
+  }
+
   return apiFetch<T>(path);
 }
 
@@ -208,6 +259,8 @@ export function apiPost<T>(path: string, body?: any): Promise<T> {
   return apiFetch<T>(path, {
     method: "POST",
     body: body === undefined ? undefined : JSON.stringify(body),
+  }).finally(() => {
+    invalidateGetCache("/api/");
   });
 }
 
@@ -215,6 +268,8 @@ export function apiPatch<T>(path: string, body?: any): Promise<T> {
   return apiFetch<T>(path, {
     method: "PATCH",
     body: body === undefined ? undefined : JSON.stringify(body),
+  }).finally(() => {
+    invalidateGetCache("/api/");
   });
 }
 
@@ -222,11 +277,15 @@ export function apiPut<T>(path: string, body?: any): Promise<T> {
   return apiFetch<T>(path, {
     method: "PUT",
     body: body === undefined ? undefined : JSON.stringify(body),
+  }).finally(() => {
+    invalidateGetCache("/api/");
   });
 }
 
 export function apiDelete<T>(path: string): Promise<T> {
-  return apiFetch<T>(path, { method: "DELETE" });
+  return apiFetch<T>(path, { method: "DELETE" }).finally(() => {
+    invalidateGetCache("/api/");
+  });
 }
 
 // Convenience for auth pages

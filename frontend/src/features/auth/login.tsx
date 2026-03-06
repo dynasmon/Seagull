@@ -47,7 +47,6 @@ export default function LoginPage() {
       } else {
         await loginWithOtp(otp.trim());
       }
-      nav(next, { replace: true });
     } catch (err: any) {
       setError(err?.message || "Falha ao autenticar");
     } finally {

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
 from fastapi import Depends, HTTPException, Request, Response, status
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import SessionLocal
@@ -175,19 +176,28 @@ def _make_session(
     )
 
 
-def issue_login_tokens(response: Response, *, user: PortalUserModel, request: Request) -> dict:
+def issue_login_tokens(
+    response: Response,
+    *,
+    user: PortalUserModel,
+    request: Request,
+    db: Optional[Session] = None,
+) -> dict:
     access = make_access_token(sub=str(user.id), ttl_seconds=settings.NETWATCH_ACCESS_TOKEN_TTL_SECONDS)
 
     refresh = new_refresh_token()
     csrf = new_csrf_token()
 
-    db = SessionLocal()
+    owns_db = db is None
+    db2 = db or SessionLocal()
     try:
         sess = _make_session(user_id=user.id, refresh_token=refresh, ttl_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS, request=request)
-        db.add(sess)
-        db.commit()
+        db2.add(sess)
+        if owns_db:
+            db2.commit()
     finally:
-        db.close()
+        if owns_db:
+            db2.close()
 
     _set_refresh_cookie(response, refresh, max_age_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS)
     _set_csrf_cookie(response, csrf, max_age_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS)

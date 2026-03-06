@@ -54,12 +54,7 @@ def _audit_login_event(
                 created_at=datetime.utcnow(),
             )
         )
-        db.commit()
     except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            pass
         return
 
 
@@ -72,6 +67,13 @@ def login_endpoint(body: LoginIn, request: Request, response: Response):
         user: PortalUserModel | None = db.query(PortalUserModel).filter(PortalUserModel.username == body.username).first()
         if not user or not user.is_active:
             _audit_login_event(db=db, request=request, method="password", succeeded=False, user_id=None, username=body.username)
+            try:
+                db.commit()
+            except Exception:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
         # Verify password without leaking timing info.
@@ -82,20 +84,24 @@ def login_endpoint(body: LoginIn, request: Request, response: Response):
             try:
                 user.failed_login_count = int(user.failed_login_count or 0) + 1
                 db.add(user)
-                db.commit()
             except Exception:
                 pass
             _audit_login_event(db=db, request=request, method="password", succeeded=False, user_id=user.id, username=body.username)
+            try:
+                db.commit()
+            except Exception:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
         user.failed_login_count = 0
         user.last_login_at = datetime.utcnow()
         db.add(user)
-        db.commit()
-        db.refresh(user)
         _audit_login_event(db=db, request=request, method="password", succeeded=True, user_id=user.id, username=user.username)
-
-        payload = issue_login_tokens(response, user=user, request=request)
+        payload = issue_login_tokens(response, user=user, request=request, db=db)
+        db.commit()
         return payload
     finally:
         db.close()
@@ -139,11 +145,25 @@ def otp_login_endpoint(body: OtpLoginIn, request: Request, response: Response):
             or row.expires_at <= now
         ):
             _audit_login_event(db=db, request=request, method="otp", succeeded=False, user_id=None, username=None)
+            try:
+                db.commit()
+            except Exception:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
         user: PortalUserModel | None = db.get(PortalUserModel, row.user_id)
         if not user or not user.is_active:
             _audit_login_event(db=db, request=request, method="otp", succeeded=False, user_id=(user.id if user else None), username=(user.username if user else None))
+            try:
+                db.commit()
+            except Exception:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
         # Mark token as used (single-use).
@@ -156,10 +176,9 @@ def otp_login_endpoint(body: OtpLoginIn, request: Request, response: Response):
 
         user.last_login_at = now
         db.add(user)
-        db.commit()
         _audit_login_event(db=db, request=request, method="otp", succeeded=True, user_id=user.id, username=user.username)
-
-        payload = issue_login_tokens(response, user=user, request=request)
+        payload = issue_login_tokens(response, user=user, request=request, db=db)
+        db.commit()
         return payload
     finally:
         db.close()

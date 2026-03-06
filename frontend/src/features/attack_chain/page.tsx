@@ -289,7 +289,7 @@ export default function AttackChainPage() {
   }, [rows, applied.showWorkflow]);
 
   return (
-    <div className="p-6">
+    <div className="w-full max-w-none p-6 space-y-6">
       <PageHeader
         title="Attack Chains"
         breadcrumb={["Detection", "Attack Chains"]}
@@ -320,7 +320,7 @@ export default function AttackChainPage() {
         }
       />
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 min-h-[calc(100vh-220px)]">
+      <div className="w-full grid grid-cols-1 xl:grid-cols-12 gap-4 min-h-[calc(100vh-220px)]">
         <Panel
           title="Controls"
           right={agentsLoading ? "loading agents" : `${agents.length} agents`}

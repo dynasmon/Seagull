@@ -1,5 +1,6 @@
 import { Suspense, useState } from "react";
 import type { ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import Sidebar from "@/layout/Sidebar";
 import TopBar from "@/layout/TopBar";
 import Loading from "@/shared/components/Loading";
@@ -19,6 +20,7 @@ function MainFallback() {
 
 export default function Shell({ children }: { children: ReactNode }) {
   const [navCollapsed, setNavCollapsed] = useState(false);
+  const location = useLocation();
 
   return (
     <div className="h-screen overflow-hidden bg-background text-foreground">
@@ -31,7 +33,11 @@ export default function Shell({ children }: { children: ReactNode }) {
           </div>
 
           <main className="flex-1 min-h-0 overflow-y-auto p-6">
-            <Suspense fallback={<MainFallback />}>{children}</Suspense>
+            <Suspense fallback={<MainFallback />}>
+              <div key={location.pathname} className="page-transition-enter">
+                {children}
+              </div>
+            </Suspense>
           </main>
         </div>
       </div>

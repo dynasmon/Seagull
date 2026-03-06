@@ -1,37 +1,101 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Navigate, Route, Routes as RRRoutes } from "react-router-dom";
 
-const LoginPage = lazy(() => import("@/features/auth/login"));
-const ProtectedLayout = lazy(() => import("@/app/ProtectedLayout"));
+const loadLoginPage = () => import("@/features/auth/login");
+const loadProtectedLayout = () => import("@/app/ProtectedLayout");
 
-const OverviewPage = lazy(() => import("@/features/overview/page"));
-const AgentsPage = lazy(() => import("@/features/agents/page"));
-const EventsLayout = lazy(() => import("@/features/events/page"));
-const EventsStreamPage = lazy(() => import("@/features/events/views/stream/page"));
-const SshInsightsPage = lazy(() => import("@/features/events/views/ssh/page"));
-const ProtocolIntelPage = lazy(() => import("@/features/events/views/network/page"));
+const loadOverviewPage = () => import("@/features/overview/page");
+const loadAgentsPage = () => import("@/features/agents/page");
+const loadEventsLayout = () => import("@/features/events/page");
+const loadEventsStreamPage = () => import("@/features/events/views/stream/page");
+const loadSshInsightsPage = () => import("@/features/events/views/ssh/page");
+const loadProtocolIntelPage = () => import("@/features/events/views/network/page");
 
-const AlertsLayout = lazy(() => import("@/features/alerts/page"));
-const AlertsQueuePage = lazy(() => import("@/features/alerts/views/queue"));
-const AlertsRulesPage = lazy(() => import("@/features/alerts/views/rules"));
+const loadAlertsLayout = () => import("@/features/alerts/page");
+const loadAlertsQueuePage = () => import("@/features/alerts/views/queue");
+const loadAlertsRulesPage = () => import("@/features/alerts/views/rules");
 
-const CorrelationsLayout = lazy(() => import("@/features/correlations/page"));
-const CorrelationFindingsPage = lazy(() => import("@/features/correlations/views/findings"));
-const CorrelationRulesPage = lazy(() => import("@/features/correlations/views/rules"));
+const loadCorrelationsLayout = () => import("@/features/correlations/page");
+const loadCorrelationFindingsPage = () => import("@/features/correlations/views/findings");
+const loadCorrelationRulesPage = () => import("@/features/correlations/views/rules");
 
-const AttackChainPage = lazy(() => import("@/features/attack_chain/page"));
+const loadAttackChainPage = () => import("@/features/attack_chain/page");
 
-const VulnerabilitiesPage = lazy(() => import("@/features/vulnerabilities/page"));
-const VulnerabilityScansPage = lazy(() => import("@/features/vulnerabilities/scans"));
+const loadVulnerabilitiesPage = () => import("@/features/vulnerabilities/page");
+const loadVulnerabilityScansPage = () => import("@/features/vulnerabilities/scans");
 
-const InventoryPage = lazy(() => import("@/features/inventory/page"));
-const SettingsPage = lazy(() => import("@/features/settings/page"));
+const loadInventoryPage = () => import("@/features/inventory/page");
+const loadSettingsPage = () => import("@/features/settings/page");
+
+const LoginPage = lazy(loadLoginPage);
+const ProtectedLayout = lazy(loadProtectedLayout);
+
+const OverviewPage = lazy(loadOverviewPage);
+const AgentsPage = lazy(loadAgentsPage);
+const EventsLayout = lazy(loadEventsLayout);
+const EventsStreamPage = lazy(loadEventsStreamPage);
+const SshInsightsPage = lazy(loadSshInsightsPage);
+const ProtocolIntelPage = lazy(loadProtocolIntelPage);
+
+const AlertsLayout = lazy(loadAlertsLayout);
+const AlertsQueuePage = lazy(loadAlertsQueuePage);
+const AlertsRulesPage = lazy(loadAlertsRulesPage);
+
+const CorrelationsLayout = lazy(loadCorrelationsLayout);
+const CorrelationFindingsPage = lazy(loadCorrelationFindingsPage);
+const CorrelationRulesPage = lazy(loadCorrelationRulesPage);
+
+const AttackChainPage = lazy(loadAttackChainPage);
+
+const VulnerabilitiesPage = lazy(loadVulnerabilitiesPage);
+const VulnerabilityScansPage = lazy(loadVulnerabilityScansPage);
+
+const InventoryPage = lazy(loadInventoryPage);
+const SettingsPage = lazy(loadSettingsPage);
+
+const routeWarmers: Array<() => Promise<unknown>> = [
+  loadOverviewPage,
+  loadEventsLayout,
+  loadEventsStreamPage,
+  loadAlertsLayout,
+  loadVulnerabilitiesPage,
+  loadInventoryPage,
+];
 
 function Fallback() {
   return <div className="p-4 text-sm text-muted-foreground">Loading…</div>;
 }
 
 export function Routes() {
+  useEffect(() => {
+    let canceled = false;
+    const run = () => {
+      if (canceled) return;
+      for (const warm of routeWarmers) {
+        warm().catch(() => undefined);
+      }
+    };
+
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+
+    if (typeof w.requestIdleCallback === "function") {
+      const id = w.requestIdleCallback(run, { timeout: 1500 });
+      return () => {
+        canceled = true;
+        w.cancelIdleCallback?.(id);
+      };
+    }
+
+    const t = window.setTimeout(run, 600);
+    return () => {
+      canceled = true;
+      window.clearTimeout(t);
+    };
+  }, []);
+
   return (
     <Suspense fallback={<Fallback />}>
       <RRRoutes>

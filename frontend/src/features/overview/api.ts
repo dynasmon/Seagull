@@ -23,10 +23,11 @@ export function getPortStats(limit = 10) {
 
 // Aggregated snapshot for the Overview page (Grafana-like refresh).
 // This endpoint is intentionally lightweight and optimized for frequent polling.
-export function getOverview(params?: { window_minutes?: number; agent_id?: string }) {
+export function getOverview(params?: { window_minutes?: number; agent_id?: string; lite?: boolean }) {
   const q = new URLSearchParams();
   if (params?.window_minutes) q.set("window_minutes", String(params.window_minutes));
   if (params?.agent_id) q.set("agent_id", params.agent_id);
+  if (params?.lite) q.set("lite", "true");
   const qs = q.toString();
   return apiGet<OverviewSnapshot>(`/api/overview${qs ? `?${qs}` : ""}`);
 }
