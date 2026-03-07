@@ -13,7 +13,8 @@ import time
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import text
+from sqlalchemy import Index, delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
 from app.attack_chain.config import load_config
@@ -27,7 +28,18 @@ from app.attack_chain.store import (
     case_recent_step_exists,
 )
 from app.attack_chain.types import AttackStage, StepCandidate
-from app.core.db import engine
+from app.core.db import Base, engine
+from app.core.schema_bootstrap import bootstrap_schema
+from app.models.attack_chain import (
+    AttackChainAllowlistModel,
+    AttackChainCaseModel,
+    AttackChainLastAccessModel,
+    AttackChainLoginBaselineModel,
+    AttackChainSshFailureModel,
+    AttackChainStepModel,
+)
+from app.models.events import NetEventModel
+from app.models.search_index_offsets import SearchIndexOffsetModel
 
 
 OFFSET_NAME = "attack_chain_v1"
@@ -50,14 +62,21 @@ def _load_allowlist_rules(*, ttl_seconds: float = 10.0) -> List[Dict[str, Any]]:
     try:
         with engine.begin() as conn:
             rows = conn.execute(
-                text(
-                    """
-                    SELECT id, rule_type, enabled, match_mode, pattern, agent_id, username, target_user
-                    FROM attack_chain_allowlist
-                    WHERE rule_type = 'sudo_cmd' AND enabled = true
-                    ORDER BY updated_at DESC, id DESC;
-                    """
+                select(
+                    AttackChainAllowlistModel.id,
+                    AttackChainAllowlistModel.rule_type,
+                    AttackChainAllowlistModel.enabled,
+                    AttackChainAllowlistModel.match_mode,
+                    AttackChainAllowlistModel.pattern,
+                    AttackChainAllowlistModel.agent_id,
+                    AttackChainAllowlistModel.username,
+                    AttackChainAllowlistModel.target_user,
                 )
+                .where(
+                    AttackChainAllowlistModel.rule_type == "sudo_cmd",
+                    AttackChainAllowlistModel.enabled.is_(True),
+                )
+                .order_by(AttackChainAllowlistModel.updated_at.desc(), AttackChainAllowlistModel.id.desc())
             ).mappings().all()
             rules = [dict(r) for r in rows]
     except Exception:
@@ -83,207 +102,17 @@ def _ensure_bootstrap() -> None:
     workers follow the same pattern to avoid noisy startup failures.
     """
 
+    Base.metadata.create_all(bind=engine)
+    bootstrap_schema(engine)
     with engine.begin() as conn:
-        # Generic offsets table used by multiple workers.
         conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS search_index_offsets (
-                    name TEXT PRIMARY KEY,
-                    last_id INTEGER NOT NULL DEFAULT 0,
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                );
-                """
-            )
+            insert(SearchIndexOffsetModel)
+            .values(name=OFFSET_NAME, last_id=0)
+            .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
         )
-
-        # Stateful attack-chain case.
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS attack_chain_cases (
-                    id SERIAL PRIMARY KEY,
-                    agent_id VARCHAR(64) NOT NULL,
-                    suspect_ip VARCHAR(45) NULL,
-                    status VARCHAR(16) NOT NULL DEFAULT 'open',
-                    score INTEGER NOT NULL DEFAULT 0,
-                    max_stage VARCHAR(32) NOT NULL DEFAULT 'initial_access',
-                    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    closed_at TIMESTAMPTZ NULL,
-                    step_count INTEGER NOT NULL DEFAULT 0,
-                    context JSONB NOT NULL DEFAULT '{}'::jsonb
-                );
-                """
-            )
-        )
-
-        # Timeline steps.
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS attack_chain_steps (
-                    id SERIAL PRIMARY KEY,
-                    case_id INTEGER NOT NULL REFERENCES attack_chain_cases(id) ON DELETE CASCADE,
-                    stage VARCHAR(32) NOT NULL,
-                    label VARCHAR(96) NOT NULL,
-                    score_delta INTEGER NOT NULL DEFAULT 0,
-                    fingerprint VARCHAR(192) NOT NULL,
-                    event_id INTEGER NULL REFERENCES net_events(id) ON DELETE SET NULL,
-                    event_type VARCHAR(32) NULL,
-                    timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    src_ip VARCHAR(45) NULL,
-                    dst_ip VARCHAR(45) NULL,
-                    src_port INTEGER NULL,
-                    dst_port INTEGER NULL,
-                    proto VARCHAR(16) NULL,
-                    details JSONB NOT NULL DEFAULT '{}'::jsonb
-                );
-                """
-            )
-        )
-
-        # Indexes (keep consistent with schema_bootstrap).
-        conn.execute(
-            text(
-                """
-                CREATE INDEX IF NOT EXISTS idx_attack_chain_cases_agent_status_last_seen
-                    ON attack_chain_cases (agent_id, status, last_seen_at DESC, id DESC);
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
-                CREATE INDEX IF NOT EXISTS idx_attack_chain_cases_suspect_last_seen
-                    ON attack_chain_cases (suspect_ip, last_seen_at DESC, id DESC);
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS uq_attack_chain_open_case
-                    ON attack_chain_cases (agent_id, COALESCE(suspect_ip, ''))
-                    WHERE status = 'open';
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
-                CREATE INDEX IF NOT EXISTS idx_attack_chain_steps_case_time
-                    ON attack_chain_steps (case_id, timestamp ASC, id ASC);
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
-                CREATE INDEX IF NOT EXISTS idx_attack_chain_steps_case_fp_created
-                    ON attack_chain_steps (case_id, fingerprint, created_at DESC);
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
-                CREATE INDEX IF NOT EXISTS idx_attack_chain_steps_stage_time
-                    ON attack_chain_steps (stage, timestamp DESC, id DESC);
-                """
-            )
-        )
-        conn.execute(text("CREATE INDEX IF NOT EXISTS gin_attack_chain_cases_context ON attack_chain_cases USING GIN (context);"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS gin_attack_chain_steps_details ON attack_chain_steps USING GIN (details);"))
-
-        # SSH correlation helpers (reduce noise and improve attribution).
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS attack_chain_ssh_failures (
-                    agent_id VARCHAR(64) NOT NULL,
-                    src_ip VARCHAR(45) NOT NULL,
-                    username TEXT NOT NULL DEFAULT '',
-                    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    fail_count INTEGER NOT NULL DEFAULT 0,
-                    PRIMARY KEY (agent_id, src_ip, username)
-                );
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS attack_chain_login_baseline (
-                    agent_id VARCHAR(64) NOT NULL,
-                    username TEXT NOT NULL DEFAULT '',
-                    src_ip VARCHAR(45) NOT NULL,
-                    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    seen_count INTEGER NOT NULL DEFAULT 0,
-                    PRIMARY KEY (agent_id, username, src_ip)
-                );
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS attack_chain_last_access (
-                    agent_id VARCHAR(64) PRIMARY KEY,
-                    username TEXT NULL,
-                    src_ip VARCHAR(45) NULL,
-                    accepted_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                );
-                """
-            )
-        )
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_attack_chain_ssh_failures_last_seen ON attack_chain_ssh_failures (last_seen_at DESC);"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_attack_chain_login_baseline_last_seen ON attack_chain_login_baseline (last_seen_at DESC);"))
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_attack_chain_last_access_accepted_at ON attack_chain_last_access (accepted_at DESC);"))
-
-        # Portal-managed allowlist (admin-configurable)
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS attack_chain_allowlist (
-                    id SERIAL PRIMARY KEY,
-                    rule_type VARCHAR(32) NOT NULL DEFAULT 'sudo_cmd',
-                    enabled BOOLEAN NOT NULL DEFAULT true,
-                    match_mode VARCHAR(16) NOT NULL DEFAULT 'contains',
-                    pattern TEXT NOT NULL,
-                    agent_id VARCHAR(64) NULL,
-                    username TEXT NULL,
-                    target_user TEXT NULL,
-                    notes VARCHAR(256) NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                );
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
-                CREATE INDEX IF NOT EXISTS idx_attack_chain_allowlist_type_enabled_updated
-                    ON attack_chain_allowlist (rule_type, enabled, updated_at DESC, id DESC);
-                """
-            )
-        )
-
-        # Ensure offset row.
-        conn.execute(
-            text(
-                """
-                INSERT INTO search_index_offsets (name, last_id)
-                VALUES (:name, 0)
-                ON CONFLICT (name) DO NOTHING;
-                """
-            ),
-            {"name": OFFSET_NAME},
-        )
+        Index("idx_attack_chain_ssh_failures_last_seen", AttackChainSshFailureModel.last_seen_at.desc()).create(bind=conn, checkfirst=True)
+        Index("idx_attack_chain_login_baseline_last_seen", AttackChainLoginBaselineModel.last_seen_at.desc()).create(bind=conn, checkfirst=True)
+        Index("idx_attack_chain_last_access_accepted_at", AttackChainLastAccessModel.accepted_at.desc()).create(bind=conn, checkfirst=True)
 
 
 def _utc_now() -> datetime:
@@ -298,49 +127,25 @@ def _fingerprint(stage: str, raw: str) -> str:
 def _get_last_id() -> int:
     with engine.begin() as conn:
         conn.execute(
-            text(
-                """
-                INSERT INTO search_index_offsets (name, last_id)
-                VALUES (:name, 0)
-                ON CONFLICT (name) DO NOTHING;
-                """
-            ),
-            {"name": OFFSET_NAME},
+            insert(SearchIndexOffsetModel)
+            .values(name=OFFSET_NAME, last_id=0)
+            .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
         )
-        row = conn.execute(text("SELECT last_id FROM search_index_offsets WHERE name=:name"), {"name": OFFSET_NAME}).fetchone()
+        row = conn.execute(select(SearchIndexOffsetModel.last_id).where(SearchIndexOffsetModel.name == OFFSET_NAME).limit(1)).fetchone()
         return int(row[0]) if row and row[0] is not None else 0
 
 
 def _set_last_id(last_id: int) -> None:
     with engine.begin() as conn:
         conn.execute(
-            text(
-                """
-                UPDATE search_index_offsets
-                   SET last_id = :last_id,
-                       updated_at = now()
-                 WHERE name = :name;
-                """
-            ),
-            {"name": OFFSET_NAME, "last_id": int(last_id)},
+            update(SearchIndexOffsetModel)
+            .where(SearchIndexOffsetModel.name == OFFSET_NAME)
+            .values(last_id=int(last_id), updated_at=func.now())
         )
 
 
 def _fetch_events(after_id: int, limit: int) -> List[Dict[str, Any]]:
     # Keep the scan cheap by focusing only on event types that can feed the chain.
-    sql = text(
-        """
-        SELECT
-          id, agent_id, event_type, schema_version, timestamp,
-          src_ip, dst_ip, src_port, dst_port, proto, bytes, extra
-        FROM net_events
-        WHERE id > :after_id
-          AND event_type = ANY(:event_types)
-        ORDER BY id ASC
-        LIMIT :limit;
-        """
-    )
-
     event_types = [
         "ssh_auth",
         "sudo_cmd",
@@ -358,40 +163,53 @@ def _fetch_events(after_id: int, limit: int) -> List[Dict[str, Any]]:
     ]
 
     with engine.begin() as conn:
-        rows = conn.execute(sql, {"after_id": int(after_id), "limit": int(limit), "event_types": event_types}).mappings().all()
+        rows = conn.execute(
+            select(
+                NetEventModel.id,
+                NetEventModel.agent_id,
+                NetEventModel.event_type,
+                NetEventModel.schema_version,
+                NetEventModel.timestamp,
+                NetEventModel.src_ip,
+                NetEventModel.dst_ip,
+                NetEventModel.src_port,
+                NetEventModel.dst_port,
+                NetEventModel.proto,
+                NetEventModel.bytes,
+                NetEventModel.extra,
+            )
+            .where(NetEventModel.id > int(after_id), NetEventModel.event_type.in_(event_types))
+            .order_by(NetEventModel.id.asc())
+            .limit(int(limit))
+        ).mappings().all()
         return [dict(r) for r in rows]
 
 
 def _open_case_exists(conn, *, agent_id: str, suspect_ip: str) -> bool:
     row = conn.execute(
-        text(
-            """
-            SELECT 1
-            FROM attack_chain_cases
-            WHERE agent_id = :agent_id
-              AND suspect_ip = :suspect_ip
-              AND status = 'open'
-            LIMIT 1;
-            """
-        ),
-        {"agent_id": agent_id, "suspect_ip": suspect_ip},
+        select(AttackChainCaseModel.id)
+        .where(
+            AttackChainCaseModel.agent_id == agent_id,
+            AttackChainCaseModel.suspect_ip == suspect_ip,
+            AttackChainCaseModel.status == "open",
+        )
+        .limit(1)
     ).fetchone()
     return row is not None
 
 
 def _upsert_last_access(conn, *, agent_id: str, username: str, src_ip: str, accepted_at: datetime) -> None:
     conn.execute(
-        text(
-            """
-            INSERT INTO attack_chain_last_access (agent_id, username, src_ip, accepted_at)
-            VALUES (:agent_id, :username, :src_ip, :accepted_at)
-            ON CONFLICT (agent_id) DO UPDATE
-               SET username = EXCLUDED.username,
-                   src_ip = EXCLUDED.src_ip,
-                   accepted_at = EXCLUDED.accepted_at;
-            """
-        ),
-        {"agent_id": agent_id, "username": username or None, "src_ip": src_ip or None, "accepted_at": accepted_at},
+        insert(AttackChainLastAccessModel)
+        .values(agent_id=agent_id, username=username or None, src_ip=src_ip or None, accepted_at=accepted_at)
+        .on_conflict_do_update(
+            index_elements=[AttackChainLastAccessModel.agent_id],
+            set_={
+                "username": username or None,
+                "src_ip": src_ip or None,
+                "accepted_at": accepted_at,
+            },
+        )
     )
 
 
@@ -399,15 +217,13 @@ def _get_recent_last_access(conn, *, agent_id: str, now: datetime, window_second
     if window_seconds <= 0:
         return None
     row = conn.execute(
-        text(
-            """
-            SELECT username, src_ip, accepted_at
-            FROM attack_chain_last_access
-            WHERE agent_id = :agent_id
-            LIMIT 1;
-            """
-        ),
-        {"agent_id": agent_id},
+        select(
+            AttackChainLastAccessModel.username,
+            AttackChainLastAccessModel.src_ip,
+            AttackChainLastAccessModel.accepted_at,
+        )
+        .where(AttackChainLastAccessModel.agent_id == agent_id)
+        .limit(1)
     ).mappings().fetchone()
     if not row:
         return None
@@ -426,29 +242,37 @@ def _baseline_mark_login(conn, *, agent_id: str, username: str, src_ip: str, ts:
     """
 
     row = conn.execute(
-        text(
-            """
-            SELECT seen_count
-            FROM attack_chain_login_baseline
-            WHERE agent_id = :agent_id AND username = :username AND src_ip = :src_ip
-            LIMIT 1;
-            """
-        ),
-        {"agent_id": agent_id, "username": username or "", "src_ip": src_ip},
+        select(AttackChainLoginBaselineModel.seen_count)
+        .where(
+            AttackChainLoginBaselineModel.agent_id == agent_id,
+            AttackChainLoginBaselineModel.username == (username or ""),
+            AttackChainLoginBaselineModel.src_ip == src_ip,
+        )
+        .limit(1)
     ).fetchone()
     first_time = row is None
 
     conn.execute(
-        text(
-            """
-            INSERT INTO attack_chain_login_baseline (agent_id, username, src_ip, first_seen_at, last_seen_at, seen_count)
-            VALUES (:agent_id, :username, :src_ip, :ts, :ts, 1)
-            ON CONFLICT (agent_id, username, src_ip) DO UPDATE
-               SET last_seen_at = EXCLUDED.last_seen_at,
-                   seen_count = attack_chain_login_baseline.seen_count + 1;
-            """
-        ),
-        {"agent_id": agent_id, "username": username or "", "src_ip": src_ip, "ts": ts},
+        insert(AttackChainLoginBaselineModel)
+        .values(
+            agent_id=agent_id,
+            username=username or "",
+            src_ip=src_ip,
+            first_seen_at=ts,
+            last_seen_at=ts,
+            seen_count=1,
+        )
+        .on_conflict_do_update(
+            index_elements=[
+                AttackChainLoginBaselineModel.agent_id,
+                AttackChainLoginBaselineModel.username,
+                AttackChainLoginBaselineModel.src_ip,
+            ],
+            set_={
+                "last_seen_at": ts,
+                "seen_count": AttackChainLoginBaselineModel.seen_count + 1,
+            },
+        )
     )
 
     return first_time
@@ -461,29 +285,41 @@ def _inc_ssh_failure(conn, *, agent_id: str, src_ip: str, username: str, now: da
         window_seconds = 10 * 60
 
     row = conn.execute(
-        text(
-            """
-            SELECT first_seen_at, last_seen_at, fail_count
-            FROM attack_chain_ssh_failures
-            WHERE agent_id = :agent_id AND src_ip = :src_ip AND username = :username
-            LIMIT 1;
-            """
-        ),
-        {"agent_id": agent_id, "src_ip": src_ip, "username": username or ""},
+        select(
+            AttackChainSshFailureModel.first_seen_at,
+            AttackChainSshFailureModel.last_seen_at,
+            AttackChainSshFailureModel.fail_count,
+        )
+        .where(
+            AttackChainSshFailureModel.agent_id == agent_id,
+            AttackChainSshFailureModel.src_ip == src_ip,
+            AttackChainSshFailureModel.username == (username or ""),
+        )
+        .limit(1)
     ).mappings().fetchone()
 
     if not row:
         conn.execute(
-            text(
-                """
-                INSERT INTO attack_chain_ssh_failures (agent_id, src_ip, username, first_seen_at, last_seen_at, fail_count)
-                VALUES (:agent_id, :src_ip, :username, :now, :now, 1)
-                ON CONFLICT (agent_id, src_ip, username) DO UPDATE
-                   SET last_seen_at = EXCLUDED.last_seen_at,
-                       fail_count = attack_chain_ssh_failures.fail_count + 1;
-                """
-            ),
-            {"agent_id": agent_id, "src_ip": src_ip, "username": username or "", "now": now},
+            insert(AttackChainSshFailureModel)
+            .values(
+                agent_id=agent_id,
+                src_ip=src_ip,
+                username=username or "",
+                first_seen_at=now,
+                last_seen_at=now,
+                fail_count=1,
+            )
+            .on_conflict_do_update(
+                index_elements=[
+                    AttackChainSshFailureModel.agent_id,
+                    AttackChainSshFailureModel.src_ip,
+                    AttackChainSshFailureModel.username,
+                ],
+                set_={
+                    "last_seen_at": now,
+                    "fail_count": AttackChainSshFailureModel.fail_count + 1,
+                },
+            )
         )
         return 1
 
@@ -498,49 +334,42 @@ def _inc_ssh_failure(conn, *, agent_id: str, src_ip: str, username: str, now: da
     # Reset the counter if the window expired.
     if last_seen_at < (now - timedelta(seconds=int(window_seconds))):
         conn.execute(
-            text(
-                """
-                UPDATE attack_chain_ssh_failures
-                   SET first_seen_at = :now,
-                       last_seen_at = :now,
-                       fail_count = 1
-                 WHERE agent_id = :agent_id AND src_ip = :src_ip AND username = :username;
-                """
-            ),
-            {"agent_id": agent_id, "src_ip": src_ip, "username": username or "", "now": now},
+            update(AttackChainSshFailureModel)
+            .where(
+                AttackChainSshFailureModel.agent_id == agent_id,
+                AttackChainSshFailureModel.src_ip == src_ip,
+                AttackChainSshFailureModel.username == (username or ""),
+            )
+            .values(first_seen_at=now, last_seen_at=now, fail_count=1)
         )
         return 1
 
     new_count = fail_count + 1
     conn.execute(
-        text(
-            """
-            UPDATE attack_chain_ssh_failures
-               SET last_seen_at = :now,
-                   fail_count = :c
-             WHERE agent_id = :agent_id AND src_ip = :src_ip AND username = :username;
-            """
-        ),
-        {"agent_id": agent_id, "src_ip": src_ip, "username": username or "", "now": now, "c": int(new_count)},
+        update(AttackChainSshFailureModel)
+        .where(
+            AttackChainSshFailureModel.agent_id == agent_id,
+            AttackChainSshFailureModel.src_ip == src_ip,
+            AttackChainSshFailureModel.username == (username or ""),
+        )
+        .values(last_seen_at=now, fail_count=int(new_count))
     )
     return int(new_count)
 
 
 def _clear_ssh_failures(conn, *, agent_id: str, src_ip: str, username: str) -> None:
     conn.execute(
-        text(
-            """
-            DELETE FROM attack_chain_ssh_failures
-            WHERE agent_id = :agent_id AND src_ip = :src_ip AND username = :username;
-            """
-        ),
-        {"agent_id": agent_id, "src_ip": src_ip, "username": username or ""},
+        delete(AttackChainSshFailureModel).where(
+            AttackChainSshFailureModel.agent_id == agent_id,
+            AttackChainSshFailureModel.src_ip == src_ip,
+            AttackChainSshFailureModel.username == (username or ""),
+        )
     )
 
 
 def _get_max_event_id() -> int:
     with engine.begin() as conn:
-        row = conn.execute(text("SELECT COALESCE(max(id), 0) FROM net_events")).fetchone()
+        row = conn.execute(select(func.coalesce(func.max(NetEventModel.id), 0))).fetchone()
         try:
             return int(row[0] or 0)
         except Exception:
@@ -549,8 +378,13 @@ def _get_max_event_id() -> int:
 
 def _load_case_by_id(conn, case_id: int) -> Optional[CaseRow]:
     row = conn.execute(
-        text("SELECT id, score, max_stage, step_count, context FROM attack_chain_cases WHERE id=:id"),
-        {"id": int(case_id)},
+        select(
+            AttackChainCaseModel.id,
+            AttackChainCaseModel.score,
+            AttackChainCaseModel.max_stage,
+            AttackChainCaseModel.step_count,
+            AttackChainCaseModel.context,
+        ).where(AttackChainCaseModel.id == int(case_id))
     ).mappings().fetchone()
     if not row:
         return None

@@ -26,10 +26,15 @@ from typing import Any, Dict, Optional, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
-from app.core.db import engine
+from app.core.db import Base, engine
+from app.core.schema_bootstrap import bootstrap_schema
+from app.models.events import NetEventModel
+from app.models.ip_enrichment_cache import IpEnrichmentCacheModel
+from app.models.search_index_offsets import SearchIndexOffsetModel
 
 
 OFFSET_LUPE = "lupe_enricher_ssh_v1"
@@ -106,68 +111,26 @@ def _ensure_bootstrap(default_ttl_days: int) -> None:
 
     The backend runs schema_bootstrap at startup, but workers may start first.
     """
+    Base.metadata.create_all(bind=engine)
+    bootstrap_schema(engine)
     with engine.begin() as conn:
         conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS search_index_offsets (
-                    name TEXT PRIMARY KEY,
-                    last_id INTEGER NOT NULL DEFAULT 0,
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                );
-                """
-            )
+            insert(SearchIndexOffsetModel)
+            .values(name=OFFSET_LUPE, last_id=0)
+            .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
         )
+        # Keep default TTL consistent even if older rows have NULL.
         conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS ip_enrichment_cache (
-                    ip VARCHAR(45) PRIMARY KEY,
-                    country VARCHAR(8) NULL,
-                    region VARCHAR(128) NULL,
-                    city VARCHAR(128) NULL,
-                    loc VARCHAR(32) NULL,
-                    org VARCHAR(256) NULL,
-                    asn VARCHAR(32) NULL,
-                    asn_org VARCHAR(256) NULL,
-                    data JSONB NOT NULL DEFAULT '{}'::jsonb,
-                    fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days')
-                );
-                """
-            )
-        )
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ip_enrichment_cache_expires_at ON ip_enrichment_cache (expires_at);"))
-
-        conn.execute(
-            text(
-                """
-                INSERT INTO search_index_offsets (name, last_id)
-                VALUES (:n, 0)
-                ON CONFLICT (name) DO NOTHING;
-                """
-            ),
-            {"n": OFFSET_LUPE},
-        )
-
-        # Keep default TTL consistent even if bootstrap created older defaults.
-        conn.execute(
-            text(
-                """
-                UPDATE ip_enrichment_cache
-                SET expires_at = GREATEST(expires_at, now() + (:ttl_days || ' days')::interval)
-                WHERE expires_at IS NULL;
-                """
-            ),
-            {"ttl_days": int(default_ttl_days)},
+            update(IpEnrichmentCacheModel)
+            .where(IpEnrichmentCacheModel.expires_at.is_(None))
+            .values(expires_at=_utc_now() + timedelta(days=int(default_ttl_days)))
         )
 
 
 def _get_last_id() -> int:
     with engine.begin() as conn:
         row = conn.execute(
-            text("SELECT last_id FROM search_index_offsets WHERE name=:name"),
-            {"name": OFFSET_LUPE},
+            select(SearchIndexOffsetModel.last_id).where(SearchIndexOffsetModel.name == OFFSET_LUPE).limit(1),
         ).fetchone()
         return int(row[0]) if row and row[0] is not None else 0
 
@@ -175,58 +138,48 @@ def _get_last_id() -> int:
 def _set_last_id(last_id: int) -> None:
     with engine.begin() as conn:
         conn.execute(
-            text(
-                """
-                INSERT INTO search_index_offsets(name, last_id)
-                VALUES (:name, :last_id)
-                ON CONFLICT (name) DO UPDATE
-                  SET last_id = EXCLUDED.last_id,
-                      updated_at = now();
-                """
-            ),
-            {"name": OFFSET_LUPE, "last_id": int(last_id)},
+            insert(SearchIndexOffsetModel)
+            .values(name=OFFSET_LUPE, last_id=int(last_id))
+            .on_conflict_do_update(
+                index_elements=[SearchIndexOffsetModel.name],
+                set_={"last_id": int(last_id), "updated_at": func.now()},
+            )
         )
 
 
 def _pick_batch_max_id(last_id: int, max_rows: int) -> Optional[int]:
     with engine.begin() as conn:
-        row = conn.execute(
-            text(
-                """
-                SELECT MAX(id) FROM (
-                    SELECT id
-                    FROM net_events
-                    WHERE id > :last_id
-                    ORDER BY id
-                    LIMIT :max_rows
-                ) t;
-                """
-            ),
-            {"last_id": int(last_id), "max_rows": int(max_rows)},
-        ).fetchone()
+        subq = (
+            select(NetEventModel.id)
+            .where(NetEventModel.id > int(last_id))
+            .order_by(NetEventModel.id.asc())
+            .limit(int(max_rows))
+            .subquery()
+        )
+        row = conn.execute(select(func.max(subq.c.id))).fetchone()
         v = row[0] if row else None
         return int(v) if v is not None else None
 
 
 def _fetch_batch(last_id: int, max_id: int, limit: int) -> list[dict]:
     with engine.begin() as conn:
-        stmt = text(
-            """
-            SELECT id, agent_id, src_ip, extra->>'action' AS action
-            FROM net_events
-            WHERE id > :last_id AND id <= :max_id
-              AND event_type = 'ssh_auth'
-              AND src_ip IS NOT NULL
-              AND (extra->>'action') IN :actions
-              AND NOT (extra ? 'lupe_enriched_at')
-            ORDER BY id
-            LIMIT :limit;
-            """
-        ).bindparams(bindparam("actions", expanding=True))
-
         rows = conn.execute(
-            stmt,
-            {"last_id": int(last_id), "max_id": int(max_id), "actions": list(SSH_ACTIONS), "limit": int(limit)},
+            select(
+                NetEventModel.id,
+                NetEventModel.agent_id,
+                NetEventModel.src_ip,
+                NetEventModel.extra["action"].astext.label("action"),
+            )
+            .where(
+                NetEventModel.id > int(last_id),
+                NetEventModel.id <= int(max_id),
+                NetEventModel.event_type == "ssh_auth",
+                NetEventModel.src_ip.is_not(None),
+                NetEventModel.extra["action"].astext.in_(list(SSH_ACTIONS)),
+                ~NetEventModel.extra.has_key("lupe_enriched_at"),
+            )
+            .order_by(NetEventModel.id.asc())
+            .limit(int(limit))
         ).mappings().all()
         return [dict(r) for r in rows]
 
@@ -234,14 +187,19 @@ def _fetch_batch(last_id: int, max_id: int, limit: int) -> list[dict]:
 def _get_cached_ip(ip: str) -> Optional[dict]:
     with engine.begin() as conn:
         row = conn.execute(
-            text(
-                """
-                SELECT country, region, city, loc, org, asn, asn_org, data, expires_at
-                FROM ip_enrichment_cache
-                WHERE ip = :ip;
-                """
-            ),
-            {"ip": ip},
+            select(
+                IpEnrichmentCacheModel.country,
+                IpEnrichmentCacheModel.region,
+                IpEnrichmentCacheModel.city,
+                IpEnrichmentCacheModel.loc,
+                IpEnrichmentCacheModel.org,
+                IpEnrichmentCacheModel.asn,
+                IpEnrichmentCacheModel.asn_org,
+                IpEnrichmentCacheModel.data,
+                IpEnrichmentCacheModel.expires_at,
+            )
+            .where(IpEnrichmentCacheModel.ip == ip)
+            .limit(1)
         ).mappings().fetchone()
         if not row:
             return None
@@ -270,39 +228,35 @@ def _get_cached_ip(ip: str) -> Optional[dict]:
 def _upsert_cache(ip: str, rec: dict, ttl_days: int) -> None:
     expires_at = _utc_now() + timedelta(days=int(ttl_days))
     with engine.begin() as conn:
+        ins = insert(IpEnrichmentCacheModel).values(
+            ip=ip,
+            country=rec.get("country"),
+            region=rec.get("region"),
+            city=rec.get("city"),
+            loc=rec.get("loc"),
+            org=rec.get("org"),
+            asn=rec.get("asn"),
+            asn_org=rec.get("asn_org"),
+            data=rec.get("data") or {},
+            fetched_at=_utc_now(),
+            expires_at=expires_at,
+        )
         conn.execute(
-            text(
-                """
-                INSERT INTO ip_enrichment_cache (
-                    ip, country, region, city, loc, org, asn, asn_org, data, fetched_at, expires_at
-                ) VALUES (
-                    :ip, :country, :region, :city, :loc, :org, :asn, :asn_org, CAST(:data AS jsonb), now(), :expires_at
-                )
-                ON CONFLICT (ip) DO UPDATE SET
-                    country = EXCLUDED.country,
-                    region = EXCLUDED.region,
-                    city = EXCLUDED.city,
-                    loc = EXCLUDED.loc,
-                    org = EXCLUDED.org,
-                    asn = EXCLUDED.asn,
-                    asn_org = EXCLUDED.asn_org,
-                    data = EXCLUDED.data,
-                    fetched_at = now(),
-                    expires_at = EXCLUDED.expires_at;
-                """
-            ),
-            {
-                "ip": ip,
-                "country": rec.get("country"),
-                "region": rec.get("region"),
-                "city": rec.get("city"),
-                "loc": rec.get("loc"),
-                "org": rec.get("org"),
-                "asn": rec.get("asn"),
-                "asn_org": rec.get("asn_org"),
-                "data": json.dumps(rec.get("data") or {}, separators=(",", ":")),
-                "expires_at": expires_at,
-            },
+            ins.on_conflict_do_update(
+                index_elements=[IpEnrichmentCacheModel.ip],
+                set_={
+                    "country": ins.excluded.country,
+                    "region": ins.excluded.region,
+                    "city": ins.excluded.city,
+                    "loc": ins.excluded.loc,
+                    "org": ins.excluded.org,
+                    "asn": ins.excluded.asn,
+                    "asn_org": ins.excluded.asn_org,
+                    "data": ins.excluded.data,
+                    "fetched_at": _utc_now(),
+                    "expires_at": ins.excluded.expires_at,
+                },
+            )
         )
 
 
@@ -338,14 +292,9 @@ def _build_record(ipinfo: dict) -> dict:
 def _patch_event(event_id: int, patch: dict) -> None:
     with engine.begin() as conn:
         conn.execute(
-            text(
-                """
-                UPDATE net_events
-                SET extra = extra || CAST(:patch AS jsonb)
-                WHERE id = :id;
-                """
-            ),
-            {"id": int(event_id), "patch": json.dumps(patch, separators=(",", ":"))},
+            update(NetEventModel)
+            .where(NetEventModel.id == int(event_id))
+            .values(extra=NetEventModel.extra.op("||")(patch))
         )
 
 

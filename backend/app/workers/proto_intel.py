@@ -33,10 +33,14 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from sqlalchemy import text
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
-from app.core.db import engine
+from app.core.db import Base, engine
+from app.core.schema_bootstrap import bootstrap_schema
+from app.models.events import NetEventModel
+from app.models.search_index_offsets import SearchIndexOffsetModel
 from app.protocol_intel import analyze_event
 
 
@@ -76,55 +80,39 @@ def _utc_now_iso() -> str:
 def _ensure_bootstrap() -> None:
     """Keep worker boot-safe when running in Compose."""
 
+    Base.metadata.create_all(bind=engine)
+    bootstrap_schema(engine)
     with engine.begin() as conn:
         conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS search_index_offsets (
-                    name TEXT PRIMARY KEY,
-                    last_id INTEGER NOT NULL DEFAULT 0,
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                );
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
-                INSERT INTO search_index_offsets (name, last_id)
-                VALUES (:n, 0)
-                ON CONFLICT (name) DO NOTHING;
-                """
-            ),
-            {"n": OFFSET_PROTO_INTEL},
+            insert(SearchIndexOffsetModel)
+            .values(name=OFFSET_PROTO_INTEL, last_id=0)
+            .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
         )
 
 
 def _get_last_id() -> int:
     with engine.begin() as conn:
-        row = conn.execute(text("SELECT last_id FROM search_index_offsets WHERE name=:n"), {"n": OFFSET_PROTO_INTEL}).fetchone()
+        row = conn.execute(
+            select(SearchIndexOffsetModel.last_id).where(SearchIndexOffsetModel.name == OFFSET_PROTO_INTEL).limit(1)
+        ).fetchone()
         return int(row[0]) if row else 0
 
 
 def _set_last_id(last_id: int) -> None:
     with engine.begin() as conn:
         conn.execute(
-            text(
-                """
-                INSERT INTO search_index_offsets (name, last_id)
-                VALUES (:n, :id)
-                ON CONFLICT (name) DO UPDATE
-                SET last_id = EXCLUDED.last_id,
-                    updated_at = now();
-                """
-            ),
-            {"n": OFFSET_PROTO_INTEL, "id": int(last_id)},
+            insert(SearchIndexOffsetModel)
+            .values(name=OFFSET_PROTO_INTEL, last_id=int(last_id))
+            .on_conflict_do_update(
+                index_elements=[SearchIndexOffsetModel.name],
+                set_={"last_id": int(last_id), "updated_at": func.now()},
+            )
         )
 
 
 def _pick_batch_max_id(last_id: int, max_rows: int) -> int:
     with engine.begin() as conn:
-        row = conn.execute(text("SELECT MAX(id) FROM net_events WHERE id > :last"), {"last": int(last_id)}).fetchone()
+        row = conn.execute(select(func.max(NetEventModel.id)).where(NetEventModel.id > int(last_id))).fetchone()
         max_id = int(row[0]) if row and row[0] is not None else last_id
     return min(max_id, last_id + max_rows)
 
@@ -132,18 +120,21 @@ def _pick_batch_max_id(last_id: int, max_rows: int) -> int:
 def _fetch_batch(last_id: int, max_id: int, batch_size: int) -> List[Dict[str, Any]]:
     with engine.begin() as conn:
         rows = conn.execute(
-            text(
-                """
-                SELECT id, event_type, proto, src_port, dst_port, extra
-                FROM net_events
-                WHERE id > :last_id
-                  AND id <= :max_id
-                  AND NOT (extra ? 'proto_intel_at')
-                ORDER BY id
-                LIMIT :limit;
-                """
-            ),
-            {"last_id": int(last_id), "max_id": int(max_id), "limit": int(batch_size)},
+            select(
+                NetEventModel.id,
+                NetEventModel.event_type,
+                NetEventModel.proto,
+                NetEventModel.src_port,
+                NetEventModel.dst_port,
+                NetEventModel.extra,
+            )
+            .where(
+                NetEventModel.id > int(last_id),
+                NetEventModel.id <= int(max_id),
+                ~NetEventModel.extra.has_key("proto_intel_at"),
+            )
+            .order_by(NetEventModel.id.asc())
+            .limit(int(batch_size))
         ).mappings().all()
         return [dict(r) for r in rows]
 
@@ -151,14 +142,9 @@ def _fetch_batch(last_id: int, max_id: int, batch_size: int) -> List[Dict[str, A
 def _patch_event(event_id: int, patch: Dict[str, Any]) -> None:
     with engine.begin() as conn:
         conn.execute(
-            text(
-                """
-                UPDATE net_events
-                SET extra = extra || CAST(:patch AS jsonb)
-                WHERE id = :id;
-                """
-            ),
-            {"id": int(event_id), "patch": json.dumps(patch, separators=(",", ":"))},
+            update(NetEventModel)
+            .where(NetEventModel.id == int(event_id))
+            .values(extra=NetEventModel.extra.op("||")(patch))
         )
 
 

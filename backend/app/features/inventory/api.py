@@ -3,12 +3,13 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, or_, select, text
+from sqlalchemy import String, and_, cast, func, literal, or_, select
 
 from app.core.agent_auth import AgentPrincipal, get_current_agent
 from app.core.portal_auth import get_current_user
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.db import SessionLocal
+from app.models.agents import AgentModel
 from app.models.inventory import AgentInventorySnapshotModel
 from app.schemas.pagination import CursorPage
 from app.schemas.inventory import InventorySnapshotIn, InventorySnapshotOut, PackageEntry
@@ -276,362 +277,369 @@ async def get_inventory_overview(
 
     db = SessionLocal()
     try:
-        params = {"start_ts": start_ts, "end_ts": now, "agent_id": a, "start_1m": start_1m, "end_1m": end_1m, "start_10m": start_10m, "end_10m": end_10m}
-
         # -----------------------------
         # KPIs
         # -----------------------------
-        q_kpis = text(
-            """
-            WITH last AS (
-              SELECT agent_id, MAX(collected_at) AS last_at
-              FROM agent_inventory_snapshots
-              GROUP BY agent_id
-            )
-            SELECT
-              (SELECT COUNT(*)::int FROM agents) AS agents_total,
+        agents_total = int(db.execute(select(func.count()).select_from(AgentModel)).scalar() or 0)
 
-              (SELECT COUNT(*)::int
-               FROM agents
-               WHERE last_seen_at >= (now() AT TIME ZONE 'utc') - interval '5 minutes'
-                 AND (:agent_id IS NULL OR agent_id = :agent_id)
-              ) AS agents_online_5m,
+        online_stmt = select(func.count()).select_from(AgentModel).where(AgentModel.last_seen_at >= now - timedelta(minutes=5))
+        if a is not None:
+            online_stmt = online_stmt.where(AgentModel.agent_id == a)
+        agents_online_5m = int(db.execute(online_stmt).scalar() or 0)
 
-              (SELECT COUNT(DISTINCT agent_id)::int
-               FROM agent_inventory_snapshots
-               WHERE collected_at >= (now() AT TIME ZONE 'utc') - interval '6 hours'
-                 AND (:agent_id IS NULL OR agent_id = :agent_id)
-              ) AS agents_with_inventory_6h,
-
-              (SELECT COALESCE(MAX(EXTRACT(EPOCH FROM ((now() AT TIME ZONE 'utc') - last_at)) / 60), 0)::int
-               FROM last
-               WHERE (:agent_id IS NULL OR agent_id = :agent_id)
-              ) AS oldest_inventory_age_minutes;
-            """
+        inv_6h_stmt = (
+            select(func.count(func.distinct(AgentInventorySnapshotModel.agent_id)))
+            .select_from(AgentInventorySnapshotModel)
+            .where(AgentInventorySnapshotModel.collected_at >= now - timedelta(hours=6))
         )
-        k = db.execute(q_kpis, {"agent_id": a}).mappings().first() or {}
+        if a is not None:
+            inv_6h_stmt = inv_6h_stmt.where(AgentInventorySnapshotModel.agent_id == a)
+        agents_with_inventory_6h = int(db.execute(inv_6h_stmt).scalar() or 0)
+
+        last_inv_stmt = (
+            select(
+                AgentInventorySnapshotModel.agent_id.label("agent_id"),
+                func.max(AgentInventorySnapshotModel.collected_at).label("last_at"),
+            )
+            .group_by(AgentInventorySnapshotModel.agent_id)
+        )
+        if a is not None:
+            last_inv_stmt = last_inv_stmt.where(AgentInventorySnapshotModel.agent_id == a)
+        last_inv_rows = db.execute(last_inv_stmt).all()
+        oldest_inventory_age_minutes = 0
+        if last_inv_rows:
+            oldest_inventory_age_minutes = int(
+                max(max((now - (r.last_at or now)).total_seconds() / 60.0, 0) for r in last_inv_rows)
+            )
+
         kpis = {
-            "agents_total": int(k.get("agents_total") or 0),
-            "agents_online_5m": int(k.get("agents_online_5m") or 0),
-            "agents_with_inventory_6h": int(k.get("agents_with_inventory_6h") or 0),
-            "oldest_inventory_age_minutes": int(k.get("oldest_inventory_age_minutes") or 0),
+            "agents_total": agents_total,
+            "agents_online_5m": agents_online_5m,
+            "agents_with_inventory_6h": agents_with_inventory_6h,
+            "oldest_inventory_age_minutes": oldest_inventory_age_minutes,
         }
 
         # -----------------------------
         # Inventory snapshots per minute
         # -----------------------------
-        q_snap = text(
-            """
-            WITH buckets AS (
-              SELECT generate_series(
-                date_trunc('minute', :start_1m),
-                date_trunc('minute', :end_1m),
-                interval '1 minute'
-              ) AS bucket_ts
-            ),
-            agg AS (
-              SELECT date_trunc('minute', collected_at) AS bucket_ts,
-                     COUNT(*)::bigint AS value
-              FROM agent_inventory_snapshots
-              WHERE collected_at >= :start_ts
-                AND collected_at <= :end_ts
-                AND (:agent_id IS NULL OR agent_id = :agent_id)
-              GROUP BY 1
+        snap_stmt = (
+            select(
+                func.date_trunc("minute", AgentInventorySnapshotModel.collected_at).label("bucket_ts"),
+                func.count().label("value"),
             )
-            SELECT b.bucket_ts, COALESCE(a.value, 0)::bigint AS value
-            FROM buckets b
-            LEFT JOIN agg a ON a.bucket_ts = b.bucket_ts
-            ORDER BY b.bucket_ts ASC;
-            """
+            .where(
+                AgentInventorySnapshotModel.collected_at >= start_ts,
+                AgentInventorySnapshotModel.collected_at <= now,
+            )
+            .group_by("bucket_ts")
+            .order_by("bucket_ts")
         )
-        snap_rows = db.execute(q_snap, params).mappings().all()
+        if a is not None:
+            snap_stmt = snap_stmt.where(AgentInventorySnapshotModel.agent_id == a)
+        snap_rows = db.execute(snap_stmt).all()
+        snap_map = {r.bucket_ts: int(r.value or 0) for r in snap_rows}
+        snap_data = []
+        bucket = start_1m
+        while bucket <= end_1m:
+            snap_data.append({"t": _fmt_hhmm(bucket), "value": snap_map.get(bucket, 0)})
+            bucket += timedelta(minutes=1)
         snapshots_per_minute = {
             "series": ["value"],
-            "data": [{"t": _fmt_hhmm(r["bucket_ts"]), "value": int(r.get("value") or 0)} for r in snap_rows],
+            "data": snap_data,
         }
 
         # -----------------------------
         # Inventory changes per 10m (packages hash)
         # -----------------------------
-        q_changes = text(
-            """
-            WITH buckets AS (
-              SELECT generate_series(
-                date_trunc('minute', :start_10m),
-                date_trunc('minute', :end_10m),
-                interval '10 minutes'
-              ) AS bucket_ts
-            ),
-            s AS (
-              SELECT
-                agent_id,
-                collected_at,
-                packages_hash,
-                LAG(packages_hash) OVER (PARTITION BY agent_id ORDER BY collected_at) AS prev_hash
-              FROM agent_inventory_snapshots
-              WHERE collected_at >= :start_ts
-                AND collected_at <= :end_ts
-                AND (:agent_id IS NULL OR agent_id = :agent_id)
-            ),
-            agg AS (
-              SELECT
-                (date_trunc('hour', collected_at) + (floor(extract(minute from collected_at) / 10) * interval '10 minutes')) AS bucket_ts,
-                COUNT(*)::bigint AS value
-              FROM s
-              WHERE prev_hash IS DISTINCT FROM packages_hash
-              GROUP BY 1
-            )
-            SELECT b.bucket_ts, COALESCE(a.value, 0)::bigint AS value
-            FROM buckets b
-            LEFT JOIN agg a ON a.bucket_ts = b.bucket_ts
-            ORDER BY b.bucket_ts ASC;
-            """
+        prev_hash_col = func.lag(AgentInventorySnapshotModel.packages_hash).over(
+            partition_by=AgentInventorySnapshotModel.agent_id,
+            order_by=AgentInventorySnapshotModel.collected_at,
         )
-        ch_rows = db.execute(q_changes, params).mappings().all()
+        ch_base_stmt = select(
+            AgentInventorySnapshotModel.collected_at.label("collected_at"),
+            prev_hash_col.label("prev_hash"),
+            AgentInventorySnapshotModel.packages_hash.label("packages_hash"),
+        ).where(
+            AgentInventorySnapshotModel.collected_at >= start_ts,
+            AgentInventorySnapshotModel.collected_at <= now,
+        )
+        if a is not None:
+            ch_base_stmt = ch_base_stmt.where(AgentInventorySnapshotModel.agent_id == a)
+        ch_subq = ch_base_stmt.subquery()
+        ch_rows = db.execute(
+            select(ch_subq.c.collected_at)
+            .where(or_(ch_subq.c.prev_hash.is_(None), ch_subq.c.prev_hash != ch_subq.c.packages_hash))
+            .order_by(ch_subq.c.collected_at.asc())
+        ).all()
+        ch_counts: Dict[datetime, int] = {}
+        for r in ch_rows:
+            t = _floor_dt(r.collected_at, 10)
+            ch_counts[t] = ch_counts.get(t, 0) + 1
+        ch_data = []
+        bucket = start_10m
+        while bucket <= end_10m:
+            ch_data.append({"t": _fmt_hhmm(bucket), "value": int(ch_counts.get(bucket, 0))})
+            bucket += timedelta(minutes=10)
         changes_per_10m = {
             "series": ["value"],
-            "data": [{"t": _fmt_hhmm(r["bucket_ts"]), "value": int(r.get("value") or 0)} for r in ch_rows],
+            "data": ch_data,
         }
 
         # -----------------------------
         # OS distribution (latest snapshot per agent within window)
         # -----------------------------
-        q_os = text(
-            """
-            WITH latest AS (
-              SELECT DISTINCT ON (agent_id) agent_id, os
-              FROM agent_inventory_snapshots
-              WHERE collected_at >= :start_ts
-                AND collected_at <= :end_ts
-                AND (:agent_id IS NULL OR agent_id = :agent_id)
-              ORDER BY agent_id, collected_at DESC
-            )
-            SELECT
-              COALESCE(NULLIF(os->>'pretty_name',''), NULLIF(os->>'name',''), os->>'id', os->>'goos', 'unknown') AS os,
-              COUNT(*)::bigint AS agents
-            FROM latest
-            GROUP BY 1
-            ORDER BY agents DESC, os ASC;
-            """
+        latest_rn = func.row_number().over(
+            partition_by=AgentInventorySnapshotModel.agent_id,
+            order_by=AgentInventorySnapshotModel.collected_at.desc(),
         )
-        os_rows = db.execute(q_os, params).mappings().all()
-        os_distribution = [{"os": str(r.get("os") or "unknown"), "agents": int(r.get("agents") or 0)} for r in os_rows]
+        latest_os_stmt = select(
+            AgentInventorySnapshotModel.agent_id.label("agent_id"),
+            AgentInventorySnapshotModel.os.label("os"),
+            latest_rn.label("rn"),
+        ).where(
+            AgentInventorySnapshotModel.collected_at >= start_ts,
+            AgentInventorySnapshotModel.collected_at <= now,
+        )
+        if a is not None:
+            latest_os_stmt = latest_os_stmt.where(AgentInventorySnapshotModel.agent_id == a)
+        latest_os_subq = latest_os_stmt.subquery()
+        os_label = func.coalesce(
+            func.nullif(latest_os_subq.c.os["pretty_name"].astext, ""),
+            func.nullif(latest_os_subq.c.os["name"].astext, ""),
+            latest_os_subq.c.os["id"].astext,
+            latest_os_subq.c.os["goos"].astext,
+            literal("unknown"),
+        ).label("os")
+        os_rows = db.execute(
+            select(os_label, func.count().label("agents"))
+            .where(latest_os_subq.c.rn == 1)
+            .group_by(os_label)
+            .order_by(func.count().desc(), os_label.asc())
+        ).all()
+        os_distribution = [{"os": str(r.os or "unknown"), "agents": int(r.agents or 0)} for r in os_rows]
 
         # -----------------------------
         # Package manager distribution (latest snapshot per agent within window)
         # -----------------------------
-        q_mgr = text(
-            """
-            WITH latest AS (
-              SELECT DISTINCT ON (agent_id) agent_id, manager
-              FROM agent_inventory_snapshots
-              WHERE collected_at >= :start_ts
-                AND collected_at <= :end_ts
-                AND (:agent_id IS NULL OR agent_id = :agent_id)
-              ORDER BY agent_id, collected_at DESC
-            )
-            SELECT COALESCE(NULLIF(manager,''), 'unknown') AS manager,
-                   COUNT(*)::bigint AS agents
-            FROM latest
-            GROUP BY 1
-            ORDER BY agents DESC, manager ASC;
-            """
+        latest_mgr_stmt = select(
+            AgentInventorySnapshotModel.agent_id.label("agent_id"),
+            AgentInventorySnapshotModel.manager.label("manager"),
+            latest_rn.label("rn"),
+        ).where(
+            AgentInventorySnapshotModel.collected_at >= start_ts,
+            AgentInventorySnapshotModel.collected_at <= now,
         )
-        mgr_rows = db.execute(q_mgr, params).mappings().all()
-        manager_distribution = [{"manager": str(r.get("manager") or "unknown"), "agents": int(r.get("agents") or 0)} for r in mgr_rows]
+        if a is not None:
+            latest_mgr_stmt = latest_mgr_stmt.where(AgentInventorySnapshotModel.agent_id == a)
+        latest_mgr_subq = latest_mgr_stmt.subquery()
+        mgr_label = func.coalesce(func.nullif(latest_mgr_subq.c.manager, ""), literal("unknown")).label("manager")
+        mgr_rows = db.execute(
+            select(mgr_label, func.count().label("agents"))
+            .where(latest_mgr_subq.c.rn == 1)
+            .group_by(mgr_label)
+            .order_by(func.count().desc(), mgr_label.asc())
+        ).all()
+        manager_distribution = [{"manager": str(r.manager or "unknown"), "agents": int(r.agents or 0)} for r in mgr_rows]
 
         # -----------------------------
         # Inventory age by agent (minutes) - top 50
         # -----------------------------
-        q_age = text(
-            """
-            WITH last AS (
-              SELECT agent_id, MAX(collected_at) AS last_at
-              FROM agent_inventory_snapshots
-              GROUP BY agent_id
+        age_rows = []
+        for r in last_inv_rows:
+            age_rows.append(
+                {
+                    "metric": str(r.agent_id),
+                    "value": int(max((now - (r.last_at or now)).total_seconds() / 60.0, 0)),
+                }
             )
-            SELECT agent_id AS metric,
-                   (EXTRACT(EPOCH FROM ((now() AT TIME ZONE 'utc') - last_at)) / 60)::bigint AS value
-            FROM last
-            WHERE (:agent_id IS NULL OR agent_id = :agent_id)
-            ORDER BY value DESC, metric ASC
-            LIMIT 50;
-            """
-        )
-        age_rows = db.execute(q_age, {"agent_id": a}).mappings().all()
-        inventory_age_by_agent = [{"metric": str(r.get("metric")), "value": int(r.get("value") or 0)} for r in age_rows]
+        age_rows.sort(key=lambda x: (-x["value"], x["metric"]))
+        inventory_age_by_agent = age_rows[:50]
 
         # -----------------------------
         # Packages count by agent (latest snapshot) - top 50
         # -----------------------------
-        q_pkg = text(
-            """
-            WITH latest AS (
-              SELECT DISTINCT ON (agent_id) agent_id, packages_count
-              FROM agent_inventory_snapshots
-              ORDER BY agent_id, collected_at DESC
-            )
-            SELECT agent_id AS metric,
-                   packages_count::bigint AS value
-            FROM latest
-            WHERE (:agent_id IS NULL OR agent_id = :agent_id)
-            ORDER BY value DESC, metric ASC
-            LIMIT 50;
-            """
+        pkg_rn = func.row_number().over(
+            partition_by=AgentInventorySnapshotModel.agent_id,
+            order_by=AgentInventorySnapshotModel.collected_at.desc(),
         )
-        pkg_rows = db.execute(q_pkg, {"agent_id": a}).mappings().all()
-        packages_count_by_agent = [{"metric": str(r.get("metric")), "value": int(r.get("value") or 0)} for r in pkg_rows]
+        latest_pkg_subq = select(
+            AgentInventorySnapshotModel.agent_id.label("agent_id"),
+            AgentInventorySnapshotModel.packages_count.label("packages_count"),
+            pkg_rn.label("rn"),
+        ).subquery()
+        pkg_stmt = (
+            select(
+                latest_pkg_subq.c.agent_id.label("metric"),
+                latest_pkg_subq.c.packages_count.label("value"),
+            )
+            .where(latest_pkg_subq.c.rn == 1)
+            .order_by(latest_pkg_subq.c.packages_count.desc(), latest_pkg_subq.c.agent_id.asc())
+            .limit(50)
+        )
+        if a is not None:
+            pkg_stmt = pkg_stmt.where(latest_pkg_subq.c.agent_id == a)
+        pkg_rows = db.execute(pkg_stmt).all()
+        packages_count_by_agent = [{"metric": str(r.metric), "value": int(r.value or 0)} for r in pkg_rows]
 
         # -----------------------------
         # Recent inventory warnings
         # -----------------------------
-        q_warn = text(
-            """
-            SELECT
-              collected_at AS time,
-              agent_id,
-              COALESCE(extra->>'warning', extra->>'warnings', extra::text) AS warning
-            FROM agent_inventory_snapshots
-            WHERE collected_at >= :start_ts
-              AND collected_at <= :end_ts
-              AND (:agent_id IS NULL OR agent_id = :agent_id)
-              AND extra IS NOT NULL
-            ORDER BY collected_at DESC
-            LIMIT 100;
-            """
+        warn_expr = func.coalesce(
+            AgentInventorySnapshotModel.extra["warning"].astext,
+            AgentInventorySnapshotModel.extra["warnings"].astext,
+            cast(AgentInventorySnapshotModel.extra, String),
+        ).label("warning")
+        warn_stmt = (
+            select(
+                AgentInventorySnapshotModel.collected_at.label("time"),
+                AgentInventorySnapshotModel.agent_id.label("agent_id"),
+                warn_expr,
+            )
+            .where(
+                AgentInventorySnapshotModel.collected_at >= start_ts,
+                AgentInventorySnapshotModel.collected_at <= now,
+                AgentInventorySnapshotModel.extra.is_not(None),
+            )
+            .order_by(AgentInventorySnapshotModel.collected_at.desc())
+            .limit(100)
         )
-        warn_rows = db.execute(q_warn, params).mappings().all()
+        if a is not None:
+            warn_stmt = warn_stmt.where(AgentInventorySnapshotModel.agent_id == a)
+        warn_rows = db.execute(warn_stmt).all()
         recent_warnings = [
-            {"time": r.get("time").isoformat() if r.get("time") else None, "agent_id": str(r.get("agent_id")), "warning": str(r.get("warning") or "")}
+            {"time": r.time.isoformat() if r.time else None, "agent_id": str(r.agent_id), "warning": str(r.warning or "")}
             for r in warn_rows
         ]
 
         # -----------------------------
         # Fleet health
         # -----------------------------
-        q_fleet = text(
-            """
-            WITH last_inv AS (
-              SELECT DISTINCT ON (agent_id)
-                agent_id,
-                collected_at,
-                os,
-                packages_count,
-                packages_hash,
-                manager,
-                extra
-              FROM agent_inventory_snapshots
-              ORDER BY agent_id, collected_at DESC
-            )
-            SELECT
-              a.agent_id,
-              a.last_seen_at,
-              ROUND(EXTRACT(EPOCH FROM ((now() AT TIME ZONE 'utc') - a.last_seen_at)) / 60.0, 2) AS last_seen_age_min,
+        agent_stmt = select(AgentModel)
+        if a is not None:
+            agent_stmt = agent_stmt.where(AgentModel.agent_id == a)
+        agents = db.execute(agent_stmt).scalars().all()
 
-              li.collected_at AS last_inventory_at,
-              CASE
-                WHEN li.collected_at IS NULL THEN NULL
-                ELSE ROUND(EXTRACT(EPOCH FROM ((now() AT TIME ZONE 'utc') - li.collected_at)) / 60.0, 2)
-              END AS inventory_age_min,
-
-              CASE
-                WHEN li.collected_at IS NULL THEN 'no_inventory'
-                WHEN li.collected_at < (now() AT TIME ZONE 'utc') - interval '30 minutes' THEN 'stale'
-                ELSE 'fresh'
-              END AS inventory_status,
-
-              COALESCE(
-                NULLIF(li.os->>'pretty_name',''),
-                NULLIF(li.os->>'name',''),
-                NULLIF(li.os->>'id',''),
-                NULLIF(li.os->>'goos',''),
-                NULLIF(a.metadata->>'os',''),
-                'unknown'
-              ) AS os,
-
-              COALESCE(NULLIF(li.manager,''), 'n/a') AS manager,
-
-              li.packages_count,
-              li.packages_hash,
-
-              COALESCE(
-                jsonb_array_length(COALESCE((li.extra::jsonb)->'warnings','[]'::jsonb)),
-                0
-              ) AS warnings_count,
-
-              a.is_revoked
-            FROM agents a
-            LEFT JOIN last_inv li ON li.agent_id = a.agent_id
-            WHERE (:agent_id IS NULL OR a.agent_id = :agent_id)
-            ORDER BY a.last_seen_at DESC NULLS LAST;
-            """
+        inv_rn = func.row_number().over(
+            partition_by=AgentInventorySnapshotModel.agent_id,
+            order_by=AgentInventorySnapshotModel.collected_at.desc(),
         )
-        fleet_rows = db.execute(q_fleet, {"agent_id": a}).mappings().all()
+        latest_inv_subq = select(
+            AgentInventorySnapshotModel.agent_id.label("agent_id"),
+            AgentInventorySnapshotModel.collected_at.label("collected_at"),
+            AgentInventorySnapshotModel.os.label("os"),
+            AgentInventorySnapshotModel.packages_count.label("packages_count"),
+            AgentInventorySnapshotModel.packages_hash.label("packages_hash"),
+            AgentInventorySnapshotModel.manager.label("manager"),
+            AgentInventorySnapshotModel.extra.label("extra"),
+            inv_rn.label("rn"),
+        ).subquery()
+        latest_inv_rows = db.execute(select(latest_inv_subq).where(latest_inv_subq.c.rn == 1)).mappings().all()
+        latest_by_agent = {str(r.get("agent_id")): r for r in latest_inv_rows}
+
         fleet_health: List[Dict[str, Any]] = []
-        for r in fleet_rows:
+        for agent_row in agents:
+            inv = latest_by_agent.get(str(agent_row.agent_id))
+            last_seen_at = agent_row.last_seen_at
+            last_seen_age = 0.0
+            if last_seen_at is not None:
+                if last_seen_at.tzinfo is None:
+                    last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
+                last_seen_age = round(max((now - last_seen_at).total_seconds() / 60.0, 0), 2)
+
+            last_inventory_at = inv.get("collected_at") if inv else None
+            inventory_age = None
+            if last_inventory_at is not None:
+                if last_inventory_at.tzinfo is None:
+                    last_inventory_at = last_inventory_at.replace(tzinfo=timezone.utc)
+                inventory_age = round(max((now - last_inventory_at).total_seconds() / 60.0, 0), 2)
+
+            if last_inventory_at is None:
+                inventory_status = "no_inventory"
+            elif inventory_age is not None and inventory_age > 30:
+                inventory_status = "stale"
+            else:
+                inventory_status = "fresh"
+
+            inv_os = (inv.get("os") if inv else None) or {}
+            agent_meta = (agent_row.agent_metadata or {}) if hasattr(agent_row, "agent_metadata") else {}
+            os_name = (
+                inv_os.get("pretty_name")
+                or inv_os.get("name")
+                or inv_os.get("id")
+                or inv_os.get("goos")
+                or agent_meta.get("os")
+                or "unknown"
+            )
+
+            manager = ((inv.get("manager") if inv else None) or "").strip() or "n/a"
+            extra = (inv.get("extra") if inv else None) or {}
+            warnings = extra.get("warnings")
+            warnings_count = len(warnings) if isinstance(warnings, list) else 0
+
             fleet_health.append(
                 {
-                    "agent_id": str(r.get("agent_id")),
-                    "last_seen_at": r.get("last_seen_at").isoformat() if r.get("last_seen_at") else None,
-                    "last_seen_age_min": float(r.get("last_seen_age_min") or 0),
-                    "last_inventory_at": r.get("last_inventory_at").isoformat() if r.get("last_inventory_at") else None,
-                    "inventory_age_min": None if r.get("inventory_age_min") is None else float(r.get("inventory_age_min")),
-                    "inventory_status": str(r.get("inventory_status")),
-                    "os": str(r.get("os") or "unknown"),
-                    "manager": str(r.get("manager") or "n/a"),
-                    "packages_count": None if r.get("packages_count") is None else int(r.get("packages_count")),
-                    "packages_hash": r.get("packages_hash"),
-                    "warnings_count": int(r.get("warnings_count") or 0),
-                    "is_revoked": bool(r.get("is_revoked")),
+                    "agent_id": str(agent_row.agent_id),
+                    "last_seen_at": last_seen_at.isoformat() if last_seen_at else None,
+                    "last_seen_age_min": float(last_seen_age),
+                    "last_inventory_at": last_inventory_at.isoformat() if last_inventory_at else None,
+                    "inventory_age_min": None if inventory_age is None else float(inventory_age),
+                    "inventory_status": inventory_status,
+                    "os": str(os_name),
+                    "manager": manager,
+                    "packages_count": None if inv is None or inv.get("packages_count") is None else int(inv.get("packages_count")),
+                    "packages_hash": None if inv is None else inv.get("packages_hash"),
+                    "warnings_count": int(warnings_count),
+                    "is_revoked": bool(agent_row.is_revoked),
                 }
             )
+        fleet_health.sort(
+            key=lambda x: x["last_seen_at"] or "",
+            reverse=True,
+        )
 
         # -----------------------------
         # Recent inventory changes (hash baseline/changes)
         # -----------------------------
-        q_recent = text(
-            """
-            WITH s AS (
-              SELECT
-                agent_id,
-                collected_at,
-                packages_hash,
-                packages_count,
-                LAG(packages_hash) OVER (PARTITION BY agent_id ORDER BY collected_at) AS prev_hash,
-                LAG(packages_count) OVER (PARTITION BY agent_id ORDER BY collected_at) AS prev_count
-              FROM agent_inventory_snapshots
-              WHERE collected_at >= :start_ts
-                AND collected_at <= :end_ts
-                AND (:agent_id IS NULL OR agent_id = :agent_id)
-            )
-            SELECT
-              collected_at AS time,
-              agent_id,
-              CASE
-                WHEN prev_hash IS NULL THEN 'baseline'
-                WHEN prev_hash IS DISTINCT FROM packages_hash THEN 'changed'
-                ELSE 'unchanged'
-              END AS change_type,
-              prev_hash AS old_hash,
-              packages_hash AS new_hash,
-              prev_count AS old_count,
-              packages_count AS new_count
-            FROM s
-            WHERE prev_hash IS NULL OR prev_hash IS DISTINCT FROM packages_hash
-            ORDER BY collected_at DESC
-            LIMIT 200;
-            """
+        prev_hash = func.lag(AgentInventorySnapshotModel.packages_hash).over(
+            partition_by=AgentInventorySnapshotModel.agent_id,
+            order_by=AgentInventorySnapshotModel.collected_at,
         )
-        rc_rows = db.execute(q_recent, params).mappings().all()
+        prev_count = func.lag(AgentInventorySnapshotModel.packages_count).over(
+            partition_by=AgentInventorySnapshotModel.agent_id,
+            order_by=AgentInventorySnapshotModel.collected_at,
+        )
+        recent_base_stmt = select(
+            AgentInventorySnapshotModel.collected_at.label("time"),
+            AgentInventorySnapshotModel.agent_id.label("agent_id"),
+            AgentInventorySnapshotModel.packages_hash.label("new_hash"),
+            AgentInventorySnapshotModel.packages_count.label("new_count"),
+            prev_hash.label("old_hash"),
+            prev_count.label("old_count"),
+        ).where(
+            AgentInventorySnapshotModel.collected_at >= start_ts,
+            AgentInventorySnapshotModel.collected_at <= now,
+        )
+        if a is not None:
+            recent_base_stmt = recent_base_stmt.where(AgentInventorySnapshotModel.agent_id == a)
+        recent_subq = recent_base_stmt.subquery()
+        rc_rows = db.execute(
+            select(recent_subq)
+            .where(or_(recent_subq.c.old_hash.is_(None), recent_subq.c.old_hash != recent_subq.c.new_hash))
+            .order_by(recent_subq.c.time.desc())
+            .limit(200)
+        ).mappings().all()
         recent_changes = []
         for r in rc_rows:
+            old_hash = r.get("old_hash")
+            new_hash = r.get("new_hash")
+            change_type = "baseline" if old_hash is None else ("changed" if old_hash != new_hash else "unchanged")
             recent_changes.append(
                 {
                     "time": r.get("time").isoformat() if r.get("time") else None,
                     "agent_id": str(r.get("agent_id")),
-                    "change_type": str(r.get("change_type")),
-                    "old_hash": r.get("old_hash"),
-                    "new_hash": r.get("new_hash"),
+                    "change_type": change_type,
+                    "old_hash": old_hash,
+                    "new_hash": new_hash,
                     "old_count": r.get("old_count"),
                     "new_count": r.get("new_count"),
                 }

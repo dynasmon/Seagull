@@ -19,11 +19,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
-from sqlalchemy import text
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
 from app.core.db import engine
 from app.core.schema_bootstrap import bootstrap_schema
+from app.models.events import NetEventModel
+from app.models.search_index_offsets import SearchIndexOffsetModel
 
 
 @dataclass(frozen=True)
@@ -229,16 +232,12 @@ def _get_last_id() -> int:
 
     with engine.begin() as conn:
         conn.execute(
-            text(
-                """
-                INSERT INTO search_index_offsets (name, last_id)
-                VALUES ('events', 0)
-                ON CONFLICT (name) DO NOTHING;
-                """
-            )
+            insert(SearchIndexOffsetModel)
+            .values(name="events", last_id=0)
+            .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
         )
         row = conn.execute(
-            text("SELECT last_id FROM search_index_offsets WHERE name='events'")
+            select(SearchIndexOffsetModel.last_id).where(SearchIndexOffsetModel.name == "events").limit(1)
         ).fetchone()
         return int(row[0]) if row and row[0] is not None else 0
 
@@ -246,32 +245,33 @@ def _get_last_id() -> int:
 def _set_last_id(last_id: int) -> None:
     with engine.begin() as conn:
         conn.execute(
-            text(
-                """
-                UPDATE search_index_offsets
-                   SET last_id = :last_id,
-                       updated_at = now()
-                 WHERE name = 'events';
-                """
-            ),
-            {"last_id": int(last_id)},
+            update(SearchIndexOffsetModel)
+            .where(SearchIndexOffsetModel.name == "events")
+            .values(last_id=int(last_id), updated_at=datetime.utcnow())
         )
 
 
 def _fetch_events(after_id: int, limit: int) -> List[Dict[str, Any]]:
-    sql = text(
-        """
-        SELECT
-          id, agent_id, event_type, schema_version, timestamp,
-          src_ip, dst_ip, src_port, dst_port, proto, bytes, extra
-        FROM net_events
-        WHERE id > :after_id
-        ORDER BY id ASC
-        LIMIT :limit;
-        """
-    )
     with engine.begin() as conn:
-        rows = conn.execute(sql, {"after_id": int(after_id), "limit": int(limit)}).mappings().all()
+        rows = conn.execute(
+            select(
+                NetEventModel.id,
+                NetEventModel.agent_id,
+                NetEventModel.event_type,
+                NetEventModel.schema_version,
+                NetEventModel.timestamp,
+                NetEventModel.src_ip,
+                NetEventModel.dst_ip,
+                NetEventModel.src_port,
+                NetEventModel.dst_port,
+                NetEventModel.proto,
+                NetEventModel.bytes,
+                NetEventModel.extra,
+            )
+            .where(NetEventModel.id > int(after_id))
+            .order_by(NetEventModel.id.asc())
+            .limit(int(limit))
+        ).mappings().all()
         return [dict(r) for r in rows]
 
 

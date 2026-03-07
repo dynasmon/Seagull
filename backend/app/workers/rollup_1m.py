@@ -5,10 +5,14 @@ from __future__ import annotations
 import os
 import time
 
-from sqlalchemy import text
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
-from app.core.db import engine
+from app.core.db import Base, engine
+from app.core.schema_bootstrap import bootstrap_schema
+from app.models.events import EventRollup1mModel, NetEventModel, SshFailRollup1mModel
+from app.models.search_index_offsets import SearchIndexOffsetModel
 
 
 OFFSET_EVENTS = "rollup_events_1m"
@@ -54,172 +58,122 @@ def _ensure_bootstrap() -> None:
     The backend also runs a bootstrap, but in Docker Compose workers may start first.
     This keeps the system self-healing and reduces noisy startup failures.
     """
+    Base.metadata.create_all(bind=engine)
+    bootstrap_schema(engine)
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS search_index_offsets (
-                    name TEXT PRIMARY KEY,
-                    last_id INTEGER NOT NULL DEFAULT 0,
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                );
-                """
+        for name in [OFFSET_EVENTS, OFFSET_SSH_FAIL]:
+            conn.execute(
+                insert(SearchIndexOffsetModel)
+                .values(name=name, last_id=0)
+                .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
             )
-        )
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS event_rollups_1m (
-                    bucket_ts TIMESTAMPTZ NOT NULL,
-                    agent_id VARCHAR(64) NOT NULL,
-                    event_type VARCHAR(32) NOT NULL,
-                    count BIGINT NOT NULL DEFAULT 0,
-                    PRIMARY KEY (bucket_ts, agent_id, event_type)
-                );
-                """
-            )
-        )
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_event_rollups_1m_bucket ON event_rollups_1m (bucket_ts DESC);"))
-
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS ssh_fail_rollups_1m (
-                    bucket_ts TIMESTAMPTZ NOT NULL,
-                    agent_id VARCHAR(64) NOT NULL,
-                    action VARCHAR(64) NOT NULL,
-                    count BIGINT NOT NULL DEFAULT 0,
-                    PRIMARY KEY (bucket_ts, agent_id, action)
-                );
-                """
-            )
-        )
-        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_ssh_fail_rollups_1m_bucket ON ssh_fail_rollups_1m (bucket_ts DESC);"))
-
-        conn.execute(
-            text(
-                """
-                INSERT INTO search_index_offsets (name, last_id)
-                VALUES (:n, 0)
-                ON CONFLICT (name) DO NOTHING;
-                """
-            ),
-            {"n": OFFSET_EVENTS},
-        )
-        conn.execute(
-            text(
-                """
-                INSERT INTO search_index_offsets (name, last_id)
-                VALUES (:n, 0)
-                ON CONFLICT (name) DO NOTHING;
-                """
-            ),
-            {"n": OFFSET_SSH_FAIL},
-        )
 
 
 def _get_last_id(name: str) -> int:
     with engine.begin() as conn:
         row = conn.execute(
-            text("SELECT last_id FROM search_index_offsets WHERE name=:name"),
-            {"name": name},
-        ).fetchone()
+            select(SearchIndexOffsetModel.last_id).where(SearchIndexOffsetModel.name == name).limit(1)
+        ).first()
         return int(row[0]) if row and row[0] is not None else 0
 
 
 def _set_last_id(name: str, last_id: int) -> None:
     with engine.begin() as conn:
         conn.execute(
-            text(
-                """
-                INSERT INTO search_index_offsets(name, last_id)
-                VALUES (:name, :last_id)
-                ON CONFLICT (name) DO UPDATE
-                  SET last_id = EXCLUDED.last_id,
-                      updated_at = now();
-                """
-            ),
-            {"name": name, "last_id": int(last_id)},
+            insert(SearchIndexOffsetModel)
+            .values(name=name, last_id=int(last_id))
+            .on_conflict_do_update(
+                index_elements=[SearchIndexOffsetModel.name],
+                set_={"last_id": int(last_id), "updated_at": func.now()},
+            )
         )
 
 
 def _pick_batch_max_id(last_id: int, max_rows: int) -> int | None:
     with engine.begin() as conn:
-        row = conn.execute(
-            text(
-                """
-                SELECT MAX(id) FROM (
-                    SELECT id
-                    FROM net_events
-                    WHERE id > :last_id
-                    ORDER BY id
-                    LIMIT :max_rows
-                ) t;
-                """
-            ),
-            {"last_id": int(last_id), "max_rows": int(max_rows)},
-        ).fetchone()
+        subq = (
+            select(NetEventModel.id)
+            .where(NetEventModel.id > int(last_id))
+            .order_by(NetEventModel.id.asc())
+            .limit(int(max_rows))
+            .subquery()
+        )
+        row = conn.execute(select(func.max(subq.c.id))).fetchone()
         v = row[0] if row else None
         return int(v) if v is not None else None
 
 
 def _rollup_events(last_id: int, max_id: int) -> None:
     with engine.begin() as conn:
+        rows = conn.execute(
+            select(
+                func.date_trunc("minute", NetEventModel.timestamp).label("bucket_ts"),
+                NetEventModel.agent_id.label("agent_id"),
+                NetEventModel.event_type.label("event_type"),
+                func.count().label("count"),
+            )
+            .where(NetEventModel.id > int(last_id), NetEventModel.id <= int(max_id))
+            .group_by("bucket_ts", NetEventModel.agent_id, NetEventModel.event_type)
+        ).mappings().all()
+        if not rows:
+            return
+
+        ins = insert(EventRollup1mModel).values(
+            [
+                {
+                    "bucket_ts": r["bucket_ts"],
+                    "agent_id": r["agent_id"],
+                    "event_type": r["event_type"],
+                    "count": int(r["count"] or 0),
+                }
+                for r in rows
+            ]
+        )
         conn.execute(
-            text(
-                """
-                WITH batch AS (
-                    SELECT
-                        date_trunc('minute', "timestamp") AS bucket_ts,
-                        agent_id,
-                        event_type
-                    FROM net_events
-                    WHERE id > :last_id AND id <= :max_id
-                ),
-                agg AS (
-                    SELECT bucket_ts, agent_id, event_type, COUNT(*)::bigint AS c
-                    FROM batch
-                    GROUP BY 1, 2, 3
-                )
-                INSERT INTO event_rollups_1m(bucket_ts, agent_id, event_type, count)
-                SELECT bucket_ts, agent_id, event_type, c
-                FROM agg
-                ON CONFLICT (bucket_ts, agent_id, event_type)
-                DO UPDATE SET count = event_rollups_1m.count + EXCLUDED.count;
-                """
-            ),
-            {"last_id": int(last_id), "max_id": int(max_id)},
+            ins.on_conflict_do_update(
+                index_elements=[EventRollup1mModel.bucket_ts, EventRollup1mModel.agent_id, EventRollup1mModel.event_type],
+                set_={"count": EventRollup1mModel.count + ins.excluded.count},
+            )
         )
 
 
 def _rollup_ssh_fail(last_id: int, max_id: int) -> None:
     with engine.begin() as conn:
+        action_expr = NetEventModel.extra["action"].astext
+        rows = conn.execute(
+            select(
+                func.date_trunc("minute", NetEventModel.timestamp).label("bucket_ts"),
+                NetEventModel.agent_id.label("agent_id"),
+                action_expr.label("action"),
+                func.count().label("count"),
+            )
+            .where(
+                NetEventModel.id > int(last_id),
+                NetEventModel.id <= int(max_id),
+                NetEventModel.event_type == "ssh_auth",
+                action_expr.in_(list(SSH_FAIL_ACTIONS)),
+            )
+            .group_by("bucket_ts", NetEventModel.agent_id, action_expr)
+        ).mappings().all()
+        if not rows:
+            return
+
+        ins = insert(SshFailRollup1mModel).values(
+            [
+                {
+                    "bucket_ts": r["bucket_ts"],
+                    "agent_id": r["agent_id"],
+                    "action": r["action"],
+                    "count": int(r["count"] or 0),
+                }
+                for r in rows
+            ]
+        )
         conn.execute(
-            text(
-                """
-                WITH batch AS (
-                    SELECT
-                        date_trunc('minute', "timestamp") AS bucket_ts,
-                        agent_id,
-                        (extra->>'action') AS action
-                    FROM net_events
-                    WHERE id > :last_id AND id <= :max_id
-                      AND event_type = 'ssh_auth'
-                      AND (extra->>'action') = ANY(:actions)
-                ),
-                agg AS (
-                    SELECT bucket_ts, agent_id, action, COUNT(*)::bigint AS c
-                    FROM batch
-                    GROUP BY 1, 2, 3
-                )
-                INSERT INTO ssh_fail_rollups_1m(bucket_ts, agent_id, action, count)
-                SELECT bucket_ts, agent_id, action, c
-                FROM agg
-                ON CONFLICT (bucket_ts, agent_id, action)
-                DO UPDATE SET count = ssh_fail_rollups_1m.count + EXCLUDED.count;
-                """
-            ),
-            {"last_id": int(last_id), "max_id": int(max_id), "actions": list(SSH_FAIL_ACTIONS)},
+            ins.on_conflict_do_update(
+                index_elements=[SshFailRollup1mModel.bucket_ts, SshFailRollup1mModel.agent_id, SshFailRollup1mModel.action],
+                set_={"count": SshFailRollup1mModel.count + ins.excluded.count},
+            )
         )
 
 

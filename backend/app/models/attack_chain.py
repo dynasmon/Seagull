@@ -104,3 +104,36 @@ class AttackChainAllowlistModel(Base):
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class AttackChainSshFailureModel(Base):
+    __tablename__ = "attack_chain_ssh_failures"
+
+    agent_id = Column(String(64), primary_key=True, nullable=False)
+    src_ip = Column(String(45), primary_key=True, nullable=False)
+    username = Column(Text, primary_key=True, nullable=False, default="")
+
+    first_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    fail_count = Column(Integer, nullable=False, default=0)
+
+
+class AttackChainLoginBaselineModel(Base):
+    __tablename__ = "attack_chain_login_baseline"
+
+    agent_id = Column(String(64), primary_key=True, nullable=False)
+    username = Column(Text, primary_key=True, nullable=False, default="")
+    src_ip = Column(String(45), primary_key=True, nullable=False)
+
+    first_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    seen_count = Column(Integer, nullable=False, default=0)
+
+
+class AttackChainLastAccessModel(Base):
+    __tablename__ = "attack_chain_last_access"
+
+    agent_id = Column(String(64), primary_key=True, nullable=False)
+    username = Column(Text, nullable=True)
+    src_ip = Column(String(45), nullable=True)
+    accepted_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
