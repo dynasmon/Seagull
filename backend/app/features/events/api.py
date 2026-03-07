@@ -4,14 +4,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import Integer, String, and_, cast, func, or_, select
 
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.es import es_is_available, get_es_client, search_backend_mode
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.portal_auth import get_current_user
-from app.models.events import NetEventModel
+from app.models.events import NetEventModel, NetEventRollup1sModel
 from app.schemas.events import (
     NetEventDB,
     NetEventRollup1s,
@@ -282,31 +282,30 @@ def list_rollups_1s(
 
     db = SessionLocal()
     try:
-        stmt = text(
-            """
-            SELECT bucket_ts, agent_id, event_type, dst_ip, dst_port, proto, count, bytes_sum
-            FROM net_event_rollups_1s
-            WHERE bucket_ts >= :since
-              AND (:agent_id IS NULL OR agent_id = :agent_id)
-              AND (:event_type IS NULL OR event_type = :event_type)
-              AND (:dst_ip IS NULL OR dst_ip = :dst_ip)
-              AND (:dst_port IS NULL OR dst_port = :dst_port)
-            ORDER BY bucket_ts DESC
-            LIMIT :limit;
-            """
+        stmt = (
+            select(
+                NetEventRollup1sModel.bucket_ts,
+                NetEventRollup1sModel.agent_id,
+                NetEventRollup1sModel.event_type,
+                NetEventRollup1sModel.dst_ip,
+                NetEventRollup1sModel.dst_port,
+                NetEventRollup1sModel.proto,
+                NetEventRollup1sModel.count,
+                NetEventRollup1sModel.bytes_sum,
+            )
+            .where(NetEventRollup1sModel.bucket_ts >= since)
+            .order_by(NetEventRollup1sModel.bucket_ts.desc())
+            .limit(int(limit))
         )
-
-        rows = db.execute(
-            stmt,
-            {
-                "since": since,
-                "agent_id": agent_id,
-                "event_type": event_type,
-                "dst_ip": dst_ip,
-                "dst_port": dst_port,
-                "limit": int(limit),
-            },
-        ).mappings().all()
+        if agent_id:
+            stmt = stmt.where(NetEventRollup1sModel.agent_id == agent_id)
+        if event_type:
+            stmt = stmt.where(NetEventRollup1sModel.event_type == event_type)
+        if dst_ip:
+            stmt = stmt.where(NetEventRollup1sModel.dst_ip == dst_ip)
+        if dst_port is not None:
+            stmt = stmt.where(NetEventRollup1sModel.dst_port == dst_port)
+        rows = db.execute(stmt).mappings().all()
 
         return [NetEventRollup1s(**dict(r)) for r in rows]
     finally:
@@ -629,36 +628,29 @@ def get_ssh_summary(
     # Postgres fallback (original implementation)
     db = SessionLocal()
     try:
-        params_base = {
-            "since": since_ts,
-            "limit": int(limit),
-            "agent_id": agent_id,
-        }
-
         def _top_ips(action: str) -> list[SshIpStat]:
-            rows = db.execute(
-                text(
-                    """
-                    SELECT
-                        src_ip,
-                        COUNT(*)::bigint AS count,
-                        MAX(extra->>'geo_country') AS geo_country,
-                        MAX(extra->>'geo_org') AS geo_org,
-                        MAX(extra->>'asn') AS asn,
-                        MAX(extra->>'asn_org') AS asn_org
-                    FROM net_events
-                    WHERE event_type = 'ssh_auth'
-                      AND (extra->>'action') = :action
-                      AND "timestamp" >= :since
-                      AND (:agent_id IS NULL OR agent_id = :agent_id)
-                      AND src_ip IS NOT NULL
-                    GROUP BY src_ip
-                    ORDER BY count DESC
-                    LIMIT :limit;
-                    """
-                ),
-                {**params_base, "action": action},
-            ).mappings().all()
+            stmt = (
+                select(
+                    NetEventModel.src_ip.label("src_ip"),
+                    func.count().label("count"),
+                    func.max(NetEventModel.extra["geo_country"].astext).label("geo_country"),
+                    func.max(NetEventModel.extra["geo_org"].astext).label("geo_org"),
+                    func.max(NetEventModel.extra["asn"].astext).label("asn"),
+                    func.max(NetEventModel.extra["asn_org"].astext).label("asn_org"),
+                )
+                .where(
+                    NetEventModel.event_type == "ssh_auth",
+                    NetEventModel.extra["action"].astext == action,
+                    NetEventModel.timestamp >= since_ts,
+                    NetEventModel.src_ip.is_not(None),
+                )
+                .group_by(NetEventModel.src_ip)
+                .order_by(func.count().desc())
+                .limit(int(limit))
+            )
+            if agent_id:
+                stmt = stmt.where(NetEventModel.agent_id == agent_id)
+            rows = db.execute(stmt).mappings().all()
             return [SshIpStat(**dict(r)) for r in rows]
 
         successful_logins = _top_ips("accepted")
@@ -666,102 +658,98 @@ def get_ssh_summary(
         invalid_user_attempts = _top_ips("invalid_user")
 
         # Most active IPs across the main SSH actions
-        rows = db.execute(
-            text(
-                """
-                SELECT
-                    src_ip,
-                    COUNT(*)::bigint AS count,
-                    MAX(extra->>'geo_country') AS geo_country,
-                    MAX(extra->>'geo_org') AS geo_org,
-                    MAX(extra->>'asn') AS asn,
-                    MAX(extra->>'asn_org') AS asn_org
-                FROM net_events
-                WHERE event_type = 'ssh_auth'
-                  AND (extra->>'action') = ANY(:actions)
-                  AND "timestamp" >= :since
-                  AND (:agent_id IS NULL OR agent_id = :agent_id)
-                  AND src_ip IS NOT NULL
-                GROUP BY src_ip
-                ORDER BY count DESC
-                LIMIT :limit;
-                """
-            ),
-            {**params_base, "actions": ["accepted", "failed_password", "invalid_user"]},
-        ).mappings().all()
+        stmt = (
+            select(
+                NetEventModel.src_ip.label("src_ip"),
+                func.count().label("count"),
+                func.max(NetEventModel.extra["geo_country"].astext).label("geo_country"),
+                func.max(NetEventModel.extra["geo_org"].astext).label("geo_org"),
+                func.max(NetEventModel.extra["asn"].astext).label("asn"),
+                func.max(NetEventModel.extra["asn_org"].astext).label("asn_org"),
+            )
+            .where(
+                NetEventModel.event_type == "ssh_auth",
+                NetEventModel.extra["action"].astext.in_(["accepted", "failed_password", "invalid_user"]),
+                NetEventModel.timestamp >= since_ts,
+                NetEventModel.src_ip.is_not(None),
+            )
+            .group_by(NetEventModel.src_ip)
+            .order_by(func.count().desc())
+            .limit(int(limit))
+        )
+        if agent_id:
+            stmt = stmt.where(NetEventModel.agent_id == agent_id)
+        rows = db.execute(stmt).mappings().all()
         most_active_ips = [SshIpStat(**dict(r)) for r in rows]
 
         # Root logins
-        rows = db.execute(
-            text(
-                """
-                SELECT
-                    "timestamp" AS timestamp,
-                    agent_id,
-                    src_ip,
-                    (extra->>'username') AS username,
-                    (extra->>'geo_country') AS geo_country,
-                    (extra->>'geo_org') AS geo_org,
-                    (extra->>'asn') AS asn,
-                    (extra->>'asn_org') AS asn_org
-                FROM net_events
-                WHERE event_type = 'ssh_auth'
-                  AND (extra->>'action') = 'accepted'
-                  AND (extra->>'username') = 'root'
-                  AND "timestamp" >= :since
-                  AND (:agent_id IS NULL OR agent_id = :agent_id)
-                ORDER BY "timestamp" DESC
-                LIMIT :limit;
-                """
-            ),
-            params_base,
-        ).mappings().all()
+        stmt = (
+            select(
+                NetEventModel.timestamp.label("timestamp"),
+                NetEventModel.agent_id.label("agent_id"),
+                NetEventModel.src_ip.label("src_ip"),
+                NetEventModel.extra["username"].astext.label("username"),
+                NetEventModel.extra["geo_country"].astext.label("geo_country"),
+                NetEventModel.extra["geo_org"].astext.label("geo_org"),
+                NetEventModel.extra["asn"].astext.label("asn"),
+                NetEventModel.extra["asn_org"].astext.label("asn_org"),
+            )
+            .where(
+                NetEventModel.event_type == "ssh_auth",
+                NetEventModel.extra["action"].astext == "accepted",
+                NetEventModel.extra["username"].astext == "root",
+                NetEventModel.timestamp >= since_ts,
+            )
+            .order_by(NetEventModel.timestamp.desc())
+            .limit(int(limit))
+        )
+        if agent_id:
+            stmt = stmt.where(NetEventModel.agent_id == agent_id)
+        rows = db.execute(stmt).mappings().all()
         root_logins = [SshLoginEvent(**dict(r)) for r in rows]
 
         # Users that attempted to log in (failed/invalid)
-        rows = db.execute(
-            text(
-                """
-                SELECT
-                    (extra->>'username') AS username,
-                    COUNT(*)::bigint AS count
-                FROM net_events
-                WHERE event_type = 'ssh_auth'
-                  AND (extra->>'action') = ANY(:actions)
-                  AND "timestamp" >= :since
-                  AND (:agent_id IS NULL OR agent_id = :agent_id)
-                  AND (extra ? 'username')
-                GROUP BY (extra->>'username')
-                ORDER BY count DESC
-                LIMIT :limit;
-                """
-            ),
-            {**params_base, "actions": ["failed_password", "invalid_user"]},
-        ).mappings().all()
+        stmt = (
+            select(
+                NetEventModel.extra["username"].astext.label("username"),
+                func.count().label("count"),
+            )
+            .where(
+                NetEventModel.event_type == "ssh_auth",
+                NetEventModel.extra["action"].astext.in_(["failed_password", "invalid_user"]),
+                NetEventModel.timestamp >= since_ts,
+                NetEventModel.extra.has_key("username"),
+            )
+            .group_by(NetEventModel.extra["username"].astext)
+            .order_by(func.count().desc())
+            .limit(int(limit))
+        )
+        if agent_id:
+            stmt = stmt.where(NetEventModel.agent_id == agent_id)
+        rows = db.execute(stmt).mappings().all()
         users_attempted = [SshUserStat(**dict(r)) for r in rows]
 
         # Recent sudo commands (from auth.log)
-        rows = db.execute(
-            text(
-                """
-                SELECT
-                    "timestamp" AS timestamp,
-                    agent_id,
-                    (extra->>'username') AS username,
-                    (extra->>'target_user') AS target_user,
-                    (extra->>'command') AS command,
-                    (extra->>'tty') AS tty,
-                    (extra->>'pwd') AS pwd
-                FROM net_events
-                WHERE event_type = 'sudo_cmd'
-                  AND "timestamp" >= :since
-                  AND (:agent_id IS NULL OR agent_id = :agent_id)
-                ORDER BY "timestamp" DESC
-                LIMIT :limit;
-                """
-            ),
-            params_base,
-        ).mappings().all()
+        stmt = (
+            select(
+                NetEventModel.timestamp.label("timestamp"),
+                NetEventModel.agent_id.label("agent_id"),
+                NetEventModel.extra["username"].astext.label("username"),
+                NetEventModel.extra["target_user"].astext.label("target_user"),
+                NetEventModel.extra["command"].astext.label("command"),
+                NetEventModel.extra["tty"].astext.label("tty"),
+                NetEventModel.extra["pwd"].astext.label("pwd"),
+            )
+            .where(
+                NetEventModel.event_type == "sudo_cmd",
+                NetEventModel.timestamp >= since_ts,
+            )
+            .order_by(NetEventModel.timestamp.desc())
+            .limit(int(limit))
+        )
+        if agent_id:
+            stmt = stmt.where(NetEventModel.agent_id == agent_id)
+        rows = db.execute(stmt).mappings().all()
         sudo_recent = [SudoEventSummary(**dict(r)) for r in rows]
 
         return SshSummaryResponse(
@@ -970,152 +958,97 @@ def get_protocol_intel_summary(
     # Postgres fallback (original implementation)
     db = SessionLocal()
     try:
-        params_base = {
-            "since": since_ts,
-            "limit": int(limit),
-            "agent_id": agent_id,
-        }
+        base_conds = [NetEventModel.timestamp >= since_ts]
+        if agent_id:
+            base_conds.append(NetEventModel.agent_id == agent_id)
 
-        def _scalar(sql: str, params: dict) -> int:
-            v = db.execute(text(sql), params).scalar_one()
-            return int(v or 0)
+        def _count_where(*conds) -> int:
+            stmt = select(func.count()).select_from(NetEventModel).where(*base_conds, *conds)
+            return int(db.execute(stmt).scalar() or 0)
 
-        total_events = _scalar(
-            """
-            SELECT COUNT(*)::bigint
-            FROM net_events
-            WHERE "timestamp" >= :since
-              AND (:agent_id IS NULL OR agent_id = :agent_id);
-            """,
-            params_base,
+        total_events = _count_where()
+        with_proto_metadata = _count_where(
+            or_(
+                NetEventModel.extra.has_key("app_proto"),
+                NetEventModel.extra.has_key("dns_qname"),
+                NetEventModel.extra.has_key("http_host"),
+                NetEventModel.extra.has_key("ja4"),
+                NetEventModel.extra.has_key("ja3"),
+                NetEventModel.extra.has_key("tls_sni"),
+            )
+        )
+        dns_events = _count_where(NetEventModel.extra.has_key("dns_qname"))
+        http_events = _count_where(or_(NetEventModel.extra.has_key("http_host"), NetEventModel.extra.has_key("http_method")))
+        tls_events = _count_where(
+            or_(NetEventModel.extra.has_key("ja4"), NetEventModel.extra.has_key("ja3"), NetEventModel.extra.has_key("tls_sni"))
         )
 
-        with_proto_metadata = _scalar(
-            """
-            SELECT COUNT(*)::bigint
-            FROM net_events
-            WHERE "timestamp" >= :since
-              AND (:agent_id IS NULL OR agent_id = :agent_id)
-              AND (
-                (extra ? 'app_proto') OR (extra ? 'dns_qname') OR (extra ? 'http_host')
-                OR (extra ? 'ja4') OR (extra ? 'ja3') OR (extra ? 'tls_sni')
-              );
-            """,
-            params_base,
-        )
+        def _top_k(expr, *, ensure_key: str | None = None, nonempty: bool = True) -> list[ProtoCount]:
+            stmt = select(expr.label("key"), func.count().label("count")).where(*base_conds)
+            if ensure_key:
+                stmt = stmt.where(NetEventModel.extra.has_key(ensure_key))
+            if nonempty:
+                stmt = stmt.where(expr.is_not(None), expr != "")
+            stmt = stmt.group_by(expr).order_by(func.count().desc()).limit(int(limit))
+            rows = db.execute(stmt).all()
+            return [ProtoCount(key=str(r.key), count=int(r.count or 0)) for r in rows if r.key is not None]
 
-        dns_events = _scalar(
-            """
-            SELECT COUNT(*)::bigint
-            FROM net_events
-            WHERE "timestamp" >= :since
-              AND (:agent_id IS NULL OR agent_id = :agent_id)
-              AND (extra ? 'dns_qname');
-            """,
-            params_base,
+        app_protocols = _top_k(NetEventModel.extra["app_proto"].astext, ensure_key="app_proto")
+        transport_protocols = _top_k(func.lower(NetEventModel.proto))
+        top_dst_ports = _top_k(cast(NetEventModel.dst_port, String))
+        top_src_ports = _top_k(cast(NetEventModel.src_port, String))
+        app_proto_reasons = _top_k(NetEventModel.extra["app_proto_reason"].astext, ensure_key="app_proto_reason")
+        app_proto_conf_bands = _top_k(NetEventModel.extra["app_proto_conf_band"].astext, ensure_key="app_proto_conf_band")
+        ja4_ptypes = _top_k(
+            func.coalesce(func.nullif(NetEventModel.extra["ja4_ptype"].astext, ""), "t"),
+            nonempty=False,
         )
+        http_methods = _top_k(func.upper(NetEventModel.extra["http_method"].astext), ensure_key="http_method")
 
-        http_events = _scalar(
-            """
-            SELECT COUNT(*)::bigint
-            FROM net_events
-            WHERE "timestamp" >= :since
-              AND (:agent_id IS NULL OR agent_id = :agent_id)
-              AND ((extra ? 'http_host') OR (extra ? 'http_method'));
-            """,
-            params_base,
-        )
-
-        tls_events = _scalar(
-            """
-            SELECT COUNT(*)::bigint
-            FROM net_events
-            WHERE "timestamp" >= :since
-              AND (:agent_id IS NULL OR agent_id = :agent_id)
-              AND ((extra ? 'ja4') OR (extra ? 'ja3') OR (extra ? 'tls_sni'));
-            """,
-            params_base,
-        )
-
-        def _top_k(expr: str, where_key: str | None = None) -> list[ProtoCount]:
-            where = "" if not where_key else f"AND (extra ? '{where_key}')"
-            rows = db.execute(
-                text(
-                    f"""
-                    SELECT {expr} AS key, COUNT(*)::bigint AS count
-                    FROM net_events
-                    WHERE "timestamp" >= :since
-                      AND (:agent_id IS NULL OR agent_id = :agent_id)
-                      {where}
-                      AND {expr} IS NOT NULL
-                      AND {expr} <> ''
-                    GROUP BY {expr}
-                    ORDER BY count DESC
-                    LIMIT :limit;
-                    """
+        dns_qname = NetEventModel.extra["dns_qname"].astext
+        dns_risk_txt = NetEventModel.extra["dns_risk"].astext
+        dns_risk_int = cast(
+            func.coalesce(
+                func.nullif(
+                    func.regexp_replace(func.coalesce(dns_risk_txt, ""), r"[^0-9-]", "", "g"),
+                    "",
                 ),
-                params_base,
-            ).mappings().all()
-            return [ProtoCount(**dict(r)) for r in rows]
-
-        app_protocols = _top_k("extra->>'app_proto'", "app_proto")
-        transport_protocols = _top_k("lower(proto)")
-        top_dst_ports = _top_k("CAST(dst_port AS text)")
-        top_src_ports = _top_k("CAST(src_port AS text)")
-        app_proto_reasons = _top_k("extra->>'app_proto_reason'", "app_proto_reason")
-        app_proto_conf_bands = _top_k("extra->>'app_proto_conf_band'", "app_proto_conf_band")
-        ja4_ptypes = _top_k("COALESCE(NULLIF(extra->>'ja4_ptype',''), 't')")
-        http_methods = _top_k("upper(extra->>'http_method')", "http_method")
-
+                "0",
+            ),
+            Integer,
+        )
         dns_rows = db.execute(
-            text(
-                """
-                SELECT
-                    (extra->>'dns_qname') AS qname,
-                    COALESCE(MAX((extra->>'dns_risk')::int), 0) AS risk,
-                    COUNT(*)::bigint AS count
-                FROM net_events
-                WHERE "timestamp" >= :since
-                  AND (:agent_id IS NULL OR agent_id = :agent_id)
-                  AND (extra ? 'dns_qname')
-                  AND (extra->>'dns_qname') IS NOT NULL
-                  AND (extra->>'dns_qname') <> ''
-                GROUP BY (extra->>'dns_qname')
-                ORDER BY count DESC
-                LIMIT :limit;
-                """
-            ),
-            params_base,
-        ).mappings().all()
-        top_dns_queries = [ProtoDnsQueryStat(**dict(r)) for r in dns_rows]
+            select(
+                dns_qname.label("qname"),
+                func.coalesce(func.max(dns_risk_int), 0).label("risk"),
+                func.count().label("count"),
+            )
+            .where(*base_conds, NetEventModel.extra.has_key("dns_qname"), dns_qname.is_not(None), dns_qname != "")
+            .group_by(dns_qname)
+            .order_by(func.count().desc())
+            .limit(int(limit))
+        ).all()
+        top_dns_queries = [ProtoDnsQueryStat(qname=str(r.qname), risk=int(r.risk or 0), count=int(r.count or 0)) for r in dns_rows]
 
-        top_http_hosts = _top_k("lower(extra->>'http_host')", "http_host")
-        top_tls_sni = _top_k("lower(extra->>'tls_sni')", "tls_sni")
-        top_alpn = _top_k("lower(extra->>'tls_alpn_first')", "tls_alpn_first")
+        top_http_hosts = _top_k(func.lower(NetEventModel.extra["http_host"].astext), ensure_key="http_host")
+        top_tls_sni = _top_k(func.lower(NetEventModel.extra["tls_sni"].astext), ensure_key="tls_sni")
+        top_alpn = _top_k(func.lower(NetEventModel.extra["tls_alpn_first"].astext), ensure_key="tls_alpn_first")
 
+        ja4_expr = NetEventModel.extra["ja4"].astext
         ja4_rows = db.execute(
-            text(
-                """
-                SELECT
-                    (extra->>'ja4') AS ja4,
-                    COALESCE(NULLIF(MAX(extra->>'ja4_ptype'), ''), 't') AS ptype,
-                    COUNT(*)::bigint AS count
-                FROM net_events
-                WHERE "timestamp" >= :since
-                  AND (:agent_id IS NULL OR agent_id = :agent_id)
-                  AND (extra ? 'ja4')
-                  AND (extra->>'ja4') IS NOT NULL
-                  AND (extra->>'ja4') <> ''
-                GROUP BY (extra->>'ja4')
-                ORDER BY count DESC
-                LIMIT :limit;
-                """
-            ),
-            params_base,
-        ).mappings().all()
-        top_ja4 = [ProtoJa4Stat(**dict(r)) for r in ja4_rows]
+            select(
+                ja4_expr.label("ja4"),
+                func.coalesce(func.nullif(func.max(NetEventModel.extra["ja4_ptype"].astext), ""), "t").label("ptype"),
+                func.count().label("count"),
+            )
+            .where(*base_conds, NetEventModel.extra.has_key("ja4"), ja4_expr.is_not(None), ja4_expr != "")
+            .group_by(ja4_expr)
+            .order_by(func.count().desc())
+            .limit(int(limit))
+        ).all()
+        top_ja4 = [ProtoJa4Stat(ja4=str(r.ja4), ptype=str(r.ptype or "t"), count=int(r.count or 0)) for r in ja4_rows]
 
-        top_ja3 = _top_k("extra->>'ja3'", "ja3")
+        top_ja3 = _top_k(NetEventModel.extra["ja3"].astext, ensure_key="ja3")
 
         return ProtocolIntelSummaryResponse(
             generated_at=datetime.now(timezone.utc),
@@ -1219,49 +1152,54 @@ def get_protocol_intel_samples(
             if not _es_failover_allowed():
                 raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(e).__name__}")
 
-    # Postgres fallback (original implementation)
+    # Postgres fallback (ORM/expressions)
     kind_map_pg = {
-        "app_proto": "extra->>'app_proto'",
-        "transport": "lower(proto)",
-        "dst_port": "CAST(dst_port AS text)",
-        "src_port": "CAST(src_port AS text)",
-        "app_proto_reason": "extra->>'app_proto_reason'",
-        "app_proto_conf_band": "extra->>'app_proto_conf_band'",
-        "dns_qname": "extra->>'dns_qname'",
-        "http_host": "lower(extra->>'http_host')",
-        "http_method": "upper(extra->>'http_method')",
-        "tls_sni": "lower(extra->>'tls_sni')",
-        "tls_alpn_first": "lower(extra->>'tls_alpn_first')",
-        "ja4": "extra->>'ja4'",
-        "ja4_ptype": "COALESCE(NULLIF(extra->>'ja4_ptype',''), 't')",
-        "ja3": "extra->>'ja3'",
+        "app_proto": NetEventModel.extra["app_proto"].astext,
+        "transport": func.lower(NetEventModel.proto),
+        "dst_port": NetEventModel.dst_port,
+        "src_port": NetEventModel.src_port,
+        "app_proto_reason": NetEventModel.extra["app_proto_reason"].astext,
+        "app_proto_conf_band": NetEventModel.extra["app_proto_conf_band"].astext,
+        "dns_qname": NetEventModel.extra["dns_qname"].astext,
+        "http_host": func.lower(NetEventModel.extra["http_host"].astext),
+        "http_method": func.upper(NetEventModel.extra["http_method"].astext),
+        "tls_sni": func.lower(NetEventModel.extra["tls_sni"].astext),
+        "tls_alpn_first": func.lower(NetEventModel.extra["tls_alpn_first"].astext),
+        "ja4": NetEventModel.extra["ja4"].astext,
+        "ja4_ptype": func.coalesce(func.nullif(NetEventModel.extra["ja4_ptype"].astext, ""), "t"),
+        "ja3": NetEventModel.extra["ja3"].astext,
     }
     expr = kind_map_pg.get(kind)
     if not expr:
         return []
-    value_pg = str(value_norm) if kind in {"dst_port", "src_port"} else value_norm
 
     db = SessionLocal()
     try:
-        rows = db.execute(
-            text(
-                f"""
-                SELECT *
-                FROM net_events
-                WHERE "timestamp" >= :since
-                  AND (:agent_id IS NULL OR agent_id = :agent_id)
-                  AND {expr} = :value
-                ORDER BY "timestamp" DESC
-                LIMIT :limit;
-                """
-            ),
-            {
-                "since": since_ts,
-                "agent_id": agent_id,
-                "value": value_pg,
-                "limit": int(limit),
-            },
-        ).mappings().all()
+        stmt = (
+            select(
+                NetEventModel.id,
+                NetEventModel.agent_id,
+                NetEventModel.event_type,
+                NetEventModel.schema_version,
+                NetEventModel.timestamp,
+                NetEventModel.src_ip,
+                NetEventModel.dst_ip,
+                NetEventModel.src_port,
+                NetEventModel.dst_port,
+                NetEventModel.proto,
+                NetEventModel.bytes,
+                NetEventModel.extra,
+            )
+            .where(
+                NetEventModel.timestamp >= since_ts,
+                expr == value_norm,
+            )
+            .order_by(NetEventModel.timestamp.desc())
+            .limit(int(limit))
+        )
+        if agent_id:
+            stmt = stmt.where(NetEventModel.agent_id == agent_id)
+        rows = db.execute(stmt).mappings().all()
 
         out: list[NetEventDB] = []
         for r in rows:

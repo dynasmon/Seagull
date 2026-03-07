@@ -88,6 +88,8 @@ def on_startup():
     from app.models import correlation_rules as _correlation_rules  # noqa: F401
     from app.models import attack_chain as _attack_chain  # noqa: F401
     from app.models import vuln as _vuln  # noqa: F401
+    from app.models import search_index_offsets as _search_index_offsets  # noqa: F401
+    from app.models import ip_enrichment_cache as _ip_enrichment_cache  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     bootstrap_schema(engine)

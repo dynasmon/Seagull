@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import text
+from sqlalchemy import and_, func, insert, or_, select, update
 
 from app.attack_chain.types import AttackStage, stage_rank
+from app.models.attack_chain import AttackChainCaseModel, AttackChainStepModel
 
 
 @dataclass(frozen=True)
@@ -60,18 +60,23 @@ def get_or_create_open_case_ex(
     """Same as get_or_create_open_case, but returns (case, created)."""
 
     row = conn.execute(
-        text(
-            """
-            SELECT id, score, max_stage, step_count, context
-            FROM attack_chain_cases
-            WHERE agent_id = :agent_id
-              AND suspect_ip IS NOT DISTINCT FROM :suspect_ip
-              AND status = 'open'
-            ORDER BY last_seen_at DESC, id DESC
-            LIMIT 1;
-            """
-        ),
-        {"agent_id": agent_id, "suspect_ip": suspect_ip},
+        select(
+            AttackChainCaseModel.id,
+            AttackChainCaseModel.score,
+            AttackChainCaseModel.max_stage,
+            AttackChainCaseModel.step_count,
+            AttackChainCaseModel.context,
+        )
+        .where(
+            AttackChainCaseModel.agent_id == agent_id,
+            AttackChainCaseModel.status == "open",
+            or_(
+                and_(suspect_ip is None, AttackChainCaseModel.suspect_ip.is_(None)),
+                AttackChainCaseModel.suspect_ip == suspect_ip,
+            ),
+        )
+        .order_by(AttackChainCaseModel.last_seen_at.desc(), AttackChainCaseModel.id.desc())
+        .limit(1)
     ).mappings().fetchone()
 
     if row:
@@ -79,14 +84,9 @@ def get_or_create_open_case_ex(
         if context_patch:
             ctx.update(_safe_dict(context_patch))
             conn.execute(
-                text(
-                    """
-                    UPDATE attack_chain_cases
-                    SET context = CAST(:ctx AS jsonb)
-                    WHERE id = :id;
-                    """
-                ),
-                {"id": int(row["id"]), "ctx": json.dumps(ctx, separators=(",", ":"))},
+                update(AttackChainCaseModel)
+                .where(AttackChainCaseModel.id == int(row["id"]))
+                .values(context=ctx),
             )
 
         return (
@@ -102,19 +102,19 @@ def get_or_create_open_case_ex(
 
     ctx = _safe_dict(context_patch)
     inserted = conn.execute(
-        text(
-            """
-            INSERT INTO attack_chain_cases (agent_id, suspect_ip, status, score, max_stage, first_seen_at, last_seen_at, step_count, context)
-            VALUES (:agent_id, :suspect_ip, 'open', 0, 'initial_access', :now, :now, 0, CAST(:ctx AS jsonb))
-            RETURNING id;
-            """
-        ),
-        {
-            "agent_id": agent_id,
-            "suspect_ip": suspect_ip,
-            "now": now,
-            "ctx": json.dumps(ctx, separators=(",", ":")),
-        },
+        insert(AttackChainCaseModel)
+        .values(
+            agent_id=agent_id,
+            suspect_ip=suspect_ip,
+            status="open",
+            score=0,
+            max_stage="initial_access",
+            first_seen_at=now,
+            last_seen_at=now,
+            step_count=0,
+            context=ctx,
+        )
+        .returning(AttackChainCaseModel.id)
     ).fetchone()
 
     case_id = int(inserted[0])
@@ -133,17 +133,13 @@ def case_recent_step_exists(
         return False
 
     row = conn.execute(
-        text(
-            """
-            SELECT 1
-            FROM attack_chain_steps
-            WHERE case_id = :case_id
-              AND fingerprint = :fp
-              AND created_at >= (:now - make_interval(secs => :dedup_s))
-            LIMIT 1;
-            """
-        ),
-        {"case_id": int(case_id), "fp": str(fingerprint), "now": now, "dedup_s": int(dedup_seconds)},
+        select(AttackChainStepModel.id)
+        .where(
+            AttackChainStepModel.case_id == int(case_id),
+            AttackChainStepModel.fingerprint == str(fingerprint),
+            AttackChainStepModel.created_at >= (now - timedelta(seconds=int(dedup_seconds))),
+        )
+        .limit(1)
     ).fetchone()
 
     return row is not None
@@ -205,42 +201,25 @@ def insert_step_and_update_case(
         details = {}
 
     step_row = conn.execute(
-        text(
-            """
-            INSERT INTO attack_chain_steps (
-                case_id, stage, label, score_delta, fingerprint,
-                event_id, event_type,
-                timestamp, created_at,
-                src_ip, dst_ip, src_port, dst_port, proto,
-                details
-            )
-            VALUES (
-                :case_id, :stage, :label, :score_delta, :fp,
-                :event_id, :event_type,
-                :ts, :now,
-                :src_ip, :dst_ip, :src_port, :dst_port, :proto,
-                CAST(:details AS jsonb)
-            )
-            RETURNING id;
-            """
-        ),
-        {
-            "case_id": int(case.id),
-            "stage": stage.value,
-            "label": str(label),
-            "score_delta": int(score_delta),
-            "fp": str(fingerprint)[:192],
-            "event_id": ev_id,
-            "event_type": str(ev_type or "")[:32] if ev_type else None,
-            "ts": ts,
-            "now": now,
-            "src_ip": (event.get("src_ip") or None),
-            "dst_ip": (event.get("dst_ip") or None),
-            "src_port": src_port,
-            "dst_port": dst_port,
-            "proto": (event.get("proto") or None),
-            "details": json.dumps(details, separators=(",", ":")),
-        },
+        insert(AttackChainStepModel)
+        .values(
+            case_id=int(case.id),
+            stage=stage.value,
+            label=str(label),
+            score_delta=int(score_delta),
+            fingerprint=str(fingerprint)[:192],
+            event_id=ev_id,
+            event_type=str(ev_type or "")[:32] if ev_type else None,
+            timestamp=ts,
+            created_at=now,
+            src_ip=(event.get("src_ip") or None),
+            dst_ip=(event.get("dst_ip") or None),
+            src_port=src_port,
+            dst_port=dst_port,
+            proto=(event.get("proto") or None),
+            details=details,
+        )
+        .returning(AttackChainStepModel.id)
     ).fetchone()
     step_id = int(step_row[0])
 
@@ -250,24 +229,15 @@ def insert_step_and_update_case(
         ctx.update(context_patch)
 
     conn.execute(
-        text(
-            """
-            UPDATE attack_chain_cases
-            SET score = :score,
-                max_stage = :max_stage,
-                last_seen_at = GREATEST(last_seen_at, :last_seen_at),
-                step_count = step_count + 1,
-                context = CAST(:ctx AS jsonb)
-            WHERE id = :id;
-            """
-        ),
-        {
-            "id": int(case.id),
-            "score": int(new_score),
-            "max_stage": str(new_max_stage),
-            "last_seen_at": ts,
-            "ctx": json.dumps(ctx, separators=(",", ":")),
-        },
+        update(AttackChainCaseModel)
+        .where(AttackChainCaseModel.id == int(case.id))
+        .values(
+            score=int(new_score),
+            max_stage=str(new_max_stage),
+            last_seen_at=func.greatest(AttackChainCaseModel.last_seen_at, ts),
+            step_count=AttackChainCaseModel.step_count + 1,
+            context=ctx,
+        )
     )
 
     return step_id, new_score, new_max_stage
@@ -278,16 +248,15 @@ def close_stale_cases(conn, *, now: datetime, idle_close_seconds: int) -> int:
         return 0
 
     res = conn.execute(
-        text(
-            """
-            UPDATE attack_chain_cases
-            SET status = 'closed',
-                closed_at = COALESCE(closed_at, :now)
-            WHERE status = 'open'
-              AND last_seen_at < (:now - make_interval(secs => :idle_s));
-            """
-        ),
-        {"now": now, "idle_s": int(idle_close_seconds)},
+        update(AttackChainCaseModel)
+        .where(
+            AttackChainCaseModel.status == "open",
+            AttackChainCaseModel.last_seen_at < (now - timedelta(seconds=int(idle_close_seconds))),
+        )
+        .values(
+            status="closed",
+            closed_at=func.coalesce(AttackChainCaseModel.closed_at, now),
+        )
     )
 
     try:
@@ -307,18 +276,14 @@ def find_attachable_case_id(conn, *, agent_id: str, now: datetime, attach_window
         return None
 
     row = conn.execute(
-        text(
-            """
-            SELECT id
-            FROM attack_chain_cases
-            WHERE agent_id = :agent_id
-              AND status = 'open'
-              AND last_seen_at >= (:now - make_interval(secs => :attach_s))
-            ORDER BY last_seen_at DESC, id DESC
-            LIMIT 1;
-            """
-        ),
-        {"agent_id": agent_id, "now": now, "attach_s": int(attach_window_seconds)},
+        select(AttackChainCaseModel.id)
+        .where(
+            AttackChainCaseModel.agent_id == agent_id,
+            AttackChainCaseModel.status == "open",
+            AttackChainCaseModel.last_seen_at >= (now - timedelta(seconds=int(attach_window_seconds))),
+        )
+        .order_by(AttackChainCaseModel.last_seen_at.desc(), AttackChainCaseModel.id.desc())
+        .limit(1)
     ).fetchone()
 
     if not row:

@@ -8,10 +8,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import text
+from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import insert
 
 from app.core.redis_client import get_redis
 from app.core.db import engine
+from app.models.alerts import AlertModel
+from app.models.events import IngestStats1sModel
 
 
 def _env_int(name: str, default: int) -> int:
@@ -254,53 +257,40 @@ def maybe_flush_stats_to_db() -> None:
 
     bucket_ts = datetime.fromtimestamp(ts_s, tz=timezone.utc).replace(microsecond=0)
 
-    sql = text(
-        """
-        INSERT INTO ingest_stats_1s (
-            bucket_ts, received, hot_stored, warm_indexed, dropped, rejected,
-            rollup_only, backlog_messages, backlog_events, storm_active,
-            sample_hot_percent, sample_warm_percent
-        ) VALUES (
-            :bucket_ts, :received, :hot_stored, :warm_indexed, :dropped, :rejected,
-            :rollup_only, :backlog_messages, :backlog_events, :storm_active,
-            :sample_hot_percent, :sample_warm_percent
-        )
-        ON CONFLICT (bucket_ts)
-        DO UPDATE SET
-            received = ingest_stats_1s.received + EXCLUDED.received,
-            hot_stored = ingest_stats_1s.hot_stored + EXCLUDED.hot_stored,
-            warm_indexed = ingest_stats_1s.warm_indexed + EXCLUDED.warm_indexed,
-            dropped = ingest_stats_1s.dropped + EXCLUDED.dropped,
-            rejected = ingest_stats_1s.rejected + EXCLUDED.rejected,
-            rollup_only = ingest_stats_1s.rollup_only + EXCLUDED.rollup_only,
-            backlog_messages = GREATEST(ingest_stats_1s.backlog_messages, EXCLUDED.backlog_messages),
-            backlog_events = GREATEST(ingest_stats_1s.backlog_events, EXCLUDED.backlog_events),
-            storm_active = (ingest_stats_1s.storm_active OR EXCLUDED.storm_active),
-            sample_hot_percent = LEAST(ingest_stats_1s.sample_hot_percent, EXCLUDED.sample_hot_percent),
-            sample_warm_percent = GREATEST(ingest_stats_1s.sample_warm_percent, EXCLUDED.sample_warm_percent),
-            updated_at = now();
-        """
-    )
-
     try:
+        ins = insert(IngestStats1sModel).values(
+            bucket_ts=bucket_ts,
+            received=received,
+            hot_stored=hot_kept,
+            warm_indexed=warm_kept,
+            dropped=dropped,
+            rejected=rejected,
+            rollup_only=rollup_only,
+            backlog_messages=backlog_msgs,
+            backlog_events=backlog_ev,
+            storm_active=storm_active,
+            sample_hot_percent=sample_hot,
+            sample_warm_percent=sample_warm,
+        )
+        upsert = ins.on_conflict_do_update(
+            index_elements=[IngestStats1sModel.bucket_ts],
+            set_={
+                "received": IngestStats1sModel.received + ins.excluded.received,
+                "hot_stored": IngestStats1sModel.hot_stored + ins.excluded.hot_stored,
+                "warm_indexed": IngestStats1sModel.warm_indexed + ins.excluded.warm_indexed,
+                "dropped": IngestStats1sModel.dropped + ins.excluded.dropped,
+                "rejected": IngestStats1sModel.rejected + ins.excluded.rejected,
+                "rollup_only": IngestStats1sModel.rollup_only + ins.excluded.rollup_only,
+                "backlog_messages": func.greatest(IngestStats1sModel.backlog_messages, ins.excluded.backlog_messages),
+                "backlog_events": func.greatest(IngestStats1sModel.backlog_events, ins.excluded.backlog_events),
+                "storm_active": or_(IngestStats1sModel.storm_active, ins.excluded.storm_active),
+                "sample_hot_percent": func.least(IngestStats1sModel.sample_hot_percent, ins.excluded.sample_hot_percent),
+                "sample_warm_percent": func.greatest(IngestStats1sModel.sample_warm_percent, ins.excluded.sample_warm_percent),
+                "updated_at": datetime.now(timezone.utc),
+            },
+        )
         with engine.begin() as conn:
-            conn.execute(
-                sql,
-                {
-                    "bucket_ts": bucket_ts,
-                    "received": received,
-                    "hot_stored": hot_kept,
-                    "warm_indexed": warm_kept,
-                    "dropped": dropped,
-                    "rejected": rejected,
-                    "rollup_only": rollup_only,
-                    "backlog_messages": backlog_msgs,
-                    "backlog_events": backlog_ev,
-                    "storm_active": storm_active,
-                    "sample_hot_percent": sample_hot,
-                    "sample_warm_percent": sample_warm,
-                },
-            )
+            conn.execute(upsert)
     except Exception:
         # fail open
         return
@@ -339,7 +329,7 @@ def storm_maybe_open_alert(*, reason: str, sample_hot: int, sample_warm: int) ->
             try:
                 eid = int(existing)
                 with engine.begin() as conn:
-                    ok = conn.execute(text("SELECT 1 FROM alerts WHERE id = :id"), {"id": eid}).fetchone()
+                    ok = conn.execute(select(AlertModel.id).where(AlertModel.id == eid).limit(1)).first()
                 if ok:
                     return
                 # stale key: allow re-open
@@ -398,30 +388,19 @@ def storm_maybe_open_alert(*, reason: str, sample_hot: int, sample_warm: int) ->
     try:
         with engine.begin() as conn:
             row = conn.execute(
-                text(
-                    """
-                    INSERT INTO alerts (
-                        created_at, rule_id, severity,
-                        mitre_tactic, mitre_technique_id, mitre_technique, confidence,
-                        description, details
-                    ) VALUES (
-                        now(), :rule_id, :severity,
-                        :tactic, :technique_id, :technique, :confidence,
-                        :description, :details::jsonb
-                    )
-                    RETURNING id;
-                    """
-                ),
-                {
-                    "rule_id": "system.ingest_storm",
-                    "severity": "high",
-                    "tactic": "impact",
-                    "technique_id": "T1498",
-                    "technique": "Network Denial of Service",
-                    "confidence": 85,
-                    "description": "Ingest Storm Detected",
-                    "details": json.dumps(details, ensure_ascii=False),
-                },
+                insert(AlertModel)
+                .values(
+                    created_at=now,
+                    rule_id="system.ingest_storm",
+                    severity="high",
+                    mitre_tactic="impact",
+                    mitre_technique_id="T1498",
+                    mitre_technique="Network Denial of Service",
+                    confidence=85,
+                    description="Ingest Storm Detected",
+                    details=details,
+                )
+                .returning(AlertModel.id)
             ).fetchone()
             alert_id = int(row[0]) if row else 0
 
@@ -472,18 +451,23 @@ def storm_maybe_close_alert() -> None:
     try:
         with engine.begin() as conn:
             rows = conn.execute(
-                text(
-                    """
-                    SELECT bucket_ts, received, hot_stored, warm_indexed, dropped, rejected,
-                           rollup_only, backlog_events, backlog_messages, storm_active,
-                           sample_hot_percent, sample_warm_percent
-                    FROM ingest_stats_1s
-                    WHERE bucket_ts >= :start_ts AND bucket_ts <= :end_ts
-                    ORDER BY bucket_ts ASC
-                    LIMIT 1200;
-                    """
-                ),
-                {"start_ts": start, "end_ts": end},
+                select(
+                    IngestStats1sModel.bucket_ts,
+                    IngestStats1sModel.received,
+                    IngestStats1sModel.hot_stored,
+                    IngestStats1sModel.warm_indexed,
+                    IngestStats1sModel.dropped,
+                    IngestStats1sModel.rejected,
+                    IngestStats1sModel.rollup_only,
+                    IngestStats1sModel.backlog_events,
+                    IngestStats1sModel.backlog_messages,
+                    IngestStats1sModel.storm_active,
+                    IngestStats1sModel.sample_hot_percent,
+                    IngestStats1sModel.sample_warm_percent,
+                )
+                .where(IngestStats1sModel.bucket_ts >= start, IngestStats1sModel.bucket_ts <= end)
+                .order_by(IngestStats1sModel.bucket_ts.asc())
+                .limit(1200)
             ).mappings().all()
 
             timeline = []
@@ -512,14 +496,9 @@ def storm_maybe_close_alert() -> None:
             }
 
             conn.execute(
-                text(
-                    """
-                    UPDATE alerts
-                       SET details = details || :patch::jsonb
-                     WHERE id = :id;
-                    """
-                ),
-                {"id": alert_id, "patch": json.dumps(patch, ensure_ascii=False)},
+                AlertModel.__table__.update()
+                .where(AlertModel.id == alert_id)
+                .values(details=AlertModel.details.op("||")(patch))
             )
 
         # Clear keys
@@ -547,23 +526,19 @@ def get_storm_status() -> Dict[str, Any]:
             with engine.begin() as conn:
                 row = (
                     conn.execute(
-                        text(
-                            """
-                            SELECT
-                              bucket_ts,
-                              received,
-                              dropped,
-                              backlog_events,
-                              backlog_messages,
-                              storm_active,
-                              sample_hot_percent,
-                              sample_warm_percent
-                            FROM ingest_stats_1s
-                            WHERE bucket_ts >= (now() AT TIME ZONE 'utc') - interval '5 minutes'
-                            ORDER BY bucket_ts DESC
-                            LIMIT 1;
-                            """
+                        select(
+                            IngestStats1sModel.bucket_ts,
+                            IngestStats1sModel.received,
+                            IngestStats1sModel.dropped,
+                            IngestStats1sModel.backlog_events,
+                            IngestStats1sModel.backlog_messages,
+                            IngestStats1sModel.storm_active,
+                            IngestStats1sModel.sample_hot_percent,
+                            IngestStats1sModel.sample_warm_percent,
                         )
+                        .where(IngestStats1sModel.bucket_ts >= datetime.now(timezone.utc) - timedelta(minutes=5))
+                        .order_by(IngestStats1sModel.bucket_ts.desc())
+                        .limit(1)
                     )
                     .mappings()
                     .first()

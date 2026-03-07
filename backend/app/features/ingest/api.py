@@ -1,10 +1,9 @@
-import json
 import os
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from psycopg2.extras import Json, execute_values
+from sqlalchemy.dialects.postgresql import insert
 
 from app.core.db import engine
 from app.core.agent_auth import AgentPrincipal, get_current_agent
@@ -19,6 +18,7 @@ from app.core.ingest_control import (
     storm_maybe_open_alert,
     get_storm_status,
 )
+from app.models.events import NetEventModel, NetEventRollup1sModel
 from app.schemas.events import NetEvent
 
 
@@ -53,56 +53,66 @@ def _env_bool(name: str, default: bool) -> bool:
     return default
 
 
-def _fallback_direct_insert(*, raw_rows: List[Tuple], rollup_rows: List[Tuple]) -> int:
+def _fallback_direct_insert(*, hot_events: List[List], rollup_rows: List[List]) -> int:
     """Fail-open path if Redis is unavailable.
 
     This keeps the platform usable, but may increase DB pressure under storm.
     """
 
     stored = 0
-    conn = engine.raw_connection()
-    try:
-        cur = conn.cursor()
-
-        cols = (
-            "agent_id",
-            "event_type",
-            "schema_version",
-            "timestamp",
-            "src_ip",
-            "dst_ip",
-            "src_port",
-            "dst_port",
-            "proto",
-            "bytes",
-            "extra",
-        )
-
-        if raw_rows:
-            insert_sql = f"INSERT INTO net_events ({', '.join(cols)}) VALUES %s"
-            execute_values(cur, insert_sql, raw_rows, page_size=_env_int("NETWATCH_INGEST_VALUES_PAGE_SIZE", 1000))
+    with engine.begin() as conn:
+        if hot_events:
+            raw_rows = [
+                {
+                    "agent_id": row[0],
+                    "event_type": row[1],
+                    "schema_version": int(row[2] or 1),
+                    "timestamp": datetime.fromisoformat(row[3]),
+                    "src_ip": row[4],
+                    "dst_ip": row[5],
+                    "src_port": row[6],
+                    "dst_port": row[7],
+                    "proto": row[8],
+                    "bytes": row[9],
+                    "extra": dict(row[10] or {}),
+                }
+                for row in hot_events
+            ]
+            conn.execute(insert(NetEventModel), raw_rows)
             stored = len(raw_rows)
 
         if rollup_rows:
-            rollup_sql = """
-                INSERT INTO net_event_rollups_1s (
-                    bucket_ts, agent_id, event_type, dst_ip, dst_port, proto, count, bytes_sum
-                ) VALUES %s
-                ON CONFLICT (bucket_ts, agent_id, event_type, dst_ip, dst_port, proto)
-                DO UPDATE SET
-                    count = net_event_rollups_1s.count + EXCLUDED.count,
-                    bytes_sum = net_event_rollups_1s.bytes_sum + EXCLUDED.bytes_sum;
-            """
-            execute_values(cur, rollup_sql, rollup_rows, page_size=_env_int("NETWATCH_INGEST_ROLLUP_PAGE_SIZE", 500))
+            rr = [
+                {
+                    "bucket_ts": datetime.fromisoformat(rrow[0]),
+                    "agent_id": rrow[1],
+                    "event_type": rrow[2],
+                    "dst_ip": rrow[3],
+                    "dst_port": rrow[4],
+                    "proto": rrow[5],
+                    "count": int(rrow[6]),
+                    "bytes_sum": int(rrow[7]),
+                }
+                for rrow in rollup_rows
+            ]
+            ins = insert(NetEventRollup1sModel).values(rr)
+            upsert = ins.on_conflict_do_update(
+                index_elements=[
+                    NetEventRollup1sModel.bucket_ts,
+                    NetEventRollup1sModel.agent_id,
+                    NetEventRollup1sModel.event_type,
+                    NetEventRollup1sModel.dst_ip,
+                    NetEventRollup1sModel.dst_port,
+                    NetEventRollup1sModel.proto,
+                ],
+                set_={
+                    "count": NetEventRollup1sModel.count + ins.excluded.count,
+                    "bytes_sum": NetEventRollup1sModel.bytes_sum + ins.excluded.bytes_sum,
+                },
+            )
+            conn.execute(upsert)
 
-        conn.commit()
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-    return stored
+    return int(stored)
 
 
 @router.get("/storm/status")
@@ -323,40 +333,7 @@ def ingest_events(
 
     # Redis unavailable: fail open to direct DB insert.
     if not enqueued:
-        raw_rows: List[Tuple] = []
-        for row in hot_events:
-            raw_rows.append(
-                (
-                    row[0],
-                    row[1],
-                    row[2],
-                    datetime.fromisoformat(row[3]),
-                    row[4],
-                    row[5],
-                    row[6],
-                    row[7],
-                    row[8],
-                    row[9],
-                    Json(row[10], dumps=json.dumps),
-                )
-            )
-
-        rr: List[Tuple] = []
-        for rrow in rollup_rows:
-            rr.append(
-                (
-                    datetime.fromisoformat(rrow[0]),
-                    rrow[1],
-                    rrow[2],
-                    rrow[3],
-                    rrow[4],
-                    rrow[5],
-                    int(rrow[6]),
-                    int(rrow[7]),
-                )
-            )
-
-        stored = _fallback_direct_insert(raw_rows=raw_rows, rollup_rows=rr)
+        stored = _fallback_direct_insert(hot_events=hot_events, rollup_rows=rollup_rows)
 
         bump_ingest_counters(
             received=len(events),

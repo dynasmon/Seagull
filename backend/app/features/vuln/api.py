@@ -8,7 +8,8 @@ from hashlib import sha256
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import Float, and_, case, cast, func, literal, or_, select
+from sqlalchemy.dialects.postgresql import insert
 
 from app.core.agent_auth import AgentPrincipal, get_current_agent
 from app.core.db import SessionLocal
@@ -136,58 +137,55 @@ def _env_bool(name: str, default: bool) -> bool:
     return default
 
 
-def _risk_score_sql() -> str:
-    """Return SQL expression (0-100) for finding risk prioritization."""
+def _cvss_numeric_expr(vf=VulnFindingModel):
+    return case(
+        (vf.cvss.op("~")(r"^[0-9]+(\.[0-9]+)?$"), cast(vf.cvss, Float)),
+        else_=0.0,
+    )
 
-    # Model:
-    # - severity dominates baseline
-    # - confidence + recurrence + recency raise urgency
-    # - CVSS/exposure/CVE/fixability improve exploitability/actionability ranking
-    return """
-        LEAST(
-          100.0,
-          (
-            (vf.severity_rank::float * 18.0)
-            + (LEAST(GREATEST(vf.confidence, 0), 100)::float * 0.12)
-            + (LEAST(GREATEST(vf.occurrences, 1), 50)::float * 0.45)
-            + (CASE WHEN vf.cve IS NOT NULL AND btrim(vf.cve) <> '' THEN 6.0 ELSE 0.0 END)
-            + (
-                CASE
-                  WHEN vf.cvss ~ '^[0-9]+(\\.[0-9]+)?$' THEN
-                    CASE
-                      WHEN (vf.cvss::double precision) >= 9.0 THEN 16.0
-                      WHEN (vf.cvss::double precision) >= 7.0 THEN 10.0
-                      WHEN (vf.cvss::double precision) >= 4.0 THEN 5.0
-                      ELSE 0.0
-                    END
-                  ELSE 0.0
-                END
-              )
-            + (
-                CASE
-                  WHEN upper(COALESCE(vf.cvss, '')) LIKE '%AV:N%' THEN 6.0
-                  ELSE 0.0
-                END
-              )
-            + (
-                CASE
-                  WHEN (
-                    (vf.evidence -> 'osv' ->> 'fixed') IS NOT NULL
-                    OR (vf.remediation IS NOT NULL AND btrim(vf.remediation) <> '')
-                  ) THEN 4.0
-                  ELSE 0.0
-                END
-              )
-            + (
-                CASE
-                  WHEN vf.last_seen_at >= ((now() AT TIME ZONE 'utc') - interval '24 hours') THEN 8.0
-                  WHEN vf.last_seen_at >= ((now() AT TIME ZONE 'utc') - interval '7 days') THEN 4.0
-                  ELSE 0.0
-                END
-              )
-          )
-        )
-    """
+
+def _has_fix_expr(vf=VulnFindingModel):
+    return or_(
+        vf.evidence["osv"]["fixed"].astext.is_not(None),
+        and_(vf.remediation.is_not(None), func.btrim(vf.remediation) != ""),
+    )
+
+
+def _internet_exposed_expr(vf=VulnFindingModel):
+    return func.upper(func.coalesce(vf.cvss, "")).like("%AV:N%")
+
+
+def _risk_score_expr(now: datetime, vf=VulnFindingModel):
+    cvss_num = _cvss_numeric_expr(vf)
+    cve_present = and_(vf.cve.is_not(None), func.btrim(vf.cve) != "")
+    has_fix = _has_fix_expr(vf)
+    internet_exposed = _internet_exposed_expr(vf)
+
+    cvss_points = case(
+        (cvss_num >= 9.0, 16.0),
+        (cvss_num >= 7.0, 10.0),
+        (cvss_num >= 4.0, 5.0),
+        else_=0.0,
+    )
+    recency_points = case(
+        (vf.last_seen_at >= now - timedelta(hours=24), 8.0),
+        (vf.last_seen_at >= now - timedelta(days=7), 4.0),
+        else_=0.0,
+    )
+
+    return func.least(
+        100.0,
+        (
+            cast(vf.severity_rank, Float) * 18.0
+            + cast(func.least(func.greatest(vf.confidence, 0), 100), Float) * 0.12
+            + cast(func.least(func.greatest(vf.occurrences, 1), 50), Float) * 0.45
+            + case((cve_present, 6.0), else_=0.0)
+            + cvss_points
+            + case((internet_exposed, 6.0), else_=0.0)
+            + case((has_fix, 4.0), else_=0.0)
+            + recency_points
+        ),
+    )
 
 
 @router.post(
@@ -231,58 +229,43 @@ def ingest_findings(
             started_at = _ensure_utc(payload.scan.started_at) or now
             finished_at = _ensure_utc(payload.scan.finished_at)
 
-            stmt = text(
-                """
-                INSERT INTO vuln_scans (
-                    scan_uuid, reporter_agent_id, target, tool, tool_version, status,
-                    started_at, finished_at, scope, config, stats, updated_at
-                )
-                VALUES (
-                    :scan_uuid, :reporter_agent_id, :target, :tool, :tool_version, :status,
-                    :started_at, :finished_at,
-                    CAST(:scope AS jsonb), CAST(:config AS jsonb), CAST(:stats AS jsonb),
-                    now()
-                )
-                ON CONFLICT (scan_uuid)
-                DO UPDATE SET
-                    reporter_agent_id = EXCLUDED.reporter_agent_id,
-                    target = COALESCE(EXCLUDED.target, vuln_scans.target),
-                    tool = EXCLUDED.tool,
-                    tool_version = COALESCE(EXCLUDED.tool_version, vuln_scans.tool_version),
-                    status = EXCLUDED.status,
-                    started_at = LEAST(vuln_scans.started_at, EXCLUDED.started_at),
-                    finished_at = COALESCE(EXCLUDED.finished_at, vuln_scans.finished_at),
-                    scope = vuln_scans.scope || EXCLUDED.scope,
-                    config = vuln_scans.config || EXCLUDED.config,
-                    stats = vuln_scans.stats || EXCLUDED.stats,
-                    updated_at = now()
-                RETURNING id;
-                """
+            scan_insert = insert(VulnScanModel).values(
+                scan_uuid=scan_uuid,
+                reporter_agent_id=agent.agent_id,
+                target=payload.scan.target,
+                tool=payload.scan.tool,
+                tool_version=payload.scan.tool_version,
+                status=payload.scan.status,
+                started_at=started_at,
+                finished_at=finished_at,
+                scope=dict(payload.scan.scope or {}),
+                config=dict(payload.scan.config or {}),
+                stats=dict(payload.scan.stats or {}),
+                updated_at=now,
             )
-
-            row = db.execute(
-                stmt,
-                {
-                    "scan_uuid": scan_uuid,
-                    "reporter_agent_id": agent.agent_id,
-                    "target": payload.scan.target,
-                    "tool": payload.scan.tool,
-                    "tool_version": payload.scan.tool_version,
-                    "status": payload.scan.status,
-                    "started_at": started_at,
-                    "finished_at": finished_at,
-                    "scope": json.dumps(payload.scan.scope or {}, ensure_ascii=False),
-                    "config": json.dumps(payload.scan.config or {}, ensure_ascii=False),
-                    "stats": json.dumps(payload.scan.stats or {}, ensure_ascii=False),
+            scan_upsert = scan_insert.on_conflict_do_update(
+                index_elements=[VulnScanModel.scan_uuid],
+                set_={
+                    "reporter_agent_id": scan_insert.excluded.reporter_agent_id,
+                    "target": func.coalesce(scan_insert.excluded.target, VulnScanModel.target),
+                    "tool": scan_insert.excluded.tool,
+                    "tool_version": func.coalesce(scan_insert.excluded.tool_version, VulnScanModel.tool_version),
+                    "status": scan_insert.excluded.status,
+                    "started_at": func.least(VulnScanModel.started_at, scan_insert.excluded.started_at),
+                    "finished_at": func.coalesce(scan_insert.excluded.finished_at, VulnScanModel.finished_at),
+                    "scope": VulnScanModel.scope.op("||")(scan_insert.excluded.scope),
+                    "config": VulnScanModel.config.op("||")(scan_insert.excluded.config),
+                    "stats": VulnScanModel.stats.op("||")(scan_insert.excluded.stats),
+                    "updated_at": now,
                 },
-            ).first()
+            ).returning(VulnScanModel.id)
+            row = db.execute(scan_upsert).first()
             scan_id = int(row[0]) if row and row[0] is not None else None
 
         if not payload.findings:
             db.commit()
             return VulnIngestResult(scan_id=scan_id, scan_uuid=scan_uuid, received_findings=0, stored_findings=0)
 
-        # Bulk upsert findings (fast path)
         rows: List[Dict[str, Any]] = []
         for f in payload.findings:
             fp = (f.fingerprint or "").strip()
@@ -300,12 +283,10 @@ def ingest_findings(
             sev_rank = _severity_rank(sev)
 
             asset_key = f.asset_key.strip()
-            # Default convention for local host scanning.
             if asset_key.lower() in {"self", "local"}:
                 asset_key = f"agent:{agent.agent_id}"
 
-            last_seen = f.last_seen_at or now
-            last_seen = _ensure_utc(last_seen) or now
+            last_seen = _ensure_utc(f.last_seen_at or now) or now
 
             rows.append(
                 {
@@ -314,7 +295,7 @@ def ingest_findings(
                     "asset_agent_id": f.asset_agent_id,
                     "reporter_agent_id": agent.agent_id,
                     "target": f.target,
-                    "asset": json.dumps(f.asset or {}, ensure_ascii=False),
+                    "asset": dict(f.asset or {}),
                     "source": f.source,
                     "external_id": f.external_id,
                     "fingerprint": fp,
@@ -328,66 +309,57 @@ def ingest_findings(
                     "cwe": f.cwe,
                     "cvss": f.cvss,
                     "location": f.location,
-                    "tags": json.dumps(f.tags or [], ensure_ascii=False),
-                    "evidence": json.dumps(_truncate_evidence(dict(f.evidence or {})), ensure_ascii=False),
+                    "tags": list(f.tags or []),
+                    "evidence": _truncate_evidence(dict(f.evidence or {})),
                     "last_seen_at": last_seen,
+                    "status": "open",
+                    "is_suppressed": False,
+                    "first_seen_at": now,
+                    "occurrences": 1,
+                    "updated_at": now,
                 }
             )
 
-        upsert_sql = text(
-            """
-            INSERT INTO vuln_findings (
-                scan_id, asset_key, asset_agent_id, reporter_agent_id, target, asset,
-                source, external_id, fingerprint,
-                severity, severity_rank, confidence,
-                title, description, remediation,
-                cve, cwe, cvss,
-                location, tags, evidence,
-                status, is_suppressed,
-                first_seen_at, last_seen_at, occurrences, updated_at
-            )
-            VALUES (
-                :scan_id, :asset_key, :asset_agent_id, :reporter_agent_id, :target, CAST(:asset AS jsonb),
-                :source, :external_id, :fingerprint,
-                :severity, :severity_rank, :confidence,
-                :title, :description, :remediation,
-                :cve, :cwe, :cvss,
-                :location, CAST(:tags AS jsonb), CAST(:evidence AS jsonb),
-                'open', false,
-                now(), :last_seen_at, 1, now()
-            )
-            ON CONFLICT (asset_key, fingerprint)
-            DO UPDATE SET
-                scan_id = COALESCE(EXCLUDED.scan_id, vuln_findings.scan_id),
-                asset_agent_id = COALESCE(EXCLUDED.asset_agent_id, vuln_findings.asset_agent_id),
-                reporter_agent_id = COALESCE(EXCLUDED.reporter_agent_id, vuln_findings.reporter_agent_id),
-                target = COALESCE(EXCLUDED.target, vuln_findings.target),
-                asset = vuln_findings.asset || EXCLUDED.asset,
-                source = EXCLUDED.source,
-                external_id = COALESCE(EXCLUDED.external_id, vuln_findings.external_id),
-                severity = CASE WHEN EXCLUDED.severity_rank > vuln_findings.severity_rank THEN EXCLUDED.severity ELSE vuln_findings.severity END,
-                severity_rank = GREATEST(vuln_findings.severity_rank, EXCLUDED.severity_rank),
-                confidence = GREATEST(vuln_findings.confidence, EXCLUDED.confidence),
-                title = COALESCE(NULLIF(EXCLUDED.title, ''), vuln_findings.title),
-                description = COALESCE(EXCLUDED.description, vuln_findings.description),
-                remediation = COALESCE(EXCLUDED.remediation, vuln_findings.remediation),
-                cve = COALESCE(EXCLUDED.cve, vuln_findings.cve),
-                cwe = COALESCE(EXCLUDED.cwe, vuln_findings.cwe),
-                cvss = COALESCE(EXCLUDED.cvss, vuln_findings.cvss),
-                location = COALESCE(EXCLUDED.location, vuln_findings.location),
-                tags = CASE WHEN jsonb_array_length(EXCLUDED.tags) > 0 THEN EXCLUDED.tags ELSE vuln_findings.tags END,
-                evidence = vuln_findings.evidence || EXCLUDED.evidence,
-                last_seen_at = GREATEST(vuln_findings.last_seen_at, EXCLUDED.last_seen_at),
-                occurrences = vuln_findings.occurrences + 1,
-                status = CASE
-                    WHEN :auto_reopen = true AND vuln_findings.status IN ('fixed', 'resolved') THEN 'open'
-                    ELSE vuln_findings.status
-                END,
-                updated_at = now();
-            """
+        finding_insert = insert(VulnFindingModel).values(rows)
+        excl = finding_insert.excluded
+        finding_upsert = finding_insert.on_conflict_do_update(
+            index_elements=[VulnFindingModel.asset_key, VulnFindingModel.fingerprint],
+            set_={
+                "scan_id": func.coalesce(excl.scan_id, VulnFindingModel.scan_id),
+                "asset_agent_id": func.coalesce(excl.asset_agent_id, VulnFindingModel.asset_agent_id),
+                "reporter_agent_id": func.coalesce(excl.reporter_agent_id, VulnFindingModel.reporter_agent_id),
+                "target": func.coalesce(excl.target, VulnFindingModel.target),
+                "asset": VulnFindingModel.asset.op("||")(excl.asset),
+                "source": excl.source,
+                "external_id": func.coalesce(excl.external_id, VulnFindingModel.external_id),
+                "severity": case(
+                    (excl.severity_rank > VulnFindingModel.severity_rank, excl.severity),
+                    else_=VulnFindingModel.severity,
+                ),
+                "severity_rank": func.greatest(VulnFindingModel.severity_rank, excl.severity_rank),
+                "confidence": func.greatest(VulnFindingModel.confidence, excl.confidence),
+                "title": func.coalesce(func.nullif(excl.title, ""), VulnFindingModel.title),
+                "description": func.coalesce(excl.description, VulnFindingModel.description),
+                "remediation": func.coalesce(excl.remediation, VulnFindingModel.remediation),
+                "cve": func.coalesce(excl.cve, VulnFindingModel.cve),
+                "cwe": func.coalesce(excl.cwe, VulnFindingModel.cwe),
+                "cvss": func.coalesce(excl.cvss, VulnFindingModel.cvss),
+                "location": func.coalesce(excl.location, VulnFindingModel.location),
+                "tags": case((func.jsonb_array_length(excl.tags) > 0, excl.tags), else_=VulnFindingModel.tags),
+                "evidence": VulnFindingModel.evidence.op("||")(excl.evidence),
+                "last_seen_at": func.greatest(VulnFindingModel.last_seen_at, excl.last_seen_at),
+                "occurrences": VulnFindingModel.occurrences + 1,
+                "status": case(
+                    (
+                        and_(literal(bool(auto_reopen)).is_(True), VulnFindingModel.status.in_(["fixed", "resolved"])),
+                        literal("open"),
+                    ),
+                    else_=VulnFindingModel.status,
+                ),
+                "updated_at": now,
+            },
         )
-
-        db.execute(upsert_sql, [{**r, "auto_reopen": auto_reopen} for r in rows])
+        db.execute(finding_upsert)
         db.commit()
 
         return VulnIngestResult(
@@ -631,141 +603,105 @@ def posture(
         now = _utc_now()
         since = now - timedelta(days=int(active_within_days))
         stale_before = now - timedelta(days=30)
-        risk_expr = _risk_score_sql()
+        vf = VulnFindingModel
+        risk_expr = _risk_score_expr(now, vf).label("risk_score")
+        cvss_num = _cvss_numeric_expr(vf).label("cvss_score")
+        has_fix = _has_fix_expr(vf).label("has_fix")
+        internet_exposed = _internet_exposed_expr(vf).label("internet_exposed")
+        exploit_likely = or_(
+            _cvss_numeric_expr(vf) >= 7.0,
+            _internet_exposed_expr(vf),
+            and_(vf.cve.is_not(None), func.btrim(vf.cve) != "", vf.severity_rank >= 3),
+        ).label("exploit_likely")
 
-        cond_sql = """
-            vf.status = 'open'
-            AND vf.last_seen_at >= :since
-            AND (:include_suppressed = true OR vf.is_suppressed = false)
-        """
+        base_conds = [vf.status == "open", vf.last_seen_at >= since]
+        if not include_suppressed:
+            base_conds.append(vf.is_suppressed.is_(False))
 
-        q_totals = text(
-            f"""
-            WITH base AS (
-              SELECT
-                vf.*,
-                {risk_expr} AS risk_score
-              FROM vuln_findings vf
-              WHERE {cond_sql}
+        base = (
+            select(
+                vf.id.label("id"),
+                vf.asset_key.label("asset_key"),
+                vf.asset_agent_id.label("asset_agent_id"),
+                vf.target.label("target"),
+                vf.title.label("title"),
+                vf.cve.label("cve"),
+                vf.severity.label("severity"),
+                vf.severity_rank.label("severity_rank"),
+                vf.confidence.label("confidence"),
+                vf.occurrences.label("occurrences"),
+                vf.last_seen_at.label("last_seen_at"),
+                vf.remediation.label("remediation"),
+                vf.cvss.label("cvss"),
+                cvss_num,
+                has_fix,
+                internet_exposed,
+                exploit_likely,
+                risk_expr,
             )
-            SELECT
-              COUNT(*)::bigint AS total_open,
-              COUNT(*) FILTER (WHERE severity = 'critical')::bigint AS critical_open,
-              COUNT(*) FILTER (WHERE severity = 'high')::bigint AS high_open,
-              COUNT(*) FILTER (
-                WHERE (
-                  (cvss ~ '^[0-9]+(\\.[0-9]+)?$' AND (cvss::double precision) >= 7.0)
-                  OR upper(COALESCE(cvss, '')) LIKE '%AV:N%'
-                  OR (cve IS NOT NULL AND btrim(cve) <> '' AND severity_rank >= 3)
-                )
-              )::bigint AS exploitable_open,
-              COUNT(*) FILTER (
-                WHERE (
-                  (evidence -> 'osv' ->> 'fixed') IS NOT NULL
-                  OR (remediation IS NOT NULL AND btrim(remediation) <> '')
-                )
-              )::bigint AS fixable_open,
-              COUNT(*) FILTER (WHERE last_seen_at < :stale_before)::bigint AS stale_open,
-              COALESCE(AVG(risk_score), 0)::double precision AS mean_risk,
-              COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY risk_score), 0)::double precision AS p95_risk
-            FROM base;
-            """
+            .where(*base_conds)
+            .subquery("base")
         )
+
         totals = (
             db.execute(
-                q_totals,
-                {
-                    "since": since,
-                    "stale_before": stale_before,
-                    "include_suppressed": include_suppressed,
-                },
+                select(
+                    func.count().label("total_open"),
+                    func.sum(case((base.c.severity == "critical", 1), else_=0)).label("critical_open"),
+                    func.sum(case((base.c.severity == "high", 1), else_=0)).label("high_open"),
+                    func.sum(case((base.c.exploit_likely.is_(True), 1), else_=0)).label("exploitable_open"),
+                    func.sum(case((base.c.has_fix.is_(True), 1), else_=0)).label("fixable_open"),
+                    func.sum(case((base.c.last_seen_at < stale_before, 1), else_=0)).label("stale_open"),
+                    func.coalesce(func.avg(base.c.risk_score), 0.0).label("mean_risk"),
+                    func.coalesce(func.percentile_cont(0.95).within_group(base.c.risk_score), 0.0).label("p95_risk"),
+                )
             )
             .mappings()
             .first()
             or {}
         )
 
-        q_top = text(
-            f"""
-            SELECT
-              vf.id,
-              vf.asset_key,
-              vf.asset_agent_id,
-              vf.target,
-              vf.title,
-              vf.cve,
-              vf.severity,
-              vf.confidence,
-              vf.occurrences,
-              vf.last_seen_at,
-              vf.remediation,
-              vf.cvss,
-              (
-                CASE
-                  WHEN vf.cvss ~ '^[0-9]+(\\.[0-9]+)?$' THEN vf.cvss::double precision
-                  ELSE 0
-                END
-              )::double precision AS cvss_score,
-              (
-                (
-                  (vf.evidence -> 'osv' ->> 'fixed') IS NOT NULL
-                  OR (vf.remediation IS NOT NULL AND btrim(vf.remediation) <> '')
-                )
-              ) AS has_fix,
-              (upper(COALESCE(vf.cvss, '')) LIKE '%AV:N%') AS internet_exposed,
-              (
-                (vf.cvss ~ '^[0-9]+(\\.[0-9]+)?$' AND (vf.cvss::double precision) >= 7.0)
-                OR upper(COALESCE(vf.cvss, '')) LIKE '%AV:N%'
-                OR (vf.cve IS NOT NULL AND btrim(vf.cve) <> '' AND vf.severity_rank >= 3)
-              ) AS exploit_likely,
-              {risk_expr}::double precision AS risk_score
-            FROM vuln_findings vf
-            WHERE {cond_sql}
-            ORDER BY risk_score DESC, vf.last_seen_at DESC, vf.id DESC
-            LIMIT :top_n;
-            """
-        )
         top_rows = db.execute(
-            q_top,
-            {
-                "since": since,
-                "include_suppressed": include_suppressed,
-                "top_n": int(top_n),
-            },
+            select(
+                base.c.id,
+                base.c.asset_key,
+                base.c.asset_agent_id,
+                base.c.target,
+                base.c.title,
+                base.c.cve,
+                base.c.severity,
+                base.c.confidence,
+                base.c.occurrences,
+                base.c.last_seen_at,
+                base.c.remediation,
+                base.c.cvss,
+                base.c.cvss_score,
+                base.c.has_fix,
+                base.c.internet_exposed,
+                base.c.exploit_likely,
+                base.c.risk_score,
+            )
+            .order_by(base.c.risk_score.desc(), base.c.last_seen_at.desc(), base.c.id.desc())
+            .limit(int(top_n))
         ).mappings().all()
 
-        q_assets = text(
-            f"""
-            WITH ranked AS (
-              SELECT
-                vf.asset_key,
-                vf.asset_agent_id,
-                vf.severity_rank,
-                vf.last_seen_at,
-                {risk_expr} AS risk_score
-              FROM vuln_findings vf
-              WHERE {cond_sql}
-            )
-            SELECT
-              asset_key,
-              MAX(asset_agent_id) AS asset_agent_id,
-              COUNT(*)::bigint AS open_findings,
-              COUNT(*) FILTER (WHERE severity_rank >= 3)::bigint AS critical_high,
-              COALESCE(MAX(risk_score), 0)::double precision AS max_risk,
-              COALESCE(AVG(risk_score), 0)::double precision AS avg_risk,
-              MAX(last_seen_at) AS last_seen_at
-            FROM ranked
-            GROUP BY asset_key
-            ORDER BY max_risk DESC, critical_high DESC, open_findings DESC
-            LIMIT 10;
-            """
-        )
         asset_rows = db.execute(
-            q_assets,
-            {
-                "since": since,
-                "include_suppressed": include_suppressed,
-            },
+            select(
+                base.c.asset_key,
+                func.max(base.c.asset_agent_id).label("asset_agent_id"),
+                func.count().label("open_findings"),
+                func.sum(case((base.c.severity_rank >= 3, 1), else_=0)).label("critical_high"),
+                func.coalesce(func.max(base.c.risk_score), 0.0).label("max_risk"),
+                func.coalesce(func.avg(base.c.risk_score), 0.0).label("avg_risk"),
+                func.max(base.c.last_seen_at).label("last_seen_at"),
+            )
+            .group_by(base.c.asset_key)
+            .order_by(
+                func.max(base.c.risk_score).desc(),
+                func.sum(case((base.c.severity_rank >= 3, 1), else_=0)).desc(),
+                func.count().desc(),
+            )
+            .limit(10)
         ).mappings().all()
 
         return VulnPostureOut(

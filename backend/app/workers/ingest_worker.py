@@ -22,12 +22,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from psycopg2.extras import Json, execute_values
+from sqlalchemy.dialects.postgresql import insert
 
 from app.core.db import engine
 from app.core.redis_client import get_redis
 from app.core.schema_bootstrap import bootstrap_schema
 from app.core.ingest_control import storm_maybe_close_alert, storm_maybe_open_alert
+from app.models.events import NetEventModel, NetEventRollup1sModel
 
 
 @dataclass(frozen=True)
@@ -469,19 +470,19 @@ def main() -> None:
                     extra_v = ev[10] if (len(ev) > 10 and isinstance(ev[10], dict)) else {}
 
                     hot_rows.append(
-                        (
-                            agent_id,
-                            event_type,
-                            schema_v,
-                            ts,
-                            src_ip,
-                            dst_ip,
-                            src_port,
-                            dst_port,
-                            proto,
-                            bytes_v,
-                            Json(extra_v, dumps=json.dumps),
-                        )
+                        {
+                            "agent_id": agent_id,
+                            "event_type": event_type,
+                            "schema_version": schema_v,
+                            "timestamp": ts,
+                            "src_ip": src_ip,
+                            "dst_ip": dst_ip,
+                            "src_port": src_port,
+                            "dst_port": dst_port,
+                            "proto": proto,
+                            "bytes": bytes_v,
+                            "extra": extra_v,
+                        }
                     )
 
                 # rollups
@@ -491,16 +492,16 @@ def main() -> None:
                     except Exception:
                         bts = datetime.utcnow()
                     rollup_rows.append(
-                        (
-                            bts,
-                            rr[1],
-                            rr[2],
-                            rr[3],
-                            rr[4],
-                            rr[5],
-                            int(rr[6] or 0),
-                            int(rr[7] or 0),
-                        )
+                        {
+                            "bucket_ts": bts,
+                            "agent_id": rr[1],
+                            "event_type": rr[2],
+                            "dst_ip": rr[3],
+                            "dst_port": rr[4],
+                            "proto": rr[5],
+                            "count": int(rr[6] or 0),
+                            "bytes_sum": int(rr[7] or 0),
+                        }
                     )
 
                 # warm
@@ -544,45 +545,27 @@ def main() -> None:
                         )
 
             # Persist in a single DB transaction.
-            conn = engine.raw_connection()
-            try:
-                cur = conn.cursor()
-
+            with engine.begin() as conn:
                 if hot_rows:
-                    cols = (
-                        "agent_id",
-                        "event_type",
-                        "schema_version",
-                        "timestamp",
-                        "src_ip",
-                        "dst_ip",
-                        "src_port",
-                        "dst_port",
-                        "proto",
-                        "bytes",
-                        "extra",
-                    )
-                    sql = f"INSERT INTO net_events ({', '.join(cols)}) VALUES %s"
-                    execute_values(cur, sql, hot_rows, page_size=cfg.values_page_size)
+                    conn.execute(insert(NetEventModel), hot_rows)
 
                 if rollup_rows:
-                    rollup_sql = """
-                        INSERT INTO net_event_rollups_1s (
-                            bucket_ts, agent_id, event_type, dst_ip, dst_port, proto, count, bytes_sum
-                        ) VALUES %s
-                        ON CONFLICT (bucket_ts, agent_id, event_type, dst_ip, dst_port, proto)
-                        DO UPDATE SET
-                            count = net_event_rollups_1s.count + EXCLUDED.count,
-                            bytes_sum = net_event_rollups_1s.bytes_sum + EXCLUDED.bytes_sum;
-                    """
-                    execute_values(cur, rollup_sql, rollup_rows, page_size=cfg.rollup_page_size)
-
-                conn.commit()
-            finally:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+                    ins = insert(NetEventRollup1sModel).values(rollup_rows)
+                    upsert = ins.on_conflict_do_update(
+                        index_elements=[
+                            NetEventRollup1sModel.bucket_ts,
+                            NetEventRollup1sModel.agent_id,
+                            NetEventRollup1sModel.event_type,
+                            NetEventRollup1sModel.dst_ip,
+                            NetEventRollup1sModel.dst_port,
+                            NetEventRollup1sModel.proto,
+                        ],
+                        set_={
+                            "count": NetEventRollup1sModel.count + ins.excluded.count,
+                            "bytes_sum": NetEventRollup1sModel.bytes_sum + ins.excluded.bytes_sum,
+                        },
+                    )
+                    conn.execute(upsert)
 
             # Warm indexing (best-effort)
             if es is not None and warm_docs:
