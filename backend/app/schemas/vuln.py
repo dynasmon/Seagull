@@ -239,3 +239,17 @@ class VulnPostureOut(BaseModel):
     p95_risk: float
     top_risks: List[VulnRiskItemOut]
     top_assets: List[VulnAssetRiskOut]
+
+
+class VulnManualScanIn(BaseModel):
+    agent_id: str = Field(..., min_length=1, max_length=64)
+
+    @validator("agent_id", pre=True)
+    def _v_agent_id(cls, v):
+        return _norm(v) or ""
+
+
+class VulnManualScanOut(BaseModel):
+    agent_id: str
+    trigger_token: str
+    queued_at: datetime

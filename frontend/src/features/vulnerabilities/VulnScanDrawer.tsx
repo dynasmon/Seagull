@@ -102,12 +102,18 @@ export default function VulnScanDrawer({
             <div>
               <div className="text-xs text-muted-foreground">Target</div>
               <div className="mt-1 font-mono text-sm truncate" title={scan.target || ""}>{scan.target || "-"}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                profile {(scan.config as any)?.analysis_profile || (scan.scope as any)?.analysis_profile || "-"}
+              </div>
             </div>
 
             <div>
               <div className="text-xs text-muted-foreground">Time</div>
               <div className="mt-1 text-sm text-muted-foreground">started {fmtWhen(scan.started_at)}</div>
               <div className="text-sm text-muted-foreground">finished {fmtWhen(scan.finished_at)}</div>
+              <div className="text-sm text-muted-foreground">
+                exposure score {(scan.stats as any)?.exposure_surface_score ?? "-"}
+              </div>
             </div>
           </div>
 

@@ -31,6 +31,17 @@ function safeJson(v: any): string {
   }
 }
 
+function exposureMeta(f: VulnFinding | null) {
+  const a = (f?.asset as any)?.exposure || {};
+  const ev = (f?.evidence as any) || {};
+  const analysis = ev.analysis || {};
+  const portServices = Array.isArray(a.port_services) ? a.port_services : [];
+  const serviceHints = Array.isArray(a.service_hints) ? a.service_hints : [];
+  const exposedPorts = Array.isArray(a.exposed_ports) ? a.exposed_ports : [];
+  const score = Number(analysis.exposure_score ?? a.surface_score ?? 0) || 0;
+  return { score, serviceHints, exposedPorts, portServices };
+}
+
 function ActionButton(props: {
   label: string;
   onClick: () => void;
@@ -70,6 +81,7 @@ export default function VulnFindingDrawer(props: {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const exposure = useMemo(() => exposureMeta(f), [f]);
 
   const title = useMemo(() => {
     if (!f) return "Vulnerability";
@@ -238,6 +250,55 @@ export default function VulnFindingDrawer(props: {
                 <span className="text-sm text-muted-foreground">-</span>
               )}
             </div>
+          </div>
+
+          {/* Exposure */}
+          <div className="rounded-xl border border-border/60 bg-background/60 backdrop-blur-md p-4">
+            <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Exposure</div>
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div>
+                <div className="text-xs text-muted-foreground">Exposure score</div>
+                <div className="font-mono text-[12px]">{exposure.score}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Services</div>
+                <div className="font-mono text-[12px] break-all">
+                  {exposure.serviceHints.length ? exposure.serviceHints.join(", ") : "-"}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Exposed ports</div>
+                <div className="font-mono text-[12px] break-all">
+                  {exposure.exposedPorts.length ? exposure.exposedPorts.join(", ") : "-"}
+                </div>
+              </div>
+            </div>
+            {exposure.portServices.length ? (
+              <div className="mt-3 max-h-[220px] overflow-auto rounded-lg border border-border/60 bg-background/40 p-2">
+                <table className="w-full text-[12px]">
+                  <thead>
+                    <tr className="text-left text-muted-foreground">
+                      <th className="px-2 py-1">Proto</th>
+                      <th className="px-2 py-1">Port</th>
+                      <th className="px-2 py-1">Process</th>
+                      <th className="px-2 py-1">PID</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {exposure.portServices.slice(0, 50).map((ps: any, idx: number) => (
+                      <tr key={`${ps.proto}-${ps.port}-${ps.pid}-${idx}`} className="border-t border-border/40">
+                        <td className="px-2 py-1 font-mono">{ps.proto || "-"}</td>
+                        <td className="px-2 py-1 font-mono">{ps.port ?? "-"}</td>
+                        <td className="px-2 py-1 font-mono truncate" title={ps.cmdline || ps.exe || ps.process || ""}>
+                          {ps.process || "-"}
+                        </td>
+                        <td className="px-2 py-1 font-mono">{ps.pid ?? "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
           </div>
 
           {/* Evidence */}
