@@ -252,4 +252,6 @@ class VulnManualScanIn(BaseModel):
 class VulnManualScanOut(BaseModel):
     agent_id: str
     trigger_token: str
+    scan_uuid: str
+    status: str
     queued_at: datetime
