@@ -1,7 +1,14 @@
-import { apiGet, apiPatch } from "@/shared/lib/http";
+import { apiGet, apiPatch, apiPost } from "@/shared/lib/http";
 import type { CursorPage } from "@/shared/types/pagination";
 
-import type { VulnFinding, VulnFindingPatchIn, VulnPosture, VulnScan, VulnSummary } from "./types";
+import type {
+  VulnFinding,
+  VulnFindingPatchIn,
+  VulnManualScanResult,
+  VulnPosture,
+  VulnScan,
+  VulnSummary,
+} from "./types";
 
 export function getVulnSummary(params?: { active_within_days?: number; include_suppressed?: boolean }) {
   const q = new URLSearchParams();
@@ -64,4 +71,8 @@ export function getVulnScansPage(params?: {
   if (params?.status) q.set("status_q", params.status);
   if (params?.tool) q.set("tool", params.tool);
   return apiGet<CursorPage<VulnScan>>(`/api/vuln/scans?${q.toString()}`);
+}
+
+export function triggerVulnScanNow(agent_id: string) {
+  return apiPost<VulnManualScanResult>("/api/vuln/scan-now", { agent_id });
 }

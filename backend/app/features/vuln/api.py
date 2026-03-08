@@ -15,6 +15,7 @@ from app.core.agent_auth import AgentPrincipal, get_current_agent
 from app.core.db import SessionLocal
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.portal_auth import require_admin
+from app.models.agents import AgentModel
 from app.models.vuln import VulnFindingModel, VulnScanModel
 from app.schemas.pagination import CursorPage
 from app.schemas.vuln import (
@@ -23,6 +24,8 @@ from app.schemas.vuln import (
     VulnFindingPatchIn,
     VulnIngestBatch,
     VulnIngestResult,
+    VulnManualScanIn,
+    VulnManualScanOut,
     VulnPostureOut,
     VulnRiskItemOut,
     VulnScanOut,
@@ -167,6 +170,12 @@ def _risk_score_expr(now: datetime, vf=VulnFindingModel):
         (cvss_num >= 4.0, 5.0),
         else_=0.0,
     )
+
+
+def _normalize_cfg_map(v: Any) -> Dict[str, Any]:
+    if isinstance(v, dict):
+        return dict(v)
+    return {}
     recency_points = case(
         (vf.last_seen_at >= now - timedelta(hours=24), 8.0),
         (vf.last_seen_at >= now - timedelta(days=7), 4.0),
@@ -372,6 +381,45 @@ def ingest_findings(
         db.close()
 
 
+@router.post(
+    "/scan-now",
+    response_model=VulnManualScanOut,
+    dependencies=[Depends(require_admin)],
+)
+def trigger_manual_scan(body: VulnManualScanIn):
+    db = SessionLocal()
+    try:
+        row: AgentModel | None = db.query(AgentModel).filter(AgentModel.agent_id == body.agent_id).first()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        if row.is_revoked:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
+
+        now = _utc_now()
+        token = str(uuid.uuid4())
+
+        cfg = _normalize_cfg_map(row.config)
+        modules = _normalize_cfg_map(cfg.get("modules"))
+        vcfg = _normalize_cfg_map(modules.get("vulnscanner"))
+
+        # Preserve existing runtime knobs and just append the trigger token.
+        if "enabled" not in vcfg:
+            vcfg["enabled"] = True
+        vcfg["scan_now_token"] = token
+        vcfg["scan_now_at"] = now.isoformat()
+
+        modules["vulnscanner"] = vcfg
+        cfg["modules"] = modules
+        row.config = cfg
+
+        db.add(row)
+        db.commit()
+
+        return VulnManualScanOut(agent_id=body.agent_id, trigger_token=token, queued_at=now)
+    finally:
+        db.close()
+
+
 @router.get(
     "/scans",
     response_model=CursorPage[VulnScanOut],
@@ -382,6 +430,7 @@ def list_scans(
     cursor: Optional[str] = Query(None),
     reporter_agent_id: Optional[str] = Query(None, min_length=1, max_length=64),
     status_q: Optional[str] = Query(None, min_length=1, max_length=16),
+    tool: Optional[str] = Query(None, min_length=1, max_length=64),
 ):
     db = SessionLocal()
     try:
@@ -390,6 +439,8 @@ def list_scans(
             stmt = stmt.where(VulnScanModel.reporter_agent_id == reporter_agent_id)
         if status_q:
             stmt = stmt.where(VulnScanModel.status == status_q.lower())
+        if tool:
+            stmt = stmt.where(VulnScanModel.tool == tool.lower())
 
         if cursor:
             c_ts, c_id = parse_cursor_ts_id(cursor)

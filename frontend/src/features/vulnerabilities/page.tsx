@@ -9,8 +9,10 @@ import PageHeader from "@/shared/components/PageHeader";
 import { cx } from "@/shared/lib/cx";
 
 import { useAuth } from "@/features/auth/context";
+import { listAgents } from "@/features/agents/api";
+import type { AgentPublic } from "@/features/agents/types";
 
-import { getVulnFindingsPage, getVulnPosture, getVulnSummary } from "./api";
+import { getVulnFindingsPage, getVulnPosture, getVulnSummary, triggerVulnScanNow } from "./api";
 import VulnFindingDrawer from "./VulnFindingDrawer";
 import type { VulnFinding, VulnPosture, VulnSummary } from "./types";
 
@@ -69,6 +71,22 @@ function fmtRisk(n: number | null | undefined): string {
   const v = Number(n || 0);
   if (!Number.isFinite(v)) return "0.0";
   return v.toFixed(1);
+}
+
+function exposureScoreOf(f: VulnFinding): number {
+  const a = Number((f.evidence as any)?.analysis?.exposure_score);
+  if (Number.isFinite(a)) return a;
+  const b = Number((f.asset as any)?.exposure?.surface_score);
+  if (Number.isFinite(b)) return b;
+  return 0;
+}
+
+function serviceHintsOf(f: VulnFinding): string[] {
+  const fromAsset = (f.asset as any)?.exposure?.service_hints;
+  if (Array.isArray(fromAsset)) return fromAsset.map((x) => String(x || "").trim()).filter(Boolean);
+  const fromEvidence = (f.evidence as any)?.exposure?.service_hints;
+  if (Array.isArray(fromEvidence)) return fromEvidence.map((x) => String(x || "").trim()).filter(Boolean);
+  return [];
 }
 
 function Toggle({
@@ -133,6 +151,11 @@ export default function VulnerabilitiesPage() {
 
   const [selected, setSelected] = useState<VulnFinding | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [agents, setAgents] = useState<AgentPublic[]>([]);
+  const [scanTargetAgent, setScanTargetAgent] = useState<string>("");
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanMsg, setScanMsg] = useState<string | null>(null);
+  const [scanErr, setScanErr] = useState<string | null>(null);
 
   const reqSeq = useRef(0);
   const itemsRef = useRef<VulnFinding[]>([]);
@@ -252,8 +275,36 @@ export default function VulnerabilitiesPage() {
     loadSummary();
     loadPosture();
     loadPage({ reset: true, cursor: null });
+    listAgents()
+      .then((rows) => {
+        const live = (rows || []).filter((a) => !a.is_revoked);
+        live.sort((a, b) => a.agent_id.localeCompare(b.agent_id));
+        setAgents(live);
+        const preferred =
+          live.find((a) => a.agent_id.includes("vuln"))?.agent_id ||
+          live[0]?.agent_id ||
+          "";
+        setScanTargetAgent(preferred);
+      })
+      .catch(() => setAgents([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
+
+  async function runManualScan() {
+    if (!scanTargetAgent || scanBusy) return;
+    setScanBusy(true);
+    setScanErr(null);
+    setScanMsg(null);
+    try {
+      const out = await triggerVulnScanNow(scanTargetAgent);
+      setScanMsg(`Scan queued for ${out.agent_id} at ${fmtWhen(out.queued_at)}.`);
+      loadPage({ reset: true, cursor: null });
+    } catch (e: any) {
+      setScanErr(e?.message || "Failed to trigger manual scan");
+    } finally {
+      setScanBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -382,6 +433,45 @@ export default function VulnerabilitiesPage() {
       </div>
 
       {/* Risk posture */}
+      <Card title="Manual scan" className="rounded-xl">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+          <div className="space-y-2">
+            <div className="text-xs text-muted-foreground">Trigger an immediate vulnerability scan from the frontend.</div>
+            <select
+              value={scanTargetAgent}
+              onChange={(e) => setScanTargetAgent(e.target.value)}
+              className={cx(
+                "w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
+                "text-sm font-mono outline-none focus:ring-2 focus:ring-primary/30"
+              )}
+            >
+              {agents.map((a) => (
+                <option key={a.agent_id} value={a.agent_id}>
+                  {a.agent_id}
+                </option>
+              ))}
+            </select>
+            {scanMsg ? <div className="text-xs text-emerald-300">{scanMsg}</div> : null}
+            {scanErr ? <div className="text-xs text-red-300">{scanErr}</div> : null}
+          </div>
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={runManualScan}
+              disabled={scanBusy || !scanTargetAgent}
+              className={cx(
+                "inline-flex h-10 items-center rounded-md border border-border/60 bg-background/40",
+                "px-4 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
+                (scanBusy || !scanTargetAgent) && "opacity-60"
+              )}
+            >
+              {scanBusy ? "Queueing…" : "Run Scan Now"}
+            </button>
+          </div>
+        </div>
+      </Card>
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <Card title="Mean risk score" right={postureBusy ? "loading" : undefined} className="rounded-xl">
           <div className="text-3xl font-semibold">{posture ? fmtRisk(posture.mean_risk) : "-"}</div>
@@ -671,6 +761,7 @@ export default function VulnerabilitiesPage() {
                   <th className="text-left font-medium px-3 py-2">Title</th>
                   <th className="text-left font-medium px-3 py-2 w-[190px]">Asset</th>
                   <th className="text-left font-medium px-3 py-2 w-[140px]">Status</th>
+                  <th className="text-left font-medium px-3 py-2 w-[160px]">Exposure</th>
                   <th className="text-left font-medium px-3 py-2 w-[150px]">Last seen</th>
                   <th className="text-left font-medium px-3 py-2 w-[110px]">Hits</th>
                   <th className="text-right font-medium px-3 py-2 w-[120px]">Actions</th>
@@ -681,6 +772,8 @@ export default function VulnerabilitiesPage() {
                 {items.map((f) => {
                   const selectedRow = selected?.id === f.id;
                   const rowPad = dense ? "py-1.5" : "py-2";
+                  const expScore = exposureScoreOf(f);
+                  const svc = serviceHintsOf(f).slice(0, 2);
                   return (
                     <tr
                       key={f.id}
@@ -718,6 +811,14 @@ export default function VulnerabilitiesPage() {
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant={f.status === "open" ? "info" : "neutral"}>{f.status}</Badge>
                           {f.is_suppressed ? <Badge variant="neutral">suppressed</Badge> : null}
+                        </div>
+                      </td>
+                      <td className={cx("px-3", rowPad)}>
+                        <div className="font-mono text-[12px]">
+                          score {expScore}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground truncate" title={svc.join(", ") || "-"}>
+                          {svc.length ? svc.join(", ") : "-"}
                         </div>
                       </td>
                       <td className={cx("px-3 font-mono text-[12px]", rowPad)}>
