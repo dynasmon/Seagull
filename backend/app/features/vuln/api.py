@@ -176,6 +176,8 @@ def _normalize_cfg_map(v: Any) -> Dict[str, Any]:
     if isinstance(v, dict):
         return dict(v)
     return {}
+
+
     recency_points = case(
         (vf.last_seen_at >= now - timedelta(hours=24), 8.0),
         (vf.last_seen_at >= now - timedelta(days=7), 4.0),
@@ -394,7 +396,6 @@ def trigger_manual_scan(body: VulnManualScanIn):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
         if row.is_revoked:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
-
         now = _utc_now()
         token = str(uuid.uuid4())
 
@@ -412,10 +413,41 @@ def trigger_manual_scan(body: VulnManualScanIn):
         cfg["modules"] = modules
         row.config = cfg
 
+        # Create a queued scan record immediately so the frontend can track progress
+        # before the agent polls and starts execution.
+        qscan = VulnScanModel(
+            scan_uuid=token,
+            reporter_agent_id=body.agent_id,
+            target=f"agent:{body.agent_id}",
+            tool="osv-wazuh-like",
+            tool_version="1",
+            status="queued",
+            started_at=now,
+            finished_at=None,
+            scope={
+                "type": "manual_trigger",
+                "manual_trigger": True,
+                "trigger_token": token,
+            },
+            config={
+                "manual_trigger": True,
+                "analysis_profile": str(vcfg.get("analysis_profile") or "wazuh_like_v1"),
+            },
+            stats={},
+            updated_at=now,
+        )
+        db.add(qscan)
+
         db.add(row)
         db.commit()
 
-        return VulnManualScanOut(agent_id=body.agent_id, trigger_token=token, queued_at=now)
+        return VulnManualScanOut(
+            agent_id=body.agent_id,
+            trigger_token=token,
+            scan_uuid=token,
+            status="queued",
+            queued_at=now,
+        )
     finally:
         db.close()
 

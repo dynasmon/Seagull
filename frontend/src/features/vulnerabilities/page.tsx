@@ -12,9 +12,9 @@ import { useAuth } from "@/features/auth/context";
 import { listAgents } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
 
-import { getVulnFindingsPage, getVulnPosture, getVulnSummary, triggerVulnScanNow } from "./api";
+import { getVulnFindingsPage, getVulnPosture, getVulnScansPage, getVulnSummary, triggerVulnScanNow } from "./api";
 import VulnFindingDrawer from "./VulnFindingDrawer";
-import type { VulnFinding, VulnPosture, VulnSummary } from "./types";
+import type { VulnFinding, VulnPosture, VulnScan, VulnSummary } from "./types";
 
 type Density = "comfortable" | "compact";
 
@@ -89,6 +89,18 @@ function serviceHintsOf(f: VulnFinding): string[] {
   return [];
 }
 
+function scanDurationLabel(s: VulnScan): string {
+  const start = Date.parse(s.started_at || "");
+  const end = Date.parse(s.finished_at || "");
+  if (Number.isNaN(start)) return "-";
+  if (Number.isNaN(end)) return s.status === "running" ? "running" : "-";
+  const sec = Math.max(0, Math.round((end - start) / 1000));
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const r = sec % 60;
+  return r ? `${m}m ${r}s` : `${m}m`;
+}
+
 function Toggle({
   value,
   onChange,
@@ -114,6 +126,15 @@ function Toggle({
       {label}
     </button>
   );
+}
+
+function scanStatusHint(status: string): string {
+  const s = String(status || "").toLowerCase();
+  if (s === "queued") return "na fila";
+  if (s === "running" || s === "started") return "em execução";
+  if (s === "finished" || s === "done" || s === "completed") return "concluído";
+  if (s === "failed" || s === "error") return "falhou";
+  return s || "-";
 }
 
 export default function VulnerabilitiesPage() {
@@ -156,6 +177,9 @@ export default function VulnerabilitiesPage() {
   const [scanBusy, setScanBusy] = useState(false);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
   const [scanErr, setScanErr] = useState<string | null>(null);
+  const [recentScans, setRecentScans] = useState<VulnScan[]>([]);
+  const [recentScansBusy, setRecentScansBusy] = useState(false);
+  const [onlySelectedAgentScans, setOnlySelectedAgentScans] = useState(true);
 
   const reqSeq = useRef(0);
   const itemsRef = useRef<VulnFinding[]>([]);
@@ -277,14 +301,17 @@ export default function VulnerabilitiesPage() {
     loadPage({ reset: true, cursor: null });
     listAgents()
       .then((rows) => {
-        const live = (rows || []).filter((a) => !a.is_revoked);
-        live.sort((a, b) => a.agent_id.localeCompare(b.agent_id));
-        setAgents(live);
+        const pick = (rows || []).filter((a) => !a.is_revoked);
+        pick.sort((a, b) => a.agent_id.localeCompare(b.agent_id));
+        setAgents(pick);
         const preferred =
-          live.find((a) => a.agent_id.includes("vuln"))?.agent_id ||
-          live[0]?.agent_id ||
+          pick.find((a) => a.agent_id.includes("vuln"))?.agent_id ||
+          pick[0]?.agent_id ||
           "";
         setScanTargetAgent(preferred);
+        if (preferred) {
+          getVulnScansPage({ page_size: 8, reporter_agent_id: preferred }).then((x) => setRecentScans(x.items || []));
+        }
       })
       .catch(() => setAgents([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -297,14 +324,46 @@ export default function VulnerabilitiesPage() {
     setScanMsg(null);
     try {
       const out = await triggerVulnScanNow(scanTargetAgent);
-      setScanMsg(`Scan queued for ${out.agent_id} at ${fmtWhen(out.queued_at)}.`);
+      setScanMsg(`Scan queued (${out.status}) for ${out.agent_id} at ${fmtWhen(out.queued_at)} · id ${out.scan_uuid}`);
       loadPage({ reset: true, cursor: null });
+      loadRecentScans(scanTargetAgent);
     } catch (e: any) {
       setScanErr(e?.message || "Failed to trigger manual scan");
     } finally {
       setScanBusy(false);
     }
   }
+
+  async function loadRecentScans(agentId: string) {
+    if (!agentId) {
+      setRecentScans([]);
+      return;
+    }
+    setRecentScansBusy(true);
+    try {
+      const out = await getVulnScansPage({ page_size: 8, reporter_agent_id: agentId });
+      setRecentScans(out.items || []);
+    } catch {
+      setRecentScans([]);
+    } finally {
+      setRecentScansBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!isAdmin || !scanTargetAgent) return;
+    loadRecentScans(scanTargetAgent);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, scanTargetAgent]);
+
+  useEffect(() => {
+    if (!isAdmin || !scanTargetAgent) return;
+    const t = window.setInterval(() => {
+      loadRecentScans(scanTargetAgent);
+    }, 10000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, scanTargetAgent]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -338,6 +397,52 @@ export default function VulnerabilitiesPage() {
   }, [summary]);
 
   const dense = density === "compact";
+  const visibleRecentScans = useMemo(
+    () =>
+      (recentScans || []).filter((s) =>
+        onlySelectedAgentScans ? (s.reporter_agent_id || "") === (scanTargetAgent || "") : true
+      ),
+    [recentScans, onlySelectedAgentScans, scanTargetAgent]
+  );
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if ((filters.q || "").trim()) n++;
+    if (filters.minSeverity !== "all") n++;
+    if (filters.status !== "all") n++;
+    if ((filters.reporterAgentId || "").trim()) n++;
+    if ((filters.assetAgentId || "").trim()) n++;
+    if ((filters.cve || "").trim()) n++;
+    if (filters.includeSuppressed) n++;
+    return n;
+  }, [filters]);
+  const findingsHint = useMemo(() => {
+    const scans = visibleRecentScans;
+    const hasRunning = scans.some((s) => {
+      const st = String(s.status || "").toLowerCase();
+      return st === "queued" || st === "running" || st === "started";
+    });
+    const hasCompleted = scans.some((s) => {
+      const st = String(s.status || "").toLowerCase();
+      return st === "finished" || st === "done" || st === "completed";
+    });
+    const totalEmitted = scans.reduce((acc, s) => {
+      const v = Number((s.stats as any)?.emitted_findings || 0);
+      return acc + (Number.isFinite(v) ? v : 0);
+    }, 0);
+    if (activeFilterCount > 0) {
+      return `Nenhum finding com os filtros atuais (${activeFilterCount} ativos).`;
+    }
+    if (hasRunning) {
+      return "Há scan em andamento/na fila. Aguarde alguns segundos e atualize.";
+    }
+    if (hasCompleted && totalEmitted === 0) {
+      return "Scans concluídos sem achados de vulnerabilidade.";
+    }
+    if (!scans.length) {
+      return "Ainda não há scans recentes para este agente.";
+    }
+    return "Ainda não há findings persistidos para os scans recentes.";
+  }, [visibleRecentScans, activeFilterCount]);
 
   if (!isAdmin) {
     return (
@@ -432,11 +537,40 @@ export default function VulnerabilitiesPage() {
         </Card>
       </div>
 
+      <Card title="Guia rápido" className="rounded-xl">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 text-xs text-muted-foreground">
+          <div className="rounded-md border border-border/50 bg-background/30 p-3">
+            <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Open / Suppressed</div>
+            <div>
+              `Open` são vulnerabilidades ativas. `Suppressed` são ocultas da triagem padrão.
+            </div>
+          </div>
+          <div className="rounded-md border border-border/50 bg-background/30 p-3">
+            <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Risk Score</div>
+            <div>
+              Prioriza severidade, confiança, recorrência e sinais de exploração/exposição.
+            </div>
+          </div>
+          <div className="rounded-md border border-border/50 bg-background/30 p-3">
+            <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Exposure Score</div>
+            <div>
+              Mede superfície exposta no host (portas/serviços detectados). Quanto maior, maior urgência.
+            </div>
+          </div>
+          <div className="rounded-md border border-border/50 bg-background/30 p-3">
+            <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Manual Scan</div>
+            <div>
+              Ao executar, o scan aparece como `queued`, depois `running` e por fim `finished`/`failed`.
+            </div>
+          </div>
+        </div>
+      </Card>
+
       {/* Risk posture */}
       <Card title="Manual scan" className="rounded-xl">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
-          <div className="space-y-2">
-            <div className="text-xs text-muted-foreground">Trigger an immediate vulnerability scan from the frontend.</div>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="space-y-3">
+            <div className="text-xs text-muted-foreground">Run an immediate vulnerability scan.</div>
             <select
               value={scanTargetAgent}
               onChange={(e) => setScanTargetAgent(e.target.value)}
@@ -451,23 +585,102 @@ export default function VulnerabilitiesPage() {
                 </option>
               ))}
             </select>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={runManualScan}
+                disabled={scanBusy || !scanTargetAgent}
+                className={cx(
+                  "inline-flex h-10 items-center rounded-md border border-border/60 bg-background/40",
+                  "px-4 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                  "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
+                  (scanBusy || !scanTargetAgent) && "opacity-60"
+                )}
+              >
+                {scanBusy ? "Queueing…" : "Run Scan Now"}
+              </button>
+              <button
+                type="button"
+                onClick={() => loadRecentScans(scanTargetAgent)}
+                disabled={recentScansBusy || !scanTargetAgent}
+                className={cx(
+                  "inline-flex h-10 items-center rounded-md border border-border/60 bg-background/40",
+                  "px-4 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                  "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
+                  (recentScansBusy || !scanTargetAgent) && "opacity-60"
+                )}
+              >
+                {recentScansBusy ? "Refreshing…" : "Refresh status"}
+              </button>
+            </div>
             {scanMsg ? <div className="text-xs text-emerald-300">{scanMsg}</div> : null}
             {scanErr ? <div className="text-xs text-red-300">{scanErr}</div> : null}
           </div>
-          <div className="flex items-end">
-            <button
-              type="button"
-              onClick={runManualScan}
-              disabled={scanBusy || !scanTargetAgent}
-              className={cx(
-                "inline-flex h-10 items-center rounded-md border border-border/60 bg-background/40",
-                "px-4 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
-                (scanBusy || !scanTargetAgent) && "opacity-60"
-              )}
-            >
-              {scanBusy ? "Queueing…" : "Run Scan Now"}
-            </button>
+
+          <div className="rounded-lg border border-border/60 bg-background/30 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Recent scans ({scanTargetAgent || "-"})</div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOnlySelectedAgentScans((v) => !v)}
+                  className={cx(
+                    "rounded-md border border-border/60 bg-background/40 px-2 py-1",
+                    "text-[10px] font-mono uppercase tracking-widest",
+                    onlySelectedAgentScans ? "text-foreground" : "text-muted-foreground",
+                    "hover:bg-muted/15 hover:text-foreground"
+                  )}
+                >
+                  {onlySelectedAgentScans ? "Only selected agent" : "All agents"}
+                </button>
+                <div className="text-[11px] text-muted-foreground">{visibleRecentScans.length} items</div>
+              </div>
+            </div>
+            {!visibleRecentScans.length ? (
+              <div className="text-xs text-muted-foreground">No recent scans for this agent.</div>
+            ) : (
+              <div className="max-h-[220px] overflow-auto">
+                <table className="w-full text-[12px]">
+                  <thead className="text-left text-muted-foreground">
+                    <tr className="border-b border-border/40">
+                      <th className="px-2 py-1">Agent</th>
+                      <th className="px-2 py-1">Status</th>
+                      <th className="px-2 py-1">Started</th>
+                      <th className="px-2 py-1">Duration</th>
+                      <th className="px-2 py-1">Findings</th>
+                      <th className="px-2 py-1">Exposure</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleRecentScans.map((s) => (
+                      <tr key={s.id} className="border-b border-border/20 align-top">
+                        <td className="px-2 py-1">
+                          <span
+                            className={cx(
+                              "font-mono text-[11px]",
+                              s.reporter_agent_id === scanTargetAgent ? "text-foreground" : "text-muted-foreground"
+                            )}
+                            title={s.reporter_agent_id || "-"}
+                          >
+                            {s.reporter_agent_id || "-"}
+                          </span>
+                        </td>
+                        <td className="px-2 py-1">
+                          <Badge variant={s.status === "finished" ? "neutral" : s.status === "failed" ? "critical" : "info"}>
+                            {s.status}
+                          </Badge>
+                          <div className="mt-1 text-[10px] text-muted-foreground">{scanStatusHint(s.status)}</div>
+                        </td>
+                        <td className="px-2 py-1 font-mono text-[11px]">{fmtAge(s.started_at)}</td>
+                        <td className="px-2 py-1 font-mono text-[11px]">{scanDurationLabel(s)}</td>
+                        <td className="px-2 py-1 font-mono">{(s.stats as any)?.emitted_findings ?? "-"}</td>
+                        <td className="px-2 py-1 font-mono">{(s.stats as any)?.exposure_surface_score ?? "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       </Card>
@@ -736,9 +949,14 @@ export default function VulnerabilitiesPage() {
       <Card
         title="Findings"
         right={
-          <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-            {items.length} items
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              {items.length} items
+            </span>
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              filtros {activeFilterCount}
+            </span>
+          </div>
         }
         className="rounded-xl"
       >
@@ -750,21 +968,36 @@ export default function VulnerabilitiesPage() {
           <EmptyState title="Failed to load" description={error} />
         ) : items.length === 0 ? (
           <div className="h-[360px]">
-            <EmptyState title="No findings" description="Try widening the time window or adjusting filters." />
+            <div className="flex h-full flex-col items-center justify-center gap-3">
+              <EmptyState title="No findings" description={findingsHint} />
+              {activeFilterCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className={cx(
+                    "rounded-md border border-border/60 bg-background/40 px-3 py-2",
+                    "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
+                    "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  )}
+                >
+                  Clear filters
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : (
           <div className="w-full overflow-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
                 <tr className="border-b border-border/60 text-muted-foreground">
-                  <th className="text-left font-medium px-3 py-2 w-[120px]">Severity</th>
-                  <th className="text-left font-medium px-3 py-2">Title</th>
-                  <th className="text-left font-medium px-3 py-2 w-[190px]">Asset</th>
-                  <th className="text-left font-medium px-3 py-2 w-[140px]">Status</th>
-                  <th className="text-left font-medium px-3 py-2 w-[160px]">Exposure</th>
-                  <th className="text-left font-medium px-3 py-2 w-[150px]">Last seen</th>
-                  <th className="text-left font-medium px-3 py-2 w-[110px]">Hits</th>
-                  <th className="text-right font-medium px-3 py-2 w-[120px]">Actions</th>
+                  <th className="text-left font-medium px-3 py-2 w-[120px] whitespace-nowrap">Severity</th>
+                  <th className="text-left font-medium px-3 py-2 min-w-[280px]">Title</th>
+                  <th className="text-left font-medium px-3 py-2 w-[190px] whitespace-nowrap">Asset</th>
+                  <th className="text-left font-medium px-3 py-2 w-[140px] whitespace-nowrap">Status</th>
+                  <th className="text-left font-medium px-3 py-2 w-[170px] whitespace-nowrap">Exposure</th>
+                  <th className="text-left font-medium px-3 py-2 w-[150px] whitespace-nowrap">Last seen</th>
+                  <th className="text-left font-medium px-3 py-2 w-[110px] whitespace-nowrap">Hits</th>
+                  <th className="text-right font-medium px-3 py-2 w-[120px] whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
 
@@ -779,7 +1012,8 @@ export default function VulnerabilitiesPage() {
                       key={f.id}
                       className={cx(
                         "border-b border-border/40 hover:bg-muted/30",
-                        selectedRow && "bg-muted/40"
+                        selectedRow && "bg-muted/40",
+                        "align-top"
                       )}
                       onClick={() => {
                         setSelected(f);
@@ -796,7 +1030,7 @@ export default function VulnerabilitiesPage() {
                           {f.cve ? `${f.cve} — ${f.title}` : f.title}
                         </div>
                         <div className="text-[11px] text-muted-foreground truncate">
-                          {f.location || f.external_id || f.source}
+                          {f.location || f.external_id || f.source} · conf {f.confidence}
                         </div>
                       </td>
                       <td className={cx("px-3", rowPad)}>
