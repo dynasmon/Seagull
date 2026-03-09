@@ -48,7 +48,7 @@ export default function LoginPage() {
         await loginWithOtp(otp.trim());
       }
     } catch (err: any) {
-      setError(err?.message || "Falha ao autenticar");
+      setError(err?.message || "Authentication failed");
     } finally {
       setIsSubmitting(false);
     }

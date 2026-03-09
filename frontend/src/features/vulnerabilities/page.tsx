@@ -130,10 +130,10 @@ function Toggle({
 
 function scanStatusHint(status: string): string {
   const s = String(status || "").toLowerCase();
-  if (s === "queued") return "na fila";
-  if (s === "running" || s === "started") return "em execução";
-  if (s === "finished" || s === "done" || s === "completed") return "concluído";
-  if (s === "failed" || s === "error") return "falhou";
+  if (s === "queued") return "queued";
+  if (s === "running" || s === "started") return "running";
+  if (s === "finished" || s === "done" || s === "completed") return "completed";
+  if (s === "failed" || s === "error") return "failed";
   return s || "-";
 }
 
@@ -430,18 +430,18 @@ export default function VulnerabilitiesPage() {
       return acc + (Number.isFinite(v) ? v : 0);
     }, 0);
     if (activeFilterCount > 0) {
-      return `Nenhum finding com os filtros atuais (${activeFilterCount} ativos).`;
+      return `No findings match the current filters (${activeFilterCount} active).`;
     }
     if (hasRunning) {
-      return "Há scan em andamento/na fila. Aguarde alguns segundos e atualize.";
+      return "A scan is running/queued. Wait a few seconds and refresh.";
     }
     if (hasCompleted && totalEmitted === 0) {
-      return "Scans concluídos sem achados de vulnerabilidade.";
+      return "Completed scans reported no vulnerability findings.";
     }
     if (!scans.length) {
-      return "Ainda não há scans recentes para este agente.";
+      return "No recent scans for this agent yet.";
     }
-    return "Ainda não há findings persistidos para os scans recentes.";
+    return "No persisted findings for the recent scans yet.";
   }, [visibleRecentScans, activeFilterCount]);
 
   if (!isAdmin) {
@@ -537,30 +537,30 @@ export default function VulnerabilitiesPage() {
         </Card>
       </div>
 
-      <Card title="Guia rápido" className="rounded-xl">
+      <Card title="Quick Guide" className="rounded-xl">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 text-xs text-muted-foreground">
           <div className="rounded-md border border-border/50 bg-background/30 p-3">
             <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Open / Suppressed</div>
             <div>
-              `Open` são vulnerabilidades ativas. `Suppressed` são ocultas da triagem padrão.
+              `Open` are active vulnerabilities. `Suppressed` are hidden from default triage.
             </div>
           </div>
           <div className="rounded-md border border-border/50 bg-background/30 p-3">
             <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Risk Score</div>
             <div>
-              Prioriza severidade, confiança, recorrência e sinais de exploração/exposição.
+              Prioritizes severity, confidence, recurrence, and exploitation/exposure signals.
             </div>
           </div>
           <div className="rounded-md border border-border/50 bg-background/30 p-3">
             <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Exposure Score</div>
             <div>
-              Mede superfície exposta no host (portas/serviços detectados). Quanto maior, maior urgência.
+              Measures host exposure surface (detected ports/services). Higher means more urgent.
             </div>
           </div>
           <div className="rounded-md border border-border/50 bg-background/30 p-3">
             <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Manual Scan</div>
             <div>
-              Ao executar, o scan aparece como `queued`, depois `running` e por fim `finished`/`failed`.
+              After triggering, scan status moves from `queued` to `running` and then `finished`/`failed`.
             </div>
           </div>
         </div>
