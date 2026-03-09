@@ -37,8 +37,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
-from app.core.db import Base, engine
-from app.core.schema_bootstrap import bootstrap_schema
+from app.core.db import engine
+from app.core.db_lifecycle import ensure_database_ready
 from app.models.events import NetEventModel
 from app.models.search_index_offsets import SearchIndexOffsetModel
 from app.protocol_intel import analyze_event
@@ -80,8 +80,7 @@ def _utc_now_iso() -> str:
 def _ensure_bootstrap() -> None:
     """Keep worker boot-safe when running in Compose."""
 
-    Base.metadata.create_all(bind=engine)
-    bootstrap_schema(engine)
+    ensure_database_ready()
     with engine.begin() as conn:
         conn.execute(
             insert(SearchIndexOffsetModel)

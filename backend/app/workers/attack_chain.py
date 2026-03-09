@@ -28,8 +28,8 @@ from app.attack_chain.store import (
     case_recent_step_exists,
 )
 from app.attack_chain.types import AttackStage, StepCandidate
-from app.core.db import Base, engine
-from app.core.schema_bootstrap import bootstrap_schema
+from app.core.db import engine
+from app.core.db_lifecycle import ensure_database_ready
 from app.models.attack_chain import (
     AttackChainAllowlistModel,
     AttackChainCaseModel,
@@ -102,8 +102,7 @@ def _ensure_bootstrap() -> None:
     workers follow the same pattern to avoid noisy startup failures.
     """
 
-    Base.metadata.create_all(bind=engine)
-    bootstrap_schema(engine)
+    ensure_database_ready()
     with engine.begin() as conn:
         conn.execute(
             insert(SearchIndexOffsetModel)

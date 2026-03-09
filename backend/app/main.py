@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, Request
 from starlette import status
 from starlette.middleware.gzip import GZipMiddleware
@@ -9,8 +11,7 @@ from app.api.alerts import router as alerts_router
 from app.api.events import router as events_router
 from app.api.ingest import router as ingest_router
 from app.api.inventory import router as inventory_router
-from app.core.db import Base, engine
-from app.core.schema_bootstrap import bootstrap_schema
+from app.core.db_lifecycle import ensure_database_ready
 from app.api.overview import router as overview_router
 from app.api.auth import router as auth_router
 from app.api.account import router as account_router
@@ -20,6 +21,7 @@ from app.api.attack_chain import router as attack_chain_router
 from app.api.vuln import router as vuln_router
 from app.core.config import settings
 from app.core.portal_bootstrap import bootstrap_portal_admin, bootstrap_correlation_rules
+from app.models.registry import load_all_models
 
 
 app = FastAPI(
@@ -75,24 +77,13 @@ async def security_headers(request: Request, call_next):
 
 @app.on_event("startup")
 def on_startup():
-    # Ensure all models are registered on Base.metadata before create_all.
-    from app.models import agents as _agents  # noqa: F401
-    from app.models import alerts as _alerts  # noqa: F401
-    from app.models import alert_rule_overrides as _alert_rule_overrides  # noqa: F401
-    from app.models import events as _events  # noqa: F401
-    from app.models import inventory as _inventory  # noqa: F401
-    from app.models import portal_users as _portal_users  # noqa: F401
-    from app.models import portal_refresh_sessions as _portal_sessions  # noqa: F401
-    from app.models import portal_otp_tokens as _portal_otp  # noqa: F401
-    from app.models import portal_login_events as _portal_login_events  # noqa: F401
-    from app.models import correlation_rules as _correlation_rules  # noqa: F401
-    from app.models import attack_chain as _attack_chain  # noqa: F401
-    from app.models import vuln as _vuln  # noqa: F401
-    from app.models import search_index_offsets as _search_index_offsets  # noqa: F401
-    from app.models import ip_enrichment_cache as _ip_enrichment_cache  # noqa: F401
+    if (os.getenv("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "") or "").strip().lower() in {"1", "true", "yes", "on"}:
+        return
 
-    Base.metadata.create_all(bind=engine)
-    bootstrap_schema(engine)
+    # Ensure all models are loaded before bootstrap hooks.
+    load_all_models()
+
+    ensure_database_ready()
     bootstrap_portal_admin()
     bootstrap_correlation_rules()
 

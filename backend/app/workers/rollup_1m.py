@@ -9,8 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
-from app.core.db import Base, engine
-from app.core.schema_bootstrap import bootstrap_schema
+from app.core.db import engine
+from app.core.db_lifecycle import ensure_database_ready
 from app.models.events import EventRollup1mModel, NetEventModel, SshFailRollup1mModel
 from app.models.search_index_offsets import SearchIndexOffsetModel
 
@@ -58,8 +58,7 @@ def _ensure_bootstrap() -> None:
     The backend also runs a bootstrap, but in Docker Compose workers may start first.
     This keeps the system self-healing and reduces noisy startup failures.
     """
-    Base.metadata.create_all(bind=engine)
-    bootstrap_schema(engine)
+    ensure_database_ready()
     with engine.begin() as conn:
         for name in [OFFSET_EVENTS, OFFSET_SSH_FAIL]:
             conn.execute(

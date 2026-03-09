@@ -24,7 +24,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
 from app.core.db import engine
-from app.core.schema_bootstrap import bootstrap_schema
+from app.core.db_lifecycle import ensure_database_ready
 from app.models.events import NetEventModel
 from app.models.search_index_offsets import SearchIndexOffsetModel
 
@@ -400,7 +400,7 @@ def main() -> None:
     cfg = load_config()
 
     # Ensure DB bootstrap changes exist even if this worker starts early.
-    bootstrap_schema(engine)
+    ensure_database_ready()
 
     es = _build_es_client(cfg)
 

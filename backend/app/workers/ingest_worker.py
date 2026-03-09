@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.core.db import engine
 from app.core.redis_client import get_redis
-from app.core.schema_bootstrap import bootstrap_schema
+from app.core.db_lifecycle import ensure_database_ready
 from app.core.ingest_control import storm_maybe_close_alert, storm_maybe_open_alert
 from app.models.events import NetEventModel, NetEventRollup1sModel
 
@@ -361,7 +361,7 @@ def _decr_backlog_events(r, received: int) -> None:
 def main() -> None:
     cfg = load_config()
 
-    bootstrap_schema(engine)
+    ensure_database_ready()
 
     r = get_redis()
     if r is None:

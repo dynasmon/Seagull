@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+import os
+
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+os.environ.setdefault("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "true")
+os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
+
+from app.core.portal_auth import PortalPrincipal, get_current_user, require_admin
+from app.main import app
+
+
+class _FakeQuery:
+    def join(self, *args, **kwargs):
+        return self
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def order_by(self, *args, **kwargs):
+        return self
+
+    def limit(self, *args, **kwargs):
+        return self
+
+    def all(self):
+        return []
+
+
+class _FakeDB:
+    def query(self, *args, **kwargs):
+        return _FakeQuery()
+
+    def close(self):
+        return None
+
+
+def test_health_endpoint_ok() -> None:
+    with TestClient(app) as client:
+        r = client.get("/health")
+        assert r.status_code == 200
+        assert r.json()["status"] == "ok"
+
+
+def test_auth_me_requires_authentication() -> None:
+    with TestClient(app) as client:
+        r = client.get("/auth/me")
+        assert r.status_code == 401
+
+
+def test_auth_me_with_overridden_user() -> None:
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=5, username="bob", role="admin")
+    try:
+        with TestClient(app) as client:
+            r = client.get("/auth/me")
+            assert r.status_code == 200
+            assert r.json()["username"] == "bob"
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_admin_route_forbidden_when_not_admin() -> None:
+    def _deny():
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    app.dependency_overrides[require_admin] = _deny
+    try:
+        with TestClient(app) as client:
+            r = client.get("/admin/login-history")
+            assert r.status_code == 403
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
+
+
+def test_admin_route_ok_with_admin_and_mocked_db(monkeypatch) -> None:
+    app.dependency_overrides[require_admin] = lambda: PortalPrincipal(id=1, username="root", role="admin")
+    monkeypatch.setattr("app.features.admin.api.SessionLocal", lambda: _FakeDB())
+    try:
+        with TestClient(app) as client:
+            r = client.get("/admin/login-history?limit=5")
+            assert r.status_code == 200
+            assert r.json() == []
+    finally:
+        app.dependency_overrides.pop(require_admin, None)

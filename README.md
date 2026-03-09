@@ -231,11 +231,31 @@ Expected:
 Local commands:
 
 - `make lint` -> backend (`ruff`), frontend (`eslint`), agent (`gofmt` + `go vet`)
-- `make test` -> backend (`pytest`), agent (`go test`), frontend (`npm run build`)
+- `make test` -> backend (`pytest`), agent (`go test`), frontend smoke (`npm run smoke`)
 - `make build-prod` -> production image builds with `compose.prod.yml`
 - `make deps-check` -> `pip-audit`, `npm audit`, `govulncheck`
 
 CI (`.github/workflows/ci.yml`) runs lint/tests, image build, dependency checks, and secret scanning (`gitleaks`) on push and pull request.
+
+### 9. Database migrations and lifecycle (Alembic)
+
+The project now uses Alembic for schema versioning.
+
+- Migration files live in `backend/alembic/versions/`
+- Initial baseline migration: `20260308_0001`
+- Runtime no longer depends on `Base.metadata.create_all()` for schema evolution
+
+Lifecycle flow:
+
+- **Initial bootstrap (dev)**: `compose.dev.yml` sets `NETWATCH_DB_AUTO_UPGRADE=true`, so services apply `alembic upgrade head` automatically.
+- **Upgrade before prod deploy**: run migrations explicitly, then start services.
+
+Useful commands:
+
+- `make db-upgrade` -> run `alembic upgrade head` via backend container
+- `make db-current` -> show current revision
+
+For production-like runs (`compose.prod.yml`), `NETWATCH_DB_AUTO_UPGRADE=false` by default.
 
 ---
 

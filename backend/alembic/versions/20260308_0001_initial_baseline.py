@@ -1,0 +1,33 @@
+"""Initial baseline schema from SQLAlchemy metadata.
+
+This migration intentionally creates the full current schema in one step,
+so existing development databases can be versioned and future changes can be
+handled by incremental Alembic revisions.
+"""
+
+from __future__ import annotations
+
+from alembic import op
+
+from app.core.db import Base
+from app.core.schema_bootstrap import bootstrap_schema
+from app.models.registry import load_all_models
+
+
+revision = "20260308_0001"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    load_all_models()
+    bind = op.get_bind()
+    Base.metadata.create_all(bind=bind, checkfirst=True)
+    bootstrap_schema(bind)
+
+
+def downgrade() -> None:
+    load_all_models()
+    bind = op.get_bind()
+    Base.metadata.drop_all(bind=bind, checkfirst=True)

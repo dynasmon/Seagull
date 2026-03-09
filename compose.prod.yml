@@ -2,6 +2,42 @@ services:
   netwatch-backend:
     environment:
       NETWATCH_ENV: prod
+      NETWATCH_DB_AUTO_UPGRADE: "false"
+
+  netwatch-ingest-worker:
+    environment:
+      NETWATCH_ENV: prod
+      NETWATCH_DB_AUTO_UPGRADE: "false"
+
+  netwatch-rules-worker:
+    environment:
+      NETWATCH_ENV: prod
+      NETWATCH_DB_AUTO_UPGRADE: "false"
+
+  netwatch-es-indexer:
+    environment:
+      NETWATCH_ENV: prod
+      NETWATCH_DB_AUTO_UPGRADE: "false"
+
+  netwatch-rollup-worker:
+    environment:
+      NETWATCH_ENV: prod
+      NETWATCH_DB_AUTO_UPGRADE: "false"
+
+  netwatch-ip-intel:
+    environment:
+      NETWATCH_ENV: prod
+      NETWATCH_DB_AUTO_UPGRADE: "false"
+
+  netwatch-proto-intel:
+    environment:
+      NETWATCH_ENV: prod
+      NETWATCH_DB_AUTO_UPGRADE: "false"
+
+  netwatch-attack-chain:
+    environment:
+      NETWATCH_ENV: prod
+      NETWATCH_DB_AUTO_UPGRADE: "false"
 
   netwatch-portal:
     build:
