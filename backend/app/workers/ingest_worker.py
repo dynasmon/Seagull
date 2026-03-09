@@ -16,6 +16,7 @@ Operational notes:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -28,7 +29,11 @@ from app.core.db import engine
 from app.core.redis_client import get_redis
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.ingest_control import storm_maybe_close_alert, storm_maybe_open_alert
+from app.core.observability import log_event, setup_logging
 from app.models.events import NetEventModel, NetEventRollup1sModel
+
+setup_logging("worker-ingest")
+logger = logging.getLogger("netwatch.worker.ingest")
 
 
 @dataclass(frozen=True)
@@ -243,7 +248,7 @@ def _ensure_warm_ilm_and_template(es, cfg: WorkerConfig) -> None:
         }
         es.transport.perform_request("PUT", f"/_ilm/policy/{policy_name}", body=body)
     except Exception as e:
-        print(f"[INGEST] ilm_policy_error={type(e).__name__}")
+        log_event(logger, "warning", "ingest_ilm_policy_error", error_type=type(e).__name__)
         return
 
     # Create index template for warm indexes
@@ -319,10 +324,10 @@ def _ensure_warm_ilm_and_template(es, cfg: WorkerConfig) -> None:
 
         es.indices.put_index_template(name=name, body=body)
     except Exception as e:
-        print(f"[INGEST] warm_template_error={type(e).__name__}")
+        log_event(logger, "warning", "ingest_warm_template_error", error_type=type(e).__name__)
         return
 
-    print(f"[INGEST] warm_ilm_ready prefix={cfg.warm_index_prefix} policy={policy_name}")
+    log_event(logger, "info", "ingest_warm_ilm_ready", warm_index_prefix=cfg.warm_index_prefix, policy=policy_name)
 
 
 def _requeue_processing(r, cfg: WorkerConfig) -> None:
@@ -365,7 +370,7 @@ def main() -> None:
 
     r = get_redis()
     if r is None:
-        print("[INGEST] redis_unavailable")
+        log_event(logger, "error", "ingest_redis_unavailable")
         while True:
             time.sleep(2.0)
 
@@ -585,7 +590,7 @@ def main() -> None:
                         raise_on_exception=False,
                     )
                 except Exception as e:
-                    print(f"[INGEST] warm_index_error={type(e).__name__}")
+                    log_event(logger, "warning", "ingest_warm_index_error", error_type=type(e).__name__)
 
             # Ack processing list
             ack_ok = True
@@ -607,7 +612,7 @@ def main() -> None:
                     plen = int(r.llen(cfg.processing_key) or 0)
                 except Exception:
                     plen = -1
-                print(f"[INGEST] warn=ack_failed processing_len={plen}")
+                log_event(logger, "warning", "ingest_ack_failed", processing_len=plen)
 
             storm_maybe_close_alert()
 
@@ -627,7 +632,7 @@ def main() -> None:
             if tbl or col:
                 msg += f" table={tbl} column={col}"
             msg += f" backoff={backoff}"
-            print(msg)
+            log_event(logger, "error", "ingest_loop_error", message=msg)
             time.sleep(backoff)
             backoff = min(5.0, backoff * 1.8)
 

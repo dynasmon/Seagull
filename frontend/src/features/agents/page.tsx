@@ -26,7 +26,6 @@ import type { AgentDetail, AgentPublic, AgentUpdateIn } from "./types";
 
 // Grafana-like fixed panel heights.
 const H_PANEL_MD = 420;
-const H_PANEL_STREAM = 760;
 const H_PANEL_TALL = 860;
 
 const DEFAULT_WINDOW_MINUTES = 60;
@@ -436,7 +435,6 @@ export default function AgentsPage() {
   };
 
   const [agent, setAgent] = useState<AgentDetail | null>(null);
-  const [agentLoading, setAgentLoading] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
 
   const [snapshot, setSnapshot] = useState<OverviewSnapshot | null>(null);
@@ -498,7 +496,6 @@ export default function AgentsPage() {
   }, [agents, selectedAgentId]);
 
   const loadAgent = useCallback(async (agentId: string) => {
-    setAgentLoading(true);
     try {
       const a = await getAgent(agentId);
       setAgent(a);
@@ -516,8 +513,6 @@ export default function AgentsPage() {
     } catch (e: any) {
       setAgentError(e?.message || "Failed to load agent details");
       setAgent(null);
-    } finally {
-      setAgentLoading(false);
     }
   }, []);
 

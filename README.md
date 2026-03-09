@@ -257,6 +257,24 @@ Useful commands:
 
 For production-like runs (`compose.prod.yml`), `NETWATCH_DB_AUTO_UPGRADE=false` by default.
 
+### 10. Development observability
+
+Backend and workers now emit structured JSON logs with a common shape:
+
+- `ts`, `level`, `service`, `logger`, `event`, and contextual fields
+- request context on API logs (`request_id`, `trace_id`)
+
+API runtime observability:
+
+- `X-Request-Id`, `X-Trace-Id`, `X-Response-Time-Ms` response headers
+- clearer error payloads with `request_id`
+- in-memory debugging metrics at `GET /metrics`
+
+Tracing (local/simple):
+
+- Send `X-Trace-Id` in requests to correlate logs across calls
+- If missing, backend generates one automatically
+
 ---
 
 ## Packet Capture Requirements (PCAP Agents)

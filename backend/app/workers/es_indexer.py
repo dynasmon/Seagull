@@ -13,6 +13,7 @@ Operational notes:
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -25,8 +26,12 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
+from app.core.observability import log_event, setup_logging
 from app.models.events import NetEventModel
 from app.models.search_index_offsets import SearchIndexOffsetModel
+
+setup_logging("worker-es-indexer")
+logger = logging.getLogger("netwatch.worker.es_indexer")
 
 
 @dataclass(frozen=True)
@@ -373,7 +378,7 @@ def _ensure_index_template(es, cfg: ESConfig) -> None:
     }
 
     es.indices.put_index_template(name=name, body=body)
-    print(f"[ES] created_index_template name={name}")
+    log_event(logger, "info", "es_index_template_created", template_name=name)
 
 
 def _bulk_index(es, actions: Iterable[Dict[str, Any]], cfg: ESConfig) -> None:
@@ -391,9 +396,9 @@ def _bulk_index(es, actions: Iterable[Dict[str, Any]], cfg: ESConfig) -> None:
     if errors:
         # Keep logs concise; full error payloads can be huge.
         sample = errors[0]
-        print(f"[ES] bulk_partial_success success={success} errors={len(errors)} sample={sample}")
+        log_event(logger, "warning", "es_bulk_partial_success", success=success, errors=len(errors), sample=str(sample)[:500])
     else:
-        print(f"[ES] bulk_ok success={success}")
+        log_event(logger, "info", "es_bulk_ok", success=success)
 
 
 def main() -> None:
@@ -450,12 +455,12 @@ def main() -> None:
 
         except OperationalError as e:
             wait_s = min(backoff, 15.0)
-            print(f"[ES_INDEXER] db_not_ready wait_s={wait_s} error={str(e).splitlines()[0]}")
+            log_event(logger, "warning", "es_indexer_db_not_ready", wait_s=wait_s, error=str(e).splitlines()[0])
             time.sleep(wait_s)
             backoff = min(backoff * 2.0, 15.0)
         except Exception as e:
             wait_s = min(backoff, 15.0)
-            print(f"[ES_INDEXER] error wait_s={wait_s} error={repr(e)}")
+            log_event(logger, "error", "es_indexer_loop_error", wait_s=wait_s, error=repr(e))
             time.sleep(wait_s)
             backoff = min(backoff * 2.0, 15.0)
 

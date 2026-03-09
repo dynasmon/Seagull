@@ -1,9 +1,15 @@
+import logging
 import os
 import time
 
 from sqlalchemy.exc import OperationalError
 
+from app.core.observability import log_event, setup_logging
 from app.workers.rules_engine import run_all_rules
+
+
+setup_logging("worker-rules")
+logger = logging.getLogger("netwatch.worker.rules")
 
 
 def _get_interval_seconds() -> float:
@@ -23,18 +29,18 @@ def main() -> None:
     while True:
         try:
             alerts = run_all_rules()
-            print(f"Created {len(alerts)} alerts")
+            log_event(logger, "info", "rules_cycle_ok", created_alerts=len(alerts))
             backoff = 1.0
             time.sleep(every)
         except OperationalError as e:
             # DB not ready yet (startup / recovery). Keep the worker alive.
             wait_s = min(backoff, 15.0)
-            print(f"[RULES] db_not_ready wait_s={wait_s} error={str(e).splitlines()[0]}")
+            log_event(logger, "warning", "rules_db_not_ready", wait_s=wait_s, error=str(e).splitlines()[0])
             time.sleep(wait_s)
             backoff = min(backoff * 2.0, 15.0)
         except Exception as e:
             wait_s = min(backoff, 15.0)
-            print(f"[RULES] error wait_s={wait_s} error={repr(e)}")
+            log_event(logger, "error", "rules_loop_error", wait_s=wait_s, error=repr(e))
             time.sleep(wait_s)
             backoff = min(backoff * 2.0, 15.0)
 

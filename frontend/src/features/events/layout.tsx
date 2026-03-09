@@ -57,7 +57,7 @@ export default function EventsLayout() {
   return (
     <EventsHeaderContext.Provider value={api}>
       <div className="p-5 space-y-5 min-h-0">
-        <PageHeader breadcrumb="Telemetry" title={meta.title} description={meta.description} tabs={tabs} toolbarRight={toolbarRight} />
+        <PageHeader breadcrumb={["Telemetry"]} title={meta.title} description={meta.description} tabs={tabs} toolbarRight={toolbarRight} />
         <Outlet />
       </div>
     </EventsHeaderContext.Provider>

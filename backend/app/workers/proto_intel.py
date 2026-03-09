@@ -28,6 +28,7 @@ Marker:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from datetime import datetime, timezone
@@ -39,10 +40,14 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
+from app.core.observability import log_event, setup_logging
 from app.models.events import NetEventModel
 from app.models.search_index_offsets import SearchIndexOffsetModel
 from app.protocol_intel import analyze_event
 
+
+setup_logging("worker-proto-intel")
+logger = logging.getLogger("netwatch.worker.proto_intel")
 
 OFFSET_PROTO_INTEL = "proto_intel_v1"
 
@@ -206,20 +211,20 @@ def main() -> None:
 
             _set_last_id(last_done)
             took_ms = int((time.time() - t0) * 1000)
-            print(f"[PROTO] ok last_id={last_id} max_id={max_id} processed={len(rows)} took_ms={took_ms}")
+            log_event(logger, "info", "proto_intel_ok", last_id=last_id, max_id=max_id, processed=len(rows), took_ms=took_ms)
 
             backoff = 1.0
             time.sleep(max(every_s, 0.1))
 
         except OperationalError as e:
             wait_s = min(backoff, 15.0)
-            print(f"[PROTO] db_not_ready wait_s={wait_s} error={str(e).splitlines()[0]}")
+            log_event(logger, "warning", "proto_intel_db_not_ready", wait_s=wait_s, error=str(e).splitlines()[0])
             time.sleep(wait_s)
             backoff = min(backoff * 2.0, 15.0)
 
         except Exception as e:
             wait_s = min(backoff, 30.0)
-            print(f"[PROTO] error wait_s={wait_s} error={repr(e)}")
+            log_event(logger, "error", "proto_intel_loop_error", wait_s=wait_s, error=repr(e))
             time.sleep(wait_s)
             backoff = min(backoff * 2.0, 30.0)
 

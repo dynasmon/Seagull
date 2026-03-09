@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 
@@ -11,9 +12,13 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
+from app.core.observability import log_event, setup_logging
 from app.models.events import EventRollup1mModel, NetEventModel, SshFailRollup1mModel
 from app.models.search_index_offsets import SearchIndexOffsetModel
 
+
+setup_logging("worker-rollup")
+logger = logging.getLogger("netwatch.worker.rollup")
 
 OFFSET_EVENTS = "rollup_events_1m"
 OFFSET_SSH_FAIL = "rollup_ssh_fail_1m"
@@ -207,18 +212,18 @@ def main() -> None:
             _set_last_id(OFFSET_SSH_FAIL, max_id)
 
             took_ms = int((time.time() - t0) * 1000)
-            print(f"[ROLLUP] ok last_id={last_id} max_id={max_id} rows~{max_rows} took_ms={took_ms}")
+            log_event(logger, "info", "rollup_ok", last_id=last_id, max_id=max_id, max_rows=max_rows, took_ms=took_ms)
 
             backoff = 1.0
             time.sleep(max(every_s, 0.1))
         except OperationalError as e:
             wait_s = min(backoff, 15.0)
-            print(f"[ROLLUP] db_not_ready wait_s={wait_s} error={str(e).splitlines()[0]}")
+            log_event(logger, "warning", "rollup_db_not_ready", wait_s=wait_s, error=str(e).splitlines()[0])
             time.sleep(wait_s)
             backoff = min(backoff * 2.0, 15.0)
         except Exception as e:
             wait_s = min(backoff, 15.0)
-            print(f"[ROLLUP] error wait_s={wait_s} error={repr(e)}")
+            log_event(logger, "error", "rollup_loop_error", wait_s=wait_s, error=repr(e))
             time.sleep(wait_s)
             backoff = min(backoff * 2.0, 15.0)
 

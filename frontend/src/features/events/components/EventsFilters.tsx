@@ -30,7 +30,7 @@ type Props = {
   busy?: boolean;
 };
 
-const DEFAULTS: Required<Pick<EventsViewConfig, "search" | "window_minutes" | "limit">> = {
+const DEFAULTS: { search: string; window_minutes: number; limit: number } = {
   search: "",
   window_minutes: 60,
   limit: 500

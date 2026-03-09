@@ -1,10 +1,13 @@
 import os
+import time
+import logging
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from starlette import status
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from starlette.responses import JSONResponse
 
 from app.api.agents import router as agents_router
 from app.api.alerts import router as alerts_router
@@ -20,9 +23,24 @@ from app.api.correlations import router as correlations_router
 from app.api.attack_chain import router as attack_chain_router
 from app.api.vuln import router as vuln_router
 from app.core.config import settings
+from app.core.observability import (
+    clear_request_context,
+    incr_counter,
+    log_event,
+    new_request_id,
+    normalize_trace_id,
+    observe_hist,
+    request_id,
+    set_request_context,
+    setup_logging,
+    snapshot_metrics,
+)
 from app.core.portal_bootstrap import bootstrap_portal_admin, bootstrap_correlation_rules
 from app.models.registry import load_all_models
 
+
+setup_logging("backend-api")
+logger = logging.getLogger("netwatch.api")
 
 app = FastAPI(
     title="NetWatch Backend",
@@ -53,6 +71,46 @@ async def request_size_guard(request: Request, call_next):
 
 
 @app.middleware("http")
+async def request_context_middleware(request: Request, call_next):
+    rid = (request.headers.get("X-Request-Id") or request.headers.get("x-request-id") or "").strip() or new_request_id()
+    tid = normalize_trace_id(request.headers.get("X-Trace-Id") or request.headers.get("x-trace-id"))
+    set_request_context(rid, tid)
+
+    t0 = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        incr_counter("http_requests_total", method=request.method, path=request.url.path, status="500")
+        observe_hist("http_request_duration_ms", elapsed_ms, method=request.method, path=request.url.path, status="500")
+        clear_request_context()
+        raise
+
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+    status_code = int(getattr(response, "status_code", 500))
+    status_label = str(status_code)
+
+    response.headers.setdefault("X-Request-Id", rid)
+    response.headers.setdefault("X-Trace-Id", tid)
+    response.headers.setdefault("X-Response-Time-Ms", f"{elapsed_ms:.2f}")
+
+    incr_counter("http_requests_total", method=request.method, path=request.url.path, status=status_label)
+    observe_hist("http_request_duration_ms", elapsed_ms, method=request.method, path=request.url.path, status=status_label)
+
+    log_event(
+        logger,
+        "info",
+        "http_request",
+        method=request.method,
+        path=request.url.path,
+        status=status_code,
+        duration_ms=round(elapsed_ms, 2),
+    )
+    clear_request_context()
+    return response
+
+
+@app.middleware("http")
 async def security_headers(request: Request, call_next):
     res = await call_next(request)
     # Baseline hardening: prevents a bunch of easy web exploitation primitives.
@@ -75,6 +133,43 @@ async def security_headers(request: Request, call_next):
     return res
 
 
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    status_code = int(getattr(exc, "status_code", 500))
+    rid = request_id()
+    log_event(
+        logger,
+        "warning" if status_code < 500 else "error",
+        "http_exception",
+        method=request.method,
+        path=request.url.path,
+        status=status_code,
+        detail=str(exc.detail),
+        request_id=rid,
+    )
+    body = {"detail": exc.detail, "request_id": rid}
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    rid = request_id()
+    log_event(
+        logger,
+        "error",
+        "unhandled_exception",
+        method=request.method,
+        path=request.url.path,
+        request_id=rid,
+        error_type=type(exc).__name__,
+        error=str(exc),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "request_id": rid},
+    )
+
+
 @app.on_event("startup")
 def on_startup():
     if (os.getenv("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "") or "").strip().lower() in {"1", "true", "yes", "on"}:
@@ -86,11 +181,17 @@ def on_startup():
     ensure_database_ready()
     bootstrap_portal_admin()
     bootstrap_correlation_rules()
+    log_event(logger, "info", "startup_complete", env=settings.NETWATCH_ENV)
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+async def metrics():
+    return snapshot_metrics()
 
 
 app.include_router(ingest_router)
