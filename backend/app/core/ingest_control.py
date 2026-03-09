@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -13,36 +12,36 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.core.redis_client import get_redis
 from app.core.db import engine
+from app.core.config import settings
 from app.models.alerts import AlertModel
 from app.models.events import IngestStats1sModel
 
 
 def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    raw = raw.strip()
-    if raw == "":
+    v = getattr(settings, name, None)
+    if v is None:
         return default
     try:
-        return int(raw, 10)
+        return int(v)
     except Exception:
         return default
 
 
 def _env_str(name: str, default: str) -> str:
-    raw = os.getenv(name)
-    if raw is None:
+    v = getattr(settings, name, None)
+    if v is None:
         return default
-    raw = raw.strip()
-    return raw if raw else default
+    s = str(v).strip()
+    return s if s else default
 
 
 def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
+    v = getattr(settings, name, None)
+    if v is None:
         return default
-    s = raw.strip().lower()
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
     if s in {"1", "true", "t", "yes", "y", "on"}:
         return True
     if s in {"0", "false", "f", "no", "n", "off"}:

@@ -31,6 +31,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
+from app.core.config import settings
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
@@ -302,6 +303,7 @@ def _patch_event(event_id: int, patch: dict) -> None:
 
 
 def main() -> None:
+    settings.validate_for_service("worker-ip-intel")
     token = (os.getenv("NETWATCH_IPINFO_TOKEN") or "").strip()
 
     every_s = _env_float("NETWATCH_LUPE_EVERY_SECONDS", 1.0)

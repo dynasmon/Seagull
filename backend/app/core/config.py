@@ -22,6 +22,16 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    v = _env_str(name, None)
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except ValueError:
+        return default
+
+
 def _env_bool(name: str, default: bool) -> bool:
     v = _env_str(name, None)
     if v is None:
@@ -52,6 +62,8 @@ class Settings:
         "NETWATCH_DB_AUTO_UPGRADE",
         NETWATCH_ENV in {"dev", "development"},
     )
+    NETWATCH_SKIP_STARTUP_BOOTSTRAP: bool = _env_bool("NETWATCH_SKIP_STARTUP_BOOTSTRAP", False)
+    NETWATCH_LOG_LEVEL: str = (_env_str("NETWATCH_LOG_LEVEL", "INFO") or "INFO").upper()
 
     # Redis
     NETWATCH_REDIS_HOST: str = _env_str("NETWATCH_REDIS_HOST", "redis") or "redis"
@@ -66,6 +78,10 @@ class Settings:
     DB_NAME: str = _env_str("NETWATCH_DB_NAME", "netwatch") or "netwatch"
     DB_USER: str = _env_str("NETWATCH_DB_USER", "netwatch") or "netwatch"
     DB_PASSWORD: str = _env_str("NETWATCH_DB_PASSWORD", "netwatch123") or "netwatch123"
+    NETWATCH_DB_POOL_SIZE: int = _env_int("NETWATCH_DB_POOL_SIZE", 10)
+    NETWATCH_DB_MAX_OVERFLOW: int = _env_int("NETWATCH_DB_MAX_OVERFLOW", 20)
+    NETWATCH_DB_EXECUTEMANY_MODE: str = _env_str("NETWATCH_DB_EXECUTEMANY_MODE", "values_plus_batch") or "values_plus_batch"
+    NETWATCH_DB_EXECUTEMANY_VALUES_PAGE_SIZE: int = _env_int("NETWATCH_DB_EXECUTEMANY_VALUES_PAGE_SIZE", 1000)
 
     # Admin-only operations (e.g., pushing agent config)
     NETWATCH_ADMIN_TOKEN: str | None = _env_str("NETWATCH_ADMIN_TOKEN", None)
@@ -114,6 +130,50 @@ class Settings:
     # Hard limit for agent config payloads (JSON-encoded bytes).
     NETWATCH_MAX_AGENT_CONFIG_BYTES: int = _env_int("NETWATCH_MAX_AGENT_CONFIG_BYTES", 262144)
 
+    # Rules worker
+    NETWATCH_RULES_EVERY_SECONDS: float = _env_float("NETWATCH_RULES_EVERY_SECONDS", 5.0)
+
+    # Ingest controls
+    NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS: int = _env_int("NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS", 300)
+    NETWATCH_INGEST_MAX_BATCH: int = _env_int("NETWATCH_INGEST_MAX_BATCH", 10000)
+    NETWATCH_INGEST_ROLLUP_ALWAYS: bool = _env_bool("NETWATCH_INGEST_ROLLUP_ALWAYS", False)
+    NETWATCH_INGEST_WARM_ENABLED: bool = _env_bool("NETWATCH_INGEST_WARM_ENABLED", True)
+    NETWATCH_INGEST_WARM_SAMPLE_PERCENT: int = _env_int("NETWATCH_INGEST_WARM_SAMPLE_PERCENT", 0)
+    NETWATCH_INGEST_STORM_EVENTS_PER_SECOND: int = _env_int("NETWATCH_INGEST_STORM_EVENTS_PER_SECOND", 8000)
+    NETWATCH_INGEST_STORM_MIN_BATCH: int = _env_int("NETWATCH_INGEST_STORM_MIN_BATCH", 2500)
+    NETWATCH_INGEST_STORM_TTL_SECONDS: int = _env_int("NETWATCH_INGEST_STORM_TTL_SECONDS", 20)
+    NETWATCH_INGEST_STORM_SAMPLE_PERCENT: int = _env_int("NETWATCH_INGEST_STORM_SAMPLE_PERCENT", 2)
+    NETWATCH_INGEST_STORM_HOT_SAMPLE_PERCENT: int = _env_int("NETWATCH_INGEST_STORM_HOT_SAMPLE_PERCENT", 2)
+    NETWATCH_INGEST_STORM_WARM_SAMPLE_PERCENT: int = _env_int("NETWATCH_INGEST_STORM_WARM_SAMPLE_PERCENT", 5)
+    NETWATCH_INGEST_STORM_ALERT_TTL_SECONDS: int = _env_int("NETWATCH_INGEST_STORM_ALERT_TTL_SECONDS", 3600)
+    NETWATCH_INGEST_QUEUE_KEY: str = _env_str("NETWATCH_INGEST_QUEUE_KEY", "netwatch:ingest:queue") or "netwatch:ingest:queue"
+    NETWATCH_INGEST_PROCESSING_KEY: str = _env_str("NETWATCH_INGEST_PROCESSING_KEY", "netwatch:ingest:queue:processing") or "netwatch:ingest:queue:processing"
+    NETWATCH_INGEST_BACKLOG_EVENTS_KEY: str = _env_str("NETWATCH_INGEST_BACKLOG_EVENTS_KEY", "netwatch:ingest:backlog_events") or "netwatch:ingest:backlog_events"
+    NETWATCH_INGEST_STORM_ACTIVE_KEY: str = _env_str("NETWATCH_INGEST_STORM_ACTIVE_KEY", "netwatch:ingest:storm_active") or "netwatch:ingest:storm_active"
+    NETWATCH_INGEST_STORM_SESSION_KEY: str = _env_str("NETWATCH_INGEST_STORM_SESSION_KEY", "netwatch:ingest:storm_session") or "netwatch:ingest:storm_session"
+    NETWATCH_INGEST_STORM_SINCE_KEY: str = _env_str("NETWATCH_INGEST_STORM_SINCE_KEY", "netwatch:ingest:storm_since") or "netwatch:ingest:storm_since"
+    NETWATCH_INGEST_STORM_ALERT_ID_KEY: str = _env_str("NETWATCH_INGEST_STORM_ALERT_ID_KEY", "netwatch:ingest:storm_alert_id") or "netwatch:ingest:storm_alert_id"
+    NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS: int = _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50000)
+    NETWATCH_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS: int = _env_int("NETWATCH_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS", 200000)
+    NETWATCH_INGEST_BACKPRESSURE_MODE: str = (_env_str("NETWATCH_INGEST_BACKPRESSURE_MODE", "rollup_only") or "rollup_only").lower()
+    NETWATCH_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT: int = _env_int("NETWATCH_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT", 2)
+
+    # Overview cache/tuning
+    NETWATCH_OVERVIEW_CACHE_TTL_SECONDS: int = _env_int("NETWATCH_OVERVIEW_CACHE_TTL_SECONDS", 3)
+    NETWATCH_OVERVIEW_CACHE_MAX_ENTRIES: int = _env_int("NETWATCH_OVERVIEW_CACHE_MAX_ENTRIES", 128)
+    NETWATCH_OVERVIEW_PRESSURE_LOOKBACK_SECONDS: int = _env_int("NETWATCH_OVERVIEW_PRESSURE_LOOKBACK_SECONDS", 120)
+    NETWATCH_OVERVIEW_INGEST_ROLLUP_FRESH_SECONDS: int = _env_int("NETWATCH_OVERVIEW_INGEST_ROLLUP_FRESH_SECONDS", 120)
+    NETWATCH_OVERVIEW_DRAINING_BACKLOG_EVENTS_THRESHOLD: int = _env_int("NETWATCH_OVERVIEW_DRAINING_BACKLOG_EVENTS_THRESHOLD", 25000)
+    NETWATCH_OVERVIEW_DRAINING_BACKLOG_MESSAGES_THRESHOLD: int = _env_int("NETWATCH_OVERVIEW_DRAINING_BACKLOG_MESSAGES_THRESHOLD", 5)
+
+    # Vulnerability ingest controls
+    NETWATCH_VULN_MAX_FINDINGS_PER_INGEST: int = _env_int("NETWATCH_VULN_MAX_FINDINGS_PER_INGEST", 2000)
+    NETWATCH_VULN_MAX_EVIDENCE_BYTES: int = _env_int("NETWATCH_VULN_MAX_EVIDENCE_BYTES", 32768)
+    NETWATCH_VULN_AUTO_REOPEN: bool = _env_bool("NETWATCH_VULN_AUTO_REOPEN", True)
+
+    # Protocol intelligence
+    NETWATCH_PROTO_INTEL_PORT_HINTS: str = _env_str("NETWATCH_PROTO_INTEL_PORT_HINTS", "") or ""
+
     @property
     def database_url(self) -> str:
         if self.DB_URL:
@@ -138,6 +198,79 @@ class Settings:
         # Separate pepper allows rotating JWT secret without invalidating stored hashes.
         # If not configured, fall back to the JWT secret.
         return (self.NETWATCH_TOKEN_PEPPER or self.NETWATCH_JWT_SECRET or "").strip()
+
+    def validate_for_service(self, service: str) -> None:
+        svc = (service or "").strip().lower()
+        errors: list[str] = []
+
+        if (self.NETWATCH_DB_POOL_SIZE or 0) < 1:
+            errors.append("NETWATCH_DB_POOL_SIZE must be >= 1")
+        if (self.NETWATCH_DB_MAX_OVERFLOW or 0) < 0:
+            errors.append("NETWATCH_DB_MAX_OVERFLOW must be >= 0")
+        if (self.NETWATCH_DB_EXECUTEMANY_VALUES_PAGE_SIZE or 0) < 100:
+            errors.append("NETWATCH_DB_EXECUTEMANY_VALUES_PAGE_SIZE must be >= 100")
+        if (self.NETWATCH_INGEST_MAX_BATCH or 0) < 1:
+            errors.append("NETWATCH_INGEST_MAX_BATCH must be >= 1")
+        if (self.NETWATCH_MAX_REQUEST_BODY_BYTES or 0) < 1024:
+            errors.append("NETWATCH_MAX_REQUEST_BODY_BYTES must be >= 1024")
+        if (self.NETWATCH_REDIS_PORT or 0) < 1:
+            errors.append("NETWATCH_REDIS_PORT must be >= 1")
+        if self.NETWATCH_SEARCH_BACKEND not in {"auto", "elasticsearch", "postgres"}:
+            errors.append("NETWATCH_SEARCH_BACKEND must be one of: auto, elasticsearch, postgres")
+        if self.NETWATCH_INGEST_BACKPRESSURE_MODE not in {"rollup_only", "reject_429"}:
+            errors.append("NETWATCH_INGEST_BACKPRESSURE_MODE must be one of: rollup_only, reject_429")
+
+        if svc == "backend-api":
+            secret = (self.NETWATCH_JWT_SECRET or "").strip()
+            if len(secret) < 32:
+                errors.append("NETWATCH_JWT_SECRET is required and must be >= 32 chars")
+            if self.NETWATCH_ENV in {"prod", "production"} and not self.NETWATCH_COOKIE_SECURE:
+                errors.append("NETWATCH_COOKIE_SECURE must be true in prod")
+            enroll = (self.NETWATCH_ENROLL_TOKEN or "").strip()
+            if self.NETWATCH_ENV in {"prod", "production"} and len(enroll) < 16:
+                errors.append("NETWATCH_ENROLL_TOKEN must be set with >= 16 chars in prod")
+
+        if errors:
+            raise RuntimeError("Invalid runtime config:\n- " + "\n- ".join(errors))
+
+    def runtime_config_for_admin(self) -> Dict[str, Any]:
+        return {
+            "environment": self.NETWATCH_ENV,
+            "backend": {
+                "search_backend": self.NETWATCH_SEARCH_BACKEND,
+                "es_url": self.NETWATCH_ES_URL,
+                "request_body_max_bytes": self.NETWATCH_MAX_REQUEST_BODY_BYTES,
+                "clock_skew_max_seconds": self.NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS,
+                "allowed_hosts": list(self.NETWATCH_ALLOWED_HOSTS or []),
+            },
+            "ingest": {
+                "max_batch": self.NETWATCH_INGEST_MAX_BATCH,
+                "storm_eps_limit": self.NETWATCH_INGEST_STORM_EVENTS_PER_SECOND,
+                "storm_min_batch": self.NETWATCH_INGEST_STORM_MIN_BATCH,
+                "storm_ttl_seconds": self.NETWATCH_INGEST_STORM_TTL_SECONDS,
+                "storm_sample_percent": self.NETWATCH_INGEST_STORM_SAMPLE_PERCENT,
+                "warm_enabled": bool(self.NETWATCH_INGEST_WARM_ENABLED),
+                "backpressure_mode": self.NETWATCH_INGEST_BACKPRESSURE_MODE,
+                "backpressure_soft_events": self.NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS,
+                "backpressure_hard_events": self.NETWATCH_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS,
+                "queue_key": self.NETWATCH_INGEST_QUEUE_KEY,
+                "processing_key": self.NETWATCH_INGEST_PROCESSING_KEY,
+            },
+            "security": {
+                "cookie_secure": bool(self.NETWATCH_COOKIE_SECURE),
+                "cookie_samesite": self.NETWATCH_COOKIE_SAMESITE,
+                "hsts_enabled": bool(self.NETWATCH_ENABLE_HSTS),
+                "has_jwt_secret": bool((self.NETWATCH_JWT_SECRET or "").strip()),
+                "has_token_pepper": bool((self.NETWATCH_TOKEN_PEPPER or "").strip()),
+                "has_admin_token": bool((self.NETWATCH_ADMIN_TOKEN or "").strip()),
+                "has_enroll_token": bool((self.NETWATCH_ENROLL_TOKEN or "").strip()),
+            },
+            "vuln": {
+                "max_findings_per_ingest": self.NETWATCH_VULN_MAX_FINDINGS_PER_INGEST,
+                "max_evidence_bytes": self.NETWATCH_VULN_MAX_EVIDENCE_BYTES,
+                "auto_reopen": bool(self.NETWATCH_VULN_AUTO_REOPEN),
+            },
+        }
 
 
 settings = Settings()

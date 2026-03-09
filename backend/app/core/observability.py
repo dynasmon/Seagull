@@ -3,13 +3,13 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
-import os
 import threading
 import time
 import uuid
 from collections import defaultdict
 from typing import Any, Dict, Tuple
 
+from app.core.config import settings
 
 _REQUEST_ID = contextvars.ContextVar("netwatch_request_id", default="")
 _TRACE_ID = contextvars.ContextVar("netwatch_trace_id", default="")
@@ -69,7 +69,7 @@ def setup_logging(service: str) -> None:
     if _LOGGING_READY:
         return
 
-    level_name = (os.getenv("NETWATCH_LOG_LEVEL", "INFO") or "INFO").upper()
+    level_name = (settings.NETWATCH_LOG_LEVEL or "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
 
     root = logging.getLogger()

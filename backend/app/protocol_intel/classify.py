@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from typing import Any, Dict, Optional, Tuple
 
+from app.core.config import settings
 
 DEFAULT_PORT_HINTS: dict[int, tuple[str, int]] = {
     22: ("ssh", 85),
@@ -108,7 +108,7 @@ def _env_port_hints() -> dict[int, tuple[str, int]]:
     - "proto:80,8080;dns:53;postgresql=5432"
     """
 
-    raw = (os.getenv("NETWATCH_PROTO_INTEL_PORT_HINTS") or "").strip()
+    raw = (settings.NETWATCH_PROTO_INTEL_PORT_HINTS or "").strip()
     if not raw:
         return {}
 

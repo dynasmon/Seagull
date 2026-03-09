@@ -57,6 +57,12 @@ services:
     depends_on:
       - netwatch-backend
     environment: {}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    cpus: "0.50"
     networks:
       - netwatch
     restart: unless-stopped
@@ -188,6 +194,12 @@ services:
       NETWATCH_VULN_AUTO_REOPEN: ${NETWATCH_VULN_AUTO_REOPEN:-true}
     volumes:
       - ./rules:/app/rules:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 1024m
+    cpus: "1.00"
     networks:
       - netwatch
     restart: unless-stopped
@@ -202,7 +214,6 @@ services:
         condition: service_started
       elasticsearch:
         condition: service_started
-    env_file: .env
     environment:
       NETWATCH_DB_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       NETWATCH_ES_URL: ${NETWATCH_ES_URL:-http://elasticsearch:9200}
@@ -220,6 +231,12 @@ services:
       NETWATCH_INGEST_ROLLUP_PAGE_SIZE: ${NETWATCH_INGEST_ROLLUP_PAGE_SIZE:-500}
       NETWATCH_INGEST_WARM_ENABLED: ${NETWATCH_INGEST_WARM_ENABLED:-true}
     command: ["python", "-m", "app.workers.ingest_worker"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    cpus: "0.75"
     networks:
       - netwatch
     restart: unless-stopped
@@ -237,6 +254,12 @@ services:
     volumes:
       - ./rules:/app/rules:ro
     command: ["python", "-m", "app.workers.runner"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    cpus: "0.50"
     networks:
       - netwatch
     restart: unless-stopped
@@ -269,6 +292,12 @@ services:
       NETWATCH_ES_ILM_POLICY_NAME: ${NETWATCH_ES_ILM_POLICY_NAME:-}
 
     command: ["python", "-m", "app.workers.es_indexer"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    cpus: "0.75"
     networks:
       - netwatch
     restart: unless-stopped
@@ -285,6 +314,12 @@ services:
       NETWATCH_ROLLUP_IDLE_SLEEP_SECONDS: ${NETWATCH_ROLLUP_IDLE_SLEEP_SECONDS:-2}
       NETWATCH_ROLLUP_MAX_ROWS: ${NETWATCH_ROLLUP_MAX_ROWS:-5000}
     command: ["python", "-m", "app.workers.rollup_1m"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    cpus: "0.50"
     networks:
       - netwatch
     restart: unless-stopped
@@ -306,6 +341,12 @@ services:
       NETWATCH_IP_INTEL_CACHE_TTL_DAYS: ${NETWATCH_IP_INTEL_CACHE_TTL_DAYS:-7}
       NETWATCH_IP_INTEL_SKIP_PRIVATE: ${NETWATCH_IP_INTEL_SKIP_PRIVATE:-true}
     command: ["python", "-m", "app.workers.ip_intel"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    cpus: "0.50"
     networks:
       - netwatch
     restart: always
@@ -316,7 +357,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    env_file: .env
     environment:
       # Keep DB wiring consistent across workers.
       NETWATCH_DB_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -327,6 +367,12 @@ services:
       NETWATCH_PROTO_INTEL_BATCH_SIZE: ${NETWATCH_PROTO_INTEL_BATCH_SIZE:-500}
       NETWATCH_PROTO_INTEL_PAYLOAD_MAX_BYTES: ${NETWATCH_PROTO_INTEL_PAYLOAD_MAX_BYTES:-4096}
     command: ["python", "-m", "app.workers.proto_intel"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    cpus: "0.50"
     networks:
       - netwatch
     restart: always
@@ -337,7 +383,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    env_file: .env
     environment:
       NETWATCH_DB_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
 
@@ -360,6 +405,12 @@ services:
       NETWATCH_ATTACK_CHAIN_SUDO_LOLBIN_SCORE: ${NETWATCH_ATTACK_CHAIN_SUDO_LOLBIN_SCORE:-14}
       NETWATCH_ATTACK_CHAIN_LOG_TAMPER_SCORE: ${NETWATCH_ATTACK_CHAIN_LOG_TAMPER_SCORE:-22}
     command: ["python", "-m", "app.workers.attack_chain"]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    cpus: "0.50"
     networks:
       - netwatch
     restart: always

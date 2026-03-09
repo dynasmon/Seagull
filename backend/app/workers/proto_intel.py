@@ -38,6 +38,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
+from app.core.config import settings
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
@@ -153,6 +154,7 @@ def _patch_event(event_id: int, patch: Dict[str, Any]) -> None:
 
 
 def main() -> None:
+    settings.validate_for_service("worker-proto-intel")
     every_s = _env_float("NETWATCH_PROTO_INTEL_EVERY_SECONDS", 1.0)
     idle_sleep_s = _env_float("NETWATCH_PROTO_INTEL_IDLE_SLEEP_SECONDS", 2.0)
     max_rows = _env_int("NETWATCH_PROTO_INTEL_MAX_ROWS", 5000)

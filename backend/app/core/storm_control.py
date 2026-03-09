@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -15,11 +14,8 @@ _redis_client: Optional[redis.Redis] = None
 
 
 def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
+    raw = getattr(settings, name, None)
     if raw is None:
-        return default
-    raw = raw.strip()
-    if raw == "":
         return default
     try:
         return int(raw)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from pydantic import BaseModel, Field
 
 
@@ -11,3 +12,7 @@ class LoginEventOut(BaseModel):
     ip: str | None = None
     user_agent: str | None = None
     succeeded: bool
+
+
+class RuntimeConfigOut(BaseModel):
+    config: dict[str, Any]

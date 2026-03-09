@@ -1,4 +1,3 @@
-import os
 import time
 import logging
 
@@ -172,7 +171,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 @app.on_event("startup")
 def on_startup():
-    if (os.getenv("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "") or "").strip().lower() in {"1", "true", "yes", "on"}:
+    settings.validate_for_service("backend-api")
+
+    if settings.NETWATCH_SKIP_STARTUP_BOOTSTRAP:
         return
 
     # Ensure all models are loaded before bootstrap hooks.

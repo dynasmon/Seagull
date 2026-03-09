@@ -9,11 +9,19 @@ export type AdminLoginEvent = {
   succeeded: boolean;
 };
 
+export type RuntimeConfig = {
+  config: Record<string, any>;
+};
+
 export function getAdminLoginHistory(limit = 20, includeFailed = false) {
   const params = new URLSearchParams();
   params.set("limit", String(limit));
   if (includeFailed) params.set("include_failed", "true");
   return apiGet<AdminLoginEvent[]>(`/api/admin/login-history?${params.toString()}`);
+}
+
+export function getRuntimeConfig() {
+  return apiGet<RuntimeConfig>("/api/admin/runtime-config");
 }
 
 export function changeMyPassword(currentPassword: string, newPassword: string) {

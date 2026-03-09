@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import threading
 import time
 import zlib
@@ -14,6 +13,7 @@ from app.core.db import SessionLocal
 from app.core.es import es_is_available, get_es_client
 from app.core.portal_auth import get_current_user
 from app.core.redis_client import get_redis
+from app.core.config import settings
 from app.models.agents import AgentModel
 from app.models.alerts import AlertModel
 from app.models.events import EventRollup1mModel, IngestStats1sModel, NetEventModel, NetEventRollup1sModel, SshFailRollup1mModel
@@ -29,14 +29,11 @@ _overview_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 
 def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
+    raw = getattr(settings, name, None)
     if raw is None:
         return default
-    raw = raw.strip()
-    if not raw:
-        return default
     try:
-        return int(raw, 10)
+        return int(raw)
     except Exception:
         return default
 
@@ -76,10 +73,10 @@ def _utc_now() -> datetime:
 
 
 def _env_str(name: str, default: str) -> str:
-    raw = os.getenv(name)
+    raw = getattr(settings, name, None)
     if raw is None:
         return default
-    raw = raw.strip()
+    raw = str(raw).strip()
     return raw if raw else default
 
 
