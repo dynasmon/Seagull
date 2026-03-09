@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from app.features.correlations.api import _segment_by_window, _stage_requirements_met
-from app.workers.rules_engine import _evaluate_condition, _normalize_dedup_key
+from app.workers.rules_engine import _evaluate_condition, _is_suppressed, _normalize_dedup_key
+from app.workers.rules_loader import load_rules
 
 
 @dataclass
@@ -44,3 +45,76 @@ def test_stage_requirements_met() -> None:
     hits = {"Recon": 2, "Credential": 1}
     stages = [{"name": "Recon", "min_count": 1}, {"name": "Credential", "min_count": 1}]
     assert _stage_requirements_met(hits, stages)
+
+
+def test_load_rules_supports_packs_and_versioning(tmp_path) -> None:
+    f = tmp_path / "packs" / "network" / "discovery.yml"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(
+        "\n".join(
+            [
+                "schema_version: 1",
+                "pack: network",
+                "category: discovery",
+                "pack_version: 2",
+                "rules:",
+                "  - id: tcp_scan_v3",
+                "    name: TCP Scan",
+                "    enabled: true",
+                "    type: aggregate_count",
+                "    group_by: src_ip",
+                "    condition: {operator: '>=', value: 1}",
+                "  - id: disabled_rule_v1",
+                "    enabled: false",
+                "    type: aggregate_count",
+                "    group_by: src_ip",
+                "    condition: {operator: '>=', value: 1}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rules = load_rules(include_disabled=False, with_source=True, rules_dir=tmp_path)
+    assert len(rules) == 1
+    r = rules[0]
+    assert r["id"] == "tcp_scan_v3"
+    assert r["pack"] == "network"
+    assert r["category"] == "discovery"
+    assert int(r["pack_version"]) == 2
+    assert int(r["rule_version"]) == 3
+    assert str(r["source_file"]).endswith("packs/network/discovery.yml")
+
+
+def test_load_rules_duplicate_id_raises(tmp_path) -> None:
+    a = tmp_path / "a.yml"
+    b = tmp_path / "packs" / "x" / "b.yml"
+    b.parent.mkdir(parents=True, exist_ok=True)
+    a.write_text("rules:\n  - id: same_v1\n    enabled: true\n", encoding="utf-8")
+    b.write_text("rules:\n  - id: same_v1\n    enabled: true\n", encoding="utf-8")
+
+    try:
+        load_rules(include_disabled=True, rules_dir=tmp_path)
+        assert False, "expected duplicate rule id error"
+    except RuntimeError as e:
+        assert "Duplicate rule id" in str(e)
+
+
+def test_rule_suppression_matching() -> None:
+    rule = {
+        "id": "ssh_bruteforce_v1",
+        "suppressions": [
+            {
+                "reason": "trusted jump host",
+                "until": "2099-01-01T00:00:00Z",
+                "when": {"src_ip": "10.10.10.10", "dst_port": 22},
+            }
+        ],
+    }
+    now = datetime.utcnow()
+
+    yes, why = _is_suppressed(rule, {"src_ip": "10.10.10.10", "dst_port": 22}, now)
+    assert yes is True
+    assert why == "trusted jump host"
+
+    no, _ = _is_suppressed(rule, {"src_ip": "1.1.1.1", "dst_port": 22}, now)
+    assert no is False

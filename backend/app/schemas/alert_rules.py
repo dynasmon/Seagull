@@ -37,6 +37,8 @@ class RuleOverrideIn(BaseModel):
     min_events: Optional[int] = None
     condition: Optional[Dict[str, Any]] = None
     schedule: Optional[Dict[str, Any]] = None
+    tuning: Optional[Dict[str, Any]] = None
+    suppressions: Optional[List[Dict[str, Any]]] = None
     patch: Optional[Dict[str, Any]] = None
 
 
@@ -45,6 +47,9 @@ class RuleOut(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     source_file: Optional[str] = None
+    pack: Optional[str] = None
+    category: Optional[str] = None
+    rule_version: int = 1
 
     # Convenience fields (from effective)
     enabled: bool
@@ -59,3 +64,14 @@ class RuleOut(BaseModel):
     base: Dict[str, Any] = Field(default_factory=dict)
     override: Optional[Dict[str, Any]] = None
     effective: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RuleGovernanceHistoryOut(BaseModel):
+    id: int
+    rule_id: str
+    kind: str  # tuning | suppression
+    action: str
+    created_at: datetime
+    actor_user_id: Optional[int] = None
+    actor_username: Optional[str] = None
+    snapshot: Dict[str, Any] = Field(default_factory=dict)

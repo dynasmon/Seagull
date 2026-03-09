@@ -8,8 +8,8 @@ import Loading from "@/shared/components/Loading";
 import { Badge } from "@/shared/components/Badge";
 import { cx } from "@/shared/lib/cx";
 
-import { getAlertRules, patchAlertRule, resetAlertRule } from "../api";
-import type { RuleOut } from "../types";
+import { getAlertRuleHistory, getAlertRules, patchAlertRule, resetAlertRule } from "../api";
+import type { RuleGovernanceHistory, RuleOut } from "../types";
 
 function Panel(props: {
   title: string;
@@ -56,13 +56,27 @@ function safeJsonString(v: any) {
   }
 }
 
-function parseJson(s: string): { ok: true; value: any } | { ok: false; error: string } {
+function parseJsonObject(s: string, label: string): { ok: true; value: any } | { ok: false; error: string } {
   const t = (s ?? "").trim();
   if (!t) return { ok: true, value: {} };
   try {
     const v = JSON.parse(t);
     if (v === null || typeof v !== "object" || Array.isArray(v)) {
-      return { ok: false, error: "Patch must be a JSON object." };
+      return { ok: false, error: `${label} must be a JSON object.` };
+    }
+    return { ok: true, value: v };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "Invalid JSON" };
+  }
+}
+
+function parseJsonArray(s: string, label: string): { ok: true; value: any[] } | { ok: false; error: string } {
+  const t = (s ?? "").trim();
+  if (!t) return { ok: true, value: [] };
+  try {
+    const v = JSON.parse(t);
+    if (!Array.isArray(v)) {
+      return { ok: false, error: `${label} must be a JSON array.` };
     }
     return { ok: true, value: v };
   } catch (e: any) {
@@ -114,7 +128,15 @@ export default function AlertsRulesPage() {
   });
 
   const [patchText, setPatchText] = useState("{}");
+  const [tuningText, setTuningText] = useState("{}");
+  const [suppressionsText, setSuppressionsText] = useState("[]");
   const [patchError, setPatchError] = useState<string | null>(null);
+  const [tuningError, setTuningError] = useState<string | null>(null);
+  const [suppressionsError, setSuppressionsError] = useState<string | null>(null);
+
+  const [historyRows, setHistoryRows] = useState<RuleGovernanceHistory[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const reqSeq = useRef(0);
 
@@ -148,6 +170,21 @@ export default function AlertsRulesPage() {
     } finally {
       if (reqSeq.current !== mySeq) return;
       setLoading(false);
+    }
+  }
+
+  async function loadHistory(ruleId: string) {
+    if (!ruleId) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const rows = await getAlertRuleHistory(ruleId, { limit: 100 });
+      setHistoryRows(rows || []);
+    } catch (e: any) {
+      setHistoryError(e?.message || "Failed to load history");
+      setHistoryRows([]);
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
@@ -214,7 +251,12 @@ export default function AlertsRulesPage() {
     setSchedDays(dayObj);
 
     setPatchText(safeJsonString((ovr as any).patch ?? {}));
+    setTuningText(safeJsonString((eff as any).tuning ?? {}));
+    setSuppressionsText(safeJsonString((eff as any).suppressions ?? []));
     setPatchError(null);
+    setTuningError(null);
+    setSuppressionsError(null);
+    loadHistory(selected.id);
   }, [selected]);
 
   const headerRight = useMemo(() => {
@@ -237,13 +279,19 @@ export default function AlertsRulesPage() {
     setSaving(true);
     setError(null);
 
-    const parsed = parseJson(patchText);
-    if (!parsed.ok) {
-      setPatchError(parsed.error);
+    const parsedPatch = parseJsonObject(patchText, "Patch");
+    const parsedTuning = parseJsonObject(tuningText, "Tuning");
+    const parsedSuppressions = parseJsonArray(suppressionsText, "Suppressions");
+    if (!parsedPatch.ok || !parsedTuning.ok || !parsedSuppressions.ok) {
+      setPatchError(parsedPatch.ok ? null : parsedPatch.error);
+      setTuningError(parsedTuning.ok ? null : parsedTuning.error);
+      setSuppressionsError(parsedSuppressions.ok ? null : parsedSuppressions.error);
       setSaving(false);
       return;
     }
     setPatchError(null);
+    setTuningError(null);
+    setSuppressionsError(null);
 
     const days = ALL_DAYS.filter((d) => !!schedDays[d]);
     const schedule = {
@@ -272,10 +320,13 @@ export default function AlertsRulesPage() {
               }
             : undefined,
         schedule,
-        patch: parsed.value
+        patch: parsedPatch.value,
+        tuning: parsedTuning.value,
+        suppressions: parsedSuppressions.value
       });
 
       await reload();
+      await loadHistory(selected.id);
     } catch (e: any) {
       setError(e?.message || "Failed to save rule");
     } finally {
@@ -290,6 +341,7 @@ export default function AlertsRulesPage() {
     try {
       await resetAlertRule(selected.id);
       await reload();
+      await loadHistory(selected.id);
     } catch (e: any) {
       setError(e?.message || "Failed to reset override");
     } finally {
@@ -392,6 +444,9 @@ export default function AlertsRulesPage() {
                       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
                         <div>{r.type || "-"}</div>
                         <div className="font-mono">
+                          {r.pack || "pack:-"} / {r.category || "cat:-"} · v{Number(r.rule_version || 1)}
+                        </div>
+                        <div className="font-mono">
                           {r.window || "-"} · cd {r.cooldown || "-"}
                         </div>
                         {r.source_file ? <div className="font-mono truncate">src: {r.source_file}</div> : null}
@@ -428,7 +483,13 @@ export default function AlertsRulesPage() {
         open={drawerOpen}
         onClose={closeDrawer}
         title={selected ? `Edit: ${selected.id}` : "Rule editor"}
-        description={selected ? (selected.source_file ? `src: ${selected.source_file}` : "") : "Select a rule"}
+        description={
+          selected
+            ? `${selected.pack || "pack:-"} / ${selected.category || "cat:-"} · v${Number(selected.rule_version || 1)}${
+                selected.source_file ? ` · src: ${selected.source_file}` : ""
+              }`
+            : "Select a rule"
+        }
         widthClassName="w-[920px]"
       >
         {!selected ? (
@@ -715,6 +776,98 @@ export default function AlertsRulesPage() {
                 )}
                 spellCheck={false}
               />
+            </div>
+
+            <div className="rounded-xl border border-border/60 bg-background/20 p-4 space-y-3">
+              <div>
+                <div className="text-sm font-semibold">Tuning (JSON object)</div>
+                <div className="text-[11px] text-muted-foreground">
+                  Dedicated tuning payload stored outside generic patch (with audit trail).
+                </div>
+              </div>
+              {tuningError ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {tuningError}
+                </div>
+              ) : null}
+              <textarea
+                value={tuningText}
+                onChange={(e) => setTuningText(e.target.value)}
+                className={cx(
+                  "min-h-[120px] w-full rounded-md border border-border/60 bg-background/40 p-3",
+                  "text-[11px] font-mono leading-relaxed outline-none",
+                  "focus:ring-1 focus:ring-primary/40"
+                )}
+                spellCheck={false}
+              />
+            </div>
+
+            <div className="rounded-xl border border-border/60 bg-background/20 p-4 space-y-3">
+              <div>
+                <div className="text-sm font-semibold">Suppressions (JSON array)</div>
+                <div className="text-[11px] text-muted-foreground">
+                  Each item can include <span className="font-mono">reason</span>, <span className="font-mono">when</span>,{" "}
+                  <span className="font-mono">until</span>, <span className="font-mono">enabled</span>.
+                </div>
+              </div>
+              {suppressionsError ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {suppressionsError}
+                </div>
+              ) : null}
+              <textarea
+                value={suppressionsText}
+                onChange={(e) => setSuppressionsText(e.target.value)}
+                className={cx(
+                  "min-h-[140px] w-full rounded-md border border-border/60 bg-background/40 p-3",
+                  "text-[11px] font-mono leading-relaxed outline-none",
+                  "focus:ring-1 focus:ring-primary/40"
+                )}
+                spellCheck={false}
+              />
+            </div>
+
+            <div className="rounded-xl border border-border/60 bg-background/20">
+              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60">
+                <div className="text-sm font-semibold">Governance history</div>
+                <button
+                  type="button"
+                  onClick={() => selected && loadHistory(selected.id)}
+                  className="h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs hover:bg-muted/30"
+                >
+                  Refresh
+                </button>
+              </div>
+              {historyError ? (
+                <div className="p-4 text-xs text-destructive">{historyError}</div>
+              ) : historyLoading ? (
+                <div className="p-4 text-xs text-muted-foreground">Loading history…</div>
+              ) : historyRows.length === 0 ? (
+                <div className="p-4 text-xs text-muted-foreground">No governance history yet.</div>
+              ) : (
+                <div className="max-h-[220px] overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/20">
+                      <tr>
+                        <th className="px-3 py-2 text-left">When</th>
+                        <th className="px-3 py-2 text-left">Kind</th>
+                        <th className="px-3 py-2 text-left">Action</th>
+                        <th className="px-3 py-2 text-left">Actor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyRows.map((h) => (
+                        <tr key={`${h.kind}-${h.id}`} className="border-t border-border/50">
+                          <td className="px-3 py-2 whitespace-nowrap">{new Date(h.created_at).toLocaleString()}</td>
+                          <td className="px-3 py-2 font-mono">{h.kind}</td>
+                          <td className="px-3 py-2 font-mono">{h.action}</td>
+                          <td className="px-3 py-2">{h.actor_username || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             <div className="rounded-xl border border-border/60 bg-background/20">

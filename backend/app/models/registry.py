@@ -6,6 +6,8 @@ def load_all_models() -> None:
     from app.models import admin as _admin  # noqa: F401
     from app.models import agents as _agents  # noqa: F401
     from app.models import alert_rule_overrides as _alert_rule_overrides  # noqa: F401
+    from app.models import alert_rule_suppressions as _alert_rule_suppressions  # noqa: F401
+    from app.models import alert_rule_tuning as _alert_rule_tuning  # noqa: F401
     from app.models import alerts as _alerts  # noqa: F401
     from app.models import attack_chain as _attack_chain  # noqa: F401
     from app.models import correlation_rules as _correlation_rules  # noqa: F401

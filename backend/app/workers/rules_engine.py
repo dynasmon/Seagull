@@ -12,7 +12,15 @@ from sqlalchemy.sql.sqltypes import Float
 from app.core.db import SessionLocal
 from app.models.alerts import AlertModel
 from app.models.events import NetEventModel
-from app.workers.rules_registry import apply_override, fetch_overrides, load_baseline_rules, normalize_rule_list
+from app.workers.rules_registry import (
+    apply_override,
+    apply_tuning_and_suppressions,
+    fetch_overrides,
+    fetch_suppressions,
+    fetch_tuning,
+    load_baseline_rules,
+    normalize_rule_list,
+)
 
 from app.mitre.catalog import technique_name
 
@@ -574,6 +582,54 @@ def _schedule_allows(rule: Dict[str, Any], now_utc: datetime) -> bool:
     return now_m >= start_m or now_m <= end_m
 
 
+def _parse_iso_utc(raw: Any) -> Optional[datetime]:
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _suppression_matches(sup: Dict[str, Any], ctx: Dict[str, Any], now_utc: datetime) -> bool:
+    until = _parse_iso_utc(sup.get("until"))
+    if until is not None and now_utc.replace(tzinfo=timezone.utc) > until:
+        return False
+
+    when = sup.get("when")
+    if not isinstance(when, dict) or not when:
+        return True
+
+    for k, expected in when.items():
+        actual = ctx.get(str(k))
+        if isinstance(expected, list):
+            if actual not in expected:
+                return False
+        else:
+            if actual != expected:
+                return False
+    return True
+
+
+def _is_suppressed(rule: Dict[str, Any], ctx: Dict[str, Any], now_utc: datetime) -> tuple[bool, Optional[str]]:
+    sups = rule.get("suppressions")
+    if not isinstance(sups, list) or not sups:
+        return False, None
+
+    for sup in sups:
+        if not isinstance(sup, dict):
+            continue
+        if _suppression_matches(sup, ctx, now_utc):
+            return True, str(sup.get("reason") or "suppressed")
+    return False, None
+
+
 def run_rules_once():
     now = datetime.utcnow()
     created_alerts: List[AlertModel] = []
@@ -582,12 +638,19 @@ def run_rules_once():
     try:
         base_rules = normalize_rule_list(load_baseline_rules(include_disabled=True))
         overrides = fetch_overrides(db)
+        tunings = fetch_tuning(db)
+        suppressions = fetch_suppressions(db)
 
         rules: List[Dict[str, Any]] = []
         max_cooldown_s = 0
         for base in base_rules:
             rid = base.get("id")
             eff, _ = apply_override(base, overrides.get(rid))
+            eff = apply_tuning_and_suppressions(
+                eff,
+                tuning_row=tunings.get(str(rid)),
+                suppression_rows=suppressions.get(str(rid)) or [],
+            )
             rules.append(eff)
             try:
                 max_cooldown_s = max(max_cooldown_s, int(_parse_window(eff.get("cooldown") or "0")))
@@ -680,6 +743,20 @@ def run_rules_once():
                     if last_at and cooldown.total_seconds() > 0 and (now - last_at) < cooldown:
                         continue
 
+                    sup_ctx = dict(group_key)
+                    sup_ctx.update(
+                        {
+                            "rule_id": rule_id,
+                            "severity": severity,
+                            "src_ip": src_ip,
+                            "dst_ip": dst_ip,
+                            "dst_port": dst_port,
+                        }
+                    )
+                    suppressed, _ = _is_suppressed(rule, sup_ctx, now)
+                    if suppressed:
+                        continue
+
                     details = {
                         "type": rule_type,
                         "group_by": group_fields,
@@ -687,6 +764,11 @@ def run_rules_once():
                         "count": count,
                         "window_seconds": int(window.total_seconds()),
                         "enrichment": enrichment,
+                        "rule_meta": {
+                            "pack": rule.get("pack"),
+                            "category": rule.get("category"),
+                            "rule_version": int(rule.get("rule_version") or 1),
+                        },
                     }
                     # Mirror to root for easier dashboards (optional but useful)
                     if enrichment.get("src_ips"):
@@ -772,6 +854,20 @@ def run_rules_once():
                     if last_at and cooldown.total_seconds() > 0 and (now - last_at) < cooldown:
                         continue
 
+                    sup_ctx = dict(group_key)
+                    sup_ctx.update(
+                        {
+                            "rule_id": rule_id,
+                            "severity": severity,
+                            "src_ip": src_ip,
+                            "dst_ip": dst_ip,
+                            "dst_port": dst_port,
+                        }
+                    )
+                    suppressed, _ = _is_suppressed(rule, sup_ctx, now)
+                    if suppressed:
+                        continue
+
                     details = {
                         "type": rule_type,
                         "group_by": group_fields,
@@ -781,6 +877,11 @@ def run_rules_once():
                         "event_count": event_count,
                         "window_seconds": int(window.total_seconds()),
                         "enrichment": enrichment,
+                        "rule_meta": {
+                            "pack": rule.get("pack"),
+                            "category": rule.get("category"),
+                            "rule_version": int(rule.get("rule_version") or 1),
+                        },
                     }
                     if enrichment.get("src_ips"):
                         details["src_ips"] = enrichment["src_ips"]
@@ -879,6 +980,20 @@ def run_rules_once():
                     if last_at and cooldown.total_seconds() > 0 and (now - last_at) < cooldown:
                         continue
 
+                    sup_ctx = dict(group_key)
+                    sup_ctx.update(
+                        {
+                            "rule_id": rule_id,
+                            "severity": severity,
+                            "src_ip": src_ip,
+                            "dst_ip": dst_ip,
+                            "dst_port": dst_port,
+                        }
+                    )
+                    suppressed, _ = _is_suppressed(rule, sup_ctx, now)
+                    if suppressed:
+                        continue
+
                     details = {
                         "type": rule_type,
                         "group_by": group_fields,
@@ -887,6 +1002,11 @@ def run_rules_once():
                         "distinct": distinct_result,
                         "window_seconds": int(window.total_seconds()),
                         "enrichment": enrichment,
+                        "rule_meta": {
+                            "pack": rule.get("pack"),
+                            "category": rule.get("category"),
+                            "rule_version": int(rule.get("rule_version") or 1),
+                        },
                     }
                     if enrichment.get("src_ips"):
                         details["src_ips"] = enrichment["src_ips"]

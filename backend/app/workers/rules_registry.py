@@ -7,6 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.alert_rule_overrides import AlertRuleOverrideModel
+from app.models.alert_rule_suppressions import AlertRuleSuppressionModel
+from app.models.alert_rule_tuning import AlertRuleTuningModel
 from app.workers.rules_loader import load_rules
 
 
@@ -46,6 +48,22 @@ def fetch_overrides(db: Session) -> Dict[str, AlertRuleOverrideModel]:
     return {r.rule_id: r for r in rows if r.rule_id}
 
 
+def fetch_tuning(db: Session) -> Dict[str, AlertRuleTuningModel]:
+    rows = db.execute(select(AlertRuleTuningModel)).scalars().all()
+    return {r.rule_id: r for r in rows if r.rule_id}
+
+
+def fetch_suppressions(db: Session) -> Dict[str, List[AlertRuleSuppressionModel]]:
+    rows = db.execute(select(AlertRuleSuppressionModel)).scalars().all()
+    out: Dict[str, List[AlertRuleSuppressionModel]] = {}
+    for r in rows:
+        rid = str(r.rule_id or "").strip()
+        if not rid:
+            continue
+        out.setdefault(rid, []).append(r)
+    return out
+
+
 def apply_override(base_rule: Dict[str, Any], row: Optional[AlertRuleOverrideModel]) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
     """Returns (effective_rule, override_payload)."""
     base = dict(base_rule or {})
@@ -75,6 +93,36 @@ def apply_override(base_rule: Dict[str, Any], row: Optional[AlertRuleOverrideMod
         eff = deep_merge(eff, row.patch)
 
     return eff, override_to_dict(row)
+
+
+def apply_tuning_and_suppressions(
+    rule: Dict[str, Any],
+    *,
+    tuning_row: Optional[AlertRuleTuningModel],
+    suppression_rows: Optional[List[AlertRuleSuppressionModel]],
+) -> Dict[str, Any]:
+    out = dict(rule or {})
+
+    if tuning_row is not None:
+        t = tuning_row.tuning if isinstance(tuning_row.tuning, dict) else {}
+        out["tuning"] = t
+
+    if suppression_rows:
+        sups: list[Dict[str, Any]] = []
+        for s in suppression_rows:
+            if not bool(getattr(s, "enabled", True)):
+                continue
+            sups.append(
+                {
+                    "id": int(s.id),
+                    "reason": s.reason,
+                    "when": s.when if isinstance(s.when, dict) else {},
+                    "until": s.until.isoformat() if getattr(s, "until", None) is not None else None,
+                }
+            )
+        out["suppressions"] = sups
+
+    return out
 
 
 def load_baseline_rules(include_disabled: bool = True) -> List[Dict[str, Any]]:
