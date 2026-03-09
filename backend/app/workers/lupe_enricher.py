@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import os
 import re
 import time
@@ -32,12 +33,15 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
+from app.core.observability import log_event, setup_logging
 from app.models.events import NetEventModel
 from app.models.ip_enrichment_cache import IpEnrichmentCacheModel
 from app.models.search_index_offsets import SearchIndexOffsetModel
 
 
 OFFSET_LUPE = "lupe_enricher_ssh_v1"
+setup_logging("worker-lupe")
+logger = logging.getLogger("netwatch.worker.lupe")
 
 # Only enrich these actions (accepted, failed_password, invalid_user). This matches the Lupe intent.
 SSH_ACTIONS: tuple[str, ...] = ("accepted", "failed_password", "invalid_user")
@@ -316,7 +320,7 @@ def main() -> None:
 
             if not token:
                 # Keep the worker alive but do no work.
-                print("[LUPE] NETWATCH_IPINFO_TOKEN is empty; waiting")
+                log_event(logger, "warning", "lupe_token_missing_waiting")
                 time.sleep(max(idle_sleep_s, 2.0))
                 continue
 
@@ -388,19 +392,19 @@ def main() -> None:
 
             _set_last_id(last_done_id)
             took_ms = int((time.time() - t0) * 1000)
-            print(f"[LUPE] ok last_id={last_id} max_id={max_id} processed={len(rows)} took_ms={took_ms}")
+            log_event(logger, "info", "lupe_ok", last_id=last_id, max_id=max_id, processed=len(rows), took_ms=took_ms)
 
             backoff = 1.0
             time.sleep(max(every_s, 0.1))
 
         except OperationalError as e:
             wait_s = min(backoff, 15.0)
-            print(f"[LUPE] db_not_ready wait_s={wait_s} error={str(e).splitlines()[0]}")
+            log_event(logger, "warning", "lupe_db_not_ready", wait_s=wait_s, error=str(e).splitlines()[0])
             time.sleep(wait_s)
             backoff = min(backoff * 2.0, 15.0)
         except Exception as e:
             wait_s = min(backoff, 30.0)
-            print(f"[LUPE] error wait_s={wait_s} error={repr(e)}")
+            log_event(logger, "error", "lupe_loop_error", wait_s=wait_s, error=repr(e))
             time.sleep(wait_s)
             backoff = min(backoff * 2.0, 30.0)
 
