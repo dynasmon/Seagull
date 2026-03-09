@@ -48,6 +48,10 @@ def _env_csv(name: str, default: str = "") -> list[str]:
 class Settings:
     # Environment
     NETWATCH_ENV: str = (_env_str("NETWATCH_ENV", "dev") or "dev").lower()
+    NETWATCH_DB_AUTO_UPGRADE: bool = _env_bool(
+        "NETWATCH_DB_AUTO_UPGRADE",
+        NETWATCH_ENV in {"dev", "development"},
+    )
 
     # Redis
     NETWATCH_REDIS_HOST: str = _env_str("NETWATCH_REDIS_HOST", "redis") or "redis"

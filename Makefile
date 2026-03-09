@@ -11,7 +11,7 @@ ENV_EXAMPLE := .env.example
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools dev prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql lint test deps-check ci
+.PHONY: help bootstrap bootstrap-tools dev prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test deps-check ci
 
 help:
 	@echo "Targets:"
@@ -25,6 +25,8 @@ help:
 	@echo "  make logs        - follow logs (set SVC=service)"
 	@echo "  make build-dev   - build dev images"
 	@echo "  make build-prod  - build prod images"
+	@echo "  make db-upgrade  - run alembic upgrade head in backend container"
+	@echo "  make db-current  - show current alembic revision in backend container"
 	@echo "  make lint        - lint backend, frontend and agent"
 	@echo "  make test        - run minimal automated tests"
 	@echo "  make deps-check  - dependency vulnerability checks"
@@ -90,6 +92,12 @@ nuke:
 psql:
 	$(DC) $(COMPOSE_DEV) exec postgres psql -U $$POSTGRES_USER -d $$POSTGRES_DB
 
+db-upgrade:
+	$(DC) $(COMPOSE_DEV) run --rm --build netwatch-backend python -m alembic upgrade head
+
+db-current:
+	$(DC) $(COMPOSE_DEV) run --rm --build netwatch-backend python -m alembic current
+
 lint:
 	cd backend && $(PYTHON) -m ruff check app tests
 	cd frontend && npm run lint
@@ -99,7 +107,7 @@ lint:
 test:
 	cd backend && $(PYTHON) -m pytest -q
 	cd agent && go test ./...
-	cd frontend && npm run build
+	cd frontend && npm run smoke
 
 deps-check:
 	cd backend && $(PYTHON) -m pip_audit -r requirements.lock

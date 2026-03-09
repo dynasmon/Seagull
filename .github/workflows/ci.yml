@@ -47,6 +47,11 @@ jobs:
       - name: Lint
         run: make lint
 
+      - name: Validate Alembic heads
+        run: |
+          cd backend
+          alembic heads
+
       - name: Test
         run: make test
 

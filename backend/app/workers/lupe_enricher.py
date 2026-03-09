@@ -30,8 +30,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
-from app.core.db import Base, engine
-from app.core.schema_bootstrap import bootstrap_schema
+from app.core.db import engine
+from app.core.db_lifecycle import ensure_database_ready
 from app.models.events import NetEventModel
 from app.models.ip_enrichment_cache import IpEnrichmentCacheModel
 from app.models.search_index_offsets import SearchIndexOffsetModel
@@ -111,8 +111,7 @@ def _ensure_bootstrap(default_ttl_days: int) -> None:
 
     The backend runs schema_bootstrap at startup, but workers may start first.
     """
-    Base.metadata.create_all(bind=engine)
-    bootstrap_schema(engine)
+    ensure_database_ready()
     with engine.begin() as conn:
         conn.execute(
             insert(SearchIndexOffsetModel)

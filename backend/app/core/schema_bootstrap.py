@@ -4,10 +4,11 @@ Runtime-safe bootstrap without raw SQL queries:
 - ensure important secondary indexes (checkfirst)
 - seed offset rows used by background workers
 
-Table creation is handled by `Base.metadata.create_all` during app startup.
+Table creation is handled by Alembic migrations (upgrade head).
 """
 
 from sqlalchemy import Index, func, inspect
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.dialects.postgresql import insert
 
 from app.models.agents import AgentModel
@@ -324,7 +325,14 @@ def _seed_offsets(conn) -> None:
         conn.execute(stmt)
 
 
-def bootstrap_schema(engine) -> None:
-    with engine.begin() as conn:
+def bootstrap_schema(bind: Engine | Connection) -> None:
+    # Alembic migrations already run in a transaction and pass a live Connection.
+    # Reusing that connection avoids nested begin() errors.
+    if isinstance(bind, Connection):
+        _ensure_indexes(bind)
+        _seed_offsets(bind)
+        return
+
+    with bind.begin() as conn:
         _ensure_indexes(conn)
         _seed_offsets(conn)
