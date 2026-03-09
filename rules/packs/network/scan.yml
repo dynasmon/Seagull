@@ -1,3 +1,8 @@
+schema_version: 1
+pack: network
+category: discovery
+pack_version: 1
+
 rules:
   - id: tcp_vertical_port_scan_v3
     name: "TCP vertical port scan"

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Query, Depends, HTTPException
@@ -9,15 +9,25 @@ from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.models.events import NetEventModel
 from app.models.alerts import AlertModel
 from app.models.alert_rule_overrides import AlertRuleOverrideModel
+from app.models.alert_rule_suppressions import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
+from app.models.alert_rule_tuning import AlertRuleTuningHistoryModel, AlertRuleTuningModel
 from app.schemas.alerts import AlertOut
 from app.schemas.pagination import CursorPage
-from app.schemas.alert_rules import RuleOut, RuleOverrideIn
+from app.schemas.alert_rules import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn
 from app.schemas.mitre import MitreCoverageResponse, MitreTacticCoverage, MitreTechniqueStat
 from app.mitre.catalog import technique_name
 from app.workers.rules_engine import run_all_rules
-from app.workers.rules_registry import apply_override, fetch_overrides, load_baseline_rules, normalize_rule_list
+from app.workers.rules_registry import (
+    apply_override,
+    apply_tuning_and_suppressions,
+    fetch_overrides,
+    fetch_suppressions,
+    fetch_tuning,
+    load_baseline_rules,
+    normalize_rule_list,
+)
 
-from app.core.portal_auth import require_admin
+from app.core.portal_auth import PortalPrincipal, require_admin
 
 
 router = APIRouter(
@@ -25,6 +35,26 @@ router = APIRouter(
     tags=["alerts"],
     dependencies=[Depends(require_admin)],
 )
+
+
+def _parse_optional_until(v: Any) -> Optional[datetime]:
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v
+    raw = str(v).strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(raw)
+    except Exception:
+        return None
+    if dt.tzinfo is not None:
+        # keep storage semantics aligned with existing UTC-naive timestamps
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 @router.get("", response_model=CursorPage[AlertOut])
@@ -572,6 +602,8 @@ def list_alert_rules():
     try:
         base_rules = normalize_rule_list(load_baseline_rules(include_disabled=True))
         overrides = fetch_overrides(db)
+        tunings = fetch_tuning(db)
+        suppressions = fetch_suppressions(db)
 
         out: List[RuleOut] = []
         for base in base_rules:
@@ -580,7 +612,19 @@ def list_alert_rules():
                 continue
 
             row = overrides.get(rid)
+            trow = tunings.get(rid)
+            srows = suppressions.get(rid) or []
             effective, override_payload = apply_override(base, row)
+            effective = apply_tuning_and_suppressions(
+                effective,
+                tuning_row=trow,
+                suppression_rows=srows,
+            )
+            has_any_override = (row is not None) or (trow is not None) or (len(srows) > 0)
+            updated_candidates = [getattr(x, "updated_at", None) for x in [row, trow] if x is not None]
+            updated_candidates.extend([getattr(s, "updated_at", None) for s in srows])
+            updated_candidates = [x for x in updated_candidates if isinstance(x, datetime)]
+            updated_at = max(updated_candidates) if updated_candidates else None
 
             out.append(
                 RuleOut(
@@ -588,13 +632,16 @@ def list_alert_rules():
                     name=effective.get("name") or base.get("name"),
                     description=effective.get("description") or base.get("description"),
                     source_file=base.get("source_file"),
+                    pack=effective.get("pack") or base.get("pack"),
+                    category=effective.get("category") or base.get("category"),
+                    rule_version=int(effective.get("rule_version") or base.get("rule_version") or 1),
                     enabled=bool(effective.get("enabled", True)),
                     severity=str(effective.get("severity") or "low"),
                     type=effective.get("type"),
                     window=effective.get("window"),
                     cooldown=effective.get("cooldown"),
-                    has_override=row is not None,
-                    updated_at=getattr(row, "updated_at", None) if row is not None else None,
+                    has_override=has_any_override,
+                    updated_at=updated_at,
                     base=base,
                     override=override_payload,
                     effective=effective,
@@ -609,7 +656,7 @@ def list_alert_rules():
 
 
 @router.patch("/rules/{rule_id}", response_model=RuleOut)
-def patch_alert_rule(rule_id: str, body: RuleOverrideIn):
+def patch_alert_rule(rule_id: str, body: RuleOverrideIn, admin: PortalPrincipal = Depends(require_admin)):
     """Upsert overrides for a given rule."""
     base_rules = normalize_rule_list(load_baseline_rules(include_disabled=True))
     base = next((r for r in base_rules if r.get("id") == rule_id), None)
@@ -642,18 +689,110 @@ def patch_alert_rule(rule_id: str, body: RuleOverrideIn):
         if "patch" in fields:
             row.patch = body.patch or {}
 
+        if "tuning" in fields:
+            trow = db.get(AlertRuleTuningModel, rule_id)
+            if body.tuning is None:
+                if trow is not None:
+                    db.add(
+                        AlertRuleTuningHistoryModel(
+                            rule_id=rule_id,
+                            action="deleted",
+                            snapshot={"tuning": trow.tuning or {}},
+                            actor_user_id=admin.id,
+                            actor_username=admin.username,
+                        )
+                    )
+                    db.delete(trow)
+            else:
+                action = "created" if trow is None else "updated"
+                if trow is None:
+                    trow = AlertRuleTuningModel(rule_id=rule_id, tuning={})
+                    db.add(trow)
+                trow.tuning = body.tuning or {}
+                trow.updated_at = datetime.utcnow()
+                trow.updated_by_user_id = admin.id
+                trow.updated_by_username = admin.username
+                db.add(
+                    AlertRuleTuningHistoryModel(
+                        rule_id=rule_id,
+                        action=action,
+                        snapshot={"tuning": trow.tuning or {}},
+                        actor_user_id=admin.id,
+                        actor_username=admin.username,
+                    )
+                )
+
+        if "suppressions" in fields:
+            existing = db.query(AlertRuleSuppressionModel).filter(AlertRuleSuppressionModel.rule_id == rule_id).all()
+            for s in existing:
+                db.add(
+                    AlertRuleSuppressionHistoryModel(
+                        rule_id=rule_id,
+                        suppression_id=s.id,
+                        action="deleted",
+                        snapshot={
+                            "enabled": bool(s.enabled),
+                            "reason": s.reason,
+                            "when": s.when if isinstance(s.when, dict) else {},
+                            "until": s.until.isoformat() if s.until else None,
+                        },
+                        actor_user_id=admin.id,
+                        actor_username=admin.username,
+                    )
+                )
+                db.delete(s)
+
+            for item in (body.suppressions or []):
+                if not isinstance(item, dict):
+                    continue
+                srow = AlertRuleSuppressionModel(
+                    rule_id=rule_id,
+                    enabled=bool(item.get("enabled", True)),
+                    reason=(str(item.get("reason") or "").strip() or None),
+                    when=item.get("when") if isinstance(item.get("when"), dict) else {},
+                    until=_parse_optional_until(item.get("until")),
+                    updated_at=datetime.utcnow(),
+                    updated_by_user_id=admin.id,
+                    updated_by_username=admin.username,
+                )
+                db.add(srow)
+                db.flush()
+                db.add(
+                    AlertRuleSuppressionHistoryModel(
+                        rule_id=rule_id,
+                        suppression_id=srow.id,
+                        action="created",
+                        snapshot={
+                            "enabled": bool(srow.enabled),
+                            "reason": srow.reason,
+                            "when": srow.when if isinstance(srow.when, dict) else {},
+                            "until": srow.until.isoformat() if srow.until else None,
+                        },
+                        actor_user_id=admin.id,
+                        actor_username=admin.username,
+                    )
+                )
+
         row.updated_at = datetime.utcnow()
 
         db.commit()
         db.refresh(row)
 
         effective, override_payload = apply_override(base, row)
+        effective = apply_tuning_and_suppressions(
+            effective,
+            tuning_row=db.get(AlertRuleTuningModel, rule_id),
+            suppression_rows=db.query(AlertRuleSuppressionModel).filter(AlertRuleSuppressionModel.rule_id == rule_id).all(),
+        )
 
         return RuleOut(
             id=rule_id,
             name=effective.get("name") or base.get("name"),
             description=effective.get("description") or base.get("description"),
             source_file=base.get("source_file"),
+            pack=effective.get("pack") or base.get("pack"),
+            category=effective.get("category") or base.get("category"),
+            rule_version=int(effective.get("rule_version") or base.get("rule_version") or 1),
             enabled=bool(effective.get("enabled", True)),
             severity=str(effective.get("severity") or "low"),
             type=effective.get("type"),
@@ -670,14 +809,96 @@ def patch_alert_rule(rule_id: str, body: RuleOverrideIn):
 
 
 @router.delete("/rules/{rule_id}", status_code=204)
-def delete_alert_rule_override(rule_id: str):
+def delete_alert_rule_override(rule_id: str, admin: PortalPrincipal = Depends(require_admin)):
     """Remove all overrides for a rule (reverts to baseline YAML)."""
     db = SessionLocal()
     try:
         row = db.get(AlertRuleOverrideModel, rule_id)
         if row is not None:
             db.delete(row)
-            db.commit()
+        trow = db.get(AlertRuleTuningModel, rule_id)
+        if trow is not None:
+            db.add(
+                AlertRuleTuningHistoryModel(
+                    rule_id=rule_id,
+                    action="deleted",
+                    snapshot={"tuning": trow.tuning or {}},
+                    actor_user_id=admin.id,
+                    actor_username=admin.username,
+                )
+            )
+            db.delete(trow)
+        sups = db.query(AlertRuleSuppressionModel).filter(AlertRuleSuppressionModel.rule_id == rule_id).all()
+        for s in sups:
+            db.add(
+                AlertRuleSuppressionHistoryModel(
+                    rule_id=rule_id,
+                    suppression_id=s.id,
+                    action="deleted",
+                    snapshot={
+                        "enabled": bool(s.enabled),
+                        "reason": s.reason,
+                        "when": s.when if isinstance(s.when, dict) else {},
+                        "until": s.until.isoformat() if s.until else None,
+                    },
+                    actor_user_id=admin.id,
+                    actor_username=admin.username,
+                )
+            )
+            db.delete(s)
+        db.commit()
         return None
+    finally:
+        db.close()
+
+
+@router.get("/rules/{rule_id}/history", response_model=List[RuleGovernanceHistoryOut])
+def get_alert_rule_history(rule_id: str, limit: int = Query(100, ge=1, le=500)):
+    db = SessionLocal()
+    try:
+        rows_t = (
+            db.query(AlertRuleTuningHistoryModel)
+            .filter(AlertRuleTuningHistoryModel.rule_id == rule_id)
+            .order_by(AlertRuleTuningHistoryModel.created_at.desc(), AlertRuleTuningHistoryModel.id.desc())
+            .limit(limit)
+            .all()
+        )
+        rows_s = (
+            db.query(AlertRuleSuppressionHistoryModel)
+            .filter(AlertRuleSuppressionHistoryModel.rule_id == rule_id)
+            .order_by(AlertRuleSuppressionHistoryModel.created_at.desc(), AlertRuleSuppressionHistoryModel.id.desc())
+            .limit(limit)
+            .all()
+        )
+
+        out: List[RuleGovernanceHistoryOut] = []
+        for r in rows_t:
+            out.append(
+                RuleGovernanceHistoryOut(
+                    id=int(r.id),
+                    rule_id=r.rule_id,
+                    kind="tuning",
+                    action=r.action,
+                    created_at=r.created_at,
+                    actor_user_id=r.actor_user_id,
+                    actor_username=r.actor_username,
+                    snapshot=r.snapshot if isinstance(r.snapshot, dict) else {},
+                )
+            )
+        for r in rows_s:
+            out.append(
+                RuleGovernanceHistoryOut(
+                    id=int(r.id),
+                    rule_id=r.rule_id,
+                    kind="suppression",
+                    action=r.action,
+                    created_at=r.created_at,
+                    actor_user_id=r.actor_user_id,
+                    actor_username=r.actor_username,
+                    snapshot=r.snapshot if isinstance(r.snapshot, dict) else {},
+                )
+            )
+        out.sort(key=lambda x: (x.created_at, x.id), reverse=True)
+        return out[:limit]
     finally:
         db.close()

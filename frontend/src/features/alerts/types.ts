@@ -17,6 +17,9 @@ export type RuleOut = {
   name?: string | null;
   description?: string | null;
   source_file?: string | null;
+  pack?: string | null;
+  category?: string | null;
+  rule_version: number;
   enabled: boolean;
   severity: string;
   type?: string | null;
@@ -37,6 +40,8 @@ export type RuleOverrideIn = {
   min_events?: number | null;
   condition?: Record<string, any> | null;
   schedule?: Record<string, any> | null;
+  tuning?: Record<string, any> | null;
+  suppressions?: Array<Record<string, any>> | null;
   patch?: Record<string, any> | null;
 };
 
@@ -46,4 +51,15 @@ export type RuleSchedule = {
   days: string[];
   start: string;
   end: string;
+};
+
+export type RuleGovernanceHistory = {
+  id: number;
+  rule_id: string;
+  kind: "tuning" | "suppression" | string;
+  action: string;
+  created_at: string;
+  actor_user_id?: number | null;
+  actor_username?: string | null;
+  snapshot: Record<string, any>;
 };

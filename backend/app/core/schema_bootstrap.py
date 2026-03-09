@@ -13,6 +13,8 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.models.agents import AgentModel
 from app.models.alert_rule_overrides import AlertRuleOverrideModel
+from app.models.alert_rule_suppressions import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
+from app.models.alert_rule_tuning import AlertRuleTuningHistoryModel, AlertRuleTuningModel
 from app.models.alerts import AlertModel
 from app.models.attack_chain import AttackChainAllowlistModel, AttackChainCaseModel, AttackChainStepModel
 from app.models.events import EventRollup1mModel, IngestStats1sModel, NetEventModel, NetEventRollup1sModel, SshFailRollup1mModel
@@ -162,6 +164,26 @@ def _ensure_indexes(conn) -> None:
         (
             "alert_rule_overrides",
             Index("idx_alert_rule_overrides_updated_at", AlertRuleOverrideModel.updated_at.desc()),
+        ),
+        (
+            "alert_rule_tuning",
+            Index("idx_alert_rule_tuning_updated_at", AlertRuleTuningModel.updated_at.desc()),
+        ),
+        (
+            "alert_rule_tuning_history",
+            Index("idx_alert_rule_tuning_history_rule_created", AlertRuleTuningHistoryModel.rule_id, AlertRuleTuningHistoryModel.created_at.desc()),
+        ),
+        (
+            "alert_rule_suppressions",
+            Index("idx_alert_rule_suppressions_rule_updated", AlertRuleSuppressionModel.rule_id, AlertRuleSuppressionModel.updated_at.desc()),
+        ),
+        (
+            "alert_rule_suppressions",
+            Index("idx_alert_rule_suppressions_rule_enabled_until", AlertRuleSuppressionModel.rule_id, AlertRuleSuppressionModel.enabled, AlertRuleSuppressionModel.until),
+        ),
+        (
+            "alert_rule_suppressions_history",
+            Index("idx_alert_rule_supp_history_rule_created", AlertRuleSuppressionHistoryModel.rule_id, AlertRuleSuppressionHistoryModel.created_at.desc()),
         ),
         (
             "vuln_scans",

@@ -68,6 +68,7 @@ class Settings:
     # Redis
     NETWATCH_REDIS_HOST: str = _env_str("NETWATCH_REDIS_HOST", "redis") or "redis"
     NETWATCH_REDIS_PORT: int = _env_int("NETWATCH_REDIS_PORT", 6379)
+    NETWATCH_RULES_DIR: str = _env_str("NETWATCH_RULES_DIR", "/app/rules") or "/app/rules"
 
     # Optional full SQLAlchemy DSN (preferred). Example:
     #   postgresql+psycopg2://user:pass@postgres:5432/netwatch

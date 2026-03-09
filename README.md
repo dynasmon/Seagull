@@ -54,7 +54,7 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
   - Uses portal auth (`/auth/login`, `/auth/refresh`, `/auth/me`) and does not rely on localStorage roles.
 
 - **netwatch-rules-worker**
-  - Periodically loads baseline YAML detections from `./rules/`.
+  - Periodically loads baseline YAML detections from `./rules/` (supports packs under `./rules/packs/**`).
   - Applies optional rule overrides (enable/disable/severity) and writes findings to the `alerts` table.
 
 - **PostgreSQL**
