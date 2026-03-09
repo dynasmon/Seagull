@@ -1,10 +1,10 @@
 import logging
-import os
 import time
 
 from sqlalchemy.exc import OperationalError
 
 from app.core.observability import log_event, setup_logging
+from app.core.config import settings
 from app.workers.rules_engine import run_all_rules
 
 
@@ -13,17 +13,14 @@ logger = logging.getLogger("netwatch.worker.rules")
 
 
 def _get_interval_seconds() -> float:
-    raw = (os.getenv("NETWATCH_RULES_EVERY_SECONDS") or "5").strip()
-    try:
-        v = float(raw)
-    except Exception:
-        return 5.0
+    v = float(settings.NETWATCH_RULES_EVERY_SECONDS or 5.0)
     if v < 0.25:
         return 0.25
     return v
 
 
 def main() -> None:
+    settings.validate_for_service("worker-rules")
     every = _get_interval_seconds()
     backoff = 1.0
     while True:

@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.db import engine
+from app.core.config import settings
 from app.core.redis_client import get_redis
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.ingest_control import storm_maybe_close_alert, storm_maybe_open_alert
@@ -364,6 +365,7 @@ def _decr_backlog_events(r, received: int) -> None:
 
 
 def main() -> None:
+    settings.validate_for_service("worker-ingest")
     cfg = load_config()
 
     ensure_database_ready()

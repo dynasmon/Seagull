@@ -2,14 +2,20 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.portal_auth import PortalPrincipal, require_admin
 from app.models.portal_login_events import PortalLoginEventModel
 from app.models.portal_users import PortalUserModel
-from app.schemas.admin import LoginEventOut
+from app.schemas.admin import LoginEventOut, RuntimeConfigOut
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/runtime-config", response_model=RuntimeConfigOut)
+def admin_runtime_config(_: PortalPrincipal = Depends(require_admin)):
+    return {"config": settings.runtime_config_for_admin()}
 
 
 @router.get("/login-history", response_model=list[LoginEventOut])

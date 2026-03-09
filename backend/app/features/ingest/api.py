@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
@@ -18,6 +17,7 @@ from app.core.ingest_control import (
     storm_maybe_open_alert,
     get_storm_status,
 )
+from app.core.config import settings
 from app.models.events import NetEventModel, NetEventRollup1sModel
 from app.schemas.events import NetEvent
 
@@ -26,32 +26,6 @@ router = APIRouter(
     prefix="/ingest",
     tags=["ingest"],
 )
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    raw = raw.strip()
-    if raw == "":
-        return default
-    try:
-        return int(raw, 10)
-    except Exception:
-        return default
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    s = raw.strip().lower()
-    if s in {"1", "true", "t", "yes", "y", "on"}:
-        return True
-    if s in {"0", "false", "f", "no", "n", "off"}:
-        return False
-    return default
-
 
 def _fallback_direct_insert(*, hot_events: List[List], rollup_rows: List[List]) -> int:
     """Fail-open path if Redis is unavailable.
@@ -143,7 +117,7 @@ def ingest_events(
     if not events:
         return {"received": 0, "enqueued": 0}
 
-    max_batch = _env_int("NETWATCH_INGEST_MAX_BATCH", 10000)
+    max_batch = max(1, int(settings.NETWATCH_INGEST_MAX_BATCH or 10000))
     if len(events) > max_batch:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -159,7 +133,7 @@ def ingest_events(
     bp = evaluate_backpressure(received=len(events))
 
     # Only trust client timestamp if it is close enough to server time.
-    max_skew_s = _env_int("NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS", 30)
+    max_skew_s = max(0, int(settings.NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS or 30))
 
     now = datetime.now(timezone.utc)
 
@@ -201,26 +175,33 @@ def ingest_events(
     active_for_metrics = storm_active or pressure_active
     storm_reason = decision.reason if decision.storm_active else (bp.reason if pressure_active else "ok")
 
-    rollup_always = _env_bool("NETWATCH_INGEST_ROLLUP_ALWAYS", False)
+    rollup_always = bool(settings.NETWATCH_INGEST_ROLLUP_ALWAYS)
     do_rollup = rollup_always or active_for_metrics
 
     # Sampling policy (hot vs warm)
     if mode == "rollup_only":
         hot_pct = 0
-        warm_pct = _env_int("NETWATCH_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT", _env_int("NETWATCH_INGEST_STORM_SAMPLE_PERCENT", 2))
+        warm_pct = max(
+            0,
+            int(
+                settings.NETWATCH_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT
+                or settings.NETWATCH_INGEST_STORM_SAMPLE_PERCENT
+                or 2
+            ),
+        )
     elif storm_active:
-        hot_pct = _env_int("NETWATCH_INGEST_STORM_HOT_SAMPLE_PERCENT", int(decision.sample_percent))
-        warm_pct = _env_int("NETWATCH_INGEST_STORM_WARM_SAMPLE_PERCENT", int(decision.sample_percent))
+        hot_pct = int(settings.NETWATCH_INGEST_STORM_HOT_SAMPLE_PERCENT or int(decision.sample_percent))
+        warm_pct = int(settings.NETWATCH_INGEST_STORM_WARM_SAMPLE_PERCENT or int(decision.sample_percent))
     else:
         hot_pct = 100
-        warm_pct = _env_int("NETWATCH_INGEST_WARM_SAMPLE_PERCENT", 0)
+        warm_pct = int(settings.NETWATCH_INGEST_WARM_SAMPLE_PERCENT or 0)
 
     hot_pct = max(0, min(int(hot_pct), 100))
     warm_pct = max(0, min(int(warm_pct), 100))
 
     # Normalize to deterministic sample.
     # We only send warm events when ES is enabled AND the event was NOT kept hot.
-    warm_enabled = warm_pct > 0 and _env_bool("NETWATCH_INGEST_WARM_ENABLED", True)
+    warm_enabled = warm_pct > 0 and bool(settings.NETWATCH_INGEST_WARM_ENABLED)
 
     # Build rollups + sampled event payloads.
     hot_events: List[List] = []

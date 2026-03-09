@@ -30,6 +30,7 @@ from app.attack_chain.store import (
 )
 from app.attack_chain.types import AttackStage, StepCandidate
 from app.core.db import engine
+from app.core.config import settings
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
 from app.models.attack_chain import (
@@ -704,6 +705,7 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
 
 
 def main() -> None:
+    settings.validate_for_service("worker-attack-chain")
     cfg = load_config()
 
     # Keep worker startup robust even if the API service hasn't run yet.

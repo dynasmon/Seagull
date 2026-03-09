@@ -8,6 +8,7 @@ import {
   changeMyPassword,
   deleteAttackChainAllowlistRule,
   getAdminLoginHistory,
+  getRuntimeConfig,
   listAttackChainAllowlist,
   updateAttackChainAllowlistRule,
   type AdminLoginEvent,
@@ -59,6 +60,9 @@ export default function SettingsPage() {
   const [hist, setHist] = useState<AdminLoginEvent[]>([]);
   const [histBusy, setHistBusy] = useState(false);
   const [histError, setHistError] = useState<string | null>(null);
+  const [runtimeCfg, setRuntimeCfg] = useState<Record<string, any> | null>(null);
+  const [runtimeBusy, setRuntimeBusy] = useState(false);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
   // Attack Chain allowlist (admin)
   const [allow, setAllow] = useState<AttackChainAllowlistRule[]>([]);
@@ -171,6 +175,21 @@ export default function SettingsPage() {
     }
   }
 
+  async function loadRuntimeCfg() {
+    if (!isAdmin || runtimeBusy) return;
+    setRuntimeBusy(true);
+    setRuntimeError(null);
+    try {
+      const out = await getRuntimeConfig();
+      setRuntimeCfg((out && out.config) || null);
+    } catch (e: any) {
+      setRuntimeError(e?.message || "Failed to load runtime config");
+      setRuntimeCfg(null);
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
   function openCreateAllowlist() {
     setAllowMode("create");
     setAllowEdit(null);
@@ -216,6 +235,7 @@ export default function SettingsPage() {
   useEffect(() => {
     loadLoginHistory();
     loadAllowlist();
+    loadRuntimeCfg();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
@@ -392,6 +412,38 @@ export default function SettingsPage() {
             </div>
           )}
         </Card>
+
+        {isAdmin && (
+          <div className="lg:col-span-2">
+            <Card title="Runtime config" right={runtimeBusy ? "loading" : "centralized"} className="w-full">
+              <div className="space-y-3">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                  <div className="text-[11px] text-muted-foreground">
+                    Effective backend configuration loaded at startup (sanitized).
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadRuntimeCfg}
+                    disabled={runtimeBusy}
+                    className="inline-flex h-9 items-center justify-center border border-border/60 bg-background/40 px-3 text-[10px] font-mono uppercase tracking-widest hover:bg-background/60 disabled:opacity-60"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                {runtimeError && (
+                  <div className="border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-mono text-red-300">
+                    {runtimeError}
+                  </div>
+                )}
+
+                <pre className="rounded-xl border border-border/60 bg-background/20 p-3 text-[11px] leading-5 overflow-auto">
+                  {JSON.stringify(runtimeCfg || {}, null, 2)}
+                </pre>
+              </div>
+            </Card>
+          </div>
+        )}
 
         {isAdmin && (
           <div className="lg:col-span-2">

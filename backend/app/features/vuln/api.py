@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
@@ -15,6 +14,7 @@ from app.core.agent_auth import AgentPrincipal, get_current_agent
 from app.core.db import SessionLocal
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.portal_auth import require_admin
+from app.core.config import settings
 from app.models.agents import AgentModel
 from app.models.vuln import VulnFindingModel, VulnScanModel
 from app.schemas.pagination import CursorPage
@@ -92,7 +92,7 @@ def _fingerprint(
 
 
 def _truncate_evidence(evidence: Dict[str, Any]) -> Dict[str, Any]:
-    max_bytes = int((os.getenv("NETWATCH_VULN_MAX_EVIDENCE_BYTES") or "32768").strip() or "32768")
+    max_bytes = int(settings.NETWATCH_VULN_MAX_EVIDENCE_BYTES or 32768)
     if max_bytes < 1024:
         max_bytes = 1024
 
@@ -116,11 +116,8 @@ def _truncate_evidence(evidence: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
+    raw = getattr(settings, name, None)
     if raw is None:
-        return default
-    raw = raw.strip()
-    if raw == "":
         return default
     try:
         return int(raw)
@@ -129,10 +126,10 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
+    raw = getattr(settings, name, None)
     if raw is None:
         return default
-    v = raw.strip().lower()
+    v = str(raw).strip().lower()
     if v in {"1", "true", "t", "yes", "y", "on"}:
         return True
     if v in {"0", "false", "f", "no", "n", "off"}:

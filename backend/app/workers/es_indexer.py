@@ -24,6 +24,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
+from app.core.config import settings
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
@@ -402,6 +403,7 @@ def _bulk_index(es, actions: Iterable[Dict[str, Any]], cfg: ESConfig) -> None:
 
 
 def main() -> None:
+    settings.validate_for_service("worker-es-indexer")
     cfg = load_config()
 
     # Ensure DB bootstrap changes exist even if this worker starts early.
