@@ -1,0 +1,20 @@
+services:
+  netwatch-backend:
+    environment:
+      NETWATCH_ENV: dev
+
+  netwatch-portal:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "${NETWATCH_PORTAL_PORT:-8080}:5173"
+    environment:
+      NETWATCH_API_BASE: http://netwatch-backend:8000
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - /app/node_modules

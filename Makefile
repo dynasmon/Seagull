@@ -1,62 +1,110 @@
 SHELL := /bin/bash
+
 DC := docker compose
+COMPOSE_BASE := -f docker-compose.yml
+COMPOSE_DEV := $(COMPOSE_BASE) -f compose.dev.yml
+COMPOSE_PROD := $(COMPOSE_BASE) -f compose.prod.yml
 
 ENV_FILE := .env
 ENV_EXAMPLE := .env.example
 
-.PHONY: help bootstrap up up-extra down restart ps logs build pull clean nuke psql
+PYTHON ?= python3
+PIP ?= pip3
+
+.PHONY: help bootstrap bootstrap-tools dev prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql lint test deps-check ci
 
 help:
 	@echo "Targets:"
-	@echo "  make up         - create .env if missing and start the stack"
-	@echo "  make up-extra   - same as up, but enables profile 'extra' (lateral agent)"
-	@echo "  make down       - stop the stack"
-	@echo "  make restart    - restart the stack"
-	@echo "  make ps         - list services"
-	@echo "  make logs       - follow logs (set SVC=service)"
-	@echo "  make build      - build images"
-	@echo "  make pull       - pull images"
-	@echo "  make clean      - down + remove-orphans (keeps volumes)"
-	@echo "  make nuke       - down + remove volumes (DANGEROUS)"
-	@echo "  make psql       - open psql inside postgres"
+	@echo "  make dev         - bootstrap and start development stack"
+	@echo "  make prod        - bootstrap and start production-style stack"
+	@echo "  make up          - alias for make dev"
+	@echo "  make up-extra    - start development stack with profile 'extra'"
+	@echo "  make down        - stop stack (dev profile by default)"
+	@echo "  make restart     - restart development stack"
+	@echo "  make ps          - list services (dev profile by default)"
+	@echo "  make logs        - follow logs (set SVC=service)"
+	@echo "  make build-dev   - build dev images"
+	@echo "  make build-prod  - build prod images"
+	@echo "  make lint        - lint backend, frontend and agent"
+	@echo "  make test        - run minimal automated tests"
+	@echo "  make deps-check  - dependency vulnerability checks"
+	@echo "  make ci          - run local CI sequence (lint, test, build-prod)"
+	@echo "  make clean       - down + remove-orphans (keeps volumes)"
+	@echo "  make nuke        - down + remove volumes (DANGEROUS)"
+	@echo "  make psql        - open psql inside postgres"
 
 bootstrap:
 	@test -f $(ENV_FILE) || (cp $(ENV_EXAMPLE) $(ENV_FILE) && echo "[bootstrap] created .env from .env.example")
 
-up: bootstrap
-	$(DC) up -d --build
+bootstrap-tools:
+	@command -v docker >/dev/null 2>&1 || (echo "docker not found" && exit 1)
+	@docker compose version >/dev/null 2>&1 || (echo "docker compose not available" && exit 1)
 
-up-extra: bootstrap
-	$(DC) --profile extra up -d --build
+# Single-command bootstrap for development.
+dev: bootstrap bootstrap-tools
+	$(DC) $(COMPOSE_DEV) up -d --build
+
+# Single-command bootstrap for production-like runs.
+prod: bootstrap bootstrap-tools
+	$(DC) $(COMPOSE_PROD) up -d --build
+
+up: dev
+
+up-extra: bootstrap bootstrap-tools
+	$(DC) $(COMPOSE_DEV) --profile extra up -d --build
 
 down:
-	$(DC) down
+	$(DC) $(COMPOSE_DEV) down
 
 restart:
-	$(DC) down
-	$(DC) up -d --build
+	$(DC) $(COMPOSE_DEV) down
+	$(DC) $(COMPOSE_DEV) up -d --build
 
 ps:
-	$(DC) ps
+	$(DC) $(COMPOSE_DEV) ps
 
 logs:
 	@if [ -z "$(SVC)" ]; then \
-		$(DC) logs -f; \
+		$(DC) $(COMPOSE_DEV) logs -f; \
 	else \
-		$(DC) logs -f $(SVC); \
+		$(DC) $(COMPOSE_DEV) logs -f $(SVC); \
 	fi
 
-build:
-	$(DC) build
+build: build-dev
+
+build-dev:
+	$(DC) $(COMPOSE_DEV) build
+
+build-prod:
+	$(DC) $(COMPOSE_PROD) build
 
 pull:
-	$(DC) pull
+	$(DC) $(COMPOSE_BASE) pull
 
 clean:
-	$(DC) down --remove-orphans
+	$(DC) $(COMPOSE_DEV) down --remove-orphans
 
 nuke:
-	$(DC) down -v --remove-orphans
+	$(DC) $(COMPOSE_DEV) down -v --remove-orphans
 
 psql:
-	$(DC) exec postgres psql -U $$POSTGRES_USER -d $$POSTGRES_DB
+	$(DC) $(COMPOSE_DEV) exec postgres psql -U $$POSTGRES_USER -d $$POSTGRES_DB
+
+lint:
+	cd backend && $(PYTHON) -m ruff check app tests
+	cd frontend && npm run lint
+	cd agent && test -z "$$(gofmt -l $$(find . -name '*.go' -type f))" || (echo "gofmt required on agent sources" && exit 1)
+	cd agent && go vet ./...
+
+test:
+	cd backend && $(PYTHON) -m pytest -q
+	cd agent && go test ./...
+	cd frontend && npm run build
+
+deps-check:
+	cd backend && $(PYTHON) -m pip_audit -r requirements.lock
+	cd frontend && npm audit --audit-level=high
+	cd agent && go install golang.org/x/vuln/cmd/govulncheck@latest
+	cd agent && govulncheck ./...
+
+ci: lint test build-prod
