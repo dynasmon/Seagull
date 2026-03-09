@@ -147,22 +147,30 @@ If you enable SSH enrichment (Lupe), set:
 
 - `NETWATCH_IPINFO_TOKEN` (IPInfo token)
 
-### 3. Build the Docker images
+### 3. Bootstrap and start (single command)
 
 ```bash
-docker compose build
+make dev
 ```
 
-This builds:
+This command:
 
-- `netwatch-agent` (used by all `netwatch-agent-*` services)
-- `netwatch-backend` (also used by workers)
-- `netwatch-portal` (dev image with hot reload)
+- Creates `.env` from `.env.example` when missing
+- Uses `docker-compose.yml + compose.dev.yml`
+- Builds and starts the development stack
 
-### 4. Start the stack
+For production-style local runs:
 
 ```bash
-docker compose up -d
+make prod
+```
+
+This uses `docker-compose.yml + compose.prod.yml`.
+
+### 4. Start optional profile (`extra`)
+
+```bash
+make up-extra
 ```
 
 By default, this starts:
@@ -181,20 +189,16 @@ By default, this starts:
 - `netwatch-agent-scan-1`
 - `netwatch-agent-ddos`
 
-Optional (profile: extra):
+Optional services in profile `extra`:
 
 - `netwatch-kibana`
 - `netwatch-agent-lateral`
 
-Start optional services with:
-
-```bash
-docker compose --profile extra up -d
-```
+The `make up-extra` target starts the profile above.
 
 ### 5. Open the Portal
 
-- Portal: `http://localhost:${NETWATCH_PORTAL_PORT:-8085}`
+- Portal: `http://localhost:${NETWATCH_PORTAL_PORT:-8080}`
 - Login with:
   - Username: `NETWATCH_BOOTSTRAP_ADMIN_USERNAME` (default: `admin`)
   - Password: `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD`
@@ -221,6 +225,17 @@ Expected:
   - Datasources + dashboards are **auto‑provisioned** from `infra/grafana/provisioning`.
 
 - Kibana (optional): `http://localhost:${KIBANA_PORT:-5601}` (start with `--profile extra`)
+
+### 8. Developer quality pipeline
+
+Local commands:
+
+- `make lint` -> backend (`ruff`), frontend (`eslint`), agent (`gofmt` + `go vet`)
+- `make test` -> backend (`pytest`), agent (`go test`), frontend (`npm run build`)
+- `make build-prod` -> production image builds with `compose.prod.yml`
+- `make deps-check` -> `pip-audit`, `npm audit`, `govulncheck`
+
+CI (`.github/workflows/ci.yml`) runs lint/tests, image build, dependency checks, and secret scanning (`gitleaks`) on push and pull request.
 
 ---
 
