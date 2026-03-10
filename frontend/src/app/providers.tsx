@@ -5,6 +5,7 @@ import { OverviewLiveProvider } from "@/features/overview/live";
 import { listAgents } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
 import { AuthProvider, useAuth } from "@/features/auth/context";
+import { getErrorMessage } from "@/shared/lib/errors";
 
 type Theme = "dark" | "light";
 
@@ -41,19 +42,19 @@ export function AppProviders({ children }: { children: ReactNode }) {
     return saved === "light" ? "light" : "dark";
   });
 
-  const setTheme = (t: Theme) => {
+  const setTheme = useCallback((t: Theme) => {
     setThemeState(t);
     localStorage.setItem("netwatch_theme", t);
     applyThemeToDom(t);
-  };
+  }, []);
 
-  const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
+  const toggleTheme = useCallback(() => setTheme(theme === "dark" ? "light" : "dark"), [theme, setTheme]);
 
   useEffect(() => {
     applyThemeToDom(theme);
   }, [theme]);
 
-  const value = useMemo<ThemeCtx>(() => ({ theme, setTheme, toggleTheme }), [theme]);
+  const value = useMemo<ThemeCtx>(() => ({ theme, setTheme, toggleTheme }), [theme, setTheme, toggleTheme]);
 
   return (
     <ThemeContext.Provider value={value}>
@@ -112,7 +113,7 @@ function AgentsProvider({ children }: { children: ReactNode }) {
         setSelectedAgentId("");
       }
     } catch (e: any) {
-      setAgentsError(e?.message || "Failed to load agents");
+      setAgentsError(getErrorMessage(e, "Failed to load agents"));
     } finally {
       setAgentsLoading(false);
     }
@@ -153,12 +154,14 @@ function AgentsProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useTheme() {
   const ctx = useContext(ThemeContext);
   if (!ctx) throw new Error("useTheme must be used within AppProviders");
   return ctx;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAgentsCatalog() {
   const ctx = useContext(AgentsContext);
   if (!ctx) throw new Error("useAgentsCatalog must be used within AppProviders");

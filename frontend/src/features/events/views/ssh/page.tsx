@@ -2,11 +2,13 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
-import Loading from "@/shared/components/Loading";
+import AsyncState from "@/shared/components/AsyncState";
 import EmptyState from "@/shared/components/EmptyState";
 import { Card } from "@/shared/components/Card";
 import { Table } from "@/shared/components/Table";
 import { Badge } from "@/shared/components/Badge";
+import { getErrorMessage } from "@/shared/lib/errors";
+import { clampInt } from "@/shared/lib/filters";
 
 import { useAgentsCatalog } from "@/app/providers";
 
@@ -57,12 +59,6 @@ const DEFAULTS: ViewCfg = {
   auto_refresh: true,
   refresh_ms: 15000
 };
-
-function clampInt(v: any, min: number, max: number, fallback: number) {
-  const n = Number.parseInt(String(v ?? ""), 10);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
-}
 
 function safeLoadView(): ViewCfg {
   try {
@@ -245,7 +241,7 @@ export default function SshInsightsPage() {
       setError(null);
       setLastUpdatedAt(Date.now());
     } catch (e: any) {
-      const msg = e?.message || "Failed to load SSH summary";
+      const msg = getErrorMessage(e, "Failed to load SSH summary");
       setError(msg);
       // keep last known good data (no flicker)
       if (dataRef.current) setData(dataRef.current);
@@ -420,8 +416,19 @@ export default function SshInsightsPage() {
         </div>
       </div>
 
-      {loading && !current ? <Loading label="Loading SSH summary…" /> : null}
-      {!loading && !current ? <EmptyState title="No data" hint="No SSH activity found in the selected window." /> : null}
+      {loading || !current || (!!error && !current) ? (
+        <AsyncState
+          loading={loading && !current}
+          error={error && !current ? error : null}
+          empty={!loading && !error && !current}
+          loadingLabel="Loading SSH summary..."
+          errorTitle="SSH summary error"
+          emptyTitle="No data"
+          emptyDescription="No SSH activity found in the selected window."
+          onRetry={refresh}
+          className="px-0"
+        />
+      ) : null}
 
       {current ? (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-3">

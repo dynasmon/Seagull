@@ -72,7 +72,7 @@ function EventsFiltersImpl(props: Props) {
     props.onChange?.(merged);
   }
 
-  const agents = props.agents ?? [];
+  const agents = useMemo(() => props.agents ?? [], [props.agents]);
   const busy = Boolean(props.busy);
 
   const agentLabel = useMemo(() => {

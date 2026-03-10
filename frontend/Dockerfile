@@ -9,7 +9,8 @@ COPY . .
 RUN npm run build
 
 # ===== Runtime stage =====
-FROM nginx:1.27-alpine
+# Use unprivileged nginx so startup does not require chown/chmod on cache dirs.
+FROM nginxinc/nginx-unprivileged:1.27-alpine
 
 # Nginx config (SPA + /api reverse proxy)
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
@@ -17,5 +18,5 @@ COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 # Static build
 COPY --from=build /app/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 8080
 CMD ["nginx", "-g", "daemon off;"]
