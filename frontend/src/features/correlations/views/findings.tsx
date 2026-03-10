@@ -3,11 +3,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Link } from "react-router-dom";
 
+import AsyncState from "@/shared/components/AsyncState";
 import { Badge } from "@/shared/components/Badge";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
-import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
+import { getErrorMessage } from "@/shared/lib/errors";
 
 import SeverityFilter from "@/features/alerts/components/SeverityFilter";
 
@@ -219,7 +220,7 @@ const still = (out.incidents || []).find((x: CorrelationIncident) => x.id === pr
       });
     } catch (e: any) {
       if (reqSeq.current !== mySeq) return;
-      setError(e?.message || "Failed to run correlations");
+      setError(getErrorMessage(e, "Failed to run correlations"));
       setPayload(null);
       setSelected(null);
       setDrawerOpen(false);
@@ -235,7 +236,7 @@ const still = (out.incidents || []).find((x: CorrelationIncident) => x.id === pr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const incidents = payload?.incidents || [];
+  const incidents = useMemo(() => payload?.incidents ?? [], [payload?.incidents]);
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
@@ -370,15 +371,21 @@ const still = (out.incidents || []).find((x: CorrelationIncident) => x.id === pr
         </div>
       </div>
 
-      {error ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
-
       <Panel title="Findings" right={headerRight} scrollY className={cx(panelHeightClass)}>
-        {loading ? (
-          <Loading label="Running correlations…" />
+        {loading || !!error ? (
+          <AsyncState
+            loading={loading}
+            error={error}
+            empty={false}
+            emptyTitle=""
+            loadingLabel="Running correlations..."
+            errorTitle="Correlation run failed"
+            onRetry={() => {
+              setRunning(true);
+              run().finally(() => setRunning(false));
+            }}
+            className="px-0"
+          />
         ) : (payload?.rules_evaluated ?? 0) === 0 ? (
           <EmptyState
             title="No correlation rules"

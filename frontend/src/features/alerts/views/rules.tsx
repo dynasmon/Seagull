@@ -202,7 +202,6 @@ export default function AlertsRulesPage() {
 
     setSelectedId(rid);
     setDrawerOpen(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rules, sp]);
 
   const filtered = useMemo(() => {

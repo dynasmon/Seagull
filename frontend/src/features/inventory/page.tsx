@@ -255,7 +255,6 @@ export default function InventoryPage() {
   // Keep local scope in sync with the URL when user navigates via sidebar.
   useEffect(() => {
     setAgentScope(urlAgentId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlAgentId]);
 
   const [snapshot, setSnapshot] = useState<InventoryOverviewSnapshot | null>(null);

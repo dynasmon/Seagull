@@ -353,7 +353,6 @@ export default function VulnerabilitiesPage() {
   useEffect(() => {
     if (!isAdmin || !scanTargetAgent) return;
     loadRecentScans(scanTargetAgent);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, scanTargetAgent]);
 
   useEffect(() => {
@@ -362,7 +361,6 @@ export default function VulnerabilitiesPage() {
       loadRecentScans(scanTargetAgent);
     }, 10000);
     return () => window.clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, scanTargetAgent]);
 
   useEffect(() => {

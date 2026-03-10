@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAgentsCatalog } from "@/app/providers";
+import AsyncState from "@/shared/components/AsyncState";
 import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Table, type Column } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import { getErrorMessage } from "@/shared/lib/errors";
+import { clampInt } from "@/shared/lib/filters";
 
 import { fmtDateTime } from "../../lib/aggregates";
 import { getProtocolIntelSummary } from "./api";
@@ -38,12 +41,6 @@ const DEFAULTS: ViewState = {
 };
 
 const LS_KEY = "nw_protocol_intel_view_v1";
-
-function clampInt(v: any, min: number, max: number, fallback: number) {
-  const n = typeof v === "number" ? v : Number(v);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, Math.trunc(n)));
-}
 
 function digitsOnly(v: string): string {
   return String(v ?? "").replace(/[^0-9]/g, "");
@@ -145,7 +142,7 @@ export default function ProtocolIntelPage() {
   const [draft, setDraft] = useState<DraftState>(() => draftFromView(view));
   useEffect(() => {
     setDraft(draftFromView(view));
-  }, [view.agent_id, view.since_minutes, view.top_n, view.refresh_ms, view.auto_refresh]);
+  }, [view]);
 
   const isDirty =
     draft.agent_id !== view.agent_id ||
@@ -214,7 +211,7 @@ export default function ProtocolIntelPage() {
       setLastOkAt(new Date());
     } catch (e: any) {
       if (reqSeq.current !== mySeq) return;
-      const msg = typeof e?.message === "string" ? e.message : "Failed to load summary";
+      const msg = getErrorMessage(e, "Failed to load summary");
       setError(msg);
     } finally {
       if (reqSeq.current !== mySeq) return;
@@ -254,6 +251,7 @@ export default function ProtocolIntelPage() {
     if (!data) return false;
     return data.total_events > 0 && data.with_proto_metadata === 0;
   }, [data]);
+  const hasBlockingState = (loading && !data) || (!!error && !data);
 
   const onPick = useCallback(
     (sel: ProtocolIndicatorSelection) => {
@@ -513,18 +511,31 @@ export default function ProtocolIntelPage() {
         </div>
 
         <div className="space-y-5">
-          {error ? (
+          {hasBlockingState ? (
+            <AsyncState
+              loading={loading && !data}
+              error={error && !data ? error : null}
+              empty={false}
+              emptyTitle=""
+              loadingLabel="Loading protocol intelligence..."
+              errorTitle="Protocol intel error"
+              onRetry={load}
+              className="px-0"
+            />
+          ) : null}
+
+          {!hasBlockingState && error ? (
             <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>
           ) : null}
 
-          {shouldWarnNoCoverage ? (
+          {!hasBlockingState && shouldWarnNoCoverage ? (
             <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-200">
               No protocol-aware metadata was found in the selected window. This usually means agents are not sending evidence
               (DNS/HTTP payloads, TLS handshakes) or the worker is not running.
             </div>
           ) : null}
 
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+          {!hasBlockingState ? <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
             <Section title="Application protocols" right={`top ${view.top_n}`}>
               {loading && !data ? <Loading label="Loading..." /> : null}
               {!loading && data && data.app_protocols.length === 0 ? <TableEmpty title="No app_proto yet" /> : null}
@@ -754,8 +765,10 @@ export default function ProtocolIntelPage() {
                 </div>
               ) : null}
             </Section>
-          </div>
+          </div> : null}
 
+          {!hasBlockingState ? (
+          <>
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <Section title="Top destination ports" right={`top ${view.top_n} by volume`}>
               {!loading && data && data.top_dst_ports.length === 0 ? <TableEmpty title="No destination ports" /> : null}
@@ -1048,6 +1061,8 @@ export default function ProtocolIntelPage() {
 
           {loading && data ? (
             <div className="text-xs text-muted-foreground">Refreshing…</div>
+          ) : null}
+          </>
           ) : null}
         </div>
       </div>

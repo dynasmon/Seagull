@@ -124,6 +124,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
   return <OverviewLiveContext.Provider value={value}>{children}</OverviewLiveContext.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useOverviewLive() {
   const ctx = useContext(OverviewLiveContext);
   if (!ctx) throw new Error("useOverviewLive must be used within OverviewLiveProvider");

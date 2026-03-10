@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
+import AsyncState from "@/shared/components/AsyncState";
 import Drawer from "@/shared/components/Drawer";
-import EmptyState from "@/shared/components/EmptyState";
-import Loading from "@/shared/components/Loading";
 import { Badge } from "@/shared/components/Badge";
 import { Table, type Column } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import { getErrorMessage } from "@/shared/lib/errors";
 
 import type { NetEvent } from "../../types";
 import { fmtDateTime } from "../../lib/aggregates";
@@ -150,7 +150,7 @@ export default function ProtocolIndicatorDrawer({
       })
       .catch((e: any) => {
         if (reqSeq.current !== mySeq) return;
-        const msg = typeof e?.message === "string" ? e.message : "Failed to load samples";
+        const msg = getErrorMessage(e, "Failed to load samples");
         setError(msg);
       })
       .finally(() => {
@@ -207,11 +207,42 @@ export default function ProtocolIndicatorDrawer({
               <div className="text-sm font-semibold tracking-tight">Matching samples</div>
 
               <div className="mt-3">
-                {loading ? <Loading label="Loading samples..." /> : null}
-                {error ? <div className="text-sm text-red-300">{error}</div> : null}
-
-                {!loading && !error && items.length === 0 ? (
-                  <EmptyState title="No matches" description="No events matched this indicator in the selected window." />
+                {loading || error || items.length === 0 ? (
+                  <AsyncState
+                    loading={loading}
+                    error={error}
+                    empty={!loading && !error && items.length === 0}
+                    emptyTitle="No matches"
+                    emptyDescription="No events matched this indicator in the selected window."
+                    loadingLabel="Loading samples..."
+                    errorTitle="Samples error"
+                    onRetry={() => {
+                      if (!selection) return;
+                      const mySeq = ++reqSeq.current;
+                      setLoading(true);
+                      setError(null);
+                      getProtocolIntelSamples({
+                        kind: selection.kind,
+                        value: selection.value,
+                        since_minutes: sinceMinutes,
+                        limit: 80,
+                        agent_id: agentId
+                      })
+                        .then((r) => {
+                          if (reqSeq.current !== mySeq) return;
+                          setItems(Array.isArray(r) ? r : []);
+                        })
+                        .catch((e: unknown) => {
+                          if (reqSeq.current !== mySeq) return;
+                          setError(getErrorMessage(e, "Failed to load samples"));
+                        })
+                        .finally(() => {
+                          if (reqSeq.current !== mySeq) return;
+                          setLoading(false);
+                        });
+                    }}
+                    className="px-0"
+                  />
                 ) : null}
 
                 {!loading && !error && items.length > 0 ? (

@@ -2,9 +2,10 @@ import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import EmptyState from "@/shared/components/EmptyState";
-import Loading from "@/shared/components/Loading";
+import AsyncState from "@/shared/components/AsyncState";
 import { cx } from "@/shared/lib/cx";
+import { getErrorMessage } from "@/shared/lib/errors";
+import { clampInt, normalizeFilterText, normalizeSearchText } from "@/shared/lib/filters";
 
 import { useAgentsCatalog } from "@/app/providers";
 
@@ -43,12 +44,6 @@ const DEFAULTS: ViewCfg = {
   show_extra: true
 };
 
-function clampInt(v: any, min: number, max: number, fallback: number) {
-  const n = Number.parseInt(String(v ?? ""), 10);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
-}
-
 function safeLoadView(): ViewCfg {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -60,9 +55,9 @@ function safeLoadView(): ViewCfg {
       window_minutes: clampInt(parsed.window_minutes, 1, 1440, DEFAULTS.window_minutes),
       limit: clampInt(parsed.limit, 10, 5000, DEFAULTS.limit),
       refresh_ms: clampInt(parsed.refresh_ms, 2000, 300000, DEFAULTS.refresh_ms),
-      agent_id: (parsed.agent_id ?? "").trim(),
-      event_type: (parsed.event_type ?? "").trim(),
-      search: String(parsed.search ?? ""),
+      agent_id: normalizeFilterText(parsed.agent_id),
+      event_type: normalizeFilterText(parsed.event_type),
+      search: normalizeSearchText(parsed.search),
       auto_refresh: Boolean(parsed.auto_refresh),
       compact_rows: Boolean(parsed.compact_rows),
       show_extra: Boolean(parsed.show_extra)
@@ -249,7 +244,7 @@ export default function EventsPage() {
       });
     } catch (e: any) {
       if (reqSeq.current !== mySeq) return;
-      setError(e?.message || "Failed to load events");
+      setError(getErrorMessage(e, "Failed to load events"));
       // If we already have data on screen, keep it and just surface the error.
       if (eventsRef.current.length === 0) {
         setEvents([]);
@@ -321,9 +316,9 @@ export default function EventsPage() {
         ...prev,
         ...next
       };
-      merged.agent_id = (merged.agent_id || "").trim();
-      merged.event_type = (merged.event_type || "").trim();
-      merged.search = String(merged.search || "");
+      merged.agent_id = normalizeFilterText(merged.agent_id);
+      merged.event_type = normalizeFilterText(merged.event_type);
+      merged.search = normalizeSearchText(merged.search);
       merged.window_minutes = clampInt(merged.window_minutes, 1, 1440, DEFAULTS.window_minutes);
       merged.limit = clampInt(merged.limit, 10, 5000, DEFAULTS.limit);
       merged.refresh_ms = clampInt(merged.refresh_ms, 2000, 300000, DEFAULTS.refresh_ms);
@@ -569,25 +564,21 @@ export default function EventsPage() {
           bodyClassName="p-0"
           style={{ height: "calc(100vh - 260px)" }}
         >
-          {isInitialLoading ? (
-            <div className="p-4">
-              <Loading label="Loading events..." />
-            </div>
-          ) : error && events.length === 0 ? (
-            <div className="p-4">
-              <EmptyState title="Events error" hint={error} />
-            </div>
-          ) : visible.length === 0 ? (
-            <div className="p-4">
-              <EmptyState
-                title="No events"
-                hint={
-                  view.agent_id
-                    ? "No telemetry events matched the current scope/filters."
-                    : "No telemetry events matched the current filters across all agents."
-                }
-              />
-            </div>
+          {isInitialLoading || (error && events.length === 0) || visible.length === 0 ? (
+            <AsyncState
+              loading={isInitialLoading}
+              error={error && events.length === 0 ? error : null}
+              empty={!isInitialLoading && !error && visible.length === 0}
+              loadingLabel="Loading events..."
+              errorTitle="Events error"
+              emptyTitle="No events"
+              emptyDescription={
+                view.agent_id
+                  ? "No telemetry events matched the current scope/filters."
+                  : "No telemetry events matched the current filters across all agents."
+              }
+              onRetry={() => load()}
+            />
           ) : (
             <div className="relative">
               <EventsTable

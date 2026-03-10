@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,6 +10,7 @@ from sqlalchemy import Integer, String, and_, cast, func, or_, select
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.es import es_is_available, get_es_client, search_backend_mode
+from app.core.observability import log_event
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.portal_auth import get_current_user
 from app.models.events import NetEventModel, NetEventRollup1sModel
@@ -32,6 +34,8 @@ router = APIRouter(
     tags=["events"],
     dependencies=[Depends(get_current_user)],
 )
+
+logger = logging.getLogger("netwatch.api.events")
 
 
 def _parse_iso_dt(value: str | None) -> datetime:
@@ -79,12 +83,21 @@ def _hit_to_event(hit: Dict[str, Any]) -> NetEventDB:
 
     ts_raw = src.get("timestamp") or src.get("@timestamp")
     ts = _parse_iso_dt(ts_raw if isinstance(ts_raw, str) else None)
+    try:
+        schema_version = int(src.get("schema_version") or 1)
+    except Exception:
+        schema_version = 1
+    if schema_version < 1 or schema_version > 16:
+        schema_version = 1
+    extra = src.get("extra") or {}
+    if not isinstance(extra, dict):
+        extra = {}
 
     return NetEventDB(
         id=row_id,
         agent_id=str(src.get("agent_id") or ""),
         event_type=str(src.get("event_type") or ""),
-        schema_version=int(src.get("schema_version") or 1),
+        schema_version=schema_version,
         timestamp=ts,
         src_ip=src.get("src_ip"),
         dst_ip=src.get("dst_ip"),
@@ -92,7 +105,7 @@ def _hit_to_event(hit: Dict[str, Any]) -> NetEventDB:
         dst_port=src.get("dst_port"),
         proto=src.get("proto"),
         bytes=src.get("bytes"),
-        extra=(src.get("extra") or {}) if isinstance(src.get("extra") or {}, dict) else {},
+        extra=extra,
     )
 
 
@@ -768,6 +781,25 @@ def get_ssh_summary(
         db.close()
 
 
+def _json_safe_value(value: Any, *, max_depth: int = 4) -> Any:
+    if max_depth <= 0:
+        return str(value)
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for k, v in value.items():
+            out[str(k)] = _json_safe_value(v, max_depth=max_depth - 1)
+        return out
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(v, max_depth=max_depth - 1) for v in value]
+    return str(value)
+
+
 def _strip_large_extra(extra: dict) -> dict:
     """Remove large payload fields before returning samples to the UI."""
 
@@ -777,7 +809,25 @@ def _strip_large_extra(extra: dict) -> dict:
     for k in ["payload_b64", "l7_payload_b64", "raw_payload_b64", "packet_b64", "pcap_b64"]:
         if k in out:
             out.pop(k, None)
-    return out
+    safe = _json_safe_value(out)
+    return safe if isinstance(safe, dict) else {}
+
+
+def _row_to_event_safe(row: Dict[str, Any]) -> NetEventDB | None:
+    """Best-effort row conversion; skips malformed legacy rows instead of failing the whole endpoint."""
+    payload = dict(row or {})
+    try:
+        schema_version = int(payload.get("schema_version") or 1)
+    except Exception:
+        schema_version = 1
+    if schema_version < 1 or schema_version > 16:
+        schema_version = 1
+    payload["schema_version"] = schema_version
+    payload["extra"] = _strip_large_extra(payload.get("extra") or {})
+    try:
+        return NetEventDB(**payload)
+    except Exception:
+        return None
 
 
 @router.get("/network/summary", response_model=ProtocolIntelSummaryResponse)
@@ -1092,6 +1142,16 @@ def get_protocol_intel_samples(
     """
 
     since_ts = datetime.now(timezone.utc) - timedelta(minutes=int(since_minutes))
+    log_event(
+        logger,
+        "info",
+        "protocol_intel_samples_requested",
+        kind=kind,
+        value_len=len(value or ""),
+        since_minutes=int(since_minutes),
+        limit=int(limit),
+        agent_id=agent_id or "",
+    )
 
     # Whitelist (avoid field injection)
     kind_map = {
@@ -1133,7 +1193,10 @@ def get_protocol_intel_samples(
             base = _es_base_filters(since=since_ts, agent_id=agent_id)
             body = {
                 "size": int(limit),
-                "sort": [{"timestamp": {"order": "desc"}}, {"id": {"order": "desc"}}],
+                "sort": [
+                    {"timestamp": {"order": "desc", "unmapped_type": "date"}},
+                    {"id": {"order": "desc", "unmapped_type": "long"}},
+                ],
                 "query": {
                     "bool": {
                         "filter": base + [{"term": {es_field: value_norm}}],
@@ -1144,11 +1207,71 @@ def get_protocol_intel_samples(
             hits = (res.get("hits") or {}).get("hits") or []
             out: list[NetEventDB] = []
             for h in hits:
-                item = _hit_to_event(h)
+                try:
+                    item = _hit_to_event(h)
+                except Exception:
+                    continue
                 item.extra = _strip_large_extra(item.extra)
                 out.append(item)
+            log_event(
+                logger,
+                "info",
+                "protocol_intel_samples_ok",
+                kind=kind,
+                matched=len(out),
+                source="elasticsearch",
+            )
             return out
         except Exception as e:
+            log_event(
+                logger,
+                "warning",
+                "protocol_intel_samples_es_error",
+                kind=kind,
+                error_type=type(e).__name__,
+                error=str(e)[:300],
+            )
+            # ES fallback: some indices may miss secondary sort fields (ex: id).
+            # Retry with a timestamp-only sort and in-Python ordering stability.
+            try:
+                base = _es_base_filters(since=since_ts, agent_id=agent_id)
+                body2 = {
+                    "size": int(limit),
+                    "sort": [{"timestamp": {"order": "desc", "unmapped_type": "date"}}],
+                    "query": {
+                        "bool": {
+                            "filter": base + [{"term": {es_field: value_norm}}],
+                        }
+                    },
+                }
+                res2 = es.search(index=_es_index_pattern(), body=body2, ignore_unavailable=True, allow_no_indices=True)
+                hits2 = (res2.get("hits") or {}).get("hits") or []
+                out2: list[NetEventDB] = []
+                for h in hits2:
+                    try:
+                        item = _hit_to_event(h)
+                    except Exception:
+                        continue
+                    item.extra = _strip_large_extra(item.extra)
+                    out2.append(item)
+                out2.sort(key=lambda x: (x.timestamp, x.id), reverse=True)
+                log_event(
+                    logger,
+                    "warning",
+                    "protocol_intel_samples_es_fallback_ok",
+                    kind=kind,
+                    matched=len(out2),
+                )
+                return out2
+            except Exception as e2:
+                log_event(
+                    logger,
+                    "error",
+                    "protocol_intel_samples_es_fallback_error",
+                    kind=kind,
+                    error_type=type(e2).__name__,
+                    error=str(e2)[:300],
+                )
             if not _es_failover_allowed():
                 raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(e).__name__}")
 
@@ -1170,11 +1293,33 @@ def get_protocol_intel_samples(
         "ja3": NetEventModel.extra["ja3"].astext,
     }
     expr = kind_map_pg.get(kind)
-    if not expr:
+    if expr is None:
         return []
+    uses_extra_json = kind in {
+        "app_proto",
+        "app_proto_reason",
+        "app_proto_conf_band",
+        "dns_qname",
+        "http_host",
+        "http_method",
+        "tls_sni",
+        "tls_alpn_first",
+        "ja4",
+        "ja4_ptype",
+        "ja3",
+    }
 
     db = SessionLocal()
     try:
+        conds = [
+            NetEventModel.timestamp >= since_ts,
+            expr == value_norm,
+        ]
+        # Legacy safety: some rows can have JSON scalar/array in `extra`.
+        # Guard key extraction with jsonb_typeof(extra)='object' to avoid PG runtime errors.
+        if uses_extra_json:
+            conds.append(func.jsonb_typeof(NetEventModel.extra) == "object")
+
         stmt = (
             select(
                 NetEventModel.id,
@@ -1190,10 +1335,7 @@ def get_protocol_intel_samples(
                 NetEventModel.bytes,
                 NetEventModel.extra,
             )
-            .where(
-                NetEventModel.timestamp >= since_ts,
-                expr == value_norm,
-            )
+            .where(*conds)
             .order_by(NetEventModel.timestamp.desc())
             .limit(int(limit))
         )
@@ -1203,9 +1345,123 @@ def get_protocol_intel_samples(
 
         out: list[NetEventDB] = []
         for r in rows:
-            item = NetEventDB(**dict(r))
-            item.extra = _strip_large_extra(item.extra)
+            item = _row_to_event_safe(dict(r))
+            if item is None:
+                continue
             out.append(item)
+        log_event(
+            logger,
+            "info",
+            "protocol_intel_samples_ok",
+            kind=kind,
+            matched=len(out),
+            source="postgres",
+        )
         return out
+    except Exception as e:
+        log_event(
+            logger,
+            "error",
+            "protocol_intel_samples_pg_error",
+            kind=kind,
+            error_type=type(e).__name__,
+            error=str(e)[:300],
+        )
+        # Fallback path: scan recent rows and filter in Python to keep the drawer useful
+        # even when SQL/json expressions hit legacy malformed rows.
+        try:
+            scan_limit = max(int(limit) * 20, 2000)
+            scan_limit = min(scan_limit, 20000)
+            stmt2 = (
+                select(
+                    NetEventModel.id,
+                    NetEventModel.agent_id,
+                    NetEventModel.event_type,
+                    NetEventModel.schema_version,
+                    NetEventModel.timestamp,
+                    NetEventModel.src_ip,
+                    NetEventModel.dst_ip,
+                    NetEventModel.src_port,
+                    NetEventModel.dst_port,
+                    NetEventModel.proto,
+                    NetEventModel.bytes,
+                    NetEventModel.extra,
+                )
+                .where(NetEventModel.timestamp >= since_ts)
+                .order_by(NetEventModel.timestamp.desc())
+                .limit(scan_limit)
+            )
+            if agent_id:
+                stmt2 = stmt2.where(NetEventModel.agent_id == agent_id)
+            rows2 = db.execute(stmt2).mappings().all()
+
+            out2: list[NetEventDB] = []
+            for r in rows2:
+                item = _row_to_event_safe(dict(r))
+                if item is None:
+                    continue
+
+                extra = item.extra if isinstance(item.extra, dict) else {}
+                matched = False
+                if kind == "transport":
+                    matched = str(item.proto or "").lower() == str(value_norm)
+                elif kind == "dst_port":
+                    try:
+                        matched = item.dst_port == int(value_norm)
+                    except Exception:
+                        matched = False
+                elif kind == "src_port":
+                    try:
+                        matched = item.src_port == int(value_norm)
+                    except Exception:
+                        matched = False
+                elif kind == "app_proto":
+                    matched = str(extra.get("app_proto") or "") == str(value_norm)
+                elif kind == "app_proto_reason":
+                    matched = str(extra.get("app_proto_reason") or "") == str(value_norm)
+                elif kind == "app_proto_conf_band":
+                    matched = str(extra.get("app_proto_conf_band") or "") == str(value_norm)
+                elif kind == "dns_qname":
+                    matched = str(extra.get("dns_qname") or "").lower() == str(value_norm)
+                elif kind == "http_host":
+                    matched = str(extra.get("http_host") or "").lower() == str(value_norm)
+                elif kind == "http_method":
+                    matched = str(extra.get("http_method") or "").upper() == str(value_norm)
+                elif kind == "tls_sni":
+                    matched = str(extra.get("tls_sni") or "").lower() == str(value_norm)
+                elif kind == "tls_alpn_first":
+                    matched = str(extra.get("tls_alpn_first") or "").lower() == str(value_norm)
+                elif kind == "ja4":
+                    matched = str(extra.get("ja4") or "") == str(value_norm)
+                elif kind == "ja4_ptype":
+                    ptype = str(extra.get("ja4_ptype") or "").strip() or "t"
+                    matched = ptype == str(value_norm)
+                elif kind == "ja3":
+                    matched = str(extra.get("ja3") or "") == str(value_norm)
+
+                if matched:
+                    out2.append(item)
+                    if len(out2) >= int(limit):
+                        break
+
+            log_event(
+                logger,
+                "warning",
+                "protocol_intel_samples_pg_fallback_ok",
+                kind=kind,
+                matched=len(out2),
+                scanned=len(rows2),
+            )
+            return out2
+        except Exception as e2:
+            log_event(
+                logger,
+                "error",
+                "protocol_intel_samples_pg_fallback_error",
+                kind=kind,
+                error_type=type(e2).__name__,
+                error=str(e2)[:300],
+            )
+            return []
     finally:
         db.close()

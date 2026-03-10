@@ -78,11 +78,22 @@ async def request_context_middleware(request: Request, call_next):
     t0 = time.perf_counter()
     try:
         response = await call_next(request)
-    except Exception:
+    except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         incr_counter("http_requests_total", method=request.method, path=request.url.path, status="500")
         observe_hist("http_request_duration_ms", elapsed_ms, method=request.method, path=request.url.path, status="500")
-        clear_request_context()
+        # Keep request context until exception handlers run, so request_id is preserved.
+        log_event(
+            logger,
+            "error",
+            "http_request_unhandled",
+            method=request.method,
+            path=request.url.path,
+            duration_ms=round(elapsed_ms, 2),
+            error_type=type(exc).__name__,
+            error=str(exc),
+            request_id=rid,
+        )
         raise
 
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -147,7 +158,9 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         request_id=rid,
     )
     body = {"detail": exc.detail, "request_id": rid}
-    return JSONResponse(status_code=status_code, content=body)
+    res = JSONResponse(status_code=status_code, content=body)
+    clear_request_context()
+    return res
 
 
 @app.exception_handler(Exception)
@@ -163,10 +176,13 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         error_type=type(exc).__name__,
         error=str(exc),
     )
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error", "request_id": rid},
-    )
+    body = {"detail": "Internal server error", "request_id": rid}
+    if (settings.NETWATCH_ENV or "").lower() == "dev":
+        body["error_type"] = type(exc).__name__
+        body["error"] = str(exc)[:300]
+    res = JSONResponse(status_code=500, content=body)
+    clear_request_context()
+    return res
 
 
 @app.on_event("startup")

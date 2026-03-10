@@ -7,6 +7,7 @@ import Drawer from "@/shared/components/Drawer";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
+import { getErrorMessage } from "@/shared/lib/errors";
 
 import { useAgentsCatalog } from "@/app/providers";
 
@@ -511,7 +512,7 @@ export default function AgentsPage() {
       setDdosDraft(getDdosConfig(a.config || {}));
       setConfigParseError(null);
     } catch (e: any) {
-      setAgentError(e?.message || "Failed to load agent details");
+      setAgentError(getErrorMessage(e, "Failed to load agent details"));
       setAgent(null);
     }
   }, []);
@@ -527,7 +528,7 @@ export default function AgentsPage() {
       setSnapshotError(null);
       setLastUpdatedAt(new Date());
     } catch (e: any) {
-      setSnapshotError(e?.message || "Failed to load overview");
+      setSnapshotError(getErrorMessage(e, "Failed to load overview"));
     } finally {
       inFlightSnapshot.current = false;
     }
@@ -552,7 +553,7 @@ export default function AgentsPage() {
       setEventsError(null);
       setLastUpdatedAt(new Date());
     } catch (e: any) {
-      setEventsError(e?.message || "Failed to load events");
+      setEventsError(getErrorMessage(e, "Failed to load events"));
       setEvents([]);
       setSelectedEvent(null);
     } finally {
@@ -661,7 +662,7 @@ export default function AgentsPage() {
       setAgentError(null);
       refresh();
     } catch (e: any) {
-      setAgentError(e?.message || "Failed to update agent");
+      setAgentError(getErrorMessage(e, "Failed to update agent"));
     } finally {
       setSaveBusy(false);
     }
@@ -676,7 +677,7 @@ export default function AgentsPage() {
       setAgentError(null);
       refresh();
     } catch (e: any) {
-      setAgentError(e?.message || "Failed to update agent state");
+      setAgentError(getErrorMessage(e, "Failed to update agent state"));
     } finally {
       setToggleBusy(false);
     }
@@ -694,7 +695,7 @@ export default function AgentsPage() {
       setConfigParseError(null);
       setAgentError(null);
     } catch (e: any) {
-      setAgentError(e?.message || "Failed to push config");
+      setAgentError(getErrorMessage(e, "Failed to push config"));
     } finally {
       setConfigBusy(false);
     }
