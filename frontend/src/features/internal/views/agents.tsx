@@ -1,0 +1,305 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+
+import { useAgentsCatalog } from "@/app/providers";
+import { getRecentEvents } from "@/features/events/api";
+import type { NetEvent } from "@/features/events/types";
+import { getAgent } from "@/features/agents/api";
+import type { AgentDetail, AgentPublic } from "@/features/agents/types";
+import { getInventoryHistory, getInventoryLatest } from "@/features/inventory/api";
+import type { InventorySnapshotOut } from "@/features/inventory/types";
+import { Card } from "@/shared/components/Card";
+import EmptyState from "@/shared/components/EmptyState";
+import Loading from "@/shared/components/Loading";
+import { Table } from "@/shared/components/Table";
+import { cx } from "@/shared/lib/cx";
+
+const POLL_MS = 8000;
+
+function pretty(v: any) {
+  try {
+    return JSON.stringify(v ?? {}, null, 2);
+  } catch {
+    return "{}";
+  }
+}
+
+function fmtDateTime(iso?: string | null) {
+  if (!iso) return "-";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso;
+  const d = new Date(t);
+  return d.toLocaleString();
+}
+
+function isOnline(lastSeenAt?: string | null): boolean {
+  if (!lastSeenAt) return false;
+  const t = new Date(lastSeenAt).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t <= 5 * 60_000;
+}
+
+function statusOfAgent(a?: AgentPublic | null): "online" | "offline" | "disabled" {
+  if (!a) return "offline";
+  if (a.is_revoked) return "disabled";
+  return isOnline(a.last_seen_at) ? "online" : "offline";
+}
+
+function StatusDot({ status }: { status: "online" | "offline" | "disabled" }) {
+  const klass =
+    status === "online"
+      ? "bg-emerald-400"
+      : status === "disabled"
+        ? "bg-muted-foreground"
+        : "bg-amber-400";
+  return <span className={cx("inline-block h-2.5 w-2.5 rounded-full", klass)} />;
+}
+
+function StatTile({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-md border border-border/60 bg-background/60 px-4 py-3">
+      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-2 text-2xl font-bold font-mono">{value}</div>
+    </div>
+  );
+}
+
+export default function InternalAgentsInspectorView() {
+  const { agents } = useAgentsCatalog();
+  const [sp, setSp] = useSearchParams();
+
+  const [query, setQuery] = useState("");
+  const [agent, setAgent] = useState<AgentDetail | null>(null);
+  const [events, setEvents] = useState<NetEvent[]>([]);
+  const [latestInventory, setLatestInventory] = useState<InventorySnapshotOut | null>(null);
+  const [history, setHistory] = useState<InventorySnapshotOut[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+
+  const selectedAgentId = (sp.get("agent_id") || "").trim();
+  const inFlight = useRef(false);
+
+  const filteredAgents = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const rows = [...agents].sort((a, b) => (a.display_name || a.agent_id).localeCompare(b.display_name || b.agent_id));
+    if (!q) return rows;
+    return rows.filter((a) => [a.display_name, a.agent_id, ...(a.tags || [])].filter(Boolean).join(" ").toLowerCase().includes(q));
+  }, [agents, query]);
+
+  const selectedAgentRow = useMemo(
+    () => agents.find((a) => a.agent_id === selectedAgentId) || null,
+    [agents, selectedAgentId]
+  );
+
+  const refresh = useCallback(async () => {
+    if (!selectedAgentId) return;
+    if (inFlight.current) return;
+
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      const [a, ev, latest, hist] = await Promise.all([
+        getAgent(selectedAgentId),
+        getRecentEvents({ agent_id: selectedAgentId, limit: 80 }),
+        getInventoryLatest(selectedAgentId).catch(() => null),
+        getInventoryHistory(selectedAgentId, { limit: 12 }).catch(() => [])
+      ]);
+
+      setAgent(a);
+      setEvents(ev);
+      setLatestInventory(latest);
+      setHistory(hist);
+      setError(null);
+      setLastUpdatedAt(new Date());
+    } catch (e: any) {
+      setError(e?.message || "Failed to load technical agent inspection");
+    } finally {
+      setBusy(false);
+      inFlight.current = false;
+    }
+  }, [selectedAgentId]);
+
+  useEffect(() => {
+    if (!selectedAgentId) return;
+    let alive = true;
+    refresh();
+    const t = window.setInterval(() => {
+      if (!alive) return;
+      refresh();
+    }, POLL_MS);
+
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, [selectedAgentId, refresh]);
+
+  return (
+    <div className="space-y-6 min-w-0">
+      <Card title="Agents" right={`${filteredAgents.length}/${agents.length}`}>
+        <div className="space-y-3">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name, id, tags..."
+            className="w-full border border-border/60 bg-background/40 px-3 py-2 text-sm"
+          />
+
+          <div className="max-h-[240px] overflow-y-auto pr-1">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredAgents.length === 0 ? (
+                <div className="sm:col-span-2 xl:col-span-3">
+                  <EmptyState title="No agents" hint="Try another filter." />
+                </div>
+              ) : (
+                filteredAgents.map((a) => {
+                  const status = statusOfAgent(a);
+                  const active = a.agent_id === selectedAgentId;
+                  return (
+                    <button
+                      key={a.agent_id}
+                      type="button"
+                      onClick={() => {
+                        const next = new URLSearchParams(sp);
+                        next.set("agent_id", a.agent_id);
+                        setSp(next, { replace: true });
+                      }}
+                      className={cx(
+                        "w-full rounded-md border px-3 py-2 text-left",
+                        active ? "border-primary/40 bg-primary/10" : "border-border/60 bg-background/30 hover:bg-muted/10"
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex items-center gap-2">
+                          <StatusDot status={status} />
+                          <div className="truncate font-mono text-sm">{a.display_name || a.agent_id}</div>
+                        </div>
+                        <div className="text-[10px] font-mono text-muted-foreground uppercase">{status}</div>
+                      </div>
+                      <div className="mt-1 text-[10px] font-mono text-muted-foreground truncate">{a.agent_id}</div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {!selectedAgentId ? (
+        <EmptyState title="Select an agent" hint="Choose an agent above to open technical inspection." />
+      ) : busy && !agent ? (
+        <Loading label="Loading technical inspection..." />
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">{agent?.display_name || selectedAgentId}</h2>
+              <div className="text-[11px] font-mono text-muted-foreground">{selectedAgentId}</div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+                Last update: {lastUpdatedAt ? lastUpdatedAt.toLocaleString() : "-"}
+              </div>
+              <button
+                type="button"
+                onClick={refresh}
+                className="border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest hover:bg-primary/5"
+              >
+                Refresh now
+              </button>
+            </div>
+          </div>
+
+          {error ? <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
+
+          <Card title="Runtime Snapshot">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <StatTile label="Status" value={statusOfAgent(selectedAgentRow)} />
+              <StatTile label="Last seen" value={fmtDateTime(selectedAgentRow?.last_seen_at)} />
+              <StatTile label="Uptime sec" value={agent?.metrics?.uptime_seconds ?? "-"} />
+              <StatTile label="Events sample" value={events.length} />
+            </div>
+          </Card>
+
+          <div className="grid gap-6 xl:grid-cols-2">
+            <Card title="Heartbeat / Modules">
+              <pre className="max-h-[320px] overflow-auto rounded border border-border/60 bg-background/30 p-3 text-[11px] font-mono leading-relaxed">
+                {pretty({ status: agent?.metrics?.status, modules: agent?.metrics?.modules, metrics: agent?.metrics?.metrics })}
+              </pre>
+            </Card>
+
+            <Card title="Metadata">
+              <pre className="max-h-[320px] overflow-auto rounded border border-border/60 bg-background/30 p-3 text-[11px] font-mono leading-relaxed">
+                {pretty(agent?.metadata || {})}
+              </pre>
+            </Card>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-2">
+            <Card title="Config (raw JSON)">
+              <pre className="max-h-[320px] overflow-auto rounded border border-border/60 bg-background/30 p-3 text-[11px] font-mono leading-relaxed">
+                {pretty(agent?.config || {})}
+              </pre>
+            </Card>
+
+            <Card title="Latest Inventory Snapshot">
+              {!latestInventory ? (
+                <EmptyState title="No inventory" hint="No latest inventory snapshot for this agent." />
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <StatTile label="Collected at" value={fmtDateTime(latestInventory.collected_at)} />
+                  <StatTile label="Packages" value={latestInventory.packages_count ?? (latestInventory.packages || []).length} />
+                  <StatTile label="Manager" value={latestInventory.manager || "-"} />
+                  <StatTile label="Schema" value={latestInventory.schema_version || "-"} />
+                </div>
+              )}
+            </Card>
+          </div>
+
+          <Card title="Inventory History" right={`Last ${history.length}`}>
+            {history.length === 0 ? (
+              <EmptyState title="No history" hint="No inventory history available." />
+            ) : (
+              <Table
+                rows={history}
+                rowKey={(r, i) => `${r.id || i}`}
+                columns={[
+                  { key: "collected_at", title: "Collected", className: "font-mono text-xs", render: (r) => fmtDateTime(r.collected_at) },
+                  {
+                    key: "packages_count",
+                    title: "Packages",
+                    className: "font-mono text-xs text-right",
+                    render: (r) => Number(r.packages_count ?? (r.packages || []).length).toLocaleString("en-US")
+                  },
+                  { key: "manager", title: "Manager", className: "font-mono text-xs" }
+                ]}
+              />
+            )}
+          </Card>
+
+          <Card title="Recent Events" right={`Top ${events.length}`}>
+            {events.length === 0 ? (
+              <EmptyState title="No events" hint="No recent events for this agent." />
+            ) : (
+              <div className="max-h-[360px] overflow-y-auto">
+                <Table
+                  rows={events}
+                  rowKey={(r) => String(r.id)}
+                  columns={[
+                    { key: "timestamp", title: "Timestamp", className: "font-mono text-xs", render: (r) => fmtDateTime(r.timestamp) },
+                    { key: "event_type", title: "Type", className: "font-mono text-xs" },
+                    { key: "src_ip", title: "Source", className: "font-mono text-xs", render: (r) => r.src_ip || "-" },
+                    { key: "dst_ip", title: "Destination", className: "font-mono text-xs", render: (r) => r.dst_ip || "-" },
+                    { key: "dst_port", title: "Port", className: "font-mono text-xs text-right", render: (r) => r.dst_port ?? "-" }
+                  ]}
+                />
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}

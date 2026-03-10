@@ -26,6 +26,10 @@ const loadVulnerabilityScansPage = () => import("@/features/vulnerabilities/scan
 
 const loadInventoryPage = () => import("@/features/inventory/page");
 const loadSettingsPage = () => import("@/features/settings/page");
+const loadInternalLayout = () => import("@/features/internal/page");
+const loadInternalDebugPage = () => import("@/features/internal/views/debug");
+const loadInternalAgentsPage = () => import("@/features/internal/views/agents");
+const loadInternalHealthPage = () => import("@/features/internal/views/health");
 
 const LoginPage = lazy(loadLoginPage);
 const ProtectedLayout = lazy(loadProtectedLayout);
@@ -52,6 +56,10 @@ const VulnerabilityScansPage = lazy(loadVulnerabilityScansPage);
 
 const InventoryPage = lazy(loadInventoryPage);
 const SettingsPage = lazy(loadSettingsPage);
+const InternalLayout = lazy(loadInternalLayout);
+const InternalDebugPage = lazy(loadInternalDebugPage);
+const InternalAgentsPage = lazy(loadInternalAgentsPage);
+const InternalHealthPage = lazy(loadInternalHealthPage);
 
 const routeWarmers: Array<() => Promise<unknown>> = [
   loadOverviewPage,
@@ -60,6 +68,9 @@ const routeWarmers: Array<() => Promise<unknown>> = [
   loadAlertsLayout,
   loadVulnerabilitiesPage,
   loadInventoryPage,
+  loadInternalLayout,
+  loadInternalDebugPage,
+  loadInternalHealthPage,
 ];
 
 function Fallback() {
@@ -130,6 +141,12 @@ export function Routes() {
 
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/internal" element={<InternalLayout />}>
+            <Route index element={<Navigate to="/internal/debug" replace />} />
+            <Route path="debug" element={<InternalDebugPage />} />
+            <Route path="agents" element={<InternalAgentsPage />} />
+            <Route path="health" element={<InternalHealthPage />} />
+          </Route>
           <Route path="*" element={<Navigate to="/overview" replace />} />
         </Route>
       </RRRoutes>
