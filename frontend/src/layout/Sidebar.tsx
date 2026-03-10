@@ -21,7 +21,8 @@ function ItemIcon({
     | "vuln"
     | "agents"
     | "inventory"
-    | "settings";
+    | "settings"
+    | "internal";
 }) {
   const common = "h-4 w-4";
   switch (name) {
@@ -123,6 +124,18 @@ function ItemIcon({
             strokeWidth="1.6"
             strokeLinejoin="round"
           />
+        </svg>
+      );
+    case "internal":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none">
+          <path
+            d="M6 6h12v12H6V6Zm-2 6h2m12 0h2M12 4v2m0 12v2"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+          <path d="M9 9h6v6H9V9Z" fill="currentColor" fillOpacity="0.25" />
         </svg>
       );
     default:
@@ -250,6 +263,9 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
           )}
           <div className="space-y-1">
             <NavItem collapsed={collapsed} to={toPlain("/settings")} label="Settings" icon="settings" />
+            <NavItem collapsed={collapsed} to="/internal/debug" label="Debug Dashboards" icon="internal" />
+            <NavItem collapsed={collapsed} to="/internal/agents" label="Agent Inspector" icon="internal" />
+            <NavItem collapsed={collapsed} to="/internal/health" label="Health / Status" icon="internal" />
           </div>
         </div>
       </nav>
