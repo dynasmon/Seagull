@@ -15,6 +15,28 @@ secrets:
     file: ${NETWATCH_ES_PASSWORD_FILE:-./secrets/netwatch_es_password.txt}
 
 services:
+  netwatch-edge:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    depends_on:
+      - netwatch-portal
+      - netwatch-backend
+    ports:
+      - "${NETWATCH_EDGE_HTTP_PORT:-80}:8081"
+      - "${NETWATCH_EDGE_HTTPS_PORT:-443}:8443"
+    volumes:
+      - ./infra/nginx/edge.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${NETWATCH_TLS_CERT_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/tls/tls.crt:ro
+      - ${NETWATCH_TLS_KEY_FILE:-./secrets/tls/tls.key}:/etc/netwatch/tls/tls.key:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+    cpus: "0.25"
+    networks:
+      - netwatch
+    restart: unless-stopped
+
   postgres:
     secrets:
       - postgres_password
@@ -32,6 +54,7 @@ services:
   elasticsearch:
     secrets:
       - netwatch_es_password
+    ports: []
     environment:
       xpack.security.enabled: "true"
       ELASTIC_PASSWORD: ""
@@ -40,10 +63,14 @@ services:
   kibana:
     secrets:
       - netwatch_es_password
+    ports: []
     environment:
       ELASTICSEARCH_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
       ELASTICSEARCH_PASSWORD: ""
       ELASTICSEARCH_PASSWORD_FILE: /run/secrets/netwatch_es_password
+      SERVER_BASEPATH: /kibana
+      SERVER_REWRITEBASEPATH: "true"
+      SERVER_PUBLICBASEURL: ${NETWATCH_KIBANA_PUBLIC_BASE_URL:-https://localhost/kibana}
 
   netwatch-backend:
     secrets:
@@ -53,10 +80,15 @@ services:
       - netwatch_enroll_token
       - netwatch_redis_password
       - netwatch_es_password
+    ports: []
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: "false"
       NETWATCH_COOKIE_SECURE: "true"
+      NETWATCH_ENABLE_HSTS: "true"
+      NETWATCH_TRUST_PROXY_HEADERS: "true"
+      NETWATCH_TRUSTED_PROXY_CIDRS: ${NETWATCH_TRUSTED_PROXY_CIDRS:-172.16.0.0/12,10.0.0.0/8,192.168.0.0/16,127.0.0.1,::1}
+      NETWATCH_ALLOWED_HOSTS: ${NETWATCH_ALLOWED_HOSTS:-localhost,127.0.0.1}
       NETWATCH_DB_PASSWORD: ""
       NETWATCH_DB_PASSWORD_FILE: /run/secrets/postgres_password
       NETWATCH_JWT_SECRET: ""
@@ -195,7 +227,6 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    ports:
-      - "${NETWATCH_PORTAL_PORT:-8080}:8080"
+    ports: []
     environment: {}
     volumes: []

@@ -53,6 +53,11 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
   - Operator UI: Overview, Agents, Events (with pagination), SSH Insights, Inventory, Alerts, Correlations, Settings.
   - Uses portal auth (`/auth/login`, `/auth/refresh`, `/auth/me`) and does not rely on localStorage roles.
 
+- **netwatch-edge** (Nginx TLS reverse proxy)
+  - Terminates HTTPS for externally exposed entrypoints.
+  - Routes `/` -> portal, `/api/*` -> backend, optional `/kibana/*` and `/elasticsearch/*`.
+  - Adds HSTS + security headers and forwards `X-Forwarded-*` headers to upstream services.
+
 - **netwatch-rules-worker**
   - Periodically loads baseline YAML detections from `./rules/` (supports packs under `./rules/packs/**`).
   - Applies optional rule overrides (enable/disable/severity) and writes findings to the `alerts` table.
@@ -158,6 +163,22 @@ Recommended hardening:
 
 - Set `NETWATCH_ENROLL_TOKEN`/`NETWATCH_ENROLL_TOKEN_FILE` and only allow enroll when the agent sends `X-Enroll-Token`.
 - When behind HTTPS, set `NETWATCH_COOKIE_SECURE=true` and consider `NETWATCH_COOKIE_SAMESITE=strict`.
+- Configure TLS cert/key for the edge proxy:
+  - `NETWATCH_TLS_CERT_FILE=./secrets/tls/tls.crt`
+  - `NETWATCH_TLS_KEY_FILE=./secrets/tls/tls.key`
+
+For local lab/dev TLS (self-signed):
+
+```bash
+mkdir -p secrets/tls
+openssl req -x509 -nodes -newkey rsa:4096 \
+  -days 365 \
+  -keyout secrets/tls/tls.key \
+  -out secrets/tls/tls.crt \
+  -subj "/CN=localhost"
+```
+
+Then trust/import `secrets/tls/tls.crt` in your local OS/browser store if you want to remove browser warnings.
 
 If you enable SSH enrichment (Lupe), set:
 
@@ -183,6 +204,18 @@ make prod
 
 This uses `docker-compose.yml + compose.prod.yml` with Docker secrets mounts (`/run/secrets/*`).
 Startup fails fast in prod if required secrets are missing/weak.
+Production now expects TLS cert/key files for `netwatch-edge` (defaults: `secrets/tls/tls.crt` + `secrets/tls/tls.key`).
+
+To test HTTPS in dev:
+
+```bash
+make dev-tls
+```
+
+This starts the optional TLS edge profile and applies dev TLS overrides (`compose.dev.tls.yml`) so backend runs with secure cookies + trusted forwarded headers.
+It serves:
+- HTTP redirect: `http://localhost:${NETWATCH_EDGE_HTTP_PORT:-8081}`
+- HTTPS: `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}`
 
 ### 4. Start optional profile (`extra`)
 
@@ -215,7 +248,9 @@ The `make up-extra` target starts the profile above.
 
 ### 5. Open the Portal
 
-- Portal: `http://localhost:${NETWATCH_PORTAL_PORT:-8080}`
+- Dev (default): `http://localhost:${NETWATCH_PORTAL_PORT:-8080}`
+- Dev with TLS edge: `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}`
+- Prod compose: `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-443}`
 - Login with:
   - Username: `NETWATCH_BOOTSTRAP_ADMIN_USERNAME` (default: `admin`)
   - Password: `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD`
@@ -226,7 +261,7 @@ After logging in, change your password via **Settings** (or `POST /account/chang
 ### 6. Verify the Backend
 
 ```bash
-curl http://localhost:${NETWATCH_BACKEND_PORT:-8000}/health
+curl -k https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/api/health
 ```
 
 Expected:
@@ -241,7 +276,8 @@ Expected:
   - Credentials: `GF_SECURITY_ADMIN_USER` + value from `GF_SECURITY_ADMIN_PASSWORD` or `GF_SECURITY_ADMIN_PASSWORD_FILE`
   - Datasources + dashboards are **auto‑provisioned** from `infra/grafana/provisioning`.
 
-- Kibana (optional): `http://localhost:${KIBANA_PORT:-5601}` (start with `--profile extra`)
+- Kibana (optional, behind TLS edge): `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/kibana/` (start with `--profile extra`)
+- Elasticsearch HTTP API (if intentionally exposed via edge): `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/elasticsearch/`
 
 ### 8. Developer quality pipeline
 

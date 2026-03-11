@@ -3,6 +3,7 @@ SHELL := /bin/bash
 DC := docker compose
 COMPOSE_BASE := -f docker-compose.yml
 COMPOSE_DEV := $(COMPOSE_BASE) -f compose.dev.yml
+COMPOSE_DEV_TLS := $(COMPOSE_DEV) -f compose.dev.tls.yml
 COMPOSE_PROD := $(COMPOSE_BASE) -f compose.prod.yml
 
 ENV_FILE := .env
@@ -11,11 +12,12 @@ ENV_EXAMPLE := .env.example
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools dev prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test deps-check ci
+.PHONY: help bootstrap bootstrap-tools dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test deps-check ci
 
 help:
 	@echo "Targets:"
 	@echo "  make dev         - bootstrap and start development stack"
+	@echo "  make dev-tls     - start development stack + TLS edge (self-signed/local cert)"
 	@echo "  make prod        - bootstrap and start production-style stack"
 	@echo "  make up          - alias for make dev"
 	@echo "  make up-extra    - start development stack with profile 'extra'"
@@ -45,6 +47,9 @@ bootstrap-tools:
 # Single-command bootstrap for development.
 dev: bootstrap bootstrap-tools
 	$(DC) $(COMPOSE_DEV) up -d --build
+
+dev-tls: bootstrap bootstrap-tools
+	$(DC) $(COMPOSE_DEV_TLS) --profile tls up -d --build
 
 # Single-command bootstrap for production-like runs.
 prod: bootstrap bootstrap-tools
