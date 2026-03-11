@@ -102,6 +102,8 @@ class Settings:
     NETWATCH_COOKIE_SAMESITE: str = (_env_str("NETWATCH_COOKIE_SAMESITE", "lax") or "lax").lower()
     NETWATCH_COOKIE_DOMAIN: str | None = _env_str("NETWATCH_COOKIE_DOMAIN", None)
     NETWATCH_ENABLE_HSTS: bool = _env_bool("NETWATCH_ENABLE_HSTS", False)
+    NETWATCH_TRUST_PROXY_HEADERS: bool = _env_bool("NETWATCH_TRUST_PROXY_HEADERS", False)
+    NETWATCH_TRUSTED_PROXY_CIDRS: str = _env_str("NETWATCH_TRUSTED_PROXY_CIDRS", "127.0.0.1,::1") or "127.0.0.1,::1"
     NETWATCH_ALLOWED_HOSTS: list[str] = _env_csv("NETWATCH_ALLOWED_HOSTS", "*")
     NETWATCH_MAX_REQUEST_BODY_BYTES: int = _env_int("NETWATCH_MAX_REQUEST_BODY_BYTES", 2 * 1024 * 1024)
 
@@ -263,6 +265,14 @@ class Settings:
                 errors.append("NETWATCH_JWT_SECRET cannot use a default/placeholder value in prod")
             if self.NETWATCH_ENV in {"prod", "production"} and not self.NETWATCH_COOKIE_SECURE:
                 errors.append("NETWATCH_COOKIE_SECURE must be true in prod")
+            if self.NETWATCH_ENV in {"prod", "production"} and not self.NETWATCH_ENABLE_HSTS:
+                errors.append("NETWATCH_ENABLE_HSTS must be true in prod")
+            if self.NETWATCH_ENV in {"prod", "production"} and not self.NETWATCH_TRUST_PROXY_HEADERS:
+                errors.append("NETWATCH_TRUST_PROXY_HEADERS must be true in prod")
+            if self.NETWATCH_ENV in {"prod", "production"} and (
+                not self.NETWATCH_ALLOWED_HOSTS or self.NETWATCH_ALLOWED_HOSTS == ["*"]
+            ):
+                errors.append("NETWATCH_ALLOWED_HOSTS cannot be '*' in prod")
             enroll = (self.NETWATCH_ENROLL_TOKEN or "").strip()
             if self.NETWATCH_ENV in {"prod", "production"} and len(enroll) < 16:
                 errors.append("NETWATCH_ENROLL_TOKEN must be set with >= 16 chars in prod")
@@ -329,6 +339,8 @@ class Settings:
                 "cookie_secure": bool(self.NETWATCH_COOKIE_SECURE),
                 "cookie_samesite": self.NETWATCH_COOKIE_SAMESITE,
                 "hsts_enabled": bool(self.NETWATCH_ENABLE_HSTS),
+                "trust_proxy_headers": bool(self.NETWATCH_TRUST_PROXY_HEADERS),
+                "trusted_proxy_cidrs": self.NETWATCH_TRUSTED_PROXY_CIDRS,
                 "has_jwt_secret": bool((self.NETWATCH_JWT_SECRET or "").strip()),
                 "has_token_pepper": bool((self.NETWATCH_TOKEN_PEPPER or "").strip()),
                 "has_admin_token": bool((self.NETWATCH_ADMIN_TOKEN or "").strip()),

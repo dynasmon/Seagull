@@ -10,3 +10,6 @@ secrets/*.txt
 secrets/*.key
 secrets/*.pem
 secrets/*.crt
+secrets/tls/*.key
+secrets/tls/*.pem
+secrets/tls/*.crt

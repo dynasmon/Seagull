@@ -1,4 +1,27 @@
 services:
+  netwatch-edge:
+    profiles: ["tls"]
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    depends_on:
+      - netwatch-portal
+      - netwatch-backend
+    ports:
+      - "${NETWATCH_EDGE_HTTP_PORT:-8081}:8081"
+      - "${NETWATCH_EDGE_HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ./infra/nginx/edge.dev.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${NETWATCH_TLS_CERT_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/tls/tls.crt:ro
+      - ${NETWATCH_TLS_KEY_FILE:-./secrets/tls/tls.key}:/etc/netwatch/tls/tls.key:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+    cpus: "0.25"
+    networks:
+      - netwatch
+    restart: unless-stopped
+
   netwatch-backend:
     environment:
       NETWATCH_ENV: dev

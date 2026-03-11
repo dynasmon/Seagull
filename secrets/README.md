@@ -11,5 +11,9 @@ Expected files for `compose.prod.yml`:
 - `netwatch_enroll_token.txt`
 - `netwatch_redis_password.txt`
 - `netwatch_es_password.txt`
+- `tls/tls.crt`
+- `tls/tls.key`
 
 Each file should contain a single value (no quotes). This directory is ignored by git except this file.
+
+For TLS cert/key details, see `secrets/tls/README.md`.

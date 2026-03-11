@@ -7,6 +7,7 @@ from starlette import status
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.api.agents import router as agents_router
 from app.api.alerts import router as alerts_router
@@ -46,6 +47,12 @@ app = FastAPI(
     version="0.1.0",
     description="Mini-SIEM for network / Threat Hunting",
 )
+
+if settings.NETWATCH_TRUST_PROXY_HEADERS:
+    app.add_middleware(
+        ProxyHeadersMiddleware,
+        trusted_hosts=settings.NETWATCH_TRUSTED_PROXY_CIDRS,
+    )
 
 # ... add basic compression for JSON payloads (lowers bandwidth for dashboards)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
