@@ -22,6 +22,8 @@ from app.api.admin import router as admin_router
 from app.api.correlations import router as correlations_router
 from app.api.attack_chain import router as attack_chain_router
 from app.api.vuln import router as vuln_router
+from app.api.users import router as users_router
+from app.api.settings import router as settings_router
 from app.core.config import settings
 from app.core.observability import (
     clear_request_context,
@@ -227,6 +229,8 @@ app.include_router(alerts_router)
 app.include_router(correlations_router)
 app.include_router(attack_chain_router)
 app.include_router(vuln_router)
+app.include_router(users_router)
+app.include_router(settings_router)
 app.include_router(agents_router)
 app.include_router(inventory_router)
 app.include_router(overview_router)

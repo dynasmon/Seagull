@@ -5,6 +5,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
+from app.core.audit import audit_actor, write_audit_event
 from app.core.config import settings
 from app.core.portal_auth import (
     PortalPrincipal,
@@ -34,6 +35,7 @@ def _audit_login_event(
     succeeded: bool,
     user_id: int | None,
     username: str | None,
+    reason: str | None = None,
 ) -> None:
     """Best-effort login audit logging.
 
@@ -54,6 +56,20 @@ def _audit_login_event(
                 created_at=datetime.utcnow(),
             )
         )
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(user_id=user_id, username=username),
+            event_type="auth",
+            action=f"auth.login.{method}",
+            resource_type="auth_session",
+            resource_id=(str(user_id) if user_id is not None else None),
+            outcome="success" if succeeded else "failure",
+            before={},
+            after={"method": method, "succeeded": bool(succeeded)},
+            context={"ip": ip, "user_agent": ua},
+            reason=(None if succeeded else (reason or "login_failed")),
+        )
     except Exception:
         return
 
@@ -66,7 +82,9 @@ def login_endpoint(body: LoginIn, request: Request, response: Response):
     try:
         user: PortalUserModel | None = db.query(PortalUserModel).filter(PortalUserModel.username == body.username).first()
         if not user or not user.is_active:
-            _audit_login_event(db=db, request=request, method="password", succeeded=False, user_id=None, username=body.username)
+            _audit_login_event(
+                db=db, request=request, method="password", succeeded=False, user_id=None, username=body.username, reason="invalid_credentials"
+            )
             try:
                 db.commit()
             except Exception:
@@ -86,7 +104,9 @@ def login_endpoint(body: LoginIn, request: Request, response: Response):
                 db.add(user)
             except Exception:
                 pass
-            _audit_login_event(db=db, request=request, method="password", succeeded=False, user_id=user.id, username=body.username)
+            _audit_login_event(
+                db=db, request=request, method="password", succeeded=False, user_id=user.id, username=body.username, reason="invalid_credentials"
+            )
             try:
                 db.commit()
             except Exception:
@@ -109,13 +129,88 @@ def login_endpoint(body: LoginIn, request: Request, response: Response):
 
 @router.post("/refresh", response_model=TokenOut)
 def refresh_endpoint(request: Request, response: Response):
-    payload = refresh_access_token(request, response)
+    try:
+        payload = refresh_access_token(request, response)
+    except HTTPException as exc:
+        db = SessionLocal()
+        try:
+            write_audit_event(
+                db,
+                request=request,
+                actor=audit_actor(user_id=None, username=None),
+                event_type="auth",
+                action="auth.refresh",
+                resource_type="auth_session",
+                resource_id=None,
+                outcome="failure",
+                before={},
+                after={},
+                reason=str(exc.detail)[:255],
+                error=f"http_{exc.status_code}",
+            )
+            db.commit()
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        finally:
+            db.close()
+        raise
+
+    db = SessionLocal()
+    try:
+        u = (payload.get("user") or {}) if isinstance(payload, dict) else {}
+        uid = u.get("id")
+        uname = u.get("username")
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(user_id=(int(uid) if isinstance(uid, int) else None), username=(str(uname) if uname else None)),
+            event_type="auth",
+            action="auth.refresh",
+            resource_type="auth_session",
+            resource_id=(str(uid) if uid is not None else None),
+            outcome="success",
+            before={},
+            after={"token_refreshed": True},
+        )
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
     return payload
 
 
 @router.post("/logout", status_code=204)
-def logout_endpoint(request: Request, response: Response):
+def logout_endpoint(request: Request, response: Response, user: PortalPrincipal = Depends(get_current_user)):
     logout(request, response)
+    db = SessionLocal()
+    try:
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(user_id=user.id, username=user.username),
+            event_type="auth",
+            action="auth.logout",
+            resource_type="auth_session",
+            resource_id=str(user.id),
+            outcome="success",
+            before={},
+            after={"logged_out": True},
+        )
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
     return None
 
 
@@ -144,7 +239,7 @@ def otp_login_endpoint(body: OtpLoginIn, request: Request, response: Response):
             or row.used_at is not None
             or row.expires_at <= now
         ):
-            _audit_login_event(db=db, request=request, method="otp", succeeded=False, user_id=None, username=None)
+            _audit_login_event(db=db, request=request, method="otp", succeeded=False, user_id=None, username=None, reason="invalid_token")
             try:
                 db.commit()
             except Exception:
@@ -156,7 +251,15 @@ def otp_login_endpoint(body: OtpLoginIn, request: Request, response: Response):
 
         user: PortalUserModel | None = db.get(PortalUserModel, row.user_id)
         if not user or not user.is_active:
-            _audit_login_event(db=db, request=request, method="otp", succeeded=False, user_id=(user.id if user else None), username=(user.username if user else None))
+            _audit_login_event(
+                db=db,
+                request=request,
+                method="otp",
+                succeeded=False,
+                user_id=(user.id if user else None),
+                username=(user.username if user else None),
+                reason="invalid_token",
+            )
             try:
                 db.commit()
             except Exception:
@@ -222,6 +325,20 @@ def otp_create_endpoint(
             revoked_at=None,
         )
         db.add(row)
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(admin.id, admin.username),
+            event_type="admin_action",
+            action="auth.otp.create",
+            resource_type="otp_token",
+            resource_id=row.id,
+            outcome="success",
+            before={},
+            after={"user_id": row.user_id, "expires_at": row.expires_at.isoformat(), "label": row.label},
+            reason=body.label,
+            context={"target_username": target_user.username},
+        )
         db.commit()
 
         return {"token": token, "expires_in": expires_in}

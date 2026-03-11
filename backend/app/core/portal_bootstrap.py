@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from app.core.audit import audit_actor, write_audit_event
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.security import hash_password, verify_password
@@ -41,10 +42,24 @@ def bootstrap_portal_admin() -> None:
         if current is not None:
             should_sync = bool(settings.NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START and password)
             if should_sync and len(password) >= 12 and not verify_password(password, current.password_hash):
+                before = {"id": current.id, "username": current.username, "role": current.role, "is_active": bool(current.is_active)}
                 current.password_hash = hash_password(password)
                 current.is_active = True
                 current.role = "admin"
                 db.add(current)
+                write_audit_event(
+                    db,
+                    request=None,
+                    actor=audit_actor(None, "system"),
+                    event_type="admin_action",
+                    action="bootstrap.admin_password_sync",
+                    resource_type="user",
+                    resource_id=str(current.id),
+                    outcome="success",
+                    before=before,
+                    after={"id": current.id, "username": current.username, "role": current.role, "is_active": bool(current.is_active)},
+                    context={"bootstrap_sync": True},
+                )
                 db.commit()
             return
 
@@ -67,6 +82,20 @@ def bootstrap_portal_admin() -> None:
             created_at=datetime.utcnow(),
         )
         db.add(user)
+        db.flush()
+        write_audit_event(
+            db,
+            request=None,
+            actor=audit_actor(None, "system"),
+            event_type="admin_action",
+            action="bootstrap.admin_create",
+            resource_type="user",
+            resource_id=str(user.id),
+            outcome="success",
+            before={},
+            after={"id": user.id, "username": user.username, "role": user.role, "is_active": bool(user.is_active)},
+            context={"bootstrap": True},
+        )
         db.commit()
     finally:
         db.close()

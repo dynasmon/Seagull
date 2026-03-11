@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from app.core.audit import audit_actor, write_audit_event
 from app.core.portal_auth import PortalPrincipal, require_admin, get_current_user
 from app.core.agent_auth import AgentPrincipal, generate_agent_token, get_current_agent
 from app.core.config import settings
@@ -144,7 +145,7 @@ async def enroll_agent(request: Request, payload: AgentEnrollIn):
 
 
 @router.put("/{agent_id}/config", status_code=status.HTTP_204_NO_CONTENT)
-async def set_agent_config(agent_id: str, payload: AgentConfigUpdateIn, _admin: PortalPrincipal = Depends(require_admin)):
+async def set_agent_config(agent_id: str, payload: AgentConfigUpdateIn, request: Request, _admin: PortalPrincipal = Depends(require_admin)):
     """Admin: push a new config blob to an agent."""
 
     cfg: Dict[str, Any] = dict(payload.config or {})
@@ -158,8 +159,21 @@ async def set_agent_config(agent_id: str, payload: AgentConfigUpdateIn, _admin: 
         if row.is_revoked:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
 
+        before = {"agent_id": row.agent_id, "config": row.config if isinstance(row.config, dict) else {}}
         row.config = cfg
         db.add(row)
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(_admin.id, _admin.username),
+            event_type="admin_action",
+            action="agents.config.update",
+            resource_type="agent",
+            resource_id=row.agent_id,
+            outcome="success",
+            before=before,
+            after={"agent_id": row.agent_id, "config": row.config},
+        )
         db.commit()
         return None
     finally:
@@ -225,13 +239,21 @@ async def get_agent(agent_id: str, _user=Depends(get_current_user)):
 
 
 @router.patch("/{agent_id}", response_model=AgentDetail)
-async def update_agent(agent_id: str, payload: AgentUpdateIn, _admin: PortalPrincipal = Depends(require_admin)):
+async def update_agent(agent_id: str, payload: AgentUpdateIn, request: Request, _admin: PortalPrincipal = Depends(require_admin)):
 
     db = SessionLocal()
     try:
         row: AgentModel | None = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+        before = {
+            "agent_id": row.agent_id,
+            "display_name": row.display_name,
+            "description": row.description,
+            "tags": row.tags if isinstance(row.tags, list) else [],
+            "metadata": row.agent_metadata if isinstance(row.agent_metadata, dict) else {},
+        }
 
         if payload.display_name is not None:
             dn = payload.display_name.strip()
@@ -260,6 +282,24 @@ async def update_agent(agent_id: str, payload: AgentUpdateIn, _admin: PortalPrin
             row.agent_metadata = meta
 
         db.add(row)
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(_admin.id, _admin.username),
+            event_type="admin_action",
+            action="agents.update",
+            resource_type="agent",
+            resource_id=row.agent_id,
+            outcome="success",
+            before=before,
+            after={
+                "agent_id": row.agent_id,
+                "display_name": row.display_name,
+                "description": row.description,
+                "tags": row.tags if isinstance(row.tags, list) else [],
+                "metadata": row.agent_metadata if isinstance(row.agent_metadata, dict) else {},
+            },
+        )
         db.commit()
         db.refresh(row)
         return _agent_to_detail(row)
@@ -268,14 +308,27 @@ async def update_agent(agent_id: str, payload: AgentUpdateIn, _admin: PortalPrin
 
 
 @router.post("/{agent_id}/disable", status_code=status.HTTP_204_NO_CONTENT)
-async def disable_agent(agent_id: str, _admin: PortalPrincipal = Depends(require_admin)):
+async def disable_agent(agent_id: str, request: Request, _admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
         row: AgentModel | None = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        before = {"agent_id": row.agent_id, "is_revoked": bool(row.is_revoked)}
         row.is_revoked = True
         db.add(row)
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(_admin.id, _admin.username),
+            event_type="admin_action",
+            action="agents.disable",
+            resource_type="agent",
+            resource_id=row.agent_id,
+            outcome="success",
+            before=before,
+            after={"agent_id": row.agent_id, "is_revoked": True},
+        )
         db.commit()
         return None
     finally:
@@ -283,14 +336,27 @@ async def disable_agent(agent_id: str, _admin: PortalPrincipal = Depends(require
 
 
 @router.post("/{agent_id}/enable", status_code=status.HTTP_204_NO_CONTENT)
-async def enable_agent(agent_id: str, _admin: PortalPrincipal = Depends(require_admin)):
+async def enable_agent(agent_id: str, request: Request, _admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
         row: AgentModel | None = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+        before = {"agent_id": row.agent_id, "is_revoked": bool(row.is_revoked)}
         row.is_revoked = False
         db.add(row)
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(_admin.id, _admin.username),
+            event_type="admin_action",
+            action="agents.enable",
+            resource_type="agent",
+            resource_id=row.agent_id,
+            outcome="success",
+            before=before,
+            after={"agent_id": row.agent_id, "is_revoked": False},
+        )
         db.commit()
         return None
     finally:

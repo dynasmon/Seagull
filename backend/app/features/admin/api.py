@@ -14,14 +14,83 @@ from app.core.observability import snapshot_metrics
 from app.core.portal_auth import PortalPrincipal, require_admin
 from app.core.redis_client import get_redis
 from app.models.agents import AgentModel
+from app.models.admin_audit_events import AdminAuditEventModel
 from app.models.inventory import AgentInventorySnapshotModel
 from app.models.portal_login_events import PortalLoginEventModel
 from app.models.portal_users import PortalUserModel
+from app.schemas.admin_audit import AdminAuditEventOut, AdminAuditQueryOut
 from app.schemas.admin import LoginEventOut, RuntimeConfigOut
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 _STARTED_AT_MONO = time.monotonic()
+
+
+@router.get("/audit/events", response_model=AdminAuditQueryOut)
+def admin_audit_events(
+    limit: int = Query(100, ge=1, le=500),
+    event_type: str | None = Query(None),
+    action: str | None = Query(None),
+    outcome: str | None = Query(None),
+    resource_type: str | None = Query(None),
+    actor_username: str | None = Query(None),
+    since: datetime | None = Query(None),
+    until: datetime | None = Query(None),
+    _: PortalPrincipal = Depends(require_admin),
+):
+    db = SessionLocal()
+    try:
+        q = db.query(AdminAuditEventModel).order_by(AdminAuditEventModel.created_at.desc(), AdminAuditEventModel.id.desc())
+        if event_type:
+            q = q.filter(AdminAuditEventModel.event_type == event_type)
+        if action:
+            q = q.filter(AdminAuditEventModel.action == action)
+        if outcome:
+            q = q.filter(AdminAuditEventModel.outcome == outcome)
+        if resource_type:
+            q = q.filter(AdminAuditEventModel.resource_type == resource_type)
+        if actor_username:
+            q = q.filter(AdminAuditEventModel.actor_username == actor_username)
+        if since is not None:
+            q = q.filter(AdminAuditEventModel.created_at >= since)
+        if until is not None:
+            q = q.filter(AdminAuditEventModel.created_at <= until)
+
+        rows = q.limit(limit + 1).all()
+        has_more = len(rows) > limit
+        items: list[AdminAuditEventOut] = []
+        for r in rows[:limit]:
+            items.append(
+                AdminAuditEventOut(
+                    id=r.id,
+                    operation_id=r.operation_id,
+                    created_at=r.created_at,
+                    event_type=r.event_type,
+                    action=r.action,
+                    outcome=r.outcome,
+                    actor_user_id=r.actor_user_id,
+                    actor_username=r.actor_username,
+                    resource_type=r.resource_type,
+                    resource_id=r.resource_id,
+                    request_id=r.request_id,
+                    trace_id=r.trace_id,
+                    ip=r.ip,
+                    user_agent=r.user_agent,
+                    method=r.method,
+                    path=r.path,
+                    reason=r.reason,
+                    error=r.error,
+                    changed_fields=[str(x) for x in (r.changed_fields or [])],
+                    before=r.before if isinstance(r.before, dict) else {},
+                    after=r.after if isinstance(r.after, dict) else {},
+                    context=r.context if isinstance(r.context, dict) else {},
+                    prev_event_hash=r.prev_event_hash,
+                    event_hash=r.event_hash,
+                )
+            )
+        return AdminAuditQueryOut(items=items, has_more=has_more)
+    finally:
+        db.close()
 
 
 @router.get("/runtime-config", response_model=RuntimeConfigOut)

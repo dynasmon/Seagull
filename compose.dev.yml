@@ -37,6 +37,11 @@ services:
       NETWATCH_ENV: dev
       NETWATCH_DB_AUTO_UPGRADE: "true"
 
+  netwatch-audit-retention:
+    environment:
+      NETWATCH_ENV: dev
+      NETWATCH_DB_AUTO_UPGRADE: "true"
+
   netwatch-es-indexer:
     environment:
       NETWATCH_ENV: dev

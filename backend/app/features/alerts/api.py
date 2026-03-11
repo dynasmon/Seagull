@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Query, Depends, HTTPException
+from fastapi import APIRouter, Query, Depends, HTTPException, Request
 from sqlalchemy import and_, func, or_, select
 
+from app.core.audit import audit_actor, write_audit_event
 from app.core.db import SessionLocal
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.models.events import NetEventModel
@@ -55,6 +56,51 @@ def _parse_optional_until(v: Any) -> Optional[datetime]:
         # keep storage semantics aligned with existing UTC-naive timestamps
         return dt.astimezone(timezone.utc).replace(tzinfo=None)
     return dt
+
+
+def _rule_override_snapshot(row: Optional[AlertRuleOverrideModel]) -> dict[str, Any]:
+    if row is None:
+        return {}
+    return {
+        "rule_id": row.rule_id,
+        "enabled": row.enabled,
+        "severity": row.severity,
+        "window": row.window,
+        "cooldown": row.cooldown,
+        "min_events": row.min_events,
+        "condition": row.condition if isinstance(row.condition, dict) else {},
+        "schedule": row.schedule if isinstance(row.schedule, dict) else {},
+        "patch": row.patch if isinstance(row.patch, dict) else {},
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+def _rule_tuning_snapshot(row: Optional[AlertRuleTuningModel]) -> dict[str, Any]:
+    if row is None:
+        return {}
+    return {
+        "rule_id": row.rule_id,
+        "tuning": row.tuning if isinstance(row.tuning, dict) else {},
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        "updated_by_user_id": row.updated_by_user_id,
+        "updated_by_username": row.updated_by_username,
+    }
+
+
+def _rule_suppression_snapshot(rows: list[AlertRuleSuppressionModel]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for s in rows or []:
+        out.append(
+            {
+                "id": s.id,
+                "enabled": bool(s.enabled),
+                "reason": s.reason,
+                "when": s.when if isinstance(s.when, dict) else {},
+                "until": s.until.isoformat() if s.until else None,
+            }
+        )
+    out.sort(key=lambda x: int(x.get("id") or 0))
+    return out
 
 
 @router.get("", response_model=CursorPage[AlertOut])
@@ -656,7 +702,7 @@ def list_alert_rules():
 
 
 @router.patch("/rules/{rule_id}", response_model=RuleOut)
-def patch_alert_rule(rule_id: str, body: RuleOverrideIn, admin: PortalPrincipal = Depends(require_admin)):
+def patch_alert_rule(rule_id: str, body: RuleOverrideIn, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     """Upsert overrides for a given rule."""
     base_rules = normalize_rule_list(load_baseline_rules(include_disabled=True))
     base = next((r for r in base_rules if r.get("id") == rule_id), None)
@@ -665,10 +711,19 @@ def patch_alert_rule(rule_id: str, body: RuleOverrideIn, admin: PortalPrincipal 
 
     db = SessionLocal()
     try:
-        row: Optional[AlertRuleOverrideModel] = db.get(AlertRuleOverrideModel, rule_id)
+        row_existing: Optional[AlertRuleOverrideModel] = db.get(AlertRuleOverrideModel, rule_id)
+        row = row_existing
         if row is None:
             row = AlertRuleOverrideModel(rule_id=rule_id, condition={}, schedule={}, patch={})
             db.add(row)
+
+        before = {
+            "override": _rule_override_snapshot(row_existing),
+            "tuning": _rule_tuning_snapshot(db.get(AlertRuleTuningModel, rule_id)),
+            "suppressions": _rule_suppression_snapshot(
+                db.query(AlertRuleSuppressionModel).filter(AlertRuleSuppressionModel.rule_id == rule_id).all()
+            ),
+        }
 
         fields = getattr(body, "__fields_set__", set())
 
@@ -775,6 +830,27 @@ def patch_alert_rule(rule_id: str, body: RuleOverrideIn, admin: PortalPrincipal 
 
         row.updated_at = datetime.utcnow()
 
+        after = {
+            "override": _rule_override_snapshot(row),
+            "tuning": _rule_tuning_snapshot(db.get(AlertRuleTuningModel, rule_id)),
+            "suppressions": _rule_suppression_snapshot(
+                db.query(AlertRuleSuppressionModel).filter(AlertRuleSuppressionModel.rule_id == rule_id).all()
+            ),
+        }
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(admin.id, admin.username),
+            event_type="admin_action",
+            action="alert_rule.override.patch",
+            resource_type="alert_rule",
+            resource_id=rule_id,
+            outcome="success",
+            before=before,
+            after=after,
+            context={"fields_set": sorted([str(x) for x in fields])},
+        )
+
         db.commit()
         db.refresh(row)
 
@@ -809,11 +885,18 @@ def patch_alert_rule(rule_id: str, body: RuleOverrideIn, admin: PortalPrincipal 
 
 
 @router.delete("/rules/{rule_id}", status_code=204)
-def delete_alert_rule_override(rule_id: str, admin: PortalPrincipal = Depends(require_admin)):
+def delete_alert_rule_override(rule_id: str, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     """Remove all overrides for a rule (reverts to baseline YAML)."""
     db = SessionLocal()
     try:
         row = db.get(AlertRuleOverrideModel, rule_id)
+        before = {
+            "override": _rule_override_snapshot(row),
+            "tuning": _rule_tuning_snapshot(db.get(AlertRuleTuningModel, rule_id)),
+            "suppressions": _rule_suppression_snapshot(
+                db.query(AlertRuleSuppressionModel).filter(AlertRuleSuppressionModel.rule_id == rule_id).all()
+            ),
+        }
         if row is not None:
             db.delete(row)
         trow = db.get(AlertRuleTuningModel, rule_id)
@@ -846,6 +929,18 @@ def delete_alert_rule_override(rule_id: str, admin: PortalPrincipal = Depends(re
                 )
             )
             db.delete(s)
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(admin.id, admin.username),
+            event_type="admin_action",
+            action="alert_rule.override.delete",
+            resource_type="alert_rule",
+            resource_id=rule_id,
+            outcome="success",
+            before=before,
+            after={"override": {}, "tuning": {}, "suppressions": []},
+        )
         db.commit()
         return None
     finally:

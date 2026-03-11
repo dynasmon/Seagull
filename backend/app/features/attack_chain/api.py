@@ -3,12 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, or_, select
 
+from app.core.audit import audit_actor, write_audit_event
 from app.core.db import SessionLocal
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
-from app.core.portal_auth import get_current_user, require_admin
+from app.core.portal_auth import PortalPrincipal, get_current_user, require_admin
 from app.models.attack_chain import AttackChainAllowlistModel, AttackChainCaseModel, AttackChainStepModel
 from app.schemas.attack_chain import (
     AttackChainAllowlistCreate,
@@ -242,7 +243,7 @@ def get_case_with_steps(case_id: int):
 
 
 @router.post("/cases/{case_id}/close", dependencies=[Depends(require_admin)])
-def close_case(case_id: int):
+def close_case(case_id: int, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
         case = db.get(AttackChainCaseModel, int(case_id))
@@ -251,9 +252,22 @@ def close_case(case_id: int):
         if (case.status or "").lower() == "closed":
             return {"status": "ok", "case_id": case.id, "already_closed": True}
 
+        before = {"id": case.id, "status": case.status, "closed_at": (case.closed_at.isoformat() if case.closed_at else None)}
         case.status = "closed"
         case.closed_at = case.closed_at or _utc_now()
         db.add(case)
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(admin.id, admin.username),
+            event_type="admin_action",
+            action="attack_chain.case.close",
+            resource_type="attack_chain_case",
+            resource_id=str(case.id),
+            outcome="success",
+            before=before,
+            after={"id": case.id, "status": case.status, "closed_at": case.closed_at.isoformat()},
+        )
         db.commit()
         return {"status": "ok", "case_id": case.id}
     finally:
@@ -281,7 +295,7 @@ def list_allowlist(rule_type: str = Query("sudo_cmd", min_length=1, max_length=3
 
 
 @router.post("/allowlist", response_model=AttackChainAllowlistDB, dependencies=[Depends(require_admin)])
-def create_allowlist(payload: AttackChainAllowlistCreate):
+def create_allowlist(payload: AttackChainAllowlistCreate, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
         mode = _validate_allowlist_mode(payload.match_mode)
@@ -300,6 +314,29 @@ def create_allowlist(payload: AttackChainAllowlistCreate):
             notes=_norm_opt(payload.notes, max_len=256),
         )
         db.add(row)
+        db.flush()
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(admin.id, admin.username),
+            event_type="admin_action",
+            action="allowlist.create",
+            resource_type="attack_chain_allowlist",
+            resource_id=str(row.id),
+            outcome="success",
+            before={},
+            after={
+                "id": row.id,
+                "rule_type": row.rule_type,
+                "enabled": bool(row.enabled),
+                "match_mode": row.match_mode,
+                "pattern": row.pattern,
+                "agent_id": row.agent_id,
+                "username": row.username,
+                "target_user": row.target_user,
+                "notes": row.notes,
+            },
+        )
         db.commit()
         db.refresh(row)
         return row
@@ -308,13 +345,24 @@ def create_allowlist(payload: AttackChainAllowlistCreate):
 
 
 @router.put("/allowlist/{rule_id}", response_model=AttackChainAllowlistDB, dependencies=[Depends(require_admin)])
-def update_allowlist(rule_id: int, payload: AttackChainAllowlistUpdate):
+def update_allowlist(rule_id: int, payload: AttackChainAllowlistUpdate, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
         row = db.get(AttackChainAllowlistModel, int(rule_id))
         if not row:
             raise HTTPException(status_code=404, detail="Allowlist rule not found")
 
+        before = {
+            "id": row.id,
+            "rule_type": row.rule_type,
+            "enabled": bool(row.enabled),
+            "match_mode": row.match_mode,
+            "pattern": row.pattern,
+            "agent_id": row.agent_id,
+            "username": row.username,
+            "target_user": row.target_user,
+            "notes": row.notes,
+        }
         if payload.enabled is not None:
             row.enabled = bool(payload.enabled)
         if payload.match_mode is not None:
@@ -336,6 +384,28 @@ def update_allowlist(rule_id: int, payload: AttackChainAllowlistUpdate):
             row.notes = _norm_opt(payload.notes, max_len=256)
 
         db.add(row)
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(admin.id, admin.username),
+            event_type="admin_action",
+            action="allowlist.update",
+            resource_type="attack_chain_allowlist",
+            resource_id=str(row.id),
+            outcome="success",
+            before=before,
+            after={
+                "id": row.id,
+                "rule_type": row.rule_type,
+                "enabled": bool(row.enabled),
+                "match_mode": row.match_mode,
+                "pattern": row.pattern,
+                "agent_id": row.agent_id,
+                "username": row.username,
+                "target_user": row.target_user,
+                "notes": row.notes,
+            },
+        )
         db.commit()
         db.refresh(row)
         return row
@@ -344,13 +414,36 @@ def update_allowlist(rule_id: int, payload: AttackChainAllowlistUpdate):
 
 
 @router.delete("/allowlist/{rule_id}", dependencies=[Depends(require_admin)])
-def delete_allowlist(rule_id: int):
+def delete_allowlist(rule_id: int, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
         row = db.get(AttackChainAllowlistModel, int(rule_id))
         if not row:
             raise HTTPException(status_code=404, detail="Allowlist rule not found")
+        before = {
+            "id": row.id,
+            "rule_type": row.rule_type,
+            "enabled": bool(row.enabled),
+            "match_mode": row.match_mode,
+            "pattern": row.pattern,
+            "agent_id": row.agent_id,
+            "username": row.username,
+            "target_user": row.target_user,
+            "notes": row.notes,
+        }
         db.delete(row)
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(admin.id, admin.username),
+            event_type="admin_action",
+            action="allowlist.delete",
+            resource_type="attack_chain_allowlist",
+            resource_id=str(rule_id),
+            outcome="success",
+            before=before,
+            after={},
+        )
         db.commit()
         return {"status": "ok", "deleted": True, "id": int(rule_id)}
     finally:

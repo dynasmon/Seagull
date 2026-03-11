@@ -106,6 +106,22 @@ class Settings:
     NETWATCH_TRUSTED_PROXY_CIDRS: str = _env_str("NETWATCH_TRUSTED_PROXY_CIDRS", "127.0.0.1,::1") or "127.0.0.1,::1"
     NETWATCH_ALLOWED_HOSTS: list[str] = _env_csv("NETWATCH_ALLOWED_HOSTS", "*")
     NETWATCH_MAX_REQUEST_BODY_BYTES: int = _env_int("NETWATCH_MAX_REQUEST_BODY_BYTES", 2 * 1024 * 1024)
+    NETWATCH_AUDIT_HASH_PEPPER: str | None = _env_str("NETWATCH_AUDIT_HASH_PEPPER", None)
+    NETWATCH_AUDIT_RETENTION_ENABLED: bool = _env_bool("NETWATCH_AUDIT_RETENTION_ENABLED", True)
+    NETWATCH_AUDIT_RETENTION_DAYS: int = _env_int(
+        "NETWATCH_AUDIT_RETENTION_DAYS",
+        365 if NETWATCH_ENV in {"prod", "production"} else 30,
+    )
+    NETWATCH_LOGIN_AUDIT_RETENTION_DAYS: int = _env_int(
+        "NETWATCH_LOGIN_AUDIT_RETENTION_DAYS",
+        NETWATCH_AUDIT_RETENTION_DAYS,
+    )
+    NETWATCH_GOVERNANCE_RETENTION_DAYS: int = _env_int(
+        "NETWATCH_GOVERNANCE_RETENTION_DAYS",
+        NETWATCH_AUDIT_RETENTION_DAYS,
+    )
+    NETWATCH_AUDIT_RETENTION_EVERY_SECONDS: int = _env_int("NETWATCH_AUDIT_RETENTION_EVERY_SECONDS", 3600)
+    NETWATCH_AUDIT_RETENTION_DELETE_BATCH: int = _env_int("NETWATCH_AUDIT_RETENTION_DELETE_BATCH", 5000)
 
     # Search backend selection:
     # - auto: use Elasticsearch when available, fallback to Postgres
@@ -252,6 +268,16 @@ class Settings:
             errors.append("NETWATCH_MAX_REQUEST_BODY_BYTES must be >= 1024")
         if (self.NETWATCH_REDIS_PORT or 0) < 1:
             errors.append("NETWATCH_REDIS_PORT must be >= 1")
+        if (self.NETWATCH_AUDIT_RETENTION_DAYS or 0) < 1:
+            errors.append("NETWATCH_AUDIT_RETENTION_DAYS must be >= 1")
+        if (self.NETWATCH_LOGIN_AUDIT_RETENTION_DAYS or 0) < 1:
+            errors.append("NETWATCH_LOGIN_AUDIT_RETENTION_DAYS must be >= 1")
+        if (self.NETWATCH_GOVERNANCE_RETENTION_DAYS or 0) < 1:
+            errors.append("NETWATCH_GOVERNANCE_RETENTION_DAYS must be >= 1")
+        if (self.NETWATCH_AUDIT_RETENTION_EVERY_SECONDS or 0) < 30:
+            errors.append("NETWATCH_AUDIT_RETENTION_EVERY_SECONDS must be >= 30")
+        if (self.NETWATCH_AUDIT_RETENTION_DELETE_BATCH or 0) < 100:
+            errors.append("NETWATCH_AUDIT_RETENTION_DELETE_BATCH must be >= 100")
         if self.NETWATCH_SEARCH_BACKEND not in {"auto", "elasticsearch", "postgres"}:
             errors.append("NETWATCH_SEARCH_BACKEND must be one of: auto, elasticsearch, postgres")
         if self.NETWATCH_INGEST_BACKPRESSURE_MODE not in {"rollup_only", "reject_429"}:
@@ -273,6 +299,8 @@ class Settings:
                 not self.NETWATCH_ALLOWED_HOSTS or self.NETWATCH_ALLOWED_HOSTS == ["*"]
             ):
                 errors.append("NETWATCH_ALLOWED_HOSTS cannot be '*' in prod")
+            if self.NETWATCH_ENV in {"prod", "production"} and self.NETWATCH_AUDIT_RETENTION_DAYS < 90:
+                errors.append("NETWATCH_AUDIT_RETENTION_DAYS must be >= 90 in prod")
             enroll = (self.NETWATCH_ENROLL_TOKEN or "").strip()
             if self.NETWATCH_ENV in {"prod", "production"} and len(enroll) < 16:
                 errors.append("NETWATCH_ENROLL_TOKEN must be set with >= 16 chars in prod")
@@ -341,8 +369,13 @@ class Settings:
                 "hsts_enabled": bool(self.NETWATCH_ENABLE_HSTS),
                 "trust_proxy_headers": bool(self.NETWATCH_TRUST_PROXY_HEADERS),
                 "trusted_proxy_cidrs": self.NETWATCH_TRUSTED_PROXY_CIDRS,
+                "audit_retention_enabled": bool(self.NETWATCH_AUDIT_RETENTION_ENABLED),
+                "audit_retention_days": int(self.NETWATCH_AUDIT_RETENTION_DAYS),
+                "login_audit_retention_days": int(self.NETWATCH_LOGIN_AUDIT_RETENTION_DAYS),
+                "governance_retention_days": int(self.NETWATCH_GOVERNANCE_RETENTION_DAYS),
                 "has_jwt_secret": bool((self.NETWATCH_JWT_SECRET or "").strip()),
                 "has_token_pepper": bool((self.NETWATCH_TOKEN_PEPPER or "").strip()),
+                "has_audit_hash_pepper": bool((self.NETWATCH_AUDIT_HASH_PEPPER or "").strip()),
                 "has_admin_token": bool((self.NETWATCH_ADMIN_TOKEN or "").strip()),
                 "has_enroll_token": bool((self.NETWATCH_ENROLL_TOKEN or "").strip()),
             },
