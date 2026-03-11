@@ -27,6 +27,8 @@ def _get_redis() -> Optional[redis.Redis]:
         _redis_client = redis.Redis(
             host=settings.NETWATCH_REDIS_HOST,
             port=settings.NETWATCH_REDIS_PORT,
+            username=settings.NETWATCH_REDIS_USERNAME or None,
+            password=settings.NETWATCH_REDIS_PASSWORD or None,
             decode_responses=True,
             socket_connect_timeout=0.2,
             socket_timeout=0.2,

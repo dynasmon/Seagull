@@ -1,15 +1,13 @@
 # backend/app/core/config.py
 import json
-import os
+from urllib.parse import urlsplit
 from typing import Any, Dict
+
+from app.core.env_secrets import env_value
 
 
 def _env_str(name: str, default: str | None = None) -> str | None:
-    v = os.getenv(name)
-    if v is None:
-        return default
-    v = v.strip()
-    return v if v != "" else default
+    return env_value(name, default)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -68,6 +66,8 @@ class Settings:
     # Redis
     NETWATCH_REDIS_HOST: str = _env_str("NETWATCH_REDIS_HOST", "redis") or "redis"
     NETWATCH_REDIS_PORT: int = _env_int("NETWATCH_REDIS_PORT", 6379)
+    NETWATCH_REDIS_USERNAME: str | None = _env_str("NETWATCH_REDIS_USERNAME", None)
+    NETWATCH_REDIS_PASSWORD: str | None = _env_str("NETWATCH_REDIS_PASSWORD", None)
     NETWATCH_RULES_DIR: str = _env_str("NETWATCH_RULES_DIR", "/app/rules") or "/app/rules"
 
     # Optional full SQLAlchemy DSN (preferred). Example:
@@ -78,7 +78,7 @@ class Settings:
     DB_PORT: int = _env_int("NETWATCH_DB_PORT", 5432)
     DB_NAME: str = _env_str("NETWATCH_DB_NAME", "netwatch") or "netwatch"
     DB_USER: str = _env_str("NETWATCH_DB_USER", "netwatch") or "netwatch"
-    DB_PASSWORD: str = _env_str("NETWATCH_DB_PASSWORD", "netwatch123") or "netwatch123"
+    DB_PASSWORD: str | None = _env_str("NETWATCH_DB_PASSWORD", _env_str("POSTGRES_PASSWORD", None))
     NETWATCH_DB_POOL_SIZE: int = _env_int("NETWATCH_DB_POOL_SIZE", 10)
     NETWATCH_DB_MAX_OVERFLOW: int = _env_int("NETWATCH_DB_MAX_OVERFLOW", 20)
     NETWATCH_DB_EXECUTEMANY_MODE: str = _env_str("NETWATCH_DB_EXECUTEMANY_MODE", "values_plus_batch") or "values_plus_batch"
@@ -124,6 +124,10 @@ class Settings:
     # Bootstrap admin user (required on first run).
     NETWATCH_BOOTSTRAP_ADMIN_USERNAME: str = _env_str("NETWATCH_BOOTSTRAP_ADMIN_USERNAME", "admin") or "admin"
     NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: str | None = _env_str("NETWATCH_BOOTSTRAP_ADMIN_PASSWORD", None)
+    NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START: bool = _env_bool(
+        "NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START",
+        NETWATCH_ENV in {"dev", "development"},
+    )
 
     # Default agent configuration applied on first enroll (JSON object).
     NETWATCH_DEFAULT_AGENT_CONFIG_JSON: str = _env_str("NETWATCH_DEFAULT_AGENT_CONFIG_JSON", "{}") or "{}"
@@ -180,10 +184,40 @@ class Settings:
         if self.DB_URL:
             return self.DB_URL
 
+        if not (self.DB_PASSWORD or "").strip():
+            raise RuntimeError("NETWATCH_DB_PASSWORD (or NETWATCH_DB_URL) is required.")
+
         return (
             f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         )
+
+    @staticmethod
+    def _looks_insecure_secret(secret: str) -> bool:
+        s = (secret or "").strip().lower()
+        if not s:
+            return True
+        known_weak = {
+            "admin",
+            "password",
+            "changeme",
+            "change_me",
+            "change_me_please",
+            "secret",
+            "netwatch",
+            "netwatch123",
+            "deprecated",
+        }
+        return s in known_weak or "change_me" in s
+
+    def _database_password(self) -> str:
+        db_url = (self.DB_URL or "").strip()
+        if db_url:
+            parsed = urlsplit(db_url)
+            if parsed.password:
+                return parsed.password.strip()
+            return ""
+        return (self.DB_PASSWORD or "").strip()
 
     def default_agent_config(self) -> Dict[str, Any]:
         raw = (self.NETWATCH_DEFAULT_AGENT_CONFIG_JSON or "{}").strip() or "{}"
@@ -225,11 +259,45 @@ class Settings:
             secret = (self.NETWATCH_JWT_SECRET or "").strip()
             if len(secret) < 32:
                 errors.append("NETWATCH_JWT_SECRET is required and must be >= 32 chars")
+            if self.NETWATCH_ENV in {"prod", "production"} and self._looks_insecure_secret(secret):
+                errors.append("NETWATCH_JWT_SECRET cannot use a default/placeholder value in prod")
             if self.NETWATCH_ENV in {"prod", "production"} and not self.NETWATCH_COOKIE_SECURE:
                 errors.append("NETWATCH_COOKIE_SECURE must be true in prod")
             enroll = (self.NETWATCH_ENROLL_TOKEN or "").strip()
             if self.NETWATCH_ENV in {"prod", "production"} and len(enroll) < 16:
                 errors.append("NETWATCH_ENROLL_TOKEN must be set with >= 16 chars in prod")
+            if self.NETWATCH_ENV in {"prod", "production"} and self._looks_insecure_secret(enroll):
+                errors.append("NETWATCH_ENROLL_TOKEN cannot use a default/placeholder value in prod")
+
+            bootstrap_password = (self.NETWATCH_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
+            if self.NETWATCH_ENV in {"prod", "production"} and len(bootstrap_password) < 12:
+                errors.append("NETWATCH_BOOTSTRAP_ADMIN_PASSWORD must be set with >= 12 chars in prod")
+            if self.NETWATCH_ENV in {"prod", "production"} and self._looks_insecure_secret(bootstrap_password):
+                errors.append("NETWATCH_BOOTSTRAP_ADMIN_PASSWORD cannot use a default/placeholder value in prod")
+            if self.NETWATCH_ENV in {"prod", "production"} and self.NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START:
+                errors.append("NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START must be false in prod")
+
+            db_password = self._database_password()
+            if self.NETWATCH_ENV in {"prod", "production"} and len(db_password) < 12:
+                errors.append("Database password must be set with >= 12 chars in prod")
+            if self.NETWATCH_ENV in {"prod", "production"} and self._looks_insecure_secret(db_password):
+                errors.append("Database password cannot use a default/placeholder value in prod")
+
+            redis_password = (self.NETWATCH_REDIS_PASSWORD or "").strip()
+            if self.NETWATCH_ENV in {"prod", "production"} and len(redis_password) < 12:
+                errors.append("NETWATCH_REDIS_PASSWORD must be set with >= 12 chars in prod")
+            if self.NETWATCH_ENV in {"prod", "production"} and self._looks_insecure_secret(redis_password):
+                errors.append("NETWATCH_REDIS_PASSWORD cannot use a default/placeholder value in prod")
+
+            if self.NETWATCH_SEARCH_BACKEND in {"auto", "elasticsearch"}:
+                es_username = (self.NETWATCH_ES_USERNAME or "").strip()
+                es_password = (self.NETWATCH_ES_PASSWORD or "").strip()
+                if self.NETWATCH_ENV in {"prod", "production"} and not es_username:
+                    errors.append("NETWATCH_ES_USERNAME is required in prod when Elasticsearch is enabled")
+                if self.NETWATCH_ENV in {"prod", "production"} and len(es_password) < 12:
+                    errors.append("NETWATCH_ES_PASSWORD must be set with >= 12 chars in prod when Elasticsearch is enabled")
+                if self.NETWATCH_ENV in {"prod", "production"} and self._looks_insecure_secret(es_password):
+                    errors.append("NETWATCH_ES_PASSWORD cannot use a default/placeholder value in prod")
 
         if errors:
             raise RuntimeError("Invalid runtime config:\n- " + "\n- ".join(errors))

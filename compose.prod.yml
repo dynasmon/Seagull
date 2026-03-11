@@ -1,43 +1,195 @@
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_FILE:-./secrets/postgres_password.txt}
+  grafana_admin_password:
+    file: ${GF_SECURITY_ADMIN_PASSWORD_FILE:-./secrets/grafana_admin_password.txt}
+  netwatch_jwt_secret:
+    file: ${NETWATCH_JWT_SECRET_FILE:-./secrets/netwatch_jwt_secret.txt}
+  netwatch_bootstrap_admin_password:
+    file: ${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE:-./secrets/netwatch_bootstrap_admin_password.txt}
+  netwatch_enroll_token:
+    file: ${NETWATCH_ENROLL_TOKEN_FILE:-./secrets/netwatch_enroll_token.txt}
+  netwatch_redis_password:
+    file: ${NETWATCH_REDIS_PASSWORD_FILE:-./secrets/netwatch_redis_password.txt}
+  netwatch_es_password:
+    file: ${NETWATCH_ES_PASSWORD_FILE:-./secrets/netwatch_es_password.txt}
+
 services:
+  postgres:
+    secrets:
+      - postgres_password
+    environment:
+      POSTGRES_PASSWORD: ""
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+
+  redis:
+    secrets:
+      - netwatch_redis_password
+    environment:
+      NETWATCH_REDIS_PASSWORD: ""
+      NETWATCH_REDIS_PASSWORD_FILE: /run/secrets/netwatch_redis_password
+
+  elasticsearch:
+    secrets:
+      - netwatch_es_password
+    environment:
+      xpack.security.enabled: "true"
+      ELASTIC_PASSWORD: ""
+      ELASTIC_PASSWORD_FILE: /run/secrets/netwatch_es_password
+
+  kibana:
+    secrets:
+      - netwatch_es_password
+    environment:
+      ELASTICSEARCH_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
+      ELASTICSEARCH_PASSWORD: ""
+      ELASTICSEARCH_PASSWORD_FILE: /run/secrets/netwatch_es_password
+
   netwatch-backend:
+    secrets:
+      - postgres_password
+      - netwatch_jwt_secret
+      - netwatch_bootstrap_admin_password
+      - netwatch_enroll_token
+      - netwatch_redis_password
+      - netwatch_es_password
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_COOKIE_SECURE: "true"
+      NETWATCH_DB_PASSWORD: ""
+      NETWATCH_DB_PASSWORD_FILE: /run/secrets/postgres_password
+      NETWATCH_JWT_SECRET: ""
+      NETWATCH_JWT_SECRET_FILE: /run/secrets/netwatch_jwt_secret
+      NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: ""
+      NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/netwatch_bootstrap_admin_password
+      NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START: "false"
+      NETWATCH_ENROLL_TOKEN: ""
+      NETWATCH_ENROLL_TOKEN_FILE: /run/secrets/netwatch_enroll_token
+      NETWATCH_REDIS_PASSWORD: ""
+      NETWATCH_REDIS_PASSWORD_FILE: /run/secrets/netwatch_redis_password
+      NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
+      NETWATCH_ES_PASSWORD: ""
+      NETWATCH_ES_PASSWORD_FILE: /run/secrets/netwatch_es_password
 
   netwatch-ingest-worker:
+    secrets:
+      - postgres_password
+      - netwatch_redis_password
+      - netwatch_es_password
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_PASSWORD: ""
+      NETWATCH_DB_PASSWORD_FILE: /run/secrets/postgres_password
+      NETWATCH_REDIS_PASSWORD: ""
+      NETWATCH_REDIS_PASSWORD_FILE: /run/secrets/netwatch_redis_password
+      NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
+      NETWATCH_ES_PASSWORD: ""
+      NETWATCH_ES_PASSWORD_FILE: /run/secrets/netwatch_es_password
 
   netwatch-rules-worker:
+    secrets:
+      - postgres_password
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_PASSWORD: ""
+      NETWATCH_DB_PASSWORD_FILE: /run/secrets/postgres_password
 
   netwatch-es-indexer:
+    secrets:
+      - postgres_password
+      - netwatch_es_password
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_PASSWORD: ""
+      NETWATCH_DB_PASSWORD_FILE: /run/secrets/postgres_password
+      NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
+      NETWATCH_ES_PASSWORD: ""
+      NETWATCH_ES_PASSWORD_FILE: /run/secrets/netwatch_es_password
 
   netwatch-rollup-worker:
+    secrets:
+      - postgres_password
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_PASSWORD: ""
+      NETWATCH_DB_PASSWORD_FILE: /run/secrets/postgres_password
 
   netwatch-ip-intel:
+    secrets:
+      - postgres_password
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_PASSWORD: ""
+      NETWATCH_DB_PASSWORD_FILE: /run/secrets/postgres_password
 
   netwatch-proto-intel:
+    secrets:
+      - postgres_password
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_PASSWORD: ""
+      NETWATCH_DB_PASSWORD_FILE: /run/secrets/postgres_password
 
   netwatch-attack-chain:
+    secrets:
+      - postgres_password
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_PASSWORD: ""
+      NETWATCH_DB_PASSWORD_FILE: /run/secrets/postgres_password
+
+  grafana:
+    secrets:
+      - postgres_password
+      - grafana_admin_password
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ""
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      POSTGRES_PASSWORD: ""
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+
+  netwatch-agent-proc:
+    secrets:
+      - netwatch_enroll_token
+    environment:
+      NETWATCH_ENROLL_TOKEN: ""
+      NETWATCH_ENROLL_TOKEN_FILE: /run/secrets/netwatch_enroll_token
+
+  netwatch-agent-scan:
+    secrets:
+      - netwatch_enroll_token
+    environment:
+      NETWATCH_ENROLL_TOKEN: ""
+      NETWATCH_ENROLL_TOKEN_FILE: /run/secrets/netwatch_enroll_token
+
+  netwatch-agent-ddos:
+    secrets:
+      - netwatch_enroll_token
+    environment:
+      NETWATCH_ENROLL_TOKEN: ""
+      NETWATCH_ENROLL_TOKEN_FILE: /run/secrets/netwatch_enroll_token
+
+  netwatch-agent-lateral:
+    secrets:
+      - netwatch_enroll_token
+    environment:
+      NETWATCH_ENROLL_TOKEN: ""
+      NETWATCH_ENROLL_TOKEN_FILE: /run/secrets/netwatch_enroll_token
+
+  netwatch-agent-vuln:
+    secrets:
+      - netwatch_enroll_token
+    environment:
+      NETWATCH_ENROLL_TOKEN: ""
+      NETWATCH_ENROLL_TOKEN_FILE: /run/secrets/netwatch_enroll_token
 
   netwatch-portal:
     build:

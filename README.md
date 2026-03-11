@@ -127,20 +127,36 @@ cd dynasmon-netwatch
 
 ### 2. Configure environment variables
 
-Start from the template and **set the portal auth secrets**:
+Start from the template:
 
 ```bash
 cp .env.example .env
 ```
 
-Minimum required for a secure portal bootstrap:
+Create runtime secret files (recommended for prod and supported in dev):
 
-- `NETWATCH_JWT_SECRET` (generate with `openssl rand -hex 32`)
-- `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD` (>= 12 chars; strong)
+```bash
+mkdir -p secrets
+openssl rand -hex 24 > secrets/postgres_password.txt
+openssl rand -hex 24 > secrets/grafana_admin_password.txt
+openssl rand -hex 32 > secrets/netwatch_jwt_secret.txt
+openssl rand -hex 24 > secrets/netwatch_bootstrap_admin_password.txt
+openssl rand -hex 24 > secrets/netwatch_enroll_token.txt
+openssl rand -hex 24 > secrets/netwatch_redis_password.txt
+openssl rand -hex 24 > secrets/netwatch_es_password.txt
+```
+
+The backend now supports both `VAR` and `VAR_FILE` for secrets. Compose prod mounts Docker secrets under `/run/secrets/*`.
+
+Minimum required for secure bootstrap:
+
+- `NETWATCH_JWT_SECRET` or `NETWATCH_JWT_SECRET_FILE`
+- `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD` or `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE`
+- In dev, `NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START=true` can resync the bootstrap admin password on startup.
 
 Recommended hardening:
 
-- Set `NETWATCH_ENROLL_TOKEN` and only allow enroll when the agent sends `X-Enroll-Token`.
+- Set `NETWATCH_ENROLL_TOKEN`/`NETWATCH_ENROLL_TOKEN_FILE` and only allow enroll when the agent sends `X-Enroll-Token`.
 - When behind HTTPS, set `NETWATCH_COOKIE_SECURE=true` and consider `NETWATCH_COOKIE_SAMESITE=strict`.
 
 If you enable SSH enrichment (Lupe), set:
@@ -165,7 +181,8 @@ For production-style local runs:
 make prod
 ```
 
-This uses `docker-compose.yml + compose.prod.yml`.
+This uses `docker-compose.yml + compose.prod.yml` with Docker secrets mounts (`/run/secrets/*`).
+Startup fails fast in prod if required secrets are missing/weak.
 
 ### 4. Start optional profile (`extra`)
 
@@ -221,7 +238,7 @@ Expected:
 ### 7. Grafana / Kibana
 
 - Grafana: `http://localhost:${GRAFANA_PORT:-3000}`
-  - Credentials: `GF_SECURITY_ADMIN_USER` / `GF_SECURITY_ADMIN_PASSWORD`
+  - Credentials: `GF_SECURITY_ADMIN_USER` + value from `GF_SECURITY_ADMIN_PASSWORD` or `GF_SECURITY_ADMIN_PASSWORD_FILE`
   - Datasources + dashboards are **auto‑provisioned** from `infra/grafana/provisioning`.
 
 - Kibana (optional): `http://localhost:${KIBANA_PORT:-5601}` (start with `--profile extra`)
@@ -256,6 +273,12 @@ Useful commands:
 - `make db-current` -> show current revision
 
 For production-like runs (`compose.prod.yml`), `NETWATCH_DB_AUTO_UPGRADE=false` by default.
+
+Troubleshooting (Postgres auth failed):
+
+- If you see `password authentication failed for user "netwatch"` after changing `POSTGRES_PASSWORD`, your existing `postgres-data` volume still has the old password.
+- Option 1 (keep data): set `.env` `POSTGRES_PASSWORD` back to the password used when that volume was first created.
+- Option 2 (reset local dev DB): `docker compose down -v` and start again to reinitialize with current credentials.
 
 ### 10. Development observability
 
@@ -381,9 +404,10 @@ Use this project responsibly:
 
 Portal security notes:
 
+- Use strong runtime secrets (prefer `*_FILE` + Docker secrets in prod).
 - Use a strong `NETWATCH_JWT_SECRET` and rotate it if leaked.
 - Run behind HTTPS and set `NETWATCH_COOKIE_SECURE=true`.
-- Consider setting `NETWATCH_ENROLL_TOKEN` to prevent opportunistic agent enrollment.
+- Set `NETWATCH_ENROLL_TOKEN` to prevent opportunistic agent enrollment.
 
 ---
 

@@ -14,7 +14,6 @@ Operational notes:
 from __future__ import annotations
 
 import logging
-import os
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -27,6 +26,7 @@ from sqlalchemy.exc import OperationalError
 from app.core.config import settings
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
+from app.core.env_secrets import env_value
 from app.core.observability import log_event, setup_logging
 from app.models.events import NetEventModel
 from app.models.search_index_offsets import SearchIndexOffsetModel
@@ -54,11 +54,7 @@ class ESConfig:
 
 
 def _env_str(name: str, default: Optional[str] = None) -> Optional[str]:
-    v = os.getenv(name)
-    if v is None:
-        return default
-    v = v.strip()
-    return v if v else default
+    return env_value(name, default)
 
 
 def _env_int(name: str, default: int) -> int:
