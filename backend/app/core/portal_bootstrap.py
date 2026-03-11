@@ -4,7 +4,7 @@ from datetime import datetime
 
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
 from app.models.correlation_rules import CorrelationRuleModel
 from app.models.portal_users import PortalUserModel
 
@@ -32,12 +32,25 @@ def bootstrap_portal_admin() -> None:
 
     db = SessionLocal()
     try:
+        username = (settings.NETWATCH_BOOTSTRAP_ADMIN_USERNAME or "admin").strip() or "admin"
+        password = (settings.NETWATCH_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
         existing = db.query(PortalUserModel).count()
+
+        # Existing admin user path: in dev, allow controlled password sync from bootstrap env.
+        current = db.query(PortalUserModel).filter(PortalUserModel.username == username).first()
+        if current is not None:
+            should_sync = bool(settings.NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START and password)
+            if should_sync and len(password) >= 12 and not verify_password(password, current.password_hash):
+                current.password_hash = hash_password(password)
+                current.is_active = True
+                current.role = "admin"
+                db.add(current)
+                db.commit()
+            return
+
         if existing and existing > 0:
             return
 
-        username = (settings.NETWATCH_BOOTSTRAP_ADMIN_USERNAME or "admin").strip() or "admin"
-        password = (settings.NETWATCH_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
         if not password:
             raise RuntimeError(
                 "No portal users found. Set NETWATCH_BOOTSTRAP_ADMIN_PASSWORD to bootstrap the admin user."

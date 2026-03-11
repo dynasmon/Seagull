@@ -29,6 +29,7 @@ from app.core.db import engine
 from app.core.config import settings
 from app.core.redis_client import get_redis
 from app.core.db_lifecycle import ensure_database_ready
+from app.core.env_secrets import env_value
 from app.core.ingest_control import storm_maybe_close_alert, storm_maybe_open_alert
 from app.core.observability import log_event, setup_logging
 from app.models.events import NetEventModel, NetEventRollup1sModel
@@ -53,14 +54,14 @@ class WorkerConfig:
     warm_ilm_policy: str
     warm_ilm_delete_after_days: int
     es_request_timeout_seconds: int
+    es_username: Optional[str]
+    es_password: Optional[str]
+    es_verify_certs: bool
+    es_ca_certs: Optional[str]
 
 
 def _env_str(name: str, default: str) -> str:
-    v = os.getenv(name)
-    if v is None:
-        return default
-    v = v.strip()
-    return v if v else default
+    return env_value(name, default) or default
 
 
 def _env_int(name: str, default: int) -> int:
@@ -118,13 +119,25 @@ def load_config() -> WorkerConfig:
         warm_ilm_policy=_env_str("NETWATCH_INGEST_WARM_ILM_POLICY", "netwatch-warm-delete-30d"),
         warm_ilm_delete_after_days=max(1, _env_int("NETWATCH_INGEST_WARM_ILM_DELETE_AFTER_DAYS", 30)),
         es_request_timeout_seconds=max(5, _env_int("NETWATCH_ES_REQUEST_TIMEOUT_SECONDS", 30)),
+        es_username=env_value("NETWATCH_ES_USERNAME", None),
+        es_password=env_value("NETWATCH_ES_PASSWORD", None),
+        es_verify_certs=_env_bool("NETWATCH_ES_VERIFY_CERTS", True),
+        es_ca_certs=env_value("NETWATCH_ES_CA_CERTS", None),
     )
 
 
 def _build_es_client(cfg: WorkerConfig):
     from elasticsearch import Elasticsearch
 
-    return Elasticsearch(cfg.es_url, request_timeout=cfg.es_request_timeout_seconds)
+    kwargs: Dict[str, Any] = {
+        "request_timeout": cfg.es_request_timeout_seconds,
+        "verify_certs": bool(cfg.es_verify_certs),
+    }
+    if cfg.es_username and cfg.es_password:
+        kwargs["basic_auth"] = (cfg.es_username, cfg.es_password)
+    if cfg.es_ca_certs:
+        kwargs["ca_certs"] = cfg.es_ca_certs
+    return Elasticsearch(cfg.es_url, **kwargs)
 
 
 def _index_for(prefix: str, ts: datetime) -> str:

@@ -1,6 +1,12 @@
 .env
+.env.local
+.env.prod
 frontend/node_modules/
 frontend/package-lock.json
 __pycache__/
 **/__pycache__/
 *.pyc
+secrets/*.txt
+secrets/*.key
+secrets/*.pem
+secrets/*.crt
