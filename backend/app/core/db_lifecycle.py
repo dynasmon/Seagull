@@ -6,6 +6,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.db import engine
@@ -32,7 +33,19 @@ def _alembic_config() -> Config:
 
 def run_migrations() -> None:
     cfg = _alembic_config()
-    command.upgrade(cfg, "head")
+    if engine.dialect.name != "postgresql":
+        command.upgrade(cfg, "head")
+        return
+
+    # Serialize schema upgrades across concurrently starting containers.
+    # The lock is released automatically when this connection closes.
+    lock_id = 8_642_701
+    with engine.connect() as conn:
+        conn.execute(text("SELECT pg_advisory_lock(:id)"), {"id": lock_id})
+        try:
+            command.upgrade(cfg, "head")
+        finally:
+            conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": lock_id})
 
 
 def is_schema_current() -> bool:
