@@ -12,6 +12,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.dialects.postgresql import insert
 
 from app.models.agents import AgentModel
+from app.models.admin_audit_events import AdminAuditEventModel
 from app.models.alert_rule_overrides import AlertRuleOverrideModel
 from app.models.alert_rule_suppressions import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
 from app.models.alert_rule_tuning import AlertRuleTuningHistoryModel, AlertRuleTuningModel
@@ -24,6 +25,7 @@ from app.models.portal_login_events import PortalLoginEventModel
 from app.models.portal_otp_tokens import PortalOneTimeTokenModel
 from app.models.portal_refresh_sessions import PortalRefreshSessionModel
 from app.models.portal_users import PortalUserModel
+from app.models.platform_settings import PlatformSettingModel
 from app.models.search_index_offsets import SearchIndexOffsetModel
 from app.models.vuln import VulnFindingModel, VulnScanModel
 
@@ -33,6 +35,32 @@ def _ensure_indexes(conn) -> None:
     table_names = set(insp.get_table_names(schema="public"))
 
     idx_specs: list[tuple[str, Index]] = [
+        (
+            "admin_audit_events",
+            Index("idx_admin_audit_created_at", AdminAuditEventModel.created_at.desc()),
+        ),
+        (
+            "admin_audit_events",
+            Index(
+                "idx_admin_audit_timeline",
+                AdminAuditEventModel.created_at.desc(),
+                AdminAuditEventModel.event_type,
+                AdminAuditEventModel.action,
+                AdminAuditEventModel.resource_type,
+            ),
+        ),
+        (
+            "admin_audit_events",
+            Index(
+                "idx_admin_audit_actor_created",
+                AdminAuditEventModel.actor_user_id,
+                AdminAuditEventModel.created_at.desc(),
+            ),
+        ),
+        (
+            "platform_settings",
+            Index("idx_platform_settings_updated_at", PlatformSettingModel.updated_at.desc()),
+        ),
         (
             "net_events",
             Index("idx_net_events_ts", NetEventModel.timestamp),

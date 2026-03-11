@@ -24,6 +24,11 @@ These items used to be “future work” and are now part of the project:
 - **Correlation Rules / Incidents** (admin‑only): CRUD correlation rules + run correlation to produce incident‑like findings.
 - **Rollup worker** (`netwatch-rollup-worker`) that pre‑aggregates data into 1‑minute buckets to keep Grafana responsive.
 - **Redis is now actively used** for portal rate‑limiting (best‑effort fail‑open) instead of being “reserved”.
+- **Administrative audit/governance**:
+  - append-only admin audit timeline (`admin_audit_events`)
+  - login/auth evidence with persistence and queryability
+  - audit coverage for users, allowlists, rule governance, agent admin actions, and platform settings
+  - dedicated retention worker (`netwatch-audit-retention`)
 
 ---
 
@@ -82,6 +87,7 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
 - **Optional workers**
   - `netwatch-rollup-worker`: pre‑aggregates data into 1‑minute rollup tables.
   - `netwatch-lupe-enricher`: enriches SSH events (`ssh_auth`) with Geo/ASN metadata (IPInfo).
+  - `netwatch-audit-retention`: enforces retention for administrative evidence tables.
 
 ---
 
@@ -149,6 +155,7 @@ openssl rand -hex 24 > secrets/netwatch_bootstrap_admin_password.txt
 openssl rand -hex 24 > secrets/netwatch_enroll_token.txt
 openssl rand -hex 24 > secrets/netwatch_redis_password.txt
 openssl rand -hex 24 > secrets/netwatch_es_password.txt
+openssl rand -hex 32 > secrets/netwatch_audit_hash_pepper.txt
 ```
 
 The backend now supports both `VAR` and `VAR_FILE` for secrets. Compose prod mounts Docker secrets under `/run/secrets/*`.
@@ -166,6 +173,11 @@ Recommended hardening:
 - Configure TLS cert/key for the edge proxy:
   - `NETWATCH_TLS_CERT_FILE=./secrets/tls/tls.crt`
   - `NETWATCH_TLS_KEY_FILE=./secrets/tls/tls.key`
+- Configure audit integrity and retention:
+  - `NETWATCH_AUDIT_HASH_PEPPER` / `NETWATCH_AUDIT_HASH_PEPPER_FILE`
+  - `NETWATCH_AUDIT_RETENTION_DAYS`
+  - `NETWATCH_LOGIN_AUDIT_RETENTION_DAYS`
+  - `NETWATCH_GOVERNANCE_RETENTION_DAYS`
 
 For local lab/dev TLS (self-signed):
 
@@ -228,6 +240,7 @@ By default, this starts:
 - `netwatch-backend`
 - `netwatch-portal`
 - `netwatch-rules-worker`
+- `netwatch-audit-retention`
 - `netwatch-es-indexer`
 - `netwatch-rollup-worker`
 - `netwatch-lupe-enricher` (will run; enrichment is a no‑op unless `NETWATCH_IPINFO_TOKEN` is set)
@@ -296,6 +309,8 @@ The project now uses Alembic for schema versioning.
 
 - Migration files live in `backend/alembic/versions/`
 - Initial baseline migration: `20260308_0001`
+- Rule governance migration: `20260309_0002`
+- Admin audit/governance migration: `20260311_0003`
 - Runtime no longer depends on `Base.metadata.create_all()` for schema evolution
 
 Lifecycle flow:
@@ -310,13 +325,45 @@ Useful commands:
 
 For production-like runs (`compose.prod.yml`), `NETWATCH_DB_AUTO_UPGRADE=false` by default.
 
+### 10. Administrative Audit and Governance
+
+Administrative evidence is persisted in Postgres with the same architecture in dev and prod:
+
+- `admin_audit_events`: append-only administrative and auth timeline
+- `portal_login_events`: login evidence (success/failure, method, source)
+- `alert_rule_tuning_history` / `alert_rule_suppressions_history`: rule governance history
+
+Administrative governance/query endpoints:
+
+- `GET /admin/audit/events` (filters by time/user/action/resource/outcome)
+- `GET /admin/login-history`
+- `GET|POST|PUT|DELETE /users`
+- `GET|PUT|DELETE /settings`
+
+Retention enforcement:
+
+- worker: `netwatch-audit-retention`
+- same retention mechanism in dev/prod; only windows/volume change by config
+- defaults:
+  - dev: 30 days
+  - prod: 365 days (compose prod defaults)
+
+Config knobs:
+
+- `NETWATCH_AUDIT_RETENTION_ENABLED`
+- `NETWATCH_AUDIT_RETENTION_DAYS`
+- `NETWATCH_LOGIN_AUDIT_RETENTION_DAYS`
+- `NETWATCH_GOVERNANCE_RETENTION_DAYS`
+- `NETWATCH_AUDIT_RETENTION_EVERY_SECONDS`
+- `NETWATCH_AUDIT_RETENTION_DELETE_BATCH`
+
 Troubleshooting (Postgres auth failed):
 
 - If you see `password authentication failed for user "netwatch"` after changing `POSTGRES_PASSWORD`, your existing `postgres-data` volume still has the old password.
 - Option 1 (keep data): set `.env` `POSTGRES_PASSWORD` back to the password used when that volume was first created.
 - Option 2 (reset local dev DB): `docker compose down -v` and start again to reinitialize with current credentials.
 
-### 10. Development observability
+### 11. Development observability
 
 Backend and workers now emit structured JSON logs with a common shape:
 
@@ -417,7 +464,7 @@ Planned enhancements (not yet implemented):
    - Scheduled correlation runs, MITRE‑mapped incident summaries, and better “case” lifecycle.
 
 5. **Production Hardening**
-   - Reverse‑proxy templates (Caddy/Nginx), HTTPS defaults, tighter CSP, and improved RBAC.
+   - Expanded RBAC scopes and policy-as-code governance workflows.
 
 6. **Scalable Database**
    - Use of Cassandra for better escallability and log analyses (Write-Heavy, Schema-free, Compliance)
@@ -442,6 +489,7 @@ Portal security notes:
 
 - Use strong runtime secrets (prefer `*_FILE` + Docker secrets in prod).
 - Use a strong `NETWATCH_JWT_SECRET` and rotate it if leaked.
+- Set `NETWATCH_AUDIT_HASH_PEPPER` (or `_FILE`) to strengthen audit-chain integrity hashes.
 - Run behind HTTPS and set `NETWATCH_COOKIE_SECURE=true`.
 - Set `NETWATCH_ENROLL_TOKEN` to prevent opportunistic agent enrollment.
 

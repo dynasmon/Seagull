@@ -5,6 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
+from app.core.audit import audit_actor, write_audit_event
 from app.core.db import SessionLocal
 from app.core.portal_auth import PortalPrincipal, get_current_user, logout
 from app.core.security import hash_password, verify_password
@@ -79,6 +80,19 @@ def change_password_endpoint(
             PortalRefreshSessionModel.revoked_at.is_(None),
         ).update({"revoked_at": now})
 
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(principal.id, principal.username),
+            event_type="admin_action",
+            action="account.change_password",
+            resource_type="user",
+            resource_id=str(user.id),
+            outcome="success",
+            before={"id": user.id, "username": user.username},
+            after={"id": user.id, "username": user.username, "password_rotated": True},
+            context={"revoked_refresh_sessions": True},
+        )
         db.commit()
 
         # Clear cookies for this client as well (best-effort)

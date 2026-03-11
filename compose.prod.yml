@@ -13,6 +13,8 @@ secrets:
     file: ${NETWATCH_REDIS_PASSWORD_FILE:-./secrets/netwatch_redis_password.txt}
   netwatch_es_password:
     file: ${NETWATCH_ES_PASSWORD_FILE:-./secrets/netwatch_es_password.txt}
+  netwatch_audit_hash_pepper:
+    file: ${NETWATCH_AUDIT_HASH_PEPPER_FILE:-./secrets/netwatch_audit_hash_pepper.txt}
 
 services:
   netwatch-edge:
@@ -80,6 +82,7 @@ services:
       - netwatch_enroll_token
       - netwatch_redis_password
       - netwatch_es_password
+      - netwatch_audit_hash_pepper
     ports: []
     environment:
       NETWATCH_ENV: prod
@@ -89,6 +92,14 @@ services:
       NETWATCH_TRUST_PROXY_HEADERS: "true"
       NETWATCH_TRUSTED_PROXY_CIDRS: ${NETWATCH_TRUSTED_PROXY_CIDRS:-172.16.0.0/12,10.0.0.0/8,192.168.0.0/16,127.0.0.1,::1}
       NETWATCH_ALLOWED_HOSTS: ${NETWATCH_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      NETWATCH_AUDIT_HASH_PEPPER: ""
+      NETWATCH_AUDIT_HASH_PEPPER_FILE: /run/secrets/netwatch_audit_hash_pepper
+      NETWATCH_AUDIT_RETENTION_ENABLED: "true"
+      NETWATCH_AUDIT_RETENTION_DAYS: ${NETWATCH_AUDIT_RETENTION_DAYS:-365}
+      NETWATCH_LOGIN_AUDIT_RETENTION_DAYS: ${NETWATCH_LOGIN_AUDIT_RETENTION_DAYS:-365}
+      NETWATCH_GOVERNANCE_RETENTION_DAYS: ${NETWATCH_GOVERNANCE_RETENTION_DAYS:-365}
+      NETWATCH_AUDIT_RETENTION_EVERY_SECONDS: ${NETWATCH_AUDIT_RETENTION_EVERY_SECONDS:-3600}
+      NETWATCH_AUDIT_RETENTION_DELETE_BATCH: ${NETWATCH_AUDIT_RETENTION_DELETE_BATCH:-5000}
       NETWATCH_DB_PASSWORD: ""
       NETWATCH_DB_PASSWORD_FILE: /run/secrets/postgres_password
       NETWATCH_JWT_SECRET: ""
@@ -119,6 +130,27 @@ services:
       NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
       NETWATCH_ES_PASSWORD: ""
       NETWATCH_ES_PASSWORD_FILE: /run/secrets/netwatch_es_password
+
+  netwatch-audit-retention:
+    secrets:
+      - postgres_password
+      - netwatch_jwt_secret
+      - netwatch_audit_hash_pepper
+    environment:
+      NETWATCH_ENV: prod
+      NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_PASSWORD: ""
+      NETWATCH_DB_PASSWORD_FILE: /run/secrets/postgres_password
+      NETWATCH_JWT_SECRET: ""
+      NETWATCH_JWT_SECRET_FILE: /run/secrets/netwatch_jwt_secret
+      NETWATCH_AUDIT_HASH_PEPPER: ""
+      NETWATCH_AUDIT_HASH_PEPPER_FILE: /run/secrets/netwatch_audit_hash_pepper
+      NETWATCH_AUDIT_RETENTION_ENABLED: "true"
+      NETWATCH_AUDIT_RETENTION_DAYS: ${NETWATCH_AUDIT_RETENTION_DAYS:-365}
+      NETWATCH_LOGIN_AUDIT_RETENTION_DAYS: ${NETWATCH_LOGIN_AUDIT_RETENTION_DAYS:-365}
+      NETWATCH_GOVERNANCE_RETENTION_DAYS: ${NETWATCH_GOVERNANCE_RETENTION_DAYS:-365}
+      NETWATCH_AUDIT_RETENTION_EVERY_SECONDS: ${NETWATCH_AUDIT_RETENTION_EVERY_SECONDS:-3600}
+      NETWATCH_AUDIT_RETENTION_DELETE_BATCH: ${NETWATCH_AUDIT_RETENTION_DELETE_BATCH:-5000}
 
   netwatch-rules-worker:
     secrets:

@@ -4,11 +4,12 @@ from datetime import datetime, timedelta
 from fnmatch import fnmatchcase
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 
+from app.core.audit import audit_actor, write_audit_event
 from app.core.db import SessionLocal
-from app.core.portal_auth import require_admin
+from app.core.portal_auth import PortalPrincipal, require_admin
 from app.models.alerts import AlertModel
 from app.models.correlation_rules import CorrelationRuleModel
 from app.schemas.correlations import (
@@ -160,7 +161,7 @@ def list_correlation_rules():
 
 
 @router.post("/rules", response_model=CorrelationRuleOut)
-def create_correlation_rule(payload: CorrelationRuleIn):
+def create_correlation_rule(payload: CorrelationRuleIn, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
         m = CorrelationRuleModel(
@@ -179,6 +180,31 @@ def create_correlation_rule(payload: CorrelationRuleIn):
             updated_at=datetime.utcnow(),
         )
         db.add(m)
+        db.flush()
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(admin.id, admin.username),
+            event_type="admin_action",
+            action="correlation_rule.create",
+            resource_type="correlation_rule",
+            resource_id=str(m.id),
+            outcome="success",
+            before={},
+            after={
+                "id": m.id,
+                "name": m.name,
+                "enabled": bool(m.enabled),
+                "severity": m.severity,
+                "strategy": m.strategy,
+                "group_by": m.group_by,
+                "window_seconds": int(m.window_seconds),
+                "min_alerts": int(m.min_alerts),
+                "include_patterns": m.include_patterns,
+                "exclude_patterns": m.exclude_patterns,
+                "stages": m.stages,
+            },
+        )
         db.commit()
         db.refresh(m)
         return m
@@ -187,13 +213,26 @@ def create_correlation_rule(payload: CorrelationRuleIn):
 
 
 @router.put("/rules/{rule_id}", response_model=CorrelationRuleOut)
-def update_correlation_rule(rule_id: int, payload: CorrelationRuleIn):
+def update_correlation_rule(rule_id: int, payload: CorrelationRuleIn, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
         m = db.get(CorrelationRuleModel, rule_id)
         if not m:
             raise HTTPException(status_code=404, detail="Correlation rule not found")
 
+        before = {
+            "id": m.id,
+            "name": m.name,
+            "enabled": bool(m.enabled),
+            "severity": m.severity,
+            "strategy": m.strategy,
+            "group_by": m.group_by,
+            "window_seconds": int(m.window_seconds),
+            "min_alerts": int(m.min_alerts),
+            "include_patterns": m.include_patterns,
+            "exclude_patterns": m.exclude_patterns,
+            "stages": m.stages,
+        }
         m.name = payload.name
         m.description = payload.description
         m.enabled = bool(payload.enabled)
@@ -208,6 +247,30 @@ def update_correlation_rule(rule_id: int, payload: CorrelationRuleIn):
         m.updated_at = datetime.utcnow()
 
         db.add(m)
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(admin.id, admin.username),
+            event_type="admin_action",
+            action="correlation_rule.update",
+            resource_type="correlation_rule",
+            resource_id=str(m.id),
+            outcome="success",
+            before=before,
+            after={
+                "id": m.id,
+                "name": m.name,
+                "enabled": bool(m.enabled),
+                "severity": m.severity,
+                "strategy": m.strategy,
+                "group_by": m.group_by,
+                "window_seconds": int(m.window_seconds),
+                "min_alerts": int(m.min_alerts),
+                "include_patterns": m.include_patterns,
+                "exclude_patterns": m.exclude_patterns,
+                "stages": m.stages,
+            },
+        )
         db.commit()
         db.refresh(m)
         return m
@@ -216,13 +279,38 @@ def update_correlation_rule(rule_id: int, payload: CorrelationRuleIn):
 
 
 @router.delete("/rules/{rule_id}")
-def delete_correlation_rule(rule_id: int):
+def delete_correlation_rule(rule_id: int, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
         m = db.get(CorrelationRuleModel, rule_id)
         if not m:
             raise HTTPException(status_code=404, detail="Correlation rule not found")
+        before = {
+            "id": m.id,
+            "name": m.name,
+            "enabled": bool(m.enabled),
+            "severity": m.severity,
+            "strategy": m.strategy,
+            "group_by": m.group_by,
+            "window_seconds": int(m.window_seconds),
+            "min_alerts": int(m.min_alerts),
+            "include_patterns": m.include_patterns,
+            "exclude_patterns": m.exclude_patterns,
+            "stages": m.stages,
+        }
         db.delete(m)
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(admin.id, admin.username),
+            event_type="admin_action",
+            action="correlation_rule.delete",
+            resource_type="correlation_rule",
+            resource_id=str(rule_id),
+            outcome="success",
+            before=before,
+            after={},
+        )
         db.commit()
         return {"ok": True}
     finally:

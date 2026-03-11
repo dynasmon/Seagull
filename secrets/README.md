@@ -11,6 +11,7 @@ Expected files for `compose.prod.yml`:
 - `netwatch_enroll_token.txt`
 - `netwatch_redis_password.txt`
 - `netwatch_es_password.txt`
+- `netwatch_audit_hash_pepper.txt`
 - `tls/tls.crt`
 - `tls/tls.key`
 
