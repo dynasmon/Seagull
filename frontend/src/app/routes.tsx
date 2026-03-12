@@ -26,6 +26,11 @@ const loadVulnerabilityScansPage = () => import("@/features/vulnerabilities/scan
 
 const loadInventoryPage = () => import("@/features/inventory/page");
 const loadSettingsPage = () => import("@/features/settings/page");
+const loadAuditLayout = () => import("@/features/audit/page");
+const loadAuditAdminActionsPage = () => import("@/features/audit/views/admin-actions");
+const loadAuditLoginsPage = () => import("@/features/audit/views/logins");
+const loadAuditChangesPage = () => import("@/features/audit/views/changes");
+const loadAuditTimelinePage = () => import("@/features/audit/views/timeline");
 const loadInternalLayout = () => import("@/features/internal/page");
 const loadInternalDebugPage = () => import("@/features/internal/views/debug");
 const loadInternalAgentsPage = () => import("@/features/internal/views/agents");
@@ -56,6 +61,11 @@ const VulnerabilityScansPage = lazy(loadVulnerabilityScansPage);
 
 const InventoryPage = lazy(loadInventoryPage);
 const SettingsPage = lazy(loadSettingsPage);
+const AuditLayout = lazy(loadAuditLayout);
+const AuditAdminActionsPage = lazy(loadAuditAdminActionsPage);
+const AuditLoginsPage = lazy(loadAuditLoginsPage);
+const AuditChangesPage = lazy(loadAuditChangesPage);
+const AuditTimelinePage = lazy(loadAuditTimelinePage);
 const InternalLayout = lazy(loadInternalLayout);
 const InternalDebugPage = lazy(loadInternalDebugPage);
 const InternalAgentsPage = lazy(loadInternalAgentsPage);
@@ -68,6 +78,11 @@ const routeWarmers: Array<() => Promise<unknown>> = [
   loadAlertsLayout,
   loadVulnerabilitiesPage,
   loadInventoryPage,
+  loadAuditLayout,
+  loadAuditAdminActionsPage,
+  loadAuditLoginsPage,
+  loadAuditChangesPage,
+  loadAuditTimelinePage,
   loadInternalLayout,
   loadInternalDebugPage,
   loadInternalHealthPage,
@@ -141,6 +156,14 @@ export function Routes() {
 
           <Route path="/inventory" element={<InventoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/audit" element={<AuditLayout />}>
+            <Route index element={<Navigate to="/audit/admin-actions" replace />} />
+            <Route path="admin-actions" element={<AuditAdminActionsPage />} />
+            <Route path="logins" element={<AuditLoginsPage />} />
+            <Route path="changes" element={<AuditChangesPage />} />
+            <Route path="timeline" element={<AuditTimelinePage />} />
+          </Route>
+          <Route path="/governance" element={<Navigate to="/audit/admin-actions" replace />} />
           <Route path="/internal" element={<InternalLayout />}>
             <Route index element={<Navigate to="/internal/debug" replace />} />
             <Route path="debug" element={<InternalDebugPage />} />
