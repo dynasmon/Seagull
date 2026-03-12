@@ -340,6 +340,20 @@ Administrative governance/query endpoints:
 - `GET|POST|PUT|DELETE /users`
 - `GET|PUT|DELETE /settings`
 
+Frontend audit/governance console:
+
+- Route: `/audit` (admin-only)
+- Subroutes:
+  - `/audit/admin-actions`
+  - `/audit/logins`
+  - `/audit/changes`
+  - `/audit/timeline`
+- UX capabilities:
+  - URL-persisted filters (period, actor, action, category, resource, outcome, free text, origin)
+  - server-side timeline paging through `until` cursor windows (same endpoint contract in dev/prod)
+  - per-event investigation drawer (`before/after/context`, changed fields, request/correlation metadata, hash-chain references)
+  - retention visibility from `GET /admin/runtime-config` security policy fields
+
 Retention enforcement:
 
 - worker: `netwatch-audit-retention`

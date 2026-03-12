@@ -22,6 +22,7 @@ function ItemIcon({
     | "agents"
     | "inventory"
     | "settings"
+    | "governance"
     | "internal";
 }) {
   const common = "h-4 w-4";
@@ -122,6 +123,24 @@ function ItemIcon({
             d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19.4 15a8 8 0 0 0 .1-6l-2 1.1a6.2 6.2 0 0 0-1.5-1.5L17.1 6a8 8 0 0 0-6-.1L12 8a6.2 6.2 0 0 0-2.1 0L9 5.9a8 8 0 0 0-6 .1l1.1 2a6.2 6.2 0 0 0-1.5 1.5L.6 9a8 8 0 0 0 .1 6l2-1.1a6.2 6.2 0 0 0 1.5 1.5L3.1 18a8 8 0 0 0 6 .1l.9-2.1a6.2 6.2 0 0 0 2.1 0l.9 2.1a8 8 0 0 0 6-.1l-1.1-2a6.2 6.2 0 0 0 1.5-1.5l2 1.1Z"
             stroke="currentColor"
             strokeWidth="1.6"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case "governance":
+      return (
+        <svg className={common} viewBox="0 0 24 24" fill="none">
+          <path
+            d="M12 3 19 7v5c0 4.6-2.9 8.7-7 9.8C7.9 20.7 5 16.6 5 12V7l7-4Z"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M9.5 12.5 11 14l3.5-4"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
             strokeLinejoin="round"
           />
         </svg>
@@ -263,6 +282,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
           )}
           <div className="space-y-1">
             <NavItem collapsed={collapsed} to={toPlain("/settings")} label="Settings" icon="settings" />
+            <NavItem collapsed={collapsed} to={toPlain("/audit/admin-actions")} label="Audit & Governance" icon="governance" />
             <NavItem collapsed={collapsed} to="/internal/debug" label="Debug Dashboards" icon="internal" />
             <NavItem collapsed={collapsed} to="/internal/agents" label="Agent Inspector" icon="internal" />
             <NavItem collapsed={collapsed} to="/internal/health" label="Health / Status" icon="internal" />
