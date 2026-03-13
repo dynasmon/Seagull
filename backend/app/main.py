@@ -9,21 +9,21 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from app.api.agents import router as agents_router
-from app.api.alerts import router as alerts_router
-from app.api.events import router as events_router
-from app.api.ingest import router as ingest_router
-from app.api.inventory import router as inventory_router
+from app.features.agents.api import router as agents_router
+from app.features.alerts.api import router as alerts_router
+from app.features.events.api import router as events_router
+from app.features.ingest.api import router as ingest_router
+from app.features.inventory.api import router as inventory_router
 from app.core.db_lifecycle import ensure_database_ready
-from app.api.overview import router as overview_router
-from app.api.auth import router as auth_router
-from app.api.account import router as account_router
-from app.api.admin import router as admin_router
-from app.api.correlations import router as correlations_router
-from app.api.attack_chain import router as attack_chain_router
-from app.api.vuln import router as vuln_router
-from app.api.users import router as users_router
-from app.api.settings import router as settings_router
+from app.features.overview.api import router as overview_router
+from app.features.auth.api import router as auth_router
+from app.features.account.api import router as account_router
+from app.features.admin.api import router as admin_router
+from app.features.correlations.api import router as correlations_router
+from app.features.attack_chain.api import router as attack_chain_router
+from app.features.vuln.api import router as vuln_router
+from app.features.users.api import router as users_router
+from app.features.settings.api import router as settings_router
 from app.core.config import settings
 from app.core.observability import (
     clear_request_context,

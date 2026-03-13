@@ -15,5 +15,3 @@ openssl req -x509 -nodes -newkey rsa:4096 \
   -out secrets/tls/tls.crt \
   -subj "/CN=localhost"
 ```
-
-Do not commit real production certificates or private keys.
