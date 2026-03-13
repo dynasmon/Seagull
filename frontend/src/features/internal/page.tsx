@@ -8,7 +8,7 @@ export default function InternalLayout() {
       <PageHeader
         title="Internal UX"
         breadcrumb={["Admin"]}
-        description="Operação interna para diagnóstico técnico, inspeção de agentes e status de plataforma."
+        description="Internal operations for technical diagnostics, agent inspection, and platform status."
         tabs={[
           { label: "Debug Dashboards", to: "/internal/debug" },
           { label: "Agent Inspector", to: "/internal/agents" },
