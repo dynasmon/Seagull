@@ -12,7 +12,7 @@ ENV_EXAMPLE := .env.example
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools certs-bootstrap dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test deps-check ci
+.PHONY: help bootstrap bootstrap-tools certs-bootstrap dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
@@ -31,6 +31,7 @@ help:
 	@echo "  make db-current  - show current alembic revision in backend container"
 	@echo "  make lint        - lint backend, frontend and agent"
 	@echo "  make test        - run minimal automated tests"
+	@echo "  make test-detections - run detection content validation suite"
 	@echo "  make deps-check  - dependency vulnerability checks"
 	@echo "  make ci          - run local CI sequence (lint, test, build-prod)"
 	@echo "  make clean       - down + remove-orphans (keeps volumes)"
@@ -122,6 +123,9 @@ test:
 	cd backend && $(PYTHON) -m pytest -q
 	cd agent && go test ./...
 	cd frontend && npm run smoke
+
+test-detections:
+	cd backend && $(PYTHON) -m pytest -q tests/test_rules_and_correlations.py tests/test_detection_catalog.py
 
 deps-check:
 	cd backend && $(PYTHON) -m pip_audit -r requirements.lock

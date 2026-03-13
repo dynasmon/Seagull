@@ -43,6 +43,8 @@ rules:
     match:
       event_type: "scan_probe"
       proto: "tcp"
+      extra_scan_confidence_gte: 70
+      extra_scan_type_not_in: ["tcp_ack"]
     group_by: "src_ip"
     distinct_field: "dst_port"
     min_events: 25
@@ -70,6 +72,7 @@ rules:
       agent_id: "agent-scan-1"
       proto: "tcp"
       dst_port: 22
+      extra_scan_confidence_gte: 70
     group_by: "src_ip"
     distinct_field: "dst_ip"
     condition:
@@ -110,6 +113,7 @@ rules:
       event_type: "scan_probe"
       proto: "tcp"
       dst_port: 22
+      extra_scan_confidence_gte: 70
     group_by: "src_ip"
     distinct_field: "dst_ip"
     min_events: 10
@@ -134,6 +138,7 @@ rules:
       event_type: "lateral_conn"
       extra_lateral_kind: "attempt"
       dst_port_in: [445,3389,5985,5986,135,139]
+      extra_lateral_confidence_gte: 70
     group_by: "src_ip"
     condition:
       operator: ">="
@@ -155,6 +160,7 @@ rules:
     match:
       event_type: "lateral_conn"
       extra_lateral_kind: "attempt"
+      extra_lateral_confidence_gte: 70
     group_by: "src_ip"
     distinct_field: "dst_port"
     min_events: 10

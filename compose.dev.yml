@@ -28,6 +28,9 @@ services:
       NETWATCH_ENV: dev
       NETWATCH_DB_AUTO_UPGRADE: "true"
       NETWATCH_AGENT_AUTH_MODE: mtls
+      NETWATCH_RULES_ENV: dev
+      NETWATCH_RULES_ENABLED_PACKS: ${NETWATCH_RULES_ENABLED_PACKS:-core,network,lab}
+      NETWATCH_RULES_INCLUDE_EXPERIMENTAL: ${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-true}
 
   netwatch-ingest-worker:
     environment:
@@ -38,6 +41,9 @@ services:
     environment:
       NETWATCH_ENV: dev
       NETWATCH_DB_AUTO_UPGRADE: "true"
+      NETWATCH_RULES_ENV: dev
+      NETWATCH_RULES_ENABLED_PACKS: ${NETWATCH_RULES_ENABLED_PACKS:-core,network,lab}
+      NETWATCH_RULES_INCLUDE_EXPERIMENTAL: ${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-true}
 
   netwatch-audit-retention:
     environment:

@@ -1,0 +1,165 @@
+schema_version: 1
+pack: network
+category: lateral
+pack_version: 1
+maturity: stable
+
+rules:
+  - id: lateral_admin_spray_v1
+    name: "Lateral admin-port spray"
+    description: "One source attempts admin protocols against multiple internal targets."
+    mitre:
+      tactic: "lateral_movement"
+      technique_id: "T1021"
+      technique: "Remote Services"
+      confidence: 80
+    enabled: true
+    severity: "high"
+    type: "distinct_count"
+    window: "4m"
+    cooldown: "20m"
+    match:
+      event_type: "lateral_conn"
+      extra_lateral_kind: "attempt"
+      dst_port_in: [22, 135, 139, 445, 3389, 5985, 5986]
+      extra_lateral_confidence_gte: 70
+    group_by: "src_ip"
+    distinct_field: "dst_ip"
+    min_events: 20
+    condition:
+      operator: ">="
+      value: 5
+
+  - id: lateral_rdp_burst_v1
+    name: "RDP lateral burst"
+    description: "Concentrated internal RDP attempts from one source."
+    mitre:
+      tactic: "lateral_movement"
+      technique_id: "T1021.001"
+      technique: "Remote Services: Remote Desktop Protocol"
+      confidence: 72
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "3m"
+    cooldown: "15m"
+    match:
+      event_type: "lateral_conn"
+      extra_lateral_kind: "attempt"
+      dst_port: 3389
+      proto: "tcp"
+      extra_lateral_confidence_gte: 70
+    group_by: ["src_ip", "dst_ip"]
+    condition:
+      operator: ">="
+      value: 12
+
+  - id: lateral_smb_fanout_v1
+    name: "SMB fan-out movement"
+    description: "SMB attempts fan out from one source to many internal systems."
+    mitre:
+      tactic: "lateral_movement"
+      technique_id: "T1021.002"
+      technique: "Remote Services: SMB/Windows Admin Shares"
+      confidence: 76
+    enabled: true
+    severity: "high"
+    type: "distinct_count"
+    window: "5m"
+    cooldown: "20m"
+    match:
+      event_type: "lateral_conn"
+      extra_lateral_kind: "attempt"
+      dst_port: 445
+      proto: "tcp"
+      extra_lateral_confidence_gte: 70
+    group_by: "src_ip"
+    distinct_field: "dst_ip"
+    min_events: 25
+    condition:
+      operator: ">="
+      value: 6
+
+  - id: lateral_winrm_fanout_v1
+    name: "WinRM fan-out movement"
+    description: "WinRM attempts fan out from one source to multiple targets."
+    mitre:
+      tactic: "lateral_movement"
+      technique_id: "T1021"
+      technique: "Remote Services"
+      confidence: 74
+    enabled: true
+    severity: "medium"
+    type: "distinct_count"
+    window: "5m"
+    cooldown: "20m"
+    match:
+      event_type: "lateral_conn"
+      extra_lateral_kind: "attempt"
+      dst_port_in: [5985, 5986]
+      proto: "tcp"
+      extra_lateral_confidence_gte: 70
+    group_by: "src_ip"
+    distinct_field: "dst_ip"
+    min_events: 18
+    condition:
+      operator: ">="
+      value: 4
+
+  - id: lateral_admin_multi_service_pivot_v1
+    name: "Admin multi-service pivot"
+    description: "Source pivots laterally using multiple admin services and many targets."
+    mitre:
+      tactic: "lateral_movement"
+      technique_id: "T1021"
+      technique: "Remote Services"
+      confidence: 82
+    enabled: true
+    severity: "high"
+    type: "multi_distinct"
+    window: "6m"
+    cooldown: "25m"
+    match:
+      event_type: "lateral_conn"
+      extra_lateral_kind: "attempt"
+      dst_port_in: [22, 135, 139, 445, 3389, 5985, 5986]
+      proto: "tcp"
+      extra_lateral_confidence_gte: 70
+    group_by: "src_ip"
+    min_events: 45
+    distinct_conditions:
+      - field: "dst_ip"
+        operator: ">="
+        value: 6
+      - field: "dst_port"
+        operator: ">="
+        value: 3
+
+  - id: lateral_rpc_netbios_combo_v1
+    name: "RPC/NetBIOS combo probing"
+    description: "Source repeatedly targets RPC and NetBIOS services across endpoints."
+    mitre:
+      tactic: "lateral_movement"
+      technique_id: "T1021"
+      technique: "Remote Services"
+      confidence: 70
+    enabled: true
+    severity: "medium"
+    type: "multi_distinct"
+    window: "5m"
+    cooldown: "20m"
+    match:
+      event_type: "lateral_conn"
+      extra_lateral_kind: "attempt"
+      dst_port_in: [135, 139]
+      proto: "tcp"
+      extra_lateral_confidence_gte: 70
+    group_by: "src_ip"
+    min_events: 24
+    distinct_conditions:
+      - field: "dst_ip"
+        operator: ">="
+        value: 6
+      - field: "dst_port"
+        operator: ">="
+        value: 2
