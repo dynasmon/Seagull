@@ -74,7 +74,7 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
 
 - **Redis**
   - Used for portal rate‑limiting (login/OTP) with short TTL keys.
-  - Can be extended later for Streams/queues if desired.
+  - Can be extended later for Streams/queues if needed.
 
 - **Grafana**
   - Provisioned automatically (datasources + dashboards) via `infra/grafana/provisioning`.
