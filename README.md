@@ -45,7 +45,7 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
     - `lateral` (PCAP + proc‑assisted lateral movement telemetry)
     - `ddos` (PCAP‑based DoS/DDoS heuristics)
     - `syscollector` (OS + package inventory snapshots)
-  - Sends batched events to the backend over HTTP.
+  - Sends batched events to the backend over HTTPS + mTLS workload identity.
 
 - **netwatch-backend** (FastAPI)
   - Ingestion API (agent‑auth): `POST /ingest/events`
@@ -60,7 +60,7 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
 
 - **netwatch-edge** (Nginx TLS reverse proxy)
   - Terminates HTTPS for externally exposed entrypoints.
-  - Routes `/` -> portal, `/api/*` -> backend, optional `/kibana/*` and `/elasticsearch/*`.
+  - Routes `/` -> portal, `/api/*` -> backend, `/agent/*` -> backend (mTLS required), optional `/kibana/*` and `/elasticsearch/*`.
   - Adds HSTS + security headers and forwards `X-Forwarded-*` headers to upstream services.
 
 - **netwatch-rules-worker**
@@ -97,7 +97,7 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
 
 - **Language:** Go
 - **Telemetry:** `/proc/net/tcp*`, authlog parsing, gopacket PCAP capture
-- **Security:** agent tokens (`Authorization: Bearer <agent_id>.<secret>`) issued at enroll
+- **Security:** mTLS (unique client cert per agent, platform CA, cert-to-agent binding)
 
 ### Backend
 
@@ -105,7 +105,7 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
 - **Framework:** FastAPI (Pydantic + OpenAPI)
 - **DB:** SQLAlchemy + PostgreSQL
 - **Auth (Portal):** access/refresh tokens with HttpOnly cookies + Bearer access token
-- **Auth (Agents):** per‑agent token created at enroll; optional `X-Enroll-Token` gate
+- **Auth (Agents):** mTLS identity (strict by default) with bootstrap-token enroll/rotation flow
 - **Perf:** bulk inserts for ingest, optional rollups for dashboard load reduction
 
 ### Portal
@@ -138,7 +138,9 @@ cd dynasmon-netwatch
 
 ### 2. Configure environment variables
 
-Start from the template:
+No manual `.env` setup is required for first run. `make dev` (and `make prod`) now auto-creates `.env` from `.env.example` when missing, and auto-adds newly introduced variables on future runs while preserving existing values.
+
+If you want to pre-customize values before first startup, create `.env` manually from the template:
 
 ```bash
 cp .env.example .env
@@ -164,15 +166,21 @@ Minimum required for secure bootstrap:
 
 - `NETWATCH_JWT_SECRET` or `NETWATCH_JWT_SECRET_FILE`
 - `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD` or `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE`
+- `NETWATCH_AGENT_AUTH_MODE=mtls`
 - In dev, `NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START=true` can resync the bootstrap admin password on startup.
 
 Recommended hardening:
 
-- Set `NETWATCH_ENROLL_TOKEN`/`NETWATCH_ENROLL_TOKEN_FILE` and only allow enroll when the agent sends `X-Enroll-Token`.
+- Set `NETWATCH_AGENT_AUTH_MODE=mtls`.
+- In production, keep `NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN=true` and use short-lived bootstrap tokens per agent.
+- In local dev with auto-regenerated certs, you can use `NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN=false` + `NETWATCH_FORCE_ENROLL_ON_START=true`.
 - When behind HTTPS, set `NETWATCH_COOKIE_SECURE=true` and consider `NETWATCH_COOKIE_SAMESITE=strict`.
 - Configure TLS cert/key for the edge proxy:
   - `NETWATCH_TLS_CERT_FILE=./secrets/tls/tls.crt`
   - `NETWATCH_TLS_KEY_FILE=./secrets/tls/tls.key`
+- Configure agent mTLS CA + CRL for the edge proxy:
+  - `NETWATCH_AGENT_CA_CERT_FILE=./secrets/agent-ca/ca.crt`
+  - `NETWATCH_AGENT_CA_CRL_FILE=./secrets/agent-ca/ca.crl`
 - Configure audit integrity and retention:
   - `NETWATCH_AUDIT_HASH_PEPPER` / `NETWATCH_AUDIT_HASH_PEPPER_FILE`
   - `NETWATCH_AUDIT_RETENTION_DAYS`
@@ -192,6 +200,24 @@ openssl req -x509 -nodes -newkey rsa:4096 \
 
 Then trust/import `secrets/tls/tls.crt` in your local OS/browser store if you want to remove browser warnings.
 
+Initialize agent PKI (platform CA + initial CRL):
+
+```bash
+scripts/pki/init_agent_ca.sh
+```
+
+Issue one client certificate per agent:
+
+```bash
+scripts/pki/issue_agent_cert.sh agent-proc-1
+scripts/pki/issue_agent_cert.sh agent-scan-1
+scripts/pki/issue_agent_cert.sh agent-ddos-1
+scripts/pki/issue_agent_cert.sh agent-lateral-1
+scripts/pki/issue_agent_cert.sh agent-vuln-1
+```
+
+Configure cert/key paths in `.env` (`AGENT_*_CERT_FILE`, `AGENT_*_KEY_FILE`).
+
 If you enable SSH enrichment (Lupe), set:
 
 - `NETWATCH_IPINFO_TOKEN` (IPInfo token)
@@ -205,8 +231,15 @@ make dev
 This command:
 
 - Creates `.env` from `.env.example` when missing
+- Regenerates local edge TLS cert + agent CA/CRL + per-agent mTLS certs
 - Uses `docker-compose.yml + compose.dev.yml`
 - Builds and starts the development stack
+
+If you prefer raw Compose commands, use the provided wrapper (it auto-creates/syncs `.env` first):
+
+```bash
+./scripts/compose.sh -f docker-compose.yml -f compose.dev.yml up -d --build
+```
 
 For production-style local runs:
 
@@ -217,17 +250,18 @@ make prod
 This uses `docker-compose.yml + compose.prod.yml` with Docker secrets mounts (`/run/secrets/*`).
 Startup fails fast in prod if required secrets are missing/weak.
 Production now expects TLS cert/key files for `netwatch-edge` (defaults: `secrets/tls/tls.crt` + `secrets/tls/tls.key`).
+It also regenerates local certificates before startup (same as dev).
 
-To test HTTPS in dev:
-
-```bash
-make dev-tls
-```
-
-This starts the optional TLS edge profile and applies dev TLS overrides (`compose.dev.tls.yml`) so backend runs with secure cookies + trusted forwarded headers.
+The dev stack also runs through HTTPS edge + mTLS agent route.
 It serves:
 - HTTP redirect: `http://localhost:${NETWATCH_EDGE_HTTP_PORT:-8081}`
 - HTTPS: `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}`
+
+To disable automatic certificate regeneration for a run:
+
+```bash
+NETWATCH_AUTO_GENERATE_CERTS=false make dev
+```
 
 ### 4. Start optional profile (`extra`)
 
@@ -505,7 +539,56 @@ Portal security notes:
 - Use a strong `NETWATCH_JWT_SECRET` and rotate it if leaked.
 - Set `NETWATCH_AUDIT_HASH_PEPPER` (or `_FILE`) to strengthen audit-chain integrity hashes.
 - Run behind HTTPS and set `NETWATCH_COOKIE_SECURE=true`.
-- Set `NETWATCH_ENROLL_TOKEN` to prevent opportunistic agent enrollment.
+- Keep bootstrap tokens short-lived and one-time; avoid long-lived shared enroll secrets.
+
+### Agent Identity Lifecycle (mTLS)
+
+Control-plane path for agents is `https://<edge>/agent/*` and requires a valid client certificate chained to the platform CA.
+
+1. Provision platform CA and CRL:
+   - `scripts/pki/init_agent_ca.sh`
+2. Issue a unique cert/key per agent (`CN=<agent_id>`):
+   - `scripts/pki/issue_agent_cert.sh <agent_id>`
+3. Create a short-lived bootstrap token (admin API):
+   - `POST /api/agents/{agent_id}/bootstrap-tokens`
+   - Example:
+     ```bash
+     curl -sS -X POST "https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/api/agents/agent-proc-1/bootstrap-tokens" \
+       -H "Authorization: Bearer <portal-access-token>" \
+       -H "Content-Type: application/json" \
+       -d '{"ttl_seconds":900,"max_uses":1}'
+     ```
+4. Start/restart the agent with:
+   - `NETWATCH_TLS_CA_FILE`, `NETWATCH_TLS_CERT_FILE`, `NETWATCH_TLS_KEY_FILE`, `NETWATCH_TLS_SERVER_NAME`
+   - `NETWATCH_AGENT_BOOTSTRAP_TOKEN` (one-time)
+5. Agent enroll binds the presented certificate fingerprint to `agent_id`.
+
+Rotation:
+
+1. Issue new cert/key for the same `agent_id`.
+2. Mint new bootstrap token.
+3. Restart agent with new cert/key + bootstrap token.
+4. Verify in `GET /api/agents/{agent_id}/identities`.
+5. Revoke old identity in backend (`POST /api/agents/{agent_id}/identities/{identity_id}/revoke`) and in CA CRL (`scripts/pki/revoke_agent_cert.sh`).
+
+Revocation:
+
+- Backend revocation is immediate (deny by fingerprint record).
+- Edge revocation uses CRL (`ca.crl`) to fail TLS handshake early.
+- After updating CRL, reload edge: `docker compose ... restart netwatch-edge`.
+
+Migration from legacy bearer:
+
+- Use `NETWATCH_AGENT_AUTH_MODE=mixed` only during transition windows.
+- Enroll all agents with mTLS identity and verify bindings.
+- Switch to `NETWATCH_AGENT_AUTH_MODE=mtls` and remove legacy agent bearer tokens.
+
+Troubleshooting:
+
+- TLS handshake fails at edge: verify `ca.crt`, `ca.crl`, and agent cert chain.
+- Backend returns `Unbound or revoked agent certificate`: ensure enroll was executed with a valid bootstrap token for that `agent_id`.
+- Backend returns `Certificate agent_id mismatch`: certificate `CN` must equal `NETWATCH_AGENT_ID`.
+- Enrollment denied with `Bootstrap token already consumed`: mint a new token and retry.
 
 ---
 
