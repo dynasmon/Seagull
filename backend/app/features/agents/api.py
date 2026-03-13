@@ -1,22 +1,35 @@
 import json
 import re
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.audit import audit_actor, write_audit_event
 from app.core.portal_auth import PortalPrincipal, require_admin, get_current_user
-from app.core.agent_auth import AgentPrincipal, generate_agent_token, get_current_agent
+from app.core.agent_auth import (
+    AgentPrincipal,
+    generate_agent_token,
+    generate_bootstrap_token,
+    get_current_agent,
+    get_presented_mtls_identity,
+    hash_bootstrap_token,
+)
 from app.core.config import settings
 from app.core.db import SessionLocal
+from app.models.agent_identities import AgentBootstrapTokenModel, AgentIdentityModel
 from app.models.agents import AgentModel
 from app.schemas.agents import (
+    AgentBootstrapTokenCreateIn,
+    AgentBootstrapTokenOut,
     AgentConfigUpdateIn,
     AgentDetail,
     AgentEnrollIn,
     AgentEnrollOut,
     AgentHeartbeatIn,
+    AgentIdentityPublic,
+    AgentIdentityRevokeIn,
     AgentPublic,
     AgentUpdateIn,
 )
@@ -78,26 +91,162 @@ def _agent_to_detail(a: AgentModel) -> AgentDetail:
     return AgentDetail(**pub.dict(), config=a.config or {})
 
 
+def _identity_to_public(row: AgentIdentityModel) -> AgentIdentityPublic:
+    return AgentIdentityPublic(
+        id=row.id,
+        agent_id=row.agent_id,
+        fingerprint_sha256=row.fingerprint_sha256,
+        serial_number=row.serial_number,
+        subject_dn=row.subject_dn,
+        issuer_dn=row.issuer_dn,
+        not_before=row.not_before,
+        not_after=row.not_after,
+        is_revoked=bool(row.is_revoked),
+        revoked_at=row.revoked_at,
+        revoked_reason=row.revoked_reason,
+        created_at=row.created_at,
+        last_seen_at=row.last_seen_at,
+        metadata=row.identity_metadata or {},
+    )
+
+
+def _parse_cert_time(raw: str | None) -> datetime | None:
+    s = (raw or "").strip()
+    if not s:
+        return None
+    # nginx $ssl_client_v_start / $ssl_client_v_end format (OpenSSL): "Jan  2 15:04:05 2006 GMT"
+    for fmt in ["%b %d %H:%M:%S %Y %Z", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%SZ"]:
+        try:
+            dt = datetime.strptime(s, fmt)
+            if dt.tzinfo is not None:
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
+        except ValueError:
+            continue
+    return None
+
+
+def _consume_bootstrap_token(db, agent_id: str, raw_token: str) -> AgentBootstrapTokenModel:
+    now = datetime.utcnow()
+    candidates = (
+        db.query(AgentBootstrapTokenModel)
+        .filter(
+            AgentBootstrapTokenModel.agent_id == agent_id,
+            AgentBootstrapTokenModel.revoked_at.is_(None),
+        )
+        .with_for_update()
+        .all()
+    )
+
+    for tok in candidates:
+        got = hash_bootstrap_token(raw_token, tok.token_salt)
+        if not secrets.compare_digest(got, tok.token_hash):
+            continue
+        if tok.expires_at <= now:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bootstrap token expired")
+        if int(tok.used_uses or 0) >= int(tok.max_uses or 1):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bootstrap token already consumed")
+
+        tok.used_uses = int(tok.used_uses or 0) + 1
+        tok.last_used_at = now
+        db.add(tok)
+        return tok
+
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid bootstrap token")
+
+
+@router.post("/{agent_id}/bootstrap-tokens", response_model=AgentBootstrapTokenOut, status_code=status.HTTP_201_CREATED)
+async def create_agent_bootstrap_token(
+    agent_id: str,
+    payload: AgentBootstrapTokenCreateIn,
+    request: Request,
+    _admin: PortalPrincipal = Depends(require_admin),
+):
+    ttl_seconds = int(payload.ttl_seconds or settings.NETWATCH_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS)
+    max_uses = int(payload.max_uses or settings.NETWATCH_AGENT_BOOTSTRAP_TOKEN_MAX_USES)
+    expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
+
+    token, salt, token_hash = generate_bootstrap_token(agent_id)
+
+    db = SessionLocal()
+    try:
+        row: AgentModel | None = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
+        if not row:
+            default_cfg = settings.default_agent_config()
+            if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.NETWATCH_MAX_AGENT_CONFIG_BYTES:
+                default_cfg = {}
+            row = AgentModel(
+                agent_id=agent_id,
+                key_salt="",
+                key_hash="",
+                agent_metadata={},
+                display_name=agent_id[:128],
+                description=None,
+                tags=[],
+                config=default_cfg,
+                metrics={},
+                created_at=datetime.utcnow(),
+                last_seen_at=None,
+                is_revoked=False,
+            )
+            db.add(row)
+
+        rec = AgentBootstrapTokenModel(
+            agent_id=agent_id,
+            token_salt=salt,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            max_uses=max_uses,
+            used_uses=0,
+            created_by_user_id=_admin.id,
+            description=payload.description,
+        )
+        db.add(rec)
+
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(_admin.id, _admin.username),
+            event_type="admin_action",
+            action="agents.bootstrap_token.create",
+            resource_type="agent",
+            resource_id=agent_id,
+            outcome="success",
+            before={},
+            after={
+                "agent_id": agent_id,
+                "expires_at": expires_at.isoformat(),
+                "max_uses": max_uses,
+                "description": payload.description,
+            },
+        )
+        db.commit()
+
+        return AgentBootstrapTokenOut(
+            agent_id=agent_id,
+            bootstrap_token=token,
+            expires_at=expires_at,
+            max_uses=max_uses,
+        )
+    finally:
+        db.close()
+
+
 @router.post("/enroll", response_model=AgentEnrollOut, status_code=status.HTTP_201_CREATED)
 async def enroll_agent(request: Request, payload: AgentEnrollIn):
-    """Register an agent and return its token.
+    """Register an agent and bind its identity."""
 
-    Security note:
-    - You should protect enroll in production (e.g., allowlisted networks, enroll token, etc.).
-    """
+    auth_mode = (settings.NETWATCH_AGENT_AUTH_MODE or "mtls").lower().strip()
+    mtls_identity = get_presented_mtls_identity(request, require_verified=False)
 
-    # Optional enroll hardening: if configured, require an enroll token.
+    if auth_mode == "mtls" and mtls_identity is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="mTLS identity required")
+
     expected_enroll = (getattr(settings, "NETWATCH_ENROLL_TOKEN", None) or "").strip()
-    if expected_enroll:
-        got = (request.headers.get("X-Enroll-Token") or "").strip()
-        if not got or got != expected_enroll:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
     db = SessionLocal()
     try:
         agent: AgentModel | None = db.query(AgentModel).filter(AgentModel.agent_id == payload.agent_id).first()
-
-        token, salt, secret_hash = generate_agent_token(payload.agent_id)
 
         meta = {
             "hostname": payload.hostname,
@@ -105,41 +254,133 @@ async def enroll_agent(request: Request, payload: AgentEnrollIn):
             "version": payload.version,
         }
 
-        if not agent:
-            default_cfg = settings.default_agent_config()
-            if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.NETWATCH_MAX_AGENT_CONFIG_BYTES:
-                default_cfg = {}
+        out_token: str | None = None
 
-            agent = AgentModel(
-                agent_id=payload.agent_id,
-                key_salt=salt,
-                key_hash=secret_hash,
-                agent_metadata=meta,
-                display_name=(payload.hostname or payload.agent_id)[:128],
-                description=None,
-                tags=[],
-                config=default_cfg,
-                metrics={},
-                created_at=datetime.utcnow(),
-                last_seen_at=datetime.utcnow(),
-                is_revoked=False,
+        if mtls_identity is not None:
+            if mtls_identity.verified.lower() != "success":
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="mTLS verification failed")
+            if mtls_identity.agent_id != payload.agent_id:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Certificate agent_id mismatch")
+
+            if settings.NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN:
+                raw_bootstrap = (request.headers.get("X-Agent-Bootstrap-Token") or "").strip()
+                if not raw_bootstrap:
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bootstrap token")
+                _consume_bootstrap_token(db, payload.agent_id, raw_bootstrap)
+            elif expected_enroll:
+                got = (request.headers.get("X-Enroll-Token") or "").strip()
+                if not got or got != expected_enroll:
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+            if not agent:
+                default_cfg = settings.default_agent_config()
+                if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.NETWATCH_MAX_AGENT_CONFIG_BYTES:
+                    default_cfg = {}
+
+                agent = AgentModel(
+                    agent_id=payload.agent_id,
+                    key_salt="",
+                    key_hash="",
+                    agent_metadata=meta,
+                    display_name=(payload.hostname or payload.agent_id)[:128],
+                    description=None,
+                    tags=[],
+                    config=default_cfg,
+                    metrics={},
+                    created_at=datetime.utcnow(),
+                    last_seen_at=datetime.utcnow(),
+                    is_revoked=False,
+                )
+            else:
+                if agent.is_revoked:
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
+
+                agent.agent_metadata = {**(agent.agent_metadata or {}), **meta}
+                agent.last_seen_at = datetime.utcnow()
+
+                if not (agent.display_name or "").strip():
+                    agent.display_name = (payload.hostname or payload.agent_id)[:128]
+
+            existing_identity = (
+                db.query(AgentIdentityModel)
+                .filter(AgentIdentityModel.fingerprint_sha256 == mtls_identity.fingerprint_sha256)
+                .first()
             )
+            if existing_identity and existing_identity.agent_id != payload.agent_id:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Certificate already bound to another agent")
+            if existing_identity and existing_identity.is_revoked:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Certificate revoked")
+
+            if not existing_identity:
+                existing_identity = AgentIdentityModel(
+                    agent_id=payload.agent_id,
+                    fingerprint_sha256=mtls_identity.fingerprint_sha256,
+                    serial_number=mtls_identity.serial_number,
+                    subject_dn=mtls_identity.subject_dn,
+                    issuer_dn=mtls_identity.issuer_dn,
+                    not_before=_parse_cert_time(request.headers.get("X-Agent-TLS-Not-Before")),
+                    not_after=_parse_cert_time(request.headers.get("X-Agent-TLS-Not-After")),
+                    is_revoked=False,
+                    identity_metadata={"enrolled_via": "mtls"},
+                    created_at=datetime.utcnow(),
+                    last_seen_at=datetime.utcnow(),
+                )
+            else:
+                existing_identity.serial_number = mtls_identity.serial_number
+                existing_identity.subject_dn = mtls_identity.subject_dn
+                existing_identity.issuer_dn = mtls_identity.issuer_dn
+                existing_identity.not_before = _parse_cert_time(request.headers.get("X-Agent-TLS-Not-Before"))
+                existing_identity.not_after = _parse_cert_time(request.headers.get("X-Agent-TLS-Not-After"))
+                existing_identity.last_seen_at = datetime.utcnow()
+
+            db.add(existing_identity)
         else:
-            if agent.is_revoked:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
+            # Legacy enrollment path for transition windows.
+            if auth_mode == "mtls":
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="mTLS identity required")
+            if expected_enroll:
+                got = (request.headers.get("X-Enroll-Token") or "").strip()
+                if not got or got != expected_enroll:
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
 
-            agent.key_salt = salt
-            agent.key_hash = secret_hash
-            agent.agent_metadata = {**(agent.agent_metadata or {}), **meta}
-            agent.last_seen_at = datetime.utcnow()
+            token, salt, secret_hash = generate_agent_token(payload.agent_id)
+            out_token = token
 
-            if not (agent.display_name or "").strip():
-                agent.display_name = (payload.hostname or payload.agent_id)[:128]
+            if not agent:
+                default_cfg = settings.default_agent_config()
+                if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.NETWATCH_MAX_AGENT_CONFIG_BYTES:
+                    default_cfg = {}
+
+                agent = AgentModel(
+                    agent_id=payload.agent_id,
+                    key_salt=salt,
+                    key_hash=secret_hash,
+                    agent_metadata=meta,
+                    display_name=(payload.hostname or payload.agent_id)[:128],
+                    description=None,
+                    tags=[],
+                    config=default_cfg,
+                    metrics={},
+                    created_at=datetime.utcnow(),
+                    last_seen_at=datetime.utcnow(),
+                    is_revoked=False,
+                )
+            else:
+                if agent.is_revoked:
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
+
+                agent.key_salt = salt
+                agent.key_hash = secret_hash
+                agent.agent_metadata = {**(agent.agent_metadata or {}), **meta}
+                agent.last_seen_at = datetime.utcnow()
+
+                if not (agent.display_name or "").strip():
+                    agent.display_name = (payload.hostname or payload.agent_id)[:128]
 
         db.add(agent)
         db.commit()
 
-        return AgentEnrollOut(agent_id=payload.agent_id, agent_token=token, config=agent.config or {})
+        return AgentEnrollOut(agent_id=payload.agent_id, agent_token=out_token, config=agent.config or {})
     finally:
         db.close()
 
@@ -195,6 +436,8 @@ async def agent_heartbeat(payload: AgentHeartbeatIn, agent: AgentPrincipal = Dep
             "uptime_seconds": payload.uptime_seconds,
             "modules": payload.modules,
             "metrics": payload.metrics,
+            "auth_method": agent.auth_method,
+            "identity_fingerprint": agent.identity_fingerprint,
         }
 
         db.add(row)
@@ -234,6 +477,67 @@ async def get_agent(agent_id: str, _user=Depends(get_current_user)):
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
         return _agent_to_detail(row)
+    finally:
+        db.close()
+
+
+@router.get("/{agent_id}/identities", response_model=List[AgentIdentityPublic])
+async def list_agent_identities(agent_id: str, _user=Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        row: AgentModel | None = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+        ids = (
+            db.query(AgentIdentityModel)
+            .filter(AgentIdentityModel.agent_id == agent_id)
+            .order_by(AgentIdentityModel.created_at.desc(), AgentIdentityModel.id.desc())
+            .all()
+        )
+        return [_identity_to_public(x) for x in ids]
+    finally:
+        db.close()
+
+
+@router.post("/{agent_id}/identities/{identity_id}/revoke", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_agent_identity(
+    agent_id: str,
+    identity_id: int,
+    payload: AgentIdentityRevokeIn,
+    request: Request,
+    _admin: PortalPrincipal = Depends(require_admin),
+):
+    db = SessionLocal()
+    try:
+        row: AgentIdentityModel | None = (
+            db.query(AgentIdentityModel)
+            .filter(AgentIdentityModel.id == identity_id, AgentIdentityModel.agent_id == agent_id)
+            .first()
+        )
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent identity not found")
+
+        if not row.is_revoked:
+            row.is_revoked = True
+            row.revoked_at = datetime.utcnow()
+            row.revoked_reason = (payload.reason or "").strip() or "manual_revocation"
+            db.add(row)
+
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(_admin.id, _admin.username),
+            event_type="admin_action",
+            action="agents.identity.revoke",
+            resource_type="agent_identity",
+            resource_id=str(row.id),
+            outcome="success",
+            before={"is_revoked": False, "revoked_reason": None},
+            after={"is_revoked": True, "revoked_reason": row.revoked_reason},
+        )
+        db.commit()
+        return None
     finally:
         db.close()
 

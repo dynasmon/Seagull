@@ -12,12 +12,12 @@ ENV_EXAMPLE := .env.example
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test deps-check ci
+.PHONY: help bootstrap bootstrap-tools certs-bootstrap dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test deps-check ci
 
 help:
 	@echo "Targets:"
 	@echo "  make dev         - bootstrap and start development stack"
-	@echo "  make dev-tls     - start development stack + TLS edge (self-signed/local cert)"
+	@echo "  make dev-tls     - start development stack with stricter HTTPS cookie/proxy settings"
 	@echo "  make prod        - bootstrap and start production-style stack"
 	@echo "  make up          - alias for make dev"
 	@echo "  make up-extra    - start development stack with profile 'extra'"
@@ -38,26 +38,35 @@ help:
 	@echo "  make psql        - open psql inside postgres"
 
 bootstrap:
-	@test -f $(ENV_FILE) || (cp $(ENV_EXAMPLE) $(ENV_FILE) && echo "[bootstrap] created .env from .env.example")
+	@./scripts/bootstrap_env.sh $(ENV_FILE) $(ENV_EXAMPLE)
 
 bootstrap-tools:
 	@command -v docker >/dev/null 2>&1 || (echo "docker not found" && exit 1)
 	@docker compose version >/dev/null 2>&1 || (echo "docker compose not available" && exit 1)
 
+certs-bootstrap: bootstrap
+	@AUTO_GENERATE_CERTS="$${NETWATCH_AUTO_GENERATE_CERTS:-true}"; \
+	if [ "$$AUTO_GENERATE_CERTS" = "true" ]; then \
+		echo "[bootstrap] regenerating edge+agent certificates"; \
+		./scripts/pki/bootstrap_runtime_certs.sh; \
+	else \
+		echo "[bootstrap] NETWATCH_AUTO_GENERATE_CERTS=false (skipping cert regeneration)"; \
+	fi
+
 # Single-command bootstrap for development.
-dev: bootstrap bootstrap-tools
+dev: bootstrap bootstrap-tools certs-bootstrap
 	$(DC) $(COMPOSE_DEV) up -d --build
 
-dev-tls: bootstrap bootstrap-tools
-	$(DC) $(COMPOSE_DEV_TLS) --profile tls up -d --build
+dev-tls: bootstrap bootstrap-tools certs-bootstrap
+	$(DC) $(COMPOSE_DEV_TLS) up -d --build
 
 # Single-command bootstrap for production-like runs.
-prod: bootstrap bootstrap-tools
+prod: bootstrap bootstrap-tools certs-bootstrap
 	$(DC) $(COMPOSE_PROD) up -d --build
 
 up: dev
 
-up-extra: bootstrap bootstrap-tools
+up-extra: bootstrap bootstrap-tools certs-bootstrap
 	$(DC) $(COMPOSE_DEV) --profile extra up -d --build
 
 down:

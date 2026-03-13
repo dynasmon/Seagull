@@ -29,6 +29,8 @@ services:
       - ./infra/nginx/edge.prod.conf:/etc/nginx/conf.d/default.conf:ro
       - ${NETWATCH_TLS_CERT_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/tls/tls.crt:ro
       - ${NETWATCH_TLS_KEY_FILE:-./secrets/tls/tls.key}:/etc/netwatch/tls/tls.key:ro
+      - ${NETWATCH_AGENT_CA_CERT_FILE:-./secrets/agent-ca/ca.crt}:/etc/netwatch/agent-ca/ca.crt:ro
+      - ${NETWATCH_AGENT_CA_CRL_FILE:-./secrets/agent-ca/ca.crl}:/etc/netwatch/agent-ca/ca.crl:ro
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -86,6 +88,8 @@ services:
     ports: []
     environment:
       NETWATCH_ENV: prod
+      NETWATCH_AGENT_AUTH_MODE: mtls
+      NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN: "true"
       NETWATCH_DB_AUTO_UPGRADE: "false"
       NETWATCH_COOKIE_SECURE: "true"
       NETWATCH_ENABLE_HSTS: "true"

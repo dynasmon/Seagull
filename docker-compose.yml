@@ -1,5 +1,5 @@
 x-agent-env: &agent-env
-  NETWATCH_API_URL: http://127.0.0.1:${NETWATCH_BACKEND_PORT}
+  NETWATCH_API_URL: https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/agent
   NETWATCH_HTTP_TIMEOUT: ${NETWATCH_HTTP_TIMEOUT}
   NETWATCH_CONTROL_HEARTBEAT_EVERY: ${NETWATCH_CONTROL_HEARTBEAT_EVERY}
   NETWATCH_CONTROL_CONFIG_EVERY: ${NETWATCH_CONTROL_CONFIG_EVERY}
@@ -18,6 +18,13 @@ x-agent-env: &agent-env
   NETWATCH_AUTHLOG_INCLUDE_ACCEPTED: ${NETWATCH_AUTHLOG_INCLUDE_ACCEPTED}
   NETWATCH_ENROLL_TOKEN: ${NETWATCH_ENROLL_TOKEN:-}
   NETWATCH_ENROLL_TOKEN_FILE: ${NETWATCH_ENROLL_TOKEN_FILE:-}
+  NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${NETWATCH_AGENT_BOOTSTRAP_TOKEN:-}
+  NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE:-}
+  NETWATCH_FORCE_ENROLL_ON_START: ${NETWATCH_FORCE_ENROLL_ON_START:-true}
+  NETWATCH_TLS_CA_FILE: /etc/netwatch/agent-mtls/server-ca.crt
+  NETWATCH_TLS_CERT_FILE: /etc/netwatch/agent-mtls/tls.crt
+  NETWATCH_TLS_KEY_FILE: /etc/netwatch/agent-mtls/tls.key
+  NETWATCH_TLS_SERVER_NAME: ${NETWATCH_AGENT_TLS_SERVER_NAME:-localhost}
 
 x-agent-base: &agent-base
   build:
@@ -218,6 +225,10 @@ services:
       NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START: ${NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START:-true}
       NETWATCH_ENROLL_TOKEN: ${NETWATCH_ENROLL_TOKEN:-}
       NETWATCH_ENROLL_TOKEN_FILE: ${NETWATCH_ENROLL_TOKEN_FILE:-}
+      NETWATCH_AGENT_AUTH_MODE: ${NETWATCH_AGENT_AUTH_MODE:-mtls}
+      NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN: ${NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN:-true}
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS: ${NETWATCH_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS:-900}
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN_MAX_USES: ${NETWATCH_AGENT_BOOTSTRAP_TOKEN_MAX_USES:-1}
       NETWATCH_DEFAULT_AGENT_CONFIG_JSON: ${NETWATCH_DEFAULT_AGENT_CONFIG_JSON}
       NETWATCH_MAX_AGENT_CONFIG_BYTES: ${NETWATCH_MAX_AGENT_CONFIG_BYTES}
 
@@ -560,9 +571,14 @@ services:
       NETWATCH_AGENT_ID: ${AGENT_PROC_ID}
       NETWATCH_SOURCES: proc,authlog,syscollector
       NETWATCH_AUTHLOG_PATH: /var/log/auth.log
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_PROC_BOOTSTRAP_TOKEN:-}
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_PROC_BOOTSTRAP_TOKEN_FILE:-}
     volumes:
       - /var/log/auth.log:/var/log/auth.log:ro
       - agent-proc-state:/var/lib/netwatch
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
+      - ${AGENT_PROC_CERT_FILE:-./secrets/agent-pki/agent-proc-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
+      - ${AGENT_PROC_KEY_FILE:-./secrets/agent-pki/agent-proc-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
 
   netwatch-agent-scan:
     <<: *agent-base
@@ -573,8 +589,13 @@ services:
       <<: *agent-env
       NETWATCH_AGENT_ID: ${AGENT_SCAN_ID}
       NETWATCH_SOURCES: scan,syscollector
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_SCAN_BOOTSTRAP_TOKEN:-}
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SCAN_BOOTSTRAP_TOKEN_FILE:-}
     volumes:
       - agent-scan-state:/var/lib/netwatch
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
+      - ${AGENT_SCAN_CERT_FILE:-./secrets/agent-pki/agent-scan-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
+      - ${AGENT_SCAN_KEY_FILE:-./secrets/agent-pki/agent-scan-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
 
   netwatch-agent-lateral:
     <<: *agent-base
@@ -586,6 +607,8 @@ services:
       <<: *agent-env
       NETWATCH_AGENT_ID: ${AGENT_LATERAL_ID}
       NETWATCH_SOURCES: lateral,syscollector
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_LATERAL_BOOTSTRAP_TOKEN:-}
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_LATERAL_BOOTSTRAP_TOKEN_FILE:-}
       NETWATCH_LATERAL_MODE: ${NETWATCH_LATERAL_MODE}
       NETWATCH_LATERAL_PCAP_IFACE: ${NETWATCH_LATERAL_PCAP_IFACE}
       NETWATCH_LATERAL_PORTS: ${NETWATCH_LATERAL_PORTS}
@@ -594,6 +617,9 @@ services:
       NETWATCH_LATERAL_MAX_BATCH: ${NETWATCH_LATERAL_MAX_BATCH}
     volumes:
       - agent-lateral-state:/var/lib/netwatch
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
+      - ${AGENT_LATERAL_CERT_FILE:-./secrets/agent-pki/agent-lateral-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
+      - ${AGENT_LATERAL_KEY_FILE:-./secrets/agent-pki/agent-lateral-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
 
   netwatch-agent-ddos:
     <<: *agent-base
@@ -604,10 +630,15 @@ services:
       <<: *agent-env
       NETWATCH_AGENT_ID: ${AGENT_DDOS_ID}
       NETWATCH_SOURCES: ddos,syscollector
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_DDOS_BOOTSTRAP_TOKEN:-}
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_DDOS_BOOTSTRAP_TOKEN_FILE:-}
       NETWATCH_DDOS_SUSTAIN_WINDOWS: ${NETWATCH_DDOS_SUSTAIN_WINDOWS}
       NETWATCH_DDOS_COOLDOWN: ${NETWATCH_DDOS_COOLDOWN}
     volumes:
       - agent-ddos-state:/var/lib/netwatch
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
+      - ${AGENT_DDOS_CERT_FILE:-./secrets/agent-pki/agent-ddos-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
+      - ${AGENT_DDOS_KEY_FILE:-./secrets/agent-pki/agent-ddos-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
 
   netwatch-agent-vuln:
     <<: *agent-base
@@ -618,6 +649,8 @@ services:
       <<: *agent-env
       NETWATCH_AGENT_ID: ${AGENT_VULN_ID}
       NETWATCH_SOURCES: vuln,syscollector
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_VULN_BOOTSTRAP_TOKEN:-}
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_VULN_BOOTSTRAP_TOKEN_FILE:-}
       NETWATCH_HOST_ROOT: ${NETWATCH_VULN_HOST_ROOT}
       NETWATCH_VULN_SCAN_EVERY: ${NETWATCH_VULN_SCAN_EVERY}
       NETWATCH_VULN_HTTP_TIMEOUT: ${NETWATCH_VULN_HTTP_TIMEOUT}
@@ -636,6 +669,9 @@ services:
     volumes:
       - agent-vuln-state:/var/lib/netwatch
       - /:/host:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
+      - ${AGENT_VULN_CERT_FILE:-./secrets/agent-pki/agent-vuln-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
+      - ${AGENT_VULN_KEY_FILE:-./secrets/agent-pki/agent-vuln-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
 
 networks:
   netwatch:
