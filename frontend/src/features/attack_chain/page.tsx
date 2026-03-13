@@ -289,7 +289,7 @@ export default function AttackChainPage() {
   }, [rows, applied.showWorkflow]);
 
   return (
-    <div className="w-full max-w-none p-6 space-y-6">
+    <div className="w-full max-w-none space-y-6">
       <PageHeader
         title="Attack Chains"
         breadcrumb={["Detection", "Attack Chains"]}
