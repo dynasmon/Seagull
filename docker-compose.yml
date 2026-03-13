@@ -584,7 +584,7 @@ services:
     volumes:
       - /var/log/auth.log:/var/log/auth.log:ro
       - agent-proc-state:/var/lib/netwatch
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
       - ${AGENT_PROC_CERT_FILE:-./secrets/agent-pki/agent-proc-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
       - ${AGENT_PROC_KEY_FILE:-./secrets/agent-pki/agent-proc-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
 
@@ -601,7 +601,7 @@ services:
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SCAN_BOOTSTRAP_TOKEN_FILE:-}
     volumes:
       - agent-scan-state:/var/lib/netwatch
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
       - ${AGENT_SCAN_CERT_FILE:-./secrets/agent-pki/agent-scan-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
       - ${AGENT_SCAN_KEY_FILE:-./secrets/agent-pki/agent-scan-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
 
@@ -625,7 +625,7 @@ services:
       NETWATCH_LATERAL_MAX_BATCH: ${NETWATCH_LATERAL_MAX_BATCH}
     volumes:
       - agent-lateral-state:/var/lib/netwatch
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
       - ${AGENT_LATERAL_CERT_FILE:-./secrets/agent-pki/agent-lateral-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
       - ${AGENT_LATERAL_KEY_FILE:-./secrets/agent-pki/agent-lateral-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
 
@@ -644,7 +644,7 @@ services:
       NETWATCH_DDOS_COOLDOWN: ${NETWATCH_DDOS_COOLDOWN}
     volumes:
       - agent-ddos-state:/var/lib/netwatch
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
       - ${AGENT_DDOS_CERT_FILE:-./secrets/agent-pki/agent-ddos-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
       - ${AGENT_DDOS_KEY_FILE:-./secrets/agent-pki/agent-ddos-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
 
@@ -677,7 +677,7 @@ services:
     volumes:
       - agent-vuln-state:/var/lib/netwatch
       - /:/host:ro
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
       - ${AGENT_VULN_CERT_FILE:-./secrets/agent-pki/agent-vuln-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
       - ${AGENT_VULN_KEY_FILE:-./secrets/agent-pki/agent-vuln-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
 
