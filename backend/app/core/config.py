@@ -168,6 +168,16 @@ class Settings:
 
     # Rules worker
     NETWATCH_RULES_EVERY_SECONDS: float = _env_float("NETWATCH_RULES_EVERY_SECONDS", 5.0)
+    NETWATCH_RULES_ENV: str = (_env_str("NETWATCH_RULES_ENV", NETWATCH_ENV) or NETWATCH_ENV or "dev").lower()
+    NETWATCH_RULES_ENABLED_PACKS: list[str] = _env_csv(
+        "NETWATCH_RULES_ENABLED_PACKS",
+        "core,network" if NETWATCH_ENV in {"prod", "production"} else "core,network,lab",
+    )
+    NETWATCH_RULES_DISABLED_PACKS: list[str] = _env_csv("NETWATCH_RULES_DISABLED_PACKS", "")
+    NETWATCH_RULES_INCLUDE_EXPERIMENTAL: bool = _env_bool(
+        "NETWATCH_RULES_INCLUDE_EXPERIMENTAL",
+        NETWATCH_ENV not in {"prod", "production"},
+    )
 
     # Ingest controls
     NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS: int = _env_int("NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS", 300)

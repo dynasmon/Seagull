@@ -9,6 +9,19 @@ from app.core.config import settings
 _VERSION_RE = re.compile(r"_v(\d+)$", re.IGNORECASE)
 
 
+def _norm_set(values: Any) -> set[str]:
+    out: set[str] = set()
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, (list, tuple, set)):
+        return out
+    for v in values:
+        s = str(v or "").strip().lower()
+        if s:
+            out.add(s)
+    return out
+
+
 def _rules_dir_path(rules_dir: str | Path | None = None) -> Path:
     if rules_dir is not None:
         return Path(rules_dir).resolve()
@@ -58,6 +71,15 @@ def _normalize_rule(
     r["pack_version"] = int(file_meta.get("pack_version") or 1)
     r["rule_version"] = _parse_rule_version(rid, r.get("version"))
     r["schema_version"] = int(file_meta.get("schema_version") or 1)
+    r["maturity"] = str(r.get("maturity") or file_meta.get("maturity") or "stable").strip().lower() or "stable"
+
+    envs = r.get("environments", file_meta.get("environments"))
+    if isinstance(envs, str):
+        envs = [envs]
+    if isinstance(envs, list):
+        r["environments"] = [str(x).strip().lower() for x in envs if str(x).strip()]
+    else:
+        r["environments"] = []
 
     # Base blocks for tuning/suppressions, can be extended by DB overrides.
     sup = r.get("suppressions")
@@ -82,6 +104,8 @@ def _iter_rules_from_file(path: Path, rules_dir: Path) -> Iterable[Dict[str, Any
     file_meta = {
         "pack": data.get("pack"),
         "category": data.get("category"),
+        "maturity": data.get("maturity"),
+        "environments": data.get("environments"),
         "pack_version": data.get("pack_version", 1),
         "schema_version": data.get("schema_version", 1),
     }
@@ -107,6 +131,7 @@ def load_rules(
     include_disabled: bool = False,
     with_source: bool = False,
     rules_dir: str | Path | None = None,
+    apply_env_filters: bool = True,
 ) -> List[Dict[str, Any]]:
     """Load rules from YAML files under rules dir (recursive).
 
@@ -119,6 +144,11 @@ def load_rules(
     if not base.exists():
         return out
 
+    env_name = str(getattr(settings, "NETWATCH_RULES_ENV", getattr(settings, "NETWATCH_ENV", "dev")) or "dev").strip().lower()
+    enabled_packs = _norm_set(getattr(settings, "NETWATCH_RULES_ENABLED_PACKS", []))
+    disabled_packs = _norm_set(getattr(settings, "NETWATCH_RULES_DISABLED_PACKS", []))
+    include_experimental = bool(getattr(settings, "NETWATCH_RULES_INCLUDE_EXPERIMENTAL", True))
+
     for path in _discover_rule_files(base):
         for rule in _iter_rules_from_file(path, base):
             rid = str(rule.get("id") or "").strip()
@@ -130,6 +160,20 @@ def load_rules(
             enabled = rule.get("enabled", True)
             if (not include_disabled) and (enabled is False):
                 continue
+
+            if apply_env_filters:
+                pack = str(rule.get("pack") or "").strip().lower()
+                maturity = str(rule.get("maturity") or "stable").strip().lower()
+                envs = _norm_set(rule.get("environments") or [])
+
+                if enabled_packs and pack and pack not in enabled_packs:
+                    continue
+                if pack and pack in disabled_packs:
+                    continue
+                if envs and env_name not in envs:
+                    continue
+                if (not include_experimental) and maturity == "experimental":
+                    continue
 
             if not with_source:
                 rule.pop("source_file", None)

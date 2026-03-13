@@ -65,6 +65,7 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
 
 - **netwatch-rules-worker**
   - Periodically loads baseline YAML detections from `./rules/` (supports packs under `./rules/packs/**`).
+  - Applies environment pack filters (`NETWATCH_RULES_ENABLED_PACKS`, `NETWATCH_RULES_INCLUDE_EXPERIMENTAL`) with the same engine in dev/prod.
   - Applies optional rule overrides (enable/disable/severity) and writes findings to the `alerts` table.
 
 - **PostgreSQL**
@@ -589,6 +590,43 @@ Troubleshooting:
 - Backend returns `Unbound or revoked agent certificate`: ensure enroll was executed with a valid bootstrap token for that `agent_id`.
 - Backend returns `Certificate agent_id mismatch`: certificate `CN` must equal `NETWATCH_AGENT_ID`.
 - Enrollment denied with `Bootstrap token already consumed`: mint a new token and retry.
+
+### Detection Content Engineering
+
+Catalog layout:
+
+- `rules/packs/core/*`: stable detections for auth/baseline.
+- `rules/packs/network/*`: stable detections for recon/lateral/impact.
+- `rules/packs/lab/*`: experimental detections for dev/lab rollout.
+
+Pack activation by environment (same loader/motor, different activation only):
+
+- `NETWATCH_RULES_ENV`: logical environment label used by rule filters (`dev`, `homolog`, `prod`, `lab`).
+- `NETWATCH_RULES_ENABLED_PACKS`: CSV allowlist of packs to load (e.g. `core,network`).
+- `NETWATCH_RULES_DISABLED_PACKS`: optional CSV denylist.
+- `NETWATCH_RULES_INCLUDE_EXPERIMENTAL`: enables/disables rules with `maturity: experimental`.
+
+Recommended defaults:
+
+- Dev/Lab: `NETWATCH_RULES_ENABLED_PACKS=core,network,lab` and `NETWATCH_RULES_INCLUDE_EXPERIMENTAL=true`.
+- Prod: `NETWATCH_RULES_ENABLED_PACKS=core,network` and `NETWATCH_RULES_INCLUDE_EXPERIMENTAL=false`.
+
+False-positive reduction controls:
+
+- Per-rule `tuning.allowlist` supports `src_ips`, `dst_ips`, `agent_ids`, `dst_ports`, `protos`, `src_cidrs`, `dst_cidrs`.
+- Rule suppressions and schedules remain available through portal governance APIs.
+- Prefer precise group keys and higher thresholds for stable packs; keep noisier analytics in `lab`.
+- Agents now enrich telemetry with confidence/context fields consumed by stable rules:
+  - `scan_probe`: `extra.scan_confidence`, `extra.scan_type`, `extra.syn_only`, `extra.collector`
+  - `lateral_conn`: `extra.lateral_confidence`, `extra.lateral_kind`, `extra.syn_only`, `extra.collector`
+  - `flow`: `extra.flow_state_class`, `extra.flow_confidence`, `extra.tcp_state_name`, `extra.collector`
+
+Validation suite:
+
+- Rule behavior/unit tests: `backend/tests/test_rules_and_correlations.py`
+- Catalog quality checks (schema/severity/ATT&CK mapping + pack filtering): `backend/tests/test_detection_catalog.py`
+- Run only detection validation:
+  - `make test-detections`
 
 ---
 

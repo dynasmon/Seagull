@@ -21,6 +21,8 @@ rules:
       event_type: "scan_probe"
       agent_id: "agent-scan-1"
       proto: "tcp"
+      extra_scan_confidence_gte: 70
+      extra_scan_type_not_in: ["tcp_ack"]
     group_by: ["src_ip", "dst_ip"]
     distinct_field: "dst_port"
     min_events: 40
@@ -45,6 +47,7 @@ rules:
       event_type: "scan_probe"
       agent_id: "agent-scan-1"
       proto: "udp"
+      extra_scan_confidence_gte: 40
     group_by: ["src_ip", "dst_ip"]
     distinct_field: "dst_port"
     min_events: 25
@@ -69,6 +72,8 @@ rules:
       event_type: "scan_probe"
       agent_id: "agent-scan-1"
       proto: "tcp"
+      extra_scan_confidence_gte: 70
+      extra_scan_type_not_in: ["tcp_ack"]
     group_by: ["src_ip", "dst_ip"]
     min_events: 80
     distinct_conditions:

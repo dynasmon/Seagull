@@ -1,0 +1,152 @@
+schema_version: 1
+pack: core
+category: auth
+pack_version: 1
+maturity: stable
+
+rules:
+  - id: ssh_invalid_user_burst_v1
+    name: "SSH invalid-user burst"
+    description: "Repeated invalid-user SSH attempts from one source, indicating account discovery or brute-force staging."
+    mitre:
+      tactic: "credential_access"
+      technique_id: "T1110.001"
+      technique: "Brute Force: Password Guessing"
+      confidence: 78
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "3m"
+    cooldown: "15m"
+    match:
+      event_type: "ssh_auth"
+      dst_port: 22
+      extra_action: "invalid_user"
+    group_by: ["src_ip", "dst_ip"]
+    condition:
+      operator: ">="
+      value: 12
+
+  - id: ssh_distributed_bruteforce_target_v1
+    name: "Distributed SSH brute force against one target"
+    description: "One target receives SSH failures from many distinct source IPs in a short window."
+    mitre:
+      tactic: "credential_access"
+      technique_id: "T1110.003"
+      technique: "Brute Force: Password Spraying"
+      confidence: 84
+    enabled: true
+    severity: "high"
+    type: "distinct_count"
+    window: "5m"
+    cooldown: "20m"
+    match:
+      event_type: "ssh_auth"
+      dst_port: 22
+      extra_action_in: ["failed_password", "invalid_user"]
+    group_by: "dst_ip"
+    distinct_field: "src_ip"
+    min_events: 30
+    condition:
+      operator: ">="
+      value: 8
+
+  - id: sudo_root_command_burst_v1
+    name: "Burst of privileged sudo commands"
+    description: "High-frequency sudo commands targeting root from the same host/IP context."
+    mitre:
+      tactic: "privilege_escalation"
+      technique_id: "T1548.003"
+      technique: "Abuse Elevation Control Mechanism: Sudo and Sudo Caching"
+      confidence: 68
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "30m"
+    match:
+      event_type: "sudo_cmd"
+      extra_action: "sudo"
+      extra_target_user: "root"
+      extra_username_not_in: ["root"]
+    group_by: ["agent_id", "src_ip"]
+    condition:
+      operator: ">="
+      value: 8
+    tuning:
+      allowlist:
+        src_cidrs: []
+        agent_ids: []
+
+  - id: ssh_failed_password_burst_target_v1
+    name: "SSH failed-password burst on target"
+    description: "High-volume failed-password attempts from one source to one target in short window."
+    mitre:
+      tactic: "credential_access"
+      technique_id: "T1110.001"
+      technique: "Brute Force: Password Guessing"
+      confidence: 82
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "3m"
+    cooldown: "15m"
+    match:
+      event_type: "ssh_auth"
+      dst_port: 22
+      extra_action: "failed_password"
+    group_by: ["src_ip", "dst_ip"]
+    condition:
+      operator: ">="
+      value: 16
+
+  - id: ssh_single_source_multi_target_fail_v1
+    name: "Single-source SSH failures across many targets"
+    description: "One source hits many targets with SSH auth failures, indicating broad credential probing."
+    mitre:
+      tactic: "credential_access"
+      technique_id: "T1110.003"
+      technique: "Brute Force: Password Spraying"
+      confidence: 80
+    enabled: true
+    severity: "high"
+    type: "distinct_count"
+    window: "8m"
+    cooldown: "25m"
+    match:
+      event_type: "ssh_auth"
+      dst_port: 22
+      extra_action_in: ["failed_password", "invalid_user"]
+    group_by: "src_ip"
+    distinct_field: "dst_ip"
+    min_events: 40
+    condition:
+      operator: ">="
+      value: 6
+    tuning:
+      allowlist:
+        src_cidrs: []
+        src_ips: []
+
+  - id: sudo_nonroot_root_escalation_spike_v1
+    name: "Repeated non-root sudo elevation to root"
+    description: "Frequent sudo elevation attempts to root by non-root account on the same agent."
+    mitre:
+      tactic: "privilege_escalation"
+      technique_id: "T1548.003"
+      technique: "Abuse Elevation Control Mechanism: Sudo and Sudo Caching"
+      confidence: 72
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "15m"
+    cooldown: "45m"
+    match:
+      event_type: "sudo_cmd"
+      extra_action: "sudo"
+      extra_target_user: "root"
+      extra_username_not_in: ["root"]
+    group_by: ["agent_id", "src_ip"]
+    condition:
+      operator: ">="
+      value: 12

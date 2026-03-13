@@ -1,4 +1,5 @@
 import json
+import ipaddress
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -630,6 +631,115 @@ def _is_suppressed(rule: Dict[str, Any], ctx: Dict[str, Any], now_utc: datetime)
     return False, None
 
 
+def _as_str_set(values: Any) -> set[str]:
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, (list, tuple, set)):
+        return set()
+    out: set[str] = set()
+    for v in values:
+        s = str(v or "").strip().lower()
+        if s:
+            out.add(s)
+    return out
+
+
+def _as_int_set(values: Any) -> set[int]:
+    if isinstance(values, (int, float)):
+        values = [values]
+    if not isinstance(values, (list, tuple, set)):
+        return set()
+    out: set[int] = set()
+    for v in values:
+        try:
+            out.add(int(v))
+        except Exception:
+            continue
+    return out
+
+
+def _ip_in_cidrs(ip_value: Any, cidrs: Any) -> bool:
+    ip_s = str(ip_value or "").strip()
+    if not ip_s:
+        return False
+    try:
+        ip_obj = ipaddress.ip_address(ip_s)
+    except Exception:
+        return False
+
+    if isinstance(cidrs, str):
+        cidrs = [cidrs]
+    if not isinstance(cidrs, (list, tuple, set)):
+        return False
+
+    for c in cidrs:
+        try:
+            if ip_obj in ipaddress.ip_network(str(c).strip(), strict=False):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _is_tuning_allowlisted(rule: Dict[str, Any], ctx: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+    tuning = rule.get("tuning") if isinstance(rule.get("tuning"), dict) else {}
+    allowlist = tuning.get("allowlist") if isinstance(tuning, dict) else None
+    if not isinstance(allowlist, dict) or not allowlist:
+        return False, None
+
+    checks = 0
+
+    src_ips = _as_str_set(allowlist.get("src_ips"))
+    if src_ips:
+        checks += 1
+        if str(ctx.get("src_ip") or "").strip().lower() not in src_ips:
+            return False, None
+
+    dst_ips = _as_str_set(allowlist.get("dst_ips"))
+    if dst_ips:
+        checks += 1
+        if str(ctx.get("dst_ip") or "").strip().lower() not in dst_ips:
+            return False, None
+
+    agent_ids = _as_str_set(allowlist.get("agent_ids"))
+    if agent_ids:
+        checks += 1
+        if str(ctx.get("agent_id") or "").strip().lower() not in agent_ids:
+            return False, None
+
+    protos = _as_str_set(allowlist.get("protos"))
+    if protos:
+        checks += 1
+        if str(ctx.get("proto") or "").strip().lower() not in protos:
+            return False, None
+
+    dst_ports = _as_int_set(allowlist.get("dst_ports"))
+    if dst_ports:
+        checks += 1
+        try:
+            port_v = int(ctx.get("dst_port"))
+        except Exception:
+            return False, None
+        if port_v not in dst_ports:
+            return False, None
+
+    src_cidrs = allowlist.get("src_cidrs")
+    if src_cidrs:
+        checks += 1
+        if not _ip_in_cidrs(ctx.get("src_ip"), src_cidrs):
+            return False, None
+
+    dst_cidrs = allowlist.get("dst_cidrs")
+    if dst_cidrs:
+        checks += 1
+        if not _ip_in_cidrs(ctx.get("dst_ip"), dst_cidrs):
+            return False, None
+
+    if checks == 0:
+        return False, None
+    return True, "tuning.allowlist"
+
+
 def run_rules_once():
     now = datetime.utcnow()
     created_alerts: List[AlertModel] = []
@@ -748,11 +858,18 @@ def run_rules_once():
                         {
                             "rule_id": rule_id,
                             "severity": severity,
+                            "agent_id": group_key.get("agent_id") or match.get("agent_id"),
                             "src_ip": src_ip,
                             "dst_ip": dst_ip,
                             "dst_port": dst_port,
+                            "proto": group_key.get("proto") or match.get("proto"),
                         }
                     )
+
+                    allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
+                    if allowlisted:
+                        continue
+
                     suppressed, _ = _is_suppressed(rule, sup_ctx, now)
                     if suppressed:
                         continue
@@ -859,11 +976,18 @@ def run_rules_once():
                         {
                             "rule_id": rule_id,
                             "severity": severity,
+                            "agent_id": group_key.get("agent_id") or match.get("agent_id"),
                             "src_ip": src_ip,
                             "dst_ip": dst_ip,
                             "dst_port": dst_port,
+                            "proto": group_key.get("proto") or match.get("proto"),
                         }
                     )
+
+                    allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
+                    if allowlisted:
+                        continue
+
                     suppressed, _ = _is_suppressed(rule, sup_ctx, now)
                     if suppressed:
                         continue
@@ -985,11 +1109,18 @@ def run_rules_once():
                         {
                             "rule_id": rule_id,
                             "severity": severity,
+                            "agent_id": group_key.get("agent_id") or match.get("agent_id"),
                             "src_ip": src_ip,
                             "dst_ip": dst_ip,
                             "dst_port": dst_port,
+                            "proto": group_key.get("proto") or match.get("proto"),
                         }
                     )
+
+                    allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
+                    if allowlisted:
+                        continue
+
                     suppressed, _ = _is_suppressed(rule, sup_ctx, now)
                     if suppressed:
                         continue

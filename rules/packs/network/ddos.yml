@@ -96,3 +96,101 @@ rules:
       field: "count"
       operator: ">="
       value: 1
+
+  - id: ddos_udp_amp_high_conf_v1
+    name: "DDoS UDP amplification (high confidence)"
+    description: "Distributed UDP amplification flood signal with high confidence."
+    mitre:
+      tactic: "impact"
+      technique_id: "T1498.002"
+      technique: "Network Denial of Service: Reflection Amplification"
+      confidence: 93
+    enabled: true
+    severity: "critical"
+    type: "aggregate_count"
+    window: "30s"
+    cooldown: "3m"
+    match:
+      event_type: "dos_attack"
+      extra_attack: "ddos"
+      extra_vector: "udp_amp_flood"
+      extra_confidence_gte: 85
+      extra_unique_src_ips_gte: 20
+    group_by: ["dst_ip", "dst_port", "proto"]
+    condition:
+      field: "count"
+      operator: ">="
+      value: 1
+
+  - id: ddos_tcp_syn_high_conf_v1
+    name: "DDoS TCP SYN flood (high confidence)"
+    description: "Distributed SYN flood signal with high confidence."
+    mitre:
+      tactic: "impact"
+      technique_id: "T1498.001"
+      technique: "Network Denial of Service: Direct Network Flood"
+      confidence: 90
+    enabled: true
+    severity: "critical"
+    type: "aggregate_count"
+    window: "30s"
+    cooldown: "3m"
+    match:
+      event_type: "dos_attack"
+      extra_attack: "ddos"
+      extra_vector: "tcp_syn_flood"
+      extra_confidence_gte: 82
+      extra_unique_src_ips_gte: 15
+    group_by: ["dst_ip", "dst_port", "proto"]
+    condition:
+      field: "count"
+      operator: ">="
+      value: 1
+
+  - id: ddos_distributed_high_cardinality_v1
+    name: "Distributed DDoS with high source cardinality"
+    description: "DDoS events with high distinct source-IP cardinality and sustained confidence."
+    mitre:
+      tactic: "impact"
+      technique_id: "T1498"
+      technique: "Network Denial of Service"
+      confidence: 88
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "2m"
+    cooldown: "5m"
+    match:
+      event_type: "dos_attack"
+      extra_attack: "ddos"
+      extra_distributed: true
+      extra_unique_src_ips_gte: 30
+      extra_confidence_gte: 78
+    group_by: ["dst_ip", "dst_port", "proto"]
+    condition:
+      field: "count"
+      operator: ">="
+      value: 2
+
+  - id: dos_repeated_same_target_v1
+    name: "Repeated DoS events on same target"
+    description: "Repeated high-confidence DoS events to same destination indicate sustained impact activity."
+    mitre:
+      tactic: "impact"
+      technique_id: "T1498"
+      technique: "Network Denial of Service"
+      confidence: 79
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "5m"
+    cooldown: "10m"
+    match:
+      event_type: "dos_attack"
+      extra_attack: "dos"
+      extra_confidence_gte: 80
+    group_by: ["dst_ip", "dst_port", "proto"]
+    condition:
+      field: "count"
+      operator: ">="
+      value: 3

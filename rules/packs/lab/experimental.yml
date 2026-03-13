@@ -1,0 +1,171 @@
+schema_version: 1
+pack: lab
+category: behavior
+pack_version: 1
+maturity: experimental
+environments: ["dev", "lab", "homolog"]
+
+rules:
+  - id: beaconing_fixed_tuple_candidate_v1
+    name: "Potential beaconing on fixed tuple"
+    description: "Many low-byte flows on a fixed src/dst/port tuple in a short interval."
+    mitre:
+      tactic: "command_and_control"
+      technique_id: "T1071"
+      technique: "Application Layer Protocol"
+      confidence: 60
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "30m"
+    match:
+      event_type: "flow"
+      bytes_lte: 1500
+      dst_port_not_in: [53, 67, 68, 123]
+    group_by: ["src_ip", "dst_ip", "dst_port", "proto"]
+    condition:
+      operator: ">="
+      value: 140
+    tuning:
+      allowlist:
+        src_cidrs: []
+        dst_cidrs: []
+        dst_ports: []
+
+  - id: egress_high_volume_candidate_v1
+    name: "Potential high-volume exfiltration"
+    description: "Repeated high-byte outbound flows from one source to one destination."
+    mitre:
+      tactic: "exfiltration"
+      technique_id: "T1048"
+      technique: "Exfiltration Over Alternative Protocol"
+      confidence: 66
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "45m"
+    match:
+      event_type: "flow"
+      bytes_gte: 2000000
+      dst_port_not_in: [53, 67, 68, 123]
+    group_by: ["src_ip", "dst_ip", "proto"]
+    condition:
+      operator: ">="
+      value: 10
+    tuning:
+      allowlist:
+        src_ips: []
+        dst_ips: []
+        src_cidrs: []
+        dst_cidrs: []
+
+  - id: dns_tunnel_candidate_v1
+    name: "DNS tunnel candidate"
+    description: "Suspiciously high volume of DNS-like flows between the same endpoints."
+    mitre:
+      tactic: "command_and_control"
+      technique_id: "T1071.004"
+      technique: "Application Layer Protocol: DNS"
+      confidence: 64
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "5m"
+    cooldown: "20m"
+    match:
+      event_type: "flow"
+      proto: "udp"
+      dst_port: 53
+      bytes_lte: 1200
+    group_by: ["src_ip", "dst_ip"]
+    condition:
+      operator: ">="
+      value: 260
+    tuning:
+      allowlist:
+        src_cidrs: []
+        dst_ips: []
+
+  - id: low_and_slow_port_scan_candidate_v1
+    name: "Low-and-slow scan candidate"
+    description: "Slow accumulation of destination-port diversity from one source to one target."
+    mitre:
+      tactic: "discovery"
+      technique_id: "T1046"
+      technique: "Network Service Scanning"
+      confidence: 58
+    enabled: true
+    severity: "low"
+    type: "distinct_count"
+    window: "30m"
+    cooldown: "60m"
+    match:
+      event_type: "scan_probe"
+      extra_scan_confidence_gte: 60
+    group_by: ["src_ip", "dst_ip"]
+    distinct_field: "dst_port"
+    min_events: 30
+    condition:
+      operator: ">="
+      value: 15
+    tuning:
+      allowlist:
+        src_cidrs: []
+        dst_cidrs: []
+
+  - id: rpc_fanout_candidate_v1
+    name: "RPC fan-out candidate"
+    description: "Source touches many targets on RPC service (port 135)."
+    mitre:
+      tactic: "lateral_movement"
+      technique_id: "T1021"
+      technique: "Remote Services"
+      confidence: 62
+    enabled: true
+    severity: "medium"
+    type: "distinct_count"
+    window: "10m"
+    cooldown: "30m"
+    match:
+      event_type: "lateral_conn"
+      extra_lateral_kind: "attempt"
+      dst_port: 135
+      proto: "tcp"
+      extra_lateral_confidence_gte: 60
+    group_by: "src_ip"
+    distinct_field: "dst_ip"
+    min_events: 20
+    condition:
+      operator: ">="
+      value: 8
+
+  - id: smb_ssh_combo_pivot_candidate_v1
+    name: "SMB+SSH combo pivot candidate"
+    description: "Source combines SMB and SSH attempts across multiple destinations."
+    mitre:
+      tactic: "lateral_movement"
+      technique_id: "T1021"
+      technique: "Remote Services"
+      confidence: 64
+    enabled: true
+    severity: "medium"
+    type: "multi_distinct"
+    window: "12m"
+    cooldown: "30m"
+    match:
+      event_type: "lateral_conn"
+      extra_lateral_kind: "attempt"
+      dst_port_in: [22, 445]
+      proto: "tcp"
+      extra_lateral_confidence_gte: 60
+    group_by: "src_ip"
+    min_events: 25
+    distinct_conditions:
+      - field: "dst_ip"
+        operator: ">="
+        value: 6
+      - field: "dst_port"
+        operator: ">="
+        value: 2

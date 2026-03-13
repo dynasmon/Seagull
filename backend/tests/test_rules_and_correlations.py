@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from app.features.correlations.api import _segment_by_window, _stage_requirements_met
-from app.workers.rules_engine import _evaluate_condition, _is_suppressed, _normalize_dedup_key
+from app.workers.rules_engine import _evaluate_condition, _is_suppressed, _is_tuning_allowlisted, _normalize_dedup_key
 from app.workers.rules_loader import load_rules
+from app.core.config import settings
 
 
 @dataclass
@@ -118,3 +119,70 @@ def test_rule_suppression_matching() -> None:
 
     no, _ = _is_suppressed(rule, {"src_ip": "1.1.1.1", "dst_port": 22}, now)
     assert no is False
+
+
+def test_rule_tuning_allowlist_matching() -> None:
+    rule = {
+        "id": "x_v1",
+        "tuning": {
+            "allowlist": {
+                "src_cidrs": ["10.10.0.0/16"],
+                "dst_ports": [22, 443],
+            }
+        },
+    }
+    yes, reason = _is_tuning_allowlisted(rule, {"src_ip": "10.10.1.5", "dst_port": 22})
+    assert yes is True
+    assert reason == "tuning.allowlist"
+
+    no, _ = _is_tuning_allowlisted(rule, {"src_ip": "10.20.1.5", "dst_port": 22})
+    assert no is False
+
+
+def test_load_rules_pack_and_maturity_filters(tmp_path) -> None:
+    f = tmp_path / "packs" / "lab" / "exp.yml"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(
+        "\n".join(
+            [
+                "schema_version: 1",
+                "pack: lab",
+                "maturity: experimental",
+                "environments: [dev, lab]",
+                "rules:",
+                "  - id: exp_rule_v1",
+                "    enabled: true",
+                "    type: aggregate_count",
+                "    group_by: src_ip",
+                "    condition: {operator: '>=', value: 1}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    old_env = settings.NETWATCH_RULES_ENV
+    old_enabled = list(settings.NETWATCH_RULES_ENABLED_PACKS)
+    old_disabled = list(settings.NETWATCH_RULES_DISABLED_PACKS)
+    old_experimental = settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL
+
+    try:
+        settings.NETWATCH_RULES_ENV = "dev"
+        settings.NETWATCH_RULES_ENABLED_PACKS = ["lab"]
+        settings.NETWATCH_RULES_DISABLED_PACKS = []
+        settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL = False
+        r0 = load_rules(include_disabled=True, with_source=True, rules_dir=tmp_path)
+        assert r0 == []
+
+        settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL = True
+        r1 = load_rules(include_disabled=True, with_source=True, rules_dir=tmp_path)
+        assert len(r1) == 1
+        assert r1[0]["id"] == "exp_rule_v1"
+
+        settings.NETWATCH_RULES_ENV = "prod"
+        r2 = load_rules(include_disabled=True, with_source=True, rules_dir=tmp_path)
+        assert r2 == []
+    finally:
+        settings.NETWATCH_RULES_ENV = old_env
+        settings.NETWATCH_RULES_ENABLED_PACKS = old_enabled
+        settings.NETWATCH_RULES_DISABLED_PACKS = old_disabled
+        settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL = old_experimental

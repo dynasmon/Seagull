@@ -22,6 +22,7 @@ TECHNIQUES: Dict[str, str] = {
     # Brute force
     "T1110": "Brute Force",
     "T1110.001": "Brute Force: Password Guessing",
+    "T1110.003": "Brute Force: Password Spraying",
 
     # Scanning / discovery
     "T1046": "Network Service Scanning",
@@ -30,12 +31,15 @@ TECHNIQUES: Dict[str, str] = {
     "T1018": "Remote System Discovery",
     # Remote services / lateral
     "T1021": "Remote Services",
+    "T1021.001": "Remote Services: Remote Desktop Protocol",
+    "T1021.002": "Remote Services: SMB/Windows Admin Shares",
 
     # Defense evasion / impair defenses
     "T1562": "Impair Defenses",
 
     # Command and control (generic)
     "T1071": "Application Layer Protocol",
+    "T1071.004": "Application Layer Protocol: DNS",
 
     # DDoS / impact
     "T1498": "Network Denial of Service",
@@ -50,6 +54,9 @@ TECHNIQUES: Dict[str, str] = {
 
     # Command and scripting interpreter
     "T1059": "Command and Scripting Interpreter",
+
+    # Exfiltration
+    "T1048": "Exfiltration Over Alternative Protocol",
 }
 
 
