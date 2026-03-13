@@ -18,9 +18,9 @@ from sqlalchemy import Index, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
-from app.attack_chain.config import load_config
-from app.attack_chain.detectors import detect_steps
-from app.attack_chain.store import (
+from app.features.attack_chain.domain.config import load_config
+from app.features.attack_chain.domain.detectors import detect_steps
+from app.features.attack_chain.domain.store import (
     CaseRow,
     close_stale_cases,
     find_attachable_case_id,
@@ -28,7 +28,7 @@ from app.attack_chain.store import (
     insert_step_and_update_case,
     case_recent_step_exists,
 )
-from app.attack_chain.types import AttackStage, StepCandidate
+from app.features.attack_chain.domain.types import AttackStage, StepCandidate
 from app.core.db import engine
 from app.core.config import settings
 from app.core.db_lifecycle import ensure_database_ready

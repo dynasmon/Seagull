@@ -21,7 +21,7 @@ from app.schemas.attack_chain import (
 )
 from app.schemas.mitre import MitreCaseSummary, MitreTacticCoverage, MitreTechniqueStat
 from app.mitre.catalog import technique_name
-from app.attack_chain.types import stage_rank
+from app.features.attack_chain.domain.types import stage_rank
 from app.schemas.pagination import CursorPage
 
 

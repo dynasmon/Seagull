@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, List, Optional
 
-from app.attack_chain.config import AttackChainConfig
-from app.attack_chain.types import AttackStage, StepCandidate
+from app.features.attack_chain.domain.config import AttackChainConfig
+from app.features.attack_chain.domain.types import AttackStage, StepCandidate
 
 
 def _safe_str(v: Any, *, max_len: int = 256) -> str:
