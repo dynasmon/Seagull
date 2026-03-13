@@ -19,20 +19,43 @@ AGENT_PKI_DIR="${AGENT_PKI_DIR:-secrets/agent-pki}"
 mkdir -p "$TLS_DIR"
 
 EDGE_CN="${NETWATCH_AGENT_TLS_SERVER_NAME:-localhost}"
-EDGE_EXT="$TLS_DIR/edge-openssl.cnf"
-cat > "$EDGE_EXT" <<CONF
+EDGE_CA_CNF="$TLS_DIR/edge-ca-openssl.cnf"
+cat > "$EDGE_CA_CNF" <<CONF
 [ req ]
 prompt = no
 distinguished_name = dn
-x509_extensions = v3_req
+x509_extensions = v3_ca
+
+[ dn ]
+CN = Dynasmon NetWatch Edge CA
+
+[ v3_ca ]
+basicConstraints = critical,CA:TRUE
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer
+CONF
+
+openssl req -x509 -nodes -newkey rsa:4096 \
+  -days "${EDGE_CA_DAYS:-3650}" \
+  -keyout "$TLS_DIR/ca.key" \
+  -out "$TLS_DIR/ca.crt" \
+  -config "$EDGE_CA_CNF" \
+  -extensions v3_ca >/dev/null 2>&1
+
+EDGE_SRV_CNF="$TLS_DIR/edge-server-openssl.cnf"
+cat > "$EDGE_SRV_CNF" <<CONF
+[ req ]
+prompt = no
+distinguished_name = dn
 
 [ dn ]
 CN = ${EDGE_CN}
 
-[ v3_req ]
+[ v3_server ]
 subjectAltName = @alt_names
-basicConstraints = critical,CA:TRUE
-keyUsage = critical,keyCertSign,cRLSign,digitalSignature,keyEncipherment
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
 extendedKeyUsage = serverAuth
 
 [ alt_names ]
@@ -41,14 +64,27 @@ DNS.2 = localhost
 IP.1 = 127.0.0.1
 CONF
 
-openssl req -x509 -nodes -newkey rsa:4096 \
-  -days "${EDGE_TLS_DAYS:-365}" \
+openssl req -new -nodes -newkey rsa:4096 \
   -keyout "$TLS_DIR/tls.key" \
+  -out "$TLS_DIR/tls.csr" \
+  -config "$EDGE_SRV_CNF" >/dev/null 2>&1
+
+openssl x509 -req \
+  -in "$TLS_DIR/tls.csr" \
+  -CA "$TLS_DIR/ca.crt" \
+  -CAkey "$TLS_DIR/ca.key" \
+  -CAcreateserial \
   -out "$TLS_DIR/tls.crt" \
-  -config "$EDGE_EXT" \
-  -extensions v3_req >/dev/null 2>&1
+  -days "${EDGE_TLS_DAYS:-365}" \
+  -sha256 \
+  -extfile "$EDGE_SRV_CNF" \
+  -extensions v3_server >/dev/null 2>&1
+
+rm -f "$TLS_DIR/tls.csr"
 chmod 644 "$TLS_DIR/tls.crt"
 chmod 644 "$TLS_DIR/tls.key"
+chmod 644 "$TLS_DIR/ca.crt"
+chmod 600 "$TLS_DIR/ca.key"
 
 rm -rf "$AGENT_CA_DIR" "$AGENT_PKI_DIR"
 mkdir -p "$AGENT_PKI_DIR"
@@ -79,6 +115,6 @@ for id in "${agent_ids[@]}"; do
   echo "[pki] issued mTLS cert for $id"
 done
 
-echo "[pki] edge TLS cert generated at $TLS_DIR/tls.crt"
+echo "[pki] edge TLS cert generated at $TLS_DIR/tls.crt (signed by $TLS_DIR/ca.crt)"
 echo "[pki] agent CA generated at $AGENT_CA_DIR/ca.crt"
 echo "[pki] CRL generated at $AGENT_CA_DIR/ca.crl"

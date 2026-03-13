@@ -179,6 +179,8 @@ Recommended hardening:
 - Configure TLS cert/key for the edge proxy:
   - `NETWATCH_TLS_CERT_FILE=./secrets/tls/tls.crt`
   - `NETWATCH_TLS_KEY_FILE=./secrets/tls/tls.key`
+- Configure trusted edge CA for agents:
+  - `NETWATCH_AGENT_SERVER_CA_FILE=./secrets/tls/ca.crt`
 - Configure agent mTLS CA + CRL for the edge proxy:
   - `NETWATCH_AGENT_CA_CERT_FILE=./secrets/agent-ca/ca.crt`
   - `NETWATCH_AGENT_CA_CRL_FILE=./secrets/agent-ca/ca.crl`
@@ -199,7 +201,7 @@ openssl req -x509 -nodes -newkey rsa:4096 \
   -subj "/CN=localhost"
 ```
 
-Then trust/import `secrets/tls/tls.crt` in your local OS/browser store if you want to remove browser warnings.
+Then trust/import `secrets/tls/ca.crt` in your local OS/browser store if you want to remove browser warnings.
 
 Initialize agent PKI (platform CA + initial CRL):
 
