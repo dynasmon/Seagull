@@ -454,7 +454,7 @@ export default function VulnerabilitiesPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <PageHeader
         title="Vulnerabilities"
         breadcrumb={["Detection", "Vulnerabilities"]}
@@ -952,7 +952,7 @@ export default function VulnerabilitiesPage() {
               {items.length} items
             </span>
             <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-              filtros {activeFilterCount}
+              filters {activeFilterCount}
             </span>
           </div>
         }
