@@ -28,6 +28,57 @@ def _rules_dir_path(rules_dir: str | Path | None = None) -> Path:
     return Path(getattr(settings, "NETWATCH_RULES_DIR", "/app/rules") or "/app/rules").resolve()
 
 
+def _deep_merge(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = dict(base or {})
+    for k, v in (patch or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out.get(k) or {}, v)
+        else:
+            out[k] = v
+    return out
+
+
+def _env_aliases(env_name: str) -> list[str]:
+    env = str(env_name or "").strip().lower()
+    aliases = [env]
+    if env in {"prod", "production"}:
+        aliases.extend(["prod", "production"])
+    elif env in {"stage", "staging"}:
+        aliases.extend(["stage", "staging"])
+    elif env in {"dev", "development"}:
+        aliases.extend(["dev", "development"])
+    elif env in {"homolog", "homologation"}:
+        aliases.extend(["homolog", "homologation"])
+    # Keep order while removing duplicates.
+    uniq: list[str] = []
+    seen: set[str] = set()
+    for a in aliases:
+        if a and a not in seen:
+            uniq.append(a)
+            seen.add(a)
+    return uniq
+
+
+def _apply_env_overrides(rule: Dict[str, Any], env_name: str) -> Dict[str, Any]:
+    out = dict(rule or {})
+    env_overrides = out.get("env_overrides")
+    if not isinstance(env_overrides, dict) or not env_overrides:
+        return out
+
+    merged = dict(out)
+    default_patch = env_overrides.get("default") or env_overrides.get("*")
+    if isinstance(default_patch, dict):
+        merged = _deep_merge(merged, default_patch)
+
+    for alias in _env_aliases(env_name):
+        patch = env_overrides.get(alias)
+        if isinstance(patch, dict):
+            merged = _deep_merge(merged, patch)
+
+    merged.pop("env_overrides", None)
+    return merged
+
+
 def _discover_rule_files(rules_dir: Path) -> List[Path]:
     files: list[Path] = []
     for pat in ("*.yml", "*.yaml", "**/*.yml", "**/*.yaml"):
@@ -65,7 +116,10 @@ def _normalize_rule(
     if not rid:
         return None
 
-    r = dict(raw_rule)
+    env_name = str(
+        getattr(settings, "NETWATCH_RULES_ENV", getattr(settings, "NETWATCH_ENV", "dev")) or "dev"
+    ).strip().lower()
+    r = _apply_env_overrides(dict(raw_rule), env_name)
     r["pack"] = str(r.get("pack") or file_meta.get("pack") or "").strip() or None
     r["category"] = str(r.get("category") or file_meta.get("category") or "").strip() or None
     r["pack_version"] = int(file_meta.get("pack_version") or 1)

@@ -1,18 +1,22 @@
 schema_version: 1
 pack: network
 category: lateral
-pack_version: 1
+pack_version: 2
 maturity: stable
 
 rules:
   - id: lateral_admin_spray_v1
     name: "Lateral admin-port spray"
-    description: "One source attempts admin protocols against multiple internal targets."
+    description: "One source attempts admin protocols against multiple internal targets with sustained confidence."
+    status: "active"
+    source: "lateral_conn"
+    false_positives: "Automated IT inventory or management scanners can trigger this rule."
+    response: "Validate source role, inspect connection fan-out, and isolate unauthorized lateral reconnaissance."
     mitre:
       tactic: "lateral_movement"
       technique_id: "T1021"
       technique: "Remote Services"
-      confidence: 80
+      confidence: 82
     enabled: true
     severity: "high"
     type: "distinct_count"
@@ -22,22 +26,30 @@ rules:
       event_type: "lateral_conn"
       extra_lateral_kind: "attempt"
       dst_port_in: [22, 135, 139, 445, 3389, 5985, 5986]
-      extra_lateral_confidence_gte: 70
+      extra_lateral_confidence_gte: 72
     group_by: "src_ip"
     distinct_field: "dst_ip"
-    min_events: 20
+    min_events: 26
     condition:
       operator: ">="
-      value: 5
+      value: 6
+    tuning:
+      allowlist:
+        src_cidrs: []
+        src_ips: []
 
   - id: lateral_rdp_burst_v1
     name: "RDP lateral burst"
-    description: "Concentrated internal RDP attempts from one source."
+    description: "Concentrated internal RDP attempts from one source to one target."
+    status: "active"
+    source: "lateral_conn"
+    false_positives: "Remote administration bursts during patch windows."
+    response: "Correlate with change ticket and verify source identity against approved RDP jump hosts."
     mitre:
       tactic: "lateral_movement"
       technique_id: "T1021.001"
       technique: "Remote Services: Remote Desktop Protocol"
-      confidence: 72
+      confidence: 76
     enabled: true
     severity: "medium"
     type: "aggregate_count"
@@ -48,20 +60,25 @@ rules:
       extra_lateral_kind: "attempt"
       dst_port: 3389
       proto: "tcp"
-      extra_lateral_confidence_gte: 70
+      extra_lateral_confidence_gte: 72
     group_by: ["src_ip", "dst_ip"]
+    min_events: 14
     condition:
       operator: ">="
-      value: 12
+      value: 14
 
   - id: lateral_smb_fanout_v1
     name: "SMB fan-out movement"
     description: "SMB attempts fan out from one source to many internal systems."
+    status: "active"
+    source: "lateral_conn"
+    false_positives: "Asset management hosts traversing SMB shares."
+    response: "Review source process owner and isolate if SMB fan-out is unexpected for that host profile."
     mitre:
       tactic: "lateral_movement"
       technique_id: "T1021.002"
       technique: "Remote Services: SMB/Windows Admin Shares"
-      confidence: 76
+      confidence: 80
     enabled: true
     severity: "high"
     type: "distinct_count"
@@ -72,22 +89,26 @@ rules:
       extra_lateral_kind: "attempt"
       dst_port: 445
       proto: "tcp"
-      extra_lateral_confidence_gte: 70
+      extra_lateral_confidence_gte: 72
     group_by: "src_ip"
     distinct_field: "dst_ip"
-    min_events: 25
+    min_events: 28
     condition:
       operator: ">="
-      value: 6
+      value: 7
 
   - id: lateral_winrm_fanout_v1
     name: "WinRM fan-out movement"
     description: "WinRM attempts fan out from one source to multiple targets."
+    status: "active"
+    source: "lateral_conn"
+    false_positives: "Legitimate orchestration tools using WinRM at scale."
+    response: "Cross-check source against management infrastructure and inspect credential usage pattern."
     mitre:
       tactic: "lateral_movement"
-      technique_id: "T1021"
-      technique: "Remote Services"
-      confidence: 74
+      technique_id: "T1021.006"
+      technique: "Remote Services: Windows Remote Management"
+      confidence: 78
     enabled: true
     severity: "medium"
     type: "distinct_count"
@@ -98,22 +119,56 @@ rules:
       extra_lateral_kind: "attempt"
       dst_port_in: [5985, 5986]
       proto: "tcp"
-      extra_lateral_confidence_gte: 70
+      extra_lateral_confidence_gte: 72
     group_by: "src_ip"
     distinct_field: "dst_ip"
-    min_events: 18
+    min_events: 20
     condition:
       operator: ">="
-      value: 4
+      value: 5
+
+  - id: lateral_ssh_fanout_v1
+    name: "SSH lateral fan-out"
+    description: "A single source attempts SSH access across multiple internal targets."
+    status: "active"
+    source: "lateral_conn"
+    false_positives: "Bastion host inventory scans and controlled SSH compliance checks."
+    response: "Validate source authorization and correlate with credential-guessing telemetry."
+    mitre:
+      tactic: "lateral_movement"
+      technique_id: "T1021.004"
+      technique: "Remote Services: SSH"
+      confidence: 77
+    enabled: true
+    severity: "medium"
+    type: "distinct_count"
+    window: "6m"
+    cooldown: "25m"
+    match:
+      event_type: "lateral_conn"
+      extra_lateral_kind: "attempt"
+      dst_port: 22
+      proto: "tcp"
+      extra_lateral_confidence_gte: 72
+    group_by: "src_ip"
+    distinct_field: "dst_ip"
+    min_events: 22
+    condition:
+      operator: ">="
+      value: 6
 
   - id: lateral_admin_multi_service_pivot_v1
     name: "Admin multi-service pivot"
     description: "Source pivots laterally using multiple admin services and many targets."
+    status: "active"
+    source: "lateral_conn"
+    false_positives: "Large-scale patch orchestration across mixed management protocols."
+    response: "Investigate service spread and confirm that protocol mix aligns with expected automation behavior."
     mitre:
       tactic: "lateral_movement"
       technique_id: "T1021"
       technique: "Remote Services"
-      confidence: 82
+      confidence: 84
     enabled: true
     severity: "high"
     type: "multi_distinct"
@@ -124,13 +179,13 @@ rules:
       extra_lateral_kind: "attempt"
       dst_port_in: [22, 135, 139, 445, 3389, 5985, 5986]
       proto: "tcp"
-      extra_lateral_confidence_gte: 70
+      extra_lateral_confidence_gte: 72
     group_by: "src_ip"
-    min_events: 45
+    min_events: 55
     distinct_conditions:
       - field: "dst_ip"
         operator: ">="
-        value: 6
+        value: 7
       - field: "dst_port"
         operator: ">="
         value: 3
@@ -138,11 +193,15 @@ rules:
   - id: lateral_rpc_netbios_combo_v1
     name: "RPC/NetBIOS combo probing"
     description: "Source repeatedly targets RPC and NetBIOS services across endpoints."
+    status: "active"
+    source: "lateral_conn"
+    false_positives: "Legacy discovery tooling and asset inventory routines."
+    response: "Validate source baseline and investigate unusual service traversal sequence."
     mitre:
       tactic: "lateral_movement"
       technique_id: "T1021"
       technique: "Remote Services"
-      confidence: 70
+      confidence: 72
     enabled: true
     severity: "medium"
     type: "multi_distinct"
@@ -153,13 +212,13 @@ rules:
       extra_lateral_kind: "attempt"
       dst_port_in: [135, 139]
       proto: "tcp"
-      extra_lateral_confidence_gte: 70
+      extra_lateral_confidence_gte: 72
     group_by: "src_ip"
-    min_events: 24
+    min_events: 28
     distinct_conditions:
       - field: "dst_ip"
         operator: ">="
-        value: 6
+        value: 7
       - field: "dst_port"
         operator: ">="
         value: 2

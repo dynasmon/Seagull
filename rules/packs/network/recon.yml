@@ -1,13 +1,169 @@
 schema_version: 1
 pack: network
 category: recon
-pack_version: 1
+pack_version: 2
 maturity: stable
 
 rules:
   - id: admin_ports_vertical_recon_v1
     name: "Admin ports vertical recon"
-    description: "Source probes multiple administration ports on the same target."
+    description: "Source probes multiple administration ports on the same target with high-confidence scan traits."
+    status: "active"
+    source: "scan_probe"
+    false_positives: "Approved vulnerability scanners; allowlist scanner ranges in tuning.allowlist.src_cidrs."
+    response: "Validate source ownership, compare against expected scanning windows, and block unauthorized recon sources."
+    mitre:
+      tactic: "discovery"
+      technique_id: "T1046"
+      technique: "Network Service Scanning"
+      confidence: 78
+    enabled: true
+    severity: "medium"
+    type: "distinct_count"
+    window: "5m"
+    cooldown: "20m"
+    match:
+      event_type: "scan_probe"
+      proto: "tcp"
+      src_port_gte: 1024
+      dst_port_in: [22, 135, 139, 445, 3389, 5985, 5986]
+      extra_scan_confidence_gte: 72
+      extra_scan_type_not_in: ["tcp_ack"]
+    group_by: ["src_ip", "dst_ip"]
+    distinct_field: "dst_port"
+    min_events: 40
+    condition:
+      operator: ">="
+      value: 4
+    tuning:
+      allowlist:
+        src_cidrs: []
+
+  - id: admin_surface_horizontal_recon_v1
+    name: "Horizontal recon against admin surface"
+    description: "Source fans out probes to many targets on administration ports with sustained packet volume."
+    status: "active"
+    source: "scan_probe"
+    false_positives: "Centralized security scanning infrastructure during maintenance windows."
+    response: "Cross-check source against approved scanner inventory and investigate unauthorized fan-out activity."
+    mitre:
+      tactic: "discovery"
+      technique_id: "T1046"
+      technique: "Network Service Scanning"
+      confidence: 82
+    enabled: true
+    severity: "high"
+    type: "distinct_count"
+    window: "5m"
+    cooldown: "20m"
+    match:
+      event_type: "scan_probe"
+      proto: "tcp"
+      src_port_gte: 1024
+      dst_port_in: [22, 135, 139, 445, 3389, 5985, 5986]
+      extra_scan_confidence_gte: 72
+      extra_scan_type_not_in: ["tcp_ack"]
+    group_by: "src_ip"
+    distinct_field: "dst_ip"
+    min_events: 70
+    condition:
+      operator: ">="
+      value: 10
+
+  - id: multi_protocol_scan_pattern_v1
+    name: "Multi-protocol scan pattern"
+    description: "Source scans one target with broad port spread across multiple protocols."
+    status: "active"
+    source: "scan_probe"
+    false_positives: "Intensive security assessments with multi-protocol tooling."
+    response: "Inspect whether activity is authorized and compare source against red-team schedule."
+    mitre:
+      tactic: "discovery"
+      technique_id: "T1046"
+      technique: "Network Service Scanning"
+      confidence: 85
+    enabled: true
+    severity: "high"
+    type: "multi_distinct"
+    window: "4m"
+    cooldown: "20m"
+    match:
+      event_type: "scan_probe"
+      extra_scan_confidence_gte: 70
+    group_by: ["src_ip", "dst_ip"]
+    min_events: 140
+    distinct_conditions:
+      - field: "dst_port"
+        operator: ">="
+        value: 30
+      - field: "proto"
+        operator: ">="
+        value: 2
+
+  - id: high_rate_single_target_probe_v1
+    name: "High-rate probe burst on single target"
+    description: "Very high probe count against one target from one source in a short interval."
+    status: "active"
+    source: "scan_probe"
+    false_positives: "Burst from approved stress test tooling."
+    response: "Inspect source process/network owner and verify if stress testing was planned."
+    mitre:
+      tactic: "discovery"
+      technique_id: "T1046"
+      technique: "Network Service Scanning"
+      confidence: 80
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "90s"
+    cooldown: "15m"
+    match:
+      event_type: "scan_probe"
+      extra_scan_confidence_gte: 75
+    group_by: ["src_ip", "dst_ip", "proto"]
+    min_events: 280
+    condition:
+      operator: ">="
+      value: 280
+
+  - id: wide_ssh_recon_v1
+    name: "Wide SSH recon sweep"
+    description: "Source probes SSH across many targets with sustained event volume and high-confidence scan context."
+    status: "active"
+    source: "scan_probe"
+    false_positives: "Enterprise scanner sweeping SSH estate."
+    response: "Validate against authorized scanner list and inspect abnormal target coverage growth."
+    mitre:
+      tactic: "discovery"
+      technique_id: "T1046"
+      technique: "Network Service Scanning"
+      confidence: 80
+    enabled: true
+    severity: "medium"
+    type: "distinct_count"
+    window: "8m"
+    cooldown: "25m"
+    match:
+      event_type: "scan_probe"
+      proto: "tcp"
+      dst_port: 22
+      src_port_gte: 1024
+      extra_scan_confidence_gte: 75
+      extra_scan_type_not_in: ["tcp_ack"]
+    group_by: "src_ip"
+    distinct_field: "dst_ip"
+    min_events: 70
+    condition:
+      operator: ">="
+      value: 14
+
+  - id: icmp_sweep_recon_v1
+    name: "ICMP sweep recon"
+    description: "Source performs broad ICMP echo probing across many local targets."
+    status: "active"
+    source: "scan_probe"
+    false_positives: "Monitoring nodes running wide ping health checks."
+    response: "Confirm source role; if unexpected, block and inspect adjacent reconnaissance activity."
     mitre:
       tactic: "discovery"
       technique_id: "T1046"
@@ -20,111 +176,11 @@ rules:
     cooldown: "20m"
     match:
       event_type: "scan_probe"
-      proto: "tcp"
-      dst_port_in: [22, 135, 139, 445, 3389, 5985, 5986]
-      extra_scan_confidence_gte: 70
-      extra_scan_type_not_in: ["tcp_ack"]
-    group_by: ["src_ip", "dst_ip"]
-    distinct_field: "dst_port"
-    min_events: 35
-    condition:
-      operator: ">="
-      value: 4
-
-  - id: admin_surface_horizontal_recon_v1
-    name: "Horizontal recon against admin surface"
-    description: "Source fans out probes to many targets on administration ports."
-    mitre:
-      tactic: "discovery"
-      technique_id: "T1046"
-      technique: "Network Service Scanning"
-      confidence: 80
-    enabled: true
-    severity: "high"
-    type: "distinct_count"
-    window: "5m"
-    cooldown: "20m"
-    match:
-      event_type: "scan_probe"
-      proto: "tcp"
-      dst_port_in: [22, 135, 139, 445, 3389, 5985, 5986]
-      extra_scan_confidence_gte: 70
-      extra_scan_type_not_in: ["tcp_ack"]
-    group_by: "src_ip"
-    distinct_field: "dst_ip"
-    min_events: 50
-    condition:
-      operator: ">="
-      value: 8
-
-  - id: multi_protocol_scan_pattern_v1
-    name: "Multi-protocol scan pattern"
-    description: "Source scans one target with broad port spread across multiple protocols."
-    mitre:
-      tactic: "discovery"
-      technique_id: "T1046"
-      technique: "Network Service Scanning"
-      confidence: 83
-    enabled: true
-    severity: "high"
-    type: "multi_distinct"
-    window: "4m"
-    cooldown: "20m"
-    match:
-      event_type: "scan_probe"
-      extra_scan_confidence_gte: 70
-    group_by: ["src_ip", "dst_ip"]
-    min_events: 120
-    distinct_conditions:
-      - field: "dst_port"
-        operator: ">="
-        value: 28
-      - field: "proto"
-        operator: ">="
-        value: 2
-
-  - id: high_rate_single_target_probe_v1
-    name: "High-rate probe burst on single target"
-    description: "Very high probe count against one target from one source in a short interval."
-    mitre:
-      tactic: "discovery"
-      technique_id: "T1046"
-      technique: "Network Service Scanning"
-      confidence: 78
-    enabled: true
-    severity: "high"
-    type: "aggregate_count"
-    window: "90s"
-    cooldown: "15m"
-    match:
-      event_type: "scan_probe"
-      extra_scan_confidence_gte: 70
-    group_by: ["src_ip", "dst_ip", "proto"]
-    condition:
-      operator: ">="
-      value: 250
-
-  - id: wide_ssh_recon_v1
-    name: "Wide SSH recon sweep"
-    description: "Source probes SSH across many targets with sustained event volume."
-    mitre:
-      tactic: "discovery"
-      technique_id: "T1046"
-      technique: "Network Service Scanning"
-      confidence: 76
-    enabled: true
-    severity: "medium"
-    type: "distinct_count"
-    window: "8m"
-    cooldown: "25m"
-    match:
-      event_type: "scan_probe"
-      proto: "tcp"
-      dst_port: 22
+      proto_in: ["icmp", "icmp6"]
       extra_scan_confidence_gte: 70
     group_by: "src_ip"
     distinct_field: "dst_ip"
-    min_events: 60
+    min_events: 40
     condition:
       operator: ">="
-      value: 12
+      value: 20

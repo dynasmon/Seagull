@@ -2,8 +2,10 @@ services:
   netwatch-edge:
     image: nginxinc/nginx-unprivileged:1.27-alpine
     depends_on:
-      - netwatch-portal
-      - netwatch-backend
+      netwatch-portal:
+        condition: service_healthy
+      netwatch-backend:
+        condition: service_healthy
     ports:
       - "${NETWATCH_EDGE_HTTP_PORT:-8081}:8081"
       - "${NETWATCH_EDGE_HTTPS_PORT:-8443}:8443"
@@ -21,6 +23,16 @@ services:
     cpus: "0.25"
     networks:
       - netwatch
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O - --no-check-certificate https://127.0.0.1:8443/api/health/ready >/dev/null 2>&1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
     restart: unless-stopped
 
   netwatch-backend:
@@ -90,3 +102,13 @@ services:
       - ./frontend/index.html:/app/index.html
       - ./frontend/vite.config.ts:/app/vite.config.ts
       - /app/node_modules
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"const http=require('node:http');const req=http.get('http://127.0.0.1:5173/',(res)=>process.exit((res.statusCode||500)<500?0:1));req.setTimeout(2000,()=>{req.destroy();process.exit(1);});req.on('error',()=>process.exit(1));\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s

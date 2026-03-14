@@ -186,3 +186,58 @@ def test_load_rules_pack_and_maturity_filters(tmp_path) -> None:
         settings.NETWATCH_RULES_ENABLED_PACKS = old_enabled
         settings.NETWATCH_RULES_DISABLED_PACKS = old_disabled
         settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL = old_experimental
+
+
+def test_load_rules_applies_env_overrides(tmp_path) -> None:
+    f = tmp_path / "packs" / "network" / "override.yml"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(
+        "\n".join(
+            [
+                "schema_version: 1",
+                "pack: network",
+                "rules:",
+                "  - id: env_override_rule_v1",
+                "    enabled: true",
+                "    severity: medium",
+                "    type: aggregate_count",
+                "    window: 5m",
+                "    cooldown: 10m",
+                "    match:",
+                "      event_type: scan_probe",
+                "      proto: tcp",
+                "    group_by: src_ip",
+                "    condition: {operator: '>=', value: 5}",
+                "    env_overrides:",
+                "      prod:",
+                "        condition: {operator: '>=', value: 15}",
+                "      dev:",
+                "        condition: {operator: '>=', value: 3}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    old_env = settings.NETWATCH_RULES_ENV
+    old_enabled = list(settings.NETWATCH_RULES_ENABLED_PACKS)
+    old_disabled = list(settings.NETWATCH_RULES_DISABLED_PACKS)
+    old_experimental = settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL
+    try:
+        settings.NETWATCH_RULES_ENABLED_PACKS = ["network"]
+        settings.NETWATCH_RULES_DISABLED_PACKS = []
+        settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL = True
+
+        settings.NETWATCH_RULES_ENV = "dev"
+        r_dev = load_rules(include_disabled=True, with_source=True, rules_dir=tmp_path)
+        assert len(r_dev) == 1
+        assert int(r_dev[0]["condition"]["value"]) == 3
+
+        settings.NETWATCH_RULES_ENV = "prod"
+        r_prod = load_rules(include_disabled=True, with_source=True, rules_dir=tmp_path)
+        assert len(r_prod) == 1
+        assert int(r_prod[0]["condition"]["value"]) == 15
+    finally:
+        settings.NETWATCH_RULES_ENV = old_env
+        settings.NETWATCH_RULES_ENABLED_PACKS = old_enabled
+        settings.NETWATCH_RULES_DISABLED_PACKS = old_disabled
+        settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL = old_experimental

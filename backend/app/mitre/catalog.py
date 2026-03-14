@@ -33,6 +33,8 @@ TECHNIQUES: Dict[str, str] = {
     "T1021": "Remote Services",
     "T1021.001": "Remote Services: Remote Desktop Protocol",
     "T1021.002": "Remote Services: SMB/Windows Admin Shares",
+    "T1021.004": "Remote Services: SSH",
+    "T1021.006": "Remote Services: Windows Remote Management",
 
     # Defense evasion / impair defenses
     "T1562": "Impair Defenses",

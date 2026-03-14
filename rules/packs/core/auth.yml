@@ -1,86 +1,17 @@
 schema_version: 1
 pack: core
 category: auth
-pack_version: 1
+pack_version: 2
 maturity: stable
 
 rules:
   - id: ssh_invalid_user_burst_v1
     name: "SSH invalid-user burst"
-    description: "Repeated invalid-user SSH attempts from one source, indicating account discovery or brute-force staging."
-    mitre:
-      tactic: "credential_access"
-      technique_id: "T1110.001"
-      technique: "Brute Force: Password Guessing"
-      confidence: 78
-    enabled: true
-    severity: "high"
-    type: "aggregate_count"
-    window: "3m"
-    cooldown: "15m"
-    match:
-      event_type: "ssh_auth"
-      dst_port: 22
-      extra_action: "invalid_user"
-    group_by: ["src_ip", "dst_ip"]
-    condition:
-      operator: ">="
-      value: 12
-
-  - id: ssh_distributed_bruteforce_target_v1
-    name: "Distributed SSH brute force against one target"
-    description: "One target receives SSH failures from many distinct source IPs in a short window."
-    mitre:
-      tactic: "credential_access"
-      technique_id: "T1110.003"
-      technique: "Brute Force: Password Spraying"
-      confidence: 84
-    enabled: true
-    severity: "high"
-    type: "distinct_count"
-    window: "5m"
-    cooldown: "20m"
-    match:
-      event_type: "ssh_auth"
-      dst_port: 22
-      extra_action_in: ["failed_password", "invalid_user"]
-    group_by: "dst_ip"
-    distinct_field: "src_ip"
-    min_events: 30
-    condition:
-      operator: ">="
-      value: 8
-
-  - id: sudo_root_command_burst_v1
-    name: "Burst of privileged sudo commands"
-    description: "High-frequency sudo commands targeting root from the same host/IP context."
-    mitre:
-      tactic: "privilege_escalation"
-      technique_id: "T1548.003"
-      technique: "Abuse Elevation Control Mechanism: Sudo and Sudo Caching"
-      confidence: 68
-    enabled: true
-    severity: "medium"
-    type: "aggregate_count"
-    window: "10m"
-    cooldown: "30m"
-    match:
-      event_type: "sudo_cmd"
-      extra_action: "sudo"
-      extra_target_user: "root"
-      extra_username_not_in: ["root"]
-    group_by: ["agent_id", "src_ip"]
-    condition:
-      operator: ">="
-      value: 8
-    tuning:
-      allowlist:
-        src_cidrs: []
-        agent_ids: []
-
-  - id: ssh_failed_password_burst_target_v1
-    name: "SSH failed-password burst on target"
-    description: "High-volume failed-password attempts from one source to one target in short window."
+    description: "Repeated invalid-user SSH attempts from one source to one target in a short window."
+    status: "active"
+    source: "ssh_auth"
+    false_positives: "Internet-exposed bastions under background scanning; tune with src_cidrs/src_ips allowlist when expected."
+    response: "Block source at edge, inspect attempted usernames, and verify whether target host should expose SSH."
     mitre:
       tactic: "credential_access"
       technique_id: "T1110.001"
@@ -94,20 +25,90 @@ rules:
     match:
       event_type: "ssh_auth"
       dst_port: 22
-      extra_action: "failed_password"
+      extra_source: "auth.log"
+      extra_action: "invalid_user"
+      extra_src_port_gte: 1024
     group_by: ["src_ip", "dst_ip"]
+    min_events: 14
     condition:
       operator: ">="
-      value: 16
+      value: 14
+    tuning:
+      allowlist:
+        src_cidrs: []
+        src_ips: []
 
-  - id: ssh_single_source_multi_target_fail_v1
-    name: "Single-source SSH failures across many targets"
-    description: "One source hits many targets with SSH auth failures, indicating broad credential probing."
+  - id: ssh_distributed_bruteforce_target_v1
+    name: "Distributed SSH brute force against one target"
+    description: "One target receives SSH failures from many distinct source IPs with sustained volume."
+    status: "active"
+    source: "ssh_auth"
+    false_positives: "Can occur during controlled internet-wide scanning exercises; use temporary suppression by dst_ip when approved."
+    response: "Treat as coordinated password-spraying, isolate host exposure, and enforce MFA/key-only access."
     mitre:
       tactic: "credential_access"
       technique_id: "T1110.003"
       technique: "Brute Force: Password Spraying"
-      confidence: 80
+      confidence: 86
+    enabled: true
+    severity: "high"
+    type: "distinct_count"
+    window: "5m"
+    cooldown: "20m"
+    match:
+      event_type: "ssh_auth"
+      dst_port: 22
+      extra_source: "auth.log"
+      extra_action_in: ["failed_password", "invalid_user"]
+      extra_src_port_gte: 1024
+    group_by: "dst_ip"
+    distinct_field: "src_ip"
+    min_events: 45
+    condition:
+      operator: ">="
+      value: 10
+
+  - id: ssh_failed_password_burst_target_v1
+    name: "SSH failed-password burst on target"
+    description: "High-volume failed-password attempts from one source to one target in short window."
+    status: "active"
+    source: "ssh_auth"
+    false_positives: "User lockout storms from one jump host; allowlist trusted jump hosts explicitly when needed."
+    response: "Confirm source ownership, rate-limit SSH at perimeter, and inspect account lockout telemetry."
+    mitre:
+      tactic: "credential_access"
+      technique_id: "T1110.001"
+      technique: "Brute Force: Password Guessing"
+      confidence: 84
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "3m"
+    cooldown: "15m"
+    match:
+      event_type: "ssh_auth"
+      dst_port: 22
+      extra_source: "auth.log"
+      extra_action: "failed_password"
+      extra_src_port_gte: 1024
+    group_by: ["src_ip", "dst_ip"]
+    min_events: 20
+    condition:
+      operator: ">="
+      value: 20
+
+  - id: ssh_single_source_multi_target_fail_v1
+    name: "Single-source SSH failures across many targets"
+    description: "One source hits many targets with SSH auth failures, indicating broad credential probing."
+    status: "active"
+    source: "ssh_auth"
+    false_positives: "Automated vulnerability scanners from approved security tooling."
+    response: "Validate source ownership, block at network controls, and review lateral spread from source host."
+    mitre:
+      tactic: "credential_access"
+      technique_id: "T1110.003"
+      technique: "Brute Force: Password Spraying"
+      confidence: 82
     enabled: true
     severity: "high"
     type: "distinct_count"
@@ -116,27 +117,65 @@ rules:
     match:
       event_type: "ssh_auth"
       dst_port: 22
+      extra_source: "auth.log"
       extra_action_in: ["failed_password", "invalid_user"]
+      extra_src_port_gte: 1024
     group_by: "src_ip"
     distinct_field: "dst_ip"
-    min_events: 40
+    min_events: 50
     condition:
       operator: ">="
-      value: 6
+      value: 8
     tuning:
       allowlist:
         src_cidrs: []
         src_ips: []
 
-  - id: sudo_nonroot_root_escalation_spike_v1
-    name: "Repeated non-root sudo elevation to root"
-    description: "Frequent sudo elevation attempts to root by non-root account on the same agent."
+  - id: sudo_root_command_burst_v1
+    name: "Burst of privileged sudo commands"
+    description: "High-frequency sudo commands targeting root from the same host/IP context."
+    status: "active"
+    source: "sudo_cmd"
+    false_positives: "Automation runners and config-management hosts can trigger during maintenance windows."
+    response: "Correlate with change window and operator identity; investigate unexpected elevation bursts."
     mitre:
       tactic: "privilege_escalation"
       technique_id: "T1548.003"
       technique: "Abuse Elevation Control Mechanism: Sudo and Sudo Caching"
       confidence: 72
     enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "12m"
+    cooldown: "30m"
+    match:
+      event_type: "sudo_cmd"
+      extra_action: "sudo"
+      extra_target_user: "root"
+      extra_username_not_in: ["root"]
+    group_by: ["agent_id", "src_ip"]
+    min_events: 10
+    condition:
+      operator: ">="
+      value: 10
+    tuning:
+      allowlist:
+        src_cidrs: []
+        agent_ids: []
+
+  - id: sudo_nonroot_root_escalation_spike_v1
+    name: "Repeated non-root sudo elevation to root"
+    description: "Legacy duplicate of sudo_root_command_burst_v1 kept disabled for backward compatibility."
+    status: "deprecated"
+    source: "sudo_cmd"
+    false_positives: "Superseded by sudo_root_command_burst_v1."
+    response: "Use sudo_root_command_burst_v1 for active monitoring."
+    mitre:
+      tactic: "privilege_escalation"
+      technique_id: "T1548.003"
+      technique: "Abuse Elevation Control Mechanism: Sudo and Sudo Caching"
+      confidence: 60
+    enabled: false
     severity: "medium"
     type: "aggregate_count"
     window: "15m"

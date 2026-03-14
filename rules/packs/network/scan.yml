@@ -1,17 +1,22 @@
 schema_version: 1
 pack: network
 category: discovery
-pack_version: 1
+pack_version: 2
+maturity: stable
 
 rules:
   - id: tcp_vertical_port_scan_v3
     name: "TCP vertical port scan"
-    description: "One source probing many TCP ports on this host."
+    description: "One source probing many TCP ports on the same target with high-confidence scan metadata."
+    status: "active"
+    source: "scan_probe"
+    false_positives: "Authorized vulnerability scanners and red-team exercises."
+    response: "Confirm source authorization and inspect process lineage on scanning origin."
     mitre:
       tactic: "discovery"
       technique_id: "T1046"
       technique: "Network Service Scanning"
-      confidence: 85
+      confidence: 86
     enabled: true
     severity: "high"
     type: "distinct_count"
@@ -19,25 +24,29 @@ rules:
     cooldown: "10m"
     match:
       event_type: "scan_probe"
-      agent_id: "agent-scan-1"
       proto: "tcp"
-      extra_scan_confidence_gte: 70
+      src_port_gte: 1024
+      extra_scan_confidence_gte: 72
       extra_scan_type_not_in: ["tcp_ack"]
     group_by: ["src_ip", "dst_ip"]
     distinct_field: "dst_port"
-    min_events: 40
+    min_events: 45
     condition:
       operator: ">="
-      value: 20
+      value: 22
 
   - id: udp_vertical_port_scan_v2
     name: "UDP vertical port scan"
-    description: "One source probing many UDP ports on this host."
+    description: "One source probing many UDP ports on the same target."
+    status: "active"
+    source: "scan_probe"
+    false_positives: "Legitimate UDP service discovery tooling."
+    response: "Validate scanner authorization and inspect unusual destination-port spread."
     mitre:
       tactic: "discovery"
       technique_id: "T1046"
       technique: "Network Service Scanning"
-      confidence: 80
+      confidence: 82
     enabled: true
     severity: "high"
     type: "distinct_count"
@@ -45,24 +54,28 @@ rules:
     cooldown: "10m"
     match:
       event_type: "scan_probe"
-      agent_id: "agent-scan-1"
       proto: "udp"
-      extra_scan_confidence_gte: 40
+      src_port_gte: 1024
+      extra_scan_confidence_gte: 45
     group_by: ["src_ip", "dst_ip"]
     distinct_field: "dst_port"
-    min_events: 25
+    min_events: 30
     condition:
       operator: ">="
-      value: 15
+      value: 16
 
   - id: tcp_scan_spray_v1
     name: "TCP scan spray (ports + source ports diversity)"
-    description: "High-confidence scan pattern requiring port diversity."
+    description: "High-confidence scan pattern requiring destination-port and source-port diversity."
+    status: "active"
+    source: "scan_probe"
+    false_positives: "High-throughput authorized scanners running distributed probe workers."
+    response: "Compare source against scanner inventory and inspect burst cadence and target concentration."
     mitre:
       tactic: "discovery"
       technique_id: "T1046"
       technique: "Network Service Scanning"
-      confidence: 75
+      confidence: 78
     enabled: true
     severity: "medium"
     type: "multi_distinct"
@@ -70,16 +83,16 @@ rules:
     cooldown: "10m"
     match:
       event_type: "scan_probe"
-      agent_id: "agent-scan-1"
       proto: "tcp"
-      extra_scan_confidence_gte: 70
+      src_port_gte: 1024
+      extra_scan_confidence_gte: 72
       extra_scan_type_not_in: ["tcp_ack"]
     group_by: ["src_ip", "dst_ip"]
-    min_events: 80
+    min_events: 90
     distinct_conditions:
       - field: "dst_port"
         operator: ">="
-        value: 20
+        value: 24
       - field: "src_port"
         operator: ">="
-        value: 20
+        value: 24
