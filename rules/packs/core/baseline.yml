@@ -1,17 +1,22 @@
 schema_version: 1
 pack: core
 category: baseline
-pack_version: 1
+pack_version: 2
+maturity: stable
 
 rules:
   - id: ssh_bruteforce_authlog_v2
-    name: "SSH brute force (authlog-based)"
-    description: "Counts ssh_auth events per source IP."
+    name: "SSH brute force (authlog-based, fast detector)"
+    description: "Fast detector for concentrated SSH failures from one source to one target."
+    status: "active"
+    source: "ssh_auth"
+    false_positives: "Bursted login mistakes from jump hosts; use tuning allowlist for trusted automation origins."
+    response: "Investigate source identity, block abusive source, and validate hardening on target SSH service."
     mitre:
       tactic: "credential_access"
       technique_id: "T1110.001"
       technique: "Brute Force: Password Guessing"
-      confidence: 80
+      confidence: 84
     enabled: true
     severity: "high"
     type: "aggregate_count"
@@ -19,22 +24,32 @@ rules:
     cooldown: "10m"
     match:
       event_type: "ssh_auth"
-      agent_id: "agent-proc-1"
       dst_port: 22
-    group_by: "src_ip"
+      extra_source: "auth.log"
+      extra_action_in: ["failed_password", "invalid_user"]
+      extra_src_port_gte: 1024
+    group_by: ["src_ip", "dst_ip"]
+    min_events: 10
     condition:
       operator: ">="
-      value: 8
+      value: 10
+    tuning:
+      allowlist:
+        src_ips: []
+        src_cidrs: []
 
-  # 2) Vertical port scan (many ports on same target)
   - id: port_scan_pcap_v1
-    name: "Vertical port scan (pcap)"
-    description: "Distinct destination ports per source IP using scan_probe."
+    name: "Vertical port scan (pcap baseline)"
+    description: "Distinct destination ports per source IP and destination with high-confidence TCP scan probes."
+    status: "active"
+    source: "scan_probe"
+    false_positives: "Approved vulnerability scanning or network inventory sweeps."
+    response: "Validate source against authorized scanner inventory and investigate unauthorized probe campaigns."
     mitre:
       tactic: "discovery"
       technique_id: "T1046"
       technique: "Network Service Scanning"
-      confidence: 85
+      confidence: 86
     enabled: true
     severity: "high"
     type: "distinct_count"
@@ -43,33 +58,35 @@ rules:
     match:
       event_type: "scan_probe"
       proto: "tcp"
-      extra_scan_confidence_gte: 70
+      src_port_gte: 1024
+      extra_scan_confidence_gte: 72
       extra_scan_type_not_in: ["tcp_ack"]
-    group_by: "src_ip"
+    group_by: ["src_ip", "dst_ip"]
     distinct_field: "dst_port"
-    min_events: 25
+    min_events: 30
     condition:
       operator: ">="
-      value: 12
+      value: 14
 
-
-  # 3) Horizontal scan on a single port (e.g., SSH) across multiple destinations
   - id: horizontal_scan_pcap_v1
-    name: "Horizontal scan on a single port (pcap)"
-    description: "Distinct destination IPs per source IP for a fixed port using scan_probe."
+    name: "Horizontal scan on a single port (deprecated baseline)"
+    description: "Deprecated in favor of wide_ssh_recon_v1 and admin_surface_horizontal_recon_v1."
+    status: "deprecated"
+    source: "scan_probe"
+    false_positives: "Superseded by tuned recon rules."
+    response: "Use tuned recon pack rules for production triage."
     mitre:
       tactic: "discovery"
       technique_id: "T1046"
       technique: "Network Service Scanning"
-      confidence: 75
-    enabled: true
+      confidence: 60
+    enabled: false
     severity: "medium"
     type: "distinct_count"
     window: "5m"
     cooldown: "15m"
     match:
       event_type: "scan_probe"
-      agent_id: "agent-scan-1"
       proto: "tcp"
       dst_port: 22
       extra_scan_confidence_gte: 70
@@ -79,10 +96,13 @@ rules:
       operator: ">="
       value: 4
 
-  # 4) Sanity check: any traffic observed from agent-proc-1
   - id: traffic_seen_smoke_v1
     name: "Smoke test: traffic ingestion"
-    description: "Pipeline sanity check. Enable only during deployments."
+    description: "Pipeline sanity check. Keep disabled by default and enable only during controlled validation windows."
+    status: "disabled"
+    source: "flow"
+    false_positives: "Not intended for threat detection."
+    response: "Use only for ingestion smoke validation."
     enabled: false
     severity: "low"
     type: "aggregate_count"
@@ -90,21 +110,24 @@ rules:
     cooldown: "30m"
     match:
       event_type: "flow"
-      agent_id: "agent-proc-1"
     group_by: "agent_id"
     condition:
       operator: ">="
       value: 1
 
   - id: horizontal_scan_ssh_pcap_v1
-    name: "Horizontal scan on SSH (pcap)"
-    description: "Distinct destination IPs per source IP on dst_port 22 using scan_probe."
+    name: "Horizontal scan on SSH (deprecated baseline)"
+    description: "Deprecated in favor of wide_ssh_recon_v1 with stronger anti-noise thresholds."
+    status: "deprecated"
+    source: "scan_probe"
+    false_positives: "Superseded by tuned recon pack rules."
+    response: "Use wide_ssh_recon_v1 for active SSH sweep detection."
     mitre:
       tactic: "discovery"
       technique_id: "T1046"
       technique: "Network Service Scanning"
-      confidence: 75
-    enabled: true
+      confidence: 60
+    enabled: false
     severity: "medium"
     type: "distinct_count"
     window: "5m"
@@ -122,14 +145,18 @@ rules:
       value: 4
 
   - id: lateral_admin_ports_burst_v1
-    name: "Lateral burst on admin ports"
-    description: "High rate of admin-port attempts from one source (host-based)."
+    name: "Lateral burst on admin ports (deprecated baseline)"
+    description: "Deprecated in favor of network/lateral rules with richer service-specific ATT&CK mapping."
+    status: "deprecated"
+    source: "lateral_conn"
+    false_positives: "Superseded by tuned lateral pack rules."
+    response: "Use lateral_admin_spray_v1 and service-specific lateral rules."
     mitre:
       tactic: "lateral_movement"
       technique_id: "T1021"
       technique: "Remote Services"
-      confidence: 70
-    enabled: true
+      confidence: 58
+    enabled: false
     severity: "high"
     type: "aggregate_count"
     window: "90s"
@@ -137,7 +164,7 @@ rules:
     match:
       event_type: "lateral_conn"
       extra_lateral_kind: "attempt"
-      dst_port_in: [445,3389,5985,5986,135,139]
+      dst_port_in: [445, 3389, 5985, 5986, 135, 139]
       extra_lateral_confidence_gte: 70
     group_by: "src_ip"
     condition:
@@ -145,14 +172,18 @@ rules:
       value: 12
 
   - id: lateral_admin_port_diversity_v1
-    name: "Admin port diversity (host-based)"
-    description: "One source touching many admin ports on this host."
+    name: "Admin port diversity (deprecated baseline)"
+    description: "Deprecated in favor of lateral_admin_multi_service_pivot_v1 with stronger context."
+    status: "deprecated"
+    source: "lateral_conn"
+    false_positives: "Superseded by tuned lateral pack rules."
+    response: "Use lateral_admin_multi_service_pivot_v1 for active triage."
     mitre:
       tactic: "lateral_movement"
       technique_id: "T1021"
       technique: "Remote Services"
-      confidence: 60
-    enabled: true
+      confidence: 55
+    enabled: false
     severity: "medium"
     type: "distinct_count"
     window: "2m"

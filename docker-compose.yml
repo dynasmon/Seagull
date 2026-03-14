@@ -65,7 +65,8 @@ services:
       dockerfile: Dockerfile
     container_name: netwatch-portal
     depends_on:
-      - netwatch-backend
+      netwatch-backend:
+        condition: service_healthy
     environment: {}
     security_opt:
       - no-new-privileges:true
@@ -75,6 +76,12 @@ services:
     cpus: "0.50"
     networks:
       - netwatch
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/ >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
     restart: unless-stopped
 
   redis:
@@ -98,6 +105,16 @@ services:
       - redis-data:/data
     networks:
       - netwatch
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "REDIS_PASSWORD=\"$${NETWATCH_REDIS_PASSWORD:-}\"; if [ -z \"$$REDIS_PASSWORD\" ] && [ -n \"$${NETWATCH_REDIS_PASSWORD_FILE:-}\" ]; then REDIS_PASSWORD=\"$$(cat \"$${NETWATCH_REDIS_PASSWORD_FILE}\")\"; fi; if [ -n \"$$REDIS_PASSWORD\" ]; then redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG; else redis-cli ping | grep -q PONG; fi",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
     restart: unless-stopped
 
   elasticsearch:
@@ -119,6 +136,16 @@ services:
       - "${ELASTICSEARCH_PORT:-9200}:9200"
     networks:
       - netwatch
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "ES_PASSWORD=\"$${ELASTIC_PASSWORD:-}\"; if [ -z \"$$ES_PASSWORD\" ] && [ -n \"$${ELASTIC_PASSWORD_FILE:-}\" ]; then ES_PASSWORD=\"$$(cat \"$${ELASTIC_PASSWORD_FILE}\")\"; fi; if [ -n \"$$ES_PASSWORD\" ]; then curl -fsS -u \"elastic:$$ES_PASSWORD\" \"http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=2s\" >/dev/null; else curl -fsS \"http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=2s\" >/dev/null; fi",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
     restart: unless-stopped
 
   kibana:
@@ -126,7 +153,8 @@ services:
     container_name: netwatch-kibana
     profiles: ["extra"]
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
       ELASTICSEARCH_USERNAME: ${NETWATCH_ES_USERNAME:-}
@@ -146,7 +174,7 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "${NETWATCH_BACKEND_PORT}:8000"
     environment:
@@ -250,6 +278,16 @@ services:
     cpus: "1.00"
     networks:
       - netwatch
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import sys,urllib.request; u=urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2); sys.exit(0 if u.getcode()==200 else 1)\"",
+        ]
+      interval: 10s
+      timeout: 4s
+      retries: 20
+      start_period: 25s
     restart: unless-stopped
 
   netwatch-ingest-worker:
@@ -259,9 +297,9 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       elasticsearch:
-        condition: service_started
+        condition: service_healthy
     environment:
       NETWATCH_DB_HOST: postgres
       NETWATCH_DB_PORT: 5432
@@ -373,9 +411,9 @@ services:
       postgres:
         condition: service_healthy
       netwatch-backend:
-        condition: service_started
+        condition: service_healthy
       elasticsearch:
-        condition: service_started
+        condition: service_healthy
     environment:
       NETWATCH_DB_HOST: postgres
       NETWATCH_DB_PORT: 5432
@@ -573,7 +611,8 @@ services:
     <<: *agent-base
     container_name: netwatch-agent-proc-1
     depends_on:
-      - netwatch-backend
+      netwatch-backend:
+        condition: service_healthy
     environment:
       <<: *agent-env
       NETWATCH_AGENT_ID: ${AGENT_PROC_ID}
@@ -592,7 +631,8 @@ services:
     <<: *agent-base
     container_name: netwatch-agent-scan-1
     depends_on:
-      - netwatch-backend
+      netwatch-backend:
+        condition: service_healthy
     environment:
       <<: *agent-env
       NETWATCH_AGENT_ID: ${AGENT_SCAN_ID}
@@ -609,7 +649,8 @@ services:
     <<: *agent-base
     container_name: netwatch-agent-lateral
     depends_on:
-      - netwatch-backend
+      netwatch-backend:
+        condition: service_healthy
     profiles: ["extra"]
     environment:
       <<: *agent-env
@@ -633,7 +674,8 @@ services:
     <<: *agent-base
     container_name: netwatch-agent-ddos
     depends_on:
-      - netwatch-backend
+      netwatch-backend:
+        condition: service_healthy
     environment:
       <<: *agent-env
       NETWATCH_AGENT_ID: ${AGENT_DDOS_ID}
@@ -652,7 +694,8 @@ services:
     <<: *agent-base
     container_name: netwatch-agent-vuln
     depends_on:
-      - netwatch-backend
+      netwatch-backend:
+        condition: service_healthy
     environment:
       <<: *agent-env
       NETWATCH_AGENT_ID: ${AGENT_VULN_ID}

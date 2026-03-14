@@ -1,14 +1,18 @@
 import time
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from starlette import status
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from app.core.db import engine
+from app.core.es import es_is_available, search_backend_mode
+from app.core.redis_client import get_redis
 from app.features.agents.api import router as agents_router
 from app.features.alerts.api import router as alerts_router
 from app.features.events.api import router as events_router
@@ -213,6 +217,83 @@ def on_startup():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/health/live")
+async def health_live():
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+async def health_ready(response: Response):
+    ready = True
+    components = {}
+
+    db_latency_ms = None
+    db_error = None
+    t0 = time.perf_counter()
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_latency_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+    except Exception as exc:
+        ready = False
+        db_error = str(exc).splitlines()[0][:200]
+    components["database"] = {
+        "status": "ok" if db_error is None else "down",
+        "latency_ms": db_latency_ms,
+        "error": db_error,
+    }
+
+    redis_latency_ms = None
+    redis_error = None
+    try:
+        r = get_redis()
+        if r is None:
+            redis_error = "redis unavailable"
+        else:
+            t1 = time.perf_counter()
+            if not bool(r.ping()):
+                redis_error = "ping failed"
+            redis_latency_ms = round((time.perf_counter() - t1) * 1000.0, 2)
+    except Exception as exc:
+        redis_error = str(exc).splitlines()[0][:200]
+    components["redis"] = {
+        "status": "ok" if redis_error is None else "degraded",
+        "latency_ms": redis_latency_ms,
+        "error": redis_error,
+    }
+
+    es_mode = search_backend_mode()
+    es_required = es_mode == "elasticsearch"
+    es_latency_ms = None
+    es_error = None
+    t2 = time.perf_counter()
+    try:
+        es_ok = bool(es_is_available())
+        es_latency_ms = round((time.perf_counter() - t2) * 1000.0, 2)
+        if not es_ok:
+            es_error = "elasticsearch unavailable"
+    except Exception as exc:
+        es_error = str(exc).splitlines()[0][:200]
+
+    if es_required and es_error is not None:
+        ready = False
+    components["elasticsearch"] = {
+        "status": "ok" if es_error is None else ("down" if es_required else "degraded"),
+        "required": es_required,
+        "mode": es_mode,
+        "latency_ms": es_latency_ms,
+        "error": es_error,
+    }
+
+    response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
+    return {
+        "status": "ok" if ready else "degraded",
+        "service": "backend-api",
+        "environment": settings.NETWATCH_ENV,
+        "components": components,
+    }
 
 
 @app.get("/metrics")
