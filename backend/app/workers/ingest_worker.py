@@ -20,11 +20,17 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.dialects.postgresql import insert
 
+from app.core.clickhouse import (
+    clickhouse_events_table_ref,
+    ensure_clickhouse_events_schema,
+    get_clickhouse_client,
+    reset_clickhouse_client,
+)
 from app.core.db import engine
 from app.core.config import settings
 from app.core.redis_client import get_redis
@@ -58,6 +64,8 @@ class WorkerConfig:
     es_password: Optional[str]
     es_verify_certs: bool
     es_ca_certs: Optional[str]
+    clickhouse_enabled: bool
+    clickhouse_reconnect_seconds: float
 
 
 def _env_str(name: str, default: str) -> str:
@@ -123,6 +131,8 @@ def load_config() -> WorkerConfig:
         es_password=env_value("NETWATCH_ES_PASSWORD", None),
         es_verify_certs=_env_bool("NETWATCH_ES_VERIFY_CERTS", True),
         es_ca_certs=env_value("NETWATCH_ES_CA_CERTS", None),
+        clickhouse_enabled=_env_bool("NETWATCH_CLICKHOUSE_ENABLED", False),
+        clickhouse_reconnect_seconds=max(1.0, _env_float("NETWATCH_CLICKHOUSE_RECONNECT_SECONDS", 5.0)),
     )
 
 
@@ -377,6 +387,102 @@ def _decr_backlog_events(r, received: int) -> None:
         return
 
 
+def _to_ch_ts(ts: Any) -> datetime:
+    if isinstance(ts, datetime):
+        if ts.tzinfo is None:
+            return ts.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc)
+    return datetime.now(timezone.utc)
+
+
+def _norm_port(v: Any) -> Optional[int]:
+    try:
+        if v is None:
+            return None
+        n = int(v)
+        if n < 0 or n > 65535:
+            return None
+        return n
+    except Exception:
+        return None
+
+
+def _severity_from_extra(extra: Dict[str, Any]) -> Optional[str]:
+    raw = extra.get("severity")
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        return s[:16] if s else None
+    return None
+
+
+def _write_clickhouse_events(*, ch_client: Any, hot_rows: List[Dict[str, Any]]) -> int:
+    if not hot_rows:
+        return 0
+
+    rows: List[Tuple[Any, ...]] = []
+    for r in hot_rows:
+        extra = r.get("extra") or {}
+        if not isinstance(extra, dict):
+            extra = {}
+
+        ts = _to_ch_ts(r.get("timestamp"))
+        pg_event_id = r.get("pg_event_id")
+        try:
+            pg_event_id_i = int(pg_event_id) if pg_event_id is not None else 0
+        except Exception:
+            pg_event_id_i = 0
+
+        rows.append(
+            (
+                ts,
+                pg_event_id_i,
+                str(r.get("agent_id") or ""),
+                str(r.get("event_type") or ""),
+                int(r.get("schema_version") or 1),
+                _severity_from_extra(extra),
+                (str(r.get("src_ip")) if r.get("src_ip") else None),
+                (str(r.get("dst_ip")) if r.get("dst_ip") else None),
+                _norm_port(r.get("src_port")),
+                _norm_port(r.get("dst_port")),
+                (str(r.get("proto")) if r.get("proto") else None),
+                (int(r.get("bytes")) if r.get("bytes") is not None else None),
+                json.dumps(extra, ensure_ascii=False, separators=(",", ":"), default=str),
+            )
+        )
+
+    ch_client.insert(
+        clickhouse_events_table_ref(),
+        rows,
+        column_names=[
+            "timestamp",
+            "pg_event_id",
+            "agent_id",
+            "event_type",
+            "schema_version",
+            "severity",
+            "src_ip",
+            "dst_ip",
+            "src_port",
+            "dst_port",
+            "proto",
+            "bytes",
+            "extra_json",
+        ],
+    )
+    return len(rows)
+
+
+def _try_bootstrap_clickhouse() -> Any | None:
+    try:
+        ch_client = get_clickhouse_client()
+        ok = ensure_clickhouse_events_schema()
+        if not ok:
+            return None
+        return ch_client
+    except Exception:
+        return None
+
+
 def main() -> None:
     settings.validate_for_service("worker-ingest")
     cfg = load_config()
@@ -402,10 +508,29 @@ def main() -> None:
         except Exception:
             es = None
 
+    ch = None
+    next_ch_retry_at = 0.0
+    if cfg.clickhouse_enabled:
+        ch = _try_bootstrap_clickhouse()
+        if ch is None:
+            reset_clickhouse_client()
+            next_ch_retry_at = time.monotonic() + cfg.clickhouse_reconnect_seconds
+            log_event(logger, "warning", "ingest_clickhouse_unavailable")
+        else:
+            log_event(logger, "info", "ingest_clickhouse_ready", table=clickhouse_events_table_ref())
+
     backoff = 0.25
 
     while True:
         try:
+            if cfg.clickhouse_enabled and ch is None and time.monotonic() >= next_ch_retry_at:
+                ch = _try_bootstrap_clickhouse()
+                if ch is None:
+                    reset_clickhouse_client()
+                    next_ch_retry_at = time.monotonic() + cfg.clickhouse_reconnect_seconds
+                else:
+                    log_event(logger, "info", "ingest_clickhouse_ready", table=clickhouse_events_table_ref())
+
             item = r.brpoplpush(cfg.queue_key, cfg.processing_key, timeout=1)
             if not item:
                 storm_maybe_close_alert()
@@ -420,8 +545,8 @@ def main() -> None:
                     break
                 items.append(nxt)
 
-            hot_rows: List[Tuple] = []
-            rollup_rows: List[Tuple] = []
+            hot_rows: List[Dict[str, Any]] = []
+            rollup_rows: List[Dict[str, Any]] = []
             warm_docs: List[Dict[str, Any]] = []
             warm_actions: List[Dict[str, Any]] = []
 
@@ -564,10 +689,61 @@ def main() -> None:
                             }
                         )
 
+            inserted_hot_rows: List[Dict[str, Any]] = []
+
             # Persist in a single DB transaction.
             with engine.begin() as conn:
                 if hot_rows:
-                    conn.execute(insert(NetEventModel), hot_rows)
+                    try:
+                        res = conn.execute(insert(NetEventModel).returning(NetEventModel.id), hot_rows)
+                        ids = [int(r[0]) for r in (res.fetchall() or [])]
+                        if len(ids) == len(hot_rows):
+                            for row, eid in zip(hot_rows, ids):
+                                rr = dict(row)
+                                rr["pg_event_id"] = int(eid)
+                                inserted_hot_rows.append(rr)
+                        else:
+                            log_event(
+                                logger,
+                                "warning",
+                                "ingest_pg_returning_mismatch",
+                                returned_ids=len(ids),
+                                hot_rows=len(hot_rows),
+                            )
+                            # Keep the primary path in Postgres and avoid guessing IDs.
+                            inserted_hot_rows = []
+                    except Exception as e:
+                        # Preserve Postgres as source of truth. Fallback to row-by-row
+                        # inserts and capture IDs whenever possible for ClickHouse linkage.
+                        log_event(
+                            logger,
+                            "warning",
+                            "ingest_pg_returning_bulk_error",
+                            error_type=type(e).__name__,
+                            hot_rows=len(hot_rows),
+                        )
+                        rows_without_id = 0
+                        for row in hot_rows:
+                            try:
+                                stmt = insert(NetEventModel).values(**row).returning(NetEventModel.id)
+                                eid = conn.execute(stmt).scalar_one_or_none()
+                                if eid is None:
+                                    raise RuntimeError("missing returned id")
+                                rr = dict(row)
+                                rr["pg_event_id"] = int(eid)
+                                inserted_hot_rows.append(rr)
+                            except Exception:
+                                # Last-resort insert to preserve primary write path.
+                                conn.execute(insert(NetEventModel).values(**row))
+                                rows_without_id += 1
+                        if rows_without_id > 0:
+                            log_event(
+                                logger,
+                                "warning",
+                                "ingest_pg_returning_row_fallback_partial",
+                                rows_without_id=rows_without_id,
+                                total_rows=len(hot_rows),
+                            )
 
                 if rollup_rows:
                     ins = insert(NetEventRollup1sModel).values(rollup_rows)
@@ -586,6 +762,31 @@ def main() -> None:
                         },
                     )
                     conn.execute(upsert)
+
+            # ClickHouse analytics copy (best-effort).
+            if ch is not None and inserted_hot_rows:
+                try:
+                    _write_clickhouse_events(ch_client=ch, hot_rows=inserted_hot_rows)
+                except Exception as e:
+                    # Never block the primary Postgres ingest path on analytics failures.
+                    log_event(
+                        logger,
+                        "warning",
+                        "ingest_clickhouse_write_error",
+                        error_type=type(e).__name__,
+                        batch_rows=len(inserted_hot_rows),
+                    )
+                    ch = None
+                    reset_clickhouse_client()
+                    next_ch_retry_at = time.monotonic() + cfg.clickhouse_reconnect_seconds
+            elif ch is not None and hot_rows and not inserted_hot_rows:
+                log_event(
+                    logger,
+                    "warning",
+                    "ingest_clickhouse_copy_skipped",
+                    reason="missing_pg_event_id",
+                    hot_rows=len(hot_rows),
+                )
 
             # Warm indexing (best-effort)
             if es is not None and warm_docs:

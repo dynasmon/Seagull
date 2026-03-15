@@ -11,6 +11,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.core.db import engine
+from app.core.clickhouse import clickhouse_is_available, clickhouse_is_enabled
 from app.core.es import es_is_available, search_backend_mode
 from app.core.redis_client import get_redis
 from app.features.agents.api import router as agents_router
@@ -285,6 +286,32 @@ async def health_ready(response: Response):
         "mode": es_mode,
         "latency_ms": es_latency_ms,
         "error": es_error,
+    }
+
+    ch_enabled = bool(clickhouse_is_enabled())
+    ch_required = bool(getattr(settings, "NETWATCH_CLICKHOUSE_REQUIRED", False))
+    ch_latency_ms = None
+    ch_error = None
+    if ch_required and not ch_enabled:
+        ready = False
+        ch_error = "clickhouse required but disabled"
+    elif ch_enabled:
+        t3 = time.perf_counter()
+        try:
+            ch_ok = bool(clickhouse_is_available())
+            ch_latency_ms = round((time.perf_counter() - t3) * 1000.0, 2)
+            if not ch_ok:
+                ch_error = "clickhouse unavailable"
+        except Exception as exc:
+            ch_error = str(exc).splitlines()[0][:200]
+        if ch_required and ch_error is not None:
+            ready = False
+    components["clickhouse"] = {
+        "enabled": ch_enabled,
+        "required": ch_required,
+        "status": ("disabled" if not ch_enabled else ("ok" if ch_error is None else ("down" if ch_required else "degraded"))),
+        "latency_ms": ch_latency_ms,
+        "error": ch_error,
     }
 
     response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE

@@ -48,7 +48,7 @@ bootstrap-tools:
 certs-bootstrap: bootstrap
 	@AUTO_GENERATE_CERTS="$${NETWATCH_AUTO_GENERATE_CERTS:-true}"; \
 	if [ "$$AUTO_GENERATE_CERTS" = "true" ]; then \
-		echo "[bootstrap] regenerating edge+agent certificates"; \
+		echo "[bootstrap] validating edge+agent certificates"; \
 		./scripts/pki/bootstrap_runtime_certs.sh; \
 	else \
 		echo "[bootstrap] NETWATCH_AUTO_GENERATE_CERTS=false (skipping cert regeneration)"; \
@@ -56,10 +56,10 @@ certs-bootstrap: bootstrap
 
 # Single-command bootstrap for development.
 dev: bootstrap bootstrap-tools certs-bootstrap
-	$(DC) $(COMPOSE_DEV) up -d --build
+	$(DC) $(COMPOSE_DEV) up -d --build --force-recreate
 
 dev-tls: bootstrap bootstrap-tools certs-bootstrap
-	$(DC) $(COMPOSE_DEV_TLS) up -d --build
+	$(DC) $(COMPOSE_DEV_TLS) up -d --build --force-recreate
 
 # Single-command bootstrap for production-like runs.
 prod: bootstrap bootstrap-tools certs-bootstrap
@@ -68,7 +68,7 @@ prod: bootstrap bootstrap-tools certs-bootstrap
 up: dev
 
 up-extra: bootstrap bootstrap-tools certs-bootstrap
-	$(DC) $(COMPOSE_DEV) --profile extra up -d --build
+	$(DC) $(COMPOSE_DEV) --profile extra up -d --build --force-recreate
 
 down:
 	$(DC) $(COMPOSE_DEV) down
