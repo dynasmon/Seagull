@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -7,6 +8,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Integer, String, and_, cast, func, or_, select
 
+from app.core.clickhouse import (
+    clickhouse_events_table_ref,
+    clickhouse_is_available,
+    clickhouse_is_enabled,
+    get_clickhouse_client,
+)
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.es import es_is_available, get_es_client, search_backend_mode
@@ -53,6 +60,118 @@ def _parse_iso_dt(value: str | None) -> datetime:
 def _es_index_pattern() -> str:
     prefix = (getattr(settings, "NETWATCH_ES_INDEX_PREFIX", "netwatch-events") or "netwatch-events").strip()
     return f"{prefix}-*"
+
+
+def _ch_client_or_none() -> Any | None:
+    if not clickhouse_is_enabled():
+        return None
+    if not clickhouse_is_available():
+        return None
+    try:
+        return get_clickhouse_client()
+    except Exception:
+        return None
+
+
+def _ch_where(
+    *,
+    since: datetime | None = None,
+    agent_id: str | None = None,
+    event_type: str | None = None,
+) -> tuple[str, Dict[str, Any]]:
+    conds = ["1=1"]
+    params: Dict[str, Any] = {}
+    if since is not None:
+        conds.append("timestamp >= {since:DateTime64(3)}")
+        params["since"] = since
+    if agent_id:
+        conds.append("agent_id = {agent_id:String}")
+        params["agent_id"] = agent_id
+    if event_type:
+        conds.append("event_type = {event_type:String}")
+        params["event_type"] = event_type
+    return " AND ".join(conds), params
+
+
+def _ch_query_dicts(ch: Any, sql: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    res = ch.query(sql, parameters=(params or {}))
+    cols = list(getattr(res, "column_names", []) or [])
+    rows = list(getattr(res, "result_rows", []) or [])
+    if not cols or not rows:
+        return []
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        out.append({cols[i]: row[i] for i in range(min(len(cols), len(row)))})
+    return out
+
+
+def _ch_row_to_event(row: Dict[str, Any]) -> NetEventDB | None:
+    try:
+        row_id = int(row.get("pg_event_id") or 0)
+    except Exception:
+        row_id = 0
+    ts_raw = row.get("timestamp")
+    ts = ts_raw if isinstance(ts_raw, datetime) else _parse_iso_dt(str(ts_raw) if ts_raw else None)
+    try:
+        schema_version = int(row.get("schema_version") or 1)
+    except Exception:
+        schema_version = 1
+    if schema_version < 1 or schema_version > 16:
+        schema_version = 1
+
+    extra: Dict[str, Any] = {}
+    extra_raw = row.get("extra_json")
+    if isinstance(extra_raw, str) and extra_raw.strip():
+        try:
+            payload = json.loads(extra_raw)
+            if isinstance(payload, dict):
+                extra = payload
+        except Exception:
+            extra = {}
+
+    try:
+        return NetEventDB(
+            id=row_id,
+            agent_id=str(row.get("agent_id") or ""),
+            event_type=str(row.get("event_type") or ""),
+            schema_version=schema_version,
+            timestamp=ts,
+            src_ip=row.get("src_ip"),
+            dst_ip=row.get("dst_ip"),
+            src_port=row.get("src_port"),
+            dst_port=row.get("dst_port"),
+            proto=row.get("proto"),
+            bytes=row.get("bytes"),
+            extra=extra,
+        )
+    except Exception:
+        return None
+
+
+def _ch_top_counts(
+    ch: Any,
+    *,
+    table: str,
+    where_sql: str,
+    params: Dict[str, Any],
+    key_expr: str,
+    limit: int,
+    nonempty: bool = True,
+) -> List[ProtoCount]:
+    having = "k IS NOT NULL"
+    if nonempty:
+        having += " AND toString(k) != ''"
+    sql = (
+        f"SELECT {key_expr} AS k, count() AS c "
+        f"FROM {table} "
+        f"WHERE {where_sql} "
+        f"GROUP BY k "
+        f"HAVING {having} "
+        f"ORDER BY c DESC "
+        f"LIMIT {int(limit)}"
+    )
+    rows = _ch_query_dicts(ch, sql, params)
+    return [ProtoCount(key=str(r.get("k")), count=int(r.get("c") or 0)) for r in rows if r.get("k") is not None]
 
 
 def _es_client_or_none() -> Any | None:
@@ -231,6 +350,39 @@ def get_recent_events(
     agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
     event_type: Optional[str] = Query(None, description="Filter by event type"),
 ):
+    ch = _ch_client_or_none()
+    if ch is not None:
+        try:
+            table = clickhouse_events_table_ref()
+            where_sql, params = _ch_where(agent_id=agent_id, event_type=event_type)
+            fetch_limit = min(max(int(limit) * 4, int(limit)), 5000)
+            sql = (
+                f"SELECT pg_event_id, agent_id, event_type, schema_version, timestamp, "
+                f"src_ip, dst_ip, src_port, dst_port, proto, bytes, extra_json, ingested_at "
+                f"FROM {table} "
+                f"WHERE {where_sql} "
+                f"ORDER BY timestamp DESC, pg_event_id DESC, ingested_at DESC "
+                f"LIMIT {int(fetch_limit)}"
+            )
+            rows = _ch_query_dicts(ch, sql, params)
+            if rows:
+                out: List[NetEventDB] = []
+                seen_pg_ids: set[int] = set()
+                for r in rows:
+                    ev = _ch_row_to_event(r)
+                    if ev is not None:
+                        if ev.id > 0:
+                            if ev.id in seen_pg_ids:
+                                continue
+                            seen_pg_ids.add(ev.id)
+                        out.append(ev)
+                        if len(out) >= int(limit):
+                            break
+                if out:
+                    return out
+        except Exception as e:
+            log_event(logger, "warning", "events_recent_clickhouse_error", error_type=type(e).__name__)
+
     es = _es_client_or_none()
     if es is not None:
         try:
@@ -845,6 +997,145 @@ def get_protocol_intel_summary(
     """
 
     since_ts = datetime.now(timezone.utc) - timedelta(minutes=int(since_minutes))
+
+    ch = _ch_client_or_none()
+    if ch is not None:
+        try:
+            table = clickhouse_events_table_ref()
+            where_sql, params = _ch_where(since=since_ts, agent_id=agent_id)
+
+            overview_sql = (
+                f"SELECT "
+                f"count() AS total_events, "
+                f"countIf("
+                f"JSONExtractString(extra_json, 'app_proto') != '' OR "
+                f"JSONExtractString(extra_json, 'dns_qname') != '' OR "
+                f"JSONExtractString(extra_json, 'http_host') != '' OR "
+                f"JSONExtractString(extra_json, 'http_method') != '' OR "
+                f"JSONExtractString(extra_json, 'ja4') != '' OR "
+                f"JSONExtractString(extra_json, 'ja3') != '' OR "
+                f"JSONExtractString(extra_json, 'tls_sni') != ''"
+                f") AS with_proto_metadata, "
+                f"countIf(JSONExtractString(extra_json, 'dns_qname') != '') AS dns_events, "
+                f"countIf(JSONExtractString(extra_json, 'http_host') != '' OR JSONExtractString(extra_json, 'http_method') != '') AS http_events, "
+                f"countIf(JSONExtractString(extra_json, 'ja4') != '' OR JSONExtractString(extra_json, 'ja3') != '' OR JSONExtractString(extra_json, 'tls_sni') != '') AS tls_events "
+                f"FROM {table} WHERE {where_sql}"
+            )
+            ov = (_ch_query_dicts(ch, overview_sql, params) or [{}])[0]
+            ch_total_events = int(ov.get("total_events") or 0)
+            if ch_total_events <= 0:
+                raise LookupError("clickhouse_empty")
+
+            app_protocols = _ch_top_counts(
+                ch, table=table, where_sql=where_sql, params=params,
+                key_expr="JSONExtractString(extra_json, 'app_proto')", limit=int(limit),
+            )
+            transport_protocols = _ch_top_counts(
+                ch, table=table, where_sql=where_sql, params=params,
+                key_expr="lowerUTF8(ifNull(proto, ''))", limit=int(limit),
+            )
+            top_dst_ports = _ch_top_counts(
+                ch, table=table, where_sql=where_sql, params=params,
+                key_expr="toString(dst_port)", limit=int(limit),
+            )
+            top_src_ports = _ch_top_counts(
+                ch, table=table, where_sql=where_sql, params=params,
+                key_expr="toString(src_port)", limit=int(limit),
+            )
+            app_proto_reasons = _ch_top_counts(
+                ch, table=table, where_sql=where_sql, params=params,
+                key_expr="JSONExtractString(extra_json, 'app_proto_reason')", limit=int(limit),
+            )
+            app_proto_conf_bands = _ch_top_counts(
+                ch, table=table, where_sql=where_sql, params=params,
+                key_expr="JSONExtractString(extra_json, 'app_proto_conf_band')", limit=int(limit),
+            )
+            ja4_ptypes = _ch_top_counts(
+                ch, table=table, where_sql=where_sql, params=params,
+                key_expr="if(JSONExtractString(extra_json, 'ja4_ptype') = '', 't', JSONExtractString(extra_json, 'ja4_ptype'))",
+                limit=int(limit), nonempty=False,
+            )
+            http_methods = _ch_top_counts(
+                ch, table=table, where_sql=where_sql, params=params,
+                key_expr="upperUTF8(JSONExtractString(extra_json, 'http_method'))", limit=int(limit),
+            )
+
+            dns_sql = (
+                f"SELECT JSONExtractString(extra_json, 'dns_qname') AS qname, "
+                f"max(toInt32OrZero(JSONExtractString(extra_json, 'dns_risk'))) AS risk, "
+                f"count() AS c "
+                f"FROM {table} WHERE {where_sql} "
+                f"GROUP BY qname HAVING qname != '' "
+                f"ORDER BY c DESC LIMIT {int(limit)}"
+            )
+            dns_rows = _ch_query_dicts(ch, dns_sql, params)
+            top_dns_queries = [
+                ProtoDnsQueryStat(qname=str(r.get("qname")), risk=int(r.get("risk") or 0), count=int(r.get("c") or 0))
+                for r in dns_rows if r.get("qname")
+            ]
+
+            top_http_hosts = _ch_top_counts(
+                ch, table=table, where_sql=where_sql, params=params,
+                key_expr="lowerUTF8(JSONExtractString(extra_json, 'http_host'))", limit=int(limit),
+            )
+            top_tls_sni = _ch_top_counts(
+                ch, table=table, where_sql=where_sql, params=params,
+                key_expr="lowerUTF8(JSONExtractString(extra_json, 'tls_sni'))", limit=int(limit),
+            )
+            top_alpn = _ch_top_counts(
+                ch, table=table, where_sql=where_sql, params=params,
+                key_expr="lowerUTF8(JSONExtractString(extra_json, 'tls_alpn_first'))", limit=int(limit),
+            )
+
+            ja4_sql = (
+                f"SELECT "
+                f"ja4, any(ptype) AS ptype, count() AS c "
+                f"FROM ("
+                f"SELECT JSONExtractString(extra_json, 'ja4') AS ja4, "
+                f"if(JSONExtractString(extra_json, 'ja4_ptype') = '', 't', JSONExtractString(extra_json, 'ja4_ptype')) AS ptype "
+                f"FROM {table} WHERE {where_sql}"
+                f") "
+                f"GROUP BY ja4 HAVING ja4 != '' "
+                f"ORDER BY c DESC LIMIT {int(limit)}"
+            )
+            ja4_rows = _ch_query_dicts(ch, ja4_sql, params)
+            top_ja4 = [
+                ProtoJa4Stat(ja4=str(r.get("ja4")), ptype=str(r.get("ptype") or "t"), count=int(r.get("c") or 0))
+                for r in ja4_rows if r.get("ja4")
+            ]
+
+            top_ja3 = _ch_top_counts(
+                ch, table=table, where_sql=where_sql, params=params,
+                key_expr="JSONExtractString(extra_json, 'ja3')", limit=int(limit),
+            )
+
+            return ProtocolIntelSummaryResponse(
+                generated_at=datetime.now(timezone.utc),
+                since_minutes=int(since_minutes),
+                agent_id=agent_id,
+                total_events=ch_total_events,
+                with_proto_metadata=int(ov.get("with_proto_metadata") or 0),
+                dns_events=int(ov.get("dns_events") or 0),
+                http_events=int(ov.get("http_events") or 0),
+                tls_events=int(ov.get("tls_events") or 0),
+                app_protocols=app_protocols,
+                transport_protocols=transport_protocols,
+                top_dst_ports=top_dst_ports,
+                top_src_ports=top_src_ports,
+                app_proto_reasons=app_proto_reasons,
+                app_proto_conf_bands=app_proto_conf_bands,
+                ja4_ptypes=ja4_ptypes,
+                http_methods=http_methods,
+                top_dns_queries=top_dns_queries,
+                top_http_hosts=top_http_hosts,
+                top_tls_sni=top_tls_sni,
+                top_alpn=top_alpn,
+                top_ja4=top_ja4,
+                top_ja3=top_ja3,
+            )
+        except Exception as e:
+            if not isinstance(e, LookupError):
+                log_event(logger, "warning", "events_network_summary_clickhouse_error", error_type=type(e).__name__)
 
     es = _es_client_or_none()
     if es is not None:

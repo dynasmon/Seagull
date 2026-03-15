@@ -139,6 +139,22 @@ class Settings:
     NETWATCH_ES_CA_CERTS: str | None = _env_str("NETWATCH_ES_CA_CERTS", None)
     NETWATCH_ES_PING_TTL_SECONDS: int = _env_int("NETWATCH_ES_PING_TTL_SECONDS", 2)
 
+    # ClickHouse analytics backend (optional, hybrid architecture).
+    NETWATCH_CLICKHOUSE_ENABLED: bool = _env_bool("NETWATCH_CLICKHOUSE_ENABLED", False)
+    NETWATCH_CLICKHOUSE_REQUIRED: bool = _env_bool("NETWATCH_CLICKHOUSE_REQUIRED", False)
+    NETWATCH_CLICKHOUSE_HOST: str = _env_str("NETWATCH_CLICKHOUSE_HOST", "clickhouse") or "clickhouse"
+    NETWATCH_CLICKHOUSE_PORT: int = _env_int("NETWATCH_CLICKHOUSE_PORT", 8123)
+    NETWATCH_CLICKHOUSE_DATABASE: str = _env_str("NETWATCH_CLICKHOUSE_DATABASE", "netwatch") or "netwatch"
+    NETWATCH_CLICKHOUSE_USERNAME: str = _env_str("NETWATCH_CLICKHOUSE_USERNAME", "default") or "default"
+    NETWATCH_CLICKHOUSE_PASSWORD: str | None = _env_str("NETWATCH_CLICKHOUSE_PASSWORD", None)
+    NETWATCH_CLICKHOUSE_SECURE: bool = _env_bool("NETWATCH_CLICKHOUSE_SECURE", False)
+    NETWATCH_CLICKHOUSE_VERIFY: bool = _env_bool("NETWATCH_CLICKHOUSE_VERIFY", True)
+    NETWATCH_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS: float = _env_float("NETWATCH_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS", 2.0)
+    NETWATCH_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS: float = _env_float("NETWATCH_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS", 5.0)
+    NETWATCH_CLICKHOUSE_PING_TTL_SECONDS: int = _env_int("NETWATCH_CLICKHOUSE_PING_TTL_SECONDS", 2)
+    NETWATCH_CLICKHOUSE_EVENTS_TABLE: str = _env_str("NETWATCH_CLICKHOUSE_EVENTS_TABLE", "net_events_raw") or "net_events_raw"
+    NETWATCH_CLICKHOUSE_EVENTS_RETENTION_DAYS: int = _env_int("NETWATCH_CLICKHOUSE_EVENTS_RETENTION_DAYS", 30)
+
     # Bootstrap admin user (required on first run).
     NETWATCH_BOOTSTRAP_ADMIN_USERNAME: str = _env_str("NETWATCH_BOOTSTRAP_ADMIN_USERNAME", "admin") or "admin"
     NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: str | None = _env_str("NETWATCH_BOOTSTRAP_ADMIN_PASSWORD", None)
@@ -303,6 +319,18 @@ class Settings:
             errors.append("NETWATCH_AUDIT_RETENTION_DELETE_BATCH must be >= 100")
         if self.NETWATCH_SEARCH_BACKEND not in {"auto", "elasticsearch", "postgres"}:
             errors.append("NETWATCH_SEARCH_BACKEND must be one of: auto, elasticsearch, postgres")
+        if (self.NETWATCH_CLICKHOUSE_PORT or 0) < 1:
+            errors.append("NETWATCH_CLICKHOUSE_PORT must be >= 1")
+        if (self.NETWATCH_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS or 0) <= 0:
+            errors.append("NETWATCH_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS must be > 0")
+        if (self.NETWATCH_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS or 0) <= 0:
+            errors.append("NETWATCH_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS must be > 0")
+        if (self.NETWATCH_CLICKHOUSE_PING_TTL_SECONDS or 0) < 1:
+            errors.append("NETWATCH_CLICKHOUSE_PING_TTL_SECONDS must be >= 1")
+        if (self.NETWATCH_CLICKHOUSE_EVENTS_RETENTION_DAYS or 0) < 1:
+            errors.append("NETWATCH_CLICKHOUSE_EVENTS_RETENTION_DAYS must be >= 1")
+        if self.NETWATCH_CLICKHOUSE_REQUIRED and not self.NETWATCH_CLICKHOUSE_ENABLED:
+            errors.append("NETWATCH_CLICKHOUSE_REQUIRED=true requires NETWATCH_CLICKHOUSE_ENABLED=true")
         if self.NETWATCH_INGEST_BACKPRESSURE_MODE not in {"rollup_only", "reject_429"}:
             errors.append("NETWATCH_INGEST_BACKPRESSURE_MODE must be one of: rollup_only, reject_429")
         if self.NETWATCH_AGENT_AUTH_MODE not in {"mtls", "mixed", "bearer"}:
@@ -379,6 +407,14 @@ class Settings:
             "backend": {
                 "search_backend": self.NETWATCH_SEARCH_BACKEND,
                 "es_url": self.NETWATCH_ES_URL,
+                "clickhouse_enabled": bool(self.NETWATCH_CLICKHOUSE_ENABLED),
+                "clickhouse_required": bool(self.NETWATCH_CLICKHOUSE_REQUIRED),
+                "clickhouse_host": self.NETWATCH_CLICKHOUSE_HOST,
+                "clickhouse_port": int(self.NETWATCH_CLICKHOUSE_PORT),
+                "clickhouse_database": self.NETWATCH_CLICKHOUSE_DATABASE,
+                "clickhouse_events_table": self.NETWATCH_CLICKHOUSE_EVENTS_TABLE,
+                "clickhouse_events_retention_days": int(self.NETWATCH_CLICKHOUSE_EVENTS_RETENTION_DAYS),
+                "clickhouse_ping_ttl_seconds": int(self.NETWATCH_CLICKHOUSE_PING_TTL_SECONDS),
                 "request_body_max_bytes": self.NETWATCH_MAX_REQUEST_BODY_BYTES,
                 "clock_skew_max_seconds": self.NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS,
                 "allowed_hosts": list(self.NETWATCH_ALLOWED_HOSTS or []),
