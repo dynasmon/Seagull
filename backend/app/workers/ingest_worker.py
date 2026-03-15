@@ -387,6 +387,75 @@ def _decr_backlog_events(r, received: int) -> None:
         return
 
 
+def _insert_hot_rows_with_pg_ids(conn, hot_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Insert hot rows in Postgres and return rows linked with pg_event_id.
+
+    The first attempt uses bulk INSERT ... RETURNING for throughput. If that fails,
+    we fallback safely using savepoints so the outer transaction remains usable.
+    """
+
+    if not hot_rows:
+        return []
+
+    inserted_hot_rows: List[Dict[str, Any]] = []
+
+    try:
+        with conn.begin_nested():
+            res = conn.execute(insert(NetEventModel).returning(NetEventModel.id), hot_rows)
+            ids = [int(r[0]) for r in (res.fetchall() or [])]
+            if len(ids) != len(hot_rows):
+                raise RuntimeError(f"returning mismatch ids={len(ids)} rows={len(hot_rows)}")
+            for row, eid in zip(hot_rows, ids):
+                rr = dict(row)
+                rr["pg_event_id"] = int(eid)
+                inserted_hot_rows.append(rr)
+        return inserted_hot_rows
+    except Exception as e:
+        log_event(
+            logger,
+            "warning",
+            "ingest_pg_returning_bulk_error",
+            error_type=type(e).__name__,
+            hot_rows=len(hot_rows),
+        )
+
+    rows_without_id = 0
+    for row in hot_rows:
+        try:
+            with conn.begin_nested():
+                stmt = insert(NetEventModel).values(**row).returning(NetEventModel.id)
+                eid = conn.execute(stmt).scalar_one_or_none()
+                if eid is None:
+                    raise RuntimeError("missing returned id")
+                rr = dict(row)
+                rr["pg_event_id"] = int(eid)
+                inserted_hot_rows.append(rr)
+        except Exception:
+            try:
+                with conn.begin_nested():
+                    conn.execute(insert(NetEventModel).values(**row))
+                rows_without_id += 1
+            except Exception as inner_exc:
+                log_event(
+                    logger,
+                    "error",
+                    "ingest_pg_row_insert_error",
+                    error_type=type(inner_exc).__name__,
+                )
+                raise
+
+    if rows_without_id > 0:
+        log_event(
+            logger,
+            "warning",
+            "ingest_pg_returning_row_fallback_partial",
+            rows_without_id=rows_without_id,
+            total_rows=len(hot_rows),
+        )
+
+    return inserted_hot_rows
+
+
 def _to_ch_ts(ts: Any) -> datetime:
     if isinstance(ts, datetime):
         if ts.tzinfo is None:
@@ -694,56 +763,7 @@ def main() -> None:
             # Persist in a single DB transaction.
             with engine.begin() as conn:
                 if hot_rows:
-                    try:
-                        res = conn.execute(insert(NetEventModel).returning(NetEventModel.id), hot_rows)
-                        ids = [int(r[0]) for r in (res.fetchall() or [])]
-                        if len(ids) == len(hot_rows):
-                            for row, eid in zip(hot_rows, ids):
-                                rr = dict(row)
-                                rr["pg_event_id"] = int(eid)
-                                inserted_hot_rows.append(rr)
-                        else:
-                            log_event(
-                                logger,
-                                "warning",
-                                "ingest_pg_returning_mismatch",
-                                returned_ids=len(ids),
-                                hot_rows=len(hot_rows),
-                            )
-                            # Keep the primary path in Postgres and avoid guessing IDs.
-                            inserted_hot_rows = []
-                    except Exception as e:
-                        # Preserve Postgres as source of truth. Fallback to row-by-row
-                        # inserts and capture IDs whenever possible for ClickHouse linkage.
-                        log_event(
-                            logger,
-                            "warning",
-                            "ingest_pg_returning_bulk_error",
-                            error_type=type(e).__name__,
-                            hot_rows=len(hot_rows),
-                        )
-                        rows_without_id = 0
-                        for row in hot_rows:
-                            try:
-                                stmt = insert(NetEventModel).values(**row).returning(NetEventModel.id)
-                                eid = conn.execute(stmt).scalar_one_or_none()
-                                if eid is None:
-                                    raise RuntimeError("missing returned id")
-                                rr = dict(row)
-                                rr["pg_event_id"] = int(eid)
-                                inserted_hot_rows.append(rr)
-                            except Exception:
-                                # Last-resort insert to preserve primary write path.
-                                conn.execute(insert(NetEventModel).values(**row))
-                                rows_without_id += 1
-                        if rows_without_id > 0:
-                            log_event(
-                                logger,
-                                "warning",
-                                "ingest_pg_returning_row_fallback_partial",
-                                rows_without_id=rows_without_id,
-                                total_rows=len(hot_rows),
-                            )
+                    inserted_hot_rows = _insert_hot_rows_with_pg_ids(conn, hot_rows)
 
                 if rollup_rows:
                     ins = insert(NetEventRollup1sModel).values(rollup_rows)

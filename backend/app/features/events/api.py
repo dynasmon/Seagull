@@ -105,6 +105,50 @@ def _ch_query_dicts(ch: Any, sql: str, params: Optional[Dict[str, Any]] = None) 
     return out
 
 
+def _ch_dedup_key_expr(alias: str = "") -> str:
+    prefix = f"{alias}." if alias else ""
+    return (
+        f"if({prefix}pg_event_id > 0, "
+        f"concat('id:', toString({prefix}pg_event_id)), "
+        f"concat('raw:', toString(cityHash64("
+        f"{prefix}agent_id, "
+        f"{prefix}event_type, "
+        f"toInt64(toUnixTimestamp64Milli({prefix}timestamp)), "
+        f"ifNull({prefix}src_ip, ''), "
+        f"ifNull({prefix}dst_ip, ''), "
+        f"ifNull({prefix}src_port, 0), "
+        f"ifNull({prefix}dst_port, 0), "
+        f"ifNull({prefix}proto, ''), "
+        f"ifNull({prefix}bytes, 0), "
+        f"{prefix}extra_json"
+        f"))))"
+    )
+
+
+def _ch_deduped_events_source_sql(*, table: str, where_sql: str) -> str:
+    dedup_key = _ch_dedup_key_expr()
+    return (
+        "SELECT "
+        "argMax(timestamp, ingested_at) AS timestamp, "
+        "argMax(pg_event_id, ingested_at) AS pg_event_id, "
+        "argMax(agent_id, ingested_at) AS agent_id, "
+        "argMax(event_type, ingested_at) AS event_type, "
+        "argMax(schema_version, ingested_at) AS schema_version, "
+        "argMax(severity, ingested_at) AS severity, "
+        "argMax(src_ip, ingested_at) AS src_ip, "
+        "argMax(dst_ip, ingested_at) AS dst_ip, "
+        "argMax(src_port, ingested_at) AS src_port, "
+        "argMax(dst_port, ingested_at) AS dst_port, "
+        "argMax(proto, ingested_at) AS proto, "
+        "argMax(bytes, ingested_at) AS bytes, "
+        "argMax(extra_json, ingested_at) AS extra_json, "
+        "max(ingested_at) AS ingested_at "
+        f"FROM {table} "
+        f"WHERE {where_sql} "
+        f"GROUP BY {dedup_key}"
+    )
+
+
 def _ch_row_to_event(row: Dict[str, Any]) -> NetEventDB | None:
     try:
         row_id = int(row.get("pg_event_id") or 0)
@@ -151,9 +195,8 @@ def _ch_row_to_event(row: Dict[str, Any]) -> NetEventDB | None:
 def _ch_top_counts(
     ch: Any,
     *,
-    table: str,
-    where_sql: str,
-    params: Dict[str, Any],
+    source_sql: str,
+    params: Optional[Dict[str, Any]],
     key_expr: str,
     limit: int,
     nonempty: bool = True,
@@ -163,8 +206,7 @@ def _ch_top_counts(
         having += " AND toString(k) != ''"
     sql = (
         f"SELECT {key_expr} AS k, count() AS c "
-        f"FROM {table} "
-        f"WHERE {where_sql} "
+        f"FROM ({source_sql}) AS d "
         f"GROUP BY k "
         f"HAVING {having} "
         f"ORDER BY c DESC "
@@ -355,26 +397,21 @@ def get_recent_events(
         try:
             table = clickhouse_events_table_ref()
             where_sql, params = _ch_where(agent_id=agent_id, event_type=event_type)
-            fetch_limit = min(max(int(limit) * 4, int(limit)), 5000)
+            dedup_source_sql = _ch_deduped_events_source_sql(table=table, where_sql=where_sql)
+            fetch_limit = min(max(int(limit) * 2, int(limit)), 5000)
             sql = (
                 f"SELECT pg_event_id, agent_id, event_type, schema_version, timestamp, "
-                f"src_ip, dst_ip, src_port, dst_port, proto, bytes, extra_json, ingested_at "
-                f"FROM {table} "
-                f"WHERE {where_sql} "
+                f"src_ip, dst_ip, src_port, dst_port, proto, bytes, extra_json "
+                f"FROM ({dedup_source_sql}) AS d "
                 f"ORDER BY timestamp DESC, pg_event_id DESC, ingested_at DESC "
                 f"LIMIT {int(fetch_limit)}"
             )
             rows = _ch_query_dicts(ch, sql, params)
             if rows:
                 out: List[NetEventDB] = []
-                seen_pg_ids: set[int] = set()
                 for r in rows:
                     ev = _ch_row_to_event(r)
                     if ev is not None:
-                        if ev.id > 0:
-                            if ev.id in seen_pg_ids:
-                                continue
-                            seen_pg_ids.add(ev.id)
                         out.append(ev)
                         if len(out) >= int(limit):
                             break
@@ -1003,23 +1040,24 @@ def get_protocol_intel_summary(
         try:
             table = clickhouse_events_table_ref()
             where_sql, params = _ch_where(since=since_ts, agent_id=agent_id)
+            dedup_source_sql = _ch_deduped_events_source_sql(table=table, where_sql=where_sql)
 
             overview_sql = (
                 f"SELECT "
                 f"count() AS total_events, "
                 f"countIf("
-                f"JSONExtractString(extra_json, 'app_proto') != '' OR "
-                f"JSONExtractString(extra_json, 'dns_qname') != '' OR "
-                f"JSONExtractString(extra_json, 'http_host') != '' OR "
-                f"JSONExtractString(extra_json, 'http_method') != '' OR "
-                f"JSONExtractString(extra_json, 'ja4') != '' OR "
-                f"JSONExtractString(extra_json, 'ja3') != '' OR "
-                f"JSONExtractString(extra_json, 'tls_sni') != ''"
+                f"JSONExtractString(d.extra_json, 'app_proto') != '' OR "
+                f"JSONExtractString(d.extra_json, 'dns_qname') != '' OR "
+                f"JSONExtractString(d.extra_json, 'http_host') != '' OR "
+                f"JSONExtractString(d.extra_json, 'http_method') != '' OR "
+                f"JSONExtractString(d.extra_json, 'ja4') != '' OR "
+                f"JSONExtractString(d.extra_json, 'ja3') != '' OR "
+                f"JSONExtractString(d.extra_json, 'tls_sni') != ''"
                 f") AS with_proto_metadata, "
-                f"countIf(JSONExtractString(extra_json, 'dns_qname') != '') AS dns_events, "
-                f"countIf(JSONExtractString(extra_json, 'http_host') != '' OR JSONExtractString(extra_json, 'http_method') != '') AS http_events, "
-                f"countIf(JSONExtractString(extra_json, 'ja4') != '' OR JSONExtractString(extra_json, 'ja3') != '' OR JSONExtractString(extra_json, 'tls_sni') != '') AS tls_events "
-                f"FROM {table} WHERE {where_sql}"
+                f"countIf(JSONExtractString(d.extra_json, 'dns_qname') != '') AS dns_events, "
+                f"countIf(JSONExtractString(d.extra_json, 'http_host') != '' OR JSONExtractString(d.extra_json, 'http_method') != '') AS http_events, "
+                f"countIf(JSONExtractString(d.extra_json, 'ja4') != '' OR JSONExtractString(d.extra_json, 'ja3') != '' OR JSONExtractString(d.extra_json, 'tls_sni') != '') AS tls_events "
+                f"FROM ({dedup_source_sql}) AS d"
             )
             ov = (_ch_query_dicts(ch, overview_sql, params) or [{}])[0]
             ch_total_events = int(ov.get("total_events") or 0)
@@ -1027,44 +1065,44 @@ def get_protocol_intel_summary(
                 raise LookupError("clickhouse_empty")
 
             app_protocols = _ch_top_counts(
-                ch, table=table, where_sql=where_sql, params=params,
-                key_expr="JSONExtractString(extra_json, 'app_proto')", limit=int(limit),
+                ch, source_sql=dedup_source_sql, params=params,
+                key_expr="JSONExtractString(d.extra_json, 'app_proto')", limit=int(limit),
             )
             transport_protocols = _ch_top_counts(
-                ch, table=table, where_sql=where_sql, params=params,
-                key_expr="lowerUTF8(ifNull(proto, ''))", limit=int(limit),
+                ch, source_sql=dedup_source_sql, params=params,
+                key_expr="lowerUTF8(ifNull(d.proto, ''))", limit=int(limit),
             )
             top_dst_ports = _ch_top_counts(
-                ch, table=table, where_sql=where_sql, params=params,
-                key_expr="toString(dst_port)", limit=int(limit),
+                ch, source_sql=dedup_source_sql, params=params,
+                key_expr="toString(d.dst_port)", limit=int(limit),
             )
             top_src_ports = _ch_top_counts(
-                ch, table=table, where_sql=where_sql, params=params,
-                key_expr="toString(src_port)", limit=int(limit),
+                ch, source_sql=dedup_source_sql, params=params,
+                key_expr="toString(d.src_port)", limit=int(limit),
             )
             app_proto_reasons = _ch_top_counts(
-                ch, table=table, where_sql=where_sql, params=params,
-                key_expr="JSONExtractString(extra_json, 'app_proto_reason')", limit=int(limit),
+                ch, source_sql=dedup_source_sql, params=params,
+                key_expr="JSONExtractString(d.extra_json, 'app_proto_reason')", limit=int(limit),
             )
             app_proto_conf_bands = _ch_top_counts(
-                ch, table=table, where_sql=where_sql, params=params,
-                key_expr="JSONExtractString(extra_json, 'app_proto_conf_band')", limit=int(limit),
+                ch, source_sql=dedup_source_sql, params=params,
+                key_expr="JSONExtractString(d.extra_json, 'app_proto_conf_band')", limit=int(limit),
             )
             ja4_ptypes = _ch_top_counts(
-                ch, table=table, where_sql=where_sql, params=params,
-                key_expr="if(JSONExtractString(extra_json, 'ja4_ptype') = '', 't', JSONExtractString(extra_json, 'ja4_ptype'))",
+                ch, source_sql=dedup_source_sql, params=params,
+                key_expr="if(JSONExtractString(d.extra_json, 'ja4_ptype') = '', 't', JSONExtractString(d.extra_json, 'ja4_ptype'))",
                 limit=int(limit), nonempty=False,
             )
             http_methods = _ch_top_counts(
-                ch, table=table, where_sql=where_sql, params=params,
-                key_expr="upperUTF8(JSONExtractString(extra_json, 'http_method'))", limit=int(limit),
+                ch, source_sql=dedup_source_sql, params=params,
+                key_expr="upperUTF8(JSONExtractString(d.extra_json, 'http_method'))", limit=int(limit),
             )
 
             dns_sql = (
-                f"SELECT JSONExtractString(extra_json, 'dns_qname') AS qname, "
-                f"max(toInt32OrZero(JSONExtractString(extra_json, 'dns_risk'))) AS risk, "
+                f"SELECT JSONExtractString(d.extra_json, 'dns_qname') AS qname, "
+                f"max(toInt32OrZero(JSONExtractString(d.extra_json, 'dns_risk'))) AS risk, "
                 f"count() AS c "
-                f"FROM {table} WHERE {where_sql} "
+                f"FROM ({dedup_source_sql}) AS d "
                 f"GROUP BY qname HAVING qname != '' "
                 f"ORDER BY c DESC LIMIT {int(limit)}"
             )
@@ -1075,25 +1113,25 @@ def get_protocol_intel_summary(
             ]
 
             top_http_hosts = _ch_top_counts(
-                ch, table=table, where_sql=where_sql, params=params,
-                key_expr="lowerUTF8(JSONExtractString(extra_json, 'http_host'))", limit=int(limit),
+                ch, source_sql=dedup_source_sql, params=params,
+                key_expr="lowerUTF8(JSONExtractString(d.extra_json, 'http_host'))", limit=int(limit),
             )
             top_tls_sni = _ch_top_counts(
-                ch, table=table, where_sql=where_sql, params=params,
-                key_expr="lowerUTF8(JSONExtractString(extra_json, 'tls_sni'))", limit=int(limit),
+                ch, source_sql=dedup_source_sql, params=params,
+                key_expr="lowerUTF8(JSONExtractString(d.extra_json, 'tls_sni'))", limit=int(limit),
             )
             top_alpn = _ch_top_counts(
-                ch, table=table, where_sql=where_sql, params=params,
-                key_expr="lowerUTF8(JSONExtractString(extra_json, 'tls_alpn_first'))", limit=int(limit),
+                ch, source_sql=dedup_source_sql, params=params,
+                key_expr="lowerUTF8(JSONExtractString(d.extra_json, 'tls_alpn_first'))", limit=int(limit),
             )
 
             ja4_sql = (
                 f"SELECT "
                 f"ja4, any(ptype) AS ptype, count() AS c "
                 f"FROM ("
-                f"SELECT JSONExtractString(extra_json, 'ja4') AS ja4, "
-                f"if(JSONExtractString(extra_json, 'ja4_ptype') = '', 't', JSONExtractString(extra_json, 'ja4_ptype')) AS ptype "
-                f"FROM {table} WHERE {where_sql}"
+                f"SELECT JSONExtractString(d.extra_json, 'ja4') AS ja4, "
+                f"if(JSONExtractString(d.extra_json, 'ja4_ptype') = '', 't', JSONExtractString(d.extra_json, 'ja4_ptype')) AS ptype "
+                f"FROM ({dedup_source_sql}) AS d"
                 f") "
                 f"GROUP BY ja4 HAVING ja4 != '' "
                 f"ORDER BY c DESC LIMIT {int(limit)}"
@@ -1105,8 +1143,8 @@ def get_protocol_intel_summary(
             ]
 
             top_ja3 = _ch_top_counts(
-                ch, table=table, where_sql=where_sql, params=params,
-                key_expr="JSONExtractString(extra_json, 'ja3')", limit=int(limit),
+                ch, source_sql=dedup_source_sql, params=params,
+                key_expr="JSONExtractString(d.extra_json, 'ja3')", limit=int(limit),
             )
 
             return ProtocolIntelSummaryResponse(
