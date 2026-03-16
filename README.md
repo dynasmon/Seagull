@@ -231,6 +231,7 @@ This command:
 
 - Creates `.env` from `.env.example` when missing
 - Regenerates local edge TLS cert + agent CA/CRL + per-agent mTLS certs
+- Mints short-lived per-agent bootstrap tokens and rewires agent containers with the fresh tokens
 - Uses `docker-compose.yml + compose.dev.yml`
 - Builds and starts the development stack
 
@@ -238,6 +239,14 @@ If you prefer raw Compose commands, use the provided wrapper (it auto-creates/sy
 
 ```bash
 ./scripts/compose.sh -f docker-compose.yml -f compose.dev.yml up -d --build
+```
+
+If you start services manually with `docker compose` (without `make dev`), run token bootstrap before (re)creating agent containers:
+
+```bash
+./scripts/mint_agent_bootstrap_tokens.sh
+docker compose up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln
+docker compose --profile extra up -d --force-recreate netwatch-agent-lateral
 ```
 
 For production-style local runs:

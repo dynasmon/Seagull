@@ -77,13 +77,21 @@ export type OverviewSnapshot = {
 
 export type StormStatus = {
   active: boolean;
-  phase?: "ok" | "storm" | "draining";
+  phase?: "ok" | "storm" | "shedding" | "draining";
   eps: number;
+  ingest_rate_eps?: number;
+  process_rate_eps?: number;
+  processed_messages_per_sec?: number;
   sample_hot_percent: number;
   sample_warm_percent: number;
   drop_percent: number;
+  shed_percent?: number;
+  rejected_events?: number;
+  rollup_only_events?: number;
   backlog_events: number;
   backlog_messages: number;
+  workers_active?: number;
+  draining_seconds?: number;
   reason: string;
   since: string | null;
   open_alert_id: number | null;
