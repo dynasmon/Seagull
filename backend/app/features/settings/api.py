@@ -12,7 +12,7 @@ from app.models.platform_settings import PlatformSettingModel
 from app.schemas.settings import PlatformSettingOut, PlatformSettingUpsertIn
 
 
-router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/settings", tags=["settings"])
 
 _KEY_RE = re.compile(r"^[a-z][a-z0-9_.-]{1,63}$")
 _DENY_SENSITIVE_KEY_RE = re.compile(r"(password|secret|token|private|credential|jwt|pepper|key)", re.IGNORECASE)

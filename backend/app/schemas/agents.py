@@ -15,7 +15,6 @@ class AgentEnrollIn(BaseModel):
 
 class AgentEnrollOut(BaseModel):
     agent_id: str
-    agent_token: Optional[str] = None
     config: Dict[str, Any] = Field(default_factory=dict)
 
 

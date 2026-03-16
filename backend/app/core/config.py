@@ -84,12 +84,6 @@ class Settings:
     NETWATCH_DB_EXECUTEMANY_MODE: str = _env_str("NETWATCH_DB_EXECUTEMANY_MODE", "values_plus_batch") or "values_plus_batch"
     NETWATCH_DB_EXECUTEMANY_VALUES_PAGE_SIZE: int = _env_int("NETWATCH_DB_EXECUTEMANY_VALUES_PAGE_SIZE", 1000)
 
-    # Admin-only operations (e.g., pushing agent config)
-    NETWATCH_ADMIN_TOKEN: str | None = _env_str("NETWATCH_ADMIN_TOKEN", None)
-
-    # Enroll token
-    NETWATCH_ENROLL_TOKEN: str | None = _env_str("NETWATCH_ENROLL_TOKEN", None)
-
     # Portal auth
     NETWATCH_JWT_SECRET: str | None = _env_str("NETWATCH_JWT_SECRET", None)
     NETWATCH_TOKEN_PEPPER: str | None = _env_str("NETWATCH_TOKEN_PEPPER", None)
@@ -170,14 +164,7 @@ class Settings:
     NETWATCH_MAX_AGENT_CONFIG_BYTES: int = _env_int("NETWATCH_MAX_AGENT_CONFIG_BYTES", 262144)
 
     # Agent identity/auth hardening.
-    # - mtls: require mTLS-backed workload identity.
-    # - mixed: accept mTLS first, fallback to bearer token for migration windows.
-    # - bearer: legacy mode (not allowed in production).
-    NETWATCH_AGENT_AUTH_MODE: str = (_env_str("NETWATCH_AGENT_AUTH_MODE", "mtls") or "mtls").lower()
-    NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN: bool = _env_bool(
-        "NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN",
-        NETWATCH_ENV in {"prod", "production"},
-    )
+    # Agents authenticate with mTLS-backed workload identity.
     NETWATCH_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS: int = _env_int("NETWATCH_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS", 900)
     NETWATCH_AGENT_BOOTSTRAP_TOKEN_MAX_USES: int = _env_int("NETWATCH_AGENT_BOOTSTRAP_TOKEN_MAX_USES", 1)
     NETWATCH_AGENT_MTLS_ENFORCE_EXPIRY: bool = _env_bool("NETWATCH_AGENT_MTLS_ENFORCE_EXPIRY", True)
@@ -333,8 +320,6 @@ class Settings:
             errors.append("NETWATCH_CLICKHOUSE_REQUIRED=true requires NETWATCH_CLICKHOUSE_ENABLED=true")
         if self.NETWATCH_INGEST_BACKPRESSURE_MODE not in {"rollup_only", "reject_429"}:
             errors.append("NETWATCH_INGEST_BACKPRESSURE_MODE must be one of: rollup_only, reject_429")
-        if self.NETWATCH_AGENT_AUTH_MODE not in {"mtls", "mixed", "bearer"}:
-            errors.append("NETWATCH_AGENT_AUTH_MODE must be one of: mtls, mixed, bearer")
         if (self.NETWATCH_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS or 0) < 60:
             errors.append("NETWATCH_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS must be >= 60")
         if (self.NETWATCH_AGENT_BOOTSTRAP_TOKEN_MAX_USES or 0) < 1:
@@ -358,16 +343,6 @@ class Settings:
                 errors.append("NETWATCH_ALLOWED_HOSTS cannot be '*' in prod")
             if self.NETWATCH_ENV in {"prod", "production"} and self.NETWATCH_AUDIT_RETENTION_DAYS < 90:
                 errors.append("NETWATCH_AUDIT_RETENTION_DAYS must be >= 90 in prod")
-            enroll = (self.NETWATCH_ENROLL_TOKEN or "").strip()
-            if self.NETWATCH_ENV in {"prod", "production"} and self.NETWATCH_AGENT_AUTH_MODE in {"mixed", "bearer"} and len(enroll) < 16:
-                errors.append("NETWATCH_ENROLL_TOKEN must be set with >= 16 chars in prod when legacy enroll is enabled")
-            if self.NETWATCH_ENV in {"prod", "production"} and enroll and self._looks_insecure_secret(enroll):
-                errors.append("NETWATCH_ENROLL_TOKEN cannot use a default/placeholder value in prod")
-            if self.NETWATCH_ENV in {"prod", "production"} and self.NETWATCH_AGENT_AUTH_MODE == "bearer":
-                errors.append("NETWATCH_AGENT_AUTH_MODE=bearer is not allowed in prod")
-            if self.NETWATCH_ENV in {"prod", "production"} and self.NETWATCH_AGENT_AUTH_MODE == "mixed":
-                errors.append("NETWATCH_AGENT_AUTH_MODE=mixed is not allowed in prod; use mtls")
-
             bootstrap_password = (self.NETWATCH_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
             if self.NETWATCH_ENV in {"prod", "production"} and len(bootstrap_password) < 12:
                 errors.append("NETWATCH_BOOTSTRAP_ADMIN_PASSWORD must be set with >= 12 chars in prod")
@@ -445,10 +420,6 @@ class Settings:
                 "has_jwt_secret": bool((self.NETWATCH_JWT_SECRET or "").strip()),
                 "has_token_pepper": bool((self.NETWATCH_TOKEN_PEPPER or "").strip()),
                 "has_audit_hash_pepper": bool((self.NETWATCH_AUDIT_HASH_PEPPER or "").strip()),
-                "has_admin_token": bool((self.NETWATCH_ADMIN_TOKEN or "").strip()),
-                "has_enroll_token": bool((self.NETWATCH_ENROLL_TOKEN or "").strip()),
-                "agent_auth_mode": self.NETWATCH_AGENT_AUTH_MODE,
-                "agent_enroll_requires_bootstrap_token": bool(self.NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN),
                 "agent_bootstrap_token_ttl_seconds": int(self.NETWATCH_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS),
                 "agent_bootstrap_token_max_uses": int(self.NETWATCH_AGENT_BOOTSTRAP_TOKEN_MAX_USES),
             },

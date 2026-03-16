@@ -242,7 +242,7 @@ def get_case_with_steps(case_id: int):
         db.close()
 
 
-@router.post("/cases/{case_id}/close", dependencies=[Depends(require_admin)])
+@router.post("/cases/{case_id}/close")
 def close_case(case_id: int, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
@@ -279,8 +279,8 @@ def close_case(case_id: int, request: Request, admin: PortalPrincipal = Depends(
 # ------------------------
 
 
-@router.get("/allowlist", response_model=list[AttackChainAllowlistDB], dependencies=[Depends(require_admin)])
-def list_allowlist(rule_type: str = Query("sudo_cmd", min_length=1, max_length=32)):
+@router.get("/allowlist", response_model=list[AttackChainAllowlistDB])
+def list_allowlist(rule_type: str = Query("sudo_cmd", min_length=1, max_length=32), _: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
         rt = (rule_type or "sudo_cmd").strip().lower()
@@ -294,7 +294,7 @@ def list_allowlist(rule_type: str = Query("sudo_cmd", min_length=1, max_length=3
         db.close()
 
 
-@router.post("/allowlist", response_model=AttackChainAllowlistDB, dependencies=[Depends(require_admin)])
+@router.post("/allowlist", response_model=AttackChainAllowlistDB)
 def create_allowlist(payload: AttackChainAllowlistCreate, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
@@ -344,7 +344,7 @@ def create_allowlist(payload: AttackChainAllowlistCreate, request: Request, admi
         db.close()
 
 
-@router.put("/allowlist/{rule_id}", response_model=AttackChainAllowlistDB, dependencies=[Depends(require_admin)])
+@router.put("/allowlist/{rule_id}", response_model=AttackChainAllowlistDB)
 def update_allowlist(rule_id: int, payload: AttackChainAllowlistUpdate, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
@@ -413,7 +413,7 @@ def update_allowlist(rule_id: int, payload: AttackChainAllowlistUpdate, request:
         db.close()
 
 
-@router.delete("/allowlist/{rule_id}", dependencies=[Depends(require_admin)])
+@router.delete("/allowlist/{rule_id}")
 def delete_allowlist(rule_id: int, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:

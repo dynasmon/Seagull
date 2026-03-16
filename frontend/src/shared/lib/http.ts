@@ -47,57 +47,9 @@ async function rawFetch(path: string, init?: RequestInit): Promise<Response> {
   });
 }
 
-async function refreshAccessToken(): Promise<string | null> {
+async function runRefresh(): Promise<RefreshResult> {
   // If the CSRF cookie is missing, we are not in an authenticated session yet.
   // Avoid calling /auth/refresh to prevent noisy 403s on the login screen.
-  const csrfCookie = getCookie("nw_csrf");
-  if (!csrfCookie) {
-    setAccessToken(null);
-    return null;
-  }
-
-  if (refreshInFlight) {
-    const r = await refreshInFlight;
-    return r.accessToken;
-  }
-
-  refreshInFlight = (async (): Promise<RefreshResult> => {
-    try {
-      // Re-read in case cookies changed while awaiting.
-      const csrf = getCookie("nw_csrf") || csrfCookie;
-      const res = await rawFetch("/api/auth/refresh", {
-        method: "POST",
-        headers: csrf ? { "X-CSRF-Token": csrf } : {},
-      });
-      if (!res.ok) {
-        setAccessToken(null);
-        return { accessToken: null, user: null };
-      }
-      const data = (await res.json()) as Partial<TokenOut>;
-      const tok = typeof data?.access_token === "string" ? data.access_token : null;
-      const user = (data as any)?.user as AuthUser | undefined;
-      setAccessToken(tok);
-      return { accessToken: tok, user: user ?? null };
-    } catch {
-      setAccessToken(null);
-      return { accessToken: null, user: null };
-    } finally {
-      refreshInFlight = null;
-    }
-  })();
-
-  const r = await refreshInFlight;
-  return r.accessToken;
-}
-
-/**
- * Boot-time session restore (refresh + user).
- *
- * IMPORTANT: requires the CSRF cookie to exist (double-submit protection).
- */
-export async function refreshSession(): Promise<RefreshResult> {
-  // Session restore only makes sense if the CSRF cookie exists.
-  // Without it, the backend will return 403 (double-submit CSRF protection).
   const csrfCookie = getCookie("nw_csrf");
   if (!csrfCookie) {
     setAccessToken(null);
@@ -132,6 +84,20 @@ export async function refreshSession(): Promise<RefreshResult> {
   })();
 
   return refreshInFlight;
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  const r = await runRefresh();
+  return r.accessToken;
+}
+
+/**
+ * Boot-time session restore (refresh + user).
+ *
+ * IMPORTANT: requires the CSRF cookie to exist (double-submit protection).
+ */
+export async function refreshSession(): Promise<RefreshResult> {
+  return runRefresh();
 }
 
 function makeHttpError(status: number, body: any, message: string): HttpError {

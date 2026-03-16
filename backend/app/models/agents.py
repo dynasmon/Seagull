@@ -14,7 +14,7 @@ class AgentModel(Base):
     # Stable identifier set by the agent (e.g., agent-proc-1)
     agent_id = Column(String(64), unique=True, index=True, nullable=False)
 
-    # Auth token components (never store the raw secret)
+    # Legacy token columns kept for schema compatibility (unused by mTLS auth).
     key_salt = Column(String(64), nullable=False)
     key_hash = Column(String(64), nullable=False)
 

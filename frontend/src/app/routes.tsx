@@ -163,7 +163,6 @@ export function Routes() {
             <Route path="changes" element={<AuditChangesPage />} />
             <Route path="timeline" element={<AuditTimelinePage />} />
           </Route>
-          <Route path="/governance" element={<Navigate to="/audit/admin-actions" replace />} />
           <Route path="/internal" element={<InternalLayout />}>
             <Route index element={<Navigate to="/internal/debug" replace />} />
             <Route path="debug" element={<InternalDebugPage />} />
