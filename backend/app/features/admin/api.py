@@ -240,7 +240,7 @@ def admin_system_status(_: PortalPrincipal = Depends(require_admin)):
         ingest_latency_ms = round((time.perf_counter() - t_ing) * 1000.0, 2)
         pressure_status = "ok"
         if bool(storm.get("active")):
-            pressure_status = "storm" if (storm.get("phase") == "storm") else "degraded"
+            pressure_status = "storm" if (storm.get("phase") in {"storm", "shedding"}) else "degraded"
 
         metrics = snapshot_metrics()
         counters = metrics.get("counters") or []

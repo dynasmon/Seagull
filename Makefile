@@ -12,7 +12,7 @@ ENV_EXAMPLE := .env.example
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools certs-bootstrap dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
@@ -54,12 +54,19 @@ certs-bootstrap: bootstrap
 		echo "[bootstrap] NETWATCH_AUTO_GENERATE_CERTS=false (skipping cert regeneration)"; \
 	fi
 
+agent-tokens-bootstrap:
+	@./scripts/mint_agent_bootstrap_tokens.sh
+
 # Single-command bootstrap for development.
 dev: bootstrap bootstrap-tools certs-bootstrap
 	$(DC) $(COMPOSE_DEV) up -d --build --force-recreate
+	@$(MAKE) agent-tokens-bootstrap
+	$(DC) $(COMPOSE_DEV) up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln
 
 dev-tls: bootstrap bootstrap-tools certs-bootstrap
 	$(DC) $(COMPOSE_DEV_TLS) up -d --build --force-recreate
+	@$(MAKE) agent-tokens-bootstrap
+	$(DC) $(COMPOSE_DEV_TLS) up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln
 
 # Single-command bootstrap for production-like runs.
 prod: bootstrap bootstrap-tools certs-bootstrap
@@ -69,6 +76,8 @@ up: dev
 
 up-extra: bootstrap bootstrap-tools certs-bootstrap
 	$(DC) $(COMPOSE_DEV) --profile extra up -d --build --force-recreate
+	@$(MAKE) agent-tokens-bootstrap
+	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln netwatch-agent-lateral
 
 down:
 	$(DC) $(COMPOSE_DEV) down

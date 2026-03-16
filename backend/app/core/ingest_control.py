@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.redis_client import get_redis
@@ -92,12 +92,60 @@ def storm_alert_id_key() -> str:
     return _env_str("NETWATCH_INGEST_STORM_ALERT_ID_KEY", "netwatch:ingest:storm_alert_id")
 
 
+def _events_per_msg_avg_key() -> str:
+    return "netwatch:ingest:events_per_msg_avg"
+
+
+def _worker_eps_key(ts_s: int) -> str:
+    return f"netwatch:ingest:worker:eps:{ts_s}"
+
+
+def _worker_msgs_key(ts_s: int) -> str:
+    return f"netwatch:ingest:worker:msgs:{ts_s}"
+
+
+def _worker_hb_key(worker_id: str) -> str:
+    return f"netwatch:ingest:worker:hb:{worker_id}"
+
+
+def _pressure_state_key() -> str:
+    return "netwatch:ingest:pressure_state"
+
+
 @dataclass(frozen=True)
 class BackpressureDecision:
     mode: str  # normal | rollup_only | reject_429
     reason: str
     backlog_events: int
     backlog_messages: int
+
+
+def _as_int(v: Any, default: int = 0) -> int:
+    try:
+        return int(v)
+    except Exception:
+        return default
+
+
+def _as_float(v: Any, default: float = 0.0) -> float:
+    try:
+        return float(v)
+    except Exception:
+        return default
+
+
+def _update_events_per_msg_avg(r, sample_events_per_message: float) -> None:
+    if sample_events_per_message <= 0:
+        return
+    try:
+        key = _events_per_msg_avg_key()
+        cur = _as_float(r.get(key), 1.0)
+        nxt = (cur * 0.96) + (float(sample_events_per_message) * 0.04)
+        if nxt < 1.0:
+            nxt = 1.0
+        r.setex(key, 3600, f"{nxt:.6f}")
+    except Exception:
+        return
 
 
 def get_backlog() -> Tuple[int, int]:
@@ -113,10 +161,32 @@ def get_backlog() -> Tuple[int, int]:
     except Exception:
         msgs = 0
 
+    key = backlog_events_key()
     try:
-        ev = int(r.get(backlog_events_key()) or 0)
+        ev = _as_int(r.get(key), 0)
     except Exception:
         ev = 0
+
+    # Self-heal common drift scenarios so pressure state can recover:
+    # - zero messages but stale positive event counter
+    # - counter far above plausible envelope for current queue depth
+    try:
+        avg = max(1.0, _as_float(r.get(_events_per_msg_avg_key()), 1.0))
+        if msgs <= 0:
+            if ev > 0:
+                r.set(key, 0)
+            ev = 0
+        else:
+            if ev < msgs:
+                ev = msgs
+                r.set(key, ev)
+            else:
+                plausible_upper = int(max(msgs * 10, msgs * avg * 8.0))
+                if ev > plausible_upper:
+                    ev = int(max(msgs, round(msgs * avg)))
+                    r.set(key, ev)
+    except Exception:
+        pass
 
     # Never expose negative backlog values: they break backpressure decisions
     # and cause the platform to oscillate under load.
@@ -130,28 +200,56 @@ def evaluate_backpressure(*, received: int) -> BackpressureDecision:
     - hard limit: reject 429 or rollup_only depending on NETWATCH_INGEST_BACKPRESSURE_MODE
     """
 
-    soft = _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000)
-    hard = _env_int("NETWATCH_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS", 200_000)
+    soft = max(1, _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000))
+    hard = max(soft + 1, _env_int("NETWATCH_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS", 200_000))
+    soft_exit = max(0, _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_EXIT_BACKLOG_EVENTS", int(soft * 0.6)))
+    hard_exit = max(soft + 1, _env_int("NETWATCH_INGEST_BACKPRESSURE_HARD_EXIT_BACKLOG_EVENTS", int(hard * 0.75)))
+    force_normal_max_msgs = max(0, _env_int("NETWATCH_INGEST_BACKPRESSURE_FORCE_NORMAL_MAX_MESSAGES", 4))
     mode = _env_str("NETWATCH_INGEST_BACKPRESSURE_MODE", "rollup_only").lower().strip()
     mode = mode if mode in {"rollup_only", "reject_429"} else "rollup_only"
 
     msgs, ev = get_backlog()
+    r = get_redis()
 
     # Compute projected backlog to avoid races.
     projected = ev + max(0, int(received))
+    prev_bp = ""
+    if r is not None:
+        try:
+            prev_bp = str(r.get("netwatch:ingest:bp_mode") or "").strip().lower()
+        except Exception:
+            prev_bp = ""
 
-    if hard > 0 and projected >= hard:
-        return BackpressureDecision(
-            mode="reject_429" if mode == "reject_429" else "rollup_only",
-            reason="hard_backlog",
-            backlog_events=ev,
-            backlog_messages=msgs,
-        )
+    selected = "normal"
+    reason = "ok"
 
-    if soft > 0 and projected >= soft:
-        return BackpressureDecision(mode="rollup_only", reason="soft_backlog", backlog_events=ev, backlog_messages=msgs)
+    if projected >= hard:
+        selected = "reject_429" if mode == "reject_429" else "rollup_only"
+        reason = "hard_backlog"
+    elif projected >= soft:
+        selected = "rollup_only"
+        reason = "soft_backlog"
+    elif prev_bp == "reject_429" and projected >= hard_exit:
+        selected = "reject_429" if mode == "reject_429" else "rollup_only"
+        reason = "hard_backlog_hysteresis"
+    elif prev_bp in {"reject_429", "rollup_only"} and projected >= soft_exit:
+        selected = "rollup_only"
+        reason = "soft_backlog_hysteresis"
 
-    return BackpressureDecision(mode="normal", reason="ok", backlog_events=ev, backlog_messages=msgs)
+    # Recovery fast-path:
+    # if queue depth is already tiny, do not keep normal traffic in rollup_only
+    # just because a stale event counter is slightly above the soft-exit threshold.
+    if selected != "normal" and projected < soft and msgs <= force_normal_max_msgs:
+        selected = "normal"
+        reason = "recovery_small_queue"
+
+    if r is not None:
+        try:
+            r.setex("netwatch:ingest:bp_mode", 30, selected)
+        except Exception:
+            pass
+
+    return BackpressureDecision(mode=selected, reason=reason, backlog_events=ev, backlog_messages=msgs)
 
 
 def enqueue_ingest_message(*, message: Dict[str, Any], received: int) -> bool:
@@ -166,6 +264,7 @@ def enqueue_ingest_message(*, message: Dict[str, Any], received: int) -> bool:
         pipe.rpush(queue_key(), payload)
         pipe.incrby(backlog_events_key(), int(received))
         pipe.execute()
+        _update_events_per_msg_avg(r, float(max(1, int(received))))
         return True
     except Exception:
         return False
@@ -205,6 +304,53 @@ def bump_ingest_counters(*, received: int, hot_kept: int, warm_kept: int, droppe
         return
 
 
+def record_worker_progress(*, processed_events: int, processed_messages: int) -> None:
+    r = get_redis()
+    if r is None:
+        return
+
+    ts_s = int(time.time())
+    ev = max(0, int(processed_events))
+    msgs = max(0, int(processed_messages))
+    try:
+        pipe = r.pipeline()
+        pipe.incrby(_worker_eps_key(ts_s), ev)
+        pipe.expire(_worker_eps_key(ts_s), 10)
+        pipe.incrby(_worker_msgs_key(ts_s), msgs)
+        pipe.expire(_worker_msgs_key(ts_s), 10)
+        pipe.execute()
+        if msgs > 0:
+            _update_events_per_msg_avg(r, ev / float(msgs))
+    except Exception:
+        return
+
+
+def worker_heartbeat(worker_id: str, *, ttl_seconds: int = 8) -> None:
+    if not worker_id:
+        return
+    r = get_redis()
+    if r is None:
+        return
+    try:
+        r.setex(_worker_hb_key(worker_id), max(2, int(ttl_seconds)), str(int(time.time())))
+    except Exception:
+        return
+
+
+def count_active_workers() -> int:
+    r = get_redis()
+    if r is None:
+        return 0
+    try:
+        # This is a tiny keyspace (ingest workers), so SCAN is cheap.
+        n = 0
+        for _ in r.scan_iter(match="netwatch:ingest:worker:hb:*", count=64):
+            n += 1
+        return max(0, int(n))
+    except Exception:
+        return 0
+
+
 def maybe_flush_stats_to_db() -> None:
     """Flush the previous second's Redis stats to Postgres (at most once per second).
 
@@ -236,12 +382,6 @@ def maybe_flush_stats_to_db() -> None:
 
     # Backlog snapshot
     backlog_msgs, backlog_ev = get_backlog()
-
-    def _as_int(v: Any) -> int:
-        try:
-            return int(v)
-        except Exception:
-            return 0
 
     received = _as_int(data.get("received"))
     hot_kept = _as_int(data.get("hot_kept"))
@@ -280,11 +420,12 @@ def maybe_flush_stats_to_db() -> None:
                 "dropped": IngestStats1sModel.dropped + ins.excluded.dropped,
                 "rejected": IngestStats1sModel.rejected + ins.excluded.rejected,
                 "rollup_only": IngestStats1sModel.rollup_only + ins.excluded.rollup_only,
-                "backlog_messages": func.greatest(IngestStats1sModel.backlog_messages, ins.excluded.backlog_messages),
-                "backlog_events": func.greatest(IngestStats1sModel.backlog_events, ins.excluded.backlog_events),
-                "storm_active": or_(IngestStats1sModel.storm_active, ins.excluded.storm_active),
-                "sample_hot_percent": func.least(IngestStats1sModel.sample_hot_percent, ins.excluded.sample_hot_percent),
-                "sample_warm_percent": func.greatest(IngestStats1sModel.sample_warm_percent, ins.excluded.sample_warm_percent),
+                # Backlog and sampling must reflect latest snapshot, not peak.
+                "backlog_messages": ins.excluded.backlog_messages,
+                "backlog_events": ins.excluded.backlog_events,
+                "storm_active": ins.excluded.storm_active,
+                "sample_hot_percent": ins.excluded.sample_hot_percent,
+                "sample_warm_percent": ins.excluded.sample_warm_percent,
                 "updated_at": datetime.now(timezone.utc),
             },
         )
@@ -510,13 +651,111 @@ def storm_maybe_close_alert() -> None:
         return
 
 
+def decide_pressure_phase(
+    *,
+    prev_phase: str,
+    eps: int,
+    processed_eps: int,
+    backlog_events: int,
+    prev_backlog_events: int,
+    rejected: int,
+    stalled_seconds: int,
+) -> Tuple[str, str]:
+    storm_entry = max(1, _env_int("NETWATCH_INGEST_STORM_EVENTS_PER_SECOND", 8000))
+    storm_exit = max(1, _env_int("NETWATCH_INGEST_STORM_EXIT_EVENTS_PER_SECOND", int(storm_entry * 0.65)))
+    soft_entry = max(1, _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000))
+    soft_exit = max(0, _env_int("NETWATCH_INGEST_BACKPRESSURE_DRAIN_EXIT_BACKLOG_EVENTS", int(soft_entry * 0.55)))
+    hard_backlog = max(soft_entry + 1, _env_int("NETWATCH_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS", 200_000))
+    drain_stall_timeout = max(30, _env_int("NETWATCH_INGEST_DRAIN_STALL_TIMEOUT_SECONDS", 300))
+
+    eps_i = max(0, int(eps))
+    proc_i = max(0, int(processed_eps))
+    back_i = max(0, int(backlog_events))
+    prev_back_i = max(0, int(prev_backlog_events))
+
+    storm_like = eps_i >= storm_entry or back_i >= hard_backlog
+    improving = back_i < prev_back_i or proc_i > eps_i
+    overloaded = rejected > 0 and storm_like
+
+    if prev_phase in {"storm", "shedding"}:
+        if overloaded:
+            return "shedding", "hard_backlog"
+        if storm_like:
+            return "storm", "storm_eps"
+        if back_i > soft_exit:
+            return "draining", "recovery"
+        return "ok", "recovered"
+
+    if prev_phase == "draining":
+        if overloaded:
+            return "shedding", "hard_backlog"
+        if storm_like and eps_i >= storm_entry:
+            return "storm", "storm_eps"
+        if back_i <= soft_exit and eps_i <= storm_exit:
+            return "ok", "recovered"
+        if stalled_seconds >= drain_stall_timeout and back_i <= soft_entry:
+            # Failsafe against stale draining state.
+            return "ok", "drain_timeout_exit"
+        if not improving and stalled_seconds >= drain_stall_timeout:
+            return "shedding", "drain_stalled"
+        return "draining", ("draining" if improving else "draining_slow")
+
+    if overloaded:
+        return "shedding", "hard_backlog"
+    if storm_like:
+        return "storm", "storm_eps"
+    if back_i >= soft_entry:
+        return "draining", "soft_backlog"
+    return "ok", "ok"
+
+
+def _read_pressure_state(r) -> Dict[str, Any]:
+    try:
+        raw = r.hgetall(_pressure_state_key()) or {}
+    except Exception:
+        raw = {}
+    return {
+        "phase": str(raw.get("phase") or "ok"),
+        "reason": str(raw.get("reason") or "ok"),
+        "since_ts": _as_int(raw.get("since_ts"), 0),
+        "prev_backlog_events": _as_int(raw.get("prev_backlog_events"), 0),
+        "last_progress_ts": _as_int(raw.get("last_progress_ts"), 0),
+    }
+
+
+def _write_pressure_state(
+    r,
+    *,
+    phase: str,
+    reason: str,
+    since_ts: int,
+    prev_backlog_events: int,
+    last_progress_ts: int,
+) -> None:
+    try:
+        r.hset(
+            _pressure_state_key(),
+            mapping={
+                "phase": phase,
+                "reason": reason,
+                "since_ts": str(max(0, int(since_ts))),
+                "prev_backlog_events": str(max(0, int(prev_backlog_events))),
+                "last_progress_ts": str(max(0, int(last_progress_ts))),
+                "updated_ts": str(int(time.time())),
+            },
+        )
+        r.expire(_pressure_state_key(), 3600)
+    except Exception:
+        return
+
+
 def get_storm_status() -> Dict[str, Any]:
     """Return a small status payload for the UI (best-effort)."""
 
     r = get_redis()
     now_s = int(time.time())
-    storm_th = _env_int("NETWATCH_INGEST_STORM_EVENTS_PER_SECOND", 8000)
-    soft = _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000)
+    storm_th = max(1, _env_int("NETWATCH_INGEST_STORM_EVENTS_PER_SECOND", 8000))
+    soft = max(1, _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000))
 
     if r is None:
         # Redis is unavailable: fall back to the latest persisted ingest_stats_1s row.
@@ -550,21 +789,20 @@ def get_storm_status() -> Dict[str, Any]:
                 "active": False,
                 "phase": "ok",
                 "eps": 0,
+                "ingest_rate_eps": 0,
+                "process_rate_eps": 0,
                 "sample_hot_percent": 100,
                 "sample_warm_percent": 0,
                 "drop_percent": 0,
+                "shed_percent": 0,
                 "backlog_events": 0,
                 "backlog_messages": 0,
+                "workers_active": 0,
+                "draining_seconds": 0,
                 "reason": "ok",
                 "since": None,
                 "open_alert_id": None,
             }
-
-        def _as_int(v: Any, default: int = 0) -> int:
-            try:
-                return int(v)
-            except Exception:
-                return default
 
         eps = _as_int(row.get("received"), 0)
         dropped = _as_int(row.get("dropped"), 0)
@@ -573,19 +811,24 @@ def get_storm_status() -> Dict[str, Any]:
 
         drop_pct = int(round((dropped / eps) * 100.0)) if eps > 0 else 0
 
-        storm_like = bool(row.get("storm_active")) or (storm_th > 0 and int(eps) >= int(storm_th))
-        draining_flag = (not storm_like) and soft > 0 and int(backlog_ev) >= int(soft)
+        storm_like = bool(row.get("storm_active")) or int(eps) >= int(storm_th)
+        draining_flag = (not storm_like) and int(backlog_ev) >= int(soft)
         phase = "storm" if storm_like else ("draining" if draining_flag else "ok")
 
         return {
             "active": bool(phase != "ok"),
             "phase": phase,
             "eps": int(eps),
+            "ingest_rate_eps": int(eps),
+            "process_rate_eps": 0,
             "sample_hot_percent": int(max(0, min(_as_int(row.get("sample_hot_percent"), 100), 100))),
             "sample_warm_percent": int(max(0, min(_as_int(row.get("sample_warm_percent"), 0), 100))),
             "drop_percent": int(max(0, min(drop_pct, 100))),
+            "shed_percent": int(max(0, min(drop_pct, 100))),
             "backlog_events": int(backlog_ev),
             "backlog_messages": int(backlog_msgs),
+            "workers_active": 0,
+            "draining_seconds": 0,
             "reason": phase,
             "since": None,
             "open_alert_id": None,
@@ -608,32 +851,75 @@ def get_storm_status() -> Dict[str, Any]:
     except Exception:
         stats = {}
 
-    def _as_int(v: Any, default: int = 0) -> int:
-        try:
-            return int(v)
-        except Exception:
-            return default
-
     received = _as_int(stats.get("received"), eps)
     dropped = _as_int(stats.get("dropped"), 0)
+    rejected = _as_int(stats.get("rejected"), 0)
+    rollup_only = _as_int(stats.get("rollup_only"), 0)
+
+    try:
+        processed_eps = _as_int(r.get(_worker_eps_key(ts_s)), 0)
+    except Exception:
+        processed_eps = 0
+    try:
+        processed_messages = _as_int(r.get(_worker_msgs_key(ts_s)), 0)
+    except Exception:
+        processed_messages = 0
+
+    workers_active = count_active_workers()
 
     drop_pct = 0
     if received > 0:
         drop_pct = int(round((dropped / received) * 100.0))
+    shed_pct = 0
+    if received > 0:
+        shed_pct = int(round(((dropped + rejected) / received) * 100.0))
 
-    # Determine phase using observed EPS and backlog.
-    # - storm: EPS above threshold (volumetric)
-    # - draining: backlog above soft limit but EPS is below threshold
-    storm_like = storm_th > 0 and int(eps) >= int(storm_th)
-    draining_flag = (not storm_like) and soft > 0 and int(backlog_ev) >= int(soft)
+    state = _read_pressure_state(r)
+    prev_phase = str(state.get("phase") or "ok")
+    prev_backlog_events = _as_int(state.get("prev_backlog_events"), int(backlog_ev))
+    last_progress_ts = _as_int(state.get("last_progress_ts"), 0)
+    since_ts = _as_int(state.get("since_ts"), 0)
+    if since_ts <= 0:
+        since_ts = now_s
+    if last_progress_ts <= 0:
+        last_progress_ts = now_s
 
-    phase = "storm" if storm_like else ("draining" if draining_flag else "ok")
-    active = phase != "ok"
+    stalled_seconds = max(0, now_s - int(since_ts))
+    phase, reason = decide_pressure_phase(
+        prev_phase=prev_phase,
+        eps=int(eps),
+        processed_eps=int(processed_eps),
+        backlog_events=int(backlog_ev),
+        prev_backlog_events=int(prev_backlog_events),
+        rejected=int(rejected),
+        stalled_seconds=stalled_seconds,
+    )
 
-    try:
-        reason = (r.get("netwatch:ingest:storm_reason") or "").strip() or (phase if active else "ok")
-    except Exception:
-        reason = "ok"
+    if phase != prev_phase:
+        since_ts = now_s
+    progressed = (int(received) > 0) or (int(processed_eps) > 0) or (int(backlog_ev) < int(prev_backlog_events))
+    if progressed:
+        last_progress_ts = now_s
+
+    drain_idle_timeout = max(60, _env_int("NETWATCH_INGEST_DRAIN_IDLE_TIMEOUT_SECONDS", 180))
+    if (
+        phase == "draining"
+        and (now_s - last_progress_ts) >= drain_idle_timeout
+        and (int(backlog_msgs) <= 1 or int(backlog_ev) <= soft)
+        and int(received) == 0
+    ):
+        phase = "ok"
+        reason = "drain_idle_timeout_exit"
+        since_ts = now_s
+
+    _write_pressure_state(
+        r,
+        phase=phase,
+        reason=reason,
+        since_ts=since_ts,
+        prev_backlog_events=int(backlog_ev),
+        last_progress_ts=int(last_progress_ts),
+    )
 
     try:
         sample_hot = _as_int(r.get("netwatch:ingest:storm_sample_hot"), 100)
@@ -642,25 +928,42 @@ def get_storm_status() -> Dict[str, Any]:
         sample_hot, sample_warm = 100, 0
 
     try:
-        since = r.get(storm_since_key())
+        since_storm = r.get(storm_since_key())
     except Exception:
-        since = None
+        since_storm = None
 
     try:
         alert_id = r.get(storm_alert_id_key())
     except Exception:
         alert_id = None
 
+    active = phase != "ok"
+    draining_seconds = (now_s - since_ts) if phase == "draining" else 0
+    since_iso = None
+    if phase in {"draining", "storm", "shedding"}:
+        if phase in {"storm", "shedding"} and since_storm:
+            since_iso = str(since_storm)
+        else:
+            since_iso = datetime.fromtimestamp(max(0, since_ts), tz=timezone.utc).isoformat()
+
     return {
         "active": bool(active),
         "phase": phase,
         "eps": int(eps),
+        "ingest_rate_eps": int(received),
+        "process_rate_eps": int(processed_eps),
+        "processed_messages_per_sec": int(processed_messages),
         "sample_hot_percent": int(max(0, min(sample_hot, 100))),
         "sample_warm_percent": int(max(0, min(sample_warm, 100))),
         "drop_percent": int(max(0, min(drop_pct, 100))),
+        "shed_percent": int(max(0, min(shed_pct, 100))),
+        "rejected_events": int(max(0, rejected)),
+        "rollup_only_events": int(max(0, rollup_only)),
         "backlog_events": int(max(0, backlog_ev)),
         "backlog_messages": int(max(0, backlog_msgs)),
+        "workers_active": int(max(0, workers_active)),
+        "draining_seconds": int(max(0, draining_seconds)),
         "reason": reason,
-        "since": since,
+        "since": since_iso,
         "open_alert_id": int(alert_id) if (alert_id and str(alert_id).isdigit()) else None,
     }

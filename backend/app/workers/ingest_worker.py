@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -36,7 +37,12 @@ from app.core.config import settings
 from app.core.redis_client import get_redis
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.env_secrets import env_value
-from app.core.ingest_control import storm_maybe_close_alert, storm_maybe_open_alert
+from app.core.ingest_control import (
+    record_worker_progress,
+    storm_maybe_close_alert,
+    storm_maybe_open_alert,
+    worker_heartbeat,
+)
 from app.core.observability import log_event, setup_logging
 from app.models.events import NetEventModel, NetEventRollup1sModel
 
@@ -366,6 +372,50 @@ def _requeue_processing(r, cfg: WorkerConfig) -> None:
         return
 
 
+def _requeue_processing_with_retry_cap(r, cfg: WorkerConfig) -> None:
+    """Requeue processing items and dead-letter poison messages.
+
+    This prevents infinite retry loops where malformed items keep the pipeline
+    permanently in draining/shedding without useful backlog convergence.
+    """
+
+    max_retries = max(1, _env_int("NETWATCH_INGEST_WORKER_MAX_MESSAGE_RETRIES", 4))
+
+    try:
+        while True:
+            raw = r.rpop(cfg.processing_key)
+            if not raw:
+                break
+
+            received = 0
+            retry_n = 0
+            try:
+                msg = json.loads(raw)
+                received = max(0, int(msg.get("received") or 0))
+                retry_n = max(0, int(msg.get("_retry_count") or 0)) + 1
+                msg["_retry_count"] = retry_n
+                payload = json.dumps(msg, separators=(",", ":"), ensure_ascii=False)
+            except Exception:
+                # Malformed messages are considered poison and dropped.
+                payload = None
+
+            if payload is not None and retry_n <= max_retries:
+                r.lpush(cfg.queue_key, payload)
+                continue
+
+            if received > 0:
+                _decr_backlog_events(r, received)
+            log_event(
+                logger,
+                "warning",
+                "ingest_deadletter_message",
+                retries=retry_n,
+                received=received,
+            )
+    except Exception:
+        return
+
+
 def _decr_backlog_events(r, received: int) -> None:
     """Decrease backlog counter and clamp to 0.
 
@@ -565,6 +615,7 @@ def main() -> None:
             time.sleep(2.0)
 
     _requeue_processing(r, cfg)
+    worker_id = f"ingest-{uuid.uuid4().hex[:8]}"
 
     es = None
     if cfg.warm_enabled:
@@ -592,6 +643,7 @@ def main() -> None:
 
     while True:
         try:
+            worker_heartbeat(worker_id)
             if cfg.clickhouse_enabled and ch is None and time.monotonic() >= next_ch_retry_at:
                 ch = _try_bootstrap_clickhouse()
                 if ch is None:
@@ -620,11 +672,13 @@ def main() -> None:
             warm_actions: List[Dict[str, Any]] = []
 
             total_received = 0
+            received_by_raw: Dict[str, int] = {}
 
             for raw in items:
                 msg = json.loads(raw)
                 received = int(msg.get("received") or 0)
                 total_received += received
+                received_by_raw[str(raw)] = received_by_raw.get(str(raw), 0) + max(0, int(received))
 
                 # Ensure the 'Ingest Storm Detected' alert exists even if the API
                 # couldn't write it during peak DB pressure.
@@ -830,25 +884,59 @@ def main() -> None:
 
             # Ack processing list
             ack_ok = True
+            removed_received = 0
+            removed_messages = 0
             try:
                 pipe = r.pipeline()
                 for raw in items:
                     pipe.lrem(cfg.processing_key, 1, raw)
-                pipe.execute()
+                results = pipe.execute() or []
+                for raw, removed in zip(items, results):
+                    if int(removed or 0) > 0:
+                        removed_received += received_by_raw.get(str(raw), 0)
+                        removed_messages += 1
             except Exception:
-                # If we fail to ack, the message can be re-queued on restart.
-                # Keeping backlog counters intact is safer than going negative.
+                # Retry ack per-message to reduce counter drift under Redis hiccups.
                 ack_ok = False
+                for raw in items:
+                    try:
+                        removed = int(r.lrem(cfg.processing_key, 1, raw) or 0)
+                        if removed > 0:
+                            removed_received += received_by_raw.get(str(raw), 0)
+                            removed_messages += 1
+                    except Exception:
+                        continue
 
-            if ack_ok:
+            if removed_received > 0:
                 # Backlog counter
+                _decr_backlog_events(r, removed_received)
+                record_worker_progress(
+                    processed_events=removed_received,
+                    processed_messages=removed_messages,
+                )
+            elif ack_ok:
+                # Defensive fallback for malformed received counters.
                 _decr_backlog_events(r, total_received)
+                record_worker_progress(processed_events=max(0, total_received), processed_messages=len(items))
             else:
                 try:
                     plen = int(r.llen(cfg.processing_key) or 0)
                 except Exception:
                     plen = -1
-                log_event(logger, "warning", "ingest_ack_failed", processing_len=plen)
+                # If ACK partially failed, immediately salvage leftovers from processing.
+                # This avoids ghost items pinning backlog forever after storm recovery.
+                try:
+                    _requeue_processing_with_retry_cap(r, cfg)
+                except Exception:
+                    pass
+                log_event(
+                    logger,
+                    "warning",
+                    "ingest_ack_failed",
+                    processing_len=plen,
+                    removed_received=removed_received,
+                    total_received=total_received,
+                )
 
             storm_maybe_close_alert()
 
@@ -858,7 +946,7 @@ def main() -> None:
             # If the DB transaction failed, items may be stuck in the processing list.
             # Re-queue them so we can retry after backoff.
             try:
-                _requeue_processing(r, cfg)
+                _requeue_processing_with_retry_cap(r, cfg)
             except Exception:
                 pass
 

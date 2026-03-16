@@ -494,6 +494,8 @@ export default function OverviewPage() {
             value={
               storm?.phase === "storm"
                 ? "ATTACK"
+                : storm?.phase === "shedding"
+                  ? "SHEDDING"
                 : storm?.phase === "draining"
                   ? "DRAINING"
                   : storm?.active
@@ -505,7 +507,15 @@ export default function OverviewPage() {
                 ? `${storm.reason}${storm.open_alert_id ? ` · alert #${storm.open_alert_id}` : ""}`
                 : "unavailable"
             }
-            tone={storm?.phase === "storm" ? "warn" : storm?.phase === "draining" ? "default" : storm?.active ? "warn" : "good"}
+            tone={
+              storm?.phase === "storm" || storm?.phase === "shedding"
+                ? "warn"
+                : storm?.phase === "draining"
+                  ? "default"
+                  : storm?.active
+                    ? "warn"
+                    : "good"
+            }
           />
 
           <StatTile
@@ -534,6 +544,27 @@ export default function OverviewPage() {
             value={storm?.backlog_events ?? 0}
             hint={storm ? `messages: ${storm.backlog_messages}` : undefined}
             tone={storm && storm.backlog_events > 50000 ? "warn" : "default"}
+          />
+
+          <StatTile
+            label="EPS (process)"
+            value={storm?.process_rate_eps ?? 0}
+            hint={storm ? `ingest: ${storm.ingest_rate_eps ?? storm.eps}` : undefined}
+            tone={storm && (storm.process_rate_eps ?? 0) < (storm.ingest_rate_eps ?? storm.eps ?? 0) ? "warn" : "good"}
+          />
+
+          <StatTile
+            label="WORKERS"
+            value={storm?.workers_active ?? 0}
+            hint={storm?.processed_messages_per_sec ? `msgs/s: ${storm.processed_messages_per_sec}` : undefined}
+            tone={storm && (storm.workers_active ?? 0) > 0 ? "good" : "warn"}
+          />
+
+          <StatTile
+            label="DRAIN TIME"
+            value={storm?.phase === "draining" ? `${storm?.draining_seconds ?? 0}s` : "-"}
+            hint={storm?.phase === "draining" ? "recovery window" : "not draining"}
+            tone={storm?.phase === "draining" ? "default" : "good"}
           />
         </div>
       </DashboardSection>
