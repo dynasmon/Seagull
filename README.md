@@ -155,7 +155,6 @@ openssl rand -hex 24 > secrets/postgres_password.txt
 openssl rand -hex 24 > secrets/grafana_admin_password.txt
 openssl rand -hex 32 > secrets/netwatch_jwt_secret.txt
 openssl rand -hex 24 > secrets/netwatch_bootstrap_admin_password.txt
-openssl rand -hex 24 > secrets/netwatch_enroll_token.txt
 openssl rand -hex 24 > secrets/netwatch_redis_password.txt
 openssl rand -hex 24 > secrets/netwatch_es_password.txt
 openssl rand -hex 32 > secrets/netwatch_audit_hash_pepper.txt
@@ -167,14 +166,11 @@ Minimum required for secure bootstrap:
 
 - `NETWATCH_JWT_SECRET` or `NETWATCH_JWT_SECRET_FILE`
 - `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD` or `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE`
-- `NETWATCH_AGENT_AUTH_MODE=mtls`
 - In dev, `NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START=true` can resync the bootstrap admin password on startup.
 
 Recommended hardening:
 
-- Set `NETWATCH_AGENT_AUTH_MODE=mtls`.
-- In production, keep `NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN=true` and use short-lived bootstrap tokens per agent.
-- In local dev with auto-regenerated certs, you can use `NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN=false` + `NETWATCH_FORCE_ENROLL_ON_START=true`.
+- Use short-lived bootstrap tokens per agent for enrollment.
 - When behind HTTPS, set `NETWATCH_COOKIE_SECURE=true` and consider `NETWATCH_COOKIE_SAMESITE=strict`.
 - Configure TLS cert/key for the edge proxy:
   - `NETWATCH_TLS_CERT_FILE=./secrets/tls/tls.crt`
@@ -580,11 +576,10 @@ Revocation:
 - Edge revocation uses CRL (`ca.crl`) to fail TLS handshake early.
 - After updating CRL, reload edge: `docker compose ... restart netwatch-edge`.
 
-Migration from legacy bearer:
+Legacy bearer migration:
 
-- Use `NETWATCH_AGENT_AUTH_MODE=mixed` only during transition windows.
-- Enroll all agents with mTLS identity and verify bindings.
-- Switch to `NETWATCH_AGENT_AUTH_MODE=mtls` and remove legacy agent bearer tokens.
+- Legacy bearer and mixed-mode enrollment were removed.
+- Agents must enroll and authenticate with mTLS identity + bootstrap token.
 
 Troubleshooting:
 

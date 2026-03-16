@@ -7,8 +7,6 @@ secrets:
     file: ${NETWATCH_JWT_SECRET_FILE:-./secrets/netwatch_jwt_secret.txt}
   netwatch_bootstrap_admin_password:
     file: ${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE:-./secrets/netwatch_bootstrap_admin_password.txt}
-  netwatch_enroll_token:
-    file: ${NETWATCH_ENROLL_TOKEN_FILE:-./secrets/netwatch_enroll_token.txt}
   netwatch_redis_password:
     file: ${NETWATCH_REDIS_PASSWORD_FILE:-./secrets/netwatch_redis_password.txt}
   netwatch_es_password:
@@ -83,15 +81,12 @@ services:
       - postgres_password
       - netwatch_jwt_secret
       - netwatch_bootstrap_admin_password
-      - netwatch_enroll_token
       - netwatch_redis_password
       - netwatch_es_password
       - netwatch_audit_hash_pepper
     ports: []
     environment:
       NETWATCH_ENV: prod
-      NETWATCH_AGENT_AUTH_MODE: mtls
-      NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN: "true"
       NETWATCH_DB_AUTO_UPGRADE: "false"
       NETWATCH_RULES_ENV: prod
       NETWATCH_RULES_ENABLED_PACKS: ${NETWATCH_RULES_ENABLED_PACKS:-core,network}
@@ -116,8 +111,6 @@ services:
       NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: ""
       NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/netwatch_bootstrap_admin_password
       NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START: "false"
-      NETWATCH_ENROLL_TOKEN: ""
-      NETWATCH_ENROLL_TOKEN_FILE: /run/secrets/netwatch_enroll_token
       NETWATCH_REDIS_PASSWORD: ""
       NETWATCH_REDIS_PASSWORD_FILE: /run/secrets/netwatch_redis_password
       NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
@@ -231,41 +224,6 @@ services:
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
       POSTGRES_PASSWORD: ""
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
-
-  netwatch-agent-proc:
-    secrets:
-      - netwatch_enroll_token
-    environment:
-      NETWATCH_ENROLL_TOKEN: ""
-      NETWATCH_ENROLL_TOKEN_FILE: /run/secrets/netwatch_enroll_token
-
-  netwatch-agent-scan:
-    secrets:
-      - netwatch_enroll_token
-    environment:
-      NETWATCH_ENROLL_TOKEN: ""
-      NETWATCH_ENROLL_TOKEN_FILE: /run/secrets/netwatch_enroll_token
-
-  netwatch-agent-ddos:
-    secrets:
-      - netwatch_enroll_token
-    environment:
-      NETWATCH_ENROLL_TOKEN: ""
-      NETWATCH_ENROLL_TOKEN_FILE: /run/secrets/netwatch_enroll_token
-
-  netwatch-agent-lateral:
-    secrets:
-      - netwatch_enroll_token
-    environment:
-      NETWATCH_ENROLL_TOKEN: ""
-      NETWATCH_ENROLL_TOKEN_FILE: /run/secrets/netwatch_enroll_token
-
-  netwatch-agent-vuln:
-    secrets:
-      - netwatch_enroll_token
-    environment:
-      NETWATCH_ENROLL_TOKEN: ""
-      NETWATCH_ENROLL_TOKEN_FILE: /run/secrets/netwatch_enroll_token
 
   netwatch-portal:
     build:

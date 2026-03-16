@@ -18,7 +18,6 @@ from app.core.security import (
     new_csrf_token,
     new_refresh_token,
     token_hash,
-    verify_password,
 )
 from app.models.portal_refresh_sessions import PortalRefreshSessionModel
 from app.models.portal_users import PortalUserModel
@@ -208,23 +207,6 @@ def issue_login_tokens(
         "expires_in": settings.NETWATCH_ACCESS_TOKEN_TTL_SECONDS,
         "user": {"id": user.id, "username": user.username, "role": user.role},
     }
-
-
-def authenticate_user(username: str, password: str) -> Optional[PortalUserModel]:
-    uname = (username or "").strip()
-    if not uname or not password:
-        return None
-
-    db = SessionLocal()
-    try:
-        row: PortalUserModel | None = db.query(PortalUserModel).filter(PortalUserModel.username == uname).first()
-        if not row or not row.is_active:
-            return None
-        if not verify_password(password, row.password_hash):
-            return None
-        return row
-    finally:
-        db.close()
 
 
 def verify_refresh_csrf(request: Request) -> None:

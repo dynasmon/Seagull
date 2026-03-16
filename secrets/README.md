@@ -8,7 +8,6 @@ Expected files for `compose.prod.yml`:
 - `grafana_admin_password.txt`
 - `netwatch_jwt_secret.txt`
 - `netwatch_bootstrap_admin_password.txt`
-- `netwatch_enroll_token.txt`
 - `agent-ca/` (agent mTLS CA + CRL state)
 - `agent-pki/` (per-agent client cert/key material)
 - `netwatch_redis_password.txt`

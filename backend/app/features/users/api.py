@@ -13,7 +13,7 @@ from app.models.portal_users import PortalUserModel
 from app.schemas.users import AdminUserCreateIn, AdminUserOut, AdminUserUpdateIn
 
 
-router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/users", tags=["users"])
 
 
 def _normalize_role(role: str | None) -> str:

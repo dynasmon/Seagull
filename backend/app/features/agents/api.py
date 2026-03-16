@@ -10,7 +10,6 @@ from app.core.audit import audit_actor, write_audit_event
 from app.core.portal_auth import PortalPrincipal, require_admin, get_current_user
 from app.core.agent_auth import (
     AgentPrincipal,
-    generate_agent_token,
     generate_bootstrap_token,
     get_current_agent,
     get_presented_mtls_identity,
@@ -236,13 +235,9 @@ async def create_agent_bootstrap_token(
 async def enroll_agent(request: Request, payload: AgentEnrollIn):
     """Register an agent and bind its identity."""
 
-    auth_mode = (settings.NETWATCH_AGENT_AUTH_MODE or "mtls").lower().strip()
-    mtls_identity = get_presented_mtls_identity(request, require_verified=False)
-
-    if auth_mode == "mtls" and mtls_identity is None:
+    mtls_identity = get_presented_mtls_identity(request, require_verified=True)
+    if mtls_identity is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="mTLS identity required")
-
-    expected_enroll = (getattr(settings, "NETWATCH_ENROLL_TOKEN", None) or "").strip()
 
     db = SessionLocal()
     try:
@@ -254,133 +249,83 @@ async def enroll_agent(request: Request, payload: AgentEnrollIn):
             "version": payload.version,
         }
 
-        out_token: str | None = None
+        if mtls_identity.agent_id != payload.agent_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Certificate agent_id mismatch")
 
-        if mtls_identity is not None:
-            if mtls_identity.verified.lower() != "success":
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="mTLS verification failed")
-            if mtls_identity.agent_id != payload.agent_id:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Certificate agent_id mismatch")
+        raw_bootstrap = (request.headers.get("X-Agent-Bootstrap-Token") or "").strip()
+        if not raw_bootstrap:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bootstrap token")
+        _consume_bootstrap_token(db, payload.agent_id, raw_bootstrap)
 
-            if settings.NETWATCH_AGENT_ENROLL_REQUIRE_BOOTSTRAP_TOKEN:
-                raw_bootstrap = (request.headers.get("X-Agent-Bootstrap-Token") or "").strip()
-                if not raw_bootstrap:
-                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bootstrap token")
-                _consume_bootstrap_token(db, payload.agent_id, raw_bootstrap)
-            elif expected_enroll:
-                got = (request.headers.get("X-Enroll-Token") or "").strip()
-                if not got or got != expected_enroll:
-                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        if not agent:
+            default_cfg = settings.default_agent_config()
+            if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.NETWATCH_MAX_AGENT_CONFIG_BYTES:
+                default_cfg = {}
 
-            if not agent:
-                default_cfg = settings.default_agent_config()
-                if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.NETWATCH_MAX_AGENT_CONFIG_BYTES:
-                    default_cfg = {}
-
-                agent = AgentModel(
-                    agent_id=payload.agent_id,
-                    key_salt="",
-                    key_hash="",
-                    agent_metadata=meta,
-                    display_name=(payload.hostname or payload.agent_id)[:128],
-                    description=None,
-                    tags=[],
-                    config=default_cfg,
-                    metrics={},
-                    created_at=datetime.utcnow(),
-                    last_seen_at=datetime.utcnow(),
-                    is_revoked=False,
-                )
-            else:
-                if agent.is_revoked:
-                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
-
-                agent.agent_metadata = {**(agent.agent_metadata or {}), **meta}
-                agent.last_seen_at = datetime.utcnow()
-
-                if not (agent.display_name or "").strip():
-                    agent.display_name = (payload.hostname or payload.agent_id)[:128]
-
-            existing_identity = (
-                db.query(AgentIdentityModel)
-                .filter(AgentIdentityModel.fingerprint_sha256 == mtls_identity.fingerprint_sha256)
-                .first()
+            agent = AgentModel(
+                agent_id=payload.agent_id,
+                key_salt="",
+                key_hash="",
+                agent_metadata=meta,
+                display_name=(payload.hostname or payload.agent_id)[:128],
+                description=None,
+                tags=[],
+                config=default_cfg,
+                metrics={},
+                created_at=datetime.utcnow(),
+                last_seen_at=datetime.utcnow(),
+                is_revoked=False,
             )
-            if existing_identity and existing_identity.agent_id != payload.agent_id:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Certificate already bound to another agent")
-            if existing_identity and existing_identity.is_revoked:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Certificate revoked")
-
-            if not existing_identity:
-                existing_identity = AgentIdentityModel(
-                    agent_id=payload.agent_id,
-                    fingerprint_sha256=mtls_identity.fingerprint_sha256,
-                    serial_number=mtls_identity.serial_number,
-                    subject_dn=mtls_identity.subject_dn,
-                    issuer_dn=mtls_identity.issuer_dn,
-                    not_before=_parse_cert_time(request.headers.get("X-Agent-TLS-Not-Before")),
-                    not_after=_parse_cert_time(request.headers.get("X-Agent-TLS-Not-After")),
-                    is_revoked=False,
-                    identity_metadata={"enrolled_via": "mtls"},
-                    created_at=datetime.utcnow(),
-                    last_seen_at=datetime.utcnow(),
-                )
-            else:
-                existing_identity.serial_number = mtls_identity.serial_number
-                existing_identity.subject_dn = mtls_identity.subject_dn
-                existing_identity.issuer_dn = mtls_identity.issuer_dn
-                existing_identity.not_before = _parse_cert_time(request.headers.get("X-Agent-TLS-Not-Before"))
-                existing_identity.not_after = _parse_cert_time(request.headers.get("X-Agent-TLS-Not-After"))
-                existing_identity.last_seen_at = datetime.utcnow()
-
-            db.add(existing_identity)
         else:
-            # Legacy enrollment path for transition windows.
-            if auth_mode == "mtls":
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="mTLS identity required")
-            if expected_enroll:
-                got = (request.headers.get("X-Enroll-Token") or "").strip()
-                if not got or got != expected_enroll:
-                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+            if agent.is_revoked:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
 
-            token, salt, secret_hash = generate_agent_token(payload.agent_id)
-            out_token = token
+            agent.key_salt = ""
+            agent.key_hash = ""
+            agent.agent_metadata = {**(agent.agent_metadata or {}), **meta}
+            agent.last_seen_at = datetime.utcnow()
 
-            if not agent:
-                default_cfg = settings.default_agent_config()
-                if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.NETWATCH_MAX_AGENT_CONFIG_BYTES:
-                    default_cfg = {}
+            if not (agent.display_name or "").strip():
+                agent.display_name = (payload.hostname or payload.agent_id)[:128]
 
-                agent = AgentModel(
-                    agent_id=payload.agent_id,
-                    key_salt=salt,
-                    key_hash=secret_hash,
-                    agent_metadata=meta,
-                    display_name=(payload.hostname or payload.agent_id)[:128],
-                    description=None,
-                    tags=[],
-                    config=default_cfg,
-                    metrics={},
-                    created_at=datetime.utcnow(),
-                    last_seen_at=datetime.utcnow(),
-                    is_revoked=False,
-                )
-            else:
-                if agent.is_revoked:
-                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
+        existing_identity = (
+            db.query(AgentIdentityModel)
+            .filter(AgentIdentityModel.fingerprint_sha256 == mtls_identity.fingerprint_sha256)
+            .first()
+        )
+        if existing_identity and existing_identity.agent_id != payload.agent_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Certificate already bound to another agent")
+        if existing_identity and existing_identity.is_revoked:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Certificate revoked")
 
-                agent.key_salt = salt
-                agent.key_hash = secret_hash
-                agent.agent_metadata = {**(agent.agent_metadata or {}), **meta}
-                agent.last_seen_at = datetime.utcnow()
+        if not existing_identity:
+            existing_identity = AgentIdentityModel(
+                agent_id=payload.agent_id,
+                fingerprint_sha256=mtls_identity.fingerprint_sha256,
+                serial_number=mtls_identity.serial_number,
+                subject_dn=mtls_identity.subject_dn,
+                issuer_dn=mtls_identity.issuer_dn,
+                not_before=_parse_cert_time(request.headers.get("X-Agent-TLS-Not-Before")),
+                not_after=_parse_cert_time(request.headers.get("X-Agent-TLS-Not-After")),
+                is_revoked=False,
+                identity_metadata={"enrolled_via": "mtls"},
+                created_at=datetime.utcnow(),
+                last_seen_at=datetime.utcnow(),
+            )
+        else:
+            existing_identity.serial_number = mtls_identity.serial_number
+            existing_identity.subject_dn = mtls_identity.subject_dn
+            existing_identity.issuer_dn = mtls_identity.issuer_dn
+            existing_identity.not_before = _parse_cert_time(request.headers.get("X-Agent-TLS-Not-Before"))
+            existing_identity.not_after = _parse_cert_time(request.headers.get("X-Agent-TLS-Not-After"))
+            existing_identity.last_seen_at = datetime.utcnow()
 
-                if not (agent.display_name or "").strip():
-                    agent.display_name = (payload.hostname or payload.agent_id)[:128]
+        db.add(existing_identity)
 
         db.add(agent)
         db.commit()
 
-        return AgentEnrollOut(agent_id=payload.agent_id, agent_token=out_token, config=agent.config or {})
+        return AgentEnrollOut(agent_id=payload.agent_id, config=agent.config or {})
     finally:
         db.close()
 
