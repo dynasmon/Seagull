@@ -967,3 +967,59 @@ def get_storm_status() -> Dict[str, Any]:
         "since": since_iso,
         "open_alert_id": int(alert_id) if (alert_id and str(alert_id).isdigit()) else None,
     }
+
+
+def recover_runtime_state(*, clear_backlog_counters: bool = False, clear_ui_caches: bool = True) -> Dict[str, Any]:
+    """Force-reset volatile ingest runtime state in Redis.
+
+    This is an operational recovery action for post-incident scenarios where
+    stale runtime keys keep the UI in draining/protection mode.
+    """
+
+    r = get_redis()
+    if r is None:
+        return {"ok": False, "reason": "redis_unavailable"}
+
+    keys = [
+        storm_active_key(),
+        "netwatch:ingest:storm_reason",
+        "netwatch:ingest:storm_sample_hot",
+        "netwatch:ingest:storm_sample_warm",
+        storm_session_key(),
+        storm_since_key(),
+        storm_alert_id_key(),
+        _pressure_state_key(),
+        "netwatch:ingest:bp_mode",
+    ]
+
+    if clear_backlog_counters:
+        keys.append(backlog_events_key())
+
+    deleted_direct = 0
+    try:
+        deleted_direct = int(r.delete(*keys) or 0)
+    except Exception:
+        deleted_direct = 0
+
+    deleted_pattern = 0
+    if clear_ui_caches:
+        for pattern in ("netwatch:overview:v2:*", "netwatch:events:*", "netwatch:inventory:overview:*"):
+            try:
+                batch = []
+                for k in r.scan_iter(match=pattern, count=256):
+                    batch.append(k)
+                    if len(batch) >= 256:
+                        deleted_pattern += int(r.delete(*batch) or 0)
+                        batch = []
+                if batch:
+                    deleted_pattern += int(r.delete(*batch) or 0)
+            except Exception:
+                continue
+
+    return {
+        "ok": True,
+        "deleted_direct_keys": int(deleted_direct),
+        "deleted_cache_keys": int(deleted_pattern),
+        "clear_backlog_counters": bool(clear_backlog_counters),
+        "clear_ui_caches": bool(clear_ui_caches),
+    }

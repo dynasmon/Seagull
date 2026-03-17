@@ -19,7 +19,7 @@ from app.models.alert_rule_tuning import AlertRuleTuningHistoryModel, AlertRuleT
 from app.models.alerts import AlertModel
 from app.models.attack_chain import AttackChainAllowlistModel, AttackChainCaseModel, AttackChainStepModel
 from app.models.events import EventRollup1mModel, IngestStats1sModel, NetEventModel, NetEventRollup1sModel, SshFailRollup1mModel
-from app.models.inventory import AgentInventorySnapshotModel
+from app.models.inventory import AgentInventoryLatestModel, AgentInventorySnapshotModel
 from app.models.ip_enrichment_cache import IpEnrichmentCacheModel
 from app.models.portal_login_events import PortalLoginEventModel
 from app.models.portal_otp_tokens import PortalOneTimeTokenModel
@@ -79,6 +79,10 @@ def _ensure_indexes(conn) -> None:
         ),
         (
             "net_events",
+            Index("idx_net_events_recent_brin", NetEventModel.timestamp, postgresql_using="brin"),
+        ),
+        (
+            "net_events",
             Index(
                 "idx_net_events_flow_ts",
                 NetEventModel.timestamp,
@@ -130,6 +134,44 @@ def _ensure_indexes(conn) -> None:
             ),
         ),
         (
+            "net_events",
+            Index("idx_net_events_app_proto_ts", NetEventModel.app_proto, NetEventModel.timestamp.desc()),
+        ),
+        (
+            "net_events",
+            Index("idx_net_events_dns_qname_ts", NetEventModel.dns_qname, NetEventModel.timestamp.desc()),
+        ),
+        (
+            "net_events",
+            Index("idx_net_events_http_host_ts", NetEventModel.http_host, NetEventModel.timestamp.desc()),
+        ),
+        (
+            "net_events",
+            Index("idx_net_events_tls_sni_ts", NetEventModel.tls_sni, NetEventModel.timestamp.desc()),
+        ),
+        (
+            "net_events",
+            Index("idx_net_events_ja4_ts", NetEventModel.ja4, NetEventModel.timestamp.desc()),
+        ),
+        (
+            "net_events",
+            Index(
+                "idx_net_events_ssh_action_col_ts",
+                NetEventModel.ssh_action,
+                NetEventModel.timestamp.desc(),
+                postgresql_where=(NetEventModel.event_type == "ssh_auth"),
+            ),
+        ),
+        (
+            "net_events",
+            Index(
+                "idx_net_events_ssh_user_col_ts",
+                NetEventModel.ssh_username,
+                NetEventModel.timestamp.desc(),
+                postgresql_where=(NetEventModel.event_type == "ssh_auth"),
+            ),
+        ),
+        (
             "agents",
             Index("idx_agents_last_seen_at", AgentModel.last_seen_at),
         ),
@@ -168,6 +210,14 @@ def _ensure_indexes(conn) -> None:
         (
             "agent_inventory_snapshots",
             Index("idx_inv_hash", AgentInventorySnapshotModel.agent_id, AgentInventorySnapshotModel.packages_hash),
+        ),
+        (
+            "agent_inventory_latest",
+            Index("idx_inv_latest_collected", AgentInventoryLatestModel.collected_at.desc()),
+        ),
+        (
+            "agent_inventory_latest",
+            Index("idx_inv_latest_packages_count", AgentInventoryLatestModel.packages_count.desc(), AgentInventoryLatestModel.agent_id.asc()),
         ),
         (
             "event_rollups_1m",

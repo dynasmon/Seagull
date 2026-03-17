@@ -1,12 +1,12 @@
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.db import engine
 from app.core.agent_auth import AgentPrincipal, get_current_agent
-from app.core.portal_auth import get_current_user
+from app.core.portal_auth import get_current_user, require_admin
 from app.core.storm_control import evaluate_storm, stable_sample
 from app.core.ingest_control import (
     evaluate_backpressure,
@@ -16,6 +16,7 @@ from app.core.ingest_control import (
     mark_storm_active,
     storm_maybe_open_alert,
     get_storm_status,
+    recover_runtime_state,
 )
 from app.core.config import settings
 from app.models.events import NetEventModel, NetEventRollup1sModel
@@ -94,6 +95,27 @@ def storm_status(_: object = Depends(get_current_user)):
     """Storm Mode health payload for the Overview page."""
 
     return get_storm_status()
+
+
+@router.post("/storm/recover")
+def storm_recover(
+    clear_backlog_counters: bool = Query(False, description="Also reset backlog event counter key."),
+    clear_ui_caches: bool = Query(True, description="Clear overview/events/inventory redis caches."),
+    _admin=Depends(require_admin),
+):
+    """Administrative runtime recovery for post-incident stuck states.
+
+    Clears volatile ingest pressure/storm keys and cache keys so dashboards and
+    timelines resume normal update behavior immediately.
+    """
+
+    res = recover_runtime_state(
+        clear_backlog_counters=bool(clear_backlog_counters),
+        clear_ui_caches=bool(clear_ui_caches),
+    )
+    if not bool(res.get("ok")):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(res.get("reason") or "recover_failed"))
+    return res
 
 
 @router.post("/events")

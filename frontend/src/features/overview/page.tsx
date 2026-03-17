@@ -9,7 +9,8 @@ import type { Alert, StormStatus } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
 import { useOverviewLive } from "./live";
 
-import { getStormStatus } from "./api";
+import { getStormStatus, recoverStormRuntime } from "./api";
+import { useAuth } from "@/features/auth/context";
 
 import { listAttackChainCases } from "@/features/attack_chain/api";
 
@@ -304,9 +305,13 @@ function SeverityBadge({ severity }: { severity: string }) {
 }
 
 export default function OverviewPage() {
-  const { snapshot, isLoading, error, lastUpdatedAt } = useOverviewLive();
+  const { snapshot, isLoading, error, lastUpdatedAt, refresh } = useOverviewLive();
+  const { user } = useAuth();
+  const isAdmin = (user?.role || "").toLowerCase() === "admin";
 
   const [storm, setStorm] = useState<StormStatus | null>(null);
+  const [recoverBusy, setRecoverBusy] = useState(false);
+  const [recoverMsg, setRecoverMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -330,6 +335,27 @@ export default function OverviewPage() {
       window.clearInterval(timer);
     };
   }, []);
+
+  const runRecover = async (hard = false) => {
+    if (recoverBusy) return;
+    setRecoverBusy(true);
+    setRecoverMsg(null);
+    try {
+      const out = await recoverStormRuntime({ clear_ui_caches: true, clear_backlog_counters: hard });
+      await Promise.allSettled([refresh(), getStormStatus().then(setStorm)]);
+      if (out.ok) {
+        setRecoverMsg(
+          `Recovery applied. Keys: ${Number(out.deleted_direct_keys || 0)} + cache: ${Number(out.deleted_cache_keys || 0)}`
+        );
+      } else {
+        setRecoverMsg(`Recovery failed: ${String(out.reason || "unknown")}`);
+      }
+    } catch (e: any) {
+      setRecoverMsg(e?.message || "Recovery failed");
+    } finally {
+      setRecoverBusy(false);
+    }
+  };
 
   const derived = useMemo(() => {
     if (!snapshot) {
@@ -567,6 +593,40 @@ export default function OverviewPage() {
             tone={storm?.phase === "draining" ? "default" : "good"}
           />
         </div>
+        {isAdmin ? (
+          <div className="mt-4 rounded-lg border border-border/60 bg-muted/10 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className={cx(
+                  "rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-mono uppercase tracking-wider text-primary",
+                  "hover:bg-primary/15 disabled:opacity-60 disabled:cursor-not-allowed"
+                )}
+                onClick={() => runRecover(false)}
+                disabled={recoverBusy}
+                title="Clear stuck storm/draining and UI cache state"
+              >
+                {recoverBusy ? "Recovering..." : "Recover Runtime State"}
+              </button>
+              <button
+                type="button"
+                className={cx(
+                  "rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-1.5 text-xs font-mono uppercase tracking-wider text-amber-300",
+                  "hover:bg-amber-500/15 disabled:opacity-60 disabled:cursor-not-allowed"
+                )}
+                onClick={() => runRecover(true)}
+                disabled={recoverBusy}
+                title="Also reset backlog counter key (hard recovery)"
+              >
+                Hard Recover
+              </button>
+              <div className="text-[11px] text-muted-foreground">
+                Admin tool for stuck post-DDoS state.
+              </div>
+            </div>
+            {recoverMsg ? <div className="mt-2 text-xs font-mono text-muted-foreground">{recoverMsg}</div> : null}
+          </div>
+        ) : null}
       </DashboardSection>
 
       <DashboardSection id="volume" title="EVENT VOLUME" defaultOpen>

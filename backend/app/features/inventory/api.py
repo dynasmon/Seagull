@@ -1,16 +1,22 @@
 import hashlib
+import json
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import String, and_, cast, func, literal, or_, select
 
 from app.core.agent_auth import AgentPrincipal, get_current_agent
+from app.core.config import settings
 from app.core.portal_auth import get_current_user
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.db import SessionLocal
+from app.core.redis_client import get_redis
+from app.core.observability import incr_counter, observe_hist
 from app.models.agents import AgentModel
-from app.models.inventory import AgentInventorySnapshotModel
+from app.models.inventory import AgentInventoryLatestModel, AgentInventorySnapshotModel
 from app.schemas.pagination import CursorPage
 from app.schemas.inventory import InventorySnapshotIn, InventorySnapshotOut, PackageEntry
 
@@ -48,6 +54,32 @@ def _floor_dt(dt: datetime, minutes_step: int) -> datetime:
     dt = dt.astimezone(timezone.utc)
     minute = (dt.minute // minutes_step) * minutes_step
     return dt.replace(minute=minute, second=0, microsecond=0)
+
+
+def _cache_get_json(key: str) -> Optional[Dict[str, Any]]:
+    r = get_redis()
+    if r is None:
+        return None
+    try:
+        raw = r.get(key)
+        if not raw:
+            return None
+        out = json.loads(raw)
+        return out if isinstance(out, dict) else None
+    except Exception:
+        return None
+
+
+def _cache_set_json(key: str, payload: Dict[str, Any], ttl_s: int) -> None:
+    if ttl_s <= 0:
+        return
+    r = get_redis()
+    if r is None:
+        return
+    try:
+        r.setex(key, int(ttl_s), json.dumps(payload, ensure_ascii=True, separators=(",", ":"), default=str))
+    except Exception:
+        return
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -89,6 +121,33 @@ async def ingest_inventory(
             extra=extra,
         )
         db.add(row)
+        db.flush()
+        latest_ins = insert(AgentInventoryLatestModel).values(
+            agent_id=agent.agent_id,
+            snapshot_id=int(row.id),
+            collected_at=row.collected_at,
+            os=row.os,
+            packages_count=int(row.packages_count or 0),
+            packages_hash=row.packages_hash,
+            manager=row.manager,
+            extra=row.extra,
+        )
+        db.execute(
+            latest_ins.on_conflict_do_update(
+                index_elements=[AgentInventoryLatestModel.agent_id],
+                set_={
+                    "snapshot_id": latest_ins.excluded.snapshot_id,
+                    "collected_at": latest_ins.excluded.collected_at,
+                    "os": latest_ins.excluded.os,
+                    "packages_count": latest_ins.excluded.packages_count,
+                    "packages_hash": latest_ins.excluded.packages_hash,
+                    "manager": latest_ins.excluded.manager,
+                    "extra": latest_ins.excluded.extra,
+                    "updated_at": func.now(),
+                },
+                where=(latest_ins.excluded.collected_at >= AgentInventoryLatestModel.collected_at),
+            )
+        )
         db.commit()
         return {"id": row.id, "stored": True}
     finally:
@@ -262,6 +321,7 @@ async def get_inventory_overview(
     while keeping the portal client simple (minimal client-side aggregation).
     """
 
+    started = time.perf_counter()
     a = (agent_id or "").strip()
     if not a or a == "__all":
         a = None
@@ -274,6 +334,12 @@ async def get_inventory_overview(
     start_10m = _floor_dt(start_ts, 10)
     end_1m = _floor_dt(now, 1)
     end_10m = _floor_dt(now, 10)
+
+    cache_key = f"netwatch:inventory:overview:v2:w={int(window_minutes)}:a={a or '*'}"
+    cached = _cache_get_json(cache_key)
+    if cached is not None:
+        incr_counter("api_cache_hit_total", route="/inventory/overview")
+        return cached
 
     db = SessionLocal()
     try:
@@ -288,23 +354,22 @@ async def get_inventory_overview(
         agents_online_5m = int(db.execute(online_stmt).scalar() or 0)
 
         inv_6h_stmt = (
-            select(func.count(func.distinct(AgentInventorySnapshotModel.agent_id)))
-            .select_from(AgentInventorySnapshotModel)
-            .where(AgentInventorySnapshotModel.collected_at >= now - timedelta(hours=6))
+            select(func.count())
+            .select_from(AgentInventoryLatestModel)
+            .where(AgentInventoryLatestModel.collected_at >= now - timedelta(hours=6))
         )
         if a is not None:
-            inv_6h_stmt = inv_6h_stmt.where(AgentInventorySnapshotModel.agent_id == a)
+            inv_6h_stmt = inv_6h_stmt.where(AgentInventoryLatestModel.agent_id == a)
         agents_with_inventory_6h = int(db.execute(inv_6h_stmt).scalar() or 0)
 
         last_inv_stmt = (
             select(
-                AgentInventorySnapshotModel.agent_id.label("agent_id"),
-                func.max(AgentInventorySnapshotModel.collected_at).label("last_at"),
+                AgentInventoryLatestModel.agent_id.label("agent_id"),
+                AgentInventoryLatestModel.collected_at.label("last_at"),
             )
-            .group_by(AgentInventorySnapshotModel.agent_id)
         )
         if a is not None:
-            last_inv_stmt = last_inv_stmt.where(AgentInventorySnapshotModel.agent_id == a)
+            last_inv_stmt = last_inv_stmt.where(AgentInventoryLatestModel.agent_id == a)
         last_inv_rows = db.execute(last_inv_stmt).all()
         oldest_inventory_age_minutes = 0
         if last_inv_rows:
@@ -388,20 +453,15 @@ async def get_inventory_overview(
         # -----------------------------
         # OS distribution (latest snapshot per agent within window)
         # -----------------------------
-        latest_rn = func.row_number().over(
-            partition_by=AgentInventorySnapshotModel.agent_id,
-            order_by=AgentInventorySnapshotModel.collected_at.desc(),
-        )
         latest_os_stmt = select(
-            AgentInventorySnapshotModel.agent_id.label("agent_id"),
-            AgentInventorySnapshotModel.os.label("os"),
-            latest_rn.label("rn"),
+            AgentInventoryLatestModel.agent_id.label("agent_id"),
+            AgentInventoryLatestModel.os.label("os"),
         ).where(
-            AgentInventorySnapshotModel.collected_at >= start_ts,
-            AgentInventorySnapshotModel.collected_at <= now,
+            AgentInventoryLatestModel.collected_at >= start_ts,
+            AgentInventoryLatestModel.collected_at <= now,
         )
         if a is not None:
-            latest_os_stmt = latest_os_stmt.where(AgentInventorySnapshotModel.agent_id == a)
+            latest_os_stmt = latest_os_stmt.where(AgentInventoryLatestModel.agent_id == a)
         latest_os_subq = latest_os_stmt.subquery()
         os_label = func.coalesce(
             func.nullif(latest_os_subq.c.os["pretty_name"].astext, ""),
@@ -412,7 +472,6 @@ async def get_inventory_overview(
         ).label("os")
         os_rows = db.execute(
             select(os_label, func.count().label("agents"))
-            .where(latest_os_subq.c.rn == 1)
             .group_by(os_label)
             .order_by(func.count().desc(), os_label.asc())
         ).all()
@@ -422,20 +481,18 @@ async def get_inventory_overview(
         # Package manager distribution (latest snapshot per agent within window)
         # -----------------------------
         latest_mgr_stmt = select(
-            AgentInventorySnapshotModel.agent_id.label("agent_id"),
-            AgentInventorySnapshotModel.manager.label("manager"),
-            latest_rn.label("rn"),
+            AgentInventoryLatestModel.agent_id.label("agent_id"),
+            AgentInventoryLatestModel.manager.label("manager"),
         ).where(
-            AgentInventorySnapshotModel.collected_at >= start_ts,
-            AgentInventorySnapshotModel.collected_at <= now,
+            AgentInventoryLatestModel.collected_at >= start_ts,
+            AgentInventoryLatestModel.collected_at <= now,
         )
         if a is not None:
-            latest_mgr_stmt = latest_mgr_stmt.where(AgentInventorySnapshotModel.agent_id == a)
+            latest_mgr_stmt = latest_mgr_stmt.where(AgentInventoryLatestModel.agent_id == a)
         latest_mgr_subq = latest_mgr_stmt.subquery()
         mgr_label = func.coalesce(func.nullif(latest_mgr_subq.c.manager, ""), literal("unknown")).label("manager")
         mgr_rows = db.execute(
             select(mgr_label, func.count().label("agents"))
-            .where(latest_mgr_subq.c.rn == 1)
             .group_by(mgr_label)
             .order_by(func.count().desc(), mgr_label.asc())
         ).all()
@@ -458,21 +515,20 @@ async def get_inventory_overview(
         # -----------------------------
         # Packages count by agent (latest snapshot) - top 50
         # -----------------------------
-        pkg_rn = func.row_number().over(
-            partition_by=AgentInventorySnapshotModel.agent_id,
-            order_by=AgentInventorySnapshotModel.collected_at.desc(),
-        )
         latest_pkg_subq = select(
-            AgentInventorySnapshotModel.agent_id.label("agent_id"),
-            AgentInventorySnapshotModel.packages_count.label("packages_count"),
-            pkg_rn.label("rn"),
+            AgentInventoryLatestModel.agent_id.label("agent_id"),
+            AgentInventoryLatestModel.packages_count.label("packages_count"),
+            AgentInventoryLatestModel.collected_at.label("collected_at"),
         ).subquery()
         pkg_stmt = (
             select(
                 latest_pkg_subq.c.agent_id.label("metric"),
                 latest_pkg_subq.c.packages_count.label("value"),
             )
-            .where(latest_pkg_subq.c.rn == 1)
+            .where(
+                latest_pkg_subq.c.collected_at >= start_ts,
+                latest_pkg_subq.c.collected_at <= now,
+            )
             .order_by(latest_pkg_subq.c.packages_count.desc(), latest_pkg_subq.c.agent_id.asc())
             .limit(50)
         )
@@ -519,21 +575,18 @@ async def get_inventory_overview(
             agent_stmt = agent_stmt.where(AgentModel.agent_id == a)
         agents = db.execute(agent_stmt).scalars().all()
 
-        inv_rn = func.row_number().over(
-            partition_by=AgentInventorySnapshotModel.agent_id,
-            order_by=AgentInventorySnapshotModel.collected_at.desc(),
+        latest_inv_stmt = select(
+            AgentInventoryLatestModel.agent_id.label("agent_id"),
+            AgentInventoryLatestModel.collected_at.label("collected_at"),
+            AgentInventoryLatestModel.os.label("os"),
+            AgentInventoryLatestModel.packages_count.label("packages_count"),
+            AgentInventoryLatestModel.packages_hash.label("packages_hash"),
+            AgentInventoryLatestModel.manager.label("manager"),
+            AgentInventoryLatestModel.extra.label("extra"),
         )
-        latest_inv_subq = select(
-            AgentInventorySnapshotModel.agent_id.label("agent_id"),
-            AgentInventorySnapshotModel.collected_at.label("collected_at"),
-            AgentInventorySnapshotModel.os.label("os"),
-            AgentInventorySnapshotModel.packages_count.label("packages_count"),
-            AgentInventorySnapshotModel.packages_hash.label("packages_hash"),
-            AgentInventorySnapshotModel.manager.label("manager"),
-            AgentInventorySnapshotModel.extra.label("extra"),
-            inv_rn.label("rn"),
-        ).subquery()
-        latest_inv_rows = db.execute(select(latest_inv_subq).where(latest_inv_subq.c.rn == 1)).mappings().all()
+        if a is not None:
+            latest_inv_stmt = latest_inv_stmt.where(AgentInventoryLatestModel.agent_id == a)
+        latest_inv_rows = db.execute(latest_inv_stmt).mappings().all()
         latest_by_agent = {str(r.get("agent_id")): r for r in latest_inv_rows}
 
         fleet_health: List[Dict[str, Any]] = []
@@ -645,7 +698,7 @@ async def get_inventory_overview(
                 }
             )
 
-        return {
+        payload = {
             "kpis": kpis,
             "snapshots_per_minute": snapshots_per_minute,
             "changes_per_10m": changes_per_10m,
@@ -659,5 +712,8 @@ async def get_inventory_overview(
             "window_minutes": window_minutes,
             "agent_id": agent_id or "__all",
         }
+        _cache_set_json(cache_key, payload, int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+        observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/inventory/overview")
+        return payload
     finally:
         db.close()

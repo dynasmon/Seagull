@@ -21,3 +21,18 @@ class AgentInventorySnapshotModel(Base):
     manager = Column(String(32), nullable=True)
 
     extra = Column(JSONB, nullable=False, default=dict)
+
+
+class AgentInventoryLatestModel(Base):
+    __tablename__ = "agent_inventory_latest"
+
+    agent_id = Column(String(64), primary_key=True, nullable=False)
+    snapshot_id = Column(Integer, nullable=False)
+    collected_at = Column(DateTime(timezone=True), nullable=False)
+
+    os = Column(JSONB, nullable=False, default=dict)
+    packages_count = Column(Integer, nullable=False, default=0)
+    packages_hash = Column(String(64), nullable=False)
+    manager = Column(String(32), nullable=True)
+    extra = Column(JSONB, nullable=False, default=dict)
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

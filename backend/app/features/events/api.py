@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import date, datetime, timedelta, timezone
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -17,9 +18,10 @@ from app.core.clickhouse import (
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.es import es_is_available, get_es_client, search_backend_mode
-from app.core.observability import log_event
+from app.core.observability import incr_counter, log_event, observe_hist
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.portal_auth import get_current_user
+from app.core.redis_client import get_redis
 from app.models.events import NetEventModel, NetEventRollup1sModel
 from app.schemas.events import (
     NetEventDB,
@@ -43,6 +45,32 @@ router = APIRouter(
 )
 
 logger = logging.getLogger("netwatch.api.events")
+
+
+def _cache_get_json(key: str) -> Optional[Dict[str, Any]]:
+    r = get_redis()
+    if r is None:
+        return None
+    try:
+        raw = r.get(key)
+        if not raw:
+            return None
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else None
+    except Exception:
+        return None
+
+
+def _cache_set_json(key: str, payload: Dict[str, Any], ttl_s: int) -> None:
+    if ttl_s <= 0:
+        return
+    r = get_redis()
+    if r is None:
+        return
+    try:
+        r.setex(key, int(ttl_s), json.dumps(payload, ensure_ascii=True, separators=(",", ":"), default=str))
+    except Exception:
+        return
 
 
 def _parse_iso_dt(value: str | None) -> datetime:
@@ -233,6 +261,28 @@ def _es_failover_allowed() -> bool:
     return search_backend_mode() != "elasticsearch"
 
 
+def _pg_has_newer_event(*, latest_ts: datetime, agent_id: str | None = None, event_type: str | None = None, margin_s: int | None = None) -> bool:
+    db = SessionLocal()
+    try:
+        stmt = select(func.max(NetEventModel.timestamp))
+        if agent_id:
+            stmt = stmt.where(NetEventModel.agent_id == agent_id)
+        if event_type:
+            stmt = stmt.where(NetEventModel.event_type == event_type)
+        pg_ts = db.execute(stmt).scalar()
+        if not isinstance(pg_ts, datetime):
+            return False
+        if pg_ts.tzinfo is None:
+            pg_ts = pg_ts.replace(tzinfo=timezone.utc)
+        ref = latest_ts if latest_ts.tzinfo else latest_ts.replace(tzinfo=timezone.utc)
+        threshold = int(margin_s or getattr(settings, "NETWATCH_EVENTS_ES_STALE_MARGIN_SECONDS", 15) or 15)
+        return (pg_ts - ref).total_seconds() > float(max(1, threshold))
+    except Exception:
+        return False
+    finally:
+        db.close()
+
+
 def _hit_to_event(hit: Dict[str, Any]) -> NetEventDB:
     src = hit.get("_source") or {}
 
@@ -339,7 +389,13 @@ def list_events(
             has_more = len(hits) > int(page_size)
             page_hits = hits[: int(page_size)]
 
+            if not page_hits and _es_failover_allowed():
+                raise LookupError("es_empty_page")
+
             items = [_hit_to_event(h) for h in page_hits]
+            if items and _es_failover_allowed():
+                if _pg_has_newer_event(latest_ts=items[0].timestamp, agent_id=agent_id, event_type=event_type):
+                    raise LookupError("es_stale")
 
             next_cursor = None
             if has_more and page_hits:
@@ -444,7 +500,13 @@ def get_recent_events(
                 track_total_hits=False,
             )
             hits = (res.get("hits") or {}).get("hits") or []
-            return [_hit_to_event(h) for h in hits]
+            if not hits and _es_failover_allowed():
+                raise LookupError("es_empty_recent")
+            out = [_hit_to_event(h) for h in hits]
+            if out and _es_failover_allowed():
+                if _pg_has_newer_event(latest_ts=out[0].timestamp, agent_id=agent_id, event_type=event_type):
+                    raise LookupError("es_stale_recent")
+            return out
         except Exception as e:
             if not _es_failover_allowed():
                 raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(e).__name__}")
@@ -602,7 +664,13 @@ def get_ssh_summary(
     Works best when the lupe_enricher worker is enabled (geo/asn fields).
     """
 
+    started = time.perf_counter()
     since_ts = datetime.now(timezone.utc) - timedelta(minutes=int(since_minutes))
+    cache_key = f"netwatch:events:ssh_summary:v2:sm={int(since_minutes)}:l={int(limit)}:a={agent_id or '*'}"
+    cached = _cache_get_json(cache_key)
+    if cached is not None:
+        incr_counter("api_cache_hit_total", route="/events/ssh/summary")
+        return SshSummaryResponse(**cached)
 
     es = _es_client_or_none()
     if es is not None:
@@ -811,7 +879,7 @@ def get_ssh_summary(
                     )
                 )
 
-            return SshSummaryResponse(
+            payload = SshSummaryResponse(
                 generated_at=datetime.now(timezone.utc),
                 since_minutes=int(since_minutes),
                 agent_id=agent_id,
@@ -823,6 +891,9 @@ def get_ssh_summary(
                 users_attempted=users_attempted,
                 sudo_recent=sudo_recent,
             )
+            _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+            observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/ssh/summary", source="elasticsearch")
+            return payload
         except Exception as e:
             if not _es_failover_allowed():
                 raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(e).__name__}")
@@ -830,6 +901,9 @@ def get_ssh_summary(
     # Postgres fallback (original implementation)
     db = SessionLocal()
     try:
+        ssh_action = func.coalesce(NetEventModel.ssh_action, NetEventModel.extra["action"].astext)
+        ssh_user = func.coalesce(NetEventModel.ssh_username, NetEventModel.extra["username"].astext)
+
         def _top_ips(action: str) -> list[SshIpStat]:
             stmt = (
                 select(
@@ -842,7 +916,7 @@ def get_ssh_summary(
                 )
                 .where(
                     NetEventModel.event_type == "ssh_auth",
-                    NetEventModel.extra["action"].astext == action,
+                    ssh_action == action,
                     NetEventModel.timestamp >= since_ts,
                     NetEventModel.src_ip.is_not(None),
                 )
@@ -871,7 +945,7 @@ def get_ssh_summary(
             )
             .where(
                 NetEventModel.event_type == "ssh_auth",
-                NetEventModel.extra["action"].astext.in_(["accepted", "failed_password", "invalid_user"]),
+                ssh_action.in_(["accepted", "failed_password", "invalid_user"]),
                 NetEventModel.timestamp >= since_ts,
                 NetEventModel.src_ip.is_not(None),
             )
@@ -890,7 +964,7 @@ def get_ssh_summary(
                 NetEventModel.timestamp.label("timestamp"),
                 NetEventModel.agent_id.label("agent_id"),
                 NetEventModel.src_ip.label("src_ip"),
-                NetEventModel.extra["username"].astext.label("username"),
+                ssh_user.label("username"),
                 NetEventModel.extra["geo_country"].astext.label("geo_country"),
                 NetEventModel.extra["geo_org"].astext.label("geo_org"),
                 NetEventModel.extra["asn"].astext.label("asn"),
@@ -898,8 +972,8 @@ def get_ssh_summary(
             )
             .where(
                 NetEventModel.event_type == "ssh_auth",
-                NetEventModel.extra["action"].astext == "accepted",
-                NetEventModel.extra["username"].astext == "root",
+                ssh_action == "accepted",
+                ssh_user == "root",
                 NetEventModel.timestamp >= since_ts,
             )
             .order_by(NetEventModel.timestamp.desc())
@@ -913,16 +987,16 @@ def get_ssh_summary(
         # Users that attempted to log in (failed/invalid)
         stmt = (
             select(
-                NetEventModel.extra["username"].astext.label("username"),
+                ssh_user.label("username"),
                 func.count().label("count"),
             )
             .where(
                 NetEventModel.event_type == "ssh_auth",
-                NetEventModel.extra["action"].astext.in_(["failed_password", "invalid_user"]),
+                ssh_action.in_(["failed_password", "invalid_user"]),
                 NetEventModel.timestamp >= since_ts,
-                NetEventModel.extra.has_key("username"),
+                ssh_user.is_not(None),
             )
-            .group_by(NetEventModel.extra["username"].astext)
+            .group_by(ssh_user)
             .order_by(func.count().desc())
             .limit(int(limit))
         )
@@ -936,7 +1010,7 @@ def get_ssh_summary(
             select(
                 NetEventModel.timestamp.label("timestamp"),
                 NetEventModel.agent_id.label("agent_id"),
-                NetEventModel.extra["username"].astext.label("username"),
+                ssh_user.label("username"),
                 NetEventModel.extra["target_user"].astext.label("target_user"),
                 NetEventModel.extra["command"].astext.label("command"),
                 NetEventModel.extra["tty"].astext.label("tty"),
@@ -954,7 +1028,7 @@ def get_ssh_summary(
         rows = db.execute(stmt).mappings().all()
         sudo_recent = [SudoEventSummary(**dict(r)) for r in rows]
 
-        return SshSummaryResponse(
+        payload = SshSummaryResponse(
             generated_at=datetime.now(timezone.utc),
             since_minutes=int(since_minutes),
             agent_id=agent_id,
@@ -966,6 +1040,9 @@ def get_ssh_summary(
             users_attempted=users_attempted,
             sudo_recent=sudo_recent,
         )
+        _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+        observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/ssh/summary", source="postgres")
+        return payload
     finally:
         db.close()
 
@@ -1033,7 +1110,13 @@ def get_protocol_intel_summary(
     to reduce load on Postgres.
     """
 
+    started = time.perf_counter()
     since_ts = datetime.now(timezone.utc) - timedelta(minutes=int(since_minutes))
+    cache_key = f"netwatch:events:network_summary:v3:sm={int(since_minutes)}:l={int(limit)}:a={agent_id or '*'}"
+    cached = _cache_get_json(cache_key)
+    if cached is not None:
+        incr_counter("api_cache_hit_total", route="/events/network/summary")
+        return ProtocolIntelSummaryResponse(**cached)
 
     ch = _ch_client_or_none()
     if ch is not None:
@@ -1147,7 +1230,7 @@ def get_protocol_intel_summary(
                 key_expr="JSONExtractString(d.extra_json, 'ja3')", limit=int(limit),
             )
 
-            return ProtocolIntelSummaryResponse(
+            payload = ProtocolIntelSummaryResponse(
                 generated_at=datetime.now(timezone.utc),
                 since_minutes=int(since_minutes),
                 agent_id=agent_id,
@@ -1171,6 +1254,9 @@ def get_protocol_intel_summary(
                 top_ja4=top_ja4,
                 top_ja3=top_ja3,
             )
+            _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+            observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/network/summary", source="clickhouse")
+            return payload
         except Exception as e:
             if not isinstance(e, LookupError):
                 log_event(logger, "warning", "events_network_summary_clickhouse_error", error_type=type(e).__name__)
@@ -1306,7 +1392,7 @@ def get_protocol_intel_summary(
 
             top_ja3 = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("top_ja3") if b.get("key") is not None]
 
-            return ProtocolIntelSummaryResponse(
+            payload = ProtocolIntelSummaryResponse(
                 generated_at=datetime.now(timezone.utc),
                 since_minutes=int(since_minutes),
                 agent_id=agent_id,
@@ -1330,6 +1416,9 @@ def get_protocol_intel_summary(
                 top_ja4=top_ja4,
                 top_ja3=top_ja3,
             )
+            _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+            observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/network/summary", source="elasticsearch")
+            return payload
         except Exception as e:
             if not _es_failover_allowed():
                 raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(e).__name__}")
@@ -1337,54 +1426,69 @@ def get_protocol_intel_summary(
     # Postgres fallback (original implementation)
     db = SessionLocal()
     try:
+        app_proto_expr = func.coalesce(NetEventModel.app_proto, NetEventModel.extra["app_proto"].astext)
+        app_proto_reason_expr = func.coalesce(NetEventModel.app_proto_reason, NetEventModel.extra["app_proto_reason"].astext)
+        app_proto_conf_expr = func.coalesce(NetEventModel.app_proto_conf_band, NetEventModel.extra["app_proto_conf_band"].astext)
+        dns_qname_expr = func.coalesce(NetEventModel.dns_qname, NetEventModel.extra["dns_qname"].astext)
+        http_host_expr = func.coalesce(NetEventModel.http_host, NetEventModel.extra["http_host"].astext)
+        http_method_expr = func.coalesce(NetEventModel.http_method, NetEventModel.extra["http_method"].astext)
+        tls_sni_expr = func.coalesce(NetEventModel.tls_sni, NetEventModel.extra["tls_sni"].astext)
+        tls_alpn_expr = func.coalesce(NetEventModel.tls_alpn_first, NetEventModel.extra["tls_alpn_first"].astext)
+        ja4_expr = func.coalesce(NetEventModel.ja4, NetEventModel.extra["ja4"].astext)
+        ja4_ptype_expr = func.coalesce(NetEventModel.ja4_ptype, NetEventModel.extra["ja4_ptype"].astext, "t")
+        ja3_expr = func.coalesce(NetEventModel.ja3, NetEventModel.extra["ja3"].astext)
+
         base_conds = [NetEventModel.timestamp >= since_ts]
         if agent_id:
             base_conds.append(NetEventModel.agent_id == agent_id)
 
-        def _count_where(*conds) -> int:
-            stmt = select(func.count()).select_from(NetEventModel).where(*base_conds, *conds)
-            return int(db.execute(stmt).scalar() or 0)
+        counts = db.execute(
+            select(
+                func.count().label("total_events"),
+                func.count().filter(
+                    or_(
+                        func.nullif(app_proto_expr, "").is_not(None),
+                        func.nullif(dns_qname_expr, "").is_not(None),
+                        func.nullif(http_host_expr, "").is_not(None),
+                        func.nullif(http_method_expr, "").is_not(None),
+                        func.nullif(ja4_expr, "").is_not(None),
+                        func.nullif(ja3_expr, "").is_not(None),
+                        func.nullif(tls_sni_expr, "").is_not(None),
+                    )
+                ).label("with_proto_metadata"),
+                func.count().filter(func.nullif(dns_qname_expr, "").is_not(None)).label("dns_events"),
+                func.count().filter(or_(func.nullif(http_host_expr, "").is_not(None), func.nullif(http_method_expr, "").is_not(None))).label("http_events"),
+                func.count().filter(or_(func.nullif(ja4_expr, "").is_not(None), func.nullif(ja3_expr, "").is_not(None), func.nullif(tls_sni_expr, "").is_not(None))).label("tls_events"),
+            ).where(*base_conds)
+        ).mappings().one()
 
-        total_events = _count_where()
-        with_proto_metadata = _count_where(
-            or_(
-                NetEventModel.extra.has_key("app_proto"),
-                NetEventModel.extra.has_key("dns_qname"),
-                NetEventModel.extra.has_key("http_host"),
-                NetEventModel.extra.has_key("ja4"),
-                NetEventModel.extra.has_key("ja3"),
-                NetEventModel.extra.has_key("tls_sni"),
-            )
-        )
-        dns_events = _count_where(NetEventModel.extra.has_key("dns_qname"))
-        http_events = _count_where(or_(NetEventModel.extra.has_key("http_host"), NetEventModel.extra.has_key("http_method")))
-        tls_events = _count_where(
-            or_(NetEventModel.extra.has_key("ja4"), NetEventModel.extra.has_key("ja3"), NetEventModel.extra.has_key("tls_sni"))
-        )
+        total_events = int(counts.get("total_events") or 0)
+        with_proto_metadata = int(counts.get("with_proto_metadata") or 0)
+        dns_events = int(counts.get("dns_events") or 0)
+        http_events = int(counts.get("http_events") or 0)
+        tls_events = int(counts.get("tls_events") or 0)
 
-        def _top_k(expr, *, ensure_key: str | None = None, nonempty: bool = True) -> list[ProtoCount]:
+        def _top_k(expr, *, nonempty: bool = True) -> list[ProtoCount]:
             stmt = select(expr.label("key"), func.count().label("count")).where(*base_conds)
-            if ensure_key:
-                stmt = stmt.where(NetEventModel.extra.has_key(ensure_key))
             if nonempty:
                 stmt = stmt.where(expr.is_not(None), expr != "")
             stmt = stmt.group_by(expr).order_by(func.count().desc()).limit(int(limit))
             rows = db.execute(stmt).all()
             return [ProtoCount(key=str(r.key), count=int(r.count or 0)) for r in rows if r.key is not None]
 
-        app_protocols = _top_k(NetEventModel.extra["app_proto"].astext, ensure_key="app_proto")
+        app_protocols = _top_k(app_proto_expr)
         transport_protocols = _top_k(func.lower(NetEventModel.proto))
         top_dst_ports = _top_k(cast(NetEventModel.dst_port, String))
         top_src_ports = _top_k(cast(NetEventModel.src_port, String))
-        app_proto_reasons = _top_k(NetEventModel.extra["app_proto_reason"].astext, ensure_key="app_proto_reason")
-        app_proto_conf_bands = _top_k(NetEventModel.extra["app_proto_conf_band"].astext, ensure_key="app_proto_conf_band")
+        app_proto_reasons = _top_k(app_proto_reason_expr)
+        app_proto_conf_bands = _top_k(app_proto_conf_expr)
         ja4_ptypes = _top_k(
-            func.coalesce(func.nullif(NetEventModel.extra["ja4_ptype"].astext, ""), "t"),
+            func.coalesce(func.nullif(ja4_ptype_expr, ""), "t"),
             nonempty=False,
         )
-        http_methods = _top_k(func.upper(NetEventModel.extra["http_method"].astext), ensure_key="http_method")
+        http_methods = _top_k(func.upper(http_method_expr))
 
-        dns_qname = NetEventModel.extra["dns_qname"].astext
+        dns_qname = dns_qname_expr
         dns_risk_txt = NetEventModel.extra["dns_risk"].astext
         dns_risk_int = cast(
             func.coalesce(
@@ -1402,34 +1506,33 @@ def get_protocol_intel_summary(
                 func.coalesce(func.max(dns_risk_int), 0).label("risk"),
                 func.count().label("count"),
             )
-            .where(*base_conds, NetEventModel.extra.has_key("dns_qname"), dns_qname.is_not(None), dns_qname != "")
+            .where(*base_conds, dns_qname.is_not(None), dns_qname != "")
             .group_by(dns_qname)
             .order_by(func.count().desc())
             .limit(int(limit))
         ).all()
         top_dns_queries = [ProtoDnsQueryStat(qname=str(r.qname), risk=int(r.risk or 0), count=int(r.count or 0)) for r in dns_rows]
 
-        top_http_hosts = _top_k(func.lower(NetEventModel.extra["http_host"].astext), ensure_key="http_host")
-        top_tls_sni = _top_k(func.lower(NetEventModel.extra["tls_sni"].astext), ensure_key="tls_sni")
-        top_alpn = _top_k(func.lower(NetEventModel.extra["tls_alpn_first"].astext), ensure_key="tls_alpn_first")
+        top_http_hosts = _top_k(func.lower(http_host_expr))
+        top_tls_sni = _top_k(func.lower(tls_sni_expr))
+        top_alpn = _top_k(func.lower(tls_alpn_expr))
 
-        ja4_expr = NetEventModel.extra["ja4"].astext
         ja4_rows = db.execute(
             select(
                 ja4_expr.label("ja4"),
-                func.coalesce(func.nullif(func.max(NetEventModel.extra["ja4_ptype"].astext), ""), "t").label("ptype"),
+                func.coalesce(func.nullif(func.max(ja4_ptype_expr), ""), "t").label("ptype"),
                 func.count().label("count"),
             )
-            .where(*base_conds, NetEventModel.extra.has_key("ja4"), ja4_expr.is_not(None), ja4_expr != "")
+            .where(*base_conds, ja4_expr.is_not(None), ja4_expr != "")
             .group_by(ja4_expr)
             .order_by(func.count().desc())
             .limit(int(limit))
         ).all()
         top_ja4 = [ProtoJa4Stat(ja4=str(r.ja4), ptype=str(r.ptype or "t"), count=int(r.count or 0)) for r in ja4_rows]
 
-        top_ja3 = _top_k(NetEventModel.extra["ja3"].astext, ensure_key="ja3")
+        top_ja3 = _top_k(ja3_expr)
 
-        return ProtocolIntelSummaryResponse(
+        payload = ProtocolIntelSummaryResponse(
             generated_at=datetime.now(timezone.utc),
             since_minutes=int(since_minutes),
             agent_id=agent_id,
@@ -1453,6 +1556,9 @@ def get_protocol_intel_summary(
             top_ja4=top_ja4,
             top_ja3=top_ja3,
         )
+        _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+        observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/network/summary", source="postgres")
+        return payload
     finally:
         db.close()
 
@@ -1542,6 +1648,8 @@ def get_protocol_intel_samples(
                     continue
                 item.extra = _strip_large_extra(item.extra)
                 out.append(item)
+            if not out and _es_failover_allowed():
+                raise LookupError("es_empty_samples")
             log_event(
                 logger,
                 "info",
@@ -1584,6 +1692,8 @@ def get_protocol_intel_samples(
                     item.extra = _strip_large_extra(item.extra)
                     out2.append(item)
                 out2.sort(key=lambda x: (x.timestamp, x.id), reverse=True)
+                if not out2 and _es_failover_allowed():
+                    raise LookupError("es_empty_samples_fallback")
                 log_event(
                     logger,
                     "warning",
@@ -1606,20 +1716,20 @@ def get_protocol_intel_samples(
 
     # Postgres fallback (ORM/expressions)
     kind_map_pg = {
-        "app_proto": NetEventModel.extra["app_proto"].astext,
+        "app_proto": func.coalesce(NetEventModel.app_proto, NetEventModel.extra["app_proto"].astext),
         "transport": func.lower(NetEventModel.proto),
         "dst_port": NetEventModel.dst_port,
         "src_port": NetEventModel.src_port,
-        "app_proto_reason": NetEventModel.extra["app_proto_reason"].astext,
-        "app_proto_conf_band": NetEventModel.extra["app_proto_conf_band"].astext,
-        "dns_qname": NetEventModel.extra["dns_qname"].astext,
-        "http_host": func.lower(NetEventModel.extra["http_host"].astext),
-        "http_method": func.upper(NetEventModel.extra["http_method"].astext),
-        "tls_sni": func.lower(NetEventModel.extra["tls_sni"].astext),
-        "tls_alpn_first": func.lower(NetEventModel.extra["tls_alpn_first"].astext),
-        "ja4": NetEventModel.extra["ja4"].astext,
-        "ja4_ptype": func.coalesce(func.nullif(NetEventModel.extra["ja4_ptype"].astext, ""), "t"),
-        "ja3": NetEventModel.extra["ja3"].astext,
+        "app_proto_reason": func.coalesce(NetEventModel.app_proto_reason, NetEventModel.extra["app_proto_reason"].astext),
+        "app_proto_conf_band": func.coalesce(NetEventModel.app_proto_conf_band, NetEventModel.extra["app_proto_conf_band"].astext),
+        "dns_qname": func.coalesce(NetEventModel.dns_qname, NetEventModel.extra["dns_qname"].astext),
+        "http_host": func.lower(func.coalesce(NetEventModel.http_host, NetEventModel.extra["http_host"].astext)),
+        "http_method": func.upper(func.coalesce(NetEventModel.http_method, NetEventModel.extra["http_method"].astext)),
+        "tls_sni": func.lower(func.coalesce(NetEventModel.tls_sni, NetEventModel.extra["tls_sni"].astext)),
+        "tls_alpn_first": func.lower(func.coalesce(NetEventModel.tls_alpn_first, NetEventModel.extra["tls_alpn_first"].astext)),
+        "ja4": func.coalesce(NetEventModel.ja4, NetEventModel.extra["ja4"].astext),
+        "ja4_ptype": func.coalesce(func.nullif(func.coalesce(NetEventModel.ja4_ptype, NetEventModel.extra["ja4_ptype"].astext), ""), "t"),
+        "ja3": func.coalesce(NetEventModel.ja3, NetEventModel.extra["ja3"].astext),
     }
     expr = kind_map_pg.get(kind)
     if expr is None:
@@ -1696,101 +1806,6 @@ def get_protocol_intel_samples(
             error_type=type(e).__name__,
             error=str(e)[:300],
         )
-        # Fallback path: scan recent rows and filter in Python to keep the drawer useful
-        # even when SQL/json expressions hit legacy malformed rows.
-        try:
-            scan_limit = max(int(limit) * 20, 2000)
-            scan_limit = min(scan_limit, 20000)
-            stmt2 = (
-                select(
-                    NetEventModel.id,
-                    NetEventModel.agent_id,
-                    NetEventModel.event_type,
-                    NetEventModel.schema_version,
-                    NetEventModel.timestamp,
-                    NetEventModel.src_ip,
-                    NetEventModel.dst_ip,
-                    NetEventModel.src_port,
-                    NetEventModel.dst_port,
-                    NetEventModel.proto,
-                    NetEventModel.bytes,
-                    NetEventModel.extra,
-                )
-                .where(NetEventModel.timestamp >= since_ts)
-                .order_by(NetEventModel.timestamp.desc())
-                .limit(scan_limit)
-            )
-            if agent_id:
-                stmt2 = stmt2.where(NetEventModel.agent_id == agent_id)
-            rows2 = db.execute(stmt2).mappings().all()
-
-            out2: list[NetEventDB] = []
-            for r in rows2:
-                item = _row_to_event_safe(dict(r))
-                if item is None:
-                    continue
-
-                extra = item.extra if isinstance(item.extra, dict) else {}
-                matched = False
-                if kind == "transport":
-                    matched = str(item.proto or "").lower() == str(value_norm)
-                elif kind == "dst_port":
-                    try:
-                        matched = item.dst_port == int(value_norm)
-                    except Exception:
-                        matched = False
-                elif kind == "src_port":
-                    try:
-                        matched = item.src_port == int(value_norm)
-                    except Exception:
-                        matched = False
-                elif kind == "app_proto":
-                    matched = str(extra.get("app_proto") or "") == str(value_norm)
-                elif kind == "app_proto_reason":
-                    matched = str(extra.get("app_proto_reason") or "") == str(value_norm)
-                elif kind == "app_proto_conf_band":
-                    matched = str(extra.get("app_proto_conf_band") or "") == str(value_norm)
-                elif kind == "dns_qname":
-                    matched = str(extra.get("dns_qname") or "").lower() == str(value_norm)
-                elif kind == "http_host":
-                    matched = str(extra.get("http_host") or "").lower() == str(value_norm)
-                elif kind == "http_method":
-                    matched = str(extra.get("http_method") or "").upper() == str(value_norm)
-                elif kind == "tls_sni":
-                    matched = str(extra.get("tls_sni") or "").lower() == str(value_norm)
-                elif kind == "tls_alpn_first":
-                    matched = str(extra.get("tls_alpn_first") or "").lower() == str(value_norm)
-                elif kind == "ja4":
-                    matched = str(extra.get("ja4") or "") == str(value_norm)
-                elif kind == "ja4_ptype":
-                    ptype = str(extra.get("ja4_ptype") or "").strip() or "t"
-                    matched = ptype == str(value_norm)
-                elif kind == "ja3":
-                    matched = str(extra.get("ja3") or "") == str(value_norm)
-
-                if matched:
-                    out2.append(item)
-                    if len(out2) >= int(limit):
-                        break
-
-            log_event(
-                logger,
-                "warning",
-                "protocol_intel_samples_pg_fallback_ok",
-                kind=kind,
-                matched=len(out2),
-                scanned=len(rows2),
-            )
-            return out2
-        except Exception as e2:
-            log_event(
-                logger,
-                "error",
-                "protocol_intel_samples_pg_fallback_error",
-                kind=kind,
-                error_type=type(e2).__name__,
-                error=str(e2)[:300],
-            )
-            return []
+        return []
     finally:
         db.close()

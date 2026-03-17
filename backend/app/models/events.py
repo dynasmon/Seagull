@@ -23,6 +23,21 @@ class NetEventModel(Base):
     # JSONB enables expression/GIN indexes and faster key extraction in Postgres.
     extra = Column(JSONB, nullable=False, default=dict)
 
+    # Hot denormalized fields to avoid repeated JSONB extraction in analytics paths.
+    app_proto = Column(String(32), nullable=True)
+    app_proto_reason = Column(String(64), nullable=True)
+    app_proto_conf_band = Column(String(16), nullable=True)
+    dns_qname = Column(String(512), nullable=True)
+    http_host = Column(String(512), nullable=True)
+    http_method = Column(String(16), nullable=True)
+    tls_sni = Column(String(512), nullable=True)
+    tls_alpn_first = Column(String(64), nullable=True)
+    ja3 = Column(String(128), nullable=True)
+    ja4 = Column(String(128), nullable=True)
+    ja4_ptype = Column(String(8), nullable=True)
+    ssh_action = Column(String(64), nullable=True)
+    ssh_username = Column(String(128), nullable=True)
+
 
 class NetEventRollup1sModel(Base):
     __tablename__ = "net_event_rollups_1s"

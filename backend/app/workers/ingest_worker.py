@@ -534,6 +534,45 @@ def _severity_from_extra(extra: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _event_hot_columns(event_type: str, extra: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(extra, dict):
+        extra = {}
+
+    def _s(k: str, *, lower: bool = False, upper: bool = False, default: Optional[str] = None) -> Optional[str]:
+        raw = extra.get(k)
+        if raw is None:
+            return default
+        v = str(raw).strip()
+        if not v:
+            return default
+        if lower:
+            return v.lower()
+        if upper:
+            return v.upper()
+        return v
+
+    out: Dict[str, Any] = {
+        "app_proto": _s("app_proto"),
+        "app_proto_reason": _s("app_proto_reason"),
+        "app_proto_conf_band": _s("app_proto_conf_band"),
+        "dns_qname": _s("dns_qname", lower=True),
+        "http_host": _s("http_host", lower=True),
+        "http_method": _s("http_method", upper=True),
+        "tls_sni": _s("tls_sni", lower=True),
+        "tls_alpn_first": _s("tls_alpn_first", lower=True),
+        "ja3": _s("ja3"),
+        "ja4": _s("ja4"),
+        "ja4_ptype": _s("ja4_ptype", default="t"),
+    }
+    if event_type == "ssh_auth":
+        out["ssh_action"] = _s("action")
+        out["ssh_username"] = _s("username")
+    else:
+        out["ssh_action"] = None
+        out["ssh_username"] = None
+    return out
+
+
 def _write_clickhouse_events(*, ch_client: Any, hot_rows: List[Dict[str, Any]]) -> int:
     if not hot_rows:
         return 0
@@ -737,21 +776,21 @@ def main() -> None:
 
                     extra_v = ev[10] if (len(ev) > 10 and isinstance(ev[10], dict)) else {}
 
-                    hot_rows.append(
-                        {
-                            "agent_id": agent_id,
-                            "event_type": event_type,
-                            "schema_version": schema_v,
-                            "timestamp": ts,
-                            "src_ip": src_ip,
-                            "dst_ip": dst_ip,
-                            "src_port": src_port,
-                            "dst_port": dst_port,
-                            "proto": proto,
-                            "bytes": bytes_v,
-                            "extra": extra_v,
-                        }
-                    )
+                    row = {
+                        "agent_id": agent_id,
+                        "event_type": event_type,
+                        "schema_version": schema_v,
+                        "timestamp": ts,
+                        "src_ip": src_ip,
+                        "dst_ip": dst_ip,
+                        "src_port": src_port,
+                        "dst_port": dst_port,
+                        "proto": proto,
+                        "bytes": bytes_v,
+                        "extra": extra_v,
+                    }
+                    row.update(_event_hot_columns(event_type=event_type, extra=extra_v))
+                    hot_rows.append(row)
 
                 # rollups
                 for rr in msg.get("rollups") or []:

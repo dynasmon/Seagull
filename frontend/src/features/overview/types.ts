@@ -96,3 +96,12 @@ export type StormStatus = {
   since: string | null;
   open_alert_id: number | null;
 };
+
+export type StormRecoverResponse = {
+  ok: boolean;
+  reason?: string;
+  deleted_direct_keys?: number;
+  deleted_cache_keys?: number;
+  clear_backlog_counters?: boolean;
+  clear_ui_caches?: boolean;
+};
