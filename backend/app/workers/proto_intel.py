@@ -145,11 +145,38 @@ def _fetch_batch(last_id: int, max_id: int, batch_size: int) -> List[Dict[str, A
 
 
 def _patch_event(event_id: int, patch: Dict[str, Any]) -> None:
+    def _norm_str(k: str, *, lower: bool = False, upper: bool = False, default: str | None = None) -> str | None:
+        raw = patch.get(k)
+        if raw is None:
+            return default
+        v = str(raw).strip()
+        if not v:
+            return default
+        if lower:
+            return v.lower()
+        if upper:
+            return v.upper()
+        return v
+
+    values = {
+        "extra": NetEventModel.extra.op("||")(patch),
+        "app_proto": _norm_str("app_proto"),
+        "app_proto_reason": _norm_str("app_proto_reason"),
+        "app_proto_conf_band": _norm_str("app_proto_conf_band"),
+        "dns_qname": _norm_str("dns_qname", lower=True),
+        "http_host": _norm_str("http_host", lower=True),
+        "http_method": _norm_str("http_method", upper=True),
+        "tls_sni": _norm_str("tls_sni", lower=True),
+        "tls_alpn_first": _norm_str("tls_alpn_first", lower=True),
+        "ja3": _norm_str("ja3"),
+        "ja4": _norm_str("ja4"),
+        "ja4_ptype": _norm_str("ja4_ptype", default="t"),
+    }
     with engine.begin() as conn:
         conn.execute(
             update(NetEventModel)
             .where(NetEventModel.id == int(event_id))
-            .values(extra=NetEventModel.extra.op("||")(patch))
+            .values(**values)
         )
 
 

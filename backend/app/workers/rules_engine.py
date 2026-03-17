@@ -443,54 +443,59 @@ def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[A
         return []
 
     out: List[AlertModel] = []
+    incident_rule_id = "incident_ddos_correlated_v1"
+
+    dst_ips = sorted({str(a.dst_ip) for a in ddos_alerts if a.dst_ip})
+    if not dst_ips:
+        return []
+
+    correlated_rows = db.execute(
+        select(
+            AlertModel.dst_ip.label("dst_ip"),
+            AlertModel.rule_id.label("rule_id"),
+            func.count().label("cnt"),
+        )
+        .where(
+            and_(
+                AlertModel.created_at >= since,
+                AlertModel.dst_ip.in_(dst_ips),
+                AlertModel.rule_id.in_(["port_scan_pcap_v1", "ssh_bruteforce_authlog_v2"]),
+            )
+        )
+        .group_by(AlertModel.dst_ip, AlertModel.rule_id)
+    ).all()
+
+    by_dst: Dict[str, Dict[str, int]] = {}
+    for row in correlated_rows:
+        if not row.dst_ip or not row.rule_id:
+            continue
+        by_dst.setdefault(str(row.dst_ip), {})[str(row.rule_id)] = int(row.cnt or 0)
+
+    cooldown_since = now - timedelta(minutes=10)
+    candidate_pairs = {(str(a.dst_ip), int(a.dst_port) if a.dst_port is not None else None) for a in ddos_alerts if a.dst_ip}
+    existing_rows = db.execute(
+        select(AlertModel.dst_ip, AlertModel.dst_port)
+        .where(
+            and_(
+                AlertModel.created_at >= cooldown_since,
+                AlertModel.rule_id == incident_rule_id,
+                AlertModel.dst_ip.in_(dst_ips),
+            )
+        )
+    ).all()
+    existing_pairs = {(str(r.dst_ip), int(r.dst_port) if r.dst_port is not None else None) for r in existing_rows}
 
     for a in ddos_alerts:
         dst_ip = a.dst_ip
         if not dst_ip:
             continue
-
-        stmt = (
-            select(AlertModel.rule_id, func.count().label("cnt"))
-            .where(
-                and_(
-                    AlertModel.created_at >= since,
-                    AlertModel.dst_ip == dst_ip,
-                    AlertModel.rule_id.in_(["port_scan_pcap_v1", "ssh_bruteforce_authlog_v2"]),
-                )
-            )
-            .group_by(AlertModel.rule_id)
-        )
-
-        rows = db.execute(stmt).all()
-        if not rows:
+        correlated = by_dst.get(str(dst_ip)) or {}
+        if sum(correlated.values()) <= 0:
             continue
-
-        correlated = {r.rule_id: int(r.cnt) for r in rows if r.rule_id}
-        total = sum(correlated.values())
-        if total <= 0:
+        pair = (str(dst_ip), int(a.dst_port) if a.dst_port is not None else None)
+        if pair in existing_pairs:
             continue
-
-        incident_rule_id = "incident_ddos_correlated_v1"
-
-        cooldown_since = now - timedelta(minutes=10)
-        existing = (
-            db.execute(
-                select(func.count())
-                .select_from(AlertModel)
-                .where(
-                    and_(
-                        AlertModel.created_at >= cooldown_since,
-                        AlertModel.rule_id == incident_rule_id,
-                        AlertModel.dst_ip == dst_ip,
-                        AlertModel.dst_port == a.dst_port,
-                    )
-                )
-            )
-            .scalar()
-            or 0
-        )
-
-        if int(existing) > 0:
+        if pair not in candidate_pairs:
             continue
 
         incident = AlertModel(
@@ -519,6 +524,7 @@ def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[A
         )
         db.add(incident)
         out.append(incident)
+        existing_pairs.add(pair)
 
     return out
 

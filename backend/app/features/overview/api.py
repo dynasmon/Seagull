@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 import threading
 import time
 import zlib
@@ -14,6 +16,7 @@ from app.core.es import es_is_available, get_es_client
 from app.core.portal_auth import get_current_user
 from app.core.redis_client import get_redis
 from app.core.config import settings
+from app.core.observability import incr_counter, log_event, observe_hist
 from app.models.agents import AgentModel
 from app.models.alerts import AlertModel
 from app.models.events import EventRollup1mModel, IngestStats1sModel, NetEventModel, NetEventRollup1sModel, SshFailRollup1mModel
@@ -23,6 +26,7 @@ router = APIRouter(
     tags=["overview"],
     dependencies=[Depends(get_current_user)],
 )
+logger = logging.getLogger("netwatch.api.overview")
 
 _overview_cache_lock = threading.Lock()
 _overview_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
@@ -42,6 +46,19 @@ def _overview_cache_get(key: str) -> Optional[Dict[str, Any]]:
     ttl_s = max(0, _env_int("NETWATCH_OVERVIEW_CACHE_TTL_SECONDS", 3))
     if ttl_s <= 0:
         return None
+
+    redis_key = f"netwatch:overview:v2:{key}"
+    r = get_redis()
+    if r is not None:
+        try:
+            cached_raw = r.get(redis_key)
+            if cached_raw:
+                cached_payload = json.loads(cached_raw)
+                if isinstance(cached_payload, dict):
+                    return cached_payload
+        except Exception:
+            pass
+
     now = time.time()
     with _overview_cache_lock:
         item = _overview_cache.get(key)
@@ -58,6 +75,13 @@ def _overview_cache_set(key: str, payload: Dict[str, Any]) -> None:
     ttl_s = max(0, _env_int("NETWATCH_OVERVIEW_CACHE_TTL_SECONDS", 3))
     if ttl_s <= 0:
         return
+    redis_key = f"netwatch:overview:v2:{key}"
+    r = get_redis()
+    if r is not None:
+        try:
+            r.setex(redis_key, ttl_s, json.dumps(payload, ensure_ascii=True, separators=(",", ":"), default=str))
+        except Exception:
+            pass
     now = time.time()
     max_entries = max(16, _env_int("NETWATCH_OVERVIEW_CACHE_MAX_ENTRIES", 128))
     with _overview_cache_lock:
@@ -245,9 +269,11 @@ def get_overview(
     agent_id: Optional[str] = Query(None, description="Optional agent filter for charts/tables"),
     lite: bool = Query(False, description="If true, skip heavy tables for faster first paint"),
 ):
+    started = time.perf_counter()
     cache_key = f"w={int(window_minutes)}|a={agent_id or '*'}|lite={1 if lite else 0}"
     cached = _overview_cache_get(cache_key)
     if cached is not None:
+        incr_counter("api_cache_hit_total", route="/overview")
         return cached
 
     now = _utc_now()
@@ -296,16 +322,32 @@ def get_overview(
             backlog_msgs >= draining_msg_threshold and draining_msg_threshold > 0
         )
         use_ingest_rollups = bool(rollups_fresh and (protection_active or draining))
+        rollup_stuck = False
+
+        # Failsafe: when pressure flags stay high after drain, do not keep overview pinned to stale rollups.
+        if use_ingest_rollups and last_roll_ts is not None:
+            hot_max_stmt = select(func.max(NetEventModel.timestamp))
+            if agent_id:
+                hot_max_stmt = hot_max_stmt.where(NetEventModel.agent_id == agent_id)
+            hot_last_ts = _to_utc(db.execute(hot_max_stmt).scalar())
+            if hot_last_ts is not None:
+                drift_s = (hot_last_ts - last_roll_ts).total_seconds()
+                if drift_s > float(max(20, rollup_fresh_s)):
+                    rollup_stuck = True
+                    use_ingest_rollups = False
 
         data_end_ts = last_roll_ts if (use_ingest_rollups and last_roll_ts is not None) else now
         start_ts = data_end_ts - timedelta(minutes=window_minutes)
 
-        total_agents = int(db.execute(select(func.count()).select_from(AgentModel)).scalar() or 0)
-        online_stmt = select(func.count()).select_from(AgentModel).where(AgentModel.last_seen_at >= now - timedelta(minutes=5))
-        online_agents = int(db.execute(online_stmt).scalar() or 0)
-
-        alerts_60m_stmt = select(func.count()).select_from(AlertModel).where(AlertModel.created_at >= now - timedelta(minutes=60))
-        alerts_60m = int(db.execute(alerts_60m_stmt).scalar() or 0)
+        kpi_stmt = select(
+            (select(func.count()).select_from(AgentModel)).label("total_agents"),
+            (select(func.count()).select_from(AgentModel).where(AgentModel.last_seen_at >= now - timedelta(minutes=5))).label("online_agents"),
+            (select(func.count()).select_from(AlertModel).where(AlertModel.created_at >= now - timedelta(minutes=60))).label("alerts_60m"),
+        )
+        kpi_row = db.execute(kpi_stmt).mappings().one()
+        total_agents = int(kpi_row.get("total_agents") or 0)
+        online_agents = int(kpi_row.get("online_agents") or 0)
+        alerts_60m = int(kpi_row.get("alerts_60m") or 0)
 
         events_5m = 0
         last_event_ts = None
@@ -717,6 +759,7 @@ def get_overview(
                 "protection_active": bool(protection_active),
                 "draining": bool(draining),
                 "rollups_fresh": bool(rollups_fresh),
+                "rollup_stuck_fallback": bool(rollup_stuck),
                 "rollups_last_bucket": (last_roll_ts.isoformat() if last_roll_ts is not None else None),
                 "window_start": start_ts.isoformat(),
                 "window_end": data_end_ts.isoformat(),
@@ -738,6 +781,8 @@ def get_overview(
             "raw_events": raw_events,
         }
         _overview_cache_set(cache_key, payload)
+        observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/overview")
+        log_event(logger, "info", "overview_response_ready", window_minutes=int(window_minutes), agent_id=agent_id or "", lite=bool(lite), use_ingest_rollups=bool(use_ingest_rollups))
         return payload
     finally:
         db.close()
