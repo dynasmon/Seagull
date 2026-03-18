@@ -71,6 +71,7 @@ class WorkerConfig:
     es_verify_certs: bool
     es_ca_certs: Optional[str]
     clickhouse_enabled: bool
+    clickhouse_required: bool
     clickhouse_reconnect_seconds: float
 
 
@@ -137,7 +138,8 @@ def load_config() -> WorkerConfig:
         es_password=env_value("NETWATCH_ES_PASSWORD", None),
         es_verify_certs=_env_bool("NETWATCH_ES_VERIFY_CERTS", True),
         es_ca_certs=env_value("NETWATCH_ES_CA_CERTS", None),
-        clickhouse_enabled=_env_bool("NETWATCH_CLICKHOUSE_ENABLED", False),
+        clickhouse_enabled=_env_bool("NETWATCH_CLICKHOUSE_ENABLED", True),
+        clickhouse_required=_env_bool("NETWATCH_CLICKHOUSE_REQUIRED", True),
         clickhouse_reconnect_seconds=max(1.0, _env_float("NETWATCH_CLICKHOUSE_RECONNECT_SECONDS", 5.0)),
     )
 
@@ -437,6 +439,38 @@ def _decr_backlog_events(r, received: int) -> None:
         return
 
 
+def _record_clickhouse_progress(r, *, rows: int) -> None:
+    if r is None or rows <= 0:
+        return
+    ts_s = int(time.time())
+    rows_key = f"netwatch:ingest:clickhouse:rows:{ts_s}"
+    batches_key = f"netwatch:ingest:clickhouse:batches:{ts_s}"
+    try:
+        pipe = r.pipeline()
+        pipe.incrby(rows_key, int(rows))
+        pipe.expire(rows_key, 30)
+        pipe.incrby(batches_key, 1)
+        pipe.expire(batches_key, 30)
+        pipe.execute()
+    except Exception:
+        return
+
+
+def _set_clickhouse_state(r, *, state: str, error_type: str = "") -> None:
+    if r is None:
+        return
+    try:
+        pipe = r.pipeline()
+        pipe.setex("netwatch:ingest:clickhouse:state", 120, str(state or "unknown"))
+        if error_type:
+            pipe.setex("netwatch:ingest:clickhouse:error_type", 120, str(error_type)[:64])
+        else:
+            pipe.delete("netwatch:ingest:clickhouse:error_type")
+        pipe.execute()
+    except Exception:
+        return
+
+
 def _insert_hot_rows_with_pg_ids(conn, hot_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Insert hot rows in Postgres and return rows linked with pg_event_id.
 
@@ -573,6 +607,82 @@ def _event_hot_columns(event_type: str, extra: Dict[str, Any]) -> Dict[str, Any]
     return out
 
 
+def _event_fingerprint(row: Dict[str, Any]) -> str:
+    extra = row.get("extra") or {}
+    if not isinstance(extra, dict):
+        extra = {}
+    return "|".join(
+        [
+            str(row.get("agent_id") or ""),
+            str(row.get("event_type") or ""),
+            _to_ch_ts(row.get("timestamp")).isoformat(),
+            str(row.get("src_ip") or ""),
+            str(row.get("dst_ip") or ""),
+            str(_norm_port(row.get("src_port")) or 0),
+            str(_norm_port(row.get("dst_port")) or 0),
+            str(row.get("proto") or ""),
+            str(int(row.get("bytes") or 0)),
+            json.dumps(extra, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str),
+        ]
+    )
+
+
+def _event_from_wire(ev: List[Any]) -> Dict[str, Any] | None:
+    agent_id = ev[0] if len(ev) > 0 else None
+    event_type = ev[1] if len(ev) > 1 else None
+    if not agent_id or not event_type:
+        return None
+
+    try:
+        ts = datetime.fromisoformat(ev[3]) if (len(ev) > 3 and ev[3]) else datetime.utcnow()
+    except Exception:
+        ts = datetime.utcnow()
+
+    try:
+        schema_v = int(ev[2] or 1)
+    except Exception:
+        schema_v = 1
+
+    src_ip = ev[4] if (len(ev) > 4 and ev[4]) else None
+    dst_ip = ev[5] if (len(ev) > 5 and ev[5]) else None
+
+    src_port = ev[6] if (len(ev) > 6) else None
+    dst_port = ev[7] if (len(ev) > 7) else None
+    try:
+        src_port = int(src_port) if src_port is not None else None
+    except Exception:
+        src_port = None
+    try:
+        dst_port = int(dst_port) if dst_port is not None else None
+    except Exception:
+        dst_port = None
+
+    proto = ev[8] if (len(ev) > 8 and ev[8]) else None
+
+    bytes_v = ev[9] if (len(ev) > 9) else None
+    try:
+        bytes_v = int(bytes_v) if bytes_v is not None else 0
+    except Exception:
+        bytes_v = 0
+
+    extra_v = ev[10] if (len(ev) > 10 and isinstance(ev[10], dict)) else {}
+    row = {
+        "agent_id": agent_id,
+        "event_type": event_type,
+        "schema_version": schema_v,
+        "timestamp": ts,
+        "src_ip": src_ip,
+        "dst_ip": dst_ip,
+        "src_port": src_port,
+        "dst_port": dst_port,
+        "proto": proto,
+        "bytes": bytes_v,
+        "extra": extra_v,
+    }
+    row.update(_event_hot_columns(event_type=event_type, extra=extra_v))
+    return row
+
+
 def _write_clickhouse_events(*, ch_client: Any, hot_rows: List[Dict[str, Any]]) -> int:
     if not hot_rows:
         return 0
@@ -582,6 +692,7 @@ def _write_clickhouse_events(*, ch_client: Any, hot_rows: List[Dict[str, Any]]) 
         extra = r.get("extra") or {}
         if not isinstance(extra, dict):
             extra = {}
+        is_sudo = str(r.get("event_type") or "") == "sudo_cmd"
 
         ts = _to_ch_ts(r.get("timestamp"))
         pg_event_id = r.get("pg_event_id")
@@ -604,6 +715,23 @@ def _write_clickhouse_events(*, ch_client: Any, hot_rows: List[Dict[str, Any]]) 
                 _norm_port(r.get("dst_port")),
                 (str(r.get("proto")) if r.get("proto") else None),
                 (int(r.get("bytes")) if r.get("bytes") is not None else None),
+                (str(r.get("app_proto")) if r.get("app_proto") else None),
+                (str(r.get("app_proto_reason")) if r.get("app_proto_reason") else None),
+                (str(r.get("app_proto_conf_band")) if r.get("app_proto_conf_band") else None),
+                (str(r.get("dns_qname")) if r.get("dns_qname") else None),
+                (str(r.get("http_host")) if r.get("http_host") else None),
+                (str(r.get("http_method")) if r.get("http_method") else None),
+                (str(r.get("tls_sni")) if r.get("tls_sni") else None),
+                (str(r.get("tls_alpn_first")) if r.get("tls_alpn_first") else None),
+                (str(r.get("ja3")) if r.get("ja3") else None),
+                (str(r.get("ja4")) if r.get("ja4") else None),
+                (str(r.get("ja4_ptype")) if r.get("ja4_ptype") else None),
+                (str(r.get("ssh_action")) if r.get("ssh_action") else None),
+                (str(r.get("ssh_username")) if r.get("ssh_username") else None),
+                (str(extra.get("username")) if is_sudo and extra.get("username") else None),
+                (str(extra.get("target_user")) if is_sudo and extra.get("target_user") else None),
+                (str(extra.get("command")) if is_sudo and extra.get("command") else None),
+                (str(extra.get("tty")) if is_sudo and extra.get("tty") else None),
                 json.dumps(extra, ensure_ascii=False, separators=(",", ":"), default=str),
             )
         )
@@ -624,6 +752,23 @@ def _write_clickhouse_events(*, ch_client: Any, hot_rows: List[Dict[str, Any]]) 
             "dst_port",
             "proto",
             "bytes",
+            "app_proto",
+            "app_proto_reason",
+            "app_proto_conf_band",
+            "dns_qname",
+            "http_host",
+            "http_method",
+            "tls_sni",
+            "tls_alpn_first",
+            "ja3",
+            "ja4",
+            "ja4_ptype",
+            "ssh_action",
+            "ssh_username",
+            "sudo_username",
+            "sudo_target_user",
+            "sudo_command",
+            "sudo_tty",
             "extra_json",
         ],
     )
@@ -675,8 +820,12 @@ def main() -> None:
             reset_clickhouse_client()
             next_ch_retry_at = time.monotonic() + cfg.clickhouse_reconnect_seconds
             log_event(logger, "warning", "ingest_clickhouse_unavailable")
+            _set_clickhouse_state(r, state="degraded", error_type="bootstrap_unavailable")
         else:
             log_event(logger, "info", "ingest_clickhouse_ready", table=clickhouse_events_table_ref())
+            _set_clickhouse_state(r, state="available")
+    else:
+        _set_clickhouse_state(r, state="disabled")
 
     backoff = 0.25
 
@@ -688,8 +837,10 @@ def main() -> None:
                 if ch is None:
                     reset_clickhouse_client()
                     next_ch_retry_at = time.monotonic() + cfg.clickhouse_reconnect_seconds
+                    _set_clickhouse_state(r, state="degraded", error_type="reconnect_failed")
                 else:
                     log_event(logger, "info", "ingest_clickhouse_ready", table=clickhouse_events_table_ref())
+                    _set_clickhouse_state(r, state="available")
 
             item = r.brpoplpush(cfg.queue_key, cfg.processing_key, timeout=1)
             if not item:
@@ -706,6 +857,7 @@ def main() -> None:
                 items.append(nxt)
 
             hot_rows: List[Dict[str, Any]] = []
+            analytics_rows: List[Dict[str, Any]] = []
             rollup_rows: List[Dict[str, Any]] = []
             warm_docs: List[Dict[str, Any]] = []
             warm_actions: List[Dict[str, Any]] = []
@@ -736,61 +888,14 @@ def main() -> None:
 
                 # hot
                 for ev in msg.get("hot_events") or []:
-                    # Defensive: older queued messages may contain nulls / missing fields.
-                    agent_id = ev[0] if len(ev) > 0 else None
-                    event_type = ev[1] if len(ev) > 1 else None
-                    if not agent_id or not event_type:
-                        continue
+                    row = _event_from_wire(ev)
+                    if row is not None:
+                        hot_rows.append(row)
 
-                    try:
-                        ts = datetime.fromisoformat(ev[3]) if (len(ev) > 3 and ev[3]) else datetime.utcnow()
-                    except Exception:
-                        ts = datetime.utcnow()
-
-                    try:
-                        schema_v = int(ev[2] or 1)
-                    except Exception:
-                        schema_v = 1
-
-                    src_ip = ev[4] if (len(ev) > 4 and ev[4]) else None
-                    dst_ip = ev[5] if (len(ev) > 5 and ev[5]) else None
-
-                    src_port = ev[6] if (len(ev) > 6) else None
-                    dst_port = ev[7] if (len(ev) > 7) else None
-                    try:
-                        src_port = int(src_port) if src_port is not None else None
-                    except Exception:
-                        src_port = None
-                    try:
-                        dst_port = int(dst_port) if dst_port is not None else None
-                    except Exception:
-                        dst_port = None
-
-                    proto = ev[8] if (len(ev) > 8 and ev[8]) else None
-
-                    bytes_v = ev[9] if (len(ev) > 9) else None
-                    try:
-                        bytes_v = int(bytes_v) if bytes_v is not None else 0
-                    except Exception:
-                        bytes_v = 0
-
-                    extra_v = ev[10] if (len(ev) > 10 and isinstance(ev[10], dict)) else {}
-
-                    row = {
-                        "agent_id": agent_id,
-                        "event_type": event_type,
-                        "schema_version": schema_v,
-                        "timestamp": ts,
-                        "src_ip": src_ip,
-                        "dst_ip": dst_ip,
-                        "src_port": src_port,
-                        "dst_port": dst_port,
-                        "proto": proto,
-                        "bytes": bytes_v,
-                        "extra": extra_v,
-                    }
-                    row.update(_event_hot_columns(event_type=event_type, extra=extra_v))
-                    hot_rows.append(row)
+                for ev in msg.get("analytics_events") or []:
+                    row = _event_from_wire(ev)
+                    if row is not None:
+                        analytics_rows.append(row)
 
                 # rollups
                 for rr in msg.get("rollups") or []:
@@ -876,10 +981,34 @@ def main() -> None:
                     )
                     conn.execute(upsert)
 
+            hot_id_by_fp = {_event_fingerprint(row): int(row.get("pg_event_id") or 0) for row in inserted_hot_rows}
+            analytics_rows_for_ch: List[Dict[str, Any]] = []
+            if analytics_rows:
+                seen_fp: set[str] = set()
+                for row in analytics_rows:
+                    fp = _event_fingerprint(row)
+                    if fp in seen_fp:
+                        continue
+                    seen_fp.add(fp)
+                    item = dict(row)
+                    mapped_pg_id = hot_id_by_fp.get(fp)
+                    if mapped_pg_id:
+                        item["pg_event_id"] = mapped_pg_id
+                    analytics_rows_for_ch.append(item)
+
             # ClickHouse analytics copy (best-effort).
-            if ch is not None and inserted_hot_rows:
+            if ch is not None and analytics_rows_for_ch:
                 try:
-                    _write_clickhouse_events(ch_client=ch, hot_rows=inserted_hot_rows)
+                    _write_clickhouse_events(ch_client=ch, hot_rows=analytics_rows_for_ch)
+                    _record_clickhouse_progress(r, rows=len(analytics_rows_for_ch))
+                    _set_clickhouse_state(r, state="available")
+                    log_event(
+                        logger,
+                        "info",
+                        "ingest_clickhouse_write_ok",
+                        rows=len(analytics_rows_for_ch),
+                        hot_rows=len(inserted_hot_rows),
+                    )
                 except Exception as e:
                     # Never block the primary Postgres ingest path on analytics failures.
                     log_event(
@@ -887,17 +1016,18 @@ def main() -> None:
                         "warning",
                         "ingest_clickhouse_write_error",
                         error_type=type(e).__name__,
-                        batch_rows=len(inserted_hot_rows),
+                        batch_rows=len(analytics_rows_for_ch),
                     )
                     ch = None
                     reset_clickhouse_client()
                     next_ch_retry_at = time.monotonic() + cfg.clickhouse_reconnect_seconds
-            elif ch is not None and hot_rows and not inserted_hot_rows:
+                    _set_clickhouse_state(r, state="degraded", error_type=type(e).__name__)
+            elif ch is not None and hot_rows and not analytics_rows_for_ch:
                 log_event(
                     logger,
                     "warning",
                     "ingest_clickhouse_copy_skipped",
-                    reason="missing_pg_event_id",
+                    reason="missing_analytics_rows",
                     hot_rows=len(hot_rows),
                 )
 

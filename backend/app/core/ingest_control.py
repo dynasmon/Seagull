@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert
 from app.core.redis_client import get_redis
 from app.core.db import engine
 from app.core.config import settings
+from app.core.recent_feed import recent_feed_health
 from app.models.alerts import AlertModel
 from app.models.events import IngestStats1sModel
 
@@ -785,6 +786,7 @@ def get_storm_status() -> Dict[str, Any]:
             row = None
 
         if not row:
+            recent = recent_feed_health()
             return {
                 "active": False,
                 "phase": "ok",
@@ -802,6 +804,15 @@ def get_storm_status() -> Dict[str, Any]:
                 "reason": "ok",
                 "since": None,
                 "open_alert_id": None,
+                "clickhouse_write_events_per_sec": 0,
+                "clickhouse_write_batches_per_sec": 0,
+                "recent_feed_events_per_sec": int(recent.get("events_last_second") or 0),
+                "recent_feed_dropped_per_sec": int(recent.get("dropped_last_second") or 0),
+                "recent_feed_last_event_ts": recent.get("last_event_ts"),
+                "recent_feed_freshness_seconds": recent.get("freshness_seconds"),
+                "clickhouse_state": "unknown",
+                "clickhouse_error_type": None,
+                "analytics_continuity_mode": "degraded",
             }
 
         eps = _as_int(row.get("received"), 0)
@@ -814,6 +825,7 @@ def get_storm_status() -> Dict[str, Any]:
         storm_like = bool(row.get("storm_active")) or int(eps) >= int(storm_th)
         draining_flag = (not storm_like) and int(backlog_ev) >= int(soft)
         phase = "storm" if storm_like else ("draining" if draining_flag else "ok")
+        recent = recent_feed_health()
 
         return {
             "active": bool(phase != "ok"),
@@ -832,6 +844,15 @@ def get_storm_status() -> Dict[str, Any]:
             "reason": phase,
             "since": None,
             "open_alert_id": None,
+            "clickhouse_write_events_per_sec": 0,
+            "clickhouse_write_batches_per_sec": 0,
+            "recent_feed_events_per_sec": int(recent.get("events_last_second") or 0),
+            "recent_feed_dropped_per_sec": int(recent.get("dropped_last_second") or 0),
+            "recent_feed_last_event_ts": recent.get("last_event_ts"),
+            "recent_feed_freshness_seconds": recent.get("freshness_seconds"),
+            "clickhouse_state": "unknown",
+            "clickhouse_error_type": None,
+            "analytics_continuity_mode": "degraded",
         }
 
     # Ensure we close alerts if storm is over.
@@ -864,8 +885,25 @@ def get_storm_status() -> Dict[str, Any]:
         processed_messages = _as_int(r.get(_worker_msgs_key(ts_s)), 0)
     except Exception:
         processed_messages = 0
+    try:
+        clickhouse_rows = _as_int(r.get(f"netwatch:ingest:clickhouse:rows:{ts_s}"), 0)
+    except Exception:
+        clickhouse_rows = 0
+    try:
+        clickhouse_batches = _as_int(r.get(f"netwatch:ingest:clickhouse:batches:{ts_s}"), 0)
+    except Exception:
+        clickhouse_batches = 0
+    try:
+        clickhouse_state = str(r.get("netwatch:ingest:clickhouse:state") or "unknown")
+    except Exception:
+        clickhouse_state = "unknown"
+    try:
+        clickhouse_error_type = r.get("netwatch:ingest:clickhouse:error_type")
+    except Exception:
+        clickhouse_error_type = None
 
     workers_active = count_active_workers()
+    recent = recent_feed_health()
 
     drop_pct = 0
     if received > 0:
@@ -966,6 +1004,15 @@ def get_storm_status() -> Dict[str, Any]:
         "reason": reason,
         "since": since_iso,
         "open_alert_id": int(alert_id) if (alert_id and str(alert_id).isdigit()) else None,
+        "clickhouse_write_events_per_sec": int(max(0, clickhouse_rows)),
+        "clickhouse_write_batches_per_sec": int(max(0, clickhouse_batches)),
+        "recent_feed_events_per_sec": int(max(0, int(recent.get("events_last_second") or 0))),
+        "recent_feed_dropped_per_sec": int(max(0, int(recent.get("dropped_last_second") or 0))),
+        "recent_feed_last_event_ts": recent.get("last_event_ts"),
+        "recent_feed_freshness_seconds": recent.get("freshness_seconds"),
+        "clickhouse_state": clickhouse_state,
+        "clickhouse_error_type": (str(clickhouse_error_type) if clickhouse_error_type else None),
+        "analytics_continuity_mode": ("full" if clickhouse_state in {"available", "disabled"} else "degraded"),
     }
 
 

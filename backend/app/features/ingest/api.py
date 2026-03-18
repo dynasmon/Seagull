@@ -1,5 +1,7 @@
+import logging
+import json
 from datetime import datetime, timezone
-from typing import Dict, List, Tuple
+from typing import Dict, List, Sequence, Set, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.dialects.postgresql import insert
@@ -18,7 +20,15 @@ from app.core.ingest_control import (
     get_storm_status,
     recover_runtime_state,
 )
+from app.core.recent_feed import push_recent_events
 from app.core.config import settings
+from app.core.clickhouse import (
+    clickhouse_events_table_ref,
+    clickhouse_is_enabled,
+    ensure_clickhouse_events_schema,
+    get_clickhouse_client,
+)
+from app.core.observability import log_event
 from app.models.events import NetEventModel, NetEventRollup1sModel
 from app.schemas.events import NetEvent
 
@@ -27,6 +37,87 @@ router = APIRouter(
     prefix="/ingest",
     tags=["ingest"],
 )
+logger = logging.getLogger("netwatch.api.ingest")
+
+
+def _degradation_level(*, bp_mode: str, storm_active: bool, backlog_events: int, received: int) -> str:
+    soft = max(1, int(settings.NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS or 50000))
+    hard = max(soft + 1, int(settings.NETWATCH_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS or 200000))
+    storm_batch = max(1, int(settings.NETWATCH_INGEST_STORM_MIN_BATCH or 2500))
+
+    if bp_mode == "reject_429" or backlog_events >= hard:
+        return "critical"
+    if bp_mode == "rollup_only" or backlog_events >= soft or storm_active:
+        return "degraded"
+    if backlog_events >= max(soft // 2, 1) or received >= storm_batch:
+        return "elevated"
+    return "normal"
+
+
+def _target_sample_policy(*, level: str, storm_active: bool) -> tuple[int, int, int, int]:
+    warm_pct = max(0, int(settings.NETWATCH_INGEST_WARM_SAMPLE_PERCENT or 0))
+    if level == "critical":
+        return (
+            max(1, int(settings.NETWATCH_INGEST_CRITICAL_HOT_SAMPLE_PERCENT or 1)),
+            max(1, int(settings.NETWATCH_INGEST_CRITICAL_CLICKHOUSE_SAMPLE_PERCENT or 10)),
+            max(0, int(settings.NETWATCH_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT or 2)),
+            max(1, int(settings.NETWATCH_INGEST_RECENT_FEED_MIN_BATCH or 24)),
+        )
+    if level == "degraded":
+        return (
+            max(int(settings.NETWATCH_INGEST_STORM_HOT_SAMPLE_PERCENT or 2), int(settings.NETWATCH_INGEST_DEGRADED_HOT_SAMPLE_PERCENT or 5)),
+            max(1, int(settings.NETWATCH_INGEST_DEGRADED_CLICKHOUSE_SAMPLE_PERCENT or 25)),
+            max(0, int(settings.NETWATCH_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT or 2)),
+            max(1, int(settings.NETWATCH_INGEST_RECENT_FEED_MIN_BATCH or 24)),
+        )
+    if level == "elevated":
+        return (
+            max(1, int(settings.NETWATCH_INGEST_ELEVATED_HOT_SAMPLE_PERCENT or 50)),
+            max(1, int(settings.NETWATCH_INGEST_CLICKHOUSE_SAMPLE_PERCENT or 100)),
+            warm_pct,
+            max(8, int(settings.NETWATCH_INGEST_RECENT_FEED_MIN_BATCH or 24) // 2),
+        )
+    return (100, max(1, int(settings.NETWATCH_INGEST_CLICKHOUSE_SAMPLE_PERCENT or 100)), warm_pct, 12 if storm_active else 8)
+
+
+def _minimum_indexes(total: int, min_count: int) -> Set[int]:
+    if total <= 0 or min_count <= 0:
+        return set()
+    target = min(total, max(0, int(min_count)))
+    if target >= total:
+        return set(range(total))
+    if target == 1:
+        return {0}
+    out: Set[int] = set()
+    for i in range(target):
+        pos = round(i * (total - 1) / max(1, target - 1))
+        out.add(int(pos))
+    cur = 0
+    while len(out) < target:
+        out.add(cur)
+        cur += 1
+    return out
+
+
+def _ensure_minimum(sampled: Set[int], total: int, min_count: int) -> Set[int]:
+    out = set(sampled)
+    out.update(_minimum_indexes(total, max(0, int(min_count)) - len(out)))
+    return out
+
+
+def _row_to_recent_payload(row: Sequence) -> Dict:
+    return {
+        "agent_id": row[0],
+        "event_type": row[1],
+        "schema_version": int(row[2] or 1),
+        "timestamp": row[3],
+        "src_ip": row[4],
+        "dst_ip": row[5],
+        "src_port": row[6],
+        "dst_port": row[7],
+        "proto": row[8],
+        "bytes": row[9],
+    }
 
 def _fallback_direct_insert(*, hot_events: List[List], rollup_rows: List[List]) -> int:
     """Fail-open path if Redis is unavailable.
@@ -88,6 +179,67 @@ def _fallback_direct_insert(*, hot_events: List[List], rollup_rows: List[List]) 
             conn.execute(upsert)
 
     return int(stored)
+
+
+def _fallback_clickhouse_insert(*, analytics_events: List[List]) -> int:
+    if not analytics_events:
+        return 0
+    if not clickhouse_is_enabled():
+        return 0
+
+    try:
+        if not ensure_clickhouse_events_schema():
+            return 0
+        ch = get_clickhouse_client()
+        rows = []
+        for ev in analytics_events:
+            try:
+                ts = datetime.fromisoformat(ev[3]) if (len(ev) > 3 and ev[3]) else datetime.now(timezone.utc)
+            except Exception:
+                ts = datetime.now(timezone.utc)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            extra = ev[10] if (len(ev) > 10 and isinstance(ev[10], dict)) else {}
+            rows.append(
+                (
+                    ts,
+                    0,
+                    str(ev[0] if len(ev) > 0 else ""),
+                    str(ev[1] if len(ev) > 1 else ""),
+                    int(ev[2] if len(ev) > 2 and ev[2] is not None else 1),
+                    str((extra or {}).get("severity") or "") or None,
+                    (str(ev[4]) if len(ev) > 4 and ev[4] else None),
+                    (str(ev[5]) if len(ev) > 5 and ev[5] else None),
+                    (int(ev[6]) if len(ev) > 6 and ev[6] is not None else None),
+                    (int(ev[7]) if len(ev) > 7 and ev[7] is not None else None),
+                    (str(ev[8]) if len(ev) > 8 and ev[8] else None),
+                    (int(ev[9]) if len(ev) > 9 and ev[9] is not None else None),
+                    json.dumps(extra, ensure_ascii=False, separators=(",", ":"), default=str),
+                )
+            )
+        ch.insert(
+            clickhouse_events_table_ref(),
+            rows,
+            column_names=[
+                "timestamp",
+                "pg_event_id",
+                "agent_id",
+                "event_type",
+                "schema_version",
+                "severity",
+                "src_ip",
+                "dst_ip",
+                "src_port",
+                "dst_port",
+                "proto",
+                "bytes",
+                "extra_json",
+            ],
+        )
+        return len(rows)
+    except Exception as exc:
+        log_event(logger, "warning", "ingest_fallback_clickhouse_error", error_type=type(exc).__name__)
+        return 0
 
 
 @router.get("/storm/status")
@@ -196,29 +348,19 @@ def ingest_events(
     pressure_active = mode != "normal"
     active_for_metrics = storm_active or pressure_active
     storm_reason = decision.reason if decision.storm_active else (bp.reason if pressure_active else "ok")
+    level = _degradation_level(
+        bp_mode=bp.mode,
+        storm_active=storm_active,
+        backlog_events=int(bp.backlog_events or 0),
+        received=len(events),
+    )
 
     rollup_always = bool(settings.NETWATCH_INGEST_ROLLUP_ALWAYS)
     do_rollup = rollup_always or active_for_metrics
 
-    # Sampling policy (hot vs warm)
-    if mode == "rollup_only":
-        hot_pct = 0
-        warm_pct = max(
-            0,
-            int(
-                settings.NETWATCH_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT
-                or settings.NETWATCH_INGEST_STORM_SAMPLE_PERCENT
-                or 2
-            ),
-        )
-    elif storm_active:
-        hot_pct = int(settings.NETWATCH_INGEST_STORM_HOT_SAMPLE_PERCENT or int(decision.sample_percent))
-        warm_pct = int(settings.NETWATCH_INGEST_STORM_WARM_SAMPLE_PERCENT or int(decision.sample_percent))
-    else:
-        hot_pct = 100
-        warm_pct = int(settings.NETWATCH_INGEST_WARM_SAMPLE_PERCENT or 0)
-
+    hot_pct, analytics_pct, warm_pct, recent_min_batch = _target_sample_policy(level=level, storm_active=storm_active)
     hot_pct = max(0, min(int(hot_pct), 100))
+    analytics_pct = max(1, min(int(analytics_pct), 100))
     warm_pct = max(0, min(int(warm_pct), 100))
 
     # Normalize to deterministic sample.
@@ -226,12 +368,15 @@ def ingest_events(
     warm_enabled = warm_pct > 0 and bool(settings.NETWATCH_INGEST_WARM_ENABLED)
 
     # Build rollups + sampled event payloads.
+    all_rows: List[List] = []
     hot_events: List[List] = []
+    analytics_events: List[List] = []
     warm_events: List[List] = []
     rollups: Dict[Tuple, Tuple[int, int]] = {}
 
-    hot_kept = 0
-    warm_kept = 0
+    hot_selected: Set[int] = set()
+    analytics_selected: Set[int] = set()
+    warm_selected: Set[int] = set()
 
     for e in events:
         extra = dict(e.extra or {})
@@ -293,12 +438,38 @@ def ingest_events(
             extra,
         ]
 
+        idx = len(all_rows)
+        all_rows.append(row)
         if keep_hot:
+            hot_selected.add(idx)
+        if stable_sample(seed=seed + "|analytics", sample_percent=analytics_pct):
+            analytics_selected.add(idx)
+        if keep_warm and not keep_hot:
+            warm_selected.add(idx)
+
+    hot_selected = _ensure_minimum(
+        hot_selected,
+        len(all_rows),
+        int(settings.NETWATCH_INGEST_MIN_HOT_EVENTS_PER_BATCH or 1) if all_rows else 0,
+    )
+    analytics_selected = _ensure_minimum(
+        analytics_selected,
+        len(all_rows),
+        int(settings.NETWATCH_INGEST_MIN_CLICKHOUSE_EVENTS_PER_BATCH or 32) if all_rows else 0,
+    )
+    recent_selected = _ensure_minimum(set(analytics_selected), len(all_rows), int(recent_min_batch or 0))
+
+    for idx, row in enumerate(all_rows):
+        if idx in hot_selected:
             hot_events.append(row)
-            hot_kept += 1
-        elif keep_warm:
+        if idx in analytics_selected:
+            analytics_events.append(row)
+        if idx in warm_selected and idx not in hot_selected:
             warm_events.append(row)
-            warm_kept += 1
+
+    hot_kept = len(hot_events)
+    warm_kept = len(warm_events)
+    analytics_kept = len(analytics_events)
 
     dropped = max(0, len(events) - hot_kept - warm_kept)
 
@@ -322,12 +493,15 @@ def ingest_events(
         "received_at": now.isoformat(),
         "agent_id": agent.agent_id,
         "mode": mode,
+        "degradation_level": level,
         "storm_active": bool(storm_active),
         "storm_reason": storm_reason,
         "sample_hot_percent": hot_pct,
+        "sample_analytics_percent": analytics_pct,
         "sample_warm_percent": warm_pct,
         "received": len(events),
         "hot_events": hot_events,
+        "analytics_events": analytics_events,
         "warm_events": warm_events,
         "rollups": rollup_rows,
     }
@@ -337,6 +511,9 @@ def ingest_events(
     # Redis unavailable: fail open to direct DB insert.
     if not enqueued:
         stored = _fallback_direct_insert(hot_events=hot_events, rollup_rows=rollup_rows)
+        ch_stored = _fallback_clickhouse_insert(analytics_events=analytics_events)
+        recent_feed_rows = [_row_to_recent_payload(all_rows[idx]) for idx in sorted(recent_selected)]
+        pushed_recent = push_recent_events(recent_feed_rows) if (stored > 0 or ch_stored > 0) else 0
 
         bump_ingest_counters(
             received=len(events),
@@ -360,14 +537,22 @@ def ingest_events(
             "stored": stored,
             "enqueued": 0,
             "mode": mode,
+            "degradation_level": level,
             "storm_active": bool(storm_active),
             "storm_reason": storm_reason,
             "sample_hot_percent": hot_pct,
+            "sample_analytics_percent": analytics_pct,
             "sample_warm_percent": warm_pct,
+            "analytics_events": analytics_kept,
+            "analytics_stored_clickhouse": int(ch_stored),
+            "recent_visibility_events": pushed_recent,
             "rollups_written": bool(do_rollup),
             "backpressure": {"mode": bp.mode, "reason": bp.reason, "backlog_events": bp.backlog_events, "backlog_messages": bp.backlog_messages},
             "note": "redis_unavailable_fallback",
         }
+
+    recent_feed_rows = [_row_to_recent_payload(all_rows[idx]) for idx in sorted(recent_selected)]
+    pushed_recent = push_recent_events(recent_feed_rows)
 
     # Update counters for metrics
     bump_ingest_counters(
@@ -393,10 +578,14 @@ def ingest_events(
         "received": len(events),
         "enqueued": 1,
         "mode": mode,
+        "degradation_level": level,
         "storm_active": bool(storm_active),
         "storm_reason": storm_reason,
         "sample_hot_percent": hot_pct,
+        "sample_analytics_percent": analytics_pct,
         "sample_warm_percent": warm_pct,
+        "analytics_events": analytics_kept,
+        "recent_visibility_events": pushed_recent,
         "rollups_written": bool(do_rollup),
         "backpressure": {"mode": bp.mode, "reason": bp.reason, "backlog_events": bp.backlog_events, "backlog_messages": bp.backlog_messages},
     }
