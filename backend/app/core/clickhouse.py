@@ -104,6 +104,11 @@ def clickhouse_events_table_ref() -> str:
     return f"{db}.{table}"
 
 
+def clickhouse_events_1m_table_ref() -> str:
+    db = _safe_ident(getattr(settings, "NETWATCH_CLICKHOUSE_DATABASE", "netwatch"), fallback="netwatch")
+    return f"{db}.net_events_1m"
+
+
 def ensure_clickhouse_events_schema() -> bool:
     """Idempotent schema bootstrap for analytics events table."""
 
@@ -113,6 +118,8 @@ def ensure_clickhouse_events_schema() -> bool:
     client = get_clickhouse_client()
     db = _safe_ident(getattr(settings, "NETWATCH_CLICKHOUSE_DATABASE", "netwatch"), fallback="netwatch")
     table = _safe_ident(getattr(settings, "NETWATCH_CLICKHOUSE_EVENTS_TABLE", "net_events_raw"), fallback="net_events_raw")
+    agg_table = "net_events_1m"
+    agg_mv = "mv_net_events_1m"
     retention_days = max(1, int(getattr(settings, "NETWATCH_CLICKHOUSE_EVENTS_RETENTION_DAYS", 30) or 30))
 
     client.command(f"CREATE DATABASE IF NOT EXISTS {db}")
@@ -132,6 +139,23 @@ def ensure_clickhouse_events_schema() -> bool:
             dst_port Nullable(UInt16),
             proto Nullable(LowCardinality(String)),
             bytes Nullable(Int64),
+            app_proto Nullable(LowCardinality(String)),
+            app_proto_reason Nullable(LowCardinality(String)),
+            app_proto_conf_band Nullable(LowCardinality(String)),
+            dns_qname Nullable(String),
+            http_host Nullable(String),
+            http_method Nullable(LowCardinality(String)),
+            tls_sni Nullable(String),
+            tls_alpn_first Nullable(LowCardinality(String)),
+            ja3 Nullable(String),
+            ja4 Nullable(String),
+            ja4_ptype Nullable(LowCardinality(String)),
+            ssh_action Nullable(LowCardinality(String)),
+            ssh_username Nullable(String),
+            sudo_username Nullable(String),
+            sudo_target_user Nullable(String),
+            sudo_command Nullable(String),
+            sudo_tty Nullable(String),
             extra_json String,
             ingested_at DateTime64(3, 'UTC') DEFAULT now64(3)
         )
@@ -154,10 +178,69 @@ def ensure_clickhouse_events_schema() -> bool:
         f"ALTER TABLE {db}.{table} "
         "ADD COLUMN IF NOT EXISTS ingested_at DateTime64(3, 'UTC') DEFAULT now64(3)"
     )
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS app_proto Nullable(LowCardinality(String))")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS app_proto_reason Nullable(LowCardinality(String))")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS app_proto_conf_band Nullable(LowCardinality(String))")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS dns_qname Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS http_host Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS http_method Nullable(LowCardinality(String))")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS tls_sni Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS tls_alpn_first Nullable(LowCardinality(String))")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS ja3 Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS ja4 Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS ja4_ptype Nullable(LowCardinality(String))")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS ssh_action Nullable(LowCardinality(String))")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS ssh_username Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS sudo_username Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS sudo_target_user Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS sudo_command Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS sudo_tty Nullable(String)")
+    client.command(
+        f"""
+        CREATE TABLE IF NOT EXISTS {db}.{agg_table}
+        (
+            bucket_ts DateTime('UTC'),
+            agent_id LowCardinality(String),
+            event_type LowCardinality(String),
+            dst_port Nullable(UInt16),
+            proto Nullable(LowCardinality(String)),
+            total_count UInt64,
+            total_bytes Int64,
+            ssh_failures UInt64,
+            dos_events UInt64
+        )
+        ENGINE = SummingMergeTree
+        PARTITION BY toYYYYMM(bucket_ts)
+        ORDER BY (bucket_ts, agent_id, event_type, dst_port, proto)
+        TTL bucket_ts + toIntervalDay({retention_days}) DELETE
+        SETTINGS index_granularity = 8192
+        """
+    )
+    client.command(
+        f"""
+        CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{agg_mv}
+        TO {db}.{agg_table}
+        AS
+        SELECT
+            toStartOfMinute(timestamp) AS bucket_ts,
+            agent_id,
+            event_type,
+            dst_port,
+            proto,
+            count() AS total_count,
+            sum(ifNull(bytes, 0)) AS total_bytes,
+            countIf(event_type = 'ssh_auth' AND ifNull(ssh_action, '') != 'accepted') AS ssh_failures,
+            countIf(event_type = 'dos_attack') AS dos_events
+        FROM {db}.{table}
+        GROUP BY bucket_ts, agent_id, event_type, dst_port, proto
+        """
+    )
 
     # Sanity check: table exists and is queryable.
     exists = client.query(f"EXISTS TABLE {db}.{table}").first_row
     if not (exists and int(exists[0]) == 1):
         return False
     client.query(f"SELECT pg_event_id FROM {db}.{table} LIMIT 0")
+    client.query(f"SELECT app_proto FROM {db}.{table} LIMIT 0")
+    client.query(f"SELECT total_count FROM {db}.{agg_table} LIMIT 0")
     return True

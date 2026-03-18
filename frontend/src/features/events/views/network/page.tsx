@@ -41,6 +41,7 @@ const DEFAULTS: ViewState = {
 };
 
 const LS_KEY = "nw_protocol_intel_view_v1";
+const MAX_FALLBACK_SINCE_MINUTES = 60 * 24 * 30;
 
 function digitsOnly(v: string): string {
   return String(v ?? "").replace(/[^0-9]/g, "");
@@ -189,6 +190,7 @@ export default function ProtocolIntelPage() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ProtocolIntelSummaryResponse | null>(null);
   const [lastOkAt, setLastOkAt] = useState<Date | null>(null);
+  const [fallbackSinceMinutes, setFallbackSinceMinutes] = useState<number | null>(null);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSel, setDrawerSel] = useState<ProtocolIndicatorSelection | null>(null);
@@ -205,14 +207,33 @@ export default function ProtocolIntelPage() {
     const limit = viewRef.current.top_n;
 
     try {
-      const res = await getProtocolIntelSummary({ agent_id, since_minutes, limit });
+      let res = await getProtocolIntelSummary({ agent_id, since_minutes, limit });
+      let fallbackMinutes: number | null = null;
+
+      // If the selected window is empty, automatically widen scope to show historical data.
+      if ((res?.total_events ?? 0) <= 0 && since_minutes < MAX_FALLBACK_SINCE_MINUTES) {
+        const widened = clampInt(
+          Math.max(since_minutes * 6, since_minutes + 60),
+          since_minutes + 1,
+          MAX_FALLBACK_SINCE_MINUTES,
+          MAX_FALLBACK_SINCE_MINUTES
+        );
+        const fallbackRes = await getProtocolIntelSummary({ agent_id, since_minutes: widened, limit });
+        if ((fallbackRes?.total_events ?? 0) > 0) {
+          res = fallbackRes;
+          fallbackMinutes = widened;
+        }
+      }
+
       if (reqSeq.current !== mySeq) return;
       setData(res);
+      setFallbackSinceMinutes(fallbackMinutes);
       setLastOkAt(new Date());
     } catch (e: any) {
       if (reqSeq.current !== mySeq) return;
       const msg = getErrorMessage(e, "Failed to load summary");
       setError(msg);
+      setFallbackSinceMinutes(null);
     } finally {
       if (reqSeq.current !== mySeq) return;
       setLoading(false);
@@ -249,7 +270,11 @@ export default function ProtocolIntelPage() {
 
   const shouldWarnNoCoverage = useMemo(() => {
     if (!data) return false;
-    return data.total_events > 0 && data.with_proto_metadata === 0;
+    const hasAnyUsefulBreakdown =
+      (data.app_protocols?.length ?? 0) > 0 ||
+      (data.transport_protocols?.length ?? 0) > 0 ||
+      (data.top_dst_ports?.length ?? 0) > 0;
+    return data.total_events > 0 && data.with_proto_metadata === 0 && !hasAnyUsefulBreakdown;
   }, [data]);
   const hasBlockingState = (loading && !data) || (!!error && !data);
 
@@ -526,6 +551,13 @@ export default function ProtocolIntelPage() {
 
           {!hasBlockingState && error ? (
             <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>
+          ) : null}
+
+          {!hasBlockingState && !error && fallbackSinceMinutes ? (
+            <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-200">
+              No events were found in the selected window. Showing historical protocol telemetry from the last{" "}
+              <span className="font-mono">{fallbackSinceMinutes}</span> minutes.
+            </div>
           ) : null}
 
           {!hasBlockingState && shouldWarnNoCoverage ? (
