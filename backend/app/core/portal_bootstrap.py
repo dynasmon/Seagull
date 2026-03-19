@@ -37,10 +37,16 @@ def bootstrap_portal_admin() -> None:
         password = (settings.NETWATCH_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
         existing = db.query(PortalUserModel).count()
 
-        # Existing admin user path: in dev, allow controlled password sync from bootstrap env.
+        # Existing admin user path: optionally sync password from bootstrap env.
         current = db.query(PortalUserModel).filter(PortalUserModel.username == username).first()
         if current is not None:
-            should_sync = bool(settings.NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START and password)
+            should_sync = bool(
+                password
+                and (
+                    settings.NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START
+                    or settings.NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START
+                )
+            )
             if should_sync and len(password) >= 12 and not verify_password(password, current.password_hash):
                 before = {"id": current.id, "username": current.username, "role": current.role, "is_active": bool(current.is_active)}
                 current.password_hash = hash_password(password)
