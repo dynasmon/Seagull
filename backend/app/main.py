@@ -209,9 +209,23 @@ def on_startup():
     # Ensure all models are loaded before bootstrap hooks.
     load_all_models()
 
-    ensure_database_ready()
-    bootstrap_portal_admin()
-    bootstrap_correlation_rules()
+    # Uvicorn workers execute startup hooks independently.
+    # Serialize first-boot DB/bootstrap routines to avoid race conditions
+    # (e.g., concurrent admin/rule bootstrap on a fresh database).
+    if engine.dialect.name == "postgresql":
+        startup_lock_id = 8_642_709
+        with engine.connect() as conn:
+            conn.execute(text("SELECT pg_advisory_lock(:id)"), {"id": startup_lock_id})
+            try:
+                ensure_database_ready()
+                bootstrap_portal_admin()
+                bootstrap_correlation_rules()
+            finally:
+                conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": startup_lock_id})
+    else:
+        ensure_database_ready()
+        bootstrap_portal_admin()
+        bootstrap_correlation_rules()
     log_event(logger, "info", "startup_complete", env=settings.NETWATCH_ENV)
 
 
