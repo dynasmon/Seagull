@@ -156,6 +156,12 @@ class Settings:
         "NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START",
         NETWATCH_ENV in {"dev", "development"},
     )
+    # Sync the bootstrap admin password from env into DB on startup.
+    # Recommended in prod to avoid drift after secret rotation.
+    NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START: bool = _env_bool(
+        "NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START",
+        NETWATCH_ENV in {"prod", "production"},
+    )
 
     # Default agent configuration applied on first enroll (JSON object).
     NETWATCH_DEFAULT_AGENT_CONFIG_JSON: str = _env_str("NETWATCH_DEFAULT_AGENT_CONFIG_JSON", "{}") or "{}"
@@ -454,6 +460,7 @@ class Settings:
                 "has_audit_hash_pepper": bool((self.NETWATCH_AUDIT_HASH_PEPPER or "").strip()),
                 "agent_bootstrap_token_ttl_seconds": int(self.NETWATCH_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS),
                 "agent_bootstrap_token_max_uses": int(self.NETWATCH_AGENT_BOOTSTRAP_TOKEN_MAX_USES),
+                "bootstrap_admin_sync_on_start": bool(self.NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START),
             },
             "vuln": {
                 "max_findings_per_ingest": self.NETWATCH_VULN_MAX_FINDINGS_PER_INGEST,
