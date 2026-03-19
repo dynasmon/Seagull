@@ -94,10 +94,12 @@ def login_endpoint(body: LoginIn, request: Request, response: Response):
                     pass
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-        # Verify password without leaking timing info.
-        from app.core.security import verify_password
+        # Verify password (supports legacy hash formats) and opportunistically
+        # migrate hash to the current scheme.
+        from app.core.security import verify_and_upgrade_password
 
-        if not verify_password(body.password, user.password_hash):
+        verified, upgraded_hash = verify_and_upgrade_password(body.password, user.password_hash)
+        if not verified:
             # best-effort counter (doesn't lock users out permanently)
             try:
                 user.failed_login_count = int(user.failed_login_count or 0) + 1
@@ -116,6 +118,8 @@ def login_endpoint(body: LoginIn, request: Request, response: Response):
                     pass
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+        if upgraded_hash:
+            user.password_hash = upgraded_hash
         user.failed_login_count = 0
         user.last_login_at = datetime.utcnow()
         db.add(user)
