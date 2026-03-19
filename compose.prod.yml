@@ -61,7 +61,6 @@ services:
     ports: []
     environment:
       xpack.security.enabled: "true"
-      ELASTIC_PASSWORD: ""
       ELASTIC_PASSWORD_FILE: /run/secrets/netwatch_es_password
 
   kibana:
@@ -70,7 +69,6 @@ services:
     ports: []
     environment:
       ELASTICSEARCH_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
-      ELASTICSEARCH_PASSWORD: ""
       ELASTICSEARCH_PASSWORD_FILE: /run/secrets/netwatch_es_password
       SERVER_BASEPATH: /kibana
       SERVER_REWRITEBASEPATH: "true"
