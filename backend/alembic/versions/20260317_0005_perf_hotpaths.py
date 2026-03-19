@@ -13,62 +13,92 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(table_name: str) -> bool:
+    return bool(sa.inspect(op.get_bind()).has_table(table_name))
+
+
+def _has_column(table_name: str, column_name: str) -> bool:
+    cols = sa.inspect(op.get_bind()).get_columns(table_name)
+    return any(str(c.get("name")) == column_name for c in cols)
+
+
+def _has_index(table_name: str, index_name: str) -> bool:
+    indexes = sa.inspect(op.get_bind()).get_indexes(table_name)
+    return any(str(i.get("name")) == index_name for i in indexes)
+
+
 def upgrade() -> None:
-    op.add_column("net_events", sa.Column("app_proto", sa.String(length=32), nullable=True))
-    op.add_column("net_events", sa.Column("app_proto_reason", sa.String(length=64), nullable=True))
-    op.add_column("net_events", sa.Column("app_proto_conf_band", sa.String(length=16), nullable=True))
-    op.add_column("net_events", sa.Column("dns_qname", sa.String(length=512), nullable=True))
-    op.add_column("net_events", sa.Column("http_host", sa.String(length=512), nullable=True))
-    op.add_column("net_events", sa.Column("http_method", sa.String(length=16), nullable=True))
-    op.add_column("net_events", sa.Column("tls_sni", sa.String(length=512), nullable=True))
-    op.add_column("net_events", sa.Column("tls_alpn_first", sa.String(length=64), nullable=True))
-    op.add_column("net_events", sa.Column("ja3", sa.String(length=128), nullable=True))
-    op.add_column("net_events", sa.Column("ja4", sa.String(length=128), nullable=True))
-    op.add_column("net_events", sa.Column("ja4_ptype", sa.String(length=8), nullable=True))
-    op.add_column("net_events", sa.Column("ssh_action", sa.String(length=64), nullable=True))
-    op.add_column("net_events", sa.Column("ssh_username", sa.String(length=128), nullable=True))
+    net_event_cols = [
+        ("app_proto", sa.String(length=32)),
+        ("app_proto_reason", sa.String(length=64)),
+        ("app_proto_conf_band", sa.String(length=16)),
+        ("dns_qname", sa.String(length=512)),
+        ("http_host", sa.String(length=512)),
+        ("http_method", sa.String(length=16)),
+        ("tls_sni", sa.String(length=512)),
+        ("tls_alpn_first", sa.String(length=64)),
+        ("ja3", sa.String(length=128)),
+        ("ja4", sa.String(length=128)),
+        ("ja4_ptype", sa.String(length=8)),
+        ("ssh_action", sa.String(length=64)),
+        ("ssh_username", sa.String(length=128)),
+    ]
+    for col_name, col_type in net_event_cols:
+        if not _has_column("net_events", col_name):
+            op.add_column("net_events", sa.Column(col_name, col_type, nullable=True))
 
-    op.create_index("idx_net_events_recent_brin", "net_events", ["timestamp"], unique=False, postgresql_using="brin")
-    op.create_index("idx_net_events_app_proto_ts", "net_events", ["app_proto", sa.text('"timestamp" DESC')], unique=False)
-    op.create_index("idx_net_events_dns_qname_ts", "net_events", ["dns_qname", sa.text('"timestamp" DESC')], unique=False)
-    op.create_index("idx_net_events_http_host_ts", "net_events", ["http_host", sa.text('"timestamp" DESC')], unique=False)
-    op.create_index("idx_net_events_tls_sni_ts", "net_events", ["tls_sni", sa.text('"timestamp" DESC')], unique=False)
-    op.create_index("idx_net_events_ja4_ts", "net_events", ["ja4", sa.text('"timestamp" DESC')], unique=False)
-    op.create_index(
-        "idx_net_events_ssh_action_col_ts",
-        "net_events",
-        ["ssh_action", sa.text('"timestamp" DESC')],
-        unique=False,
-        postgresql_where=sa.text("event_type = 'ssh_auth'"),
-    )
-    op.create_index(
-        "idx_net_events_ssh_user_col_ts",
-        "net_events",
-        ["ssh_username", sa.text('"timestamp" DESC')],
-        unique=False,
-        postgresql_where=sa.text("event_type = 'ssh_auth'"),
-    )
+    if not _has_index("net_events", "idx_net_events_recent_brin"):
+        op.create_index("idx_net_events_recent_brin", "net_events", ["timestamp"], unique=False, postgresql_using="brin")
+    if not _has_index("net_events", "idx_net_events_app_proto_ts"):
+        op.create_index("idx_net_events_app_proto_ts", "net_events", ["app_proto", sa.text('"timestamp" DESC')], unique=False)
+    if not _has_index("net_events", "idx_net_events_dns_qname_ts"):
+        op.create_index("idx_net_events_dns_qname_ts", "net_events", ["dns_qname", sa.text('"timestamp" DESC')], unique=False)
+    if not _has_index("net_events", "idx_net_events_http_host_ts"):
+        op.create_index("idx_net_events_http_host_ts", "net_events", ["http_host", sa.text('"timestamp" DESC')], unique=False)
+    if not _has_index("net_events", "idx_net_events_tls_sni_ts"):
+        op.create_index("idx_net_events_tls_sni_ts", "net_events", ["tls_sni", sa.text('"timestamp" DESC')], unique=False)
+    if not _has_index("net_events", "idx_net_events_ja4_ts"):
+        op.create_index("idx_net_events_ja4_ts", "net_events", ["ja4", sa.text('"timestamp" DESC')], unique=False)
+    if not _has_index("net_events", "idx_net_events_ssh_action_col_ts"):
+        op.create_index(
+            "idx_net_events_ssh_action_col_ts",
+            "net_events",
+            ["ssh_action", sa.text('"timestamp" DESC')],
+            unique=False,
+            postgresql_where=sa.text("event_type = 'ssh_auth'"),
+        )
+    if not _has_index("net_events", "idx_net_events_ssh_user_col_ts"):
+        op.create_index(
+            "idx_net_events_ssh_user_col_ts",
+            "net_events",
+            ["ssh_username", sa.text('"timestamp" DESC')],
+            unique=False,
+            postgresql_where=sa.text("event_type = 'ssh_auth'"),
+        )
 
-    op.create_table(
-        "agent_inventory_latest",
-        sa.Column("agent_id", sa.String(length=64), nullable=False),
-        sa.Column("snapshot_id", sa.Integer(), nullable=False),
-        sa.Column("collected_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("os", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("packages_count", sa.Integer(), nullable=False),
-        sa.Column("packages_hash", sa.String(length=64), nullable=False),
-        sa.Column("manager", sa.String(length=32), nullable=True),
-        sa.Column("extra", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.PrimaryKeyConstraint("agent_id"),
-    )
-    op.create_index("idx_inv_latest_collected", "agent_inventory_latest", [sa.text("collected_at DESC")], unique=False)
-    op.create_index(
-        "idx_inv_latest_packages_count",
-        "agent_inventory_latest",
-        [sa.text("packages_count DESC"), sa.text("agent_id ASC")],
-        unique=False,
-    )
+    if not _has_table("agent_inventory_latest"):
+        op.create_table(
+            "agent_inventory_latest",
+            sa.Column("agent_id", sa.String(length=64), nullable=False),
+            sa.Column("snapshot_id", sa.Integer(), nullable=False),
+            sa.Column("collected_at", sa.DateTime(timezone=True), nullable=False),
+            sa.Column("os", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+            sa.Column("packages_count", sa.Integer(), nullable=False),
+            sa.Column("packages_hash", sa.String(length=64), nullable=False),
+            sa.Column("manager", sa.String(length=32), nullable=True),
+            sa.Column("extra", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.PrimaryKeyConstraint("agent_id"),
+        )
+    if not _has_index("agent_inventory_latest", "idx_inv_latest_collected"):
+        op.create_index("idx_inv_latest_collected", "agent_inventory_latest", [sa.text("collected_at DESC")], unique=False)
+    if not _has_index("agent_inventory_latest", "idx_inv_latest_packages_count"):
+        op.create_index(
+            "idx_inv_latest_packages_count",
+            "agent_inventory_latest",
+            [sa.text("packages_count DESC"), sa.text("agent_id ASC")],
+            unique=False,
+        )
 
     # Bounded backfill for recent events to keep migration cost predictable.
     op.execute(
