@@ -12,11 +12,12 @@ ENV_EXAMPLE := .env.example
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap dev-preflight dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
 	@echo "  make dev         - bootstrap and start development stack"
+	@echo "  make dev-preflight - validate local prerequisites for make dev"
 	@echo "  make dev-tls     - start development stack with stricter HTTPS cookie/proxy settings"
 	@echo "  make prod        - bootstrap and start production-style stack"
 	@echo "  make up          - alias for make dev"
@@ -45,6 +46,9 @@ bootstrap-tools:
 	@command -v docker >/dev/null 2>&1 || (echo "docker not found" && exit 1)
 	@docker compose version >/dev/null 2>&1 || (echo "docker compose not available" && exit 1)
 
+dev-preflight: bootstrap bootstrap-tools
+	@./scripts/dev_preflight.sh
+
 certs-bootstrap: bootstrap
 	@AUTO_GENERATE_CERTS="$${NETWATCH_AUTO_GENERATE_CERTS:-true}"; \
 	if [ "$$AUTO_GENERATE_CERTS" = "true" ]; then \
@@ -58,12 +62,12 @@ agent-tokens-bootstrap:
 	@./scripts/mint_agent_bootstrap_tokens.sh
 
 # Single-command bootstrap for development.
-dev: bootstrap bootstrap-tools certs-bootstrap
+dev: dev-preflight certs-bootstrap
 	$(DC) $(COMPOSE_DEV) up -d --build --force-recreate
 	@$(MAKE) agent-tokens-bootstrap
 	$(DC) $(COMPOSE_DEV) up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln
 
-dev-tls: bootstrap bootstrap-tools certs-bootstrap
+dev-tls: dev-preflight certs-bootstrap
 	$(DC) $(COMPOSE_DEV_TLS) up -d --build --force-recreate
 	@$(MAKE) agent-tokens-bootstrap
 	$(DC) $(COMPOSE_DEV_TLS) up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln
@@ -74,7 +78,7 @@ prod: bootstrap bootstrap-tools certs-bootstrap
 
 up: dev
 
-up-extra: bootstrap bootstrap-tools certs-bootstrap
+up-extra: dev-preflight certs-bootstrap
 	$(DC) $(COMPOSE_DEV) --profile extra up -d --build --force-recreate
 	@$(MAKE) agent-tokens-bootstrap
 	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln netwatch-agent-lateral

@@ -185,6 +185,18 @@ export default function ProtocolIntelPage() {
     return (agents || []).map((a) => ({ agent_id: a.agent_id, display_name: a.display_name || a.agent_id }));
   }, [agents]);
 
+  // Guard against stale persisted agent filters.
+  // If the selected agent no longer exists, fallback to "All agents".
+  useEffect(() => {
+    const selected = (view.agent_id || "").trim();
+    if (!selected) return;
+    if ((agentOptions?.length ?? 0) <= 0) return;
+    const exists = agentOptions.some((a) => a.agent_id === selected);
+    if (exists) return;
+    setView((cur) => (cur.agent_id ? { ...cur, agent_id: "" } : cur));
+    setDraft((cur) => (cur.agent_id ? { ...cur, agent_id: "" } : cur));
+  }, [agentOptions, view.agent_id]);
+
   const reqSeq = useRef(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -132,25 +132,25 @@ def ensure_clickhouse_events_schema() -> bool:
             agent_id LowCardinality(String),
             event_type LowCardinality(String),
             schema_version UInt16,
-            severity Nullable(LowCardinality(String)),
+            severity Nullable(String),
             src_ip Nullable(String),
             dst_ip Nullable(String),
             src_port Nullable(UInt16),
             dst_port Nullable(UInt16),
-            proto Nullable(LowCardinality(String)),
+            proto Nullable(String),
             bytes Nullable(Int64),
-            app_proto Nullable(LowCardinality(String)),
-            app_proto_reason Nullable(LowCardinality(String)),
-            app_proto_conf_band Nullable(LowCardinality(String)),
+            app_proto Nullable(String),
+            app_proto_reason Nullable(String),
+            app_proto_conf_band Nullable(String),
             dns_qname Nullable(String),
             http_host Nullable(String),
-            http_method Nullable(LowCardinality(String)),
+            http_method Nullable(String),
             tls_sni Nullable(String),
-            tls_alpn_first Nullable(LowCardinality(String)),
+            tls_alpn_first Nullable(String),
             ja3 Nullable(String),
             ja4 Nullable(String),
-            ja4_ptype Nullable(LowCardinality(String)),
-            ssh_action Nullable(LowCardinality(String)),
+            ja4_ptype Nullable(String),
+            ssh_action Nullable(String),
             ssh_username Nullable(String),
             sudo_username Nullable(String),
             sudo_target_user Nullable(String),
@@ -162,13 +162,13 @@ def ensure_clickhouse_events_schema() -> bool:
         ENGINE = ReplacingMergeTree(ingested_at)
         PARTITION BY toYYYYMM(timestamp)
         ORDER BY (timestamp, agent_id, event_type, pg_event_id)
-        TTL timestamp + toIntervalDay({retention_days}) DELETE
+        TTL toDateTime(timestamp) + toIntervalDay({retention_days}) DELETE
         SETTINGS index_granularity = 8192
         """
     )
     client.command(
         f"ALTER TABLE {db}.{table} "
-        f"MODIFY TTL timestamp + toIntervalDay({retention_days}) DELETE"
+        f"MODIFY TTL toDateTime(timestamp) + toIntervalDay({retention_days}) DELETE"
     )
     client.command(
         f"ALTER TABLE {db}.{table} "
@@ -178,18 +178,18 @@ def ensure_clickhouse_events_schema() -> bool:
         f"ALTER TABLE {db}.{table} "
         "ADD COLUMN IF NOT EXISTS ingested_at DateTime64(3, 'UTC') DEFAULT now64(3)"
     )
-    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS app_proto Nullable(LowCardinality(String))")
-    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS app_proto_reason Nullable(LowCardinality(String))")
-    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS app_proto_conf_band Nullable(LowCardinality(String))")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS app_proto Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS app_proto_reason Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS app_proto_conf_band Nullable(String)")
     client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS dns_qname Nullable(String)")
     client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS http_host Nullable(String)")
-    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS http_method Nullable(LowCardinality(String))")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS http_method Nullable(String)")
     client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS tls_sni Nullable(String)")
-    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS tls_alpn_first Nullable(LowCardinality(String))")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS tls_alpn_first Nullable(String)")
     client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS ja3 Nullable(String)")
     client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS ja4 Nullable(String)")
-    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS ja4_ptype Nullable(LowCardinality(String))")
-    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS ssh_action Nullable(LowCardinality(String))")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS ja4_ptype Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS ssh_action Nullable(String)")
     client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS ssh_username Nullable(String)")
     client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS sudo_username Nullable(String)")
     client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS sudo_target_user Nullable(String)")
@@ -203,7 +203,7 @@ def ensure_clickhouse_events_schema() -> bool:
             agent_id LowCardinality(String),
             event_type LowCardinality(String),
             dst_port Nullable(UInt16),
-            proto Nullable(LowCardinality(String)),
+            proto Nullable(String),
             total_count UInt64,
             total_bytes Int64,
             ssh_failures UInt64,
@@ -211,7 +211,7 @@ def ensure_clickhouse_events_schema() -> bool:
         )
         ENGINE = SummingMergeTree
         PARTITION BY toYYYYMM(bucket_ts)
-        ORDER BY (bucket_ts, agent_id, event_type, dst_port, proto)
+        ORDER BY (bucket_ts, agent_id, event_type, ifNull(dst_port, 0), ifNull(proto, ''))
         TTL bucket_ts + toIntervalDay({retention_days}) DELETE
         SETTINGS index_granularity = 8192
         """
