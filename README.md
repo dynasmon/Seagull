@@ -312,6 +312,9 @@ The `make up-extra` target starts the profile above.
 
 The admin account is bootstrapped on an empty database at backend startup.
 After logging in, change your password via **Settings** (or `POST /account/change-password`).
+If login gets out of sync with `.env`, run `make admin-reset` (backend CLI command) to force-sync the bootstrap admin password into the database.
+Important: this login troubleshooting is primarily for `prod` runs behind `netwatch-edge` (Nginx, `/api/*` path).
+In `dev` direct backend usage (`compose.dev.yml` / `http://localhost:8000`), host/proxy behaviors differ.
 
 ### 6. Verify the Backend
 

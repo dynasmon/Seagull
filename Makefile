@@ -12,7 +12,7 @@ ENV_EXAMPLE := .env.example
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap dev-preflight dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap admin-reset dev-preflight dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
@@ -20,6 +20,7 @@ help:
 	@echo "  make dev-preflight - validate local prerequisites for make dev"
 	@echo "  make dev-tls     - start development stack with stricter HTTPS cookie/proxy settings"
 	@echo "  make prod        - bootstrap and start production-style stack"
+	@echo "  make admin-reset - reset/sync bootstrap admin password (prod/edge nginx path)"
 	@echo "  make up          - alias for make dev"
 	@echo "  make up-extra    - start development stack with profile 'extra'"
 	@echo "  make down        - stop stack (dev profile by default)"
@@ -60,6 +61,9 @@ certs-bootstrap: bootstrap
 
 agent-tokens-bootstrap:
 	@./scripts/mint_agent_bootstrap_tokens.sh
+
+admin-reset: bootstrap bootstrap-tools
+	$(DC) $(COMPOSE_PROD) run --rm -T netwatch-backend python -m app.cli admin-reset
 
 # Single-command bootstrap for development.
 dev: dev-preflight certs-bootstrap
