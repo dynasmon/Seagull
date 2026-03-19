@@ -63,7 +63,7 @@ agent-tokens-bootstrap:
 	@./scripts/mint_agent_bootstrap_tokens.sh
 
 admin-reset: bootstrap bootstrap-tools
-	$(DC) $(COMPOSE_PROD) run --rm -T netwatch-backend python -m app.cli admin-reset
+	$(DC) $(COMPOSE_PROD) run --rm --build -T netwatch-backend python -m app.cli admin-reset
 
 # Single-command bootstrap for development.
 dev: dev-preflight certs-bootstrap
