@@ -1395,7 +1395,10 @@ def get_protocol_intel_summary(
 
     started = time.perf_counter()
     since_ts = datetime.now(timezone.utc) - timedelta(minutes=int(since_minutes))
-    cache_key = f"netwatch:events:network_summary:v3:sm={int(since_minutes)}:l={int(limit)}:a={agent_id or '*'}"
+    cache_key = (
+        "netwatch:events:network_summary:v4:"
+        f"sb={search_backend_mode()}:sm={int(since_minutes)}:l={int(limit)}:a={agent_id or '*'}"
+    )
     cached = _cache_get_json(cache_key)
     if cached is not None:
         incr_counter("api_cache_hit_total", route="/events/network/summary")
@@ -1645,6 +1648,7 @@ def get_protocol_intel_summary(
                         "aggs": {"ptype": {"terms": {"field": "ja4_ptype", "size": 1, "order": {"_count": "desc"}}}},
                     },
                     "top_ja3": {"terms": {"field": "ja3", "size": int(limit), "order": {"_count": "desc"}}},
+                    "latest_ts": {"max": {"field": "timestamp"}},
                 },
             }
 
@@ -1668,6 +1672,21 @@ def get_protocol_intel_summary(
             dns_events = int(((aggs.get("dns_events") or {}).get("doc_count", 0)) or 0)
             http_events = int(((aggs.get("http_events") or {}).get("doc_count", 0)) or 0)
             tls_events = int(((aggs.get("tls_events") or {}).get("doc_count", 0)) or 0)
+            es_latest_ts: datetime | None = None
+            latest_ts_value = (aggs.get("latest_ts") or {}).get("value")
+            if latest_ts_value is not None:
+                try:
+                    es_latest_ts = datetime.fromtimestamp(float(latest_ts_value) / 1000.0, tz=timezone.utc)
+                except Exception:
+                    es_latest_ts = None
+
+            if _es_failover_allowed():
+                if total_events <= 0:
+                    raise LookupError("es_empty_summary")
+                if with_proto_metadata <= 0 and _pg_has_protocol_metadata(since=since_ts, agent_id=agent_id):
+                    raise LookupError("es_proto_metadata_stale")
+                if es_latest_ts is not None and _pg_has_newer_event(latest_ts=es_latest_ts, agent_id=agent_id):
+                    raise LookupError("es_stale_summary")
 
             def _buckets(name: str) -> list[dict]:
                 return ((aggs.get(name) or {}).get("buckets") or [])

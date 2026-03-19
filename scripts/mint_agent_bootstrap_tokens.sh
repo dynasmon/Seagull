@@ -54,6 +54,8 @@ fi
 
 EDGE_BASE="https://localhost:${EDGE_PORT}"
 BACKEND_BASE="http://localhost:${BACKEND_PORT}"
+LOGIN_TIMEOUT_SECONDS="${NETWATCH_MINT_TOKENS_LOGIN_TIMEOUT_SECONDS:-180}"
+LOGIN_RETRY_SECONDS="${NETWATCH_MINT_TOKENS_LOGIN_RETRY_SECONDS:-2}"
 
 ACCESS_TOKEN=""
 API_BASE=""
@@ -93,7 +95,22 @@ for base in "$EDGE_BASE" "$BACKEND_BASE"; do
 done
 
 if [[ -z "$ACCESS_TOKEN" ]]; then
-  echo "Failed to login as admin." >&2
+  now_ts="$(date +%s)"
+  deadline=$((now_ts + LOGIN_TIMEOUT_SECONDS))
+  while [[ "$(date +%s)" -lt "$deadline" ]]; do
+    for base in "$EDGE_BASE" "$BACKEND_BASE"; do
+      for prefix in "" "/api"; do
+        if try_login "$base" "$prefix"; then
+          break 3
+        fi
+      done
+    done
+    sleep "$LOGIN_RETRY_SECONDS"
+  done
+fi
+
+if [[ -z "$ACCESS_TOKEN" ]]; then
+  echo "Failed to login as admin after ${LOGIN_TIMEOUT_SECONDS}s." >&2
   echo "$LOGIN_ERR" >&2
   exit 1
 fi
