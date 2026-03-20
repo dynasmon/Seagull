@@ -30,9 +30,7 @@ issue_with_token() {
   key_path="$3"
   sans_csv="${4:-}"
 
-  token="$(step ca token "${subject}" --ca-url "${CA_URL}" --root "${ROOT_CA_DST}" --provisioner "${PROVISIONER}" --password-file "${PASSWORD_FILE}")"
-
-  set -- step ca certificate "${subject}" "${cert_path}" "${key_path}" --force --token "${token}" --ca-url "${CA_URL}" --root "${ROOT_CA_DST}"
+  set -- step ca token "${subject}" --ca-url "${CA_URL}" --root "${ROOT_CA_DST}" --provisioner "${PROVISIONER}" --password-file "${PASSWORD_FILE}"
   old_ifs="$IFS"
   IFS=','
   for san in ${sans_csv}; do
@@ -41,6 +39,9 @@ issue_with_token() {
     set -- "$@" --san "${san}"
   done
   IFS="$old_ifs"
+  token="$("$@")"
+
+  set -- step ca certificate "${subject}" "${cert_path}" "${key_path}" --force --token "${token}" --ca-url "${CA_URL}" --root "${ROOT_CA_DST}"
   "$@"
 
   chmod 0644 "${cert_path}"
