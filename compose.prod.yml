@@ -2,13 +2,14 @@ services:
   netwatch-step-ca:
     image: smallstep/step-ca:0.27.4
     container_name: netwatch-step-ca
+    user: "0:0"
     environment:
-      STEPPATH: /home/step
+      STEPPATH: /var/lib/step
     command:
       - /bin/sh
       - -ec
       - |
-        if [ ! -s /home/step/config/ca.json ]; then
+        if [ ! -s /var/lib/step/config/ca.json ]; then
           step ca init \
             --name "Dynasmon NetWatch PKI" \
             --dns "netwatch-step-ca,localhost,netwatch-edge" \
@@ -19,11 +20,11 @@ services:
             --deployment-type standalone \
             --with-ca-url "${NETWATCH_STEP_CA_URL:-https://netwatch-step-ca:9000}";
         fi;
-        exec step-ca /home/step/config/ca.json --password-file /run/secrets/step_ca_password
+        exec step-ca /var/lib/step/config/ca.json --password-file /run/secrets/step_ca_password
     volumes:
-      - step-ca-data:/home/step
+      - ./secrets/step-ca/data:/var/lib/step
     healthcheck:
-      test: ["CMD-SHELL", "step ca health --ca-url https://127.0.0.1:9000 --root /home/step/certs/root_ca.crt >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "step ca health --ca-url https://127.0.0.1:9000 --root /var/lib/step/certs/root_ca.crt >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -44,12 +45,14 @@ services:
   netwatch-step-ca-issuer:
     image: smallstep/step-cli:0.27.4
     container_name: netwatch-step-ca-issuer
+    user: "0:0"
     depends_on:
       netwatch-step-ca:
         condition: service_healthy
     environment:
       NETWATCH_STEP_CA_URL: ${NETWATCH_STEP_CA_URL:-https://netwatch-step-ca:9000}
       NETWATCH_STEP_CA_PROVISIONER: ${NETWATCH_STEP_CA_PROVISIONER:-netwatch-provisioner}
+      NETWATCH_STEP_CA_ROOT_SOURCE: /var/lib/step/certs/root_ca.crt
       NETWATCH_STEP_CA_AGENT_IDS: ${NETWATCH_STEP_CA_AGENT_IDS:-agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1}
       NETWATCH_EDGE_CERT_CN: ${NETWATCH_AGENT_TLS_SERVER_NAME:-localhost}
       NETWATCH_EDGE_CERT_SANS: ${NETWATCH_EDGE_CERT_SANS:-localhost,netwatch-edge,127.0.0.1}
@@ -57,7 +60,7 @@ services:
     command: ["/bin/sh", "/scripts/stepca_issue_runtime_certs.sh"]
     volumes:
       - ./scripts/pki/stepca_issue_runtime_certs.sh:/scripts/stepca_issue_runtime_certs.sh:ro
-      - step-ca-data:/home/step:ro
+      - ./secrets/step-ca/data:/var/lib/step:ro
       - netwatch-pki:/var/lib/netwatch/pki
     healthcheck:
       test:
@@ -321,7 +324,6 @@ services:
       - netwatch-pki:/etc/netwatch/pki:ro
 
 volumes:
-  step-ca-data:
   netwatch-pki:
 
 secrets:
