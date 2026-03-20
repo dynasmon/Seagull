@@ -45,7 +45,7 @@ issue_with_token() {
   "$@"
 
   chmod 0644 "${cert_path}"
-  chmod 0600 "${key_path}"
+  set_key_permissions "${key_path}"
 }
 
 renew_or_issue() {
@@ -57,12 +57,25 @@ renew_or_issue() {
   if [ -f "${cert_path}" ] && [ -f "${key_path}" ]; then
     if step ca renew --force "${cert_path}" "${key_path}" --ca-url "${CA_URL}" --root "${ROOT_CA_DST}" --provisioner "${PROVISIONER}" --password-file "${PASSWORD_FILE}" >/dev/null 2>&1; then
       chmod 0644 "${cert_path}"
-      chmod 0600 "${key_path}"
+      set_key_permissions "${key_path}"
       return 0
     fi
   fi
 
   issue_with_token "${subject}" "${cert_path}" "${key_path}" "${sans_csv}"
+}
+
+set_key_permissions() {
+  key_path="$1"
+  case "${key_path}" in
+    ${EDGE_DIR}/*)
+      # nginx-unprivileged runs as a non-root user and must read the edge key.
+      chmod 0644 "${key_path}"
+      ;;
+    *)
+      chmod 0600 "${key_path}"
+      ;;
+  esac
 }
 
 issue_all() {
