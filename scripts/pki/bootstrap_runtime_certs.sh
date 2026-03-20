@@ -12,6 +12,11 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
+if [[ "${NETWATCH_ENV:-dev}" =~ ^(prod|production)$ ]]; then
+  echo "[pki] NETWATCH_ENV=${NETWATCH_ENV} -> skipping local runtime PKI bootstrap (production uses step-ca)"
+  exit 0
+fi
+
 TLS_DIR="${TLS_DIR:-secrets/tls}"
 AGENT_CA_DIR="${AGENT_CA_DIR:-secrets/agent-ca}"
 AGENT_PKI_DIR="${AGENT_PKI_DIR:-secrets/agent-pki}"
