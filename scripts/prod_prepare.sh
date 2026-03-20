@@ -11,10 +11,13 @@ if [ -f "$ENV_FILE" ]; then
     echo "[prod-prepare] unresolved merge markers found in ${ENV_FILE}" >&2
     exit 1
   fi
+else
+  echo "[prod-prepare] ${ENV_FILE} not found; create it from .env.example and set production secrets" >&2
+  exit 1
 fi
 
-mkdir -p secrets/app secrets/step-ca secrets/step-ca/data
-chmod 700 secrets/app secrets/step-ca secrets/step-ca/data
+mkdir -p secrets/step-ca secrets/step-ca/data
+chmod 700 secrets/step-ca secrets/step-ca/data
 
 make_secret_file() {
   target="$1"
@@ -36,10 +39,21 @@ PY
   echo "[prod-prepare] created $target"
 }
 
-make_secret_file "secrets/app/jwt-secret.txt" 48
-make_secret_file "secrets/app/bootstrap-admin-password.txt" 24
-make_secret_file "secrets/app/postgres-password.txt" 48
-make_secret_file "secrets/app/redis-password.txt" 48
-make_secret_file "secrets/app/es-password.txt" 48
 make_secret_file "secrets/step-ca/ca-password.txt" 48
 make_secret_file "secrets/step-ca/provisioner-password.txt" 48
+
+require_env_secret() {
+  key="$1"
+  min_len="$2"
+  value="$(awk -F= -v k="$key" '$1==k{print substr($0, index($0,$2))}' "$ENV_FILE" | tail -n1 | tr -d '\r')"
+  if [ -z "$value" ] || [ "${#value}" -lt "$min_len" ]; then
+    echo "[prod-prepare] missing or weak ${key} in ${ENV_FILE} (min ${min_len} chars)" >&2
+    exit 1
+  fi
+}
+
+require_env_secret "POSTGRES_PASSWORD" 12
+require_env_secret "NETWATCH_REDIS_PASSWORD" 12
+require_env_secret "NETWATCH_ES_PASSWORD" 12
+require_env_secret "NETWATCH_JWT_SECRET" 32
+require_env_secret "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD" 12
