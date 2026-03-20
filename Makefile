@@ -77,7 +77,7 @@ dev-tls: dev-preflight certs-bootstrap
 	$(DC) $(COMPOSE_DEV_TLS) up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln
 
 # Single-command bootstrap for production-like runs.
-prod: bootstrap bootstrap-tools certs-bootstrap
+prod: bootstrap bootstrap-tools
 	$(DC) $(COMPOSE_PROD) up -d --build
 
 up: dev

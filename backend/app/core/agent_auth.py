@@ -1,4 +1,5 @@
 import hashlib
+import os
 import ssl
 import re
 import secrets
@@ -103,12 +104,19 @@ def _extract_mtls_headers(request: Request) -> Optional[MTLSIdentityHeaders]:
     )
 
 
+def _expected_issuer_fragment() -> str:
+    return (os.getenv("NETWATCH_AGENT_MTLS_ISSUER_CONTAINS") or "").strip()
+
+
 def get_presented_mtls_identity(request: Request, require_verified: bool = True) -> Optional[MTLSIdentityHeaders]:
     mtls = _extract_mtls_headers(request)
     if mtls is None:
         return None
     if require_verified and mtls.verified.lower() != "success":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="mTLS verification failed")
+    expected_issuer = _expected_issuer_fragment()
+    if expected_issuer and expected_issuer not in mtls.issuer_dn:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="mTLS issuer mismatch")
     return mtls
 
 

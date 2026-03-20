@@ -1,4 +1,86 @@
 services:
+  netwatch-step-ca:
+    image: smallstep/step-ca:0.27.4
+    container_name: netwatch-step-ca
+    environment:
+      STEPPATH: /home/step
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ ! -s /home/step/config/ca.json ]; then
+          step ca init \
+            --name "Dynasmon NetWatch PKI" \
+            --dns "netwatch-step-ca,localhost,netwatch-edge" \
+            --address ":9000" \
+            --provisioner "${NETWATCH_STEP_CA_PROVISIONER:-netwatch-provisioner}" \
+            --password-file /run/secrets/step_ca_password \
+            --provisioner-password-file /run/secrets/step_ca_provisioner_password \
+            --deployment-type standalone \
+            --with-ca-url "${NETWATCH_STEP_CA_URL:-https://netwatch-step-ca:9000}";
+        fi;
+        exec step-ca /home/step/config/ca.json --password-file /run/secrets/step_ca_password
+    volumes:
+      - step-ca-data:/home/step
+    healthcheck:
+      test: ["CMD-SHELL", "step ca health --ca-url https://127.0.0.1:9000 --root /home/step/certs/root_ca.crt >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    secrets:
+      - step_ca_password
+      - step_ca_provisioner_password
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 256m
+    cpus: "0.50"
+    networks:
+      - netwatch
+    restart: unless-stopped
+
+  netwatch-step-ca-issuer:
+    image: smallstep/step-cli:0.27.4
+    container_name: netwatch-step-ca-issuer
+    depends_on:
+      netwatch-step-ca:
+        condition: service_healthy
+    environment:
+      NETWATCH_STEP_CA_URL: ${NETWATCH_STEP_CA_URL:-https://netwatch-step-ca:9000}
+      NETWATCH_STEP_CA_PROVISIONER: ${NETWATCH_STEP_CA_PROVISIONER:-netwatch-provisioner}
+      NETWATCH_STEP_CA_AGENT_IDS: ${NETWATCH_STEP_CA_AGENT_IDS:-agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1}
+      NETWATCH_EDGE_CERT_CN: ${NETWATCH_AGENT_TLS_SERVER_NAME:-localhost}
+      NETWATCH_EDGE_CERT_SANS: ${NETWATCH_EDGE_CERT_SANS:-localhost,netwatch-edge,127.0.0.1}
+      NETWATCH_STEP_CA_RENEW_EVERY_SECONDS: ${NETWATCH_STEP_CA_RENEW_EVERY_SECONDS:-21600}
+    command: ["/bin/sh", "/scripts/stepca_issue_runtime_certs.sh"]
+    volumes:
+      - ./scripts/pki/stepca_issue_runtime_certs.sh:/scripts/stepca_issue_runtime_certs.sh:ro
+      - step-ca-data:/home/step:ro
+      - netwatch-pki:/var/lib/netwatch/pki
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "test -s /var/lib/netwatch/pki/root_ca.crt && test -s /var/lib/netwatch/pki/edge/tls.crt && test -s /var/lib/netwatch/pki/edge/tls.key",
+        ]
+      interval: 10s
+      timeout: 4s
+      retries: 20
+      start_period: 20s
+    secrets:
+      - step_ca_provisioner_password
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+    cpus: "0.25"
+    networks:
+      - netwatch
+    restart: unless-stopped
+
   netwatch-edge:
     image: nginxinc/nginx-unprivileged:1.27-alpine
     depends_on:
@@ -6,15 +88,14 @@ services:
         condition: service_healthy
       netwatch-backend:
         condition: service_healthy
+      netwatch-step-ca-issuer:
+        condition: service_healthy
     ports:
       - "${NETWATCH_EDGE_HTTP_PORT:-80}:8081"
       - "${NETWATCH_EDGE_HTTPS_PORT:-443}:8443"
     volumes:
       - ./infra/nginx/edge.prod.conf:/etc/nginx/conf.d/default.conf:ro
-      - ${NETWATCH_TLS_CERT_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/tls/tls.crt:ro
-      - ${NETWATCH_TLS_KEY_FILE:-./secrets/tls/tls.key}:/etc/netwatch/tls/tls.key:ro
-      - ${NETWATCH_AGENT_CA_CERT_FILE:-./secrets/agent-ca/ca.crt}:/etc/netwatch/agent-ca/ca.crt:ro
-      - ${NETWATCH_AGENT_CA_CRL_FILE:-./secrets/agent-ca/ca.crl}:/etc/netwatch/agent-ca/ca.crl:ro
+      - netwatch-pki:/etc/netwatch/pki:ro
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -69,13 +150,18 @@ services:
       NETWATCH_AUDIT_RETENTION_EVERY_SECONDS: ${NETWATCH_AUDIT_RETENTION_EVERY_SECONDS:-3600}
       NETWATCH_AUDIT_RETENTION_DELETE_BATCH: ${NETWATCH_AUDIT_RETENTION_DELETE_BATCH:-5000}
       NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:-netwatch123}
-      NETWATCH_JWT_SECRET: ${NETWATCH_JWT_SECRET:-change_me_dev_jwt_secret_at_least_32_chars_long}
-      NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: ${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD:-change_me_dev_bootstrap_admin_password_123}
+      NETWATCH_JWT_SECRET: ${NETWATCH_JWT_SECRET:-}
+      NETWATCH_JWT_SECRET_FILE: /run/secrets/netwatch_jwt_secret
+      NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: ${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD:-}
+      NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/netwatch_bootstrap_admin_password
       NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START: "false"
       NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START: ${NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START_PROD:-true}
       NETWATCH_REDIS_PASSWORD: ${NETWATCH_REDIS_PASSWORD:-}
       NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
       NETWATCH_ES_PASSWORD: ${NETWATCH_ES_PASSWORD:-netwatch_es_change_me_123}
+    secrets:
+      - netwatch_jwt_secret
+      - netwatch_bootstrap_admin_password
 
   netwatch-ingest-worker:
     environment:
@@ -94,7 +180,8 @@ services:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
       NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:-netwatch123}
-      NETWATCH_JWT_SECRET: ${NETWATCH_JWT_SECRET:-change_me_dev_jwt_secret_at_least_32_chars_long}
+      NETWATCH_JWT_SECRET: ${NETWATCH_JWT_SECRET:-}
+      NETWATCH_JWT_SECRET_FILE: /run/secrets/netwatch_jwt_secret
       NETWATCH_AUDIT_HASH_PEPPER: ${NETWATCH_AUDIT_HASH_PEPPER:-}
       NETWATCH_AUDIT_RETENTION_ENABLED: "true"
       NETWATCH_AUDIT_RETENTION_DAYS: ${NETWATCH_AUDIT_RETENTION_DAYS_PROD:-365}
@@ -102,6 +189,8 @@ services:
       NETWATCH_GOVERNANCE_RETENTION_DAYS: ${NETWATCH_GOVERNANCE_RETENTION_DAYS_PROD:-365}
       NETWATCH_AUDIT_RETENTION_EVERY_SECONDS: ${NETWATCH_AUDIT_RETENTION_EVERY_SECONDS:-3600}
       NETWATCH_AUDIT_RETENTION_DELETE_BATCH: ${NETWATCH_AUDIT_RETENTION_DELETE_BATCH:-5000}
+    secrets:
+      - netwatch_jwt_secret
 
   netwatch-rules-worker:
     environment:
@@ -153,3 +242,94 @@ services:
     ports: []
     environment: {}
     volumes: []
+
+  netwatch-agent-proc:
+    depends_on:
+      netwatch-backend:
+        condition: service_healthy
+      netwatch-step-ca-issuer:
+        condition: service_healthy
+    environment:
+      NETWATCH_TLS_CA_FILE: /etc/netwatch/pki/root_ca.crt
+      NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_PROC_ID:-agent-proc-1}/tls.crt
+      NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_PROC_ID:-agent-proc-1}/tls.key
+      NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
+    volumes:
+      - /var/log/auth.log:/var/log/auth.log:ro
+      - agent-proc-state:/var/lib/netwatch
+      - netwatch-pki:/etc/netwatch/pki:ro
+
+  netwatch-agent-scan:
+    depends_on:
+      netwatch-backend:
+        condition: service_healthy
+      netwatch-step-ca-issuer:
+        condition: service_healthy
+    environment:
+      NETWATCH_TLS_CA_FILE: /etc/netwatch/pki/root_ca.crt
+      NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_SCAN_ID:-agent-scan-1}/tls.crt
+      NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_SCAN_ID:-agent-scan-1}/tls.key
+      NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
+    volumes:
+      - agent-scan-state:/var/lib/netwatch
+      - netwatch-pki:/etc/netwatch/pki:ro
+
+  netwatch-agent-lateral:
+    depends_on:
+      netwatch-backend:
+        condition: service_healthy
+      netwatch-step-ca-issuer:
+        condition: service_healthy
+    environment:
+      NETWATCH_TLS_CA_FILE: /etc/netwatch/pki/root_ca.crt
+      NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_LATERAL_ID:-agent-lateral-1}/tls.crt
+      NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_LATERAL_ID:-agent-lateral-1}/tls.key
+      NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
+    volumes:
+      - agent-lateral-state:/var/lib/netwatch
+      - netwatch-pki:/etc/netwatch/pki:ro
+
+  netwatch-agent-ddos:
+    depends_on:
+      netwatch-backend:
+        condition: service_healthy
+      netwatch-step-ca-issuer:
+        condition: service_healthy
+    environment:
+      NETWATCH_TLS_CA_FILE: /etc/netwatch/pki/root_ca.crt
+      NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_DDOS_ID:-agent-ddos-1}/tls.crt
+      NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_DDOS_ID:-agent-ddos-1}/tls.key
+      NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
+    volumes:
+      - agent-ddos-state:/var/lib/netwatch
+      - netwatch-pki:/etc/netwatch/pki:ro
+
+  netwatch-agent-vuln:
+    depends_on:
+      netwatch-backend:
+        condition: service_healthy
+      netwatch-step-ca-issuer:
+        condition: service_healthy
+    environment:
+      NETWATCH_TLS_CA_FILE: /etc/netwatch/pki/root_ca.crt
+      NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_VULN_ID:-agent-vuln-1}/tls.crt
+      NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_VULN_ID:-agent-vuln-1}/tls.key
+      NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
+    volumes:
+      - agent-vuln-state:/var/lib/netwatch
+      - /:/host:ro
+      - netwatch-pki:/etc/netwatch/pki:ro
+
+volumes:
+  step-ca-data:
+  netwatch-pki:
+
+secrets:
+  step_ca_password:
+    file: ./secrets/step-ca/ca-password.txt
+  step_ca_provisioner_password:
+    file: ./secrets/step-ca/provisioner-password.txt
+  netwatch_jwt_secret:
+    file: ./secrets/app/jwt-secret.txt
+  netwatch_bootstrap_admin_password:
+    file: ./secrets/app/bootstrap-admin-password.txt

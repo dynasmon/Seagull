@@ -36,6 +36,7 @@ from app.schemas.agents import (
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 _TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,31}$")
+_SUBJECT_CN_RE = re.compile(r"(?:^|[,/])\s*CN\s*=\s*([^,/]+)")
 
 
 def _normalize_tags(tags: Optional[List[str]]) -> List[str]:
@@ -123,6 +124,13 @@ def _parse_cert_time(raw: str | None) -> datetime | None:
         except ValueError:
             continue
     return None
+
+
+def _parse_subject_cn(subject_dn: str | None) -> str:
+    m = _SUBJECT_CN_RE.search((subject_dn or "").strip())
+    if not m:
+        return ""
+    return (m.group(1) or "").strip()
 
 
 def _consume_bootstrap_token(db, agent_id: str, raw_token: str) -> AgentBootstrapTokenModel:
@@ -251,6 +259,9 @@ async def enroll_agent(request: Request, payload: AgentEnrollIn):
 
         if mtls_identity.agent_id != payload.agent_id:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Certificate agent_id mismatch")
+        subject_cn = _parse_subject_cn(mtls_identity.subject_dn)
+        if subject_cn and subject_cn != payload.agent_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Certificate subject CN mismatch")
 
         raw_bootstrap = (request.headers.get("X-Agent-Bootstrap-Token") or "").strip()
         if not raw_bootstrap:
