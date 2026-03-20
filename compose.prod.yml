@@ -9,6 +9,8 @@ services:
       - /bin/sh
       - -ec
       - |
+        mkdir -p /var/lib/step/config /var/lib/step/certs /var/lib/step/secrets;
+        chmod 700 /var/lib/step || true;
         if [ ! -s /var/lib/step/config/ca.json ]; then
           step ca init \
             --name "Dynasmon NetWatch PKI" \
