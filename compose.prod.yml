@@ -26,7 +26,7 @@ services:
     volumes:
       - ./secrets/step-ca/data:/var/lib/step
     healthcheck:
-      test: ["CMD-SHELL", "step ca health --ca-url https://127.0.0.1:9000 --root /var/lib/step/certs/root_ca.crt >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "step ca health --ca-url https://localhost:9000 --root /var/lib/step/certs/root_ca.crt >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 20
