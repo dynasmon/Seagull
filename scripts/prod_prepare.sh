@@ -38,5 +38,8 @@ PY
 
 make_secret_file "secrets/app/jwt-secret.txt" 48
 make_secret_file "secrets/app/bootstrap-admin-password.txt" 24
+make_secret_file "secrets/app/postgres-password.txt" 48
+make_secret_file "secrets/app/redis-password.txt" 48
+make_secret_file "secrets/app/es-password.txt" 48
 make_secret_file "secrets/step-ca/ca-password.txt" 48
 make_secret_file "secrets/step-ca/provisioner-password.txt" 48
