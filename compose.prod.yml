@@ -111,38 +111,26 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-netwatch}
       POSTGRES_USER: ${POSTGRES_USER:-netwatch}
-      POSTGRES_PASSWORD: ""
-      POSTGRES_PASSWORD_FILE: /run/secrets/netwatch_postgres_password
-    secrets:
-      - netwatch_postgres_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
 
   redis:
     environment:
-      NETWATCH_REDIS_PASSWORD: ""
-      NETWATCH_REDIS_PASSWORD_FILE: /run/secrets/netwatch_redis_password
-    secrets:
-      - netwatch_redis_password
+      NETWATCH_REDIS_PASSWORD: ${NETWATCH_REDIS_PASSWORD:?set NETWATCH_REDIS_PASSWORD in .env}
 
   elasticsearch:
     ports: []
     environment:
       xpack.security.enabled: "true"
-      ELASTIC_PASSWORD: ""
-      ELASTIC_PASSWORD_FILE: /run/secrets/netwatch_es_password
-    secrets:
-      - netwatch_es_password
+      ELASTIC_PASSWORD: ${NETWATCH_ES_PASSWORD:?set NETWATCH_ES_PASSWORD in .env}
 
   kibana:
     ports: []
     environment:
       ELASTICSEARCH_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
-      ELASTICSEARCH_PASSWORD: ""
-      ELASTICSEARCH_PASSWORD_FILE: /run/secrets/netwatch_es_password
+      ELASTICSEARCH_PASSWORD: ${NETWATCH_ES_PASSWORD:?set NETWATCH_ES_PASSWORD in .env}
       SERVER_BASEPATH: /kibana
       SERVER_REWRITEBASEPATH: "true"
       SERVER_PUBLICBASEURL: ${NETWATCH_KIBANA_PUBLIC_BASE_URL:-https://localhost/kibana}
-    secrets:
-      - netwatch_es_password
 
   netwatch-backend:
     ports: []
@@ -164,25 +152,14 @@ services:
       NETWATCH_GOVERNANCE_RETENTION_DAYS: ${NETWATCH_GOVERNANCE_RETENTION_DAYS_PROD:-365}
       NETWATCH_AUDIT_RETENTION_EVERY_SECONDS: ${NETWATCH_AUDIT_RETENTION_EVERY_SECONDS:-3600}
       NETWATCH_AUDIT_RETENTION_DELETE_BATCH: ${NETWATCH_AUDIT_RETENTION_DELETE_BATCH:-5000}
-      NETWATCH_DB_PASSWORD: ""
-      NETWATCH_DB_PASSWORD_FILE: /run/secrets/netwatch_postgres_password
-      NETWATCH_JWT_SECRET: ${NETWATCH_JWT_SECRET:-}
-      NETWATCH_JWT_SECRET_FILE: /run/secrets/netwatch_jwt_secret
-      NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: ${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD:-}
-      NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/netwatch_bootstrap_admin_password
+      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      NETWATCH_JWT_SECRET: ${NETWATCH_JWT_SECRET:?set NETWATCH_JWT_SECRET in .env}
+      NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: ${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD:?set NETWATCH_BOOTSTRAP_ADMIN_PASSWORD in .env}
       NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START: "false"
       NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START: ${NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START_PROD:-true}
-      NETWATCH_REDIS_PASSWORD: ""
-      NETWATCH_REDIS_PASSWORD_FILE: /run/secrets/netwatch_redis_password
+      NETWATCH_REDIS_PASSWORD: ${NETWATCH_REDIS_PASSWORD:?set NETWATCH_REDIS_PASSWORD in .env}
       NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
-      NETWATCH_ES_PASSWORD: ""
-      NETWATCH_ES_PASSWORD_FILE: /run/secrets/netwatch_es_password
-    secrets:
-      - netwatch_postgres_password
-      - netwatch_redis_password
-      - netwatch_es_password
-      - netwatch_jwt_secret
-      - netwatch_bootstrap_admin_password
+      NETWATCH_ES_PASSWORD: ${NETWATCH_ES_PASSWORD:?set NETWATCH_ES_PASSWORD in .env}
 
   netwatch-ingest-worker:
     environment:
@@ -191,26 +168,17 @@ services:
       NETWATCH_RULES_ENV: prod
       NETWATCH_RULES_ENABLED_PACKS: ${NETWATCH_RULES_ENABLED_PACKS:-core,network}
       NETWATCH_RULES_INCLUDE_EXPERIMENTAL: ${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-false}
-      NETWATCH_DB_PASSWORD: ""
-      NETWATCH_DB_PASSWORD_FILE: /run/secrets/netwatch_postgres_password
-      NETWATCH_REDIS_PASSWORD: ""
-      NETWATCH_REDIS_PASSWORD_FILE: /run/secrets/netwatch_redis_password
+      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      NETWATCH_REDIS_PASSWORD: ${NETWATCH_REDIS_PASSWORD:?set NETWATCH_REDIS_PASSWORD in .env}
       NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
-      NETWATCH_ES_PASSWORD: ""
-      NETWATCH_ES_PASSWORD_FILE: /run/secrets/netwatch_es_password
-    secrets:
-      - netwatch_postgres_password
-      - netwatch_redis_password
-      - netwatch_es_password
+      NETWATCH_ES_PASSWORD: ${NETWATCH_ES_PASSWORD:?set NETWATCH_ES_PASSWORD in .env}
 
   netwatch-audit-retention:
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ""
-      NETWATCH_DB_PASSWORD_FILE: /run/secrets/netwatch_postgres_password
-      NETWATCH_JWT_SECRET: ${NETWATCH_JWT_SECRET:-}
-      NETWATCH_JWT_SECRET_FILE: /run/secrets/netwatch_jwt_secret
+      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      NETWATCH_JWT_SECRET: ${NETWATCH_JWT_SECRET:?set NETWATCH_JWT_SECRET in .env}
       NETWATCH_AUDIT_HASH_PEPPER: ${NETWATCH_AUDIT_HASH_PEPPER:-}
       NETWATCH_AUDIT_RETENTION_ENABLED: "true"
       NETWATCH_AUDIT_RETENTION_DAYS: ${NETWATCH_AUDIT_RETENTION_DAYS_PROD:-365}
@@ -218,75 +186,49 @@ services:
       NETWATCH_GOVERNANCE_RETENTION_DAYS: ${NETWATCH_GOVERNANCE_RETENTION_DAYS_PROD:-365}
       NETWATCH_AUDIT_RETENTION_EVERY_SECONDS: ${NETWATCH_AUDIT_RETENTION_EVERY_SECONDS:-3600}
       NETWATCH_AUDIT_RETENTION_DELETE_BATCH: ${NETWATCH_AUDIT_RETENTION_DELETE_BATCH:-5000}
-    secrets:
-      - netwatch_postgres_password
-      - netwatch_jwt_secret
 
   netwatch-rules-worker:
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ""
-      NETWATCH_DB_PASSWORD_FILE: /run/secrets/netwatch_postgres_password
-    secrets:
-      - netwatch_postgres_password
+      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
 
   netwatch-es-indexer:
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ""
-      NETWATCH_DB_PASSWORD_FILE: /run/secrets/netwatch_postgres_password
+      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
-      NETWATCH_ES_PASSWORD: ""
-      NETWATCH_ES_PASSWORD_FILE: /run/secrets/netwatch_es_password
-    secrets:
-      - netwatch_postgres_password
-      - netwatch_es_password
+      NETWATCH_ES_PASSWORD: ${NETWATCH_ES_PASSWORD:?set NETWATCH_ES_PASSWORD in .env}
 
   netwatch-rollup-worker:
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ""
-      NETWATCH_DB_PASSWORD_FILE: /run/secrets/netwatch_postgres_password
-    secrets:
-      - netwatch_postgres_password
+      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
 
   netwatch-ip-intel:
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ""
-      NETWATCH_DB_PASSWORD_FILE: /run/secrets/netwatch_postgres_password
-    secrets:
-      - netwatch_postgres_password
+      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
 
   netwatch-proto-intel:
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ""
-      NETWATCH_DB_PASSWORD_FILE: /run/secrets/netwatch_postgres_password
-    secrets:
-      - netwatch_postgres_password
+      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
 
   netwatch-attack-chain:
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ""
-      NETWATCH_DB_PASSWORD_FILE: /run/secrets/netwatch_postgres_password
-    secrets:
-      - netwatch_postgres_password
+      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
 
   grafana:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-change_me_dev_grafana_password_123}
-      POSTGRES_PASSWORD: ""
-      POSTGRES_PASSWORD_FILE: /run/secrets/netwatch_postgres_password
-    secrets:
-      - netwatch_postgres_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
 
   netwatch-portal:
     build:
@@ -381,13 +323,3 @@ secrets:
     file: ./secrets/step-ca/ca-password.txt
   step_ca_provisioner_password:
     file: ./secrets/step-ca/provisioner-password.txt
-  netwatch_jwt_secret:
-    file: ./secrets/app/jwt-secret.txt
-  netwatch_bootstrap_admin_password:
-    file: ./secrets/app/bootstrap-admin-password.txt
-  netwatch_postgres_password:
-    file: ./secrets/app/postgres-password.txt
-  netwatch_redis_password:
-    file: ./secrets/app/redis-password.txt
-  netwatch_es_password:
-    file: ./secrets/app/es-password.txt
