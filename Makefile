@@ -12,7 +12,7 @@ ENV_EXAMPLE := .env.example
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap admin-reset dev-preflight dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap admin-reset dev-preflight prod-prepare prod-fresh dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
@@ -20,6 +20,7 @@ help:
 	@echo "  make dev-preflight - validate local prerequisites for make dev"
 	@echo "  make dev-tls     - start development stack with stricter HTTPS cookie/proxy settings"
 	@echo "  make prod        - bootstrap and start production-style stack"
+	@echo "  make prod-fresh  - full fresh production-style boot (drops volumes)"
 	@echo "  make admin-reset - reset/sync bootstrap admin password (prod/edge nginx path)"
 	@echo "  make up          - alias for make dev"
 	@echo "  make up-extra    - start development stack with profile 'extra'"
@@ -65,6 +66,9 @@ agent-tokens-bootstrap:
 admin-reset: bootstrap bootstrap-tools
 	$(DC) $(COMPOSE_PROD) run --rm --build -T netwatch-backend python -m app.cli admin-reset
 
+prod-prepare: bootstrap
+	@./scripts/prod_prepare.sh
+
 # Single-command bootstrap for development.
 dev: dev-preflight certs-bootstrap
 	$(DC) $(COMPOSE_DEV) up -d --build --force-recreate
@@ -77,7 +81,11 @@ dev-tls: dev-preflight certs-bootstrap
 	$(DC) $(COMPOSE_DEV_TLS) up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln
 
 # Single-command bootstrap for production-like runs.
-prod: bootstrap bootstrap-tools
+prod: bootstrap bootstrap-tools prod-prepare
+	$(DC) $(COMPOSE_PROD) up -d --build
+
+prod-fresh: bootstrap bootstrap-tools prod-prepare
+	$(DC) $(COMPOSE_PROD) down -v --remove-orphans
 	$(DC) $(COMPOSE_PROD) up -d --build
 
 up: dev

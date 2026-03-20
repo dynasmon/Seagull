@@ -22,7 +22,7 @@ services:
             --deployment-type standalone \
             --with-ca-url "${NETWATCH_STEP_CA_URL:-https://netwatch-step-ca:9000}";
         fi;
-        exec step-ca /var/lib/step/config/ca.json --password-file /run/secrets/step_ca_password
+        exec /bin/bash /entrypoint.sh step-ca /var/lib/step/config/ca.json --password-file /run/secrets/step_ca_password
     volumes:
       - ./secrets/step-ca/data:/var/lib/step
     healthcheck:
@@ -34,10 +34,6 @@ services:
     secrets:
       - step_ca_password
       - step_ca_provisioner_password
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
     mem_limit: 256m
     cpus: "0.50"
     networks:
@@ -76,10 +72,6 @@ services:
       start_period: 20s
     secrets:
       - step_ca_provisioner_password
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
     mem_limit: 128m
     cpus: "0.25"
     networks:
@@ -113,6 +105,8 @@ services:
 
   postgres:
     environment:
+      POSTGRES_DB: ${POSTGRES_DB:-netwatch}
+      POSTGRES_USER: ${POSTGRES_USER:-netwatch}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-netwatch123}
 
   redis:
