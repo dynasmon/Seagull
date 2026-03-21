@@ -2,17 +2,14 @@
 
 Store local runtime secrets in this directory for Docker Compose.
 
-Expected files for `compose.prod.yml`:
+Expected files/directories for the current production flow:
 
-- `postgres_password.txt`
-- `grafana_admin_password.txt`
-- `netwatch_jwt_secret.txt`
-- `netwatch_bootstrap_admin_password.txt`
-- `agent-ca/` (agent mTLS CA + CRL state)
-- `agent-pki/` (per-agent client cert/key material)
-- `netwatch_redis_password.txt`
-- `netwatch_es_password.txt`
-- `netwatch_audit_hash_pepper.txt`
+- `step-ca/ca-password.txt`
+- `step-ca/provisioner-password.txt`
+- `step-ca/data/` (Smallstep CA state)
+- `bootstrap/` (short-lived per-agent bootstrap tokens generated at deploy time)
+- `agent-ca/` (legacy local agent mTLS CA + CRL state used in dev flows)
+- `agent-pki/` (legacy per-agent client cert/key material used in dev flows)
 - `tls/tls.crt`
 - `tls/tls.key`
 

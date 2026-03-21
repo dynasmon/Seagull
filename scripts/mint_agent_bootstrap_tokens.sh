@@ -41,6 +41,17 @@ upsert_env() {
   fi
 }
 
+write_token_file() {
+  local agent_id="$1"
+  local token="$2"
+  local out_dir="$3"
+  mkdir -p "$out_dir"
+  chmod 700 "$out_dir"
+  local out_file="${out_dir}/${agent_id}.token"
+  printf "%s\n" "$token" > "$out_file"
+  chmod 600 "$out_file"
+}
+
 EDGE_PORT="$(read_env NETWATCH_EDGE_HTTPS_PORT 8443)"
 BACKEND_PORT="$(read_env NETWATCH_BACKEND_PORT 8000)"
 ADMIN_USER="$(read_env NETWATCH_BOOTSTRAP_ADMIN_USERNAME admin)"
@@ -123,7 +134,13 @@ declare -a AGENT_MAP=(
   "AGENT_VULN_ID:AGENT_VULN_BOOTSTRAP_TOKEN"
 )
 
-if [[ "${NETWATCH_MINT_TOKENS_BACKUP_ENV:-false}" == "true" ]]; then
+OUTPUT_DIR="${NETWATCH_MINT_TOKENS_OUTPUT_DIR:-}"
+WRITE_ENV="true"
+if [[ -n "$OUTPUT_DIR" ]]; then
+  WRITE_ENV="false"
+fi
+
+if [[ "$WRITE_ENV" == "true" && "${NETWATCH_MINT_TOKENS_BACKUP_ENV:-false}" == "true" ]]; then
   cp "$ENV_FILE" "${ENV_FILE}.bak.$(date +%Y%m%d%H%M%S)"
 fi
 
@@ -155,9 +172,18 @@ for pair in "${AGENT_MAP[@]}"; do
     exit 1
   fi
 
-  upsert_env "$token_key" "$token"
-  echo "Minted ${token_key} for ${agent_id}"
+  if [[ -n "$OUTPUT_DIR" ]]; then
+    write_token_file "$agent_id" "$token" "$OUTPUT_DIR"
+    echo "Minted bootstrap token file for ${agent_id} -> ${OUTPUT_DIR}/${agent_id}.token"
+  else
+    upsert_env "$token_key" "$token"
+    echo "Minted ${token_key} for ${agent_id}"
+  fi
 done
 
-echo "Updated .env with AGENT_*_BOOTSTRAP_TOKEN values."
+if [[ -n "$OUTPUT_DIR" ]]; then
+  echo "Updated bootstrap token files in ${OUTPUT_DIR}."
+else
+  echo "Updated .env with AGENT_*_BOOTSTRAP_TOKEN values."
+fi
 echo "Next: docker compose up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln netwatch-agent-lateral"
