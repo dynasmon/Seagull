@@ -27,3 +27,7 @@ secrets/**
 .idea/
 .vscode/
 *.log
+# Local GeoIP databases
+backend/data/geoip/*.mmdb
+backend/data/geoip/*.tar.gz
+backend/data/geoip/*.zip

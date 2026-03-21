@@ -217,9 +217,14 @@ scripts/pki/issue_agent_cert.sh agent-vuln-1
 
 Configure cert/key paths in `.env` (`AGENT_*_CERT_FILE`, `AGENT_*_KEY_FILE`).
 
-If you enable SSH enrichment (Lupe), set:
+If you enable SSH enrichment (Lupe / IP Intelligence), the preferred setup is local MaxMind GeoLite2 databases mounted into `backend/data/geoip/`:
 
-- `NETWATCH_IPINFO_TOKEN` (IPInfo token)
+- `backend/data/geoip/GeoLite2-City.mmdb`
+- `backend/data/geoip/GeoLite2-ASN.mmdb`
+
+Optional fallback:
+
+- `NETWATCH_IPINFO_TOKEN` (used only when the local MMDB files are missing and fallback is enabled)
 
 ### 3. Bootstrap and start (single command)
 
@@ -285,7 +290,7 @@ By default, this starts:
 - `netwatch-audit-retention`
 - `netwatch-es-indexer`
 - `netwatch-rollup-worker`
-- `netwatch-lupe-enricher` (will run; enrichment is a no‑op unless `NETWATCH_IPINFO_TOKEN` is set)
+- `netwatch-ip-intel` (prefers local MaxMind GeoLite2 MMDB files; optionally falls back to IPInfo when configured)
 - `netwatch-postgres`
 - `netwatch-redis`
 - `netwatch-elasticsearch`
