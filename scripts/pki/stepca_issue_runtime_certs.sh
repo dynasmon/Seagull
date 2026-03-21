@@ -3,7 +3,7 @@ set -eu
 
 CA_URL="${NETWATCH_STEP_CA_URL:-https://netwatch-step-ca:9000}"
 PROVISIONER="${NETWATCH_STEP_CA_PROVISIONER:-netwatch-provisioner}"
-PASSWORD_FILE="${NETWATCH_STEP_CA_PROVISIONER_PASSWORD_FILE:-/run/secrets/step_ca_provisioner_password}"
+PASSWORD_FILE="${NETWATCH_STEP_CA_PROVISIONER_PASSWORD_FILE:-/etc/netwatch/step-ca/provisioner-password.txt}"
 PKI_DIR="${NETWATCH_PKI_DIR:-/var/lib/netwatch/pki}"
 ROOT_CA_SOURCE="${NETWATCH_STEP_CA_ROOT_SOURCE:-/var/lib/step/certs/root_ca.crt}"
 EDGE_CN="${NETWATCH_EDGE_CERT_CN:-localhost}"

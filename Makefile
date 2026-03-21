@@ -8,11 +8,13 @@ COMPOSE_PROD := $(COMPOSE_BASE) -f compose.prod.yml
 
 ENV_FILE := .env
 ENV_EXAMPLE := .env.example
+PROD_CORE_SERVICES := postgres redis elasticsearch clickhouse netwatch-step-ca netwatch-step-ca-issuer netwatch-backend netwatch-ingest-worker netwatch-rules-worker netwatch-audit-retention netwatch-es-indexer netwatch-rollup-worker netwatch-ip-intel netwatch-proto-intel netwatch-attack-chain netwatch-portal netwatch-edge grafana
+PROD_AGENT_SERVICES := netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln
 
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap admin-reset dev-preflight prod-prepare prod-fresh dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight prod-prepare prod-fresh dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
@@ -63,6 +65,9 @@ certs-bootstrap: bootstrap
 agent-tokens-bootstrap:
 	@./scripts/mint_agent_bootstrap_tokens.sh
 
+prod-agent-tokens-bootstrap:
+	@NETWATCH_MINT_TOKENS_OUTPUT_DIR=./secrets/bootstrap ./scripts/mint_agent_bootstrap_tokens.sh
+
 admin-reset: bootstrap bootstrap-tools
 	$(DC) $(COMPOSE_PROD) run --rm --build -T netwatch-backend python -m app.cli admin-reset
 
@@ -82,11 +87,16 @@ dev-tls: dev-preflight certs-bootstrap
 
 # Single-command bootstrap for production-like runs.
 prod: bootstrap bootstrap-tools prod-prepare
-	$(DC) $(COMPOSE_PROD) up -d --build
+	$(DC) $(COMPOSE_PROD) up -d --build $(PROD_CORE_SERVICES)
+	@$(MAKE) prod-agent-tokens-bootstrap
+	$(DC) $(COMPOSE_PROD) up -d --force-recreate $(PROD_AGENT_SERVICES)
 
 prod-fresh: bootstrap bootstrap-tools prod-prepare
 	$(DC) $(COMPOSE_PROD) down -v --remove-orphans
-	$(DC) $(COMPOSE_PROD) up -d --build
+	@rm -f ./secrets/bootstrap/*.token
+	$(DC) $(COMPOSE_PROD) up -d --build $(PROD_CORE_SERVICES)
+	@$(MAKE) prod-agent-tokens-bootstrap
+	$(DC) $(COMPOSE_PROD) up -d --force-recreate $(PROD_AGENT_SERVICES)
 
 up: dev
 

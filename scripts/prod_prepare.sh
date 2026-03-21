@@ -16,8 +16,24 @@ else
   exit 1
 fi
 
-mkdir -p secrets/step-ca secrets/step-ca/data
-chmod 700 secrets/step-ca secrets/step-ca/data
+if [ -d .git ]; then
+  if [ -f .git/MERGE_HEAD ] || [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+    echo "[prod-prepare] repository is in an unfinished merge/rebase state; run git merge --abort or git rebase --abort before deploy" >&2
+    exit 1
+  fi
+  if command -v git >/dev/null 2>&1; then
+    unresolved="$(git diff --name-only --diff-filter=U 2>/dev/null || true)"
+    if [ -n "$unresolved" ]; then
+      echo "[prod-prepare] repository still has unresolved conflicts in the index" >&2
+      printf '%s\n' "$unresolved" >&2
+      exit 1
+    fi
+  fi
+fi
+
+mkdir -p secrets/step-ca secrets/step-ca/data secrets/bootstrap
+chmod 700 secrets/step-ca secrets/step-ca/data secrets/bootstrap
+find secrets/bootstrap -type f -name '*.token' -exec chmod 600 {} \; 2>/dev/null || true
 
 make_secret_file() {
   target="$1"
@@ -42,12 +58,28 @@ PY
 make_secret_file "secrets/step-ca/ca-password.txt" 48
 make_secret_file "secrets/step-ca/provisioner-password.txt" 48
 
+read_env_value() {
+  key="$1"
+  awk -F= -v k="$key" '$1==k{line=$0; sub(/^[^=]*=/, "", line); print line}' "$ENV_FILE" | tail -n1 | tr -d '\r'
+}
+
 require_env_secret() {
   key="$1"
   min_len="$2"
-  value="$(awk -F= -v k="$key" '$1==k{print substr($0, index($0,$2))}' "$ENV_FILE" | tail -n1 | tr -d '\r')"
+  value="$(read_env_value "$key")"
   if [ -z "$value" ] || [ "${#value}" -lt "$min_len" ]; then
     echo "[prod-prepare] missing or weak ${key} in ${ENV_FILE} (min ${min_len} chars)" >&2
+    exit 1
+  fi
+}
+
+reject_env_pair_conflict() {
+  left="$1"
+  right="$2"
+  left_val="$(read_env_value "$left")"
+  right_val="$(read_env_value "$right")"
+  if [ -n "$left_val" ] && [ -n "$right_val" ]; then
+    echo "[prod-prepare] ${left} and ${right} are both set in ${ENV_FILE}; production must use a single source of truth" >&2
     exit 1
   fi
 }
@@ -57,3 +89,21 @@ require_env_secret "NETWATCH_REDIS_PASSWORD" 12
 require_env_secret "NETWATCH_ES_PASSWORD" 12
 require_env_secret "NETWATCH_JWT_SECRET" 32
 require_env_secret "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD" 12
+
+reject_env_pair_conflict "POSTGRES_PASSWORD" "POSTGRES_PASSWORD_FILE"
+reject_env_pair_conflict "NETWATCH_REDIS_PASSWORD" "NETWATCH_REDIS_PASSWORD_FILE"
+reject_env_pair_conflict "NETWATCH_ES_PASSWORD" "NETWATCH_ES_PASSWORD_FILE"
+reject_env_pair_conflict "NETWATCH_JWT_SECRET" "NETWATCH_JWT_SECRET_FILE"
+reject_env_pair_conflict "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD" "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE"
+reject_env_pair_conflict "GF_SECURITY_ADMIN_PASSWORD" "GF_SECURITY_ADMIN_PASSWORD_FILE"
+
+if command -v docker >/dev/null 2>&1; then
+  if docker compose -f docker-compose.yml -f compose.prod.yml config >/dev/null; then
+    echo "[prod-prepare] compose.prod.yml validated successfully"
+  else
+    echo "[prod-prepare] docker compose config validation failed" >&2
+    exit 1
+  fi
+else
+  echo "[prod-prepare] docker not available; skipped docker compose config validation"
+fi
