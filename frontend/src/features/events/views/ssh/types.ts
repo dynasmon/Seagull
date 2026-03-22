@@ -23,6 +23,18 @@ export type SshLoginEvent = {
   asn_org?: string | null;
 };
 
+export type SshAuthEvent = {
+  timestamp: string;
+  agent_id: string;
+  action?: string | null;
+  src_ip?: string | null;
+  username?: string | null;
+  geo_country?: string | null;
+  geo_org?: string | null;
+  asn?: string | null;
+  asn_org?: string | null;
+};
+
 export type SudoEventSummary = {
   timestamp: string;
   agent_id: string;
@@ -37,6 +49,13 @@ export type SshSummaryResponse = {
   generated_at: string;
   since_minutes: number;
   agent_id?: string | null;
+  total_accepted: number;
+  total_failed_password: number;
+  total_invalid_user: number;
+  total_actions: number;
+  unique_source_ips: number;
+  enriched_source_ips: number;
+  recent_auth_events: SshAuthEvent[];
   successful_logins: SshIpStat[];
   failed_attempts: SshIpStat[];
   invalid_user_attempts: SshIpStat[];

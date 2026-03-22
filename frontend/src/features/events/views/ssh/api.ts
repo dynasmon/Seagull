@@ -9,7 +9,7 @@ export function getSshSummary(params?: {
 }) {
   const q = new URLSearchParams();
   q.set("since_minutes", String(params?.since_minutes ?? 60 * 24));
-  q.set("limit", String(params?.limit ?? 20));
+  q.set("limit", String(params?.limit ?? 50));
   const agent = (params?.agent_id ?? "").trim();
   if (agent) q.set("agent_id", agent);
 

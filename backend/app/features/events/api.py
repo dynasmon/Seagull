@@ -32,6 +32,7 @@ from app.schemas.events import (
     ProtoCount,
     ProtoDnsQueryStat,
     ProtoJa4Stat,
+    SshAuthEvent,
     SshIpStat,
     SshLoginEvent,
     SshSummaryResponse,
@@ -841,22 +842,26 @@ def _es_terms_top(
 @router.get("/ssh/summary", response_model=SshSummaryResponse)
 def get_ssh_summary(
     since_minutes: int = Query(60 * 24, ge=1, le=60 * 24 * 30, description="Lookback window in minutes"),
-    limit: int = Query(20, ge=1, le=200, description="Top-N limit for aggregations"),
+    limit: int = Query(50, ge=1, le=500, description="Row limit for recent/raw SSH views and supporting aggregations"),
     agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
 ):
-    """Lupe-style SSH summary.
+    """SSH summary with real auth.log-backed totals and recent raw events.
 
-    Mirrors the original bash script output, but returns structured JSON.
-    Works best when the lupe_enricher worker is enabled (geo/asn fields).
+    The summary cards reflect the true event volume in the selected window.
+    Aggregated Top-N views remain available for triage, but recent_auth_events
+    exposes the latest raw ssh_auth entries so low-volume/manual probes are not
+    hidden by heavy brute-force traffic.
     """
 
     started = time.perf_counter()
     since_ts = datetime.now(timezone.utc) - timedelta(minutes=int(since_minutes))
-    cache_key = f"netwatch:events:ssh_summary:v2:sm={int(since_minutes)}:l={int(limit)}:a={agent_id or '*'}"
+    cache_key = f"netwatch:events:ssh_summary:v3:sm={int(since_minutes)}:l={int(limit)}:a={agent_id or '*'}"
     cached = _cache_get_json(cache_key)
     if cached is not None:
         incr_counter("api_cache_hit_total", route="/events/ssh/summary")
         return SshSummaryResponse(**cached)
+
+    tracked_actions = ["accepted", "failed_password", "invalid_user"]
 
     ch = _ch_client_or_none()
     if ch is not None:
@@ -881,6 +886,40 @@ def get_ssh_summary(
                 )
                 rows = _ch_query_dicts(ch, sql, {**ssh_params, "action": action})
                 return [SshIpStat(**dict(r)) for r in rows]
+
+            totals_sql = (
+                "SELECT "
+                "countIf(ifNull(ssh_action, '') = 'accepted') AS total_accepted, "
+                "countIf(ifNull(ssh_action, '') = 'failed_password') AS total_failed_password, "
+                "countIf(ifNull(ssh_action, '') = 'invalid_user') AS total_invalid_user, "
+                "uniqExactIf(src_ip, src_ip IS NOT NULL AND ifNull(ssh_action, '') IN ('accepted','failed_password','invalid_user')) AS unique_source_ips, "
+                "uniqExactIf(src_ip, src_ip IS NOT NULL AND ifNull(ssh_action, '') IN ('accepted','failed_password','invalid_user') AND ("
+                "JSONExtractString(extra_json, 'geo_country') != '' OR "
+                "JSONExtractString(extra_json, 'geo_org') != '' OR "
+                "JSONExtractString(extra_json, 'asn') != '' OR "
+                "JSONExtractString(extra_json, 'asn_org') != '')) AS enriched_source_ips "
+                f"FROM ({ssh_source_sql})"
+            )
+            totals_row = (_ch_query_dicts(ch, totals_sql, ssh_params) or [{}])[0]
+            total_accepted = int(totals_row.get("total_accepted", 0) or 0)
+            total_failed_password = int(totals_row.get("total_failed_password", 0) or 0)
+            total_invalid_user = int(totals_row.get("total_invalid_user", 0) or 0)
+            unique_source_ips = int(totals_row.get("unique_source_ips", 0) or 0)
+            enriched_source_ips = int(totals_row.get("enriched_source_ips", 0) or 0)
+
+            recent_auth_sql = (
+                "SELECT timestamp, agent_id, ifNull(ssh_action, '') AS action, src_ip, "
+                "ifNull(ssh_username, '') AS username, "
+                "JSONExtractString(extra_json, 'geo_country') AS geo_country, "
+                "JSONExtractString(extra_json, 'geo_org') AS geo_org, "
+                "JSONExtractString(extra_json, 'asn') AS asn, "
+                "JSONExtractString(extra_json, 'asn_org') AS asn_org "
+                f"FROM ({ssh_source_sql}) "
+                "WHERE ifNull(ssh_action, '') IN ('accepted','failed_password','invalid_user') "
+                "ORDER BY timestamp DESC "
+                f"LIMIT {int(limit)}"
+            )
+            recent_auth_events = [SshAuthEvent(**dict(r)) for r in _ch_query_dicts(ch, recent_auth_sql, ssh_params)]
 
             successful_logins = _top_ips("accepted")
             failed_attempts = _top_ips("failed_password")
@@ -941,6 +980,13 @@ def get_ssh_summary(
                 generated_at=datetime.now(timezone.utc),
                 since_minutes=int(since_minutes),
                 agent_id=agent_id,
+                total_accepted=total_accepted,
+                total_failed_password=total_failed_password,
+                total_invalid_user=total_invalid_user,
+                total_actions=total_accepted + total_failed_password + total_invalid_user,
+                unique_source_ips=unique_source_ips,
+                enriched_source_ips=enriched_source_ips,
+                recent_auth_events=recent_auth_events,
                 successful_logins=successful_logins,
                 failed_attempts=failed_attempts,
                 invalid_user_attempts=invalid_user_attempts,
@@ -980,14 +1026,7 @@ def get_ssh_summary(
                                 "sample": {
                                     "top_hits": {
                                         "size": 1,
-                                        "_source": {
-                                            "includes": [
-                                                "geo_country",
-                                                "geo_org",
-                                                "asn",
-                                                "asn_org",
-                                            ]
-                                        },
+                                        "_source": {"includes": ["geo_country", "geo_org", "asn", "asn_org"]},
                                         "sort": [{"timestamp": {"order": "desc"}}],
                                     }
                                 }
@@ -1013,11 +1052,103 @@ def get_ssh_summary(
                     )
                 return out
 
+            totals_body = {
+                "size": 0,
+                "query": {
+                    "bool": {
+                        "filter": base + [{"term": {"event_type": "ssh_auth"}}]
+                    }
+                },
+                "aggs": {
+                    "total_accepted": {"filter": {"term": {"ssh_action": "accepted"}}},
+                    "total_failed_password": {"filter": {"term": {"ssh_action": "failed_password"}}},
+                    "total_invalid_user": {"filter": {"term": {"ssh_action": "invalid_user"}}},
+                    "unique_source_ips": {
+                        "filter": {
+                            "bool": {
+                                "filter": [
+                                    {"terms": {"ssh_action": tracked_actions}},
+                                    {"exists": {"field": "src_ip"}},
+                                ]
+                            }
+                        },
+                        "aggs": {"value": {"cardinality": {"field": "src_ip"}}},
+                    },
+                    "enriched_source_ips": {
+                        "filter": {
+                            "bool": {
+                                "filter": [
+                                    {"terms": {"ssh_action": tracked_actions}},
+                                    {"exists": {"field": "src_ip"}},
+                                ],
+                                "should": [
+                                    {"exists": {"field": "geo_country"}},
+                                    {"exists": {"field": "geo_org"}},
+                                    {"exists": {"field": "asn"}},
+                                    {"exists": {"field": "asn_org"}},
+                                ],
+                                "minimum_should_match": 1,
+                            }
+                        },
+                        "aggs": {"value": {"cardinality": {"field": "src_ip"}}},
+                    },
+                },
+            }
+            totals_res = es.search(index=_es_index_pattern(), body=totals_body, ignore_unavailable=True, allow_no_indices=True)
+            aggs = totals_res.get("aggregations") or {}
+            total_accepted = int(((aggs.get("total_accepted") or {}).get("doc_count")) or 0)
+            total_failed_password = int(((aggs.get("total_failed_password") or {}).get("doc_count")) or 0)
+            total_invalid_user = int(((aggs.get("total_invalid_user") or {}).get("doc_count")) or 0)
+            unique_source_ips = int((((aggs.get("unique_source_ips") or {}).get("value") or {}).get("value")) or 0)
+            enriched_source_ips = int((((aggs.get("enriched_source_ips") or {}).get("value") or {}).get("value")) or 0)
+
+            recent_auth_body = {
+                "size": int(limit),
+                "sort": [{"timestamp": {"order": "desc"}}, {"id": {"order": "desc"}}],
+                "query": {
+                    "bool": {
+                        "filter": base + [
+                            {"term": {"event_type": "ssh_auth"}},
+                            {"terms": {"ssh_action": tracked_actions}},
+                        ]
+                    }
+                },
+                "_source": {
+                    "includes": [
+                        "timestamp",
+                        "agent_id",
+                        "src_ip",
+                        "ssh_action",
+                        "ssh_username",
+                        "geo_country",
+                        "geo_org",
+                        "asn",
+                        "asn_org",
+                    ]
+                },
+            }
+            recent_auth_res = es.search(index=_es_index_pattern(), body=recent_auth_body, ignore_unavailable=True, allow_no_indices=True)
+            recent_auth_events: list[SshAuthEvent] = []
+            for h in ((recent_auth_res.get("hits") or {}).get("hits") or []):
+                src = h.get("_source") or {}
+                recent_auth_events.append(
+                    SshAuthEvent(
+                        timestamp=_parse_iso_dt(src.get("timestamp") if isinstance(src.get("timestamp"), str) else None),
+                        agent_id=str(src.get("agent_id") or ""),
+                        action=src.get("ssh_action"),
+                        src_ip=src.get("src_ip"),
+                        username=src.get("ssh_username"),
+                        geo_country=src.get("geo_country"),
+                        geo_org=src.get("geo_org"),
+                        asn=src.get("asn"),
+                        asn_org=src.get("asn_org"),
+                    )
+                )
+
             successful_logins = _top_ips("accepted")
             failed_attempts = _top_ips("failed_password")
             invalid_user_attempts = _top_ips("invalid_user")
 
-            # Most active IPs across the main SSH actions
             body = {
                 "size": 0,
                 "query": {
@@ -1025,7 +1156,7 @@ def get_ssh_summary(
                         "filter": base
                         + [
                             {"term": {"event_type": "ssh_auth"}},
-                            {"terms": {"ssh_action": ["accepted", "failed_password", "invalid_user"]}},
+                            {"terms": {"ssh_action": tracked_actions}},
                             {"exists": {"field": "src_ip"}},
                         ]
                     }
@@ -1037,14 +1168,7 @@ def get_ssh_summary(
                             "sample": {
                                 "top_hits": {
                                     "size": 1,
-                                    "_source": {
-                                        "includes": [
-                                            "geo_country",
-                                            "geo_org",
-                                            "asn",
-                                            "asn_org",
-                                        ]
-                                    },
+                                    "_source": {"includes": ["geo_country", "geo_org", "asn", "asn_org"]},
                                     "sort": [{"timestamp": {"order": "desc"}}],
                                 }
                             }
@@ -1069,7 +1193,6 @@ def get_ssh_summary(
                     )
                 )
 
-            # Root logins
             body = {
                 "size": int(limit),
                 "sort": [{"timestamp": {"order": "desc"}}, {"id": {"order": "desc"}}],
@@ -1083,7 +1206,18 @@ def get_ssh_summary(
                         ]
                     }
                 },
-                "_source": {"includes": ["timestamp", "agent_id", "src_ip", "ssh_username", "geo_country", "geo_org", "asn", "asn_org"]},
+                "_source": {
+                    "includes": [
+                        "timestamp",
+                        "agent_id",
+                        "src_ip",
+                        "ssh_username",
+                        "geo_country",
+                        "geo_org",
+                        "asn",
+                        "asn_org",
+                    ]
+                },
             }
             res = es.search(index=_es_index_pattern(), body=body, ignore_unavailable=True, allow_no_indices=True)
             root_logins: list[SshLoginEvent] = []
@@ -1094,7 +1228,7 @@ def get_ssh_summary(
                         timestamp=_parse_iso_dt(src.get("timestamp") if isinstance(src.get("timestamp"), str) else None),
                         agent_id=str(src.get("agent_id") or ""),
                         src_ip=src.get("src_ip"),
-                        username=src.get("ssh_username") or "root",
+                        username=src.get("ssh_username"),
                         geo_country=src.get("geo_country"),
                         geo_org=src.get("geo_org"),
                         asn=src.get("asn"),
@@ -1102,7 +1236,6 @@ def get_ssh_summary(
                     )
                 )
 
-            # Users that attempted to log in (failed/invalid)
             body = {
                 "size": 0,
                 "query": {
@@ -1125,7 +1258,6 @@ def get_ssh_summary(
             buckets = ((res.get("aggregations") or {}).get("users") or {}).get("buckets") or []
             users_attempted = [SshUserStat(username=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in buckets]
 
-            # Recent sudo commands (from auth.log)
             body = {
                 "size": int(limit),
                 "sort": [{"timestamp": {"order": "desc"}}, {"id": {"order": "desc"}}],
@@ -1166,6 +1298,13 @@ def get_ssh_summary(
                 generated_at=datetime.now(timezone.utc),
                 since_minutes=int(since_minutes),
                 agent_id=agent_id,
+                total_accepted=total_accepted,
+                total_failed_password=total_failed_password,
+                total_invalid_user=total_invalid_user,
+                total_actions=total_accepted + total_failed_password + total_invalid_user,
+                unique_source_ips=unique_source_ips,
+                enriched_source_ips=enriched_source_ips,
+                recent_auth_events=recent_auth_events,
                 successful_logins=successful_logins,
                 failed_attempts=failed_attempts,
                 invalid_user_attempts=invalid_user_attempts,
@@ -1181,21 +1320,30 @@ def get_ssh_summary(
             if not _es_failover_allowed():
                 raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(e).__name__}")
 
-    # Postgres fallback (original implementation)
     db = SessionLocal()
     try:
         ssh_action = func.coalesce(NetEventModel.ssh_action, NetEventModel.extra["action"].astext)
         ssh_user = func.coalesce(NetEventModel.ssh_username, NetEventModel.extra["username"].astext)
+        geo_country = NetEventModel.extra["geo_country"].astext
+        geo_org = NetEventModel.extra["geo_org"].astext
+        asn = NetEventModel.extra["asn"].astext
+        asn_org = NetEventModel.extra["asn_org"].astext
+        has_enrichment = or_(
+            func.coalesce(geo_country, "") != "",
+            func.coalesce(geo_org, "") != "",
+            func.coalesce(asn, "") != "",
+            func.coalesce(asn_org, "") != "",
+        )
 
         def _top_ips(action: str) -> list[SshIpStat]:
             stmt = (
                 select(
                     NetEventModel.src_ip.label("src_ip"),
                     func.count().label("count"),
-                    func.max(NetEventModel.extra["geo_country"].astext).label("geo_country"),
-                    func.max(NetEventModel.extra["geo_org"].astext).label("geo_org"),
-                    func.max(NetEventModel.extra["asn"].astext).label("asn"),
-                    func.max(NetEventModel.extra["asn_org"].astext).label("asn_org"),
+                    func.max(geo_country).label("geo_country"),
+                    func.max(geo_org).label("geo_org"),
+                    func.max(asn).label("asn"),
+                    func.max(asn_org).label("asn_org"),
                 )
                 .where(
                     NetEventModel.event_type == "ssh_auth",
@@ -1212,23 +1360,79 @@ def get_ssh_summary(
             rows = db.execute(stmt).mappings().all()
             return [SshIpStat(**dict(r)) for r in rows]
 
+        totals_stmt = (
+            select(
+                func.count().filter(ssh_action == "accepted").label("total_accepted"),
+                func.count().filter(ssh_action == "failed_password").label("total_failed_password"),
+                func.count().filter(ssh_action == "invalid_user").label("total_invalid_user"),
+                func.count(func.distinct(NetEventModel.src_ip))
+                .filter(
+                    NetEventModel.src_ip.is_not(None),
+                    ssh_action.in_(tracked_actions),
+                )
+                .label("unique_source_ips"),
+                func.count(func.distinct(NetEventModel.src_ip))
+                .filter(
+                    NetEventModel.src_ip.is_not(None),
+                    ssh_action.in_(tracked_actions),
+                    has_enrichment,
+                )
+                .label("enriched_source_ips"),
+            )
+            .where(
+                NetEventModel.event_type == "ssh_auth",
+                NetEventModel.timestamp >= since_ts,
+            )
+        )
+        if agent_id:
+            totals_stmt = totals_stmt.where(NetEventModel.agent_id == agent_id)
+        totals_row = db.execute(totals_stmt).mappings().one()
+        total_accepted = int(totals_row.get("total_accepted", 0) or 0)
+        total_failed_password = int(totals_row.get("total_failed_password", 0) or 0)
+        total_invalid_user = int(totals_row.get("total_invalid_user", 0) or 0)
+        unique_source_ips = int(totals_row.get("unique_source_ips", 0) or 0)
+        enriched_source_ips = int(totals_row.get("enriched_source_ips", 0) or 0)
+
+        recent_stmt = (
+            select(
+                NetEventModel.timestamp.label("timestamp"),
+                NetEventModel.agent_id.label("agent_id"),
+                ssh_action.label("action"),
+                NetEventModel.src_ip.label("src_ip"),
+                ssh_user.label("username"),
+                geo_country.label("geo_country"),
+                geo_org.label("geo_org"),
+                asn.label("asn"),
+                asn_org.label("asn_org"),
+            )
+            .where(
+                NetEventModel.event_type == "ssh_auth",
+                ssh_action.in_(tracked_actions),
+                NetEventModel.timestamp >= since_ts,
+            )
+            .order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
+            .limit(int(limit))
+        )
+        if agent_id:
+            recent_stmt = recent_stmt.where(NetEventModel.agent_id == agent_id)
+        recent_auth_events = [SshAuthEvent(**dict(r)) for r in db.execute(recent_stmt).mappings().all()]
+
         successful_logins = _top_ips("accepted")
         failed_attempts = _top_ips("failed_password")
         invalid_user_attempts = _top_ips("invalid_user")
 
-        # Most active IPs across the main SSH actions
         stmt = (
             select(
                 NetEventModel.src_ip.label("src_ip"),
                 func.count().label("count"),
-                func.max(NetEventModel.extra["geo_country"].astext).label("geo_country"),
-                func.max(NetEventModel.extra["geo_org"].astext).label("geo_org"),
-                func.max(NetEventModel.extra["asn"].astext).label("asn"),
-                func.max(NetEventModel.extra["asn_org"].astext).label("asn_org"),
+                func.max(geo_country).label("geo_country"),
+                func.max(geo_org).label("geo_org"),
+                func.max(asn).label("asn"),
+                func.max(asn_org).label("asn_org"),
             )
             .where(
                 NetEventModel.event_type == "ssh_auth",
-                ssh_action.in_(["accepted", "failed_password", "invalid_user"]),
+                ssh_action.in_(tracked_actions),
                 NetEventModel.timestamp >= since_ts,
                 NetEventModel.src_ip.is_not(None),
             )
@@ -1241,17 +1445,16 @@ def get_ssh_summary(
         rows = db.execute(stmt).mappings().all()
         most_active_ips = [SshIpStat(**dict(r)) for r in rows]
 
-        # Root logins
         stmt = (
             select(
                 NetEventModel.timestamp.label("timestamp"),
                 NetEventModel.agent_id.label("agent_id"),
                 NetEventModel.src_ip.label("src_ip"),
                 ssh_user.label("username"),
-                NetEventModel.extra["geo_country"].astext.label("geo_country"),
-                NetEventModel.extra["geo_org"].astext.label("geo_org"),
-                NetEventModel.extra["asn"].astext.label("asn"),
-                NetEventModel.extra["asn_org"].astext.label("asn_org"),
+                geo_country.label("geo_country"),
+                geo_org.label("geo_org"),
+                asn.label("asn"),
+                asn_org.label("asn_org"),
             )
             .where(
                 NetEventModel.event_type == "ssh_auth",
@@ -1267,7 +1470,6 @@ def get_ssh_summary(
         rows = db.execute(stmt).mappings().all()
         root_logins = [SshLoginEvent(**dict(r)) for r in rows]
 
-        # Users that attempted to log in (failed/invalid)
         stmt = (
             select(
                 ssh_user.label("username"),
@@ -1288,7 +1490,6 @@ def get_ssh_summary(
         rows = db.execute(stmt).mappings().all()
         users_attempted = [SshUserStat(**dict(r)) for r in rows]
 
-        # Recent sudo commands (from auth.log)
         stmt = (
             select(
                 NetEventModel.timestamp.label("timestamp"),
@@ -1315,6 +1516,13 @@ def get_ssh_summary(
             generated_at=datetime.now(timezone.utc),
             since_minutes=int(since_minutes),
             agent_id=agent_id,
+            total_accepted=total_accepted,
+            total_failed_password=total_failed_password,
+            total_invalid_user=total_invalid_user,
+            total_actions=total_accepted + total_failed_password + total_invalid_user,
+            unique_source_ips=unique_source_ips,
+            enriched_source_ips=enriched_source_ips,
+            recent_auth_events=recent_auth_events,
             successful_logins=successful_logins,
             failed_attempts=failed_attempts,
             invalid_user_attempts=invalid_user_attempts,
@@ -1328,55 +1536,6 @@ def get_ssh_summary(
         return payload
     finally:
         db.close()
-
-
-def _json_safe_value(value: Any, *, max_depth: int = 4) -> Any:
-    if max_depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    if isinstance(value, dict):
-        out: dict[str, Any] = {}
-        for k, v in value.items():
-            out[str(k)] = _json_safe_value(v, max_depth=max_depth - 1)
-        return out
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe_value(v, max_depth=max_depth - 1) for v in value]
-    return str(value)
-
-
-def _strip_large_extra(extra: dict) -> dict:
-    """Remove large payload fields before returning samples to the UI."""
-
-    if not isinstance(extra, dict):
-        return {}
-    out = dict(extra)
-    for k in ["payload_b64", "l7_payload_b64", "raw_payload_b64", "packet_b64", "pcap_b64"]:
-        if k in out:
-            out.pop(k, None)
-    safe = _json_safe_value(out)
-    return safe if isinstance(safe, dict) else {}
-
-
-def _row_to_event_safe(row: Dict[str, Any]) -> NetEventDB | None:
-    """Best-effort row conversion; skips malformed legacy rows instead of failing the whole endpoint."""
-    payload = dict(row or {})
-    try:
-        schema_version = int(payload.get("schema_version") or 1)
-    except Exception:
-        schema_version = 1
-    if schema_version < 1 or schema_version > 16:
-        schema_version = 1
-    payload["schema_version"] = schema_version
-    payload["extra"] = _strip_large_extra(payload.get("extra") or {})
-    try:
-        return NetEventDB(**payload)
-    except Exception:
-        return None
 
 
 @router.get("/network/summary", response_model=ProtocolIntelSummaryResponse)
