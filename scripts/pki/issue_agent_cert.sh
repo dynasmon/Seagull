@@ -24,7 +24,12 @@ CERT_PATH="$OUT_DIR/tls.crt"
 EXT_PATH="$OUT_DIR/extensions.cnf"
 
 openssl genrsa -out "$KEY_PATH" 4096
-chmod 600 "$KEY_PATH"
+
+if [[ "${NETWATCH_ENV:-dev}" =~ ^(prod|production)$ ]]; then
+  chmod 600 "$KEY_PATH"
+else
+  chmod 644 "$KEY_PATH"
+fi
 
 cat > "$EXT_PATH" <<EXT
 [ req ]

@@ -128,6 +128,68 @@ def _parse_iso_dt_or_none(value: Any) -> datetime | None:
     return None
 
 
+def _strip_large_extra(extra: Any) -> Dict[str, Any]:
+    if not isinstance(extra, dict):
+        return {}
+
+    # Keep payloads bounded for list/sample endpoints.
+    max_keys = 128
+    max_value_chars = 4096
+    out: Dict[str, Any] = {}
+    for i, (k, v) in enumerate(extra.items()):
+        if i >= max_keys:
+            break
+        key = str(k)[:128]
+        if isinstance(v, str):
+            out[key] = v[:max_value_chars]
+        else:
+            out[key] = v
+    return out
+
+
+def _row_to_event_safe(row: Dict[str, Any]) -> NetEventDB | None:
+    if not isinstance(row, dict):
+        return None
+
+    ts = _parse_iso_dt_or_none(row.get("timestamp")) or datetime.now(timezone.utc)
+    try:
+        row_id = int(row.get("id") or 0)
+    except Exception:
+        row_id = 0
+    try:
+        schema_version = int(row.get("schema_version") or 1)
+    except Exception:
+        schema_version = 1
+    if schema_version < 1 or schema_version > 16:
+        schema_version = 1
+
+    extra = _strip_large_extra(row.get("extra") or {})
+    if not extra and isinstance(row.get("extra"), str):
+        try:
+            parsed = json.loads(row.get("extra") or "")
+            extra = _strip_large_extra(parsed)
+        except Exception:
+            extra = {}
+
+    try:
+        return NetEventDB(
+            id=row_id,
+            agent_id=str(row.get("agent_id") or ""),
+            event_type=str(row.get("event_type") or ""),
+            schema_version=schema_version,
+            timestamp=ts,
+            src_ip=row.get("src_ip"),
+            dst_ip=row.get("dst_ip"),
+            src_port=row.get("src_port"),
+            dst_port=row.get("dst_port"),
+            proto=row.get("proto"),
+            bytes=row.get("bytes"),
+            extra=extra,
+        )
+    except Exception:
+        return None
+
+
 def _guess_app_proto_from_port(port: int | None, transport: str | None) -> str:
     if port in {53, 5353}:
         return "dns"

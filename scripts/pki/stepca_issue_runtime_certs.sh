@@ -9,7 +9,7 @@ ROOT_CA_SOURCE="${NETWATCH_STEP_CA_ROOT_SOURCE:-/var/lib/step/certs/root_ca.crt}
 EDGE_CN="${NETWATCH_EDGE_CERT_CN:-localhost}"
 EDGE_SANS="${NETWATCH_EDGE_CERT_SANS:-localhost,netwatch-edge,127.0.0.1}"
 RENEW_EVERY_SECONDS="${NETWATCH_STEP_CA_RENEW_EVERY_SECONDS:-21600}"
-AGENT_IDS_RAW="${NETWATCH_STEP_CA_AGENT_IDS:-agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1}"
+AGENT_IDS_RAW="${NETWATCH_STEP_CA_AGENT_IDS:-agent-core-1,agent-sensor-1,agent-lateral-1}"
 
 ROOT_CA_DST="${PKI_DIR}/root_ca.crt"
 EDGE_DIR="${PKI_DIR}/edge"
