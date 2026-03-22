@@ -35,6 +35,8 @@ x-agent-common: &agent-common
   <<: *agent-build
   network_mode: host
   user: "0:0"
+  group_add:
+    - "${NETWATCH_HOST_ADM_GID:-4}"
   security_opt:
     - no-new-privileges:true
   restart: unless-stopped
@@ -731,7 +733,7 @@ services:
       NETWATCH_TLS_CERT_SOURCE_FILE: /run/netwatch-host-pki/tls.crt
       NETWATCH_TLS_KEY_SOURCE_FILE: /run/netwatch-host-pki/tls.key
     volumes:
-      - /var/log/auth.log:/var/log/auth.log:ro
+      - /var/log:/host/var/log:ro
       - /:/host:ro
       - agent-core-state:/var/lib/netwatch
       - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/run/netwatch-host-pki/server-ca.crt:ro
@@ -801,7 +803,7 @@ services:
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_PROC_BOOTSTRAP_TOKEN:-}
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_PROC_BOOTSTRAP_TOKEN_FILE:-}
     volumes:
-      - /var/log/auth.log:/var/log/auth.log:ro
+      - /var/log:/host/var/log:ro
       - agent-proc-state:/var/lib/netwatch
       - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
       - ${AGENT_PROC_CERT_FILE:-./secrets/agent-pki/agent-proc-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
