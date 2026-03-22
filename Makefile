@@ -9,7 +9,7 @@ COMPOSE_PROD := $(COMPOSE_BASE) -f compose.prod.yml
 ENV_FILE := .env
 ENV_EXAMPLE := .env.example
 PROD_CORE_SERVICES := postgres redis elasticsearch clickhouse netwatch-step-ca netwatch-step-ca-issuer netwatch-backend netwatch-ingest-worker netwatch-rules-worker netwatch-audit-retention netwatch-es-indexer netwatch-rollup-worker netwatch-ip-intel netwatch-proto-intel netwatch-attack-chain netwatch-portal netwatch-edge grafana
-PROD_AGENT_SERVICES := netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln
+PROD_AGENT_SERVICES := netwatch-agent-core netwatch-agent-sensor
 
 PYTHON ?= python3
 PIP ?= pip3
@@ -78,12 +78,12 @@ prod-prepare: bootstrap
 dev: dev-preflight certs-bootstrap
 	$(DC) $(COMPOSE_DEV) up -d --build --force-recreate
 	@$(MAKE) agent-tokens-bootstrap
-	$(DC) $(COMPOSE_DEV) up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln
+	$(DC) $(COMPOSE_DEV) up -d --force-recreate netwatch-agent-core netwatch-agent-sensor
 
 dev-tls: dev-preflight certs-bootstrap
 	$(DC) $(COMPOSE_DEV_TLS) up -d --build --force-recreate
 	@$(MAKE) agent-tokens-bootstrap
-	$(DC) $(COMPOSE_DEV_TLS) up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln
+	$(DC) $(COMPOSE_DEV_TLS) up -d --force-recreate netwatch-agent-core netwatch-agent-sensor
 
 # Single-command bootstrap for production-like runs.
 prod: bootstrap bootstrap-tools prod-prepare
@@ -103,7 +103,7 @@ up: dev
 up-extra: dev-preflight certs-bootstrap
 	$(DC) $(COMPOSE_DEV) --profile extra up -d --build --force-recreate
 	@$(MAKE) agent-tokens-bootstrap
-	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln netwatch-agent-lateral
+	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate netwatch-agent-core netwatch-agent-sensor netwatch-agent-lateral
 
 down:
 	$(DC) $(COMPOSE_DEV) down

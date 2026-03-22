@@ -2,7 +2,9 @@ x-agent-env: &agent-env
   NETWATCH_API_URL: https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/agent
   NETWATCH_HTTP_TIMEOUT: ${NETWATCH_HTTP_TIMEOUT}
   NETWATCH_CONTROL_HEARTBEAT_EVERY: ${NETWATCH_CONTROL_HEARTBEAT_EVERY}
+  NETWATCH_CONTROL_HEARTBEAT_JITTER: ${NETWATCH_CONTROL_HEARTBEAT_JITTER:-5s}
   NETWATCH_CONTROL_CONFIG_EVERY: ${NETWATCH_CONTROL_CONFIG_EVERY}
+  NETWATCH_CONTROL_CONFIG_JITTER: ${NETWATCH_CONTROL_CONFIG_JITTER:-30s}
   NETWATCH_PCAP_IFACE: ${NETWATCH_PCAP_IFACE}
   NETWATCH_SKIP_LOOPBACK: ${NETWATCH_SKIP_LOOPBACK}
   NETWATCH_SKIP_LINK_LOCAL: ${NETWATCH_SKIP_LINK_LOCAL}
@@ -11,29 +13,54 @@ x-agent-env: &agent-env
   # Syscollector defaults (can be overridden by control-plane config)
   NETWATCH_AGENT_CONFIG_FILE: ${NETWATCH_AGENT_CONFIG_FILE}
   NETWATCH_SYSCOLLECT_EVERY: ${NETWATCH_SYSCOLLECT_EVERY}
+  NETWATCH_SYSCOLLECT_STARTUP_JITTER: ${NETWATCH_SYSCOLLECT_STARTUP_JITTER:-45s}
   NETWATCH_SYSCOLLECT_CMD_TIMEOUT: ${NETWATCH_SYSCOLLECT_CMD_TIMEOUT}
   NETWATCH_SYSCOLLECT_MAX_OUTPUT_BYTES: ${NETWATCH_SYSCOLLECT_MAX_OUTPUT_BYTES}
   NETWATCH_SYSCOLLECT_MAX_PACKAGES: ${NETWATCH_SYSCOLLECT_MAX_PACKAGES}
   NETWATCH_AUTHLOG_DEDUP_TTL: ${NETWATCH_AUTHLOG_DEDUP_TTL}
   NETWATCH_AUTHLOG_INCLUDE_ACCEPTED: ${NETWATCH_AUTHLOG_INCLUDE_ACCEPTED}
+  NETWATCH_VULN_STARTUP_JITTER: ${NETWATCH_VULN_STARTUP_JITTER:-2m}
   NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${NETWATCH_AGENT_BOOTSTRAP_TOKEN:-}
   NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE:-}
   NETWATCH_FORCE_ENROLL_ON_START: ${NETWATCH_FORCE_ENROLL_ON_START:-true}
-  NETWATCH_TLS_CA_FILE: /etc/netwatch/agent-mtls/server-ca.crt
-  NETWATCH_TLS_CERT_FILE: /etc/netwatch/agent-mtls/tls.crt
-  NETWATCH_TLS_KEY_FILE: /etc/netwatch/agent-mtls/tls.key
+  NETWATCH_TLS_STAGE_DIR: /var/lib/netwatch/pki
   NETWATCH_TLS_SERVER_NAME: ${NETWATCH_AGENT_TLS_SERVER_NAME:-localhost}
 
-x-agent-base: &agent-base
+x-agent-build: &agent-build
   build:
     context: ./agent
     dockerfile: Dockerfile
+
+x-agent-common: &agent-common
+  <<: *agent-build
   network_mode: host
   user: "0:0"
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+
+x-agent-core-base: &agent-core-base
+  <<: *agent-common
+  cap_drop:
+    - ALL
+  read_only: true
+  tmpfs:
+    - /tmp
+  mem_limit: 384m
+  cpus: "0.75"
+
+x-agent-sensor-base: &agent-sensor-base
+  <<: *agent-common
+  cap_drop:
+    - ALL
   cap_add:
     - NET_RAW
     - NET_ADMIN
-  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp
+  mem_limit: 512m
+  cpus: "1.50"
 
 services:
   postgres:
@@ -675,46 +702,67 @@ services:
       - netwatch
     restart: unless-stopped
 
-  netwatch-agent-proc:
-    <<: *agent-base
-    container_name: netwatch-agent-proc-1
+  netwatch-agent-core:
+    <<: *agent-core-base
+    container_name: netwatch-agent-core-1
     depends_on:
       netwatch-backend:
         condition: service_healthy
     environment:
       <<: *agent-env
-      NETWATCH_AGENT_ID: ${AGENT_PROC_ID}
-      NETWATCH_SOURCES: proc,authlog,syscollector
+      NETWATCH_AGENT_ID: ${AGENT_CORE_ID:-agent-core-1}
+      NETWATCH_SOURCES: proc,authlog,syscollector,vuln
       NETWATCH_AUTHLOG_PATH: /var/log/auth.log
-      NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_PROC_BOOTSTRAP_TOKEN:-}
-      NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_PROC_BOOTSTRAP_TOKEN_FILE:-}
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_CORE_BOOTSTRAP_TOKEN:-}
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_CORE_BOOTSTRAP_TOKEN_FILE:-}
+      NETWATCH_HOST_ROOT: ${NETWATCH_VULN_HOST_ROOT}
+      NETWATCH_VULN_SCAN_EVERY: ${NETWATCH_VULN_SCAN_EVERY}
+      NETWATCH_VULN_HTTP_TIMEOUT: ${NETWATCH_VULN_HTTP_TIMEOUT}
+      NETWATCH_VULN_OSV_URL: ${NETWATCH_VULN_OSV_URL}
+      NETWATCH_VULN_MIN_SEVERITY: ${NETWATCH_VULN_MIN_SEVERITY}
+      NETWATCH_VULN_ANALYSIS_PROFILE: ${NETWATCH_VULN_ANALYSIS_PROFILE}
+      NETWATCH_VULN_EXPOSURE_ENABLED: ${NETWATCH_VULN_EXPOSURE_ENABLED}
+      NETWATCH_VULN_QUERY_BATCH_SIZE: ${NETWATCH_VULN_QUERY_BATCH_SIZE}
+      NETWATCH_VULN_CMD_TIMEOUT: ${NETWATCH_VULN_CMD_TIMEOUT}
+      NETWATCH_VULN_MAX_PACKAGES: ${NETWATCH_VULN_MAX_PACKAGES}
+      NETWATCH_VULN_HOST_ROOT: ${NETWATCH_VULN_HOST_ROOT}
+      NETWATCH_VULN_EMIT_SUMMARY_EVENT: ${NETWATCH_VULN_EMIT_SUMMARY_EVENT}
+      NETWATCH_TLS_CA_SOURCE_FILE: /run/netwatch-host-pki/server-ca.crt
+      NETWATCH_TLS_CERT_SOURCE_FILE: /run/netwatch-host-pki/tls.crt
+      NETWATCH_TLS_KEY_SOURCE_FILE: /run/netwatch-host-pki/tls.key
     volumes:
       - /var/log/auth.log:/var/log/auth.log:ro
-      - agent-proc-state:/var/lib/netwatch
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
-      - ${AGENT_PROC_CERT_FILE:-./secrets/agent-pki/agent-proc-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
-      - ${AGENT_PROC_KEY_FILE:-./secrets/agent-pki/agent-proc-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
+      - /:/host:ro
+      - agent-core-state:/var/lib/netwatch
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/run/netwatch-host-pki/server-ca.crt:ro
+      - ${AGENT_CORE_CERT_FILE:-./secrets/agent-pki/agent-core-1/tls.crt}:/run/netwatch-host-pki/tls.crt:ro
+      - ${AGENT_CORE_KEY_FILE:-./secrets/agent-pki/agent-core-1/tls.key}:/run/netwatch-host-pki/tls.key:ro
 
-  netwatch-agent-scan:
-    <<: *agent-base
-    container_name: netwatch-agent-scan-1
+  netwatch-agent-sensor:
+    <<: *agent-sensor-base
+    container_name: netwatch-agent-sensor-1
     depends_on:
       netwatch-backend:
         condition: service_healthy
     environment:
       <<: *agent-env
-      NETWATCH_AGENT_ID: ${AGENT_SCAN_ID}
-      NETWATCH_SOURCES: scan,syscollector
-      NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_SCAN_BOOTSTRAP_TOKEN:-}
-      NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SCAN_BOOTSTRAP_TOKEN_FILE:-}
+      NETWATCH_AGENT_ID: ${AGENT_SENSOR_ID:-agent-sensor-1}
+      NETWATCH_SOURCES: scan,ddos
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_SENSOR_BOOTSTRAP_TOKEN:-}
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SENSOR_BOOTSTRAP_TOKEN_FILE:-}
+      NETWATCH_DDOS_SUSTAIN_WINDOWS: ${NETWATCH_DDOS_SUSTAIN_WINDOWS}
+      NETWATCH_DDOS_COOLDOWN: ${NETWATCH_DDOS_COOLDOWN}
+      NETWATCH_TLS_CA_SOURCE_FILE: /run/netwatch-host-pki/server-ca.crt
+      NETWATCH_TLS_CERT_SOURCE_FILE: /run/netwatch-host-pki/tls.crt
+      NETWATCH_TLS_KEY_SOURCE_FILE: /run/netwatch-host-pki/tls.key
     volumes:
-      - agent-scan-state:/var/lib/netwatch
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
-      - ${AGENT_SCAN_CERT_FILE:-./secrets/agent-pki/agent-scan-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
-      - ${AGENT_SCAN_KEY_FILE:-./secrets/agent-pki/agent-scan-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
+      - agent-sensor-state:/var/lib/netwatch
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/run/netwatch-host-pki/server-ca.crt:ro
+      - ${AGENT_SENSOR_CERT_FILE:-./secrets/agent-pki/agent-sensor-1/tls.crt}:/run/netwatch-host-pki/tls.crt:ro
+      - ${AGENT_SENSOR_KEY_FILE:-./secrets/agent-pki/agent-sensor-1/tls.key}:/run/netwatch-host-pki/tls.key:ro
 
   netwatch-agent-lateral:
-    <<: *agent-base
+    <<: *agent-sensor-base
     container_name: netwatch-agent-lateral
     depends_on:
       netwatch-backend:
@@ -722,8 +770,8 @@ services:
     profiles: ["extra"]
     environment:
       <<: *agent-env
-      NETWATCH_AGENT_ID: ${AGENT_LATERAL_ID}
-      NETWATCH_SOURCES: lateral,syscollector
+      NETWATCH_AGENT_ID: ${AGENT_LATERAL_ID:-agent-lateral-1}
+      NETWATCH_SOURCES: lateral
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_LATERAL_BOOTSTRAP_TOKEN:-}
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_LATERAL_BOOTSTRAP_TOKEN_FILE:-}
       NETWATCH_LATERAL_MODE: ${NETWATCH_LATERAL_MODE}
@@ -738,16 +786,57 @@ services:
       - ${AGENT_LATERAL_CERT_FILE:-./secrets/agent-pki/agent-lateral-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
       - ${AGENT_LATERAL_KEY_FILE:-./secrets/agent-pki/agent-lateral-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
 
-  netwatch-agent-ddos:
-    <<: *agent-base
-    container_name: netwatch-agent-ddos
+  netwatch-agent-proc:
+    <<: *agent-core-base
+    container_name: netwatch-agent-proc-legacy
+    profiles: ["legacy-agents"]
     depends_on:
       netwatch-backend:
         condition: service_healthy
     environment:
       <<: *agent-env
-      NETWATCH_AGENT_ID: ${AGENT_DDOS_ID}
-      NETWATCH_SOURCES: ddos,syscollector
+      NETWATCH_AGENT_ID: ${AGENT_PROC_ID:-agent-proc-1}
+      NETWATCH_SOURCES: proc,authlog,syscollector
+      NETWATCH_AUTHLOG_PATH: /var/log/auth.log
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_PROC_BOOTSTRAP_TOKEN:-}
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_PROC_BOOTSTRAP_TOKEN_FILE:-}
+    volumes:
+      - /var/log/auth.log:/var/log/auth.log:ro
+      - agent-proc-state:/var/lib/netwatch
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
+      - ${AGENT_PROC_CERT_FILE:-./secrets/agent-pki/agent-proc-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
+      - ${AGENT_PROC_KEY_FILE:-./secrets/agent-pki/agent-proc-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
+
+  netwatch-agent-scan:
+    <<: *agent-sensor-base
+    container_name: netwatch-agent-scan-legacy
+    profiles: ["legacy-agents"]
+    depends_on:
+      netwatch-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      NETWATCH_AGENT_ID: ${AGENT_SCAN_ID:-agent-scan-1}
+      NETWATCH_SOURCES: scan
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_SCAN_BOOTSTRAP_TOKEN:-}
+      NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SCAN_BOOTSTRAP_TOKEN_FILE:-}
+    volumes:
+      - agent-scan-state:/var/lib/netwatch
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
+      - ${AGENT_SCAN_CERT_FILE:-./secrets/agent-pki/agent-scan-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
+      - ${AGENT_SCAN_KEY_FILE:-./secrets/agent-pki/agent-scan-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
+
+  netwatch-agent-ddos:
+    <<: *agent-sensor-base
+    container_name: netwatch-agent-ddos-legacy
+    profiles: ["legacy-agents"]
+    depends_on:
+      netwatch-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      NETWATCH_AGENT_ID: ${AGENT_DDOS_ID:-agent-ddos-1}
+      NETWATCH_SOURCES: ddos
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_DDOS_BOOTSTRAP_TOKEN:-}
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_DDOS_BOOTSTRAP_TOKEN_FILE:-}
       NETWATCH_DDOS_SUSTAIN_WINDOWS: ${NETWATCH_DDOS_SUSTAIN_WINDOWS}
@@ -759,15 +848,16 @@ services:
       - ${AGENT_DDOS_KEY_FILE:-./secrets/agent-pki/agent-ddos-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
 
   netwatch-agent-vuln:
-    <<: *agent-base
-    container_name: netwatch-agent-vuln
+    <<: *agent-core-base
+    container_name: netwatch-agent-vuln-legacy
+    profiles: ["legacy-agents"]
     depends_on:
       netwatch-backend:
         condition: service_healthy
     environment:
       <<: *agent-env
-      NETWATCH_AGENT_ID: ${AGENT_VULN_ID}
-      NETWATCH_SOURCES: vuln,syscollector
+      NETWATCH_AGENT_ID: ${AGENT_VULN_ID:-agent-vuln-1}
+      NETWATCH_SOURCES: vuln
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${AGENT_VULN_BOOTSTRAP_TOKEN:-}
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_VULN_BOOTSTRAP_TOKEN_FILE:-}
       NETWATCH_HOST_ROOT: ${NETWATCH_VULN_HOST_ROOT}
@@ -782,9 +872,6 @@ services:
       NETWATCH_VULN_MAX_PACKAGES: ${NETWATCH_VULN_MAX_PACKAGES}
       NETWATCH_VULN_HOST_ROOT: ${NETWATCH_VULN_HOST_ROOT}
       NETWATCH_VULN_EMIT_SUMMARY_EVENT: ${NETWATCH_VULN_EMIT_SUMMARY_EVENT}
-    read_only: true
-    tmpfs:
-      - /tmp
     volumes:
       - agent-vuln-state:/var/lib/netwatch
       - /:/host:ro
@@ -801,8 +888,10 @@ volumes:
   redis-data:
   elastic-data:
   clickhouse-data:
+  agent-core-state:
+  agent-sensor-state:
+  agent-lateral-state:
   agent-proc-state:
   agent-scan-state:
   agent-ddos-state:
-  agent-lateral-state:
   agent-vuln-state:

@@ -127,11 +127,9 @@ if [[ -z "$ACCESS_TOKEN" ]]; then
 fi
 
 declare -a AGENT_MAP=(
-  "AGENT_PROC_ID:AGENT_PROC_BOOTSTRAP_TOKEN"
-  "AGENT_SCAN_ID:AGENT_SCAN_BOOTSTRAP_TOKEN"
-  "AGENT_DDOS_ID:AGENT_DDOS_BOOTSTRAP_TOKEN"
+  "AGENT_CORE_ID:AGENT_CORE_BOOTSTRAP_TOKEN"
+  "AGENT_SENSOR_ID:AGENT_SENSOR_BOOTSTRAP_TOKEN"
   "AGENT_LATERAL_ID:AGENT_LATERAL_BOOTSTRAP_TOKEN"
-  "AGENT_VULN_ID:AGENT_VULN_BOOTSTRAP_TOKEN"
 )
 
 OUTPUT_DIR="${NETWATCH_MINT_TOKENS_OUTPUT_DIR:-}"
@@ -186,4 +184,4 @@ if [[ -n "$OUTPUT_DIR" ]]; then
 else
   echo "Updated .env with AGENT_*_BOOTSTRAP_TOKEN values."
 fi
-echo "Next: docker compose up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln netwatch-agent-lateral"
+echo "Next: docker compose up -d --force-recreate netwatch-agent-core netwatch-agent-sensor && docker compose --profile extra up -d --force-recreate netwatch-agent-lateral"

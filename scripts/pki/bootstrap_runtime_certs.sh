@@ -29,10 +29,12 @@ build_agent_ids() {
   local out=()
   local id=""
   for id in \
+    "${AGENT_CORE_ID:-agent-core-1}" \
+    "${AGENT_SENSOR_ID:-agent-sensor-1}" \
+    "${AGENT_LATERAL_ID:-}" \
     "${AGENT_PROC_ID:-agent-proc-1}" \
     "${AGENT_SCAN_ID:-agent-scan-1}" \
     "${AGENT_DDOS_ID:-agent-ddos-1}" \
-    "${AGENT_LATERAL_ID:-}" \
     "${AGENT_VULN_ID:-}"; do
     id="${id// /}"
     [[ -n "$id" ]] || continue
