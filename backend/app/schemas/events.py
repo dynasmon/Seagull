@@ -69,6 +69,18 @@ class SshLoginEvent(BaseModel):
     asn_org: Optional[str] = None
 
 
+class SshAuthEvent(BaseModel):
+    timestamp: datetime
+    agent_id: str
+    action: Optional[str] = None
+    src_ip: Optional[str] = None
+    username: Optional[str] = None
+    geo_country: Optional[str] = None
+    geo_org: Optional[str] = None
+    asn: Optional[str] = None
+    asn_org: Optional[str] = None
+
+
 class SudoEventSummary(BaseModel):
     timestamp: datetime
     agent_id: str
@@ -83,6 +95,13 @@ class SshSummaryResponse(BaseModel):
     generated_at: datetime
     since_minutes: int
     agent_id: Optional[str] = None
+    total_accepted: int = 0
+    total_failed_password: int = 0
+    total_invalid_user: int = 0
+    total_actions: int = 0
+    unique_source_ips: int = 0
+    enriched_source_ips: int = 0
+    recent_auth_events: list[SshAuthEvent]
     successful_logins: list[SshIpStat]
     failed_attempts: list[SshIpStat]
     invalid_user_attempts: list[SshIpStat]
