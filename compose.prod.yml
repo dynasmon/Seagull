@@ -265,7 +265,7 @@ services:
       NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_CORE_ID:-agent-core-1}/tls.key
       NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
     volumes:
-      - /var/log/auth.log:/var/log/auth.log:ro
+      - /var/log:/host/var/log:ro
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-core-state:/var/lib/netwatch
       - /:/host:ro
@@ -325,7 +325,7 @@ services:
       NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_PROC_ID:-agent-proc-1}/tls.key
       NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
     volumes:
-      - /var/log/auth.log:/var/log/auth.log:ro
+      - /var/log:/host/var/log:ro
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-proc-state:/var/lib/netwatch
       - netwatch-pki:/etc/netwatch/pki:ro
