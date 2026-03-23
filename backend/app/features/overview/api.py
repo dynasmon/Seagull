@@ -761,7 +761,53 @@ def get_overview(
             for b in _minute_buckets(start_ts, data_end_ts)
         ]
 
-        if ch is not None:
+        if use_ingest_rollups and ch is not None:
+            ddos_params: Dict[str, Any] = {"start_ts": start_ts, "end_ts": data_end_ts}
+            ddos_where = (
+                "bucket_ts >= {start_ts:DateTime} AND bucket_ts <= {end_ts:DateTime} "
+                "AND event_type = 'dos_attack'"
+            )
+            if agent_id:
+                ddos_where += " AND agent_id = {agent_id:String}"
+                ddos_params["agent_id"] = agent_id
+            ddos_vol_rows = _ch_query_dicts(
+                ch,
+                f"SELECT bucket_ts, "
+                "sum(total_count) AS packets, "
+                "max(total_count) AS peak_pps "
+                f"FROM {clickhouse_events_1m_table_ref()} "
+                f"WHERE {ddos_where} "
+                "GROUP BY bucket_ts",
+                ddos_params,
+            )
+            ddos_vol_map = {
+                _to_utc(r.get("bucket_ts")): {"packets": float(r.get("packets") or 0.0), "peak_pps": float(r.get("peak_pps") or 0.0)}
+                for r in ddos_vol_rows
+                if _to_utc(r.get("bucket_ts")) is not None
+            }
+        elif use_ingest_rollups:
+            ddos_vol_stmt = (
+                select(
+                    func.date_trunc("minute", NetEventRollup1sModel.bucket_ts).label("bucket_ts"),
+                    func.coalesce(func.sum(NetEventRollup1sModel.count), 0).label("packets"),
+                    func.coalesce(func.max(NetEventRollup1sModel.count), 0).label("peak_pps"),
+                )
+                .where(
+                    NetEventRollup1sModel.bucket_ts >= start_ts,
+                    NetEventRollup1sModel.bucket_ts <= data_end_ts,
+                    NetEventRollup1sModel.event_type == "dos_attack",
+                )
+                .group_by("bucket_ts")
+            )
+            if agent_id:
+                ddos_vol_stmt = ddos_vol_stmt.where(NetEventRollup1sModel.agent_id == agent_id)
+            ddos_vol_rows = db.execute(ddos_vol_stmt).all()
+            ddos_vol_map = {
+                _to_utc(r.bucket_ts): {"packets": float(r.packets or 0), "peak_pps": float(r.peak_pps or 0)}
+                for r in ddos_vol_rows
+                if _to_utc(r.bucket_ts) is not None
+            }
+        elif ch is not None:
             ddos_params: Dict[str, Any] = {"start_ts": start_ts, "end_ts": data_end_ts}
             ddos_where = (
                 "timestamp >= {start_ts:DateTime64(3)} AND timestamp <= {end_ts:DateTime64(3)} "
