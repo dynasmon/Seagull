@@ -113,6 +113,10 @@ def _pressure_state_key() -> str:
     return "netwatch:ingest:pressure_state"
 
 
+def _quality_key(ts_s: int) -> str:
+    return f"netwatch:ingest:quality:{ts_s}"
+
+
 @dataclass(frozen=True)
 class BackpressureDecision:
     mode: str  # normal | rollup_only | reject_429
@@ -303,6 +307,100 @@ def bump_ingest_counters(*, received: int, hot_kept: int, warm_kept: int, droppe
         pipe.execute()
     except Exception:
         return
+
+
+def record_ingest_quality(*, breakdown: Dict[str, Dict[str, int]]) -> None:
+    """Record short-lived per-event-type ingest quality counters (best-effort)."""
+
+    if not isinstance(breakdown, dict) or not breakdown:
+        return
+
+    r = get_redis()
+    if r is None:
+        return
+
+    ts_s = int(time.time())
+    key = _quality_key(ts_s)
+    try:
+        pipe = r.pipeline()
+        # Keep only a bounded number of event_type buckets per second.
+        items = sorted(
+            (
+                (str(k or "").strip().lower(), v if isinstance(v, dict) else {})
+                for k, v in breakdown.items()
+            ),
+            key=lambda kv: int((kv[1] or {}).get("received") or 0),
+            reverse=True,
+        )
+        for event_type, vals in items[:24]:
+            if not event_type:
+                continue
+            rec = max(0, int(vals.get("received") or 0))
+            hot = max(0, int(vals.get("hot") or 0))
+            warm = max(0, int(vals.get("warm") or 0))
+            analytics = max(0, int(vals.get("analytics") or 0))
+            if rec <= 0 and hot <= 0 and warm <= 0 and analytics <= 0:
+                continue
+            pipe.hincrby(key, f"{event_type}:received", rec)
+            pipe.hincrby(key, f"{event_type}:hot", hot)
+            pipe.hincrby(key, f"{event_type}:warm", warm)
+            pipe.hincrby(key, f"{event_type}:analytics", analytics)
+        pipe.expire(key, 180)
+        pipe.execute()
+    except Exception:
+        return
+
+
+def _read_ingest_quality_window(*, now_s: int, seconds: int = 15) -> list[Dict[str, Any]]:
+    r = get_redis()
+    if r is None:
+        return []
+
+    start = max(0, int(now_s) - max(1, int(seconds)) + 1)
+    acc: Dict[str, Dict[str, int]] = {}
+    try:
+        for ts in range(start, int(now_s) + 1):
+            fields = r.hgetall(_quality_key(ts)) or {}
+            for raw_key, raw_val in fields.items():
+                try:
+                    key = str(raw_key)
+                    val = int(raw_val or 0)
+                except Exception:
+                    continue
+                if ":" not in key:
+                    continue
+                ev_type, metric = key.rsplit(":", 1)
+                if metric not in {"received", "hot", "warm", "analytics"}:
+                    continue
+                bucket = acc.setdefault(ev_type, {"received": 0, "hot": 0, "warm": 0, "analytics": 0})
+                bucket[metric] = int(bucket.get(metric) or 0) + max(0, int(val))
+    except Exception:
+        return []
+
+    out: list[Dict[str, Any]] = []
+    for ev_type, vals in acc.items():
+        received = max(0, int(vals.get("received") or 0))
+        hot = max(0, int(vals.get("hot") or 0))
+        warm = max(0, int(vals.get("warm") or 0))
+        analytics = max(0, int(vals.get("analytics") or 0))
+        kept = hot + warm
+        dropped = max(0, received - kept)
+
+        out.append(
+            {
+                "event_type": ev_type,
+                "received": received,
+                "hot_kept": hot,
+                "warm_kept": warm,
+                "analytics_kept": analytics,
+                "dropped_estimated": dropped,
+                "kept_percent": int(round((kept / received) * 100.0)) if received > 0 else 0,
+                "drop_percent": int(round((dropped / received) * 100.0)) if received > 0 else 0,
+                "analytics_percent": int(round((analytics / received) * 100.0)) if received > 0 else 0,
+            }
+        )
+    out.sort(key=lambda x: (int(x.get("received") or 0), int(x.get("hot_kept") or 0)), reverse=True)
+    return out[:8]
 
 
 def record_worker_progress(*, processed_events: int, processed_messages: int) -> None:
@@ -813,6 +911,7 @@ def get_storm_status() -> Dict[str, Any]:
                 "clickhouse_state": "unknown",
                 "clickhouse_error_type": None,
                 "analytics_continuity_mode": "degraded",
+                "quality_by_event_type": [],
             }
 
         eps = _as_int(row.get("received"), 0)
@@ -853,6 +952,7 @@ def get_storm_status() -> Dict[str, Any]:
             "clickhouse_state": "unknown",
             "clickhouse_error_type": None,
             "analytics_continuity_mode": "degraded",
+            "quality_by_event_type": [],
         }
 
     # Ensure we close alerts if storm is over.
@@ -904,6 +1004,7 @@ def get_storm_status() -> Dict[str, Any]:
 
     workers_active = count_active_workers()
     recent = recent_feed_health()
+    quality_rows = _read_ingest_quality_window(now_s=now_s, seconds=max(5, _env_int("NETWATCH_INGEST_QUALITY_WINDOW_SECONDS", 15)))
 
     drop_pct = 0
     if received > 0:
@@ -1013,6 +1114,7 @@ def get_storm_status() -> Dict[str, Any]:
         "clickhouse_state": clickhouse_state,
         "clickhouse_error_type": (str(clickhouse_error_type) if clickhouse_error_type else None),
         "analytics_continuity_mode": ("full" if clickhouse_state in {"available", "disabled"} else "degraded"),
+        "quality_by_event_type": quality_rows,
     }
 
 

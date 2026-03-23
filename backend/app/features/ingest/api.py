@@ -14,6 +14,7 @@ from app.core.ingest_control import (
     evaluate_backpressure,
     enqueue_ingest_message,
     bump_ingest_counters,
+    record_ingest_quality,
     maybe_flush_stats_to_db,
     mark_storm_active,
     storm_maybe_open_alert,
@@ -38,6 +39,12 @@ router = APIRouter(
     tags=["ingest"],
 )
 logger = logging.getLogger("netwatch.api.ingest")
+
+_HOT_PRIORITY_EVENT_TYPES = {"dos_attack"}
+
+
+def _is_hot_priority_event(event_type: str | None) -> bool:
+    return str(event_type or "").strip().lower() in _HOT_PRIORITY_EVENT_TYPES
 
 
 def _degradation_level(*, bp_mode: str, storm_active: bool, backlog_events: int, received: int) -> str:
@@ -102,6 +109,27 @@ def _minimum_indexes(total: int, min_count: int) -> Set[int]:
 def _ensure_minimum(sampled: Set[int], total: int, min_count: int) -> Set[int]:
     out = set(sampled)
     out.update(_minimum_indexes(total, max(0, int(min_count)) - len(out)))
+    return out
+
+
+def _quality_by_type(
+    *,
+    event_types_by_idx: List[str],
+    hot_selected: Set[int],
+    warm_selected: Set[int],
+    analytics_selected: Set[int],
+) -> Dict[str, Dict[str, int]]:
+    out: Dict[str, Dict[str, int]] = {}
+    for idx, ev_type in enumerate(event_types_by_idx):
+        key = str(ev_type or "unknown").strip().lower() or "unknown"
+        row = out.setdefault(key, {"received": 0, "hot": 0, "warm": 0, "analytics": 0})
+        row["received"] += 1
+        if idx in hot_selected:
+            row["hot"] += 1
+        if idx in warm_selected:
+            row["warm"] += 1
+        if idx in analytics_selected:
+            row["analytics"] += 1
     return out
 
 
@@ -319,6 +347,13 @@ def ingest_events(
     # Final mode
     mode = "normal"
     if bp.mode == "reject_429":
+        quality: Dict[str, Dict[str, int]] = {}
+        for e in events:
+            key = str(e.event_type or "unknown").strip().lower() or "unknown"
+            row = quality.setdefault(key, {"received": 0, "hot": 0, "warm": 0, "analytics": 0})
+            row["received"] += 1
+        record_ingest_quality(breakdown=quality)
+
         # We intentionally reject early to protect the platform.
         bump_ingest_counters(
             received=len(events),
@@ -377,9 +412,11 @@ def ingest_events(
     hot_selected: Set[int] = set()
     analytics_selected: Set[int] = set()
     warm_selected: Set[int] = set()
+    event_types_by_idx: List[str] = []
 
     for e in events:
         extra = dict(e.extra or {})
+        hot_priority = _is_hot_priority_event(e.event_type)
 
         ts = e.timestamp
         use_client_ts = False
@@ -421,7 +458,7 @@ def ingest_events(
             ]
         )
 
-        keep_hot = stable_sample(seed=seed + "|hot", sample_percent=hot_pct)
+        keep_hot = hot_priority or stable_sample(seed=seed + "|hot", sample_percent=hot_pct)
         keep_warm = warm_enabled and stable_sample(seed=seed + "|warm", sample_percent=warm_pct)
 
         row = [
@@ -440,9 +477,10 @@ def ingest_events(
 
         idx = len(all_rows)
         all_rows.append(row)
+        event_types_by_idx.append(str(e.event_type or "unknown").strip().lower() or "unknown")
         if keep_hot:
             hot_selected.add(idx)
-        if stable_sample(seed=seed + "|analytics", sample_percent=analytics_pct):
+        if hot_priority or stable_sample(seed=seed + "|analytics", sample_percent=analytics_pct):
             analytics_selected.add(idx)
         if keep_warm and not keep_hot:
             warm_selected.add(idx)
@@ -466,6 +504,14 @@ def ingest_events(
             analytics_events.append(row)
         if idx in warm_selected and idx not in hot_selected:
             warm_events.append(row)
+
+    quality = _quality_by_type(
+        event_types_by_idx=event_types_by_idx,
+        hot_selected=hot_selected,
+        warm_selected=warm_selected,
+        analytics_selected=analytics_selected,
+    )
+    record_ingest_quality(breakdown=quality)
 
     hot_kept = len(hot_events)
     warm_kept = len(warm_events)

@@ -1,5 +1,5 @@
-import { apiGet, apiPost } from "@/shared/lib/http";
-import type { Agent, Alert, NetEvent, OverviewSnapshot, StormRecoverResponse, StormStatus } from "./types";
+import { apiGet } from "@/shared/lib/http";
+import type { Agent, Alert, NetEvent, OverviewSnapshot, StormStatus } from "./types";
 
 export function getAgents() {
   return apiGet<Agent[]>("/api/agents");
@@ -35,12 +35,4 @@ export function getOverview(params?: { window_minutes?: number; agent_id?: strin
 
 export function getStormStatus() {
   return apiGet<StormStatus>("/api/ingest/storm/status");
-}
-
-export function recoverStormRuntime(params?: { clear_backlog_counters?: boolean; clear_ui_caches?: boolean }) {
-  const q = new URLSearchParams();
-  if (typeof params?.clear_backlog_counters === "boolean") q.set("clear_backlog_counters", String(params.clear_backlog_counters));
-  if (typeof params?.clear_ui_caches === "boolean") q.set("clear_ui_caches", String(params.clear_ui_caches));
-  const qs = q.toString();
-  return apiPost<StormRecoverResponse>(`/api/ingest/storm/recover${qs ? `?${qs}` : ""}`);
 }
