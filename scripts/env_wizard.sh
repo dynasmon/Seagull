@@ -293,7 +293,7 @@ PY
     ;;
 esac
 
-[ -n "$default_domain" ] || default_domain="hexatek.com.br"
+[ -n "$default_domain" ] || default_domain=""
 
 tty_printf "\n"
 tty_println "NetWatch production environment wizard"
