@@ -264,6 +264,9 @@ services:
       NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_CORE_ID:-agent-core-1}/tls.crt
       NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_CORE_ID:-agent-core-1}/tls.key
       NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
+      NETWATCH_TLS_CA_SOURCE_FILE: ""
+      NETWATCH_TLS_CERT_SOURCE_FILE: ""
+      NETWATCH_TLS_KEY_SOURCE_FILE: ""
     volumes:
       - /var/log:/host/var/log:ro
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
@@ -285,6 +288,9 @@ services:
       NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_SENSOR_ID:-agent-sensor-1}/tls.crt
       NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_SENSOR_ID:-agent-sensor-1}/tls.key
       NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
+      NETWATCH_TLS_CA_SOURCE_FILE: ""
+      NETWATCH_TLS_CERT_SOURCE_FILE: ""
+      NETWATCH_TLS_KEY_SOURCE_FILE: ""
     volumes:
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-sensor-state:/var/lib/netwatch
@@ -304,6 +310,9 @@ services:
       NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_LATERAL_ID:-agent-lateral-1}/tls.crt
       NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_LATERAL_ID:-agent-lateral-1}/tls.key
       NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
+      NETWATCH_TLS_CA_SOURCE_FILE: ""
+      NETWATCH_TLS_CERT_SOURCE_FILE: ""
+      NETWATCH_TLS_KEY_SOURCE_FILE: ""
     volumes:
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-lateral-state:/var/lib/netwatch
@@ -324,6 +333,9 @@ services:
       NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_PROC_ID:-agent-proc-1}/tls.crt
       NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_PROC_ID:-agent-proc-1}/tls.key
       NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
+      NETWATCH_TLS_CA_SOURCE_FILE: ""
+      NETWATCH_TLS_CERT_SOURCE_FILE: ""
+      NETWATCH_TLS_KEY_SOURCE_FILE: ""
     volumes:
       - /var/log:/host/var/log:ro
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
@@ -345,6 +357,9 @@ services:
       NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_SCAN_ID:-agent-scan-1}/tls.crt
       NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_SCAN_ID:-agent-scan-1}/tls.key
       NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
+      NETWATCH_TLS_CA_SOURCE_FILE: ""
+      NETWATCH_TLS_CERT_SOURCE_FILE: ""
+      NETWATCH_TLS_KEY_SOURCE_FILE: ""
     volumes:
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-scan-state:/var/lib/netwatch
@@ -365,6 +380,9 @@ services:
       NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_DDOS_ID:-agent-ddos-1}/tls.crt
       NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_DDOS_ID:-agent-ddos-1}/tls.key
       NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
+      NETWATCH_TLS_CA_SOURCE_FILE: ""
+      NETWATCH_TLS_CERT_SOURCE_FILE: ""
+      NETWATCH_TLS_KEY_SOURCE_FILE: ""
     volumes:
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-ddos-state:/var/lib/netwatch
@@ -385,6 +403,9 @@ services:
       NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_VULN_ID:-agent-vuln-1}/tls.crt
       NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_VULN_ID:-agent-vuln-1}/tls.key
       NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
+      NETWATCH_TLS_CA_SOURCE_FILE: ""
+      NETWATCH_TLS_CERT_SOURCE_FILE: ""
+      NETWATCH_TLS_KEY_SOURCE_FILE: ""
     volumes:
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-vuln-state:/var/lib/netwatch

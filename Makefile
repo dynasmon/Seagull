@@ -14,34 +14,36 @@ PROD_AGENT_SERVICES := netwatch-agent-core netwatch-agent-sensor
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight prod-prepare prod-fresh dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
-	@echo "  make dev         - bootstrap and start development stack"
+	@echo "  make dev           - bootstrap and start development stack"
 	@echo "  make dev-preflight - validate local prerequisites for make dev"
-	@echo "  make dev-tls     - start development stack with stricter HTTPS cookie/proxy settings"
-	@echo "  make prod        - bootstrap and start production-style stack"
-	@echo "  make prod-fresh  - full fresh production-style boot (drops volumes)"
-	@echo "  make admin-reset - reset/sync bootstrap admin password (prod/edge nginx path)"
-	@echo "  make up          - alias for make dev"
-	@echo "  make up-extra    - start development stack with profile 'extra'"
-	@echo "  make down        - stop stack (dev profile by default)"
-	@echo "  make restart     - restart development stack"
-	@echo "  make ps          - list services (dev profile by default)"
-	@echo "  make logs        - follow logs (set SVC=service)"
-	@echo "  make build-dev   - build dev images"
-	@echo "  make build-prod  - build prod images"
-	@echo "  make db-upgrade  - run alembic upgrade head in backend container"
-	@echo "  make db-current  - show current alembic revision in backend container"
-	@echo "  make lint        - lint backend, frontend and agent"
-	@echo "  make test        - run minimal automated tests"
+	@echo "  make dev-tls       - start development stack with stricter HTTPS cookie/proxy settings"
+	@echo "  make env-init      - interactive wizard for critical production .env values"
+	@echo "  make prod-setup    - run env wizard, validate prod config, then stop"
+	@echo "  make prod          - bootstrap and start production-style stack"
+	@echo "  make prod-fresh    - full fresh production-style boot (drops volumes)"
+	@echo "  make admin-reset   - reset/sync bootstrap admin password (prod/edge nginx path)"
+	@echo "  make up            - alias for make dev"
+	@echo "  make up-extra      - start development stack with profile 'extra'"
+	@echo "  make down          - stop stack (dev profile by default)"
+	@echo "  make restart       - restart development stack"
+	@echo "  make ps            - list services (dev profile by default)"
+	@echo "  make logs          - follow logs (set SVC=service)"
+	@echo "  make build-dev     - build dev images"
+	@echo "  make build-prod    - build prod images"
+	@echo "  make db-upgrade    - run alembic upgrade head in backend container"
+	@echo "  make db-current    - show current alembic revision in backend container"
+	@echo "  make lint          - lint backend, frontend and agent"
+	@echo "  make test          - run minimal automated tests"
 	@echo "  make test-detections - run detection content validation suite"
-	@echo "  make deps-check  - dependency vulnerability checks"
-	@echo "  make ci          - run local CI sequence (lint, test, build-prod)"
-	@echo "  make clean       - down + remove-orphans (keeps volumes)"
-	@echo "  make nuke        - down + remove volumes (DANGEROUS)"
-	@echo "  make psql        - open psql inside postgres"
+	@echo "  make deps-check    - dependency vulnerability checks"
+	@echo "  make ci            - run local CI sequence (lint, test, build-prod)"
+	@echo "  make clean         - down + remove-orphans (keeps volumes)"
+	@echo "  make nuke          - down + remove volumes (DANGEROUS)"
+	@echo "  make psql          - open psql inside postgres"
 
 bootstrap:
 	@./scripts/bootstrap_env.sh $(ENV_FILE) $(ENV_EXAMPLE)
@@ -70,6 +72,12 @@ prod-agent-tokens-bootstrap:
 
 admin-reset: bootstrap bootstrap-tools
 	$(DC) $(COMPOSE_PROD) run --rm --build -T netwatch-backend python -m app.cli admin-reset
+
+env-init: bootstrap
+	@./scripts/env_wizard.sh
+
+prod-setup: bootstrap bootstrap-tools env-init prod-prepare
+	@echo "[prod-setup] environment wizard completed and production config validated"
 
 prod-prepare: bootstrap
 	@./scripts/prod_prepare.sh
