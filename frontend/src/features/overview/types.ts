@@ -95,6 +95,17 @@ export type StormStatus = {
   reason: string;
   since: string | null;
   open_alert_id: number | null;
+  quality_by_event_type?: Array<{
+    event_type: string;
+    received: number;
+    hot_kept: number;
+    warm_kept: number;
+    analytics_kept: number;
+    dropped_estimated: number;
+    kept_percent: number;
+    drop_percent: number;
+    analytics_percent: number;
+  }>;
 };
 
 export type StormRecoverResponse = {

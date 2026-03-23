@@ -9,8 +9,7 @@ import type { Alert, StormStatus } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
 import { useOverviewLive } from "./live";
 
-import { getStormStatus, recoverStormRuntime } from "./api";
-import { useAuth } from "@/features/auth/context";
+import { getStormStatus } from "./api";
 
 import { listAttackChainCases } from "@/features/attack_chain/api";
 
@@ -305,13 +304,9 @@ function SeverityBadge({ severity }: { severity: string }) {
 }
 
 export default function OverviewPage() {
-  const { snapshot, isLoading, error, lastUpdatedAt, refresh } = useOverviewLive();
-  const { user } = useAuth();
-  const isAdmin = (user?.role || "").toLowerCase() === "admin";
+  const { snapshot, isLoading, error, lastUpdatedAt } = useOverviewLive();
 
   const [storm, setStorm] = useState<StormStatus | null>(null);
-  const [recoverBusy, setRecoverBusy] = useState(false);
-  const [recoverMsg, setRecoverMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -335,27 +330,6 @@ export default function OverviewPage() {
       window.clearInterval(timer);
     };
   }, []);
-
-  const runRecover = async (hard = false) => {
-    if (recoverBusy) return;
-    setRecoverBusy(true);
-    setRecoverMsg(null);
-    try {
-      const out = await recoverStormRuntime({ clear_ui_caches: true, clear_backlog_counters: hard });
-      await Promise.allSettled([refresh(), getStormStatus().then(setStorm)]);
-      if (out.ok) {
-        setRecoverMsg(
-          `Recovery applied. Keys: ${Number(out.deleted_direct_keys || 0)} + cache: ${Number(out.deleted_cache_keys || 0)}`
-        );
-      } else {
-        setRecoverMsg(`Recovery failed: ${String(out.reason || "unknown")}`);
-      }
-    } catch (e: any) {
-      setRecoverMsg(e?.message || "Recovery failed");
-    } finally {
-      setRecoverBusy(false);
-    }
-  };
 
   const derived = useMemo(() => {
     if (!snapshot) {
@@ -419,6 +393,10 @@ export default function OverviewPage() {
       ddosLastTarget
     };
   }, [snapshot]);
+
+  const qualityRows = useMemo(() => {
+    return (storm?.quality_by_event_type || []).slice(0, 8);
+  }, [storm]);
 
   const [acTile, setAcTile] = useState<{
     loading: boolean;
@@ -593,40 +571,44 @@ export default function OverviewPage() {
             tone={storm?.phase === "draining" ? "default" : "good"}
           />
         </div>
-        {isAdmin ? (
-          <div className="mt-4 rounded-lg border border-border/60 bg-muted/10 p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className={cx(
-                  "rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-mono uppercase tracking-wider text-primary",
-                  "hover:bg-primary/15 disabled:opacity-60 disabled:cursor-not-allowed"
-                )}
-                onClick={() => runRecover(false)}
-                disabled={recoverBusy}
-                title="Clear stuck storm/draining and UI cache state"
-              >
-                {recoverBusy ? "Recovering..." : "Recover Runtime State"}
-              </button>
-              <button
-                type="button"
-                className={cx(
-                  "rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-1.5 text-xs font-mono uppercase tracking-wider text-amber-300",
-                  "hover:bg-amber-500/15 disabled:opacity-60 disabled:cursor-not-allowed"
-                )}
-                onClick={() => runRecover(true)}
-                disabled={recoverBusy}
-                title="Also reset backlog counter key (hard recovery)"
-              >
-                Hard Recover
-              </button>
-              <div className="text-[11px] text-muted-foreground">
-                Admin tool for stuck post-DDoS state.
-              </div>
+        <div className="mt-4 rounded-xl border border-border/60 bg-background/60 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
+              Telemetry Quality
             </div>
-            {recoverMsg ? <div className="mt-2 text-xs font-mono text-muted-foreground">{recoverMsg}</div> : null}
+            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+              by event type (rolling window)
+            </div>
           </div>
-        ) : null}
+          {qualityRows.length === 0 ? (
+            <div className="mt-3 text-xs text-muted-foreground">Quality breakdown unavailable right now.</div>
+          ) : (
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              {qualityRows.map((q) => (
+                <div key={q.event_type} className="rounded-lg border border-border/60 bg-background/40 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-semibold tracking-tight truncate">{q.event_type}</div>
+                    <div className="text-[11px] font-mono text-muted-foreground">{q.received}</div>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-1 text-[10px] font-mono">
+                    <div className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-emerald-300 text-center">
+                      keep {q.kept_percent}%
+                    </div>
+                    <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-300 text-center">
+                      drop {q.drop_percent}%
+                    </div>
+                    <div className="rounded border border-blue-500/40 bg-blue-500/10 px-2 py-1 text-blue-300 text-center">
+                      ana {q.analytics_percent}%
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[11px] text-muted-foreground font-mono">
+                    hot {q.hot_kept} · warm {q.warm_kept} · analytics {q.analytics_kept}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </DashboardSection>
 
       <DashboardSection id="volume" title="EVENT VOLUME" defaultOpen>
