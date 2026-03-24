@@ -18,7 +18,7 @@ class AdminUserOut(BaseModel):
 
 class AdminUserCreateIn(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
-    password: str = Field(..., min_length=12, max_length=256)
+    password: str = Field(..., min_length=1, max_length=256)
     role: str = Field("user", min_length=1, max_length=32)
     is_active: bool = True
     reason: Optional[str] = Field(None, max_length=255)
@@ -27,6 +27,5 @@ class AdminUserCreateIn(BaseModel):
 class AdminUserUpdateIn(BaseModel):
     role: Optional[str] = Field(None, min_length=1, max_length=32)
     is_active: Optional[bool] = None
-    password: Optional[str] = Field(None, min_length=12, max_length=256)
+    password: Optional[str] = Field(None, min_length=1, max_length=256)
     reason: Optional[str] = Field(None, max_length=255)
-

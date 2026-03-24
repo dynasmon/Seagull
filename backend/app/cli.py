@@ -5,16 +5,19 @@ from datetime import datetime
 
 from app.core.config import settings
 from app.core.db import SessionLocal
+from app.core.identity import canonicalize_username
+from app.core.password_policy import validate_password_policy
 from app.core.security import hash_password, verify_password
 from app.models.portal_users import PortalUserModel
 
 
 def admin_reset() -> int:
-    username = (settings.NETWATCH_BOOTSTRAP_ADMIN_USERNAME or "admin").strip() or "admin"
+    username = canonicalize_username(settings.NETWATCH_BOOTSTRAP_ADMIN_USERNAME or "admin") or "admin"
     password = (settings.NETWATCH_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
 
-    if len(password) < 12:
-        print("error: NETWATCH_BOOTSTRAP_ADMIN_PASSWORD must be at least 12 characters")
+    msg = validate_password_policy(password, username=username)
+    if msg:
+        print(f"error: NETWATCH_BOOTSTRAP_ADMIN_PASSWORD rejected: {msg}")
         return 2
 
     db = SessionLocal()
@@ -29,6 +32,7 @@ def admin_reset() -> int:
                 created_at=datetime.utcnow(),
                 password_hash=hash_password(password),
                 failed_login_count=0,
+                token_version=1,
             )
             created = True
         else:
@@ -36,6 +40,7 @@ def admin_reset() -> int:
             row.role = "admin"
             row.is_active = True
             row.failed_login_count = 0
+            row.token_version = int(getattr(row, "token_version", 1) or 1) + 1
 
         db.add(row)
         db.commit()

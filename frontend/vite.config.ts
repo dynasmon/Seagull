@@ -19,6 +19,9 @@ export default defineConfig({
       '/api': {
         target: 'http://netwatch-backend:8000',
         changeOrigin: true,
+        cookiePathRewrite: {
+          "/auth": "/api/auth",
+        },
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },

@@ -5,6 +5,8 @@ from datetime import datetime
 from app.core.audit import audit_actor, write_audit_event
 from app.core.config import settings
 from app.core.db import SessionLocal
+from app.core.identity import canonicalize_username
+from app.core.password_policy import validate_password_policy
 from app.core.security import hash_password, verify_password
 from app.models.correlation_rules import CorrelationRuleModel
 from app.models.portal_users import PortalUserModel
@@ -33,25 +35,30 @@ def bootstrap_portal_admin() -> None:
 
     db = SessionLocal()
     try:
-        username = (settings.NETWATCH_BOOTSTRAP_ADMIN_USERNAME or "admin").strip() or "admin"
+        username = canonicalize_username(settings.NETWATCH_BOOTSTRAP_ADMIN_USERNAME or "admin") or "admin"
         password = (settings.NETWATCH_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
         existing = db.query(PortalUserModel).count()
 
-        # Existing admin user path: optionally sync password from bootstrap env.
+        # Existing admin user path: startup password sync is disabled by default.
+        # If explicitly enabled as a break-glass operation, it requires both flags.
         current = db.query(PortalUserModel).filter(PortalUserModel.username == username).first()
         if current is not None:
             should_sync = bool(
                 password
                 and (
-                    settings.NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START
-                    or settings.NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START
+                    settings.NETWATCH_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START
+                    and (settings.NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START or settings.NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START)
                 )
             )
-            if should_sync and len(password) >= 12 and not verify_password(password, current.password_hash):
+            if should_sync and not verify_password(password, current.password_hash):
+                msg = validate_password_policy(password, username=current.username)
+                if msg:
+                    raise RuntimeError(f"Bootstrap admin password rejected: {msg}")
                 before = {"id": current.id, "username": current.username, "role": current.role, "is_active": bool(current.is_active)}
                 current.password_hash = hash_password(password)
                 current.is_active = True
                 current.role = "admin"
+                current.token_version = int(getattr(current, "token_version", 1) or 1) + 1
                 db.add(current)
                 write_audit_event(
                     db,
@@ -77,14 +84,16 @@ def bootstrap_portal_admin() -> None:
                 "No portal users found. Set NETWATCH_BOOTSTRAP_ADMIN_PASSWORD to bootstrap the admin user."
             )
 
-        if len(password) < 12:
-            raise RuntimeError("Bootstrap admin password must be at least 12 characters.")
+        msg = validate_password_policy(password, username=username)
+        if msg:
+            raise RuntimeError(f"Bootstrap admin password rejected: {msg}")
 
         user = PortalUserModel(
             username=username,
             password_hash=hash_password(password),
             role="admin",
             is_active=True,
+            token_version=1,
             created_at=datetime.utcnow(),
         )
         db.add(user)

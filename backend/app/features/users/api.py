@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.audit import audit_actor, write_audit_event
 from app.core.db import SessionLocal
+from app.core.identity import canonicalize_username
+from app.core.password_policy import validate_password_policy
 from app.core.portal_auth import PortalPrincipal, require_admin
 from app.core.security import hash_password
 from app.models.portal_refresh_sessions import PortalRefreshSessionModel
@@ -49,9 +51,12 @@ def list_users(_: PortalPrincipal = Depends(require_admin)):
 def create_user(payload: AdminUserCreateIn, request: Request, admin: PortalPrincipal = Depends(require_admin)):
     db = SessionLocal()
     try:
-        uname = (payload.username or "").strip()
+        uname = canonicalize_username(payload.username)
         if not uname:
             raise HTTPException(status_code=422, detail="username is required")
+        msg = validate_password_policy(payload.password, username=uname)
+        if msg:
+            raise HTTPException(status_code=422, detail=msg)
         exists = db.query(PortalUserModel).filter(PortalUserModel.username == uname).first()
         if exists:
             raise HTTPException(status_code=409, detail="username already exists")
@@ -61,6 +66,7 @@ def create_user(payload: AdminUserCreateIn, request: Request, admin: PortalPrinc
             password_hash=hash_password(payload.password),
             role=_normalize_role(payload.role),
             is_active=bool(payload.is_active),
+            token_version=1,
             created_at=datetime.utcnow(),
         )
         db.add(row)
@@ -103,8 +109,12 @@ def update_user(user_id: int, payload: AdminUserUpdateIn, request: Request, admi
                 raise HTTPException(status_code=400, detail="You cannot disable your own account")
             row.is_active = bool(payload.is_active)
         if payload.password is not None:
+            msg = validate_password_policy(payload.password, username=row.username)
+            if msg:
+                raise HTTPException(status_code=422, detail=msg)
             row.password_hash = hash_password(payload.password)
             row.failed_login_count = 0
+            row.token_version = int(getattr(row, "token_version", 1) or 1) + 1
 
         if payload.password is not None or payload.is_active is False:
             now = datetime.utcnow()
@@ -112,6 +122,8 @@ def update_user(user_id: int, payload: AdminUserUpdateIn, request: Request, admi
                 PortalRefreshSessionModel.user_id == row.id,
                 PortalRefreshSessionModel.revoked_at.is_(None),
             ).update({"revoked_at": now})
+            if payload.is_active is False and payload.password is None:
+                row.token_version = int(getattr(row, "token_version", 1) or 1) + 1
 
         if row.role != "admin":
             admins_active = (
@@ -166,6 +178,7 @@ def delete_user(user_id: int, request: Request, admin: PortalPrincipal = Depends
 
         before = {"id": row.id, "username": row.username, "role": row.role, "is_active": bool(row.is_active)}
         row.is_active = False
+        row.token_version = int(getattr(row, "token_version", 1) or 1) + 1
         db.add(row)
         now = datetime.utcnow()
         db.query(PortalRefreshSessionModel).filter(

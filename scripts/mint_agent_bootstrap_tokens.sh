@@ -184,11 +184,11 @@ PY
     -H "content-type: application/json" \
     -d "$payload")"
 
-  token="$(printf '%s' "$resp" | python3 - <<'PY'
+  token="$(python3 - "$resp" <<'PY'
 import json
 import sys
 
-raw = sys.stdin.read()
+raw = sys.argv[1] if len(sys.argv) > 1 else ""
 try:
     data = json.loads(raw)
 except Exception:

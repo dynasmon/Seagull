@@ -9,6 +9,7 @@ export type AuthStatus = "loading" | "anon" | "authed";
 export type AuthCtx = {
   status: AuthStatus;
   user: AuthUser | null;
+  otpEnabled: boolean;
   loginWithPassword: (username: string, password: string) => Promise<void>;
   loginWithOtp: (token: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -39,6 +40,7 @@ function normalizeTokenOut(x: any): TokenOut | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [otpEnabled, setOtpEnabled] = useState(false);
 
   const booted = useRef(false);
 
@@ -56,6 +58,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (booted.current) return;
     booted.current = true;
+    authApi.features()
+      .then((features) => {
+        setOtpEnabled(Boolean((features as any)?.otp_enabled));
+      })
+      .catch(() => {
+        setOtpEnabled(false);
+      });
     refresh();
   }, [refresh]);
 
@@ -68,12 +77,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loginWithOtp = useCallback(async (token: string) => {
+    if (!otpEnabled) throw new Error("OTP login is disabled");
     const data = normalizeTokenOut(await authApi.otpLogin(token));
     if (!data) throw new Error("Login failed");
     setAccessToken(data.access_token);
     setUser(data.user);
     setStatus("authed");
-  }, []);
+  }, [otpEnabled]);
 
   const logout = useCallback(async () => {
     try {
@@ -89,12 +99,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       status,
       user,
+      otpEnabled,
       loginWithPassword,
       loginWithOtp,
       logout,
       refresh,
     }),
-    [status, user, loginWithPassword, loginWithOtp, logout, refresh]
+    [status, user, otpEnabled, loginWithPassword, loginWithOtp, logout, refresh]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

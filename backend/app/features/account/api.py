@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -8,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from app.core.audit import audit_actor, write_audit_event
 from app.core.db import SessionLocal
 from app.core.portal_auth import PortalPrincipal, get_current_user, logout
+from app.core.password_policy import validate_password_policy
 from app.core.security import hash_password, verify_password
 from app.models.portal_refresh_sessions import PortalRefreshSessionModel
 from app.models.portal_users import PortalUserModel
@@ -15,25 +15,6 @@ from app.schemas.account import ChangePasswordIn
 
 
 router = APIRouter(prefix="/account", tags=["account"])
-
-
-def _password_policy(pw: str, *, username: str) -> str | None:
-    # Returns an error message if invalid, else None.
-    if len(pw) < 12:
-        return "Password must be at least 12 characters."
-    if any(ch.isspace() for ch in pw):
-        return "Password cannot contain whitespace."
-    if username and username.lower() in pw.lower():
-        return "Password must not contain your username."
-    if not re.search(r"[a-z]", pw):
-        return "Password must include at least one lowercase letter."
-    if not re.search(r"[A-Z]", pw):
-        return "Password must include at least one uppercase letter."
-    if not re.search(r"[0-9]", pw):
-        return "Password must include at least one digit."
-    if not re.search(r"[^A-Za-z0-9]", pw):
-        return "Password must include at least one symbol."
-    return None
 
 
 @router.post("/change-password", status_code=204)
@@ -65,12 +46,13 @@ def change_password_endpoint(
         if verify_password(body.new_password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be different")
 
-        msg = _password_policy(body.new_password, username=user.username)
+        msg = validate_password_policy(body.new_password, username=user.username)
         if msg:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
 
         # Update password
         user.password_hash = hash_password(body.new_password)
+        user.token_version = int(getattr(user, "token_version", 1) or 1) + 1
         db.add(user)
 
         # Revoke all refresh sessions (forces re-login on other devices)
