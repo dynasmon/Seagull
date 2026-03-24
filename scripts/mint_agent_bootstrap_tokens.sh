@@ -17,7 +17,7 @@ need_cmd() {
 }
 
 need_cmd curl
-need_cmd jq
+need_cmd python3
 
 read_env() {
   local key="$1"
@@ -84,7 +84,19 @@ try_login() {
     -H "content-type: application/json" \
     -d "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}")"
   if [[ "$code" == "200" ]]; then
-    ACCESS_TOKEN="$(jq -r '.access_token // empty' "$body_file")"
+    ACCESS_TOKEN="$(python3 - "$body_file" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], 'r', encoding='utf-8') as fh:
+        data = json.load(fh)
+except Exception:
+    print('')
+else:
+    print(data.get('access_token', '') or '')
+PY
+)"
     if [[ -n "$ACCESS_TOKEN" ]]; then
       API_BASE="$base"
       API_PREFIX="$prefix"
@@ -151,10 +163,19 @@ for pair in "${AGENT_MAP[@]}"; do
     continue
   fi
 
-  payload="$(jq -cn \
-    --argjson ttl "${TTL_SECONDS}" \
-    --arg desc "auto bootstrap for ${agent_id}" \
-    '{ttl_seconds:$ttl,max_uses:1,description:$desc}')"
+  payload="$(python3 - "${TTL_SECONDS}" "${agent_id}" <<'PY'
+import json
+import sys
+
+ttl = int(sys.argv[1])
+agent_id = sys.argv[2]
+print(json.dumps({
+    'ttl_seconds': ttl,
+    'max_uses': 1,
+    'description': f'auto bootstrap for {agent_id}',
+}))
+PY
+)"
 
   AGENTS_PATH="${API_PREFIX}/agents/${agent_id}/bootstrap-tokens"
 
@@ -163,7 +184,19 @@ for pair in "${AGENT_MAP[@]}"; do
     -H "content-type: application/json" \
     -d "$payload")"
 
-  token="$(printf "%s" "$resp" | jq -r '.bootstrap_token // empty')"
+  token="$(printf '%s' "$resp" | python3 - <<'PY'
+import json
+import sys
+
+raw = sys.stdin.read()
+try:
+    data = json.loads(raw)
+except Exception:
+    print('')
+else:
+    print(data.get('bootstrap_token', '') or '')
+PY
+)"
   if [[ -z "$token" ]]; then
     echo "Failed to mint token for ${agent_id}. Response:" >&2
     printf "%s\n" "$resp" >&2
