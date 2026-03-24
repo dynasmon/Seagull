@@ -14,7 +14,7 @@ PROD_AGENT_SERVICES := netwatch-agent-core netwatch-agent-sensor
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
@@ -23,8 +23,8 @@ help:
 	@echo "  make dev-tls       - start development stack with stricter HTTPS cookie/proxy settings"
 	@echo "  make env-init      - interactive wizard for critical production .env values"
 	@echo "  make prod-setup    - run env wizard, validate prod config, then stop"
-	@echo "  make prod          - bootstrap and start production-style stack"
-	@echo "  make prod-fresh    - full fresh production-style boot (drops volumes)"
+	@echo "  make prod          - bootstrap and start production-style stack (auto-heals first-run drift)"
+	@echo "  make prod-fresh    - full fresh production-style boot (drops volumes + resets local PKI state)"
 	@echo "  make admin-reset   - reset/sync bootstrap admin password (prod/edge nginx path)"
 	@echo "  make up            - alias for make dev"
 	@echo "  make up-extra      - start development stack with profile 'extra'"
@@ -95,16 +95,40 @@ dev-tls: dev-preflight certs-bootstrap
 
 # Single-command bootstrap for production-like runs.
 prod: bootstrap bootstrap-tools prod-prepare
-	$(DC) $(COMPOSE_PROD) up -d --build $(PROD_CORE_SERVICES)
+	@reset_required=false; \
+	if ! ./scripts/prod_state_guard.sh check; then \
+		status=$$?; \
+		if [ $$status -eq 10 ]; then \
+			reset_required=true; \
+		else \
+			exit $$status; \
+		fi; \
+	fi; \
+	if [ "$$reset_required" = "true" ]; then \
+		echo "[prod] resetting named runtime volumes due to configuration drift"; \
+		$(DC) $(COMPOSE_PROD) down -v --remove-orphans; \
+		rm -f ./secrets/bootstrap/*.token; \
+		rm -rf ./secrets/step-ca/data/*; \
+		./scripts/prod_state_guard.sh clear; \
+	fi
+	$(DC) $(COMPOSE_PROD) down --remove-orphans
+	$(DC) $(COMPOSE_PROD) up -d --build --remove-orphans $(PROD_CORE_SERVICES)
 	@$(MAKE) prod-agent-tokens-bootstrap
 	$(DC) $(COMPOSE_PROD) up -d --force-recreate $(PROD_AGENT_SERVICES)
+	@./scripts/prod_state_guard.sh commit
 
 prod-fresh: bootstrap bootstrap-tools prod-prepare
 	$(DC) $(COMPOSE_PROD) down -v --remove-orphans
 	@rm -f ./secrets/bootstrap/*.token
-	$(DC) $(COMPOSE_PROD) up -d --build $(PROD_CORE_SERVICES)
+	@rm -rf ./secrets/step-ca/data/*
+	@./scripts/prod_state_guard.sh clear
+	$(DC) $(COMPOSE_PROD) up -d --build --remove-orphans $(PROD_CORE_SERVICES)
 	@$(MAKE) prod-agent-tokens-bootstrap
 	$(DC) $(COMPOSE_PROD) up -d --force-recreate $(PROD_AGENT_SERVICES)
+	@./scripts/prod_state_guard.sh commit
+
+prod-state-clear:
+	@./scripts/prod_state_guard.sh clear
 
 up: dev
 
