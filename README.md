@@ -260,10 +260,9 @@ For production-style local runs:
 make prod
 ```
 
-This uses `docker-compose.yml + compose.prod.yml` with Docker secrets mounts (`/run/secrets/*`).
-Startup fails fast in prod if required secrets are missing/weak.
-Production now expects TLS cert/key files for `netwatch-edge` (defaults: `secrets/tls/tls.crt` + `secrets/tls/tls.key`).
-It also regenerates local certificates before startup (same as dev).
+This uses `docker-compose.yml + compose.prod.yml` with the production PKI/bootstrap flow.
+On first run, `make prod` now auto-generates secure missing/placeholder secrets in `.env`, records a production state fingerprint, and resets stale runtime volumes automatically when critical secrets drift.
+`make prod-fresh` performs a full clean boot, including local Step CA state under `secrets/step-ca/data/`.
 
 The dev stack also runs through HTTPS edge + mTLS agent route.
 It serves:
