@@ -3,7 +3,6 @@
 
 def load_all_models() -> None:
     # Keep explicit imports to avoid silent missing tables in metadata.
-    from app.models import admin as _admin  # noqa: F401
     from app.models import agent_identities as _agent_identities  # noqa: F401
     from app.models import agents as _agents  # noqa: F401
     from app.models import admin_audit_events as _admin_audit_events  # noqa: F401

@@ -15,6 +15,9 @@ export type TokenOut = {
   expires_in: number;
   user: AuthUser;
 };
+export type AuthFeatures = {
+  otp_enabled: boolean;
+};
 
 let accessToken: string | null = null;
 type RefreshResult = { accessToken: string | null; user: AuthUser | null };
@@ -259,6 +262,8 @@ export const authApi = {
   login: (username: string, password: string) => apiPost<TokenOut>("/api/auth/login", { username, password }),
   otpLogin: (token: string) => apiPost<TokenOut>("/api/auth/otp/login", { token }),
   logout: () => apiPost<void>("/api/auth/logout"),
+  logoutAll: () => apiPost<void>("/api/auth/logout-all"),
   me: () => apiGet<AuthUser>("/api/auth/me"),
+  features: () => apiGet<AuthFeatures>("/api/auth/features"),
   otpCreate: (payload: { label?: string; username?: string }) => apiPost<{ token: string; expires_in: number }>("/api/auth/otp/create", payload),
 };

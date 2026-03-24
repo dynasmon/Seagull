@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import time
 from typing import Optional
+from threading import Lock
 
 import redis
 from fastapi import HTTPException, Request, status
@@ -12,6 +14,9 @@ from app.core.config import settings
 
 _redis_client: Optional[redis.Redis] = None
 _redis_unavailable_until: float = 0.0
+_logger = logging.getLogger("netwatch.api.auth.ratelimit")
+_local_lock = Lock()
+_local_state: dict[str, tuple[int, float]] = {}
 
 # Avoid repeated reconnect stalls when Redis is down.
 _REDIS_RETRY_COOLDOWN_SECONDS = 5.0
@@ -61,12 +66,30 @@ def _incr_with_expire(r: redis.Redis, key: str, window_seconds: int) -> int:
     return int(val or 0)
 
 
+def _incr_local(key: str, *, window_seconds: int) -> tuple[int, int]:
+    now = time.monotonic()
+    with _local_lock:
+        current = _local_state.get(key)
+        if current is None or current[1] <= now:
+            count = 1
+            expires_at = now + float(window_seconds)
+        else:
+            count = int(current[0]) + 1
+            expires_at = float(current[1])
+        _local_state[key] = (count, expires_at)
+        ttl = max(1, int(expires_at - now))
+    return count, ttl
+
+
 def rate_limit(key: str, *, limit: int, window_seconds: int) -> RateLimitResult:
     r = _get_redis()
     if r is None:
-        # Fail-open if Redis is unavailable (keeps the platform usable),
-        # but still provides a sane result.
-        return RateLimitResult(allowed=True, remaining=limit, reset_seconds=window_seconds)
+        # Security-first fallback: when Redis is unavailable, enforce a local in-memory limit.
+        # This preserves login protection in single-node/self-hosted deployments.
+        count, ttl_i = _incr_local(key, window_seconds=window_seconds)
+        _logger.warning("auth_rate_limit_redis_unavailable_fallback", extra={"key": key, "window_seconds": window_seconds})
+        remaining = max(0, limit - count)
+        return RateLimitResult(allowed=(count <= limit), remaining=remaining, reset_seconds=ttl_i)
 
     try:
         count = _incr_with_expire(r, key, window_seconds)
@@ -76,7 +99,10 @@ def rate_limit(key: str, *, limit: int, window_seconds: int) -> RateLimitResult:
         global _redis_client, _redis_unavailable_until
         _redis_client = None
         _redis_unavailable_until = time.monotonic() + _REDIS_RETRY_COOLDOWN_SECONDS
-        return RateLimitResult(allowed=True, remaining=limit, reset_seconds=window_seconds)
+        count, ttl_i = _incr_local(key, window_seconds=window_seconds)
+        _logger.warning("auth_rate_limit_redis_error_fallback", extra={"key": key, "window_seconds": window_seconds})
+        remaining = max(0, limit - count)
+        return RateLimitResult(allowed=(count <= limit), remaining=remaining, reset_seconds=ttl_i)
 
     remaining = max(0, limit - count)
     return RateLimitResult(allowed=(count <= limit), remaining=remaining, reset_seconds=ttl_i)

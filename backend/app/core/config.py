@@ -91,6 +91,12 @@ class Settings:
     NETWATCH_ACCESS_TOKEN_TTL_SECONDS: int = _env_int("NETWATCH_ACCESS_TOKEN_TTL_SECONDS", 600)
     NETWATCH_REFRESH_TOKEN_TTL_SECONDS: int = _env_int("NETWATCH_REFRESH_TOKEN_TTL_SECONDS", 60 * 60 * 24 * 7)
     NETWATCH_OTP_TOKEN_TTL_SECONDS: int = _env_int("NETWATCH_OTP_TOKEN_TTL_SECONDS", 15 * 60)
+    NETWATCH_AUTH_OTP_ENABLED: bool = _env_bool(
+        "NETWATCH_AUTH_OTP_ENABLED",
+        NETWATCH_ENV not in {"prod", "production"},
+    )
+    NETWATCH_JWT_ISSUER: str = _env_str("NETWATCH_JWT_ISSUER", "netwatch-backend") or "netwatch-backend"
+    NETWATCH_JWT_AUDIENCE: str = _env_str("NETWATCH_JWT_AUDIENCE", "netwatch-portal") or "netwatch-portal"
 
     NETWATCH_COOKIE_SECURE: bool = _env_bool("NETWATCH_COOKIE_SECURE", False)
     NETWATCH_COOKIE_SAMESITE: str = (_env_str("NETWATCH_COOKIE_SAMESITE", "lax") or "lax").lower()
@@ -156,11 +162,15 @@ class Settings:
         "NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START",
         NETWATCH_ENV in {"dev", "development"},
     )
-    # Sync the bootstrap admin password from env into DB on startup.
-    # Recommended in prod to avoid drift after secret rotation.
+    # Deprecated compatibility flag. Startup password sync is blocked by default.
     NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START: bool = _env_bool(
         "NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START",
-        NETWATCH_ENV in {"prod", "production"},
+        False,
+    )
+    # Explicit break-glass gate required to allow startup password sync.
+    NETWATCH_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START: bool = _env_bool(
+        "NETWATCH_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START",
+        False,
     )
 
     # Default agent configuration applied on first enroll (JSON object).
@@ -358,6 +368,10 @@ class Settings:
             secret = (self.NETWATCH_JWT_SECRET or "").strip()
             if len(secret) < 32:
                 errors.append("NETWATCH_JWT_SECRET is required and must be >= 32 chars")
+            if not (self.NETWATCH_JWT_ISSUER or "").strip():
+                errors.append("NETWATCH_JWT_ISSUER must be set")
+            if not (self.NETWATCH_JWT_AUDIENCE or "").strip():
+                errors.append("NETWATCH_JWT_AUDIENCE must be set")
             if self.NETWATCH_ENV in {"prod", "production"} and self._looks_insecure_secret(secret):
                 errors.append("NETWATCH_JWT_SECRET cannot use a default/placeholder value in prod")
             if self.NETWATCH_ENV in {"prod", "production"} and not self.NETWATCH_COOKIE_SECURE:
@@ -373,12 +387,19 @@ class Settings:
             if self.NETWATCH_ENV in {"prod", "production"} and self.NETWATCH_AUDIT_RETENTION_DAYS < 90:
                 errors.append("NETWATCH_AUDIT_RETENTION_DAYS must be >= 90 in prod")
             bootstrap_password = (self.NETWATCH_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
-            if self.NETWATCH_ENV in {"prod", "production"} and len(bootstrap_password) < 12:
-                errors.append("NETWATCH_BOOTSTRAP_ADMIN_PASSWORD must be set with >= 12 chars in prod")
-            if self.NETWATCH_ENV in {"prod", "production"} and self._looks_insecure_secret(bootstrap_password):
+            bootstrap_reset_mode = bool(self.NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START or self.NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START)
+            if self.NETWATCH_ENV in {"prod", "production"} and bootstrap_reset_mode and len(bootstrap_password) < 12:
+                errors.append("NETWATCH_BOOTSTRAP_ADMIN_PASSWORD must be set with >= 12 chars when bootstrap reset/sync is enabled")
+            if self.NETWATCH_ENV in {"prod", "production"} and bootstrap_password and self._looks_insecure_secret(bootstrap_password):
                 errors.append("NETWATCH_BOOTSTRAP_ADMIN_PASSWORD cannot use a default/placeholder value in prod")
             if self.NETWATCH_ENV in {"prod", "production"} and self.NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START:
                 errors.append("NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START must be false in prod")
+            if self.NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START and not self.NETWATCH_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START:
+                errors.append(
+                    "NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START requires NETWATCH_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START=true"
+                )
+            if self.NETWATCH_ENV in {"prod", "production"} and self.NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START:
+                errors.append("NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START must be false in prod")
 
             db_password = self._database_password()
             if self.NETWATCH_ENV in {"prod", "production"} and len(db_password) < 12:
@@ -456,11 +477,15 @@ class Settings:
                 "login_audit_retention_days": int(self.NETWATCH_LOGIN_AUDIT_RETENTION_DAYS),
                 "governance_retention_days": int(self.NETWATCH_GOVERNANCE_RETENTION_DAYS),
                 "has_jwt_secret": bool((self.NETWATCH_JWT_SECRET or "").strip()),
+                "jwt_issuer": self.NETWATCH_JWT_ISSUER,
+                "jwt_audience": self.NETWATCH_JWT_AUDIENCE,
+                "otp_enabled": bool(self.NETWATCH_AUTH_OTP_ENABLED),
                 "has_token_pepper": bool((self.NETWATCH_TOKEN_PEPPER or "").strip()),
                 "has_audit_hash_pepper": bool((self.NETWATCH_AUDIT_HASH_PEPPER or "").strip()),
                 "agent_bootstrap_token_ttl_seconds": int(self.NETWATCH_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS),
                 "agent_bootstrap_token_max_uses": int(self.NETWATCH_AGENT_BOOTSTRAP_TOKEN_MAX_USES),
                 "bootstrap_admin_sync_on_start": bool(self.NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START),
+                "bootstrap_admin_allow_sync_on_start": bool(self.NETWATCH_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START),
             },
             "vuln": {
                 "max_findings_per_ingest": self.NETWATCH_VULN_MAX_FINDINGS_PER_INGEST,

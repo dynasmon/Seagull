@@ -69,6 +69,8 @@ def make_access_token(*, sub: str, ttl_seconds: int, extra: Optional[Dict[str, A
     payload: Dict[str, Any] = {
         "typ": "access",
         "sub": sub,
+        "iss": settings.NETWATCH_JWT_ISSUER,
+        "aud": settings.NETWATCH_JWT_AUDIENCE,
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=ttl_seconds)).timestamp()),
         "jti": secrets.token_urlsafe(16),
@@ -80,7 +82,14 @@ def make_access_token(*, sub: str, ttl_seconds: int, extra: Optional[Dict[str, A
 
 def decode_token(token: str) -> Dict[str, Any]:
     secret = _require_jwt_secret()
-    return jwt.decode(token, secret, algorithms=["HS256"])
+    return jwt.decode(
+        token,
+        secret,
+        algorithms=["HS256"],
+        audience=settings.NETWATCH_JWT_AUDIENCE,
+        issuer=settings.NETWATCH_JWT_ISSUER,
+        options={"require_iat": True, "require_exp": True, "require_sub": True, "require_jti": True},
+    )
 
 
 def new_refresh_token() -> str:
