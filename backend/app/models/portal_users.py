@@ -20,3 +20,4 @@ class PortalUserModel(Base):
     last_login_at = Column(DateTime, nullable=True)
 
     failed_login_count = Column(Integer, nullable=False, default=0)
+    token_version = Column(Integer, nullable=False, default=1)

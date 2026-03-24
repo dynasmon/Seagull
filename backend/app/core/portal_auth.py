@@ -75,12 +75,19 @@ def get_current_user(request: Request) -> PortalPrincipal:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
 
     uid = int(sub, 10)
+    token_version_raw = payload.get("tv")
+    try:
+        token_version = int(token_version_raw)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
 
     db = SessionLocal()
     try:
         row: PortalUserModel | None = db.get(PortalUserModel, uid)
         if not row or not row.is_active:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+        if int(getattr(row, "token_version", 1) or 1) != token_version:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked")
         return PortalPrincipal(id=row.id, username=row.username, role=row.role)
     finally:
         db.close()
@@ -101,7 +108,7 @@ def _cookie_kwargs() -> dict:
         "httponly": True,
         "secure": bool(settings.NETWATCH_COOKIE_SECURE),
         "samesite": same_site,
-        "path": "/",
+        "path": "/auth",
     }
     if settings.NETWATCH_COOKIE_DOMAIN:
         kw["domain"] = settings.NETWATCH_COOKIE_DOMAIN
@@ -145,6 +152,8 @@ def _set_csrf_cookie(response: Response, csrf_token: str, *, max_age_seconds: in
 def _clear_auth_cookies(response: Response) -> None:
     kw = _cookie_kwargs()
     response.delete_cookie(REFRESH_COOKIE_NAME, path=kw.get("path", "/"), domain=kw.get("domain"))
+    # Backward compatibility for older deployments that used path "/".
+    response.delete_cookie(REFRESH_COOKIE_NAME, path="/", domain=kw.get("domain"))
     kw2 = _csrf_cookie_kwargs()
     response.delete_cookie(CSRF_COOKIE_NAME, path=kw2.get("path", "/"), domain=kw2.get("domain"))
 
@@ -182,7 +191,12 @@ def issue_login_tokens(
     request: Request,
     db: Optional[Session] = None,
 ) -> dict:
-    access = make_access_token(sub=str(user.id), ttl_seconds=settings.NETWATCH_ACCESS_TOKEN_TTL_SECONDS)
+    token_version = int(getattr(user, "token_version", 1) or 1)
+    access = make_access_token(
+        sub=str(user.id),
+        ttl_seconds=settings.NETWATCH_ACCESS_TOKEN_TTL_SECONDS,
+        extra={"tv": token_version},
+    )
 
     refresh = new_refresh_token()
     csrf = new_csrf_token()
@@ -277,7 +291,12 @@ def refresh_access_token(request: Request, response: Response) -> dict:
         _set_refresh_cookie(response, new_refresh, max_age_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS)
         _set_csrf_cookie(response, csrf, max_age_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS)
 
-        access = make_access_token(sub=str(user.id), ttl_seconds=settings.NETWATCH_ACCESS_TOKEN_TTL_SECONDS)
+        token_version = int(getattr(user, "token_version", 1) or 1)
+        access = make_access_token(
+            sub=str(user.id),
+            ttl_seconds=settings.NETWATCH_ACCESS_TOKEN_TTL_SECONDS,
+            extra={"tv": token_version},
+        )
         return {
             "access_token": access,
             "token_type": "bearer",
@@ -303,4 +322,22 @@ def logout(request: Request, response: Response) -> None:
         finally:
             db.close()
 
+    _clear_auth_cookies(response)
+
+
+def logout_all(request: Request, response: Response, *, user_id: int) -> None:
+    now = datetime.utcnow()
+    db = SessionLocal()
+    try:
+        db.query(PortalRefreshSessionModel).filter(
+            PortalRefreshSessionModel.user_id == int(user_id),
+            PortalRefreshSessionModel.revoked_at.is_(None),
+        ).update({"revoked_at": now})
+        user: PortalUserModel | None = db.get(PortalUserModel, int(user_id))
+        if user:
+            user.token_version = int(getattr(user, "token_version", 1) or 1) + 1
+            db.add(user)
+        db.commit()
+    finally:
+        db.close()
     _clear_auth_cookies(response)

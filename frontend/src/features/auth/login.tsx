@@ -15,7 +15,7 @@ function safeNextPath(raw: any): string {
 }
 
 export default function LoginPage() {
-  const { status, loginWithPassword, loginWithOtp } = useAuth();
+  const { status, otpEnabled, loginWithPassword, loginWithOtp } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
 
@@ -27,6 +27,10 @@ export default function LoginPage() {
   const [otp, setOtp] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!otpEnabled && mode === "otp") setMode("password");
+  }, [otpEnabled, mode]);
 
   useEffect(() => {
     if (status === "authed") {
@@ -88,18 +92,20 @@ export default function LoginPage() {
               >
                 Password
               </button>
-              <button
-                type="button"
-                onClick={() => setMode("otp")}
-                className={
-                  "flex-1 h-9 border text-[10px] font-mono uppercase tracking-widest " +
-                  (mode === "otp"
-                    ? "border-primary/60 bg-primary/10 text-primary"
-                    : "border-border/60 bg-background/40 hover:bg-background/60")
-                }
-              >
-                One‑time Token
-              </button>
+              {otpEnabled ? (
+                <button
+                  type="button"
+                  onClick={() => setMode("otp")}
+                  className={
+                    "flex-1 h-9 border text-[10px] font-mono uppercase tracking-widest " +
+                    (mode === "otp"
+                      ? "border-primary/60 bg-primary/10 text-primary"
+                      : "border-border/60 bg-background/40 hover:bg-background/60")
+                  }
+                >
+                  One-time Token
+                </button>
+              ) : null}
             </div>
 
             {error && (

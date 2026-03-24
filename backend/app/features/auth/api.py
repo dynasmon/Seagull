@@ -7,11 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.core.audit import audit_actor, write_audit_event
 from app.core.config import settings
+from app.core.identity import canonicalize_username
 from app.core.portal_auth import (
     PortalPrincipal,
     get_current_user,
     issue_login_tokens,
     logout,
+    logout_all,
     refresh_access_token,
     require_admin,
 )
@@ -76,14 +78,15 @@ def _audit_login_event(
 
 @router.post("/login", response_model=TokenOut)
 def login_endpoint(body: LoginIn, request: Request, response: Response):
-    guard_login_rate_limit(request, username=body.username)
+    username = canonicalize_username(body.username)
+    guard_login_rate_limit(request, username=username)
 
     db = SessionLocal()
     try:
-        user: PortalUserModel | None = db.query(PortalUserModel).filter(PortalUserModel.username == body.username).first()
+        user: PortalUserModel | None = db.query(PortalUserModel).filter(PortalUserModel.username == username).first()
         if not user or not user.is_active:
             _audit_login_event(
-                db=db, request=request, method="password", succeeded=False, user_id=None, username=body.username, reason="invalid_credentials"
+                db=db, request=request, method="password", succeeded=False, user_id=None, username=username, reason="invalid_credentials"
             )
             try:
                 db.commit()
@@ -107,7 +110,7 @@ def login_endpoint(body: LoginIn, request: Request, response: Response):
             except Exception:
                 pass
             _audit_login_event(
-                db=db, request=request, method="password", succeeded=False, user_id=user.id, username=body.username, reason="invalid_credentials"
+                db=db, request=request, method="password", succeeded=False, user_id=user.id, username=username, reason="invalid_credentials"
             )
             try:
                 db.commit()
@@ -218,13 +221,48 @@ def logout_endpoint(request: Request, response: Response, user: PortalPrincipal 
     return None
 
 
+@router.post("/logout-all", status_code=204)
+def logout_all_endpoint(request: Request, response: Response, user: PortalPrincipal = Depends(get_current_user)):
+    logout_all(request, response, user_id=user.id)
+    db = SessionLocal()
+    try:
+        write_audit_event(
+            db,
+            request=request,
+            actor=audit_actor(user_id=user.id, username=user.username),
+            event_type="auth",
+            action="auth.logout_all",
+            resource_type="auth_session",
+            resource_id=str(user.id),
+            outcome="success",
+            before={},
+            after={"logged_out_all": True},
+        )
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+    return None
+
+
 @router.get("/me", response_model=UserOut)
 def me_endpoint(user: PortalPrincipal = Depends(get_current_user)):
     return {"id": user.id, "username": user.username, "role": user.role}
 
 
+@router.get("/features")
+def auth_features_endpoint():
+    return {"otp_enabled": bool(settings.NETWATCH_AUTH_OTP_ENABLED)}
+
+
 @router.post("/otp/login", response_model=TokenOut)
 def otp_login_endpoint(body: OtpLoginIn, request: Request, response: Response):
+    if not settings.NETWATCH_AUTH_OTP_ENABLED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     guard_otp_rate_limit(request)
 
     raw = (body.token or "").strip()
@@ -302,11 +340,14 @@ def otp_create_endpoint(
 
     Only admins can create OTP tokens.
     """
+    if not settings.NETWATCH_AUTH_OTP_ENABLED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     db = SessionLocal()
     try:
         target_user: PortalUserModel | None
         if body.username:
-            target_user = db.query(PortalUserModel).filter(PortalUserModel.username == body.username).first()
+            target_username = canonicalize_username(body.username)
+            target_user = db.query(PortalUserModel).filter(PortalUserModel.username == target_username).first()
         else:
             target_user = db.get(PortalUserModel, admin.id)
 
