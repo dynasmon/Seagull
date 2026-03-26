@@ -313,7 +313,9 @@ services:
       NETWATCH_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS:-86400}
       NETWATCH_BOOTSTRAP_ROTATOR_OUTPUT_DIR: /etc/netwatch/bootstrap
       NETWATCH_BOOTSTRAP_ROTATOR_STATE_DIR: /var/lib/netwatch/bootstrap-rotator
-    command: ["python", "/scripts/agent_bootstrap_token_rotator.py"]
+    command:
+      - python
+      - /scripts/agent_bootstrap_token_rotator.py
     volumes:
       - ./scripts/pki/agent_bootstrap_token_rotator.py:/scripts/agent_bootstrap_token_rotator.py:ro
       - ./secrets/bootstrap:/etc/netwatch/bootstrap
@@ -326,7 +328,11 @@ services:
     networks:
       - netwatch
     healthcheck:
-      test: ["CMD-SHELL", "python -c 'from pathlib import Path; import sys,time; p=Path("/var/lib/netwatch/bootstrap-rotator/last_success_at"); sys.exit(0 if p.exists() and time.time()-p.stat().st_mtime < 3600 else 1)'" ]
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "from pathlib import Path; import sys,time; p=Path('/var/lib/netwatch/bootstrap-rotator/last_success_at');
+          sys.exit(0 if p.exists() and time.time()-p.stat().st_mtime < 3600 else 1)"
       interval: 30s
       timeout: 5s
       retries: 10
