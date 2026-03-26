@@ -41,13 +41,15 @@ services:
       NETWATCH_STEP_CA_PROVISIONER: ${NETWATCH_STEP_CA_PROVISIONER:-netwatch-provisioner}
       NETWATCH_STEP_CA_PROVISIONER_PASSWORD_FILE: /etc/netwatch/step-ca/provisioner-password.txt
       NETWATCH_STEP_CA_ROOT_SOURCE: /var/lib/step/certs/root_ca.crt
-      NETWATCH_STEP_CA_AGENT_IDS: ${NETWATCH_STEP_CA_AGENT_IDS:-agent-core-1,agent-sensor-1,agent-lateral-1}
+      NETWATCH_STEP_CA_AGENT_IDS: ${NETWATCH_STEP_CA_AGENT_IDS:-agent-core-1,agent-sensor-1,agent-lateral-1,agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1}
       NETWATCH_EDGE_CERT_CN: ${NETWATCH_AGENT_TLS_SERVER_NAME:-localhost}
       NETWATCH_EDGE_CERT_SANS: ${NETWATCH_EDGE_CERT_SANS:-localhost,netwatch-edge,127.0.0.1}
       NETWATCH_STEP_CA_RENEW_EVERY_SECONDS: ${NETWATCH_STEP_CA_RENEW_EVERY_SECONDS:-21600}
+      NETWATCH_STEP_CA_RENEW_BEFORE_SECONDS: ${NETWATCH_STEP_CA_RENEW_BEFORE_SECONDS:-43200}
     command: ["/bin/sh", "/scripts/stepca_issue_runtime_certs.sh"]
     volumes:
       - ./scripts/pki/stepca_issue_runtime_certs.sh:/scripts/stepca_issue_runtime_certs.sh:ro
+      - ./scripts/pki/check_pki_health.sh:/scripts/check_pki_health.sh:ro
       - ./secrets/step-ca:/etc/netwatch/step-ca:ro
       - ./secrets/step-ca/data:/var/lib/step:ro
       - netwatch-pki:/var/lib/netwatch/pki
@@ -55,7 +57,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "test -s /var/lib/netwatch/pki/root_ca.crt && test -s /var/lib/netwatch/pki/edge/tls.crt && test -s /var/lib/netwatch/pki/edge/tls.key",
+          "/bin/sh /scripts/check_pki_health.sh",
         ]
       interval: 10s
       timeout: 4s
@@ -65,6 +67,41 @@ services:
       - no-new-privileges:true
     mem_limit: 128m
     cpus: "0.25"
+    networks:
+      - netwatch
+    restart: unless-stopped
+
+  netwatch-edge-reloader:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    container_name: netwatch-edge-reloader
+    user: "0:0"
+    pid: "service:netwatch-edge"
+    depends_on:
+      netwatch-edge:
+        condition: service_started
+      netwatch-step-ca-issuer:
+        condition: service_healthy
+    environment:
+      NETWATCH_EDGE_RELOAD_CHECK_SECONDS: ${NETWATCH_EDGE_RELOAD_CHECK_SECONDS:-15}
+    command: ["/bin/sh", "/scripts/edge_cert_reloader.sh"]
+    volumes:
+      - ./scripts/pki/edge_cert_reloader.sh:/scripts/edge_cert_reloader.sh:ro
+      - ./infra/nginx/edge.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - netwatch-pki:/etc/netwatch/pki:ro
+    cap_drop:
+      - ALL
+    cap_add:
+      - KILL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /tmp/netwatch-edge-reloader/current.sha256 && kill -0 1"]
+      interval: 15s
+      timeout: 4s
+      retries: 10
+      start_period: 20s
+    mem_limit: 64m
+    cpus: "0.10"
     networks:
       - netwatch
     restart: unless-stopped
@@ -254,11 +291,55 @@ services:
     environment: {}
     volumes: []
 
+  netwatch-agent-bootstrap-rotator:
+    build: ./backend
+    container_name: netwatch-agent-bootstrap-rotator
+    user: "0:0"
+    depends_on:
+      netwatch-backend:
+        condition: service_healthy
+      netwatch-step-ca-issuer:
+        condition: service_healthy
+    environment:
+      NETWATCH_BOOTSTRAP_ADMIN_USERNAME: ${NETWATCH_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: ${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD:?set NETWATCH_BOOTSTRAP_ADMIN_PASSWORD in .env}
+      NETWATCH_BOOTSTRAP_ROTATOR_CA_FILE: /etc/netwatch/pki/root_ca.crt
+      NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE: ${NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE:-https://netwatch-edge:8443}
+      NETWATCH_BOOTSTRAP_ROTATOR_BACKEND_BASE: ${NETWATCH_BOOTSTRAP_ROTATOR_BACKEND_BASE:-http://netwatch-backend:8000}
+      NETWATCH_BOOTSTRAP_ROTATOR_AGENT_IDS: ${NETWATCH_BOOTSTRAP_ROTATOR_AGENT_IDS:-agent-core-1,agent-sensor-1,agent-lateral-1,agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1}
+      NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS:-2592000}
+      NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_MAX_USES: ${NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_MAX_USES:-5}
+      NETWATCH_BOOTSTRAP_ROTATOR_EVERY_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_EVERY_SECONDS:-900}
+      NETWATCH_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS:-86400}
+      NETWATCH_BOOTSTRAP_ROTATOR_OUTPUT_DIR: /etc/netwatch/bootstrap
+      NETWATCH_BOOTSTRAP_ROTATOR_STATE_DIR: /var/lib/netwatch/bootstrap-rotator
+    command: ["python", "/scripts/agent_bootstrap_token_rotator.py"]
+    volumes:
+      - ./scripts/pki/agent_bootstrap_token_rotator.py:/scripts/agent_bootstrap_token_rotator.py:ro
+      - ./secrets/bootstrap:/etc/netwatch/bootstrap
+      - ./secrets/runtime:/var/lib/netwatch
+      - netwatch-pki:/etc/netwatch/pki:ro
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: "0.25"
+    networks:
+      - netwatch
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'from pathlib import Path; import sys,time; p=Path("/var/lib/netwatch/bootstrap-rotator/last_success_at"); sys.exit(0 if p.exists() and time.time()-p.stat().st_mtime < 3600 else 1)'" ]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
   netwatch-agent-core:
     depends_on:
       netwatch-backend:
         condition: service_healthy
       netwatch-step-ca-issuer:
+        condition: service_healthy
+      netwatch-agent-bootstrap-rotator:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
@@ -284,6 +365,8 @@ services:
         condition: service_healthy
       netwatch-step-ca-issuer:
         condition: service_healthy
+      netwatch-agent-bootstrap-rotator:
+        condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ""
@@ -305,6 +388,8 @@ services:
       netwatch-backend:
         condition: service_healthy
       netwatch-step-ca-issuer:
+        condition: service_healthy
+      netwatch-agent-bootstrap-rotator:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
@@ -328,6 +413,8 @@ services:
       netwatch-backend:
         condition: service_healthy
       netwatch-step-ca-issuer:
+        condition: service_healthy
+      netwatch-agent-bootstrap-rotator:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
@@ -353,6 +440,8 @@ services:
         condition: service_healthy
       netwatch-step-ca-issuer:
         condition: service_healthy
+      netwatch-agent-bootstrap-rotator:
+        condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ""
@@ -376,6 +465,8 @@ services:
         condition: service_healthy
       netwatch-step-ca-issuer:
         condition: service_healthy
+      netwatch-agent-bootstrap-rotator:
+        condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ""
@@ -398,6 +489,8 @@ services:
       netwatch-backend:
         condition: service_healthy
       netwatch-step-ca-issuer:
+        condition: service_healthy
+      netwatch-agent-bootstrap-rotator:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"

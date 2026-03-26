@@ -142,6 +142,10 @@ declare -a AGENT_MAP=(
   "AGENT_CORE_ID:AGENT_CORE_BOOTSTRAP_TOKEN"
   "AGENT_SENSOR_ID:AGENT_SENSOR_BOOTSTRAP_TOKEN"
   "AGENT_LATERAL_ID:AGENT_LATERAL_BOOTSTRAP_TOKEN"
+  "AGENT_PROC_ID:AGENT_PROC_BOOTSTRAP_TOKEN"
+  "AGENT_SCAN_ID:AGENT_SCAN_BOOTSTRAP_TOKEN"
+  "AGENT_DDOS_ID:AGENT_DDOS_BOOTSTRAP_TOKEN"
+  "AGENT_VULN_ID:AGENT_VULN_BOOTSTRAP_TOKEN"
 )
 
 OUTPUT_DIR="${NETWATCH_MINT_TOKENS_OUTPUT_DIR:-}"
@@ -163,15 +167,16 @@ for pair in "${AGENT_MAP[@]}"; do
     continue
   fi
 
-  payload="$(python3 - "${TTL_SECONDS}" "${agent_id}" <<'PY'
+  payload="$(python3 - "${TTL_SECONDS}" "${agent_id}" "${NETWATCH_MINT_TOKENS_MAX_USES:-1}" <<'PY'
 import json
 import sys
 
 ttl = int(sys.argv[1])
 agent_id = sys.argv[2]
+max_uses = int(sys.argv[3])
 print(json.dumps({
     'ttl_seconds': ttl,
-    'max_uses': 1,
+    'max_uses': max_uses,
     'description': f'auto bootstrap for {agent_id}',
 }))
 PY
@@ -217,4 +222,4 @@ if [[ -n "$OUTPUT_DIR" ]]; then
 else
   echo "Updated .env with AGENT_*_BOOTSTRAP_TOKEN values."
 fi
-echo "Next: docker compose up -d --force-recreate netwatch-agent-core netwatch-agent-sensor && docker compose --profile extra up -d --force-recreate netwatch-agent-lateral"
+echo "Next: docker compose -f docker-compose.yml -f compose.prod.yml up -d --force-recreate netwatch-agent-core netwatch-agent-sensor netwatch-agent-lateral --profile legacy-agents netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln"
