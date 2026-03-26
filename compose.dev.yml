@@ -36,7 +36,6 @@ services:
     restart: unless-stopped
 
   netwatch-backend:
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
     environment:
       NETWATCH_ENV: dev
       NETWATCH_DB_AUTO_UPGRADE: "true"
@@ -47,12 +46,12 @@ services:
   netwatch-ingest-worker:
     environment:
       NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_AUTO_UPGRADE: "true"
 
   netwatch-rules-worker:
     environment:
       NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_AUTO_UPGRADE: "true"
       NETWATCH_RULES_ENV: dev
       NETWATCH_RULES_ENABLED_PACKS: ${NETWATCH_RULES_ENABLED_PACKS:-core,network,lab}
       NETWATCH_RULES_INCLUDE_EXPERIMENTAL: ${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-true}
@@ -60,32 +59,32 @@ services:
   netwatch-audit-retention:
     environment:
       NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_AUTO_UPGRADE: "true"
 
   netwatch-es-indexer:
     environment:
       NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_AUTO_UPGRADE: "true"
 
   netwatch-rollup-worker:
     environment:
       NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_AUTO_UPGRADE: "true"
 
   netwatch-ip-intel:
     environment:
       NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_AUTO_UPGRADE: "true"
 
   netwatch-proto-intel:
     environment:
       NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_AUTO_UPGRADE: "true"
 
   netwatch-attack-chain:
     environment:
       NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "false"
+      NETWATCH_DB_AUTO_UPGRADE: "true"
 
   netwatch-portal:
     build:
