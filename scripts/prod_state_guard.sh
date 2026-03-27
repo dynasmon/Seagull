@@ -56,10 +56,6 @@ payload = {
     "schema_version": schema_version,
     "project_name": project_name,
     "keys": {key: values.get(key, "") for key in keys},
-    "step_ca": {
-        "ca_password_sha": file_sha("secrets/step-ca/ca-password.txt"),
-        "provisioner_password_sha": file_sha("secrets/step-ca/provisioner-password.txt"),
-    },
 }
 print(sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest())
 PY
@@ -115,7 +111,8 @@ managed_volume_names() {
     "${PROJECT_NAME}_redis-data" \
     "${PROJECT_NAME}_elastic-data" \
     "${PROJECT_NAME}_clickhouse-data" \
-    "${PROJECT_NAME}_netwatch-pki"
+    "${PROJECT_NAME}_caddy-data" \
+    "${PROJECT_NAME}_caddy-config"
 }
 
 existing_managed_volumes() {

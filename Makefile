@@ -8,13 +8,13 @@ COMPOSE_PROD := $(COMPOSE_BASE) -f compose.prod.yml
 
 ENV_FILE := .env
 ENV_EXAMPLE := .env.example
-PROD_CORE_SERVICES := postgres redis elasticsearch clickhouse netwatch-step-ca netwatch-step-ca-issuer netwatch-backend netwatch-ingest-worker netwatch-rules-worker netwatch-audit-retention netwatch-es-indexer netwatch-rollup-worker netwatch-ip-intel netwatch-proto-intel netwatch-attack-chain netwatch-portal netwatch-edge grafana
+PROD_CORE_SERVICES := postgres redis elasticsearch clickhouse netwatch-backend netwatch-ingest-worker netwatch-rules-worker netwatch-audit-retention netwatch-es-indexer netwatch-rollup-worker netwatch-ip-intel netwatch-proto-intel netwatch-attack-chain netwatch-portal caddy grafana
 PROD_AGENT_SERVICES := netwatch-agent-core netwatch-agent-sensor
 
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools certs-bootstrap agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
@@ -24,8 +24,8 @@ help:
 	@echo "  make env-init      - interactive wizard for critical production .env values"
 	@echo "  make prod-setup    - run env wizard, validate prod config, then stop"
 	@echo "  make prod          - bootstrap and start production-style stack (auto-heals first-run drift)"
-	@echo "  make prod-fresh    - full fresh production-style boot (drops volumes + resets local PKI state)"
-	@echo "  make admin-reset   - reset/sync bootstrap admin password (prod/edge nginx path)"
+	@echo "  make prod-fresh    - full fresh production-style boot (drops runtime volumes)"
+	@echo "  make admin-reset   - reset/sync bootstrap admin password"
 	@echo "  make up            - alias for make dev"
 	@echo "  make up-extra      - start development stack with profile 'extra'"
 	@echo "  make down          - stop stack (dev profile by default)"
@@ -55,15 +55,6 @@ bootstrap-tools:
 dev-preflight: bootstrap bootstrap-tools
 	@./scripts/dev_preflight.sh
 
-certs-bootstrap: bootstrap
-	@AUTO_GENERATE_CERTS="$${NETWATCH_AUTO_GENERATE_CERTS:-true}"; \
-	if [ "$$AUTO_GENERATE_CERTS" = "true" ]; then \
-		echo "[bootstrap] validating edge+agent certificates"; \
-		./scripts/pki/bootstrap_runtime_certs.sh; \
-	else \
-		echo "[bootstrap] NETWATCH_AUTO_GENERATE_CERTS=false (skipping cert regeneration)"; \
-	fi
-
 agent-tokens-bootstrap:
 	@./scripts/mint_agent_bootstrap_tokens.sh
 
@@ -83,12 +74,12 @@ prod-prepare: bootstrap
 	@./scripts/prod_prepare.sh
 
 # Single-command bootstrap for development.
-dev: dev-preflight certs-bootstrap
+dev: dev-preflight
 	$(DC) $(COMPOSE_DEV) up -d --build --force-recreate
 	@$(MAKE) agent-tokens-bootstrap
 	$(DC) $(COMPOSE_DEV) up -d --force-recreate netwatch-agent-core netwatch-agent-sensor
 
-dev-tls: dev-preflight certs-bootstrap
+dev-tls: dev-preflight
 	$(DC) $(COMPOSE_DEV_TLS) up -d --build --force-recreate
 	@$(MAKE) agent-tokens-bootstrap
 	$(DC) $(COMPOSE_DEV_TLS) up -d --force-recreate netwatch-agent-core netwatch-agent-sensor
@@ -108,7 +99,6 @@ prod: bootstrap bootstrap-tools prod-prepare
 		echo "[prod] resetting named runtime volumes due to configuration drift"; \
 		$(DC) $(COMPOSE_PROD) down -v --remove-orphans; \
 		rm -f ./secrets/bootstrap/*.token; \
-		rm -rf ./secrets/step-ca/data/*; \
 		./scripts/prod_state_guard.sh clear; \
 	fi
 	$(DC) $(COMPOSE_PROD) down --remove-orphans
@@ -120,7 +110,6 @@ prod: bootstrap bootstrap-tools prod-prepare
 prod-fresh: bootstrap bootstrap-tools prod-prepare
 	$(DC) $(COMPOSE_PROD) down -v --remove-orphans
 	@rm -f ./secrets/bootstrap/*.token
-	@rm -rf ./secrets/step-ca/data/*
 	@./scripts/prod_state_guard.sh clear
 	$(DC) $(COMPOSE_PROD) up -d --build --remove-orphans $(PROD_CORE_SERVICES)
 	@$(MAKE) prod-agent-tokens-bootstrap
@@ -132,7 +121,7 @@ prod-state-clear:
 
 up: dev
 
-up-extra: dev-preflight certs-bootstrap
+up-extra: dev-preflight
 	$(DC) $(COMPOSE_DEV) --profile extra up -d --build --force-recreate
 	@$(MAKE) agent-tokens-bootstrap
 	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate netwatch-agent-core netwatch-agent-sensor netwatch-agent-lateral

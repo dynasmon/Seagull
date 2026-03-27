@@ -1,5 +1,5 @@
 x-agent-env: &agent-env
-  NETWATCH_API_URL: https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/agent
+  NETWATCH_API_URL: ${NETWATCH_API_URL:-https://127.0.0.1:${NETWATCH_EDGE_HTTPS_PORT:-8443}/agent}
   NETWATCH_HTTP_TIMEOUT: ${NETWATCH_HTTP_TIMEOUT}
   NETWATCH_CONTROL_HEARTBEAT_EVERY: ${NETWATCH_CONTROL_HEARTBEAT_EVERY}
   NETWATCH_CONTROL_HEARTBEAT_JITTER: ${NETWATCH_CONTROL_HEARTBEAT_JITTER:-5s}
@@ -23,8 +23,11 @@ x-agent-env: &agent-env
   NETWATCH_AGENT_BOOTSTRAP_TOKEN: ${NETWATCH_AGENT_BOOTSTRAP_TOKEN:-}
   NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE:-}
   NETWATCH_FORCE_ENROLL_ON_START: ${NETWATCH_FORCE_ENROLL_ON_START:-true}
-  NETWATCH_TLS_STAGE_DIR: /var/lib/netwatch/pki
   NETWATCH_TLS_SERVER_NAME: ${NETWATCH_AGENT_TLS_SERVER_NAME:-localhost}
+  NETWATCH_AGENT_CREDENTIAL_FILE: ${NETWATCH_AGENT_CREDENTIAL_FILE:-/var/lib/netwatch/agent.credential}
+  NETWATCH_TLS_CA_FILE: ${NETWATCH_TLS_CA_FILE:-}
+  NETWATCH_CONTROL_CREDENTIAL_ROTATE_EVERY: ${NETWATCH_CONTROL_CREDENTIAL_ROTATE_EVERY:-5m}
+  NETWATCH_CONTROL_CREDENTIAL_ROTATE_BEFORE: ${NETWATCH_CONTROL_CREDENTIAL_ROTATE_BEFORE:-24h}
 
 x-agent-build: &agent-build
   build:
@@ -729,16 +732,11 @@ services:
       NETWATCH_VULN_MAX_PACKAGES: ${NETWATCH_VULN_MAX_PACKAGES}
       NETWATCH_VULN_HOST_ROOT: ${NETWATCH_VULN_HOST_ROOT}
       NETWATCH_VULN_EMIT_SUMMARY_EVENT: ${NETWATCH_VULN_EMIT_SUMMARY_EVENT}
-      NETWATCH_TLS_CA_SOURCE_FILE: /run/netwatch-host-pki/server-ca.crt
-      NETWATCH_TLS_CERT_SOURCE_FILE: /run/netwatch-host-pki/tls.crt
-      NETWATCH_TLS_KEY_SOURCE_FILE: /run/netwatch-host-pki/tls.key
     volumes:
       - /var/log:/host/var/log:ro
       - /:/host:ro
       - agent-core-state:/var/lib/netwatch
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/run/netwatch-host-pki/server-ca.crt:ro
-      - ${AGENT_CORE_CERT_FILE:-./secrets/agent-pki/agent-core-1/tls.crt}:/run/netwatch-host-pki/tls.crt:ro
-      - ${AGENT_CORE_KEY_FILE:-./secrets/agent-pki/agent-core-1/tls.key}:/run/netwatch-host-pki/tls.key:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/server-ca.crt:ro
 
   netwatch-agent-sensor:
     <<: *agent-sensor-base
@@ -754,14 +752,9 @@ services:
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SENSOR_BOOTSTRAP_TOKEN_FILE:-}
       NETWATCH_DDOS_SUSTAIN_WINDOWS: ${NETWATCH_DDOS_SUSTAIN_WINDOWS}
       NETWATCH_DDOS_COOLDOWN: ${NETWATCH_DDOS_COOLDOWN}
-      NETWATCH_TLS_CA_SOURCE_FILE: /run/netwatch-host-pki/server-ca.crt
-      NETWATCH_TLS_CERT_SOURCE_FILE: /run/netwatch-host-pki/tls.crt
-      NETWATCH_TLS_KEY_SOURCE_FILE: /run/netwatch-host-pki/tls.key
     volumes:
       - agent-sensor-state:/var/lib/netwatch
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/run/netwatch-host-pki/server-ca.crt:ro
-      - ${AGENT_SENSOR_CERT_FILE:-./secrets/agent-pki/agent-sensor-1/tls.crt}:/run/netwatch-host-pki/tls.crt:ro
-      - ${AGENT_SENSOR_KEY_FILE:-./secrets/agent-pki/agent-sensor-1/tls.key}:/run/netwatch-host-pki/tls.key:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/server-ca.crt:ro
 
   netwatch-agent-lateral:
     <<: *agent-sensor-base
@@ -784,9 +777,7 @@ services:
       NETWATCH_LATERAL_MAX_BATCH: ${NETWATCH_LATERAL_MAX_BATCH}
     volumes:
       - agent-lateral-state:/var/lib/netwatch
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
-      - ${AGENT_LATERAL_CERT_FILE:-./secrets/agent-pki/agent-lateral-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
-      - ${AGENT_LATERAL_KEY_FILE:-./secrets/agent-pki/agent-lateral-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/server-ca.crt:ro
 
   netwatch-agent-proc:
     <<: *agent-core-base
@@ -805,9 +796,7 @@ services:
     volumes:
       - /var/log:/host/var/log:ro
       - agent-proc-state:/var/lib/netwatch
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
-      - ${AGENT_PROC_CERT_FILE:-./secrets/agent-pki/agent-proc-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
-      - ${AGENT_PROC_KEY_FILE:-./secrets/agent-pki/agent-proc-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/server-ca.crt:ro
 
   netwatch-agent-scan:
     <<: *agent-sensor-base
@@ -824,9 +813,7 @@ services:
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SCAN_BOOTSTRAP_TOKEN_FILE:-}
     volumes:
       - agent-scan-state:/var/lib/netwatch
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
-      - ${AGENT_SCAN_CERT_FILE:-./secrets/agent-pki/agent-scan-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
-      - ${AGENT_SCAN_KEY_FILE:-./secrets/agent-pki/agent-scan-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/server-ca.crt:ro
 
   netwatch-agent-ddos:
     <<: *agent-sensor-base
@@ -845,9 +832,7 @@ services:
       NETWATCH_DDOS_COOLDOWN: ${NETWATCH_DDOS_COOLDOWN}
     volumes:
       - agent-ddos-state:/var/lib/netwatch
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
-      - ${AGENT_DDOS_CERT_FILE:-./secrets/agent-pki/agent-ddos-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
-      - ${AGENT_DDOS_KEY_FILE:-./secrets/agent-pki/agent-ddos-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/server-ca.crt:ro
 
   netwatch-agent-vuln:
     <<: *agent-core-base
@@ -877,9 +862,7 @@ services:
     volumes:
       - agent-vuln-state:/var/lib/netwatch
       - /:/host:ro
-      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/agent-mtls/server-ca.crt:ro
-      - ${AGENT_VULN_CERT_FILE:-./secrets/agent-pki/agent-vuln-1/tls.crt}:/etc/netwatch/agent-mtls/tls.crt:ro
-      - ${AGENT_VULN_KEY_FILE:-./secrets/agent-pki/agent-vuln-1/tls.key}:/etc/netwatch/agent-mtls/tls.key:ro
+      - ${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/netwatch/server-ca.crt:ro
 
 networks:
   netwatch:

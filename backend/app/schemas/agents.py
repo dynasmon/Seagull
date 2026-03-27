@@ -13,9 +13,17 @@ class AgentEnrollIn(BaseModel):
     version: Optional[str] = Field(default=None, max_length=64)
 
 
+class AgentCredentialOut(BaseModel):
+    credential: str
+    expires_at: datetime
+    max_uses: int
+    used_uses: int = 0
+
+
 class AgentEnrollOut(BaseModel):
     agent_id: str
     config: Dict[str, Any] = Field(default_factory=dict)
+    credential: AgentCredentialOut
 
 
 class AgentHeartbeatIn(BaseModel):
@@ -63,24 +71,3 @@ class AgentBootstrapTokenOut(BaseModel):
     bootstrap_token: str
     expires_at: datetime
     max_uses: int
-
-
-class AgentIdentityPublic(BaseModel):
-    id: int
-    agent_id: str
-    fingerprint_sha256: str
-    serial_number: str
-    subject_dn: str
-    issuer_dn: Optional[str] = None
-    not_before: Optional[datetime] = None
-    not_after: Optional[datetime] = None
-    is_revoked: bool
-    revoked_at: Optional[datetime] = None
-    revoked_reason: Optional[str] = None
-    created_at: datetime
-    last_seen_at: Optional[datetime] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
-class AgentIdentityRevokeIn(BaseModel):
-    reason: Optional[str] = Field(default=None, max_length=256)

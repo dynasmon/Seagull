@@ -1,126 +1,28 @@
 services:
-  netwatch-step-ca:
-    image: smallstep/step-ca:0.27.4
-    container_name: netwatch-step-ca
-    user: "0:0"
-    environment:
-      STEPPATH: /var/lib/step
-      NETWATCH_STEP_CA_URL: ${NETWATCH_STEP_CA_URL:-https://netwatch-step-ca:9000}
-      NETWATCH_STEP_CA_PROVISIONER: ${NETWATCH_STEP_CA_PROVISIONER:-netwatch-provisioner}
-      NETWATCH_STEP_CA_PASSWORD_FILE: /etc/netwatch/step-ca/ca-password.txt
-      NETWATCH_STEP_CA_PROVISIONER_PASSWORD_FILE: /etc/netwatch/step-ca/provisioner-password.txt
-      NETWATCH_STEP_CA_DNS_NAMES: ${NETWATCH_STEP_CA_DNS_NAMES:-netwatch-step-ca,localhost,netwatch-edge}
-    command: ["/bin/sh", "/scripts/stepca_boot.sh"]
-    volumes:
-      - ./scripts/pki/stepca_boot.sh:/scripts/stepca_boot.sh:ro
-      - ./secrets/step-ca:/etc/netwatch/step-ca:ro
-      - ./secrets/step-ca/data:/var/lib/step
-    healthcheck:
-      test: ["CMD-SHELL", "step ca health --ca-url https://localhost:9000 --root /var/lib/step/certs/root_ca.crt >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    security_opt:
-      - no-new-privileges:true
-    mem_limit: 256m
-    cpus: "0.50"
-    networks:
-      - netwatch
-    restart: unless-stopped
-
-  netwatch-step-ca-issuer:
-    image: smallstep/step-cli:0.27.4
-    container_name: netwatch-step-ca-issuer
-    user: "0:0"
-    depends_on:
-      netwatch-step-ca:
-        condition: service_healthy
-    environment:
-      NETWATCH_STEP_CA_URL: ${NETWATCH_STEP_CA_URL:-https://netwatch-step-ca:9000}
-      NETWATCH_STEP_CA_PROVISIONER: ${NETWATCH_STEP_CA_PROVISIONER:-netwatch-provisioner}
-      NETWATCH_STEP_CA_PROVISIONER_PASSWORD_FILE: /etc/netwatch/step-ca/provisioner-password.txt
-      NETWATCH_STEP_CA_ROOT_SOURCE: /var/lib/step/certs/root_ca.crt
-      NETWATCH_STEP_CA_AGENT_IDS: ${NETWATCH_STEP_CA_AGENT_IDS:-agent-core-1,agent-sensor-1,agent-lateral-1,agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1}
-      NETWATCH_EDGE_CERT_CN: ${NETWATCH_AGENT_TLS_SERVER_NAME:-localhost}
-      NETWATCH_EDGE_CERT_SANS: ${NETWATCH_EDGE_CERT_SANS:-localhost,netwatch-edge,127.0.0.1}
-      NETWATCH_STEP_CA_RENEW_EVERY_SECONDS: ${NETWATCH_STEP_CA_RENEW_EVERY_SECONDS:-21600}
-      NETWATCH_STEP_CA_RENEW_BEFORE_SECONDS: ${NETWATCH_STEP_CA_RENEW_BEFORE_SECONDS:-43200}
-    command: ["/bin/sh", "/scripts/stepca_issue_runtime_certs.sh"]
-    volumes:
-      - ./scripts/pki/stepca_issue_runtime_certs.sh:/scripts/stepca_issue_runtime_certs.sh:ro
-      - ./scripts/pki/check_pki_health.sh:/scripts/check_pki_health.sh:ro
-      - ./secrets/step-ca:/etc/netwatch/step-ca:ro
-      - ./secrets/step-ca/data:/var/lib/step:ro
-      - netwatch-pki:/var/lib/netwatch/pki
-    healthcheck:
-      test: ["CMD-SHELL", "/bin/sh /scripts/check_pki_health.sh"]
-      interval: 10s
-      timeout: 4s
-      retries: 20
-      start_period: 20s
-    security_opt:
-      - no-new-privileges:true
-    mem_limit: 128m
-    cpus: "0.25"
-    networks:
-      - netwatch
-    restart: unless-stopped
-
-  netwatch-edge-reloader:
-    image: nginx:1.27-alpine
-    container_name: netwatch-edge-reloader
-    user: "0:0"
-    pid: "service:netwatch-edge"
-    depends_on:
-      netwatch-edge:
-        condition: service_started
-      netwatch-step-ca-issuer:
-        condition: service_healthy
-    environment:
-      NETWATCH_EDGE_RELOAD_CHECK_SECONDS: ${NETWATCH_EDGE_RELOAD_CHECK_SECONDS:-15}
-    command: ["/bin/sh", "/scripts/edge_cert_reloader.sh"]
-    volumes:
-      - ./scripts/pki/edge_cert_reloader.sh:/scripts/edge_cert_reloader.sh:ro
-      - ./infra/nginx/edge.prod.conf:/etc/nginx/conf.d/default.conf:ro
-      - netwatch-pki:/etc/netwatch/pki:ro
-    cap_drop:
-      - ALL
-    cap_add:
-      - KILL
-    security_opt:
-      - no-new-privileges:true
-    healthcheck:
-      test: ["CMD-SHELL", "test -s /tmp/netwatch-edge-reloader/current.sha256 && kill -0 1"]
-      interval: 15s
-      timeout: 4s
-      retries: 10
-      start_period: 20s
-    mem_limit: 64m
-    cpus: "0.10"
-    networks:
-      - netwatch
-    restart: unless-stopped
-
-  netwatch-edge:
-    image: nginx:1.27-alpine
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: netwatch-caddy
     depends_on:
       netwatch-portal:
         condition: service_healthy
       netwatch-backend:
         condition: service_healthy
-      netwatch-step-ca-issuer:
-        condition: service_healthy
     ports:
-      - "${NETWATCH_EDGE_HTTP_PORT:-80}:8081"
-      - "${NETWATCH_EDGE_HTTPS_PORT:-443}:8443"
+      - "${NETWATCH_EDGE_HTTP_PORT:-80}:80"
+      - "${NETWATCH_EDGE_HTTPS_PORT:-443}:443"
+    environment:
+      NETWATCH_CADDY_DOMAIN: ${NETWATCH_CADDY_DOMAIN:?set NETWATCH_CADDY_DOMAIN in .env}
+      NETWATCH_CADDY_EMAIL: ${NETWATCH_CADDY_EMAIL:-}
     volumes:
-      - ./infra/nginx/edge.prod.conf:/etc/nginx/conf.d/default.conf:ro
-      - netwatch-pki:/etc/netwatch/pki:ro
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     mem_limit: 128m
     cpus: "0.25"
     networks:
@@ -294,13 +196,10 @@ services:
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-step-ca-issuer:
-        condition: service_healthy
     environment:
       NETWATCH_BOOTSTRAP_ADMIN_USERNAME: ${NETWATCH_BOOTSTRAP_ADMIN_USERNAME:-admin}
       NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: ${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD:?set NETWATCH_BOOTSTRAP_ADMIN_PASSWORD in .env}
-      NETWATCH_BOOTSTRAP_ROTATOR_CA_FILE: /etc/netwatch/pki/root_ca.crt
-      NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE: ${NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE:-https://netwatch-edge:8443}
+      NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE: ${NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE:-}
       NETWATCH_BOOTSTRAP_ROTATOR_BACKEND_BASE: ${NETWATCH_BOOTSTRAP_ROTATOR_BACKEND_BASE:-http://netwatch-backend:8000}
       NETWATCH_BOOTSTRAP_ROTATOR_AGENT_IDS: ${NETWATCH_BOOTSTRAP_ROTATOR_AGENT_IDS:-agent-core-1,agent-sensor-1,agent-lateral-1,agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1}
       NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS:-2592000}
@@ -316,7 +215,6 @@ services:
       - ./scripts/pki/agent_bootstrap_token_rotator.py:/scripts/agent_bootstrap_token_rotator.py:ro
       - ./secrets/bootstrap:/etc/netwatch/bootstrap
       - ./secrets/runtime:/var/lib/netwatch
-      - netwatch-pki:/etc/netwatch/pki:ro
     security_opt:
       - no-new-privileges:true
     mem_limit: 128m
@@ -339,177 +237,122 @@ services:
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-step-ca-issuer:
-        condition: service_healthy
       netwatch-agent-bootstrap-rotator:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
+      NETWATCH_API_URL: ${NETWATCH_API_URL_PROD:-https://127.0.0.1:${NETWATCH_EDGE_HTTPS_PORT:-443}/agent}
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ""
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: /etc/netwatch/bootstrap/${AGENT_CORE_ID:-agent-core-1}.token
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/pki/root_ca.crt
-      NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_CORE_ID:-agent-core-1}/tls.crt
-      NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_CORE_ID:-agent-core-1}/tls.key
-      NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
-      NETWATCH_TLS_CA_SOURCE_FILE: ""
-      NETWATCH_TLS_CERT_SOURCE_FILE: ""
-      NETWATCH_TLS_KEY_SOURCE_FILE: ""
+      NETWATCH_AGENT_CREDENTIAL_FILE: /var/lib/netwatch/agent.credential
     volumes:
       - /var/log:/host/var/log:ro
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-core-state:/var/lib/netwatch
       - /:/host:ro
-      - netwatch-pki:/etc/netwatch/pki:ro
 
   netwatch-agent-sensor:
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-step-ca-issuer:
-        condition: service_healthy
       netwatch-agent-bootstrap-rotator:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
+      NETWATCH_API_URL: ${NETWATCH_API_URL_PROD:-https://127.0.0.1:${NETWATCH_EDGE_HTTPS_PORT:-443}/agent}
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ""
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: /etc/netwatch/bootstrap/${AGENT_SENSOR_ID:-agent-sensor-1}.token
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/pki/root_ca.crt
-      NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_SENSOR_ID:-agent-sensor-1}/tls.crt
-      NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_SENSOR_ID:-agent-sensor-1}/tls.key
-      NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
-      NETWATCH_TLS_CA_SOURCE_FILE: ""
-      NETWATCH_TLS_CERT_SOURCE_FILE: ""
-      NETWATCH_TLS_KEY_SOURCE_FILE: ""
+      NETWATCH_AGENT_CREDENTIAL_FILE: /var/lib/netwatch/agent.credential
     volumes:
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-sensor-state:/var/lib/netwatch
-      - netwatch-pki:/etc/netwatch/pki:ro
 
   netwatch-agent-lateral:
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-step-ca-issuer:
-        condition: service_healthy
       netwatch-agent-bootstrap-rotator:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
+      NETWATCH_API_URL: ${NETWATCH_API_URL_PROD:-https://127.0.0.1:${NETWATCH_EDGE_HTTPS_PORT:-443}/agent}
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ""
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: /etc/netwatch/bootstrap/${AGENT_LATERAL_ID:-agent-lateral-1}.token
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/pki/root_ca.crt
-      NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_LATERAL_ID:-agent-lateral-1}/tls.crt
-      NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_LATERAL_ID:-agent-lateral-1}/tls.key
-      NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
-      NETWATCH_TLS_CA_SOURCE_FILE: ""
-      NETWATCH_TLS_CERT_SOURCE_FILE: ""
-      NETWATCH_TLS_KEY_SOURCE_FILE: ""
+      NETWATCH_AGENT_CREDENTIAL_FILE: /var/lib/netwatch/agent.credential
     volumes:
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-lateral-state:/var/lib/netwatch
-      - netwatch-pki:/etc/netwatch/pki:ro
 
   netwatch-agent-proc:
     profiles: ["legacy-agents"]
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-step-ca-issuer:
-        condition: service_healthy
       netwatch-agent-bootstrap-rotator:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
+      NETWATCH_API_URL: ${NETWATCH_API_URL_PROD:-https://127.0.0.1:${NETWATCH_EDGE_HTTPS_PORT:-443}/agent}
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ""
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: /etc/netwatch/bootstrap/${AGENT_PROC_ID:-agent-proc-1}.token
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/pki/root_ca.crt
-      NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_PROC_ID:-agent-proc-1}/tls.crt
-      NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_PROC_ID:-agent-proc-1}/tls.key
-      NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
-      NETWATCH_TLS_CA_SOURCE_FILE: ""
-      NETWATCH_TLS_CERT_SOURCE_FILE: ""
-      NETWATCH_TLS_KEY_SOURCE_FILE: ""
+      NETWATCH_AGENT_CREDENTIAL_FILE: /var/lib/netwatch/agent.credential
     volumes:
       - /var/log:/host/var/log:ro
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-proc-state:/var/lib/netwatch
-      - netwatch-pki:/etc/netwatch/pki:ro
 
   netwatch-agent-scan:
     profiles: ["legacy-agents"]
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-step-ca-issuer:
-        condition: service_healthy
       netwatch-agent-bootstrap-rotator:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
+      NETWATCH_API_URL: ${NETWATCH_API_URL_PROD:-https://127.0.0.1:${NETWATCH_EDGE_HTTPS_PORT:-443}/agent}
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ""
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: /etc/netwatch/bootstrap/${AGENT_SCAN_ID:-agent-scan-1}.token
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/pki/root_ca.crt
-      NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_SCAN_ID:-agent-scan-1}/tls.crt
-      NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_SCAN_ID:-agent-scan-1}/tls.key
-      NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
-      NETWATCH_TLS_CA_SOURCE_FILE: ""
-      NETWATCH_TLS_CERT_SOURCE_FILE: ""
-      NETWATCH_TLS_KEY_SOURCE_FILE: ""
+      NETWATCH_AGENT_CREDENTIAL_FILE: /var/lib/netwatch/agent.credential
     volumes:
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-scan-state:/var/lib/netwatch
-      - netwatch-pki:/etc/netwatch/pki:ro
 
   netwatch-agent-ddos:
     profiles: ["legacy-agents"]
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-step-ca-issuer:
-        condition: service_healthy
       netwatch-agent-bootstrap-rotator:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
+      NETWATCH_API_URL: ${NETWATCH_API_URL_PROD:-https://127.0.0.1:${NETWATCH_EDGE_HTTPS_PORT:-443}/agent}
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ""
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: /etc/netwatch/bootstrap/${AGENT_DDOS_ID:-agent-ddos-1}.token
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/pki/root_ca.crt
-      NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_DDOS_ID:-agent-ddos-1}/tls.crt
-      NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_DDOS_ID:-agent-ddos-1}/tls.key
-      NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
-      NETWATCH_TLS_CA_SOURCE_FILE: ""
-      NETWATCH_TLS_CERT_SOURCE_FILE: ""
-      NETWATCH_TLS_KEY_SOURCE_FILE: ""
+      NETWATCH_AGENT_CREDENTIAL_FILE: /var/lib/netwatch/agent.credential
     volumes:
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-ddos-state:/var/lib/netwatch
-      - netwatch-pki:/etc/netwatch/pki:ro
 
   netwatch-agent-vuln:
     profiles: ["legacy-agents"]
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-step-ca-issuer:
-        condition: service_healthy
       netwatch-agent-bootstrap-rotator:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
+      NETWATCH_API_URL: ${NETWATCH_API_URL_PROD:-https://127.0.0.1:${NETWATCH_EDGE_HTTPS_PORT:-443}/agent}
       NETWATCH_AGENT_BOOTSTRAP_TOKEN: ""
       NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE: /etc/netwatch/bootstrap/${AGENT_VULN_ID:-agent-vuln-1}.token
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/pki/root_ca.crt
-      NETWATCH_TLS_CERT_FILE: /etc/netwatch/pki/agents/${AGENT_VULN_ID:-agent-vuln-1}/tls.crt
-      NETWATCH_TLS_KEY_FILE: /etc/netwatch/pki/agents/${AGENT_VULN_ID:-agent-vuln-1}/tls.key
-      NETWATCH_TLS_WAIT_TIMEOUT: ${NETWATCH_TLS_WAIT_TIMEOUT:-120s}
-      NETWATCH_TLS_CA_SOURCE_FILE: ""
-      NETWATCH_TLS_CERT_SOURCE_FILE: ""
-      NETWATCH_TLS_KEY_SOURCE_FILE: ""
+      NETWATCH_AGENT_CREDENTIAL_FILE: /var/lib/netwatch/agent.credential
     volumes:
       - ./secrets/bootstrap:/etc/netwatch/bootstrap:ro
       - agent-vuln-state:/var/lib/netwatch
       - /:/host:ro
-      - netwatch-pki:/etc/netwatch/pki:ro
 
 volumes:
-  netwatch-pki:
+  caddy-data:
+  caddy-config:
