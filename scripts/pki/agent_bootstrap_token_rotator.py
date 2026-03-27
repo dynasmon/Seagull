@@ -87,8 +87,8 @@ class BootstrapRotator:
     def __init__(self) -> None:
         self.admin_username = env_str("NETWATCH_BOOTSTRAP_ADMIN_USERNAME", "admin")
         self.admin_password = env_str("NETWATCH_BOOTSTRAP_ADMIN_PASSWORD")
-        self.ca_file = env_str("NETWATCH_BOOTSTRAP_ROTATOR_CA_FILE", "/etc/netwatch/pki/root_ca.crt")
-        self.edge_base = env_str("NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE", "https://netwatch-edge:8443").rstrip("/")
+        self.ca_file = env_str("NETWATCH_BOOTSTRAP_ROTATOR_CA_FILE", "")
+        self.edge_base = env_str("NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE", "").rstrip("/")
         self.backend_base = env_str("NETWATCH_BOOTSTRAP_ROTATOR_BACKEND_BASE", "http://netwatch-backend:8000").rstrip("/")
         self.agent_ids = parse_agent_ids(
             env_str(
