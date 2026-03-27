@@ -1,0 +1,32 @@
+:8081 {
+	redir https://{host}:8443{uri}
+}
+
+:8443 {
+	tls /etc/netwatch/tls/tls.crt /etc/netwatch/tls/tls.key
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		Content-Security-Policy "default-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+	}
+
+	handle_path /api/* {
+		reverse_proxy netwatch-backend:8000 {
+			header_down Set-Cookie "(?i)Path=/auth(;|$)" "Path=/api/auth$1"
+		}
+	}
+
+	handle_path /agent/* {
+		reverse_proxy netwatch-backend:8000
+	}
+
+	handle {
+		reverse_proxy netwatch-portal:5173
+	}
+}

@@ -32,8 +32,8 @@ if [ -d .git ]; then
   fi
 fi
 
-mkdir -p secrets/step-ca secrets/step-ca/data secrets/bootstrap secrets/runtime
-chmod 700 secrets/step-ca secrets/step-ca/data secrets/bootstrap secrets/runtime
+mkdir -p secrets/bootstrap secrets/runtime
+chmod 700 secrets/bootstrap secrets/runtime
 find secrets/bootstrap -type f -name '*.token' -exec chmod 600 {} \; 2>/dev/null || true
 
 make_secret_file() {
@@ -55,9 +55,6 @@ PY
   chmod 600 "$target"
   echo "[prod-prepare] created $target"
 }
-
-make_secret_file "secrets/step-ca/ca-password.txt" 48
-make_secret_file "secrets/step-ca/provisioner-password.txt" 48
 
 read_env_value() {
   key="$1"

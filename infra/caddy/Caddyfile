@@ -1,0 +1,33 @@
+{
+	admin off
+	email {$NETWATCH_CADDY_EMAIL}
+}
+
+{$NETWATCH_CADDY_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		Content-Security-Policy "default-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+	}
+
+	handle_path /api/* {
+		reverse_proxy netwatch-backend:8000 {
+			# Keep portal auth cookies scoped to the proxied /api/auth path.
+			header_down Set-Cookie "(?i)Path=/auth(;|$)" "Path=/api/auth$1"
+		}
+	}
+
+	handle_path /agent/* {
+		reverse_proxy netwatch-backend:8000
+	}
+
+	handle {
+		reverse_proxy netwatch-portal:8080
+	}
+}
