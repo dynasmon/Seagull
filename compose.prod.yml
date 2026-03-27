@@ -54,11 +54,7 @@ services:
       - ./secrets/step-ca/data:/var/lib/step:ro
       - netwatch-pki:/var/lib/netwatch/pki
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "/bin/sh /scripts/check_pki_health.sh",
-        ]
+      test: ["CMD-SHELL", "/bin/sh /scripts/check_pki_health.sh"]
       interval: 10s
       timeout: 4s
       retries: 20
@@ -71,9 +67,10 @@ services:
       - netwatch
     restart: unless-stopped
 
-    netwatch-edge-reloader:
+  netwatch-edge-reloader:
     image: nginx:1.27-alpine
     container_name: netwatch-edge-reloader
+    user: "0:0"
     pid: "service:netwatch-edge"
     depends_on:
       netwatch-edge:
