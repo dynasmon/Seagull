@@ -1,6 +1,5 @@
 {
 	admin off
-	email {$NETWATCH_CADDY_EMAIL}
 }
 
 {$NETWATCH_CADDY_DOMAIN} {
