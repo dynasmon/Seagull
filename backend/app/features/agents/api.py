@@ -72,6 +72,8 @@ def _safe_json_size(obj: Any, max_bytes: int, field_name: str) -> None:
 def _agent_to_public(a: AgentModel) -> AgentPublic:
     tags = a.tags if isinstance(a.tags, list) else []
     tags = [str(x) for x in tags if x is not None]
+    metadata = a.agent_metadata if isinstance(a.agent_metadata, dict) else {}
+    metrics = a.metrics if isinstance(a.metrics, dict) else {}
     return AgentPublic(
         agent_id=a.agent_id,
         display_name=a.display_name,
@@ -80,8 +82,8 @@ def _agent_to_public(a: AgentModel) -> AgentPublic:
         created_at=a.created_at,
         last_seen_at=a.last_seen_at,
         is_revoked=a.is_revoked,
-        metadata=a.agent_metadata or {},
-        metrics=a.metrics or {},
+        metadata=metadata,
+        metrics=metrics,
     )
 
 
