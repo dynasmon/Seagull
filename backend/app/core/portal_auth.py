@@ -108,7 +108,9 @@ def _cookie_kwargs() -> dict:
         "httponly": True,
         "secure": bool(settings.NETWATCH_COOKIE_SECURE),
         "samesite": same_site,
-        "path": "/auth",
+        # Keep refresh cookie valid for both direct backend routes (/auth/*)
+        # and reverse-proxied routes (/api/auth/*), avoiding session drops on reload.
+        "path": "/",
     }
     if settings.NETWATCH_COOKIE_DOMAIN:
         kw["domain"] = settings.NETWATCH_COOKIE_DOMAIN
@@ -152,8 +154,8 @@ def _set_csrf_cookie(response: Response, csrf_token: str, *, max_age_seconds: in
 def _clear_auth_cookies(response: Response) -> None:
     kw = _cookie_kwargs()
     response.delete_cookie(REFRESH_COOKIE_NAME, path=kw.get("path", "/"), domain=kw.get("domain"))
-    # Backward compatibility for older deployments that used path "/".
-    response.delete_cookie(REFRESH_COOKIE_NAME, path="/", domain=kw.get("domain"))
+    # Backward compatibility for older deployments that scoped refresh cookie to /auth.
+    response.delete_cookie(REFRESH_COOKIE_NAME, path="/auth", domain=kw.get("domain"))
     kw2 = _csrf_cookie_kwargs()
     response.delete_cookie(CSRF_COOKIE_NAME, path=kw2.get("path", "/"), domain=kw2.get("domain"))
 
