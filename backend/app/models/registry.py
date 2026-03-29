@@ -21,5 +21,6 @@ def load_all_models() -> None:
     from app.models import portal_refresh_sessions as _portal_refresh_sessions  # noqa: F401
     from app.models import portal_users as _portal_users  # noqa: F401
     from app.models import platform_settings as _platform_settings  # noqa: F401
+    from app.models import response_actions as _response_actions  # noqa: F401
     from app.models import search_index_offsets as _search_index_offsets  # noqa: F401
     from app.models import vuln as _vuln  # noqa: F401
