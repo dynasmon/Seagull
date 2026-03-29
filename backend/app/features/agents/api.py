@@ -409,7 +409,7 @@ async def agent_heartbeat(payload: AgentHeartbeatIn, agent: AgentPrincipal = Dep
 
 @router.get("/response-actions/pending", response_model=List[AgentResponseActionOut])
 @router.get("/response/actions/pending", response_model=List[AgentResponseActionOut], include_in_schema=False)
-async def list_pending_response_actions(agent: AgentPrincipal = Depends(get_current_agent)):
+async def list_pending_response_actions(request: Request, agent: AgentPrincipal = Depends(get_current_agent)):
     db = SessionLocal()
     try:
         row_agent: AgentModel | None = db.query(AgentModel).filter(AgentModel.id == agent.id).first()
@@ -434,8 +434,35 @@ async def list_pending_response_actions(agent: AgentPrincipal = Depends(get_curr
                 row.status = "failed"
                 db.add(row)
                 continue
+            before = {
+                "id": row.id,
+                "status": row.status,
+                "action_type": row.action_type,
+                "agent_id": row.agent_id,
+            }
             row.status = "running"
             db.add(row)
+            write_audit_event(
+                db,
+                request=request,
+                actor=audit_actor(None, None),
+                event_type="admin_action",
+                action="response.actions.running",
+                resource_type="response_action",
+                resource_id=str(row.id),
+                outcome="success",
+                before=before,
+                after={
+                    "id": row.id,
+                    "status": row.status,
+                    "action_type": row.action_type,
+                    "agent_id": row.agent_id,
+                },
+                context={
+                    "reported_by_agent_id": agent.agent_id,
+                    "requested_by": row.requested_by,
+                },
+            )
             out.append(row)
 
         db.commit()
@@ -446,7 +473,11 @@ async def list_pending_response_actions(agent: AgentPrincipal = Depends(get_curr
 
 @router.post("/response-actions/results", status_code=status.HTTP_201_CREATED)
 @router.post("/response/actions/results", status_code=status.HTTP_201_CREATED, include_in_schema=False)
-async def report_response_action_result(payload: AgentResponseActionResultIn, agent: AgentPrincipal = Depends(get_current_agent)):
+async def report_response_action_result(
+    payload: AgentResponseActionResultIn,
+    request: Request,
+    agent: AgentPrincipal = Depends(get_current_agent),
+):
     db = SessionLocal()
     try:
         row_agent: AgentModel | None = db.query(AgentModel).filter(AgentModel.id == agent.id).first()
@@ -466,6 +497,7 @@ async def report_response_action_result(payload: AgentResponseActionResultIn, ag
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_id mismatch")
 
         result_payload: Dict[str, Any] = dict(payload.result_payload or {})
+        before_action_status = row_action.status
         latest: ResponseActionResultModel | None = (
             db.query(ResponseActionResultModel)
             .filter(
@@ -490,6 +522,35 @@ async def report_response_action_result(payload: AgentResponseActionResultIn, ag
         if payload.status in {"success", "failed"}:
             row_action.status = payload.status
             db.add(row_action)
+        if payload.status == "failed" and before_action_status != "failed":
+            write_audit_event(
+                db,
+                request=request,
+                actor=audit_actor(None, None),
+                event_type="admin_action",
+                action="response.actions.failed",
+                resource_type="response_action",
+                resource_id=str(row_action.id),
+                outcome="failure",
+                reason="action_execution_failed",
+                error=(payload.error or None),
+                before={
+                    "id": row_action.id,
+                    "status": before_action_status,
+                    "action_type": row_action.action_type,
+                    "agent_id": row_action.agent_id,
+                },
+                after={
+                    "id": row_action.id,
+                    "status": row_action.status,
+                    "action_type": row_action.action_type,
+                    "agent_id": row_action.agent_id,
+                },
+                context={
+                    "result_status": payload.status,
+                    "reported_by_agent_id": agent.agent_id,
+                },
+            )
 
         db.commit()
         return {"status": row_action.status}

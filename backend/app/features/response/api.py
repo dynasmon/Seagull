@@ -79,7 +79,10 @@ def create_response_action(
                 "requested_by": row.requested_by,
                 "expires_at": (row.expires_at.isoformat() if row.expires_at else None),
             },
-            context={"payload": row.payload if isinstance(row.payload, dict) else {}},
+            context={
+                "payload_keys": sorted(list((row.payload or {}).keys())) if isinstance(row.payload, dict) else [],
+                "payload_size": len(row.payload or {}) if isinstance(row.payload, dict) else 0,
+            },
         )
         db.commit()
         db.refresh(row)
