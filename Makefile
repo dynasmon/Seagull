@@ -14,7 +14,7 @@ PROD_AGENT_SERVICES := netwatch-agent-core netwatch-agent-sensor
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-tls prod up up-extra down restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-tls prod up up-extra down restart restart-quick ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
@@ -30,6 +30,7 @@ help:
 	@echo "  make up-extra      - start development stack with profile 'extra'"
 	@echo "  make down          - stop stack (dev profile by default)"
 	@echo "  make restart       - restart development stack"
+	@echo "  make restart-quick - restart development containers without rebuild"
 	@echo "  make ps            - list services (dev profile by default)"
 	@echo "  make logs          - follow logs (set SVC=service)"
 	@echo "  make build-dev     - build dev images"
@@ -132,6 +133,9 @@ down:
 restart:
 	$(DC) $(COMPOSE_DEV) down
 	$(DC) $(COMPOSE_DEV) up -d --build
+
+restart-quick:
+	$(DC) $(COMPOSE_DEV) restart
 
 ps:
 	$(DC) $(COMPOSE_DEV) ps
