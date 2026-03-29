@@ -20,6 +20,9 @@ from app.core.db import SessionLocal
 from app.models.agent_credentials import AgentCredentialModel
 from app.models.agent_identities import AgentBootstrapTokenModel
 from app.models.agents import AgentModel
+from app.models.response_action_results import ResponseActionResultModel
+from app.models.response_actions import ResponseActionModel
+from app.schemas.response import AgentResponseActionOut, AgentResponseActionResultIn
 from app.schemas.agents import (
     AgentBootstrapTokenCreateIn,
     AgentBootstrapTokenOut,
@@ -400,6 +403,96 @@ async def agent_heartbeat(payload: AgentHeartbeatIn, agent: AgentPrincipal = Dep
         db.add(row)
         db.commit()
         return None
+    finally:
+        db.close()
+
+
+@router.get("/response-actions/pending", response_model=List[AgentResponseActionOut])
+@router.get("/response/actions/pending", response_model=List[AgentResponseActionOut], include_in_schema=False)
+async def list_pending_response_actions(agent: AgentPrincipal = Depends(get_current_agent)):
+    db = SessionLocal()
+    try:
+        row_agent: AgentModel | None = db.query(AgentModel).filter(AgentModel.id == agent.id).first()
+        if not row_agent or row_agent.is_revoked:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
+
+        now = datetime.utcnow()
+        rows: List[ResponseActionModel] = (
+            db.query(ResponseActionModel)
+            .filter(
+                ResponseActionModel.agent_id == agent.agent_id,
+                ResponseActionModel.status == "pending",
+            )
+            .order_by(ResponseActionModel.requested_at.asc(), ResponseActionModel.id.asc())
+            .limit(100)
+            .all()
+        )
+
+        out: List[ResponseActionModel] = []
+        for row in rows:
+            if row.expires_at is not None and row.expires_at <= now:
+                row.status = "failed"
+                db.add(row)
+                continue
+            row.status = "running"
+            db.add(row)
+            out.append(row)
+
+        db.commit()
+        return out
+    finally:
+        db.close()
+
+
+@router.post("/response-actions/results", status_code=status.HTTP_201_CREATED)
+@router.post("/response/actions/results", status_code=status.HTTP_201_CREATED, include_in_schema=False)
+async def report_response_action_result(payload: AgentResponseActionResultIn, agent: AgentPrincipal = Depends(get_current_agent)):
+    db = SessionLocal()
+    try:
+        row_agent: AgentModel | None = db.query(AgentModel).filter(AgentModel.id == agent.id).first()
+        if not row_agent or row_agent.is_revoked:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
+
+        row_action: ResponseActionModel | None = (
+            db.query(ResponseActionModel)
+            .filter(ResponseActionModel.id == payload.response_action_id)
+            .first()
+        )
+        if not row_action:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Response action not found")
+        if row_action.agent_id != agent.agent_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Response action does not belong to this agent")
+        if payload.agent_id is not None and payload.agent_id != agent.agent_id:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_id mismatch")
+
+        result_payload: Dict[str, Any] = dict(payload.result_payload or {})
+        latest: ResponseActionResultModel | None = (
+            db.query(ResponseActionResultModel)
+            .filter(
+                ResponseActionResultModel.response_action_id == row_action.id,
+                ResponseActionResultModel.agent_id == agent.agent_id,
+            )
+            .order_by(ResponseActionResultModel.id.desc())
+            .first()
+        )
+        if latest is None:
+            latest = ResponseActionResultModel(
+                response_action_id=row_action.id,
+                agent_id=agent.agent_id,
+            )
+        latest.status = payload.status
+        latest.result_payload = result_payload
+        latest.error = payload.error
+        latest.started_at = payload.started_at
+        latest.finished_at = payload.finished_at
+        db.add(latest)
+
+        if payload.status in {"success", "failed"}:
+            row_action.status = payload.status
+            db.add(row_action)
+
+        db.commit()
+        return {"status": row_action.status}
     finally:
         db.close()
 
