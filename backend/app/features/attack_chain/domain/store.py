@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 from sqlalchemy import and_, func, insert, or_, select, update
 
 from app.features.attack_chain.domain.types import AttackStage, stage_rank
-from app.models.attack_chain import AttackChainCaseModel, AttackChainStepModel
+from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
 
 
 @dataclass(frozen=True)

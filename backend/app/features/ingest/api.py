@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from app.core.db import engine
 from app.core.agent_auth import AgentPrincipal, get_current_agent
 from app.core.portal_auth import get_current_user, require_admin
-from app.core.storm_control import evaluate_storm, stable_sample
+from app.features.ingest.storm_control import evaluate_storm, stable_sample
 from app.core.ingest_control import (
     evaluate_backpressure,
     enqueue_ingest_message,
@@ -30,8 +30,8 @@ from app.core.clickhouse import (
     get_clickhouse_client,
 )
 from app.core.observability import log_event
-from app.models.events import NetEventModel, NetEventRollup1sModel
-from app.schemas.events import NetEvent
+from app.features.events.models import NetEventModel, NetEventRollup1sModel
+from app.features.events.schemas import NetEvent
 
 
 router = APIRouter(

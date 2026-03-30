@@ -8,8 +8,8 @@ from app.core.db import SessionLocal
 from app.core.identity import canonicalize_username
 from app.core.password_policy import validate_password_policy
 from app.core.security import hash_password, verify_password
-from app.models.correlation_rules import CorrelationRuleModel
-from app.models.portal_users import PortalUserModel
+from app.features.correlations.models import CorrelationRuleModel
+from app.features.auth.models import PortalUserModel
 
 
 def _is_prod() -> bool:

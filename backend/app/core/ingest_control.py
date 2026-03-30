@@ -14,8 +14,8 @@ from app.core.redis_client import get_redis
 from app.core.db import engine
 from app.core.config import settings
 from app.core.recent_feed import recent_feed_health
-from app.models.alerts import AlertModel
-from app.models.events import IngestStats1sModel
+from app.features.alerts.models import AlertModel
+from app.features.events.models import IngestStats1sModel
 
 
 def _env_int(name: str, default: int) -> int:

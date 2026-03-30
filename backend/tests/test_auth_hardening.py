@@ -19,13 +19,13 @@ from app.core.security import decode_token, hash_password
 from app.features.account import api as account_api
 from app.features.auth import api as auth_api
 from app.features.users import api as users_api
-from app.models.portal_login_events import PortalLoginEventModel
-from app.models.portal_otp_tokens import PortalOneTimeTokenModel
-from app.models.portal_refresh_sessions import PortalRefreshSessionModel
-from app.models.portal_users import PortalUserModel
-from app.schemas.account import ChangePasswordIn
-from app.schemas.auth import LoginIn, OtpLoginIn
-from app.schemas.users import AdminUserCreateIn, AdminUserUpdateIn
+from app.features.auth.models import PortalLoginEventModel
+from app.features.auth.models import PortalOneTimeTokenModel
+from app.features.auth.models import PortalRefreshSessionModel
+from app.features.auth.models import PortalUserModel
+from app.features.account.schemas import ChangePasswordIn
+from app.features.auth.schemas import LoginIn, OtpLoginIn
+from app.features.users.schemas import AdminUserCreateIn, AdminUserUpdateIn
 
 
 def _mk_request(

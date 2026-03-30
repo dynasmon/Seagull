@@ -42,9 +42,9 @@ from app.core.config import settings
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
-from app.models.events import NetEventModel
-from app.models.search_index_offsets import SearchIndexOffsetModel
-from app.protocol_intel import analyze_event
+from app.features.events.models import NetEventModel
+from app.shared.indexing.models import SearchIndexOffsetModel
+from app.shared.protocol_intel import analyze_event
 
 
 setup_logging("worker-proto-intel")

@@ -15,10 +15,10 @@ from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.db import SessionLocal
 from app.core.redis_client import get_redis
 from app.core.observability import incr_counter, observe_hist
-from app.models.agents import AgentModel
-from app.models.inventory import AgentInventoryLatestModel, AgentInventorySnapshotModel
-from app.schemas.pagination import CursorPage
-from app.schemas.inventory import InventorySnapshotIn, InventorySnapshotOut, PackageEntry
+from app.features.agents.models import AgentModel
+from app.features.inventory.models import AgentInventoryLatestModel, AgentInventorySnapshotModel
+from app.shared.schemas import CursorPage
+from app.features.inventory.schemas import InventorySnapshotIn, InventorySnapshotOut, PackageEntry
 
 
 router = APIRouter(

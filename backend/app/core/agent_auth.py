@@ -7,8 +7,8 @@ from typing import Optional, Tuple
 from fastapi import HTTPException, Request, status
 
 from app.core.db import SessionLocal
-from app.models.agent_credentials import AgentCredentialModel
-from app.models.agents import AgentModel
+from app.features.agents.models import AgentCredentialModel
+from app.features.agents.models import AgentModel
 
 
 @dataclass(frozen=True)

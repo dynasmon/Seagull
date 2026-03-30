@@ -17,13 +17,13 @@ from app.core.agent_auth import (
 )
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.models.agent_credentials import AgentCredentialModel
-from app.models.agent_identities import AgentBootstrapTokenModel
-from app.models.agents import AgentModel
-from app.models.response_action_results import ResponseActionResultModel
-from app.models.response_actions import ResponseActionModel
-from app.schemas.response import AgentResponseActionOut, AgentResponseActionResultIn
-from app.schemas.agents import (
+from app.features.agents.models import AgentCredentialModel
+from app.features.agents.models import AgentBootstrapTokenModel
+from app.features.agents.models import AgentModel
+from app.features.response.models import ResponseActionResultModel
+from app.features.response.models import ResponseActionModel
+from app.features.response.schemas import AgentResponseActionOut, AgentResponseActionResultIn
+from app.features.agents.schemas import (
     AgentBootstrapTokenCreateIn,
     AgentBootstrapTokenOut,
     AgentConfigUpdateIn,

@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.sqltypes import Float
 
 from app.core.db import SessionLocal
-from app.models.alerts import AlertModel
-from app.models.events import NetEventModel
+from app.features.alerts.models import AlertModel
+from app.features.events.models import NetEventModel
 from app.workers.rules_registry import (
     apply_override,
     apply_tuning_and_suppressions,
@@ -23,7 +23,7 @@ from app.workers.rules_registry import (
     normalize_rule_list,
 )
 
-from app.mitre.catalog import technique_name
+from app.shared.taxonomy.catalog import technique_name
 
 _ALLOWED_EVENT_FIELDS = {
     "agent_id",

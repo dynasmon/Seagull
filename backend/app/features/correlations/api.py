@@ -9,15 +9,15 @@ from sqlalchemy import select
 from app.core.audit import audit_actor, write_audit_event
 from app.core.db import SessionLocal
 from app.core.portal_auth import PortalPrincipal, require_admin
-from app.models.alerts import AlertModel
-from app.models.correlation_rules import CorrelationRuleModel
+from app.features.alerts.models import AlertModel
+from app.features.correlations.models import CorrelationRuleModel
 from app.features.correlations.engine import (
     build_incidents,
     norm_patterns,
     segment_by_window as _segment_by_window,
     stage_requirements_met as _stage_requirements_met,
 )
-from app.schemas.correlations import (
+from app.features.correlations.schemas import (
     CorrelationRunOut,
     CorrelationRuleIn,
     CorrelationRuleOut,

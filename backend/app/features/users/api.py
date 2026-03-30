@@ -10,9 +10,9 @@ from app.core.identity import canonicalize_username
 from app.core.password_policy import validate_password_policy
 from app.core.portal_auth import PortalPrincipal, require_admin
 from app.core.security import hash_password
-from app.models.portal_refresh_sessions import PortalRefreshSessionModel
-from app.models.portal_users import PortalUserModel
-from app.schemas.users import AdminUserCreateIn, AdminUserOut, AdminUserUpdateIn
+from app.features.auth.models import PortalRefreshSessionModel
+from app.features.auth.models import PortalUserModel
+from app.features.users.schemas import AdminUserCreateIn, AdminUserOut, AdminUserUpdateIn
 
 
 router = APIRouter(prefix="/users", tags=["users"])

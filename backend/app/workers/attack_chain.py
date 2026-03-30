@@ -33,7 +33,7 @@ from app.core.db import engine
 from app.core.config import settings
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
-from app.models.attack_chain import (
+from app.features.attack_chain.models import (
     AttackChainAllowlistModel,
     AttackChainCaseModel,
     AttackChainLastAccessModel,
@@ -41,8 +41,8 @@ from app.models.attack_chain import (
     AttackChainSshFailureModel,
     AttackChainStepModel,
 )
-from app.models.events import NetEventModel
-from app.models.search_index_offsets import SearchIndexOffsetModel
+from app.features.events.models import NetEventModel
+from app.shared.indexing.models import SearchIndexOffsetModel
 
 
 OFFSET_NAME = "attack_chain_v1"
