@@ -130,7 +130,7 @@ up-extra: dev-preflight
 down:
 	$(DC) $(COMPOSE_DEV) down
 
-restart:
+restart: dev-preflight
 	$(DC) $(COMPOSE_DEV) down
 	$(DC) $(COMPOSE_DEV) up -d --build
 
