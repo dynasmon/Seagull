@@ -25,9 +25,9 @@ from app.core.recent_feed import fetch_recent_events as fetch_recent_feed_events
 from app.core.redis_client import get_redis
 from app.core.config import settings
 from app.core.observability import incr_counter, log_event, observe_hist
-from app.models.agents import AgentModel
-from app.models.alerts import AlertModel
-from app.models.events import EventRollup1mModel, IngestStats1sModel, NetEventModel, NetEventRollup1sModel, SshFailRollup1mModel
+from app.features.agents.models import AgentModel
+from app.features.alerts.models import AlertModel
+from app.features.events.models import EventRollup1mModel, IngestStats1sModel, NetEventModel, NetEventRollup1sModel, SshFailRollup1mModel
 
 router = APIRouter(
     prefix="",

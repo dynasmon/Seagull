@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
-from app.models.events import NetEventModel
+from app.features.events.models import NetEventModel
 from app.workers.ingest_worker import _write_clickhouse_events
 
 

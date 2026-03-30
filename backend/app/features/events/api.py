@@ -24,8 +24,8 @@ from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.portal_auth import get_current_user
 from app.core.recent_feed import fetch_recent_events as fetch_recent_feed_events
 from app.core.redis_client import get_redis
-from app.models.events import NetEventModel, NetEventRollup1sModel
-from app.schemas.events import (
+from app.features.events.models import NetEventModel, NetEventRollup1sModel
+from app.features.events.schemas import (
     NetEventDB,
     NetEventRollup1s,
     ProtocolIntelSummaryResponse,
@@ -39,7 +39,7 @@ from app.schemas.events import (
     SshUserStat,
     SudoEventSummary,
 )
-from app.schemas.pagination import CursorPage
+from app.shared.schemas import CursorPage
 
 router = APIRouter(
     prefix="/events",

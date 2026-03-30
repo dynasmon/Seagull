@@ -6,9 +6,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.alert_rule_overrides import AlertRuleOverrideModel
-from app.models.alert_rule_suppressions import AlertRuleSuppressionModel
-from app.models.alert_rule_tuning import AlertRuleTuningModel
+from app.features.alerts.models import AlertRuleOverrideModel
+from app.features.alerts.models import AlertRuleSuppressionModel
+from app.features.alerts.models import AlertRuleTuningModel
 from app.workers.rules_loader import load_rules
 
 

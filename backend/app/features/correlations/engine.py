@@ -3,8 +3,8 @@ from __future__ import annotations
 from fnmatch import fnmatchcase
 from typing import Dict, Iterable, List, Optional
 
-from app.models.alerts import AlertModel
-from app.schemas.correlations import CorrelationAlertRef, CorrelationIncidentOut
+from app.features.alerts.models import AlertModel
+from app.features.correlations.schemas import CorrelationAlertRef, CorrelationIncidentOut
 
 
 def norm_patterns(v: Optional[Iterable[str]]) -> List[str]:

@@ -44,7 +44,7 @@ from app.core.observability import (
     snapshot_metrics,
 )
 from app.core.portal_bootstrap import bootstrap_portal_admin, bootstrap_correlation_rules
-from app.models.registry import load_all_models
+from app.core.model_registry import load_all_models
 
 
 setup_logging("backend-api")

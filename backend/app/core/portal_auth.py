@@ -19,8 +19,8 @@ from app.core.security import (
     new_refresh_token,
     token_hash,
 )
-from app.models.portal_refresh_sessions import PortalRefreshSessionModel
-from app.models.portal_users import PortalUserModel
+from app.features.auth.models import PortalRefreshSessionModel
+from app.features.auth.models import PortalUserModel
 
 
 REFRESH_COOKIE_NAME = "nw_refresh"

@@ -20,10 +20,10 @@ from app.core.portal_auth import (
 from app.core.rate_limit import guard_login_rate_limit, guard_otp_rate_limit
 from app.core.security import new_one_time_token, token_hash
 from app.core.db import SessionLocal
-from app.models.portal_users import PortalUserModel
-from app.models.portal_otp_tokens import PortalOneTimeTokenModel
-from app.models.portal_login_events import PortalLoginEventModel
-from app.schemas.auth import LoginIn, OtpCreateIn, OtpCreateOut, OtpLoginIn, TokenOut, UserOut
+from app.features.auth.models import PortalUserModel
+from app.features.auth.models import PortalOneTimeTokenModel
+from app.features.auth.models import PortalLoginEventModel
+from app.features.auth.schemas import LoginIn, OtpCreateIn, OtpCreateOut, OtpLoginIn, TokenOut, UserOut
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])

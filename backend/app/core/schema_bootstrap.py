@@ -11,23 +11,23 @@ from sqlalchemy import Index, func, inspect
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.dialects.postgresql import insert
 
-from app.models.agents import AgentModel
-from app.models.admin_audit_events import AdminAuditEventModel
-from app.models.alert_rule_overrides import AlertRuleOverrideModel
-from app.models.alert_rule_suppressions import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
-from app.models.alert_rule_tuning import AlertRuleTuningHistoryModel, AlertRuleTuningModel
-from app.models.alerts import AlertModel
-from app.models.attack_chain import AttackChainAllowlistModel, AttackChainCaseModel, AttackChainStepModel
-from app.models.events import EventRollup1mModel, IngestStats1sModel, NetEventModel, NetEventRollup1sModel, SshFailRollup1mModel
-from app.models.inventory import AgentInventoryLatestModel, AgentInventorySnapshotModel
-from app.models.ip_enrichment_cache import IpEnrichmentCacheModel
-from app.models.portal_login_events import PortalLoginEventModel
-from app.models.portal_otp_tokens import PortalOneTimeTokenModel
-from app.models.portal_refresh_sessions import PortalRefreshSessionModel
-from app.models.portal_users import PortalUserModel
-from app.models.platform_settings import PlatformSettingModel
-from app.models.search_index_offsets import SearchIndexOffsetModel
-from app.models.vuln import VulnFindingModel, VulnScanModel
+from app.features.agents.models import AgentModel
+from app.features.admin.models import AdminAuditEventModel
+from app.features.alerts.models import AlertRuleOverrideModel
+from app.features.alerts.models import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
+from app.features.alerts.models import AlertRuleTuningHistoryModel, AlertRuleTuningModel
+from app.features.alerts.models import AlertModel
+from app.features.attack_chain.models import AttackChainAllowlistModel, AttackChainCaseModel, AttackChainStepModel
+from app.features.events.models import EventRollup1mModel, IngestStats1sModel, NetEventModel, NetEventRollup1sModel, SshFailRollup1mModel
+from app.features.inventory.models import AgentInventoryLatestModel, AgentInventorySnapshotModel
+from app.shared.enrichment.models import IpEnrichmentCacheModel
+from app.features.auth.models import PortalLoginEventModel
+from app.features.auth.models import PortalOneTimeTokenModel
+from app.features.auth.models import PortalRefreshSessionModel
+from app.features.auth.models import PortalUserModel
+from app.features.settings.models import PlatformSettingModel
+from app.shared.indexing.models import SearchIndexOffsetModel
+from app.features.vuln.models import VulnFindingModel, VulnScanModel
 
 
 def _ensure_indexes(conn) -> None:

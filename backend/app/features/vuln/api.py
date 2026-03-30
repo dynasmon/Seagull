@@ -15,10 +15,10 @@ from app.core.db import SessionLocal
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.portal_auth import require_admin
 from app.core.config import settings
-from app.models.agents import AgentModel
-from app.models.vuln import VulnFindingModel, VulnScanModel
-from app.schemas.pagination import CursorPage
-from app.schemas.vuln import (
+from app.features.agents.models import AgentModel
+from app.features.vuln.models import VulnFindingModel, VulnScanModel
+from app.shared.schemas import CursorPage
+from app.features.vuln.schemas import (
     VulnAssetRiskOut,
     VulnFindingOut,
     VulnFindingPatchIn,

@@ -44,7 +44,7 @@ from app.core.ingest_control import (
     worker_heartbeat,
 )
 from app.core.observability import log_event, setup_logging
-from app.models.events import NetEventModel, NetEventRollup1sModel
+from app.features.events.models import NetEventModel, NetEventRollup1sModel
 
 setup_logging("worker-ingest")
 logger = logging.getLogger("netwatch.worker.ingest")
