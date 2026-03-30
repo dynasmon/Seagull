@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.observability import request_id
-from app.models.admin_audit_events import AdminAuditEventModel
+from app.features.admin.models import AdminAuditEventModel
 
 
 _SENSITIVE_TOKENS = (

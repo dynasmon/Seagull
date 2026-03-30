@@ -9,9 +9,9 @@ from app.core.db import SessionLocal
 from app.core.portal_auth import PortalPrincipal, get_current_user, logout
 from app.core.password_policy import validate_password_policy
 from app.core.security import hash_password, verify_password
-from app.models.portal_refresh_sessions import PortalRefreshSessionModel
-from app.models.portal_users import PortalUserModel
-from app.schemas.account import ChangePasswordIn
+from app.features.auth.models import PortalRefreshSessionModel
+from app.features.auth.models import PortalUserModel
+from app.features.account.schemas import ChangePasswordIn
 
 
 router = APIRouter(prefix="/account", tags=["account"])

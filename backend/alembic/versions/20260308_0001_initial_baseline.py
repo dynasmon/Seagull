@@ -11,7 +11,7 @@ from alembic import op
 
 from app.core.db import Base
 from app.core.schema_bootstrap import bootstrap_schema
-from app.models.registry import load_all_models
+from app.core.model_registry import load_all_models
 
 
 revision = "20260308_0001"

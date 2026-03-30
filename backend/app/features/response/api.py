@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from app.core.audit import audit_actor, write_audit_event
 from app.core.db import SessionLocal
 from app.core.portal_auth import PortalPrincipal, require_admin
-from app.models.agents import AgentModel
-from app.models.response_actions import ResponseActionModel
-from app.schemas.response import ResponseActionCreateIn, ResponseActionOut
+from app.features.agents.models import AgentModel
+from app.features.response.models import ResponseActionModel
+from app.features.response.schemas import ResponseActionCreateIn, ResponseActionOut
 
 
 router = APIRouter(prefix="/response", tags=["response"])

@@ -6,10 +6,10 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.admin_audit_events import AdminAuditEventModel
-from app.models.alert_rule_suppressions import AlertRuleSuppressionHistoryModel
-from app.models.alert_rule_tuning import AlertRuleTuningHistoryModel
-from app.models.portal_login_events import PortalLoginEventModel
+from app.features.admin.models import AdminAuditEventModel
+from app.features.alerts.models import AlertRuleSuppressionHistoryModel
+from app.features.alerts.models import AlertRuleTuningHistoryModel
+from app.features.auth.models import PortalLoginEventModel
 
 
 def _delete_with_limit(session: Session, model: Any, dt_field: Any, cutoff: datetime, id_field: Any, batch: int) -> int:

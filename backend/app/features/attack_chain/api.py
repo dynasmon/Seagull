@@ -10,8 +10,8 @@ from app.core.audit import audit_actor, write_audit_event
 from app.core.db import SessionLocal
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.portal_auth import PortalPrincipal, get_current_user, require_admin
-from app.models.attack_chain import AttackChainAllowlistModel, AttackChainCaseModel, AttackChainStepModel
-from app.schemas.attack_chain import (
+from app.features.attack_chain.models import AttackChainAllowlistModel, AttackChainCaseModel, AttackChainStepModel
+from app.features.attack_chain.schemas import (
     AttackChainAllowlistCreate,
     AttackChainAllowlistDB,
     AttackChainAllowlistUpdate,
@@ -19,10 +19,10 @@ from app.schemas.attack_chain import (
     AttackChainCaseWithSteps,
     AttackChainStepDB,
 )
-from app.schemas.mitre import MitreCaseSummary, MitreTacticCoverage, MitreTechniqueStat
-from app.mitre.catalog import technique_name
+from app.shared.taxonomy.schemas import MitreCaseSummary, MitreTacticCoverage, MitreTechniqueStat
+from app.shared.taxonomy.catalog import technique_name
 from app.features.attack_chain.domain.types import stage_rank
-from app.schemas.pagination import CursorPage
+from app.shared.schemas import CursorPage
 
 
 router = APIRouter(

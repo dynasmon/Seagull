@@ -7,16 +7,16 @@ from sqlalchemy import and_, func, or_, select
 from app.core.audit import audit_actor, write_audit_event
 from app.core.db import SessionLocal
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
-from app.models.events import NetEventModel
-from app.models.alerts import AlertModel
-from app.models.alert_rule_overrides import AlertRuleOverrideModel
-from app.models.alert_rule_suppressions import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
-from app.models.alert_rule_tuning import AlertRuleTuningHistoryModel, AlertRuleTuningModel
-from app.schemas.alerts import AlertOut
-from app.schemas.pagination import CursorPage
-from app.schemas.alert_rules import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn
-from app.schemas.mitre import MitreCoverageResponse, MitreTacticCoverage, MitreTechniqueStat
-from app.mitre.catalog import technique_name
+from app.features.events.models import NetEventModel
+from app.features.alerts.models import AlertModel
+from app.features.alerts.models import AlertRuleOverrideModel
+from app.features.alerts.models import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
+from app.features.alerts.models import AlertRuleTuningHistoryModel, AlertRuleTuningModel
+from app.features.alerts.schemas import AlertOut
+from app.shared.schemas import CursorPage
+from app.features.alerts.schemas import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn
+from app.shared.taxonomy.schemas import MitreCoverageResponse, MitreTacticCoverage, MitreTechniqueStat
+from app.shared.taxonomy.catalog import technique_name
 from app.workers.rules_engine import run_all_rules
 from app.workers.rules_registry import (
     apply_override,

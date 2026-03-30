@@ -13,13 +13,13 @@ from app.core.ingest_control import get_storm_status
 from app.core.observability import snapshot_metrics
 from app.core.portal_auth import PortalPrincipal, require_admin
 from app.core.redis_client import get_redis
-from app.models.agents import AgentModel
-from app.models.admin_audit_events import AdminAuditEventModel
-from app.models.inventory import AgentInventorySnapshotModel
-from app.models.portal_login_events import PortalLoginEventModel
-from app.models.portal_users import PortalUserModel
-from app.schemas.admin_audit import AdminAuditEventOut, AdminAuditQueryOut
-from app.schemas.admin import LoginEventOut, RuntimeConfigOut
+from app.features.agents.models import AgentModel
+from app.features.admin.models import AdminAuditEventModel
+from app.features.inventory.models import AgentInventorySnapshotModel
+from app.features.auth.models import PortalLoginEventModel
+from app.features.auth.models import PortalUserModel
+from app.features.admin.schemas import AdminAuditEventOut, AdminAuditQueryOut
+from app.features.admin.schemas import LoginEventOut, RuntimeConfigOut
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])

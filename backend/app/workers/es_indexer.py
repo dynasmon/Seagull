@@ -28,8 +28,8 @@ from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.env_secrets import env_value
 from app.core.observability import log_event, setup_logging
-from app.models.events import NetEventModel
-from app.models.search_index_offsets import SearchIndexOffsetModel
+from app.features.events.models import NetEventModel
+from app.shared.indexing.models import SearchIndexOffsetModel
 
 setup_logging("worker-es-indexer")
 logger = logging.getLogger("netwatch.worker.es_indexer")

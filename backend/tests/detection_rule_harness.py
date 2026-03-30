@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Tuple
 
-from app.schemas.events import NetEvent
+from app.features.events.schemas import NetEvent
 from app.workers.rules_loader import load_rules
 
 

@@ -11,9 +11,9 @@ os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
 from app.core.agent_auth import AgentPrincipal, get_current_agent
 from app.features.agents import api as agents_api
 from app.main import app
-from app.models.agents import AgentModel
-from app.models.response_action_results import ResponseActionResultModel
-from app.models.response_actions import ResponseActionModel
+from app.features.agents.models import AgentModel
+from app.features.response.models import ResponseActionResultModel
+from app.features.response.models import ResponseActionModel
 
 
 class _FakeQuery:
