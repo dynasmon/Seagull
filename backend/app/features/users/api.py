@@ -1,205 +1,83 @@
 from __future__ import annotations
 
-from datetime import datetime
+from fastapi import APIRouter, Depends, Request, status
+from fastapi.params import Depends as DependsParam
+from sqlalchemy.orm import Session
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-
-from app.core.audit import audit_actor, write_audit_event
-from app.core.db import SessionLocal
-from app.core.identity import canonicalize_username
-from app.core.password_policy import validate_password_policy
+from app.core.audit import write_audit_event  # backward-compatible symbol for tests
+from app.core.db import SessionLocal, get_db
 from app.core.portal_auth import PortalPrincipal, require_admin
-from app.core.security import hash_password
-from app.features.auth.models import PortalRefreshSessionModel
-from app.features.auth.models import PortalUserModel
 from app.features.users.schemas import AdminUserCreateIn, AdminUserOut, AdminUserUpdateIn
+from app.features.users import service
 
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-def _normalize_role(role: str | None) -> str:
-    r = (role or "").strip().lower()
-    if r not in {"admin", "user"}:
-        raise HTTPException(status_code=422, detail="role must be one of: admin, user")
-    return r
-
-
-def _to_out(row: PortalUserModel) -> AdminUserOut:
-    return AdminUserOut(
-        id=row.id,
-        username=row.username,
-        role=row.role,
-        is_active=bool(row.is_active),
-        created_at=row.created_at,
-        last_login_at=row.last_login_at,
-        failed_login_count=int(row.failed_login_count or 0),
-    )
+def _resolve_db(db: Session) -> tuple[Session, bool]:
+    if isinstance(db, Session):
+        return db, False
+    if isinstance(db, DependsParam):
+        real = SessionLocal()
+        return real, True
+    return db, False
 
 
 @router.get("", response_model=list[AdminUserOut])
-def list_users(_: PortalPrincipal = Depends(require_admin)):
-    db = SessionLocal()
+def list_users(
+    _: PortalPrincipal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    db2, owns_db = _resolve_db(db)
     try:
-        rows = db.query(PortalUserModel).order_by(PortalUserModel.username.asc()).all()
-        return [_to_out(r) for r in rows]
+        return service.list_users(db2)
     finally:
-        db.close()
+        if owns_db:
+            db2.close()
 
 
 @router.post("", response_model=AdminUserOut, status_code=status.HTTP_201_CREATED)
-def create_user(payload: AdminUserCreateIn, request: Request, admin: PortalPrincipal = Depends(require_admin)):
-    db = SessionLocal()
+def create_user(
+    payload: AdminUserCreateIn,
+    request: Request,
+    admin: PortalPrincipal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    db2, owns_db = _resolve_db(db)
     try:
-        uname = canonicalize_username(payload.username)
-        if not uname:
-            raise HTTPException(status_code=422, detail="username is required")
-        msg = validate_password_policy(payload.password, username=uname)
-        if msg:
-            raise HTTPException(status_code=422, detail=msg)
-        exists = db.query(PortalUserModel).filter(PortalUserModel.username == uname).first()
-        if exists:
-            raise HTTPException(status_code=409, detail="username already exists")
-
-        row = PortalUserModel(
-            username=uname,
-            password_hash=hash_password(payload.password),
-            role=_normalize_role(payload.role),
-            is_active=bool(payload.is_active),
-            token_version=1,
-            created_at=datetime.utcnow(),
-        )
-        db.add(row)
-        db.flush()
-        write_audit_event(
-            db,
-            request=request,
-            actor=audit_actor(admin.id, admin.username),
-            event_type="admin_action",
-            action="users.create",
-            resource_type="user",
-            resource_id=str(row.id),
-            outcome="success",
-            before={},
-            after={"id": row.id, "username": row.username, "role": row.role, "is_active": bool(row.is_active)},
-            reason=payload.reason,
-            context={"username": row.username},
-        )
-        db.commit()
-        db.refresh(row)
-        return _to_out(row)
+        return service.create_user(db2, payload=payload, request=request, admin=admin)
     finally:
-        db.close()
+        if owns_db:
+            db2.close()
 
 
 @router.put("/{user_id}", response_model=AdminUserOut)
-def update_user(user_id: int, payload: AdminUserUpdateIn, request: Request, admin: PortalPrincipal = Depends(require_admin)):
-    db = SessionLocal()
+def update_user(
+    user_id: int,
+    payload: AdminUserUpdateIn,
+    request: Request,
+    admin: PortalPrincipal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    db2, owns_db = _resolve_db(db)
     try:
-        row = db.get(PortalUserModel, int(user_id))
-        if not row:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        before = {"id": row.id, "username": row.username, "role": row.role, "is_active": bool(row.is_active)}
-
-        if payload.role is not None:
-            row.role = _normalize_role(payload.role)
-        if payload.is_active is not None:
-            if row.id == admin.id and payload.is_active is False:
-                raise HTTPException(status_code=400, detail="You cannot disable your own account")
-            row.is_active = bool(payload.is_active)
-        if payload.password is not None:
-            msg = validate_password_policy(payload.password, username=row.username)
-            if msg:
-                raise HTTPException(status_code=422, detail=msg)
-            row.password_hash = hash_password(payload.password)
-            row.failed_login_count = 0
-            row.token_version = int(getattr(row, "token_version", 1) or 1) + 1
-
-        if payload.password is not None or payload.is_active is False:
-            now = datetime.utcnow()
-            db.query(PortalRefreshSessionModel).filter(
-                PortalRefreshSessionModel.user_id == row.id,
-                PortalRefreshSessionModel.revoked_at.is_(None),
-            ).update({"revoked_at": now})
-            if payload.is_active is False and payload.password is None:
-                row.token_version = int(getattr(row, "token_version", 1) or 1) + 1
-
-        if row.role != "admin":
-            admins_active = (
-                db.query(PortalUserModel)
-                .filter(PortalUserModel.role == "admin", PortalUserModel.is_active.is_(True), PortalUserModel.id != row.id)
-                .count()
-            )
-            if admins_active < 1:
-                raise HTTPException(status_code=400, detail="At least one active admin is required")
-
-        db.add(row)
-        db.flush()
-        after = {"id": row.id, "username": row.username, "role": row.role, "is_active": bool(row.is_active)}
-        write_audit_event(
-            db,
-            request=request,
-            actor=audit_actor(admin.id, admin.username),
-            event_type="admin_action",
-            action="users.update",
-            resource_type="user",
-            resource_id=str(row.id),
-            outcome="success",
-            before=before,
-            after=after,
-            reason=payload.reason,
-            context={"username": row.username, "password_rotated": payload.password is not None},
-        )
-        db.commit()
-        db.refresh(row)
-        return _to_out(row)
+        return service.update_user(db2, user_id=user_id, payload=payload, request=request, admin=admin)
     finally:
-        db.close()
+        if owns_db:
+            db2.close()
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id: int, request: Request, admin: PortalPrincipal = Depends(require_admin)):
-    db = SessionLocal()
+def delete_user(
+    user_id: int,
+    request: Request,
+    admin: PortalPrincipal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    db2, owns_db = _resolve_db(db)
     try:
-        row = db.get(PortalUserModel, int(user_id))
-        if not row:
-            raise HTTPException(status_code=404, detail="User not found")
-        if row.id == admin.id:
-            raise HTTPException(status_code=400, detail="You cannot delete your own account")
-        if row.role == "admin":
-            admins_active = (
-                db.query(PortalUserModel)
-                .filter(PortalUserModel.role == "admin", PortalUserModel.is_active.is_(True), PortalUserModel.id != row.id)
-                .count()
-            )
-            if admins_active < 1:
-                raise HTTPException(status_code=400, detail="At least one active admin is required")
-
-        before = {"id": row.id, "username": row.username, "role": row.role, "is_active": bool(row.is_active)}
-        row.is_active = False
-        row.token_version = int(getattr(row, "token_version", 1) or 1) + 1
-        db.add(row)
-        now = datetime.utcnow()
-        db.query(PortalRefreshSessionModel).filter(
-            PortalRefreshSessionModel.user_id == row.id,
-            PortalRefreshSessionModel.revoked_at.is_(None),
-        ).update({"revoked_at": now})
-        db.flush()
-        write_audit_event(
-            db,
-            request=request,
-            actor=audit_actor(admin.id, admin.username),
-            event_type="admin_action",
-            action="users.delete",
-            resource_type="user",
-            resource_id=str(row.id),
-            outcome="success",
-            before=before,
-            after={"id": row.id, "username": row.username, "role": row.role, "is_active": False},
-            context={"username": row.username, "deletion_mode": "soft_delete"},
-        )
-        db.commit()
+        service.delete_user(db2, user_id=user_id, request=request, admin=admin)
         return None
     finally:
-        db.close()
+        if owns_db:
+            db2.close()
