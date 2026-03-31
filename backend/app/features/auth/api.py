@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.params import Depends as DependsParam
 from sqlalchemy.orm import Session
 
+from app.core.audit import write_audit_event  # backward-compatible symbol for tests
 from app.core.db import SessionLocal, get_db
 from app.core.portal_auth import PortalPrincipal, get_current_user, require_admin
 from app.features.auth.schemas import LoginIn, OtpCreateIn, OtpCreateOut, OtpLoginIn, TokenOut, UserOut
