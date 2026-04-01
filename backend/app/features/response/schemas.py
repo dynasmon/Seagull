@@ -35,9 +35,31 @@ class ResponseActionOut(BaseModel):
     payload: Dict[str, Any] = Field(default_factory=dict)
     requested_by: str
     requested_at: datetime
+    delivered_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    cancelled_by: Optional[str] = None
+    last_error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     expires_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ResponseActionResultOut(BaseModel):
+    id: int
+    response_action_id: int
+    agent_id: str
+    status: str
+    result_payload: Dict[str, Any] = Field(default_factory=dict)
+    error: Optional[str] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

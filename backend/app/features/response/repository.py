@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.features.agents.models import AgentModel
-from app.features.response.models import ResponseActionModel
+from app.features.response.models import ResponseActionModel, ResponseActionResultModel
 
 
 def get_agent(db: Session, *, agent_id: str) -> AgentModel | None:
@@ -47,8 +47,36 @@ def list_actions_by_status(
     return q.order_by(ResponseActionModel.requested_at.desc(), ResponseActionModel.id.desc()).limit(int(limit)).all()
 
 
+def list_actions(
+    db: Session,
+    *,
+    agent_id: str | None = None,
+    status: str | None = None,
+    limit: int = 100,
+) -> list[ResponseActionModel]:
+    q = db.query(ResponseActionModel)
+    if agent_id:
+        q = q.filter(ResponseActionModel.agent_id == agent_id)
+    if status:
+        q = q.filter(ResponseActionModel.status == status)
+    return q.order_by(ResponseActionModel.requested_at.desc(), ResponseActionModel.id.desc()).limit(int(limit)).all()
+
+
 def get_action(db: Session, *, action_id: int) -> ResponseActionModel | None:
     return db.query(ResponseActionModel).filter(ResponseActionModel.id == int(action_id)).first()
+
+
+def get_latest_result(
+    db: Session,
+    *,
+    action_id: int,
+) -> ResponseActionResultModel | None:
+    return (
+        db.query(ResponseActionResultModel)
+        .filter(ResponseActionResultModel.response_action_id == int(action_id))
+        .order_by(ResponseActionResultModel.id.desc())
+        .first()
+    )
 
 
 def save_action(db: Session, row: ResponseActionModel) -> ResponseActionModel:
