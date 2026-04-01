@@ -20,3 +20,23 @@ export type AgentUpdateIn = {
   tags?: string[] | null;
   metadata?: Record<string, any> | null;
 };
+
+export type ResponseActionCreateIn = {
+  action_type: string;
+  agent_id: string;
+  payload?: Record<string, any>;
+  expires_at?: string;
+};
+
+export type ResponseActionOut = {
+  id: number;
+  action_type: string;
+  agent_id: string;
+  status: string;
+  payload: Record<string, any>;
+  requested_by: string;
+  requested_at: string;
+  created_at: string;
+  updated_at: string;
+  expires_at?: string | null;
+};
