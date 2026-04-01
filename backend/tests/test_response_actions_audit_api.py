@@ -89,3 +89,48 @@ def test_response_action_create_emits_request_audit(monkeypatch) -> None:
             assert "payload" not in audits[0]["context"]
     finally:
         app.dependency_overrides.pop(require_admin, None)
+
+
+def test_response_action_create_refresh_runtime_config(monkeypatch) -> None:
+    fake_db = _FakeDB()
+    monkeypatch.setattr(response_api, "SessionLocal", lambda: fake_db)
+    app.dependency_overrides[require_admin] = lambda: PortalPrincipal(id=9, username="root", role="admin")
+    try:
+        with TestClient(app) as client:
+            r = client.post(
+                "/response/actions",
+                json={
+                    "action_type": "refresh_runtime_config",
+                    "agent_id": "agent-1",
+                    "payload": {},
+                },
+            )
+            assert r.status_code == 201
+            body = r.json()
+            assert body["action_type"] == "refresh_runtime_config"
+            assert body["status"] == "pending"
+    finally:
+        app.dependency_overrides.pop(require_admin, None)
+
+
+def test_response_action_create_trigger_inventory_snapshot_with_limits(monkeypatch) -> None:
+    fake_db = _FakeDB()
+    monkeypatch.setattr(response_api, "SessionLocal", lambda: fake_db)
+    app.dependency_overrides[require_admin] = lambda: PortalPrincipal(id=9, username="root", role="admin")
+    try:
+        with TestClient(app) as client:
+            r = client.post(
+                "/response/actions",
+                json={
+                    "action_type": "trigger_inventory_snapshot",
+                    "agent_id": "agent-1",
+                    "payload": {"limits": {"max_processes": 120, "max_connections": 80}},
+                },
+            )
+            assert r.status_code == 201
+            body = r.json()
+            assert body["action_type"] == "trigger_inventory_snapshot"
+            assert body["payload"]["limits"]["max_processes"] == 120
+            assert body["payload"]["limits"]["max_connections"] == 80
+    finally:
+        app.dependency_overrides.pop(require_admin, None)

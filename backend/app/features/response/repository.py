@@ -62,8 +62,11 @@ def list_actions(
     return q.order_by(ResponseActionModel.requested_at.desc(), ResponseActionModel.id.desc()).limit(int(limit)).all()
 
 
-def get_action(db: Session, *, action_id: int) -> ResponseActionModel | None:
-    return db.query(ResponseActionModel).filter(ResponseActionModel.id == int(action_id)).first()
+def get_action(db: Session, *, action_id: int, for_update: bool = False) -> ResponseActionModel | None:
+    q = db.query(ResponseActionModel).filter(ResponseActionModel.id == int(action_id))
+    if for_update:
+        q = q.with_for_update()
+    return q.first()
 
 
 def get_latest_result(
