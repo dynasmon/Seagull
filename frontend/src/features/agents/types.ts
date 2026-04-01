@@ -36,7 +36,26 @@ export type ResponseActionOut = {
   payload: Record<string, any>;
   requested_by: string;
   requested_at: string;
+  delivered_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  last_error?: string | null;
   created_at: string;
   updated_at: string;
   expires_at?: string | null;
+};
+
+export type ResponseActionResultOut = {
+  id: number;
+  response_action_id: number;
+  agent_id: string;
+  status: string;
+  result_payload: Record<string, any>;
+  error?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+  updated_at: string;
 };

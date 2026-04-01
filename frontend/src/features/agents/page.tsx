@@ -23,8 +23,19 @@ import type { NetEvent } from "@/features/events/types";
 
 import DdosDeepDive from "@/features/events/views/ddos/DdosDeepDive";
 
-import { createResponseAction, disableAgent, enableAgent, getAgent, setAgentConfig, updateAgent } from "./api";
-import type { AgentDetail, AgentPublic, AgentUpdateIn, ResponseActionOut } from "./types";
+import {
+  cancelResponseAction,
+  createResponseAction,
+  disableAgent,
+  enableAgent,
+  getAgent,
+  getResponseAction,
+  getResponseActionResult,
+  listResponseActions,
+  setAgentConfig,
+  updateAgent
+} from "./api";
+import type { AgentDetail, AgentPublic, AgentUpdateIn, ResponseActionOut, ResponseActionResultOut } from "./types";
 
 // Grafana-like fixed panel heights.
 const H_PANEL_MD = 420;
@@ -165,6 +176,22 @@ function fmtMaybeIso(value?: string | null): string {
   const dt = new Date(value);
   if (Number.isNaN(dt.getTime())) return String(value);
   return fmtDateTime(dt);
+}
+
+function fmtDuration(startIso?: string | null, endIso?: string | null): string {
+  if (!startIso) return "-";
+  const start = Date.parse(startIso);
+  if (!Number.isFinite(start)) return "-";
+  const end = endIso ? Date.parse(endIso) : Date.now();
+  if (!Number.isFinite(end) || end < start) return "-";
+  const sec = Math.floor((end - start) / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  const remSec = sec % 60;
+  if (min < 60) return remSec ? `${min}m ${remSec}s` : `${min}m`;
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  return remMin ? `${hr}h ${remMin}m` : `${hr}h`;
 }
 
 function Dot({ state }: { state: "online" | "offline" | "disabled" }) {
@@ -484,6 +511,18 @@ export default function AgentsPage() {
       setResponseActionExpiresAt("");
       setResponseActionError(null);
       setResponseActionCreated(null);
+      setResponseActionTab("create");
+      setResponseActionSelectedId(null);
+      setResponseActionHistory([]);
+      setResponseActionHistoryLoading(false);
+      setResponseActionHistoryError(null);
+      setResponseActionLive(null);
+      setResponseActionLiveLoading(false);
+      setResponseActionLiveError(null);
+      setResponseActionResult(null);
+      setResponseActionResultLoading(false);
+      setResponseActionResultError(null);
+      setResponseActionResultRawOpen(false);
       setResponseActionBusy(false);
     },
     []
@@ -538,7 +577,18 @@ export default function AgentsPage() {
   const [responseActionExpiresAt, setResponseActionExpiresAt] = useState("");
   const [responseActionError, setResponseActionError] = useState<string | null>(null);
   const [responseActionCreated, setResponseActionCreated] = useState<ResponseActionOut | null>(null);
-  const [recentResponseActions, setRecentResponseActions] = useState<ResponseActionOut[]>([]);
+  const [responseActionTab, setResponseActionTab] = useState<"create" | "execution" | "result">("create");
+  const [responseActionSelectedId, setResponseActionSelectedId] = useState<number | null>(null);
+  const [responseActionHistory, setResponseActionHistory] = useState<ResponseActionOut[]>([]);
+  const [responseActionHistoryLoading, setResponseActionHistoryLoading] = useState(false);
+  const [responseActionHistoryError, setResponseActionHistoryError] = useState<string | null>(null);
+  const [responseActionLive, setResponseActionLive] = useState<ResponseActionOut | null>(null);
+  const [responseActionLiveLoading, setResponseActionLiveLoading] = useState(false);
+  const [responseActionLiveError, setResponseActionLiveError] = useState<string | null>(null);
+  const [responseActionResult, setResponseActionResult] = useState<ResponseActionResultOut | null>(null);
+  const [responseActionResultLoading, setResponseActionResultLoading] = useState(false);
+  const [responseActionResultError, setResponseActionResultError] = useState<string | null>(null);
+  const [responseActionResultRawOpen, setResponseActionResultRawOpen] = useState(false);
 
   const inFlightSnapshot = useRef(false);
   const inFlightEvents = useRef(false);
@@ -854,12 +904,6 @@ export default function AgentsPage() {
     return Date.parse(responseActionExpiresIso) <= Date.now();
   }, [responseActionExpiresIso]);
 
-  const responseActionRecentForAgent = useMemo(() => {
-    const id = responseActionAgentId.trim();
-    if (!id) return [];
-    return recentResponseActions.filter((x) => x.agent_id === id).slice(0, 5);
-  }, [recentResponseActions, responseActionAgentId]);
-
   const responseActionAgentStatus = useMemo(() => {
     if (!responseActionAgentRow) return "Unknown";
     if (responseActionAgentRow.is_revoked) return "Disabled";
@@ -891,6 +935,84 @@ export default function AgentsPage() {
     responseActionExpirationInPast
   ]);
 
+  const responseActionSelected = useMemo(() => {
+    if (!responseActionSelectedId) return null;
+    return responseActionHistory.find((x) => x.id === responseActionSelectedId) || responseActionLive || null;
+  }, [responseActionSelectedId, responseActionHistory, responseActionLive]);
+
+  const responseActionLiveView = useMemo(() => {
+    return responseActionLive || responseActionSelected;
+  }, [responseActionLive, responseActionSelected]);
+
+  const responseActionCanCancel = useMemo(() => {
+    const s = (responseActionLiveView?.status || "").trim().toLowerCase();
+    return s === "pending" || s === "delivered";
+  }, [responseActionLiveView]);
+
+  const loadResponseActionHistory = useCallback(
+    async (agentId: string) => {
+      if (!agentId.trim()) {
+        setResponseActionHistory([]);
+        setResponseActionHistoryError(null);
+        return;
+      }
+      setResponseActionHistoryLoading(true);
+      try {
+        const rows = await listResponseActions({ agent_id: agentId.trim(), limit: 25 });
+        setResponseActionHistory(rows);
+        setResponseActionHistoryError(null);
+        setResponseActionSelectedId((prev) => {
+          if (prev && rows.some((x) => x.id === prev)) return prev;
+          return rows[0]?.id ?? null;
+        });
+      } catch (e: any) {
+        setResponseActionHistoryError(getErrorMessage(e, "Failed to load response actions"));
+        setResponseActionHistory([]);
+      } finally {
+        setResponseActionHistoryLoading(false);
+      }
+    },
+    []
+  );
+
+  const loadResponseActionLive = useCallback(async (actionId: number) => {
+    if (!Number.isFinite(actionId) || actionId <= 0) return;
+    setResponseActionLiveLoading(true);
+    try {
+      const out = await getResponseAction(actionId);
+      setResponseActionLive(out);
+      setResponseActionLiveError(null);
+      setResponseActionHistory((prev) => {
+        const next = prev.filter((x) => x.id !== out.id);
+        return [out, ...next].slice(0, 25);
+      });
+    } catch (e: any) {
+      setResponseActionLiveError(getErrorMessage(e, "Failed to load response action"));
+      setResponseActionLive(null);
+    } finally {
+      setResponseActionLiveLoading(false);
+    }
+  }, []);
+
+  const loadResponseActionResult = useCallback(async (actionId: number) => {
+    if (!Number.isFinite(actionId) || actionId <= 0) return;
+    setResponseActionResultLoading(true);
+    try {
+      const out = await getResponseActionResult(actionId);
+      setResponseActionResult(out);
+      setResponseActionResultError(null);
+    } catch (e: any) {
+      setResponseActionResult(null);
+      if (Number((e as any)?.status) === 404) {
+        setResponseActionResultError(null);
+      } else {
+        setResponseActionResultError(getErrorMessage(e, "Response action result is not available"));
+      }
+    } finally {
+      setResponseActionResultLoading(false);
+    }
+  }, []);
+
   const openResponseActionDrawer = () => {
     resetResponseActionForm(selectedAgentId || "");
     setResponseActionOpen(true);
@@ -906,6 +1028,55 @@ export default function AgentsPage() {
     setResponseActionExpiresAt(toLocalDateTimeInput(dt));
     setResponseActionError(null);
     setResponseActionCreated(null);
+  };
+
+  const onSelectResponseAction = (actionId: number, nextTab: "execution" | "result" = "execution") => {
+    if (!Number.isFinite(actionId) || actionId <= 0) {
+      setResponseActionSelectedId(null);
+      return;
+    }
+    setResponseActionSelectedId(actionId);
+    setResponseActionError(null);
+    setResponseActionResultRawOpen(false);
+    setResponseActionTab(nextTab);
+  };
+
+  const onCancelSelectedResponseAction = async () => {
+    if (!responseActionSelectedId) return;
+    setResponseActionBusy(true);
+    setResponseActionError(null);
+    try {
+      const out = await cancelResponseAction(responseActionSelectedId);
+      setResponseActionLive(out);
+      await loadResponseActionHistory(responseActionAgentId);
+    } catch (e: any) {
+      setResponseActionError(getErrorMessage(e, "Failed to cancel response action"));
+    } finally {
+      setResponseActionBusy(false);
+    }
+  };
+
+  const onCopyResponseResultJson = async () => {
+    const payload = responseActionResult?.result_payload || {};
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    } catch {
+      setResponseActionError("Failed to copy result JSON");
+    }
+  };
+
+  const onDownloadResponseResultJson = () => {
+    const payload = responseActionResult?.result_payload || {};
+    const actionId = responseActionSelectedId || 0;
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `response-action-${actionId}-result.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const onSubmitResponseAction = async () => {
@@ -943,7 +1114,11 @@ export default function AgentsPage() {
         expires_at: responseActionExpiresIso || undefined
       });
       setResponseActionCreated(out);
-      setRecentResponseActions((prev) => [out, ...prev.filter((x) => x.id !== out.id)].slice(0, 12));
+      setResponseActionSelectedId(out.id);
+      setResponseActionTab("execution");
+      setResponseActionLive(out);
+      await loadResponseActionHistory(agentId);
+      await loadResponseActionResult(out.id);
       refresh();
     } catch (e: any) {
       setResponseActionError(getErrorMessage(e, "Failed to create response action"));
@@ -951,6 +1126,29 @@ export default function AgentsPage() {
       setResponseActionBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (!responseActionOpen || !isAdmin) return;
+    loadResponseActionHistory(responseActionAgentId || "");
+  }, [responseActionOpen, isAdmin, responseActionAgentId, loadResponseActionHistory]);
+
+  useEffect(() => {
+    if (!responseActionOpen || !responseActionSelectedId) return;
+    loadResponseActionLive(responseActionSelectedId);
+    loadResponseActionResult(responseActionSelectedId);
+  }, [responseActionOpen, responseActionSelectedId, loadResponseActionLive, loadResponseActionResult]);
+
+  useEffect(() => {
+    if (!responseActionOpen || !responseActionSelectedId) return;
+    const liveStatus = (responseActionLive?.status || "").trim().toLowerCase();
+    if (liveStatus && !["pending", "delivered", "running"].includes(liveStatus)) return;
+
+    const t = window.setInterval(() => {
+      loadResponseActionLive(responseActionSelectedId);
+      loadResponseActionResult(responseActionSelectedId);
+    }, 4000);
+    return () => window.clearInterval(t);
+  }, [responseActionOpen, responseActionSelectedId, responseActionLive?.status, loadResponseActionLive, loadResponseActionResult]);
 
   const topStats = useMemo(() => {
     const last = selectedAgentRow?.last_seen_at ? new Date(selectedAgentRow.last_seen_at) : null;
@@ -1655,219 +1853,32 @@ export default function AgentsPage() {
                 </div>
               </div>
             </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Panel title="Target & scheduling">
-                <div className="space-y-4">
-                  <div>
-                    <FieldLabel>Target agent</FieldLabel>
-                    <select
-                      className={inputClassName(responseActionBusy)}
-                      value={responseActionAgentId}
-                      onChange={(e) => {
-                        setResponseActionAgentId(e.target.value);
-                        setResponseActionError(null);
-                        setResponseActionCreated(null);
-                      }}
-                      disabled={responseActionBusy}
-                    >
-                      <option value="">Select an agent</option>
-                      {agentsSorted.map((a) => (
-                        <option key={a.agent_id} value={a.agent_id}>
-                          {(a.display_name || a.agent_id) + " (" + a.agent_id + ")"}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <FieldLabel>Expiration (optional)</FieldLabel>
-                    <input
-                      type="datetime-local"
-                      className={inputClassName(responseActionBusy)}
-                      value={responseActionExpiresAt}
-                      onChange={(e) => {
-                        setResponseActionExpiresAt(e.target.value);
-                        setResponseActionError(null);
-                        setResponseActionCreated(null);
-                      }}
-                      disabled={responseActionBusy}
-                    />
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setResponseActionExpiryOffset(15)}
-                        disabled={responseActionBusy}
-                        className={cx(
-                          "rounded border border-border/60 bg-background/30 px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
-                          "hover:bg-muted/10",
-                          responseActionBusy && "opacity-60 cursor-not-allowed"
-                        )}
-                      >
-                        +15m
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setResponseActionExpiryOffset(60)}
-                        disabled={responseActionBusy}
-                        className={cx(
-                          "rounded border border-border/60 bg-background/30 px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
-                          "hover:bg-muted/10",
-                          responseActionBusy && "opacity-60 cursor-not-allowed"
-                        )}
-                      >
-                        +1h
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setResponseActionExpiresAt("");
-                          setResponseActionError(null);
-                          setResponseActionCreated(null);
-                        }}
-                        disabled={responseActionBusy}
-                        className={cx(
-                          "rounded border border-border/60 bg-background/30 px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
-                          "hover:bg-muted/10",
-                          responseActionBusy && "opacity-60 cursor-not-allowed"
-                        )}
-                      >
-                        Clear
-                      </button>
-                    </div>
-                    {responseActionExpirationInvalid && (
-                      <div className="mt-1 text-[11px] text-red-400">Expiration must be a valid date and time.</div>
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  ["create", "Create action"],
+                  ["execution", "Live execution status"],
+                  ["result", "Result viewer"]
+                ] as const
+              ).map(([k, label]) => {
+                const active = responseActionTab === k;
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setResponseActionTab(k)}
+                    className={cx(
+                      "rounded border px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                      active
+                        ? "border-primary/60 bg-primary/20 text-foreground"
+                        : "border-border/60 bg-background/30 text-muted-foreground hover:text-foreground hover:bg-muted/10"
                     )}
-                    {responseActionExpirationInPast && (
-                      <div className="mt-1 text-[11px] text-red-400">Expiration must be in the future.</div>
-                    )}
-                  </div>
-                </div>
-              </Panel>
-
-              <Panel title="Action">
-                <div className="space-y-4">
-                  <div>
-                    <FieldLabel>Action type</FieldLabel>
-                    <select
-                      className={inputClassName(responseActionBusy)}
-                      value={responseActionType}
-                      onChange={(e) => {
-                        setResponseActionType(e.target.value);
-                        setResponseActionError(null);
-                        setResponseActionCreated(null);
-                      }}
-                      disabled={responseActionBusy}
-                    >
-                      {RESPONSE_ACTION_TYPES.map((x) => (
-                        <option key={x.key} value={x.key}>
-                          {x.label}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="mt-1 text-[11px] text-muted-foreground">{responseActionDefinition.hint}</div>
-                  </div>
-
-                  <div className="rounded border border-border/60 bg-background/30 p-3 space-y-2">
-                    <div>
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Expected effect</div>
-                      <div className="mt-1 text-[12px] text-muted-foreground">{responseActionDefinition.effect}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Expected result</div>
-                      <div className="mt-1 text-[12px] text-muted-foreground">{responseActionDefinition.expectedResult}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Audit</div>
-                      <div className="mt-1 text-[12px] text-muted-foreground">{responseActionDefinition.auditNote}</div>
-                    </div>
-                  </div>
-                </div>
-              </Panel>
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
-
-            <Panel title="Payload" right={responseActionAdvancedOpen ? "Advanced mode" : "Guided mode"}>
-              <div className="space-y-3">
-                <div className="rounded border border-border/60 bg-background/30 px-3 py-2 text-[12px] text-muted-foreground">
-                  This action does not require additional payload fields in standard mode.
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setResponseActionAdvancedOpen((prev) => !prev);
-                    setResponseActionError(null);
-                    setResponseActionCreated(null);
-                  }}
-                  disabled={responseActionBusy}
-                  className={cx(
-                    "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                    "hover:bg-primary/5",
-                    responseActionBusy && "opacity-60 cursor-not-allowed"
-                  )}
-                >
-                  {responseActionAdvancedOpen ? "Hide advanced payload" : "Show advanced payload JSON"}
-                </button>
-
-                {responseActionAdvancedOpen && (
-                  <div>
-                    <textarea
-                      className={textAreaClassName(responseActionBusy)}
-                      rows={7}
-                      value={responseActionPayloadText}
-                      onChange={(e) => {
-                        setResponseActionPayloadText(e.target.value);
-                        setResponseActionError(null);
-                        setResponseActionCreated(null);
-                      }}
-                      disabled={responseActionBusy}
-                    />
-                    {responseActionPayloadError && (
-                      <div className="mt-1 text-[11px] text-red-400">Payload: {responseActionPayloadError}</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </Panel>
-
-            <Panel title="Execution summary" right="Review before queueing">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Agent</div>
-                  <div className="mt-1 text-[12px] font-mono">{responseActionAgentId || "Not selected"}</div>
-                </div>
-                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Action</div>
-                  <div className="mt-1 text-[12px] font-mono">{responseActionDefinition.label}</div>
-                </div>
-                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Expiration</div>
-                  <div className="mt-1 text-[12px] font-mono">{responseActionExpiresLabel}</div>
-                </div>
-                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Payload keys</div>
-                  <div className="mt-1 text-[12px] font-mono">{Object.keys(responseActionPayload.payload || {}).length}</div>
-                </div>
-              </div>
-            </Panel>
-
-            <Panel title="Recent queued in this session" right={responseActionRecentForAgent.length ? String(responseActionRecentForAgent.length) : "None"}>
-              {responseActionRecentForAgent.length === 0 ? (
-                <div className="text-[12px] text-muted-foreground">No response actions queued for this agent in this session yet.</div>
-              ) : (
-                <div className="space-y-2">
-                  {responseActionRecentForAgent.map((x) => (
-                    <div key={x.id} className="rounded border border-border/60 bg-background/30 px-3 py-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-[12px] font-mono">#{x.id} {x.action_type}</div>
-                        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{x.status}</div>
-                      </div>
-                      <div className="mt-1 text-[11px] text-muted-foreground">requested {fmtMaybeIso(x.requested_at)}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Panel>
 
             {responseActionError && (
               <div className="rounded-lg border border-red-400/50 bg-red-500/10 px-4 py-3 text-[12px] text-red-300">
@@ -1881,37 +1892,497 @@ export default function AgentsPage() {
               </div>
             )}
 
+            {responseActionTab === "create" && (
+              <div className="space-y-4">
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Panel title="Target & scheduling">
+                    <div className="space-y-4">
+                      <div>
+                        <FieldLabel>Target agent</FieldLabel>
+                        <select
+                          className={inputClassName(responseActionBusy)}
+                          value={responseActionAgentId}
+                          onChange={(e) => {
+                            setResponseActionAgentId(e.target.value);
+                            setResponseActionError(null);
+                            setResponseActionCreated(null);
+                          }}
+                          disabled={responseActionBusy}
+                        >
+                          <option value="">Select an agent</option>
+                          {agentsSorted.map((a) => (
+                            <option key={a.agent_id} value={a.agent_id}>
+                              {(a.display_name || a.agent_id) + " (" + a.agent_id + ")"}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <FieldLabel>Expiration (optional)</FieldLabel>
+                        <input
+                          type="datetime-local"
+                          className={inputClassName(responseActionBusy)}
+                          value={responseActionExpiresAt}
+                          onChange={(e) => {
+                            setResponseActionExpiresAt(e.target.value);
+                            setResponseActionError(null);
+                            setResponseActionCreated(null);
+                          }}
+                          disabled={responseActionBusy}
+                        />
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setResponseActionExpiryOffset(15)}
+                            disabled={responseActionBusy}
+                            className={cx(
+                              "rounded border border-border/60 bg-background/30 px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
+                              "hover:bg-muted/10",
+                              responseActionBusy && "opacity-60 cursor-not-allowed"
+                            )}
+                          >
+                            +15m
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setResponseActionExpiryOffset(60)}
+                            disabled={responseActionBusy}
+                            className={cx(
+                              "rounded border border-border/60 bg-background/30 px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
+                              "hover:bg-muted/10",
+                              responseActionBusy && "opacity-60 cursor-not-allowed"
+                            )}
+                          >
+                            +1h
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setResponseActionExpiresAt("");
+                              setResponseActionError(null);
+                              setResponseActionCreated(null);
+                            }}
+                            disabled={responseActionBusy}
+                            className={cx(
+                              "rounded border border-border/60 bg-background/30 px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
+                              "hover:bg-muted/10",
+                              responseActionBusy && "opacity-60 cursor-not-allowed"
+                            )}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                        {responseActionExpirationInvalid && (
+                          <div className="mt-1 text-[11px] text-red-400">Expiration must be a valid date and time.</div>
+                        )}
+                        {responseActionExpirationInPast && (
+                          <div className="mt-1 text-[11px] text-red-400">Expiration must be in the future.</div>
+                        )}
+                      </div>
+                    </div>
+                  </Panel>
+
+                  <Panel title="Action">
+                    <div className="space-y-4">
+                      <div>
+                        <FieldLabel>Action type</FieldLabel>
+                        <select
+                          className={inputClassName(responseActionBusy)}
+                          value={responseActionType}
+                          onChange={(e) => {
+                            setResponseActionType(e.target.value);
+                            setResponseActionError(null);
+                            setResponseActionCreated(null);
+                          }}
+                          disabled={responseActionBusy}
+                        >
+                          {RESPONSE_ACTION_TYPES.map((x) => (
+                            <option key={x.key} value={x.key}>
+                              {x.label}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="mt-1 text-[11px] text-muted-foreground">{responseActionDefinition.hint}</div>
+                      </div>
+
+                      <div className="rounded border border-border/60 bg-background/30 p-3 space-y-2">
+                        <div>
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Expected effect</div>
+                          <div className="mt-1 text-[12px] text-muted-foreground">{responseActionDefinition.effect}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Expected result</div>
+                          <div className="mt-1 text-[12px] text-muted-foreground">{responseActionDefinition.expectedResult}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Audit</div>
+                          <div className="mt-1 text-[12px] text-muted-foreground">{responseActionDefinition.auditNote}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </Panel>
+                </div>
+
+                <Panel title="Payload" right={responseActionAdvancedOpen ? "Advanced mode" : "Guided mode"}>
+                  <div className="space-y-3">
+                    <div className="rounded border border-border/60 bg-background/30 px-3 py-2 text-[12px] text-muted-foreground">
+                      This action supports a safe collector payload. Standard mode uses server defaults.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResponseActionAdvancedOpen((prev) => !prev);
+                        setResponseActionError(null);
+                        setResponseActionCreated(null);
+                      }}
+                      disabled={responseActionBusy}
+                      className={cx(
+                        "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                        "hover:bg-primary/5",
+                        responseActionBusy && "opacity-60 cursor-not-allowed"
+                      )}
+                    >
+                      {responseActionAdvancedOpen ? "Hide advanced payload" : "Show advanced payload JSON"}
+                    </button>
+                    {responseActionAdvancedOpen && (
+                      <div>
+                        <textarea
+                          className={textAreaClassName(responseActionBusy)}
+                          rows={7}
+                          value={responseActionPayloadText}
+                          onChange={(e) => {
+                            setResponseActionPayloadText(e.target.value);
+                            setResponseActionError(null);
+                            setResponseActionCreated(null);
+                          }}
+                          disabled={responseActionBusy}
+                        />
+                        {responseActionPayloadError && (
+                          <div className="mt-1 text-[11px] text-red-400">Payload: {responseActionPayloadError}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </Panel>
+
+                <Panel title="Execution summary" right="Review before queueing">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Agent</div>
+                      <div className="mt-1 text-[12px] font-mono">{responseActionAgentId || "Not selected"}</div>
+                    </div>
+                    <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Action</div>
+                      <div className="mt-1 text-[12px] font-mono">{responseActionDefinition.label}</div>
+                    </div>
+                    <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Expiration</div>
+                      <div className="mt-1 text-[12px] font-mono">{responseActionExpiresLabel}</div>
+                    </div>
+                    <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Payload keys</div>
+                      <div className="mt-1 text-[12px] font-mono">{Object.keys(responseActionPayload.payload || {}).length}</div>
+                    </div>
+                  </div>
+                </Panel>
+
+                <div className="rounded-lg border border-border/60 bg-background/40 px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-[11px] text-muted-foreground">Queue this request to start the execution lifecycle.</div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={closeResponseActionDrawer}
+                        disabled={responseActionBusy}
+                        className={cx(
+                          "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                          "hover:bg-primary/5",
+                          responseActionBusy && "opacity-60 cursor-not-allowed"
+                        )}
+                      >
+                        Close
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onSubmitResponseAction}
+                        disabled={!canSubmitResponseAction}
+                        className={cx(
+                          "border border-primary/60 bg-primary/20 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-foreground",
+                          "hover:bg-primary/30",
+                          (!canSubmitResponseAction || responseActionBusy) && "opacity-60 cursor-not-allowed"
+                        )}
+                      >
+                        {responseActionBusy ? "Queueing..." : "Queue response action"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {responseActionTab === "execution" && (
+              <div className="space-y-4">
+                <Panel title="Live execution status" right={responseActionLiveLoading ? "Refreshing" : ""}>
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="min-w-[220px]">
+                        <FieldLabel>Action instance</FieldLabel>
+                        <select
+                          className={inputClassName(responseActionBusy)}
+                          value={responseActionSelectedId ? String(responseActionSelectedId) : ""}
+                          onChange={(e) => onSelectResponseAction(Number(e.target.value) || 0, "result")}
+                          disabled={responseActionBusy || responseActionHistoryLoading || responseActionHistory.length === 0}
+                        >
+                          <option value="">Select action</option>
+                          {responseActionHistory.map((x) => (
+                            <option key={x.id} value={x.id}>
+                              #{x.id} · {x.status}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (responseActionSelectedId) {
+                            loadResponseActionLive(responseActionSelectedId);
+                            loadResponseActionResult(responseActionSelectedId);
+                          }
+                          loadResponseActionHistory(responseActionAgentId);
+                        }}
+                        className={cx(
+                          "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                          "hover:bg-primary/5"
+                        )}
+                      >
+                        Refresh status
+                      </button>
+                    </div>
+
+                    {responseActionLiveError && <div className="text-[11px] text-red-400">{responseActionLiveError}</div>}
+
+                    {!responseActionLiveView ? (
+                      <EmptyState title="No action selected" hint="Queue an action or select one from history." />
+                    ) : (
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Current status</div>
+                          <div className="mt-1 text-[12px] font-mono">{responseActionLiveView.status}</div>
+                        </div>
+                        <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Requested by</div>
+                          <div className="mt-1 text-[12px] font-mono">{responseActionLiveView.requested_by || "-"}</div>
+                        </div>
+                        <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Requested at</div>
+                          <div className="mt-1 text-[12px] font-mono">{fmtMaybeIso(responseActionLiveView.requested_at)}</div>
+                        </div>
+                        <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Delivered at</div>
+                          <div className="mt-1 text-[12px] font-mono">{fmtMaybeIso(responseActionLiveView.delivered_at)}</div>
+                        </div>
+                        <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Started at</div>
+                          <div className="mt-1 text-[12px] font-mono">{fmtMaybeIso(responseActionLiveView.started_at)}</div>
+                        </div>
+                        <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Finished at</div>
+                          <div className="mt-1 text-[12px] font-mono">{fmtMaybeIso(responseActionLiveView.finished_at)}</div>
+                        </div>
+                        <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Duration</div>
+                          <div className="mt-1 text-[12px] font-mono">
+                            {fmtDuration(responseActionLiveView.started_at, responseActionLiveView.finished_at)}
+                          </div>
+                        </div>
+                        <div className="rounded border border-border/60 bg-background/30 px-3 py-2 sm:col-span-2">
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Last error</div>
+                          <div className="mt-1 text-[12px] font-mono break-words">{responseActionLiveView.last_error || "-"}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={onCancelSelectedResponseAction}
+                        disabled={!responseActionSelectedId || !responseActionCanCancel || responseActionBusy}
+                        className={cx(
+                          "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                          "hover:bg-primary/5",
+                          (!responseActionSelectedId || !responseActionCanCancel || responseActionBusy) && "opacity-60 cursor-not-allowed"
+                        )}
+                      >
+                        {responseActionBusy ? "Working..." : "Cancel action"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setResponseActionTab("result")}
+                        disabled={!responseActionSelectedId}
+                        className={cx(
+                          "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                          "hover:bg-primary/5",
+                          !responseActionSelectedId && "opacity-60 cursor-not-allowed"
+                        )}
+                      >
+                        Open result viewer
+                      </button>
+                    </div>
+                  </div>
+                </Panel>
+              </div>
+            )}
+
+            {responseActionTab === "result" && (
+              <div className="space-y-4">
+                <Panel title="Result viewer" right={responseActionResultLoading ? "Loading" : ""}>
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="min-w-[220px]">
+                        <FieldLabel>Action instance</FieldLabel>
+                        <select
+                          className={inputClassName(responseActionBusy)}
+                          value={responseActionSelectedId ? String(responseActionSelectedId) : ""}
+                          onChange={(e) => onSelectResponseAction(Number(e.target.value) || 0)}
+                          disabled={responseActionBusy || responseActionHistory.length === 0}
+                        >
+                          <option value="">Select action</option>
+                          {responseActionHistory.map((x) => (
+                            <option key={x.id} value={x.id}>
+                              #{x.id} · {x.status}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {responseActionResultError && <div className="text-[11px] text-red-400">{responseActionResultError}</div>}
+
+                    {!responseActionResult ? (
+                      <EmptyState title="Result unavailable" hint="This action has not reported a result yet." />
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                          <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Status</div>
+                            <div className="mt-1 text-[12px] font-mono">{responseActionResult.status}</div>
+                          </div>
+                          <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Started</div>
+                            <div className="mt-1 text-[12px] font-mono">{fmtMaybeIso(responseActionResult.started_at)}</div>
+                          </div>
+                          <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Finished</div>
+                            <div className="mt-1 text-[12px] font-mono">{fmtMaybeIso(responseActionResult.finished_at)}</div>
+                          </div>
+                          <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Duration</div>
+                            <div className="mt-1 text-[12px] font-mono">{fmtDuration(responseActionResult.started_at, responseActionResult.finished_at)}</div>
+                          </div>
+                        </div>
+
+                        <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Error</div>
+                          <div className="mt-1 text-[12px] font-mono break-words">{responseActionResult.error || "-"}</div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={onCopyResponseResultJson}
+                            className={cx(
+                              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                              "hover:bg-primary/5"
+                            )}
+                          >
+                            Copy JSON
+                          </button>
+                          <button
+                            type="button"
+                            onClick={onDownloadResponseResultJson}
+                            className={cx(
+                              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                              "hover:bg-primary/5"
+                            )}
+                          >
+                            Download result
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setResponseActionResultRawOpen((prev) => !prev)}
+                            className={cx(
+                              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                              "hover:bg-primary/5"
+                            )}
+                          >
+                            {responseActionResultRawOpen ? "Hide details" : "Open details"}
+                          </button>
+                        </div>
+
+                        {responseActionResultRawOpen && (
+                          <pre className="rounded border border-border/60 bg-background/20 p-3 text-[11px] font-mono overflow-auto max-h-[280px]">
+                            {prettyJson(responseActionResult)}
+                          </pre>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </Panel>
+              </div>
+            )}
+
+            <Panel
+              title="History"
+              right={responseActionHistoryLoading ? "Loading" : responseActionHistory.length ? String(responseActionHistory.length) : "Empty"}
+            >
+              {responseActionHistoryError ? (
+                <div className="text-[11px] text-red-400">{responseActionHistoryError}</div>
+              ) : responseActionHistory.length === 0 ? (
+                <div className="text-[12px] text-muted-foreground">No actions found for this agent.</div>
+              ) : (
+                <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
+                  {responseActionHistory.map((x) => {
+                    const active = x.id === responseActionSelectedId;
+                    return (
+                      <button
+                        key={x.id}
+                        type="button"
+                        onClick={() => onSelectResponseAction(x.id)}
+                        className={cx(
+                          "w-full rounded border px-3 py-2 text-left",
+                          active ? "border-primary/60 bg-primary/10" : "border-border/60 bg-background/30 hover:bg-muted/10"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-[12px] font-mono">#{x.id} {x.action_type}</div>
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{x.status}</div>
+                        </div>
+                        <div className="mt-1 text-[11px] text-muted-foreground">requested {fmtMaybeIso(x.requested_at)}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </Panel>
+
             <div className="rounded-lg border border-border/60 bg-background/40 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="text-[11px] text-muted-foreground">
-                  Verify target and action intent before queueing.
+                  Request, execution, and result are available in a single operator console.
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={closeResponseActionDrawer}
-                    disabled={responseActionBusy}
-                    className={cx(
-                      "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                      "hover:bg-primary/5",
-                      responseActionBusy && "opacity-60 cursor-not-allowed"
-                    )}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onSubmitResponseAction}
-                    disabled={!canSubmitResponseAction}
-                    className={cx(
-                      "border border-primary/60 bg-primary/20 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-foreground",
-                      "hover:bg-primary/30",
-                      (!canSubmitResponseAction || responseActionBusy) && "opacity-60 cursor-not-allowed"
-                    )}
-                  >
-                    {responseActionBusy ? "Queueing..." : "Queue response action"}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={closeResponseActionDrawer}
+                  disabled={responseActionBusy}
+                  className={cx(
+                    "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                    "hover:bg-primary/5",
+                    responseActionBusy && "opacity-60 cursor-not-allowed"
+                  )}
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>
