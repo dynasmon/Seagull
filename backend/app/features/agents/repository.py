@@ -56,8 +56,14 @@ def save_credential(db: Session, row: AgentCredentialModel) -> AgentCredentialMo
     return row
 
 
-def list_pending_actions_for_agent(db: Session, *, agent_id: str, limit: int = 100) -> list[ResponseActionModel]:
-    return (
+def list_pending_actions_for_agent(
+    db: Session,
+    *,
+    agent_id: str,
+    limit: int = 100,
+    for_update: bool = False,
+) -> list[ResponseActionModel]:
+    q = (
         db.query(ResponseActionModel)
         .filter(
             ResponseActionModel.agent_id == agent_id,
@@ -65,12 +71,17 @@ def list_pending_actions_for_agent(db: Session, *, agent_id: str, limit: int = 1
         )
         .order_by(ResponseActionModel.requested_at.asc(), ResponseActionModel.id.asc())
         .limit(int(limit))
-        .all()
     )
+    if for_update:
+        q = q.with_for_update()
+    return q.all()
 
 
-def get_response_action(db: Session, response_action_id: int) -> ResponseActionModel | None:
-    return db.query(ResponseActionModel).filter(ResponseActionModel.id == int(response_action_id)).first()
+def get_response_action(db: Session, response_action_id: int, *, for_update: bool = False) -> ResponseActionModel | None:
+    q = db.query(ResponseActionModel).filter(ResponseActionModel.id == int(response_action_id))
+    if for_update:
+        q = q.with_for_update()
+    return q.first()
 
 
 def save_response_action(db: Session, row: ResponseActionModel) -> ResponseActionModel:

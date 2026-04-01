@@ -367,7 +367,7 @@ def list_pending_actions(
     if not row_agent or row_agent.is_revoked:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
     now = datetime.utcnow()
-    rows = repository.list_pending_actions_for_agent(db, agent_id=agent.agent_id, limit=100)
+    rows = repository.list_pending_actions_for_agent(db, agent_id=agent.agent_id, limit=100, for_update=True)
     out: List[ResponseActionModel] = []
     for row in rows:
         expires_at = _to_utc_naive(row.expires_at)
@@ -423,7 +423,7 @@ def report_action_result(
     row_agent = repository.get_agent_by_id(db, agent.id)
     if not row_agent or row_agent.is_revoked:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
-    row_action = repository.get_response_action(db, payload.response_action_id)
+    row_action = repository.get_response_action(db, payload.response_action_id, for_update=True)
     if not row_action:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Response action not found")
     if row_action.agent_id != agent.agent_id:

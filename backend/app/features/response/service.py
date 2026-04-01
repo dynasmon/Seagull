@@ -18,15 +18,15 @@ _RUNNABLE_STATUSES = {"pending", "delivered"}
 
 
 def _utc_now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
-def _to_utc_naive(dt: datetime | None) -> datetime | None:
+def _to_utc(dt: datetime | None) -> datetime | None:
     if dt is None:
         return None
     if dt.tzinfo is None:
-        return dt
-    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _normalize_action_type(action_type: str) -> str:
@@ -135,8 +135,55 @@ def _validate_collect_triage_bundle_payload(raw_payload: Dict[str, Any]) -> Dict
     return out
 
 
+def _validate_refresh_runtime_config_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
+    payload = _as_dict(raw_payload, "payload")
+    if payload:
+        unknown = ", ".join(sorted(payload.keys()))
+        raise HTTPException(
+            status_code=422,
+            detail=f"payload has unsupported keys for refresh_runtime_config: {unknown}",
+        )
+    return {}
+
+
+def _validate_trigger_inventory_snapshot_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
+    payload = _as_dict(raw_payload, "payload")
+    allowed_root = {"limits"}
+    unknown = sorted([k for k in payload.keys() if k not in allowed_root])
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"payload has unsupported keys: {', '.join(unknown)}",
+        )
+    limits_in = _as_dict(payload.get("limits"), "payload.limits")
+    limits_unknown = sorted([k for k in limits_in.keys() if k not in {"max_processes", "max_connections"}])
+    if limits_unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"payload.limits has unsupported keys: {', '.join(limits_unknown)}",
+        )
+    return {
+        "limits": {
+            "max_processes": _as_int(
+                limits_in.get("max_processes", 200),
+                "payload.limits.max_processes",
+                min_value=10,
+                max_value=2000,
+            ),
+            "max_connections": _as_int(
+                limits_in.get("max_connections", 200),
+                "payload.limits.max_connections",
+                min_value=10,
+                max_value=2000,
+            ),
+        }
+    }
+
+
 _ACTION_PAYLOAD_VALIDATORS: dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {
     "collect_triage_bundle": _validate_collect_triage_bundle_payload,
+    "refresh_runtime_config": _validate_refresh_runtime_config_payload,
+    "trigger_inventory_snapshot": _validate_trigger_inventory_snapshot_payload,
 }
 
 
@@ -151,7 +198,7 @@ def _apply_expired_status(row: ResponseActionModel, *, now: datetime) -> bool:
     status = str(row.status or "").strip().lower()
     if status not in _RUNNABLE_STATUSES:
         return False
-    expires_at = _to_utc_naive(row.expires_at)
+    expires_at = _to_utc(row.expires_at)
     if expires_at is None or expires_at > now:
         return False
     row.status = "expired"
@@ -187,7 +234,7 @@ def create_response_action(
         raise HTTPException(status_code=403, detail="Agent is revoked")
 
     now = _utc_now()
-    expires_at = _to_utc_naive(payload.expires_at)
+    expires_at = _to_utc(payload.expires_at)
     if expires_at is not None and expires_at <= now:
         raise HTTPException(status_code=422, detail="expires_at must be in the future")
     normalized_payload = _validate_payload_for_action(action_type, dict(payload.payload or {}))
@@ -285,7 +332,7 @@ def cancel_response_action(
     admin,
     audit_writer=write_audit_event,
 ) -> ResponseActionModel:
-    row = repository.get_action(db, action_id=action_id)
+    row = repository.get_action(db, action_id=action_id, for_update=True)
     if not row:
         raise HTTPException(status_code=404, detail="Response action not found")
     if _apply_expired_status(row, now=_utc_now()):
@@ -347,7 +394,7 @@ def update_response_action_status(
     action_id: int,
     new_status: str,
 ) -> ResponseActionModel:
-    row = repository.get_action(db, action_id=action_id)
+    row = repository.get_action(db, action_id=action_id, for_update=True)
     if not row:
         raise HTTPException(status_code=404, detail="Response action not found")
     before = str(row.status or "").strip().lower()
