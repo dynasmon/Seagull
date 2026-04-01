@@ -1,5 +1,12 @@
 import { apiGet, apiPatch, apiPost, apiPut } from "@/shared/lib/http";
-import type { AgentDetail, AgentPublic, AgentUpdateIn, ResponseActionCreateIn, ResponseActionOut } from "./types";
+import type {
+  AgentDetail,
+  AgentPublic,
+  AgentUpdateIn,
+  ResponseActionCreateIn,
+  ResponseActionOut,
+  ResponseActionResultOut
+} from "./types";
 
 export function listAgents() {
   return apiGet<AgentPublic[]>("/api/agents");
@@ -34,4 +41,25 @@ export async function disableAgent(agentId: string) {
 
 export function createResponseAction(payload: ResponseActionCreateIn) {
   return apiPost<ResponseActionOut>("/api/response/actions", payload);
+}
+
+export function listResponseActions(params?: { agent_id?: string; status?: string; limit?: number }) {
+  const q = new URLSearchParams();
+  if (params?.agent_id) q.set("agent_id", params.agent_id);
+  if (params?.status) q.set("status", params.status);
+  if (typeof params?.limit === "number") q.set("limit", String(params.limit));
+  const suffix = q.toString() ? `?${q.toString()}` : "";
+  return apiGet<ResponseActionOut[]>(`/api/response/actions${suffix}`);
+}
+
+export function getResponseAction(actionId: number) {
+  return apiGet<ResponseActionOut>(`/api/response/actions/${actionId}`);
+}
+
+export function getResponseActionResult(actionId: number) {
+  return apiGet<ResponseActionResultOut>(`/api/response/actions/${actionId}/result`);
+}
+
+export function cancelResponseAction(actionId: number) {
+  return apiPost<ResponseActionOut>(`/api/response/actions/${actionId}/cancel`);
 }

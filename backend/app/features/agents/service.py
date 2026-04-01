@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
@@ -36,6 +36,14 @@ from app.features.response.models import ResponseActionModel, ResponseActionResu
 from app.features.response.schemas import AgentResponseActionResultIn
 
 _TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,31}$")
+
+
+def _to_utc_naive(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _normalize_tags(tags: Optional[List[str]]) -> List[str]:
@@ -362,36 +370,43 @@ def list_pending_actions(
     rows = repository.list_pending_actions_for_agent(db, agent_id=agent.agent_id, limit=100)
     out: List[ResponseActionModel] = []
     for row in rows:
-        if row.expires_at is not None and row.expires_at <= now:
-            row.status = "failed"
+        expires_at = _to_utc_naive(row.expires_at)
+        if expires_at is not None and expires_at <= now:
+            row.status = "expired"
+            row.finished_at = row.finished_at or now
+            row.last_error = row.last_error or "action expired before execution"
             repository.save_response_action(db, row)
             continue
-        before = {
-            "id": row.id,
-            "status": row.status,
-            "action_type": row.action_type,
-            "agent_id": row.agent_id,
-        }
-        row.status = "running"
-        repository.save_response_action(db, row)
-        audit_writer(
-            db,
-            request=request,
-            actor=audit_actor(None, None),
-            event_type="admin_action",
-            action="response.actions.running",
-            resource_type="response_action",
-            resource_id=str(row.id),
-            outcome="success",
-            before=before,
-            after={
+        before_status = str(row.status or "").strip().lower()
+        if before_status == "pending":
+            before = {
                 "id": row.id,
                 "status": row.status,
                 "action_type": row.action_type,
                 "agent_id": row.agent_id,
-            },
-            context={"reported_by_agent_id": agent.agent_id, "requested_by": row.requested_by},
-        )
+            }
+            row.status = "delivered"
+            row.delivered_at = row.delivered_at or now
+            repository.save_response_action(db, row)
+            audit_writer(
+                db,
+                request=request,
+                actor=audit_actor(None, None),
+                event_type="admin_action",
+                action="response.actions.delivered",
+                resource_type="response_action",
+                resource_id=str(row.id),
+                outcome="success",
+                before=before,
+                after={
+                    "id": row.id,
+                    "status": row.status,
+                    "action_type": row.action_type,
+                    "agent_id": row.agent_id,
+                    "delivered_at": row.delivered_at.isoformat() if row.delivered_at else None,
+                },
+                context={"reported_by_agent_id": agent.agent_id, "requested_by": row.requested_by},
+            )
         out.append(row)
     repository.commit(db)
     return out
@@ -415,9 +430,13 @@ def report_action_result(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Response action does not belong to this agent")
     if payload.agent_id is not None and payload.agent_id != agent.agent_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_id mismatch")
+    current_status = str(row_action.status or "").strip().lower()
+    if current_status in {"cancelled", "expired"}:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Response action is not executable")
 
     result_payload: Dict[str, Any] = dict(payload.result_payload or {})
     before_action_status = row_action.status
+    now = datetime.utcnow()
     latest = repository.get_latest_response_action_result(
         db,
         response_action_id=row_action.id,
@@ -432,8 +451,17 @@ def report_action_result(
     latest.finished_at = payload.finished_at
     repository.save_response_action_result(db, latest)
 
-    if payload.status in {"success", "failed"}:
+    if payload.status == "running":
+        row_action.status = "running"
+        row_action.delivered_at = row_action.delivered_at or now
+        row_action.started_at = payload.started_at or row_action.started_at or now
+        repository.save_response_action(db, row_action)
+    elif payload.status in {"success", "failed"}:
         row_action.status = payload.status
+        row_action.delivered_at = row_action.delivered_at or now
+        row_action.started_at = payload.started_at or row_action.started_at or now
+        row_action.finished_at = payload.finished_at or now
+        row_action.last_error = payload.error if payload.status == "failed" else None
         repository.save_response_action(db, row_action)
     if payload.status == "failed" and before_action_status != "failed":
         audit_writer(

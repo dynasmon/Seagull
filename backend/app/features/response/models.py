@@ -19,6 +19,13 @@ class ResponseActionModel(Base):
     requested_by = Column(String(64), nullable=False)
     requested_at = Column(DateTime(timezone=True), index=True, nullable=False, server_default=func.now())
 
+    delivered_at = Column(DateTime(timezone=True), index=True, nullable=True)
+    started_at = Column(DateTime(timezone=True), index=True, nullable=True)
+    finished_at = Column(DateTime(timezone=True), index=True, nullable=True)
+    cancelled_at = Column(DateTime(timezone=True), index=True, nullable=True)
+    cancelled_by = Column(String(64), nullable=True)
+    last_error = Column(Text, nullable=True)
+
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=True)

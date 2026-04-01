@@ -61,7 +61,7 @@ def list_pending_actions_for_agent(db: Session, *, agent_id: str, limit: int = 1
         db.query(ResponseActionModel)
         .filter(
             ResponseActionModel.agent_id == agent_id,
-            ResponseActionModel.status == "pending",
+            ResponseActionModel.status.in_(["pending", "delivered"]),
         )
         .order_by(ResponseActionModel.requested_at.asc(), ResponseActionModel.id.asc())
         .limit(int(limit))

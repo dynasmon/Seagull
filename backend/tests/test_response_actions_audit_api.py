@@ -72,7 +72,11 @@ def test_response_action_create_emits_request_audit(monkeypatch) -> None:
                 json={
                     "action_type": "collect_triage_bundle",
                     "agent_id": "agent-1",
-                    "payload": {"target": "node-a", "token": "x"},
+                    "payload": {
+                        "collectors": {"runtime": True, "host": True},
+                        "limits": {"max_processes": 100},
+                        "redaction": {"mask_secrets": True},
+                    },
                 },
             )
             assert r.status_code == 201
@@ -80,8 +84,8 @@ def test_response_action_create_emits_request_audit(monkeypatch) -> None:
             assert audits[0]["action"] == "response.actions.create"
             assert audits[0]["resource_type"] == "response_action"
             assert audits[0]["resource_id"] == "301"
-            assert audits[0]["context"]["payload_size"] == 2
-            assert sorted(audits[0]["context"]["payload_keys"]) == ["target", "token"]
+            assert audits[0]["context"]["payload_size"] == 3
+            assert sorted(audits[0]["context"]["payload_keys"]) == ["collectors", "limits", "redaction"]
             assert "payload" not in audits[0]["context"]
     finally:
         app.dependency_overrides.pop(require_admin, None)

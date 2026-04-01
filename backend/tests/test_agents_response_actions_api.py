@@ -103,7 +103,7 @@ class _ResultDB:
         return None
 
 
-def test_agent_pending_response_actions_mark_running(monkeypatch) -> None:
+def test_agent_pending_response_actions_mark_delivered(monkeypatch) -> None:
     fake_db = _PendingDB()
     monkeypatch.setattr(agents_api, "SessionLocal", lambda: fake_db)
     audits = []
@@ -116,10 +116,11 @@ def test_agent_pending_response_actions_mark_running(monkeypatch) -> None:
             body = r.json()
             assert len(body) == 1
             assert body[0]["id"] == 101
-            assert body[0]["status"] == "running"
-            assert fake_db.action.status == "running"
+            assert body[0]["status"] == "delivered"
+            assert fake_db.action.status == "delivered"
+            assert fake_db.action.delivered_at is not None
             assert len(audits) == 1
-            assert audits[0]["action"] == "response.actions.running"
+            assert audits[0]["action"] == "response.actions.delivered"
             assert audits[0]["resource_type"] == "response_action"
             assert audits[0]["resource_id"] == "101"
     finally:
@@ -151,6 +152,8 @@ def test_agent_report_response_action_result_persists(monkeypatch) -> None:
             assert fake_db.result_row.agent_id == "agent-1"
             assert fake_db.result_row.status == "success"
             assert fake_db.action.status == "success"
+            assert fake_db.action.started_at is not None
+            assert fake_db.action.finished_at is not None
             assert len(audits) == 0
     finally:
         app.dependency_overrides.pop(get_current_agent, None)
@@ -177,10 +180,35 @@ def test_agent_report_response_action_failure_emits_audit(monkeypatch) -> None:
             assert fake_db.result_row is not None
             assert fake_db.result_row.status == "failed"
             assert fake_db.action.status == "failed"
+            assert fake_db.action.last_error == "execution failed"
             assert len(audits) == 1
             assert audits[0]["action"] == "response.actions.failed"
             assert audits[0]["outcome"] == "failure"
             assert audits[0]["resource_type"] == "response_action"
             assert audits[0]["resource_id"] == "202"
+    finally:
+        app.dependency_overrides.pop(get_current_agent, None)
+
+
+def test_agent_report_response_action_running_sets_started(monkeypatch) -> None:
+    fake_db = _ResultDB()
+    fake_db.action.status = "delivered"
+    monkeypatch.setattr(agents_api, "SessionLocal", lambda: fake_db)
+    app.dependency_overrides[get_current_agent] = lambda: AgentPrincipal(id=1, agent_id="agent-1", auth_method="credential")
+    try:
+        with TestClient(app) as client:
+            r = client.post(
+                "/agents/response-actions/results",
+                json={
+                    "response_action_id": 202,
+                    "agent_id": "agent-1",
+                    "status": "running",
+                    "started_at": "2026-03-29T15:00:00Z",
+                },
+            )
+            assert r.status_code == 201
+            assert fake_db.action.status == "running"
+            assert fake_db.action.started_at is not None
+            assert fake_db.action.finished_at is None
     finally:
         app.dependency_overrides.pop(get_current_agent, None)
