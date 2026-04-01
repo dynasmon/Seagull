@@ -52,6 +52,22 @@ const RESPONSE_ACTION_TYPES = [
     effect: "The agent receives an operator-initiated collection request and starts execution when it polls pending actions.",
     expectedResult: "Execution status and result payload are reported back through the response action result channel.",
     auditNote: "This operation is auditable as an administrative response action request."
+  },
+  {
+    key: "refresh_runtime_config",
+    label: "Refresh runtime config",
+    hint: "Pull and apply the latest runtime config from the control plane immediately.",
+    effect: "The agent performs an immediate config pull outside the regular config ticker.",
+    expectedResult: "Result returns whether the runtime config changed, how many keys were pulled, and the resulting config hash.",
+    auditNote: "This operation is auditable as an administrative response action request."
+  },
+  {
+    key: "trigger_inventory_snapshot",
+    label: "Trigger inventory snapshot",
+    hint: "Collect a lightweight host/runtime inventory snapshot from the selected agent.",
+    effect: "The agent captures a focused inventory payload without waiting for another collector cadence.",
+    expectedResult: "Result includes runtime, host interfaces, process list, and network connection snapshot.",
+    auditNote: "This operation is auditable as an administrative response action request."
   }
 ] as const;
 
@@ -1479,11 +1495,11 @@ export default function AgentsPage() {
             </div>
           </Panel>
 
-          <Panel title="Actions" right={agent?.is_revoked ? "Disabled" : "Enabled"} style={{ height: 220 }}>
+          <Panel title="Actions" right={agent?.is_revoked ? "Disabled" : "Enabled"} style={{ minHeight: 220 }}>
             {!agent ? (
               <EmptyState title="Agent not loaded" hint="Try refresh or check API connectivity." />
             ) : (
-              <div className="h-full flex flex-col justify-between gap-4">
+              <div className="flex flex-col gap-4">
                 <div className="space-y-1">
                   <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
                     Selected
@@ -1497,7 +1513,7 @@ export default function AgentsPage() {
                     type="button"
                     onClick={() => setConfigOpen(true)}
                     className={cx(
-                      "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                      "w-full min-w-0 border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-center break-words",
                       "hover:bg-primary/5"
                     )}
                   >
@@ -1509,7 +1525,7 @@ export default function AgentsPage() {
                       type="button"
                       onClick={openResponseActionDrawer}
                       className={cx(
-                        "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                        "w-full min-w-0 border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-center break-words",
                         "hover:bg-primary/5"
                       )}
                     >
@@ -1522,7 +1538,7 @@ export default function AgentsPage() {
                     onClick={onToggleRevoked}
                     disabled={toggleBusy}
                     className={cx(
-                      "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                      "w-full min-w-0 border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-center break-words",
                       "hover:bg-primary/5",
                       toggleBusy && "opacity-60 cursor-not-allowed"
                     )}
@@ -2027,7 +2043,7 @@ export default function AgentsPage() {
                 <Panel title="Payload" right={responseActionAdvancedOpen ? "Advanced mode" : "Guided mode"}>
                   <div className="space-y-3">
                     <div className="rounded border border-border/60 bg-background/30 px-3 py-2 text-[12px] text-muted-foreground">
-                      This action supports a safe collector payload. Standard mode uses server defaults.
+                      Payload is optional. Guided mode sends defaults from the server-side action schema.
                     </div>
                     <button
                       type="button"
@@ -2131,7 +2147,7 @@ export default function AgentsPage() {
                         <select
                           className={inputClassName(responseActionBusy)}
                           value={responseActionSelectedId ? String(responseActionSelectedId) : ""}
-                          onChange={(e) => onSelectResponseAction(Number(e.target.value) || 0, "result")}
+                          onChange={(e) => onSelectResponseAction(Number(e.target.value) || 0, "execution")}
                           disabled={responseActionBusy || responseActionHistoryLoading || responseActionHistory.length === 0}
                         >
                           <option value="">Select action</option>
@@ -2489,7 +2505,7 @@ export default function AgentsPage() {
                         onClick={onToggleRevoked}
                         disabled={toggleBusy}
                         className={cx(
-                          "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                          "w-full min-w-0 border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-center break-words",
                           "hover:bg-primary/5",
                           toggleBusy && "opacity-60 cursor-not-allowed"
                         )}
