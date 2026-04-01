@@ -1,5 +1,5 @@
 import { apiGet, apiPatch, apiPost, apiPut } from "@/shared/lib/http";
-import type { AgentDetail, AgentPublic, AgentUpdateIn } from "./types";
+import type { AgentDetail, AgentPublic, AgentUpdateIn, ResponseActionCreateIn, ResponseActionOut } from "./types";
 
 export function listAgents() {
   return apiGet<AgentPublic[]>("/api/agents");
@@ -30,4 +30,8 @@ export async function enableAgent(agentId: string) {
 export async function disableAgent(agentId: string) {
   await apiPost<void>(`/api/agents/${encodeURIComponent(agentId)}/disable`);
   return getAgent(agentId);
+}
+
+export function createResponseAction(payload: ResponseActionCreateIn) {
+  return apiPost<ResponseActionOut>("/api/response/actions", payload);
 }

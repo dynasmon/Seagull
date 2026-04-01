@@ -10,6 +10,7 @@ import { cx } from "@/shared/lib/cx";
 import { getErrorMessage } from "@/shared/lib/errors";
 
 import { useAgentsCatalog } from "@/app/providers";
+import { useAuth } from "@/features/auth/context";
 
 import { getOverview } from "@/features/overview/api";
 import { SimpleTimeSeries } from "@/features/overview/components/Charts";
@@ -22,8 +23,8 @@ import type { NetEvent } from "@/features/events/types";
 
 import DdosDeepDive from "@/features/events/views/ddos/DdosDeepDive";
 
-import { disableAgent, enableAgent, getAgent, setAgentConfig, updateAgent } from "./api";
-import type { AgentDetail, AgentPublic, AgentUpdateIn } from "./types";
+import { createResponseAction, disableAgent, enableAgent, getAgent, setAgentConfig, updateAgent } from "./api";
+import type { AgentDetail, AgentPublic, AgentUpdateIn, ResponseActionOut } from "./types";
 
 // Grafana-like fixed panel heights.
 const H_PANEL_MD = 420;
@@ -32,6 +33,16 @@ const H_PANEL_TALL = 860;
 const DEFAULT_WINDOW_MINUTES = 60;
 const DEFAULT_EVENTS_LIMIT = 500;
 const DEFAULT_POLL_MS = 5000;
+const RESPONSE_ACTION_TYPES = [
+  {
+    key: "collect_triage_bundle",
+    label: "Collect triage bundle",
+    hint: "Collect host and runtime triage data from the selected agent.",
+    effect: "The agent receives an operator-initiated collection request and starts execution when it polls pending actions.",
+    expectedResult: "Execution status and result payload are reported back through the response action result channel.",
+    auditNote: "This operation is auditable as an administrative response action request."
+  }
+] as const;
 
 type EventsCfg = {
   event_type: string; // empty = all
@@ -86,6 +97,23 @@ function fmtDateTime(d: Date) {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
+function toIsoOrNullFromLocalInput(value: string): string | null {
+  const raw = (value || "").trim();
+  if (!raw) return null;
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toISOString();
+}
+
+function toLocalDateTimeInput(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
 function safeJsonParse(text: string): { ok: true; value: any } | { ok: false; error: string } {
   try {
     const v = JSON.parse(text);
@@ -130,6 +158,13 @@ function fmtLastSeen(lastSeenAt?: string | null) {
   if (hr < 24) return `${hr}h ago`;
   const day = Math.floor(hr / 24);
   return `${day}d ago`;
+}
+
+function fmtMaybeIso(value?: string | null): string {
+  if (!value) return "-";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return String(value);
+  return fmtDateTime(dt);
 }
 
 function Dot({ state }: { state: "online" | "offline" | "disabled" }) {
@@ -403,11 +438,15 @@ function buildTopCounts(values: string[], limit: number) {
 }
 
 export default function AgentsPage() {
+  const { user } = useAuth();
+  const isAdmin = (user?.role || "").toLowerCase() === "admin";
+
   const { agents, selectedAgentId, setSelectedAgentId, refresh } = useAgentsCatalog();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [agentQuery, setAgentQuery] = useState("");
   const [configOpen, setConfigOpen] = useState(false);
+  const [responseActionOpen, setResponseActionOpen] = useState(false);
 
   const agentsSorted = useMemo(() => {
     return [...(agents || [])].sort((a, b) => {
@@ -433,7 +472,22 @@ export default function AgentsPage() {
     setSearchParams(next, { replace: true });
     setSelectedAgentId(agentId);
     setConfigOpen(false);
+    setResponseActionOpen(false);
   };
+
+  const resetResponseActionForm = useCallback(
+    (agentId: string) => {
+      setResponseActionAgentId(agentId);
+      setResponseActionType(RESPONSE_ACTION_TYPES[0].key);
+      setResponseActionPayloadText("{}");
+      setResponseActionAdvancedOpen(false);
+      setResponseActionExpiresAt("");
+      setResponseActionError(null);
+      setResponseActionCreated(null);
+      setResponseActionBusy(false);
+    },
+    []
+  );
 
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
@@ -475,6 +529,16 @@ export default function AgentsPage() {
   const [saveBusy, setSaveBusy] = useState(false);
   const [configBusy, setConfigBusy] = useState(false);
   const [toggleBusy, setToggleBusy] = useState(false);
+  const [responseActionBusy, setResponseActionBusy] = useState(false);
+
+  const [responseActionAgentId, setResponseActionAgentId] = useState("");
+  const [responseActionType, setResponseActionType] = useState<string>(RESPONSE_ACTION_TYPES[0].key);
+  const [responseActionPayloadText, setResponseActionPayloadText] = useState("{}");
+  const [responseActionAdvancedOpen, setResponseActionAdvancedOpen] = useState(false);
+  const [responseActionExpiresAt, setResponseActionExpiresAt] = useState("");
+  const [responseActionError, setResponseActionError] = useState<string | null>(null);
+  const [responseActionCreated, setResponseActionCreated] = useState<ResponseActionOut | null>(null);
+  const [recentResponseActions, setRecentResponseActions] = useState<ResponseActionOut[]>([]);
 
   const inFlightSnapshot = useRef(false);
   const inFlightEvents = useRef(false);
@@ -495,6 +559,11 @@ export default function AgentsPage() {
     if (!selectedAgentId) return null;
     return agents.find((a) => a.agent_id === selectedAgentId) || null;
   }, [agents, selectedAgentId]);
+
+  useEffect(() => {
+    if (!responseActionOpen) return;
+    resetResponseActionForm(selectedAgentId || "");
+  }, [responseActionOpen, selectedAgentId, resetResponseActionForm]);
 
   const loadAgent = useCallback(async (agentId: string) => {
     try {
@@ -750,6 +819,137 @@ export default function AgentsPage() {
     setConfigText(prettyJson(next));
     setDdosDraft(getDdosConfig(next));
     setConfigParseError(null);
+  };
+
+  const responseActionDefinition = useMemo(() => {
+    return RESPONSE_ACTION_TYPES.find((x) => x.key === responseActionType) || RESPONSE_ACTION_TYPES[0];
+  }, [responseActionType]);
+
+  const responseActionAgentRow = useMemo(() => {
+    return agents.find((a) => a.agent_id === responseActionAgentId) || null;
+  }, [agents, responseActionAgentId]);
+
+  const responseActionPayload = useMemo(() => {
+    if (!responseActionAdvancedOpen) return { error: null, payload: {} as Record<string, any> };
+    const parsed = safeJsonParse(responseActionPayloadText);
+    if (!parsed.ok) return { error: parsed.error, payload: null as Record<string, any> | null };
+    if (parsed.value === null || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
+      return { error: "Payload must be a JSON object", payload: null as Record<string, any> | null };
+    }
+    return { error: null, payload: parsed.value as Record<string, any> };
+  }, [responseActionAdvancedOpen, responseActionPayloadText]);
+
+  const responseActionPayloadError = responseActionPayload.error;
+
+  const responseActionExpiresIso = useMemo(() => {
+    return toIsoOrNullFromLocalInput(responseActionExpiresAt);
+  }, [responseActionExpiresAt]);
+
+  const responseActionExpirationInvalid = useMemo(() => {
+    return Boolean(responseActionExpiresAt.trim()) && !responseActionExpiresIso;
+  }, [responseActionExpiresAt, responseActionExpiresIso]);
+
+  const responseActionExpirationInPast = useMemo(() => {
+    if (!responseActionExpiresIso) return false;
+    return Date.parse(responseActionExpiresIso) <= Date.now();
+  }, [responseActionExpiresIso]);
+
+  const responseActionRecentForAgent = useMemo(() => {
+    const id = responseActionAgentId.trim();
+    if (!id) return [];
+    return recentResponseActions.filter((x) => x.agent_id === id).slice(0, 5);
+  }, [recentResponseActions, responseActionAgentId]);
+
+  const responseActionAgentStatus = useMemo(() => {
+    if (!responseActionAgentRow) return "Unknown";
+    if (responseActionAgentRow.is_revoked) return "Disabled";
+    return isOnline(responseActionAgentRow.last_seen_at) ? "Online" : "Offline";
+  }, [responseActionAgentRow]);
+
+  const responseActionExpiresLabel = useMemo(() => {
+    if (!responseActionExpiresIso) return "Not set";
+    const dt = new Date(responseActionExpiresIso);
+    if (Number.isNaN(dt.getTime())) return "Invalid";
+    return dt.toLocaleString();
+  }, [responseActionExpiresIso]);
+
+  const canSubmitResponseAction = useMemo(() => {
+    if (!isAdmin) return false;
+    if (responseActionBusy) return false;
+    if (!responseActionAgentId.trim()) return false;
+    if (!responseActionType.trim()) return false;
+    if (responseActionPayloadError) return false;
+    if (responseActionExpirationInvalid || responseActionExpirationInPast) return false;
+    return true;
+  }, [
+    isAdmin,
+    responseActionBusy,
+    responseActionAgentId,
+    responseActionType,
+    responseActionPayloadError,
+    responseActionExpirationInvalid,
+    responseActionExpirationInPast
+  ]);
+
+  const openResponseActionDrawer = () => {
+    resetResponseActionForm(selectedAgentId || "");
+    setResponseActionOpen(true);
+  };
+
+  const closeResponseActionDrawer = () => {
+    setResponseActionOpen(false);
+    resetResponseActionForm(selectedAgentId || "");
+  };
+
+  const setResponseActionExpiryOffset = (minutes: number) => {
+    const dt = new Date(Date.now() + minutes * 60_000);
+    setResponseActionExpiresAt(toLocalDateTimeInput(dt));
+    setResponseActionError(null);
+    setResponseActionCreated(null);
+  };
+
+  const onSubmitResponseAction = async () => {
+    const agentId = responseActionAgentId.trim();
+    if (!agentId) {
+      setResponseActionError("Agent is required");
+      return;
+    }
+    if (!responseActionType.trim()) {
+      setResponseActionError("Action type is required");
+      return;
+    }
+    if (responseActionPayload.error || !responseActionPayload.payload) {
+      setResponseActionError(responseActionPayload.error || "Payload must be a JSON object");
+      return;
+    }
+
+    if (responseActionExpirationInvalid) {
+      setResponseActionError("Expiration must be a valid date and time");
+      return;
+    }
+    if (responseActionExpirationInPast) {
+      setResponseActionError("Expiration must be in the future");
+      return;
+    }
+
+    setResponseActionBusy(true);
+    setResponseActionError(null);
+    setResponseActionCreated(null);
+    try {
+      const out = await createResponseAction({
+        action_type: responseActionType.trim(),
+        agent_id: agentId,
+        payload: responseActionPayload.payload,
+        expires_at: responseActionExpiresIso || undefined
+      });
+      setResponseActionCreated(out);
+      setRecentResponseActions((prev) => [out, ...prev.filter((x) => x.id !== out.id)].slice(0, 12));
+      refresh();
+    } catch (e: any) {
+      setResponseActionError(getErrorMessage(e, "Failed to create response action"));
+    } finally {
+      setResponseActionBusy(false);
+    }
   };
 
   const topStats = useMemo(() => {
@@ -1106,6 +1306,19 @@ export default function AgentsPage() {
                     Open configuration
                   </button>
 
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={openResponseActionDrawer}
+                      className={cx(
+                        "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                        "hover:bg-primary/5"
+                      )}
+                    >
+                      Queue response action
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={onToggleRevoked}
@@ -1373,6 +1586,337 @@ export default function AgentsPage() {
               </Panel>
             </div>
       </div>
+
+      <Drawer
+        open={responseActionOpen}
+        onClose={closeResponseActionDrawer}
+        title={`Response action • ${responseActionAgentRow?.display_name || responseActionAgentId || "Select target"}`}
+        description="Operator workflow for audited agent-side response execution."
+        widthClassName="w-[860px]"
+      >
+        {!isAdmin ? (
+          <EmptyState title="Access denied" hint="Only administrators can queue response actions." />
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border/60 bg-background/40 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
+                    Operator workflow
+                  </div>
+                  <div className="text-base font-semibold">Queue agent response action</div>
+                  <div className="text-[12px] text-muted-foreground">
+                    Confirm target and intent before submitting. The request is queued for the selected agent.
+                  </div>
+                </div>
+                <div className="rounded border border-border/60 bg-background/30 px-3 py-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  operator {user?.username || "-"}
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Target</div>
+                  <div className="mt-1 text-[12px] font-mono truncate">
+                    {responseActionAgentRow?.display_name || responseActionAgentId || "Not selected"}
+                  </div>
+                </div>
+                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Agent id</div>
+                  <div className="mt-1 text-[12px] font-mono truncate">{responseActionAgentId || "-"}</div>
+                </div>
+                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Status</div>
+                  <div className="mt-1 flex items-center gap-2 text-[12px] font-mono">
+                    <Dot
+                      state={
+                        responseActionAgentRow?.is_revoked
+                          ? "disabled"
+                          : isOnline(responseActionAgentRow?.last_seen_at)
+                            ? "online"
+                            : "offline"
+                      }
+                    />
+                    <span>{responseActionAgentStatus}</span>
+                  </div>
+                </div>
+                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Last seen</div>
+                  <div className="mt-1 text-[12px] font-mono">
+                    {responseActionAgentRow ? fmtLastSeen(responseActionAgentRow.last_seen_at) : "-"}
+                  </div>
+                </div>
+                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Tags</div>
+                  <div className="mt-1 text-[12px] font-mono truncate" title={(responseActionAgentRow?.tags || []).join(", ")}>
+                    {(responseActionAgentRow?.tags || []).slice(0, 2).join(", ") || "-"}
+                    {(responseActionAgentRow?.tags || []).length > 2 ? ` +${(responseActionAgentRow?.tags || []).length - 2}` : ""}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Panel title="Target & scheduling">
+                <div className="space-y-4">
+                  <div>
+                    <FieldLabel>Target agent</FieldLabel>
+                    <select
+                      className={inputClassName(responseActionBusy)}
+                      value={responseActionAgentId}
+                      onChange={(e) => {
+                        setResponseActionAgentId(e.target.value);
+                        setResponseActionError(null);
+                        setResponseActionCreated(null);
+                      }}
+                      disabled={responseActionBusy}
+                    >
+                      <option value="">Select an agent</option>
+                      {agentsSorted.map((a) => (
+                        <option key={a.agent_id} value={a.agent_id}>
+                          {(a.display_name || a.agent_id) + " (" + a.agent_id + ")"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <FieldLabel>Expiration (optional)</FieldLabel>
+                    <input
+                      type="datetime-local"
+                      className={inputClassName(responseActionBusy)}
+                      value={responseActionExpiresAt}
+                      onChange={(e) => {
+                        setResponseActionExpiresAt(e.target.value);
+                        setResponseActionError(null);
+                        setResponseActionCreated(null);
+                      }}
+                      disabled={responseActionBusy}
+                    />
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setResponseActionExpiryOffset(15)}
+                        disabled={responseActionBusy}
+                        className={cx(
+                          "rounded border border-border/60 bg-background/30 px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
+                          "hover:bg-muted/10",
+                          responseActionBusy && "opacity-60 cursor-not-allowed"
+                        )}
+                      >
+                        +15m
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setResponseActionExpiryOffset(60)}
+                        disabled={responseActionBusy}
+                        className={cx(
+                          "rounded border border-border/60 bg-background/30 px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
+                          "hover:bg-muted/10",
+                          responseActionBusy && "opacity-60 cursor-not-allowed"
+                        )}
+                      >
+                        +1h
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setResponseActionExpiresAt("");
+                          setResponseActionError(null);
+                          setResponseActionCreated(null);
+                        }}
+                        disabled={responseActionBusy}
+                        className={cx(
+                          "rounded border border-border/60 bg-background/30 px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
+                          "hover:bg-muted/10",
+                          responseActionBusy && "opacity-60 cursor-not-allowed"
+                        )}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    {responseActionExpirationInvalid && (
+                      <div className="mt-1 text-[11px] text-red-400">Expiration must be a valid date and time.</div>
+                    )}
+                    {responseActionExpirationInPast && (
+                      <div className="mt-1 text-[11px] text-red-400">Expiration must be in the future.</div>
+                    )}
+                  </div>
+                </div>
+              </Panel>
+
+              <Panel title="Action">
+                <div className="space-y-4">
+                  <div>
+                    <FieldLabel>Action type</FieldLabel>
+                    <select
+                      className={inputClassName(responseActionBusy)}
+                      value={responseActionType}
+                      onChange={(e) => {
+                        setResponseActionType(e.target.value);
+                        setResponseActionError(null);
+                        setResponseActionCreated(null);
+                      }}
+                      disabled={responseActionBusy}
+                    >
+                      {RESPONSE_ACTION_TYPES.map((x) => (
+                        <option key={x.key} value={x.key}>
+                          {x.label}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="mt-1 text-[11px] text-muted-foreground">{responseActionDefinition.hint}</div>
+                  </div>
+
+                  <div className="rounded border border-border/60 bg-background/30 p-3 space-y-2">
+                    <div>
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Expected effect</div>
+                      <div className="mt-1 text-[12px] text-muted-foreground">{responseActionDefinition.effect}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Expected result</div>
+                      <div className="mt-1 text-[12px] text-muted-foreground">{responseActionDefinition.expectedResult}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Audit</div>
+                      <div className="mt-1 text-[12px] text-muted-foreground">{responseActionDefinition.auditNote}</div>
+                    </div>
+                  </div>
+                </div>
+              </Panel>
+            </div>
+
+            <Panel title="Payload" right={responseActionAdvancedOpen ? "Advanced mode" : "Guided mode"}>
+              <div className="space-y-3">
+                <div className="rounded border border-border/60 bg-background/30 px-3 py-2 text-[12px] text-muted-foreground">
+                  This action does not require additional payload fields in standard mode.
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResponseActionAdvancedOpen((prev) => !prev);
+                    setResponseActionError(null);
+                    setResponseActionCreated(null);
+                  }}
+                  disabled={responseActionBusy}
+                  className={cx(
+                    "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                    "hover:bg-primary/5",
+                    responseActionBusy && "opacity-60 cursor-not-allowed"
+                  )}
+                >
+                  {responseActionAdvancedOpen ? "Hide advanced payload" : "Show advanced payload JSON"}
+                </button>
+
+                {responseActionAdvancedOpen && (
+                  <div>
+                    <textarea
+                      className={textAreaClassName(responseActionBusy)}
+                      rows={7}
+                      value={responseActionPayloadText}
+                      onChange={(e) => {
+                        setResponseActionPayloadText(e.target.value);
+                        setResponseActionError(null);
+                        setResponseActionCreated(null);
+                      }}
+                      disabled={responseActionBusy}
+                    />
+                    {responseActionPayloadError && (
+                      <div className="mt-1 text-[11px] text-red-400">Payload: {responseActionPayloadError}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </Panel>
+
+            <Panel title="Execution summary" right="Review before queueing">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Agent</div>
+                  <div className="mt-1 text-[12px] font-mono">{responseActionAgentId || "Not selected"}</div>
+                </div>
+                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Action</div>
+                  <div className="mt-1 text-[12px] font-mono">{responseActionDefinition.label}</div>
+                </div>
+                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Expiration</div>
+                  <div className="mt-1 text-[12px] font-mono">{responseActionExpiresLabel}</div>
+                </div>
+                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Payload keys</div>
+                  <div className="mt-1 text-[12px] font-mono">{Object.keys(responseActionPayload.payload || {}).length}</div>
+                </div>
+              </div>
+            </Panel>
+
+            <Panel title="Recent queued in this session" right={responseActionRecentForAgent.length ? String(responseActionRecentForAgent.length) : "None"}>
+              {responseActionRecentForAgent.length === 0 ? (
+                <div className="text-[12px] text-muted-foreground">No response actions queued for this agent in this session yet.</div>
+              ) : (
+                <div className="space-y-2">
+                  {responseActionRecentForAgent.map((x) => (
+                    <div key={x.id} className="rounded border border-border/60 bg-background/30 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[12px] font-mono">#{x.id} {x.action_type}</div>
+                        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{x.status}</div>
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">requested {fmtMaybeIso(x.requested_at)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Panel>
+
+            {responseActionError && (
+              <div className="rounded-lg border border-red-400/50 bg-red-500/10 px-4 py-3 text-[12px] text-red-300">
+                {responseActionError}
+              </div>
+            )}
+
+            {responseActionCreated && (
+              <div className="rounded-lg border border-emerald-400/50 bg-emerald-500/10 px-4 py-3 text-[12px] text-emerald-300">
+                Response action #{responseActionCreated.id} queued for {responseActionCreated.agent_id} with status {responseActionCreated.status}.
+              </div>
+            )}
+
+            <div className="rounded-lg border border-border/60 bg-background/40 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-[11px] text-muted-foreground">
+                  Verify target and action intent before queueing.
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={closeResponseActionDrawer}
+                    disabled={responseActionBusy}
+                    className={cx(
+                      "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                      "hover:bg-primary/5",
+                      responseActionBusy && "opacity-60 cursor-not-allowed"
+                    )}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onSubmitResponseAction}
+                    disabled={!canSubmitResponseAction}
+                    className={cx(
+                      "border border-primary/60 bg-primary/20 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-foreground",
+                      "hover:bg-primary/30",
+                      (!canSubmitResponseAction || responseActionBusy) && "opacity-60 cursor-not-allowed"
+                    )}
+                  >
+                    {responseActionBusy ? "Queueing..." : "Queue response action"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </Drawer>
 
       <Drawer
         open={configOpen}
