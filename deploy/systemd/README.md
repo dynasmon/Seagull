@@ -29,6 +29,10 @@ Modes:
   ```bash
   BUILD_FROM_SOURCE=0 SOURCE_BINARY=/path/to/netwatch-agent bash deploy/systemd/install-agent.sh
   ```
+- Install and auto-start when ready:
+  ```bash
+  AUTO_START_IF_READY=1 bash deploy/systemd/install-agent.sh
+  ```
 
 The installer is idempotent: it reuses existing user/directories, preserves an existing `/etc/netwatch/agent.env`, reloads systemd, and enables the service.
 
@@ -37,8 +41,11 @@ Additional hardening behavior in the installer:
 - Migrates legacy `NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE=/etc/netwatch/bootstrap.token` to `/var/lib/netwatch/bootstrap.token`.
 - Moves inline `NETWATCH_AGENT_BOOTSTRAP_TOKEN` content into the file-based token path and clears the inline value.
 - Normalizes bootstrap token file ownership/permissions to `netwatch:netwatch` and `0600`.
+- If an agent credential already exists and the bootstrap token file was consumed/deleted after enroll, the installer clears stale `NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE` automatically (prevents restart loops).
 - Removes stale systemd drop-ins that override bootstrap token env vars (unless `PRESERVE_BOOTSTRAP_DROPINS=1`).
+- Deduplicates managed keys in `agent.env` and ensures sane host defaults for authlog and DDoS tuning.
 - If `NETWATCH_TLS_CA_FILE` is missing, it can auto-seed from local dev cert (`AUTO_INSTALL_DEV_CA=1`, default).
+- Optional `AUTO_START_IF_READY=1`: starts the service only if runtime prerequisites are met (CA file exists and credential or bootstrap token is available).
 
 ## Configure
 
