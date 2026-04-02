@@ -30,6 +30,8 @@ DEV_CA_SOURCE="${DEV_CA_SOURCE:-${REPO_ROOT}/secrets/dev-tls/tls.crt}"
 
 # Remove stale drop-ins that override bootstrap token env vars.
 PRESERVE_BOOTSTRAP_DROPINS="${PRESERVE_BOOTSTRAP_DROPINS:-0}"
+# Auto-start only when runtime prerequisites are satisfied.
+AUTO_START_IF_READY="${AUTO_START_IF_READY:-0}"
 
 require_root() {
   if [[ "${EUID}" -ne 0 ]]; then
@@ -125,16 +127,19 @@ read_env_value() {
   awk -F= -v k="${key}" '$1==k {print substr($0, index($0, "=")+1)}' "${file}" | tail -n1 | tr -d '\r'
 }
 
+env_key_exists() {
+  local key="$1"
+  local file="$2"
+  grep -qE "^${key}=" "${file}"
+}
+
 set_env_value() {
   local key="$1"
   local value="$2"
   local file="$3"
 
-  if grep -qE "^${key}=" "${file}"; then
-    sed -i "s|^${key}=.*|${key}=${value}|" "${file}"
-  else
-    printf "\n%s=%s\n" "${key}" "${value}" >> "${file}"
-  fi
+  remove_env_key "${key}" "${file}"
+  printf "%s=%s\n" "${key}" "${value}" >> "${file}"
 }
 
 remove_env_key() {
@@ -143,12 +148,68 @@ remove_env_key() {
   sed -i -E "/^${key}=/d" "${file}"
 }
 
+normalize_env_key() {
+  local key="$1"
+  local file="$2"
+  if ! env_key_exists "${key}" "${file}"; then
+    return
+  fi
+  local value
+  value="$(trim "$(read_env_value "${key}" "${file}")")"
+  set_env_value "${key}" "${value}" "${file}"
+}
+
+ensure_env_value() {
+  local key="$1"
+  local value="$2"
+  local file="$3"
+  if ! env_key_exists "${key}" "${file}"; then
+    set_env_value "${key}" "${value}" "${file}"
+  fi
+}
+
+normalize_agent_runtime_defaults() {
+  if [[ ! -f "${INSTALL_ENV_PATH}" ]]; then
+    return
+  fi
+
+  normalize_env_key NETWATCH_AUTHLOG_DEDUP_TTL "${INSTALL_ENV_PATH}"
+  normalize_env_key NETWATCH_AUTHLOG_INCLUDE_ACCEPTED "${INSTALL_ENV_PATH}"
+  normalize_env_key NETWATCH_DDOS_SUSTAIN_WINDOWS "${INSTALL_ENV_PATH}"
+  normalize_env_key NETWATCH_DDOS_COOLDOWN "${INSTALL_ENV_PATH}"
+  normalize_env_key NETWATCH_DDOS_MAX_BATCH "${INSTALL_ENV_PATH}"
+  normalize_env_key NETWATCH_DDOS_BACKPRESSURE_HIGH_WATERMARK "${INSTALL_ENV_PATH}"
+  normalize_env_key NETWATCH_DDOS_BACKPRESSURE_SAMPLE_EVERY "${INSTALL_ENV_PATH}"
+
+  ensure_env_value NETWATCH_AUTHLOG_DEDUP_TTL "1s" "${INSTALL_ENV_PATH}"
+  ensure_env_value NETWATCH_AUTHLOG_INCLUDE_ACCEPTED "true" "${INSTALL_ENV_PATH}"
+  ensure_env_value NETWATCH_DDOS_SUSTAIN_WINDOWS "1" "${INSTALL_ENV_PATH}"
+  ensure_env_value NETWATCH_DDOS_COOLDOWN "10s" "${INSTALL_ENV_PATH}"
+  ensure_env_value NETWATCH_DDOS_MAX_BATCH "200" "${INSTALL_ENV_PATH}"
+  ensure_env_value NETWATCH_DDOS_BACKPRESSURE_HIGH_WATERMARK "160" "${INSTALL_ENV_PATH}"
+  ensure_env_value NETWATCH_DDOS_BACKPRESSURE_SAMPLE_EVERY "4" "${INSTALL_ENV_PATH}"
+}
+
 normalize_bootstrap_token_settings() {
   if [[ ! -f "${INSTALL_ENV_PATH}" ]]; then
     return
   fi
 
-  local token_inline token_file
+  normalize_env_key NETWATCH_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}"
+  normalize_env_key NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}"
+  normalize_env_key NETWATCH_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}"
+
+  local credential_file token_inline token_file credential_present
+  credential_file="$(trim "$(read_env_value NETWATCH_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}")")"
+  if [[ -z "${credential_file}" ]]; then
+    credential_file="${INSTALL_STATE_DIR}/agent.credential"
+    set_env_value NETWATCH_AGENT_CREDENTIAL_FILE "${credential_file}" "${INSTALL_ENV_PATH}"
+  fi
+  credential_present="0"
+  if [[ -s "${credential_file}" ]]; then
+    credential_present="1"
+  fi
+
   token_inline="$(trim "$(read_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
   token_file="$(trim "$(read_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}")")"
 
@@ -158,13 +219,12 @@ normalize_bootstrap_token_settings() {
     echo "[install] migrated NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE to ${token_file}"
   fi
 
-  if [[ -z "${token_file}" ]]; then
-    token_file="${DEFAULT_BOOTSTRAP_TOKEN_FILE}"
-    set_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${token_file}" "${INSTALL_ENV_PATH}"
-    echo "[install] set default NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE=${token_file}"
-  fi
-
   if [[ -n "${token_inline}" ]]; then
+    if [[ -z "${token_file}" ]]; then
+      token_file="${DEFAULT_BOOTSTRAP_TOKEN_FILE}"
+      set_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${token_file}" "${INSTALL_ENV_PATH}"
+      echo "[install] set NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE=${token_file}"
+    fi
     install -d -m 0755 "$(dirname -- "${token_file}")"
     printf '%s' "${token_inline}" > "${token_file}"
     chown netwatch:netwatch "${token_file}" || true
@@ -178,7 +238,7 @@ normalize_bootstrap_token_settings() {
     echo "[install] copied legacy bootstrap token to ${DEFAULT_BOOTSTRAP_TOKEN_FILE}"
   fi
 
-  if [[ -f "${token_file}" ]]; then
+  if [[ -n "${token_file}" && -f "${token_file}" ]]; then
     local token_clean
     token_clean="$(tr -d '\r\n' < "${token_file}")"
     token_clean="$(trim "${token_clean}")"
@@ -186,6 +246,21 @@ normalize_bootstrap_token_settings() {
     chown netwatch:netwatch "${token_file}" || true
     chmod 0600 "${token_file}" || true
     echo "[install] ensured bootstrap token permissions: ${token_file}"
+  elif [[ -n "${token_file}" && "${credential_present}" == "1" ]]; then
+    # After a successful enroll the agent deletes bootstrap token file.
+    # Keep restart-safe behavior by clearing stale file path when credential already exists.
+    set_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "" "${INSTALL_ENV_PATH}"
+    token_file=""
+    echo "[install] cleared stale NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE (credential already present)"
+  elif [[ -z "${token_file}" && -f "${DEFAULT_BOOTSTRAP_TOKEN_FILE}" ]]; then
+    set_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${DEFAULT_BOOTSTRAP_TOKEN_FILE}" "${INSTALL_ENV_PATH}"
+    token_file="${DEFAULT_BOOTSTRAP_TOKEN_FILE}"
+    chown netwatch:netwatch "${token_file}" || true
+    chmod 0600 "${token_file}" || true
+    echo "[install] using bootstrap token file ${token_file}"
+  elif [[ -z "${token_file}" && "${credential_present}" == "0" ]]; then
+    echo "[install] warning: bootstrap token not configured in ${INSTALL_ENV_PATH}"
+    echo "[install] set NETWATCH_AGENT_BOOTSTRAP_TOKEN or NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE before first enroll"
   fi
 }
 
@@ -195,6 +270,7 @@ normalize_tls_ca_settings() {
   fi
 
   local ca_file
+  normalize_env_key NETWATCH_TLS_CA_FILE "${INSTALL_ENV_PATH}"
   ca_file="$(trim "$(read_env_value NETWATCH_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
   if [[ -z "${ca_file}" ]]; then
     ca_file="${DEFAULT_CA_FILE}"
@@ -245,13 +321,25 @@ install_service_file() {
 }
 
 validate_runtime_readiness() {
-  local ca_file token_file token_inline
+  local ca_file token_file token_inline credential_file credential_inline
   ca_file="$(trim "$(read_env_value NETWATCH_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
   token_file="$(trim "$(read_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}")")"
   token_inline="$(trim "$(read_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
+  credential_file="$(trim "$(read_env_value NETWATCH_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}")")"
+  credential_inline="$(trim "$(read_env_value NETWATCH_AGENT_CREDENTIAL "${INSTALL_ENV_PATH}")")"
 
-  if [[ -z "${token_inline}" && ( -z "${token_file}" || ! -f "${token_file}" ) ]]; then
+  local has_credential="0"
+  if [[ -n "${credential_inline}" || ( -n "${credential_file}" && -s "${credential_file}" ) ]]; then
+    has_credential="1"
+  fi
+
+  if [[ "${has_credential}" == "0" && -z "${token_inline}" && ( -z "${token_file}" || ! -f "${token_file}" ) ]]; then
     echo "[install] warning: no bootstrap token available (set NETWATCH_AGENT_BOOTSTRAP_TOKEN or NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE)"
+  fi
+
+  if [[ "${has_credential}" == "1" && -n "${token_file}" && ! -f "${token_file}" ]]; then
+    echo "[install] info: NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE points to a missing file but credential is already present"
+    echo "[install] info: this install will clear stale token-file paths automatically"
   fi
 
   if [[ -n "${token_file}" && -f "${token_file}" ]]; then
@@ -268,10 +356,73 @@ validate_runtime_readiness() {
   fi
 }
 
+is_runtime_ready() {
+  if [[ ! -f "${INSTALL_ENV_PATH}" ]]; then
+    return 1
+  fi
+
+  local ca_file token_file token_inline credential_file credential_inline
+  ca_file="$(trim "$(read_env_value NETWATCH_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
+  token_file="$(trim "$(read_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}")")"
+  token_inline="$(trim "$(read_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
+  credential_file="$(trim "$(read_env_value NETWATCH_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}")")"
+  credential_inline="$(trim "$(read_env_value NETWATCH_AGENT_CREDENTIAL "${INSTALL_ENV_PATH}")")"
+
+  local has_credential="0"
+  local has_bootstrap="0"
+
+  if [[ -n "${credential_inline}" || ( -n "${credential_file}" && -s "${credential_file}" ) ]]; then
+    has_credential="1"
+  fi
+
+  if [[ -n "${token_inline}" ]]; then
+    has_bootstrap="1"
+  elif [[ -n "${token_file}" && -f "${token_file}" ]]; then
+    if command -v runuser >/dev/null 2>&1; then
+      if runuser -u netwatch -- test -r "${token_file}"; then
+        has_bootstrap="1"
+      fi
+    elif [[ -r "${token_file}" ]]; then
+      has_bootstrap="1"
+    fi
+  fi
+
+  if [[ -z "${ca_file}" || ! -f "${ca_file}" ]]; then
+    return 1
+  fi
+
+  if [[ "${has_credential}" == "1" || "${has_bootstrap}" == "1" ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
 enable_service() {
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
   systemctl reset-failed "${SERVICE_NAME}" || true
+}
+
+auto_start_if_ready() {
+  if [[ "${AUTO_START_IF_READY}" != "1" ]]; then
+    echo "[install] auto-start disabled (set AUTO_START_IF_READY=1 to enable)"
+    return
+  fi
+
+  if ! is_runtime_ready; then
+    echo "[install] auto-start skipped: runtime prerequisites not met"
+    echo "[install] requirements: NETWATCH_TLS_CA_FILE exists and credential or bootstrap token is configured"
+    return
+  fi
+
+  if systemctl restart "${SERVICE_NAME}"; then
+    echo "[install] service started"
+  else
+    echo "[install] warning: service failed to start"
+    echo "[install] inspect with: systemctl status ${SERVICE_NAME} --no-pager"
+    echo "[install] logs with: journalctl -u ${SERVICE_NAME} -n 80 --no-pager"
+  fi
 }
 
 main() {
@@ -282,16 +433,22 @@ main() {
   build_binary_if_needed
   install_binary
   install_env_file
+  normalize_agent_runtime_defaults
   normalize_bootstrap_token_settings
   normalize_tls_ca_settings
   sanitize_service_dropins
   install_service_file
   validate_runtime_readiness
   enable_service
+  auto_start_if_ready
 
   echo
   echo "[install] done"
-  echo "[install] service enabled but not started"
+  if systemctl is-active --quiet "${SERVICE_NAME}"; then
+    echo "[install] service enabled and running"
+  else
+    echo "[install] service enabled but not started"
+  fi
   echo "[install] next steps:"
   echo "  1. review ${INSTALL_ENV_PATH}"
   echo "  2. start with: systemctl start ${SERVICE_NAME}"
