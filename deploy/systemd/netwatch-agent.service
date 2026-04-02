@@ -1,0 +1,35 @@
+[Unit]
+Description=NetWatch Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=netwatch
+Group=netwatch
+
+EnvironmentFile=/etc/netwatch/agent.env
+ExecStart=/usr/local/bin/netwatch-agent
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+StateDirectory=netwatch
+LogsDirectory=netwatch
+RuntimeDirectory=netwatch
+
+NoNewPrivileges=true
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+LimitNOFILE=65536
+
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+ReadWritePaths=/var/lib/netwatch /var/log/netwatch /run/netwatch
+ReadOnlyPaths=/etc/netwatch -/var/log/auth.log
+
+[Install]
+WantedBy=multi-user.target
