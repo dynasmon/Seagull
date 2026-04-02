@@ -21,6 +21,7 @@ from app.core.es import es_is_available, get_es_client
 from app.core.recent_feed import fetch_recent_events as fetch_recent_feed_events, recent_feed_health
 from app.core.redis_client import get_redis
 from app.core.config import settings
+from app.core.ingest_control import get_backlog as ingest_get_backlog
 from app.core.observability import incr_counter, log_event, observe_hist
 from app.features.agents.models import AgentModel
 from app.features.alerts.models import AlertModel
@@ -136,6 +137,14 @@ def _pg_latest_event_ts(db, *, agent_id: Optional[str]) -> Optional[datetime]:
 
 
 def _best_effort_ingest_backlog() -> Tuple[int, int]:
+    # Reuse ingest_control self-healing logic so overview does not get stuck in
+    # draining mode due stale backlog counters.
+    try:
+        msgs, ev = ingest_get_backlog()
+        return (max(0, int(ev)), max(0, int(msgs)))
+    except Exception:
+        pass
+
     r = get_redis()
     if r is None:
         return (0, 0)
@@ -668,7 +677,7 @@ def get_overview_payload(
         .where(
             AlertModel.created_at >= start_ts,
             AlertModel.created_at <= data_end_ts,
-            func.lower(AlertModel.severity).in_(["critical", "high"]),
+            func.lower(AlertModel.severity).in_(["critical", "high", "medium"]),
             _ddos_rule_filter(AlertModel.rule_id),
         )
         .group_by("bucket_ts", "sev")
@@ -749,8 +758,8 @@ def get_overview_payload(
         ddos_vol_rows = _ch_query_dicts(
             ch,
             f"SELECT toStartOfMinute(timestamp) AS bucket_ts, "
-            "sum(toFloat64OrZero(JSONExtractString(extra_json, 'packets'))) AS packets, "
-            "max(toFloat64OrZero(JSONExtractString(extra_json, 'pps'))) AS peak_pps "
+            "sum(JSONExtractFloat(extra_json, 'packets')) AS packets, "
+            "max(JSONExtractFloat(extra_json, 'pps')) AS peak_pps "
             f"FROM {clickhouse_events_table_ref()} "
             f"WHERE {ddos_where} "
             "GROUP BY bucket_ts",
@@ -800,6 +809,16 @@ def get_overview_payload(
                 "peak_pps": float(vals.get("peak_pps", 0.0)),
             }
         )
+
+    # If alert-based DDoS buckets are empty during active attacks (rule worker lag,
+    # cooldown windows, or temporary suppression), keep the panel alive using
+    # telemetry-derived activity from dos_attack events.
+    if all((int(row.get("critical") or 0) + int(row.get("high") or 0)) <= 0 for row in ddos_data):
+        for idx, vol in enumerate(ddos_volume_data):
+            active = (int(vol.get("packets") or 0) > 0) or (float(vol.get("peak_pps") or 0.0) > 0.0)
+            if not active:
+                continue
+            ddos_data[idx]["high"] = max(1, int(ddos_data[idx].get("high") or 0))
 
     ports: List[Dict[str, Any]] = []
     top_sources: List[Dict[str, Any]] = []
@@ -917,7 +936,7 @@ def get_overview_payload(
                 AlertModel.description,
                 AlertModel.details,
             )
-            .where(func.lower(AlertModel.severity).in_(["critical", "high"]), _ddos_rule_filter(AlertModel.rule_id))
+            .where(func.lower(AlertModel.severity).in_(["critical", "high", "medium"]), _ddos_rule_filter(AlertModel.rule_id))
             .order_by(AlertModel.created_at.desc())
             .limit(15)
         )

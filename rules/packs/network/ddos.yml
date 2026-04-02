@@ -1,7 +1,7 @@
 schema_version: 1
 pack: network
 category: impact
-pack_version: 2
+pack_version: 3
 maturity: stable
 
 rules:
@@ -25,7 +25,7 @@ rules:
     match:
       event_type: "dos_attack"
       extra_attack: "ddos"
-      extra_confidence_gte: 80
+      extra_confidence_gte: 72
       extra_vector_not_in: ["udp_amp_flood", "tcp_syn_flood", "http_flood", "tls_handshake_flood", "icmp_flood"]
     group_by: ["dst_ip", "dst_port", "proto"]
     condition:
@@ -52,7 +52,7 @@ rules:
     match:
       event_type: "dos_attack"
       extra_attack: "dos"
-      extra_confidence_gte: 78
+      extra_confidence_gte: 70
       extra_vector_not_in: ["http_flood", "tls_handshake_flood", "icmp_flood"]
     group_by: ["dst_ip", "dst_port", "proto"]
     condition:
@@ -79,7 +79,7 @@ rules:
     match:
       event_type: "dos_attack"
       extra_vector: "http_flood"
-      extra_confidence_gte: 82
+      extra_confidence_gte: 74
     group_by: ["dst_ip", "dst_port", "proto"]
     condition:
       operator: ">="
@@ -105,7 +105,7 @@ rules:
     match:
       event_type: "dos_attack"
       extra_vector: "tls_handshake_flood"
-      extra_confidence_gte: 82
+      extra_confidence_gte: 74
     group_by: ["dst_ip", "dst_port", "proto"]
     condition:
       operator: ">="
@@ -132,8 +132,8 @@ rules:
       event_type: "dos_attack"
       extra_attack: "ddos"
       extra_vector: "udp_amp_flood"
-      extra_confidence_gte: 85
-      extra_unique_src_ips_gte: 20
+      extra_confidence_gte: 78
+      extra_unique_src_ips_gte: 12
     group_by: ["dst_ip", "dst_port", "proto"]
     condition:
       operator: ">="
@@ -160,8 +160,8 @@ rules:
       event_type: "dos_attack"
       extra_attack: "ddos"
       extra_vector: "tcp_syn_flood"
-      extra_confidence_gte: 82
-      extra_unique_src_ips_gte: 15
+      extra_confidence_gte: 75
+      extra_unique_src_ips_gte: 10
     group_by: ["dst_ip", "dst_port", "proto"]
     condition:
       operator: ">="
@@ -188,8 +188,8 @@ rules:
       event_type: "dos_attack"
       extra_attack: "ddos"
       extra_vector: "icmp_flood"
-      extra_confidence_gte: 80
-      extra_unique_src_ips_gte: 12
+      extra_confidence_gte: 72
+      extra_unique_src_ips_gte: 8
     group_by: ["dst_ip", "dst_port", "proto"]
     condition:
       operator: ">="
@@ -216,12 +216,12 @@ rules:
       event_type: "dos_attack"
       extra_attack: "ddos"
       extra_distributed: true
-      extra_unique_src_ips_gte: 30
-      extra_confidence_gte: 78
+      extra_unique_src_ips_gte: 18
+      extra_confidence_gte: 70
     group_by: ["dst_ip", "dst_port", "proto"]
     condition:
       operator: ">="
-      value: 2
+      value: 1
 
   - id: dos_repeated_same_target_v1
     name: "Repeated DoS events on same target"
@@ -243,8 +243,8 @@ rules:
     match:
       event_type: "dos_attack"
       extra_attack: "dos"
-      extra_confidence_gte: 82
+      extra_confidence_gte: 74
     group_by: ["dst_ip", "dst_port", "proto"]
     condition:
       operator: ">="
-      value: 3
+      value: 2
