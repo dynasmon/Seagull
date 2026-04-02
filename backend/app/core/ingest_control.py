@@ -848,6 +848,25 @@ def _write_pressure_state(
         return
 
 
+def _clear_ui_runtime_caches(r) -> int:
+    if r is None:
+        return 0
+    deleted = 0
+    for pattern in ("netwatch:overview:v2:*", "netwatch:events:*", "netwatch:inventory:overview:*"):
+        try:
+            batch = []
+            for k in r.scan_iter(match=pattern, count=256):
+                batch.append(k)
+                if len(batch) >= 256:
+                    deleted += int(r.delete(*batch) or 0)
+                    batch = []
+            if batch:
+                deleted += int(r.delete(*batch) or 0)
+        except Exception:
+            continue
+    return int(deleted)
+
+
 def get_storm_status() -> Dict[str, Any]:
     """Return a small status payload for the UI (best-effort)."""
 
@@ -1060,6 +1079,24 @@ def get_storm_status() -> Dict[str, Any]:
         last_progress_ts=int(last_progress_ts),
     )
 
+    recovered_to_ok = (prev_phase != "ok") and (phase == "ok")
+    if recovered_to_ok:
+        # Self-heal stale protection keys/caches as soon as pressure returns to normal.
+        # This avoids dashboards remaining pinned in draining/storm visuals.
+        try:
+            pipe = r.pipeline()
+            pipe.delete(
+                storm_active_key(),
+                "netwatch:ingest:storm_reason",
+                "netwatch:ingest:storm_sample_hot",
+                "netwatch:ingest:storm_sample_warm",
+            )
+            pipe.execute()
+        except Exception:
+            pass
+        storm_maybe_close_alert()
+        _clear_ui_runtime_caches(r)
+
     try:
         sample_hot = _as_int(r.get("netwatch:ingest:storm_sample_hot"), 100)
         sample_warm = _as_int(r.get("netwatch:ingest:storm_sample_warm"), 0)
@@ -1150,20 +1187,7 @@ def recover_runtime_state(*, clear_backlog_counters: bool = False, clear_ui_cach
     except Exception:
         deleted_direct = 0
 
-    deleted_pattern = 0
-    if clear_ui_caches:
-        for pattern in ("netwatch:overview:v2:*", "netwatch:events:*", "netwatch:inventory:overview:*"):
-            try:
-                batch = []
-                for k in r.scan_iter(match=pattern, count=256):
-                    batch.append(k)
-                    if len(batch) >= 256:
-                        deleted_pattern += int(r.delete(*batch) or 0)
-                        batch = []
-                if batch:
-                    deleted_pattern += int(r.delete(*batch) or 0)
-            except Exception:
-                continue
+    deleted_pattern = _clear_ui_runtime_caches(r) if clear_ui_caches else 0
 
     return {
         "ok": True,
