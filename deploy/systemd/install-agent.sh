@@ -247,7 +247,6 @@ normalize_bootstrap_token_settings() {
     chmod 0600 "${token_file}" || true
     echo "[install] ensured bootstrap token permissions: ${token_file}"
   elif [[ -n "${token_file}" && "${credential_present}" == "1" ]]; then
-    # After a successful enroll the agent deletes bootstrap token file.
     # Keep restart-safe behavior by clearing stale file path when credential already exists.
     set_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "" "${INSTALL_ENV_PATH}"
     token_file=""
