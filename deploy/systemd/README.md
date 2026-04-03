@@ -17,6 +17,8 @@ make restart-quick SYSTEMD_AGENT=1
 - Service unit: `/etc/systemd/system/netwatch-agent.service`
 - Environment config: `/etc/netwatch/agent.env`
 - CA file: `/etc/netwatch/pki/root_ca.crt`
+- CA sync helper: `/usr/local/lib/netwatch/netwatch-agent-sync-ca.sh`
+- CA sync timer: `netwatch-agent-ca-sync.timer`
 - State files: `/var/lib/netwatch`
 - Runtime logs: `journalctl -u netwatch-agent` and `/var/log/netwatch`
 
@@ -54,8 +56,8 @@ Additional hardening behavior in the installer:
 - Removes stale systemd drop-ins that override bootstrap token env vars (unless `PRESERVE_BOOTSTRAP_DROPINS=1`).
 - Deduplicates managed keys in `agent.env` and ensures sane host defaults for authlog and DDoS tuning.
 - If `NETWATCH_TLS_CA_FILE` is missing, it can auto-seed from local dev cert (`AUTO_INSTALL_DEV_CA=1`, default).
+- The installer auto-discovers the Docker/dev CA source from the repository, stores it as `NETWATCH_TLS_CA_SOURCE_FILE`, and installs a sync timer so the systemd agent trust stays aligned automatically.
 - Optional `AUTO_START_IF_READY=1`: starts the service only if runtime prerequisites are met (CA file exists and credential or bootstrap token is available).
-- If dev edge certificates are rotated, re-run the installer (or update `NETWATCH_TLS_CA_FILE` manually) so the service CA trust stays in sync.
 
 ## Configure
 
@@ -67,6 +69,7 @@ Edit `/etc/netwatch/agent.env` and set at least:
   - `NETWATCH_AGENT_BOOTSTRAP_TOKEN`, or
   - `NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE`
 - `NETWATCH_TLS_CA_FILE` (default: `/etc/netwatch/pki/root_ca.crt`)
+- `NETWATCH_TLS_CA_SOURCE_FILE` (auto-discovered by the installer; usually your repo `secrets/tls/ca.crt`)
 
 Optional mTLS to backend:
 
