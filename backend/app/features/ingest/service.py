@@ -1,9 +1,10 @@
 import logging
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Sequence, Set, Tuple
 
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.agent_auth import AgentPrincipal
@@ -30,6 +31,7 @@ from app.core.clickhouse import (
 from app.core.observability import log_event
 from app.features.ingest import repository
 from app.features.events.schemas import NetEvent
+from app.features.alerts.models import AlertModel
 
 logger = logging.getLogger("netwatch.api.ingest")
 
@@ -138,7 +140,290 @@ def _row_to_recent_payload(row: Sequence) -> Dict:
         "dst_port": row[7],
         "proto": row[8],
         "bytes": row[9],
+        "extra": row[10] if len(row) > 10 and isinstance(row[10], dict) else {},
     }
+
+
+
+_DDOS_INLINE_RULES = {
+    "udp_amp_flood": {
+        "rule_id": "ddos_udp_amp_high_conf_v1",
+        "severity": "critical",
+        "confidence": 93,
+        "description": "DDoS UDP amplification (high confidence)",
+        "attack": "ddos",
+        "min_confidence": 78,
+        "min_unique_src_ips": 12,
+        "cooldown_minutes": 3,
+        "mitre_tactic": "impact",
+        "mitre_technique_id": "T1498.002",
+        "mitre_technique": "Network Denial of Service: Reflection Amplification",
+    },
+    "tcp_syn_flood": {
+        "rule_id": "ddos_tcp_syn_high_conf_v1",
+        "severity": "critical",
+        "confidence": 90,
+        "description": "DDoS TCP SYN flood (high confidence)",
+        "attack": "ddos",
+        "min_confidence": 75,
+        "min_unique_src_ips": 10,
+        "cooldown_minutes": 3,
+        "mitre_tactic": "impact",
+        "mitre_technique_id": "T1498.001",
+        "mitre_technique": "Network Denial of Service: Direct Network Flood",
+    },
+    "icmp_flood": {
+        "rule_id": "ddos_icmp_flood_high_conf_v1",
+        "severity": "high",
+        "confidence": 88,
+        "description": "DDoS ICMP flood (high confidence)",
+        "attack": "ddos",
+        "min_confidence": 72,
+        "min_unique_src_ips": 8,
+        "cooldown_minutes": 4,
+        "mitre_tactic": "impact",
+        "mitre_technique_id": "T1498.001",
+        "mitre_technique": "Network Denial of Service: Direct Network Flood",
+    },
+    "http_flood": {
+        "rule_id": "l7_http_flood_v1",
+        "severity": "high",
+        "confidence": 87,
+        "description": "HTTP flood (L7)",
+        "attack": None,
+        "min_confidence": 74,
+        "min_unique_src_ips": 0,
+        "cooldown_minutes": 2,
+        "mitre_tactic": "impact",
+        "mitre_technique_id": "T1498",
+        "mitre_technique": "Network Denial of Service",
+    },
+    "tls_handshake_flood": {
+        "rule_id": "l7_tls_handshake_flood_v1",
+        "severity": "high",
+        "confidence": 87,
+        "description": "TLS handshake flood (L7)",
+        "attack": None,
+        "min_confidence": 74,
+        "min_unique_src_ips": 0,
+        "cooldown_minutes": 2,
+        "mitre_tactic": "impact",
+        "mitre_technique_id": "T1498",
+        "mitre_technique": "Network Denial of Service",
+    },
+}
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    try:
+        if value is None or value == "":
+            return int(default)
+        return int(float(value))
+    except Exception:
+        return int(default)
+
+
+def _as_float(value: object, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return float(default)
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _top_src_ip(extra: Dict) -> str | None:
+    top = extra.get("top_src") or extra.get("top_sources") or []
+    if not isinstance(top, list) or not top:
+        return None
+    first = top[0] or {}
+    if not isinstance(first, dict):
+        return None
+    ip = first.get("ip") or first.get("src_ip") or first.get("address")
+    return str(ip) if ip else None
+
+
+def _inline_ddos_rule_meta(extra: Dict) -> Dict | None:
+    attack = str(extra.get("attack") or "").strip().lower()
+    vector = str(extra.get("vector") or "").strip().lower()
+    confidence = _as_int(extra.get("confidence"))
+    unique_src_ips = _as_int(extra.get("unique_src_ips"))
+    distributed = bool(extra.get("distributed"))
+
+    specific = _DDOS_INLINE_RULES.get(vector)
+    if specific is not None:
+        if specific.get("attack") and attack != str(specific.get("attack")):
+            return None
+        if confidence < int(specific.get("min_confidence") or 0):
+            return None
+        if unique_src_ips < int(specific.get("min_unique_src_ips") or 0):
+            return None
+        return dict(specific)
+
+    if attack == "ddos" and confidence >= 72:
+        if distributed and unique_src_ips >= 18:
+            return {
+                "rule_id": "ddos_distributed_high_cardinality_v1",
+                "severity": "high",
+                "confidence": 88,
+                "description": "Distributed DDoS with high source cardinality",
+                "cooldown_minutes": 5,
+                "mitre_tactic": "impact",
+                "mitre_technique_id": "T1498",
+                "mitre_technique": "Network Denial of Service",
+            }
+        return {
+            "rule_id": "ddos_attack_high_conf_v1",
+            "severity": "high",
+            "confidence": 90,
+            "description": "DDoS detected (high confidence)",
+            "cooldown_minutes": 2,
+            "mitre_tactic": "impact",
+            "mitre_technique_id": "T1498",
+            "mitre_technique": "Network Denial of Service",
+        }
+
+    if attack == "dos" and confidence >= 70 and vector not in {"http_flood", "tls_handshake_flood", "icmp_flood"}:
+        return {
+            "rule_id": "dos_attack_high_conf_v1",
+            "severity": "medium",
+            "confidence": 82,
+            "description": "DoS detected (high confidence)",
+            "cooldown_minutes": 2,
+            "mitre_tactic": "impact",
+            "mitre_technique_id": "T1498",
+            "mitre_technique": "Network Denial of Service",
+        }
+
+    return None
+
+
+def _maybe_create_inline_ddos_alerts(db: Session, *, events: List[NetEvent], now: datetime) -> int:
+    candidates: Dict[tuple[str, str, int | None, str | None], Dict] = {}
+
+    for event in events:
+        if str(event.event_type or "").strip().lower() != "dos_attack":
+            continue
+        extra = dict(event.extra or {})
+        meta = _inline_ddos_rule_meta(extra)
+        if meta is None:
+            continue
+
+        dst_ip = str(event.dst_ip or "").strip()
+        if not dst_ip:
+            continue
+        dst_port = int(event.dst_port) if event.dst_port is not None else None
+        proto = str(event.proto or "").strip().lower() or None
+        rule_id = str(meta.get("rule_id") or "").strip()
+        if not rule_id:
+            continue
+
+        key = (rule_id, dst_ip, dst_port, proto)
+        existing = candidates.get(key)
+        confidence = _as_int(extra.get("confidence"), _as_int(meta.get("confidence"), 50))
+        pps = _as_float(extra.get("pps"))
+        bps = _as_float(extra.get("bps"))
+        unique_src_ips = _as_int(extra.get("unique_src_ips"))
+
+        if existing is None or confidence > existing["confidence"] or pps > existing["pps"] or bps > existing["bps"] or unique_src_ips > existing["unique_src_ips"]:
+            details = {
+                "type": "inline_ingest_ddos",
+                "attack": extra.get("attack"),
+                "vector": extra.get("vector"),
+                "distributed": bool(extra.get("distributed")),
+                "severity": extra.get("severity") or meta.get("severity"),
+                "confidence": confidence,
+                "window_seconds": _as_int(extra.get("window_seconds")),
+                "packets": _as_int(extra.get("packets")),
+                "requests": _as_int(extra.get("requests")),
+                "pps": pps,
+                "bps": bps,
+                "http_rps": _as_float(extra.get("http_rps")),
+                "tls_handshake_rps": _as_float(extra.get("tls_handshake_rps")),
+                "tcp_syn_ratio": _as_float(extra.get("tcp_syn_ratio")),
+                "unique_src_ips": unique_src_ips,
+                "src_entropy_norm": _as_float(extra.get("src_entropy_norm")),
+                "top_src_ip": _top_src_ip(extra),
+                "proto": proto,
+                "dst_ip": dst_ip,
+                "dst_port": dst_port,
+                "observed_at": event.timestamp.isoformat() if event.timestamp else now.isoformat(),
+                "mitre": {
+                    "tactic": meta.get("mitre_tactic"),
+                    "technique_id": meta.get("mitre_technique_id"),
+                    "technique": meta.get("mitre_technique"),
+                    "confidence": _as_int(meta.get("confidence"), confidence),
+                },
+            }
+            candidates[key] = {
+                "rule_id": rule_id,
+                "dst_ip": dst_ip,
+                "dst_port": dst_port,
+                "proto": proto,
+                "severity": str(meta.get("severity") or "high"),
+                "confidence": confidence,
+                "description": str(meta.get("description") or "DDoS detected"),
+                "mitre_tactic": meta.get("mitre_tactic"),
+                "mitre_technique_id": meta.get("mitre_technique_id"),
+                "mitre_technique": meta.get("mitre_technique"),
+                "cooldown_minutes": max(1, _as_int(meta.get("cooldown_minutes"), 2)),
+                "details": details,
+                "pps": pps,
+                "bps": bps,
+                "unique_src_ips": unique_src_ips,
+                "src_ip": _top_src_ip(extra),
+            }
+
+    if not candidates:
+        return 0
+
+    created = 0
+    for candidate in candidates.values():
+        cooldown_since = now - timedelta(minutes=int(candidate["cooldown_minutes"]))
+        exists_stmt = (
+            select(AlertModel.id)
+            .where(
+                AlertModel.created_at >= cooldown_since,
+                AlertModel.rule_id == candidate["rule_id"],
+                AlertModel.dst_ip == candidate["dst_ip"],
+            )
+            .order_by(AlertModel.created_at.desc())
+            .limit(1)
+        )
+        if candidate["dst_port"] is None:
+            exists_stmt = exists_stmt.where(AlertModel.dst_port.is_(None))
+        else:
+            exists_stmt = exists_stmt.where(AlertModel.dst_port == candidate["dst_port"])
+        existing_id = db.execute(exists_stmt).scalar()
+        if existing_id is not None:
+            continue
+
+        db.add(
+            AlertModel(
+                rule_id=candidate["rule_id"],
+                severity=candidate["severity"],
+                src_ip=candidate["src_ip"],
+                dst_ip=candidate["dst_ip"],
+                dst_port=candidate["dst_port"],
+                mitre_tactic=candidate["mitre_tactic"],
+                mitre_technique_id=candidate["mitre_technique_id"],
+                mitre_technique=candidate["mitre_technique"],
+                confidence=int(candidate["confidence"]),
+                description=candidate["description"],
+                details=candidate["details"],
+            )
+        )
+        created += 1
+
+    if created > 0:
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            log_event(logger, "warning", "inline_ddos_alert_commit_failed", error_type=type(exc).__name__)
+            return 0
+
+    return created
 
 def _fallback_direct_insert(db: Session, *, hot_events: List[List], rollup_rows: List[List]) -> int:
     """Fail-open path if Redis is unavailable.
@@ -278,6 +563,11 @@ def ingest_events(
     max_skew_s = max(0, int(settings.NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS or 30))
 
     now = datetime.now(timezone.utc)
+    try:
+        _maybe_create_inline_ddos_alerts(db, events=events, now=now)
+    except Exception as exc:
+        db.rollback()
+        log_event(logger, "warning", "inline_ddos_alert_failed", error_type=type(exc).__name__)
 
     # Storm control (best-effort; fails open).
     # IMPORTANT: "storm" is strictly volumetric (events/sec). Backpressure (queue backlog)

@@ -590,7 +590,7 @@ def list_events(
                 ],
                 "query": {
                     "bool": {
-                        "filter": _es_base_filters(agent_id=agent_id, event_type=event_type),
+                        "filter": _es_base_filters(since=since_ts, agent_id=agent_id, event_type=event_type),
                     }
                 },
             }
@@ -667,15 +667,22 @@ def get_recent_events(
     limit: int = 50,
     agent_id: Optional[str] = None,
     event_type: Optional[str] = None,
+    since_minutes: Optional[int] = None,
 ) -> List[NetEventDB]:
+    since_ts = None
+    if since_minutes is not None:
+        since_ts = datetime.now(timezone.utc) - timedelta(minutes=max(1, int(since_minutes)))
+
     feed_rows = fetch_recent_feed_events(limit=min(max(int(limit), 1), 200), agent_id=agent_id, event_type=event_type)
     feed_events = [ev for ev in (_feed_row_to_event(r) for r in feed_rows) if ev is not None]
+    if since_ts is not None:
+        feed_events = [ev for ev in feed_events if ev.timestamp >= since_ts]
 
     ch = _ch_client_or_none()
     if ch is not None:
         try:
             table = clickhouse_events_table_ref()
-            where_sql, params = _ch_where(agent_id=agent_id, event_type=event_type)
+            where_sql, params = _ch_where(since=since_ts, agent_id=agent_id, event_type=event_type)
             dedup_source_sql = _ch_deduped_events_source_sql(table=table, where_sql=where_sql)
             fetch_limit = min(max(int(limit) * 2, int(limit)), 5000)
             sql = (
@@ -712,7 +719,7 @@ def get_recent_events(
                 ],
                 "query": {
                     "bool": {
-                        "filter": _es_base_filters(agent_id=agent_id, event_type=event_type),
+                        "filter": _es_base_filters(since=since_ts, agent_id=agent_id, event_type=event_type),
                     }
                 },
             }

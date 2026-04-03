@@ -676,7 +676,9 @@ export default function AgentsPage() {
     setEventsLoading(true);
     try {
       const lim = Math.max(50, Math.min(5000, safeNumber(cfg.limit, DEFAULT_EVENTS_LIMIT)));
-      const ev = await getRecentEvents({ limit: lim, agent_id: agentId });
+      const win = Math.max(1, safeNumber(cfg.window_minutes, DEFAULT_WINDOW_MINUTES));
+      const eventType = (cfg.event_type || "").trim() || undefined;
+      const ev = await getRecentEvents({ limit: lim, agent_id: agentId, event_type: eventType, since_minutes: win });
 
       setEvents(ev);
       setSelectedEvent((prev) => {

@@ -411,7 +411,16 @@ def get_overview_payload(
 
     events_5m = 0
     last_event_ts = None
-    if ch is not None:
+    if use_ingest_rollups:
+        ev_stmt = select(func.coalesce(func.sum(NetEventRollup1sModel.count), 0)).where(
+            NetEventRollup1sModel.bucket_ts >= data_end_ts - timedelta(minutes=5),
+            NetEventRollup1sModel.bucket_ts <= data_end_ts,
+        )
+        if agent_id:
+            ev_stmt = ev_stmt.where(NetEventRollup1sModel.agent_id == agent_id)
+        events_5m = int(db.execute(ev_stmt).scalar() or 0)
+        last_event_ts = data_end_ts if last_roll_ts is not None else None
+    elif ch is not None:
         params: Dict[str, Any] = {
             "since_5m": data_end_ts - timedelta(minutes=5),
             "end_ts": data_end_ts,
@@ -453,15 +462,6 @@ def get_overview_payload(
             last_event_ts = None
             events_5m = 0
 
-    if ch is None and use_ingest_rollups:
-        ev_stmt = select(func.coalesce(func.sum(NetEventRollup1sModel.count), 0)).where(
-            NetEventRollup1sModel.bucket_ts >= data_end_ts - timedelta(minutes=5),
-            NetEventRollup1sModel.bucket_ts <= data_end_ts,
-        )
-        if agent_id:
-            ev_stmt = ev_stmt.where(NetEventRollup1sModel.agent_id == agent_id)
-        events_5m = int(db.execute(ev_stmt).scalar() or 0)
-        last_event_ts = data_end_ts if last_roll_ts is not None else None
     elif ch is None:
         ev_stmt2 = select(func.count(), func.max(NetEventModel.timestamp)).where(True)
         if agent_id:
@@ -489,21 +489,7 @@ def get_overview_payload(
         "last_event_age_m": last_event_age_m,
     }
 
-    if ch is not None:
-        params = {"start_ts": start_ts, "end_ts": data_end_ts}
-        where_sql = "bucket_ts >= {start_ts:DateTime} AND bucket_ts <= {end_ts:DateTime}"
-        if agent_id:
-            where_sql += " AND agent_id = {agent_id:String}"
-            params["agent_id"] = agent_id
-        top_rows = _ch_query_dicts(
-            ch,
-            f"SELECT event_type, sum(total_count) AS total FROM {clickhouse_events_1m_table_ref()} "
-            f"WHERE {where_sql} AND event_type NOT LIKE '%_summary' "
-            "GROUP BY event_type ORDER BY total DESC LIMIT 3",
-            params,
-        )
-        top_types = [str(r.get("event_type")) for r in top_rows if r.get("event_type")]
-    elif use_ingest_rollups:
+    if use_ingest_rollups:
         top_stmt = (
             select(NetEventRollup1sModel.event_type, func.sum(NetEventRollup1sModel.count).label("total"))
             .where(
@@ -526,20 +512,7 @@ def get_overview_payload(
         top_types.append(None)
     t1, t2, t3 = top_types[0], top_types[1], top_types[2]
 
-    if ch is not None:
-        params = {"start_ts": start_ts, "end_ts": data_end_ts}
-        where_sql = "bucket_ts >= {start_ts:DateTime} AND bucket_ts <= {end_ts:DateTime}"
-        if agent_id:
-            where_sql += " AND agent_id = {agent_id:String}"
-            params["agent_id"] = agent_id
-        traffic_rows = _ch_query_dicts(
-            ch,
-            f"SELECT bucket_ts, event_type, sum(total_count) AS cnt FROM {clickhouse_events_1m_table_ref()} "
-            f"WHERE {where_sql} AND event_type NOT LIKE '%_summary' "
-            "GROUP BY bucket_ts, event_type",
-            params,
-        )
-    elif use_ingest_rollups:
+    if use_ingest_rollups:
         traffic_stmt = (
             select(
                 func.date_trunc("minute", NetEventRollup1sModel.bucket_ts).label("bucket_ts"),
@@ -700,31 +673,7 @@ def get_overview_payload(
         for b in _minute_buckets(start_ts, data_end_ts)
     ]
 
-    if use_ingest_rollups and ch is not None:
-        ddos_params: Dict[str, Any] = {"start_ts": start_ts, "end_ts": data_end_ts}
-        ddos_where = (
-            "bucket_ts >= {start_ts:DateTime} AND bucket_ts <= {end_ts:DateTime} "
-            "AND event_type = 'dos_attack'"
-        )
-        if agent_id:
-            ddos_where += " AND agent_id = {agent_id:String}"
-            ddos_params["agent_id"] = agent_id
-        ddos_vol_rows = _ch_query_dicts(
-            ch,
-            f"SELECT bucket_ts, "
-            "sum(total_count) AS packets, "
-            "max(total_count) AS peak_pps "
-            f"FROM {clickhouse_events_1m_table_ref()} "
-            f"WHERE {ddos_where} "
-            "GROUP BY bucket_ts",
-            ddos_params,
-        )
-        ddos_vol_map = {
-            _to_utc(r.get("bucket_ts")): {"packets": float(r.get("packets") or 0.0), "peak_pps": float(r.get("peak_pps") or 0.0)}
-            for r in ddos_vol_rows
-            if _to_utc(r.get("bucket_ts")) is not None
-        }
-    elif use_ingest_rollups:
+    if use_ingest_rollups:
         ddos_vol_stmt = (
             select(
                 func.date_trunc("minute", NetEventRollup1sModel.bucket_ts).label("bucket_ts"),
@@ -828,22 +777,7 @@ def get_overview_payload(
     raw_events: List[Dict[str, Any]] = []
 
     if not lite:
-        if ch is not None:
-            port_params = {"start_ts": start_ts, "end_ts": data_end_ts}
-            port_where = "bucket_ts >= {start_ts:DateTime} AND bucket_ts <= {end_ts:DateTime}"
-            if agent_id:
-                port_where += " AND agent_id = {agent_id:String}"
-                port_params["agent_id"] = agent_id
-            port_rows = _ch_query_dicts(
-                ch,
-                f"SELECT dst_port AS port, sum(total_count) AS count "
-                f"FROM {clickhouse_events_1m_table_ref()} "
-                f"WHERE {port_where} AND dst_port IS NOT NULL "
-                "GROUP BY dst_port ORDER BY count DESC LIMIT 10",
-                port_params,
-            )
-            ports = [{"port": int(r.get("port")), "count": int(r.get("count") or 0)} for r in port_rows if r.get("port") is not None]
-        elif use_ingest_rollups:
+        if use_ingest_rollups:
             ports_stmt = (
                 select(NetEventRollup1sModel.dst_port.label("port"), func.sum(NetEventRollup1sModel.count).label("count"))
                 .where(
@@ -871,7 +805,7 @@ def get_overview_payload(
             )
             if agent_id:
                 ports_stmt = ports_stmt.where(NetEventModel.agent_id == agent_id)
-        if ch is None:
+        if use_ingest_rollups or ch is None:
             ports_rows = db.execute(ports_stmt).all()
             ports = [{"port": int(r.port), "count": int(r.count or 0)} for r in ports_rows if r.port is not None]
 

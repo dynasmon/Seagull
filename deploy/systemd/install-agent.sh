@@ -15,18 +15,26 @@ INSTALL_CONFIG_DIR="/etc/netwatch"
 INSTALL_PKI_DIR="/etc/netwatch/pki"
 INSTALL_STATE_DIR="/var/lib/netwatch"
 INSTALL_LOG_DIR="/var/log/netwatch"
+INSTALL_LIBEXEC_DIR="/usr/local/lib/netwatch"
 
 BUILD_FROM_SOURCE="${BUILD_FROM_SOURCE:-1}"
 SOURCE_BINARY="${SOURCE_BINARY:-}"
 BUILD_OUTPUT="${REPO_ROOT}/agent/bin/netwatch-agent"
 
 DEFAULT_CA_FILE="/etc/netwatch/pki/root_ca.crt"
+DEFAULT_CA_SOURCE_FILE=""
 DEFAULT_BOOTSTRAP_TOKEN_FILE="/var/lib/netwatch/bootstrap.token"
 LEGACY_BOOTSTRAP_TOKEN_FILE="/etc/netwatch/bootstrap.token"
 
 # If CA file is missing, optionally seed it from local dev cert.
 AUTO_INSTALL_DEV_CA="${AUTO_INSTALL_DEV_CA:-1}"
 DEV_CA_SOURCE="${DEV_CA_SOURCE:-${REPO_ROOT}/secrets/dev-tls/tls.crt}"
+CA_SYNC_SCRIPT_SOURCE="${SCRIPT_DIR}/netwatch-agent-sync-ca.sh"
+CA_SYNC_SCRIPT_TARGET="${INSTALL_LIBEXEC_DIR}/netwatch-agent-sync-ca.sh"
+CA_SYNC_SERVICE_SOURCE="${SCRIPT_DIR}/netwatch-agent-ca-sync.service"
+CA_SYNC_SERVICE_TARGET="/etc/systemd/system/netwatch-agent-ca-sync.service"
+CA_SYNC_TIMER_SOURCE="${SCRIPT_DIR}/netwatch-agent-ca-sync.timer"
+CA_SYNC_TIMER_TARGET="/etc/systemd/system/netwatch-agent-ca-sync.timer"
 
 # Remove stale drop-ins that override bootstrap token env vars.
 PRESERVE_BOOTSTRAP_DROPINS="${PRESERVE_BOOTSTRAP_DROPINS:-0}"
@@ -62,6 +70,7 @@ create_directories() {
   install -d -m 0755 "${INSTALL_PKI_DIR}"
   install -d -m 0755 "${INSTALL_STATE_DIR}"
   install -d -m 0755 "${INSTALL_LOG_DIR}"
+  install -d -m 0755 "${INSTALL_LIBEXEC_DIR}"
 
   chown netwatch:netwatch "${INSTALL_STATE_DIR}"
   chown netwatch:netwatch "${INSTALL_LOG_DIR}"
@@ -168,6 +177,121 @@ ensure_env_value() {
   fi
 }
 
+resolve_repo_env_file() {
+  if [[ -f "${REPO_ROOT}/.env" ]]; then
+    printf '%s' "${REPO_ROOT}/.env"
+    return
+  fi
+  if [[ -f "${REPO_ROOT}/.env.example" ]]; then
+    printf '%s' "${REPO_ROOT}/.env.example"
+    return
+  fi
+  printf ''
+}
+
+resolve_repo_path() {
+  local value="$1"
+  if [[ -z "${value}" ]]; then
+    return
+  fi
+  if [[ "${value}" = /* ]]; then
+    printf '%s' "${value}"
+    return
+  fi
+  printf '%s' "${REPO_ROOT}/${value#./}"
+}
+
+discover_repo_env_value() {
+  local key="$1"
+  local repo_env
+  repo_env="$(resolve_repo_env_file)"
+  if [[ -z "${repo_env}" || ! -f "${repo_env}" ]]; then
+    return
+  fi
+  trim "$(read_env_value "${key}" "${repo_env}")"
+}
+
+discover_ca_source_file() {
+  local configured repo_value candidate
+  configured="$(trim "$(read_env_value NETWATCH_TLS_CA_SOURCE_FILE "${INSTALL_ENV_PATH}")")"
+  if [[ -n "${configured}" ]]; then
+    printf '%s' "${configured}"
+    return
+  fi
+
+  repo_value="$(discover_repo_env_value NETWATCH_AGENT_SERVER_CA_FILE)"
+  if [[ -n "${repo_value}" ]]; then
+    candidate="$(resolve_repo_path "${repo_value}")"
+    if [[ -f "${candidate}" ]]; then
+      if [[ "$(basename -- "${candidate}")" == "tls.crt" ]]; then
+        local sibling_ca
+        sibling_ca="$(dirname -- "${candidate}")/ca.crt"
+        if [[ -f "${sibling_ca}" ]]; then
+          printf '%s' "${sibling_ca}"
+          return
+        fi
+      fi
+      printf '%s' "${candidate}"
+      return
+    fi
+  fi
+
+  for candidate in     "${REPO_ROOT}/secrets/tls/ca.crt"     "${REPO_ROOT}/secrets/tls/tls.crt"     "${REPO_ROOT}/secrets/dev-tls/ca.crt"     "${REPO_ROOT}/secrets/dev-tls/tls.crt"; do
+    if [[ -f "${candidate}" ]]; then
+      printf '%s' "${candidate}"
+      return
+    fi
+  done
+
+  printf '%s' "${DEFAULT_CA_SOURCE_FILE}"
+}
+
+discover_api_host() {
+  local api_url="$1"
+  if [[ -z "${api_url}" ]]; then
+    printf ''
+    return
+  fi
+  NETWATCH_DISCOVER_API_URL="${api_url}" python3 - <<'EOF_PY'
+from urllib.parse import urlparse
+import os
+url = os.environ.get('NETWATCH_DISCOVER_API_URL', '').strip()
+if not url:
+    raise SystemExit(0)
+parsed = urlparse(url)
+print(parsed.hostname or '')
+EOF_PY
+}
+
+discover_tls_server_name() {
+  local configured repo_value api_url api_host
+  configured="$(trim "$(read_env_value NETWATCH_TLS_SERVER_NAME "${INSTALL_ENV_PATH}")")"
+  if [[ -n "${configured}" ]]; then
+    printf '%s' "${configured}"
+    return
+  fi
+
+  repo_value="$(discover_repo_env_value NETWATCH_AGENT_TLS_SERVER_NAME)"
+  if [[ -n "${repo_value}" ]]; then
+    printf '%s' "${repo_value}"
+    return
+  fi
+
+  api_url="$(trim "$(read_env_value NETWATCH_API_URL "${INSTALL_ENV_PATH}")")"
+  api_host="$(discover_api_host "${api_url}")"
+  if [[ "${api_host}" == "127.0.0.1" || "${api_host}" == "::1" || "${api_host}" == "localhost" ]]; then
+    printf 'localhost'
+    return
+  fi
+
+  if [[ -n "${api_host}" ]]; then
+    printf '%s' "${api_host}"
+    return
+  fi
+
+  printf ''
+}
+
 normalize_agent_runtime_defaults() {
   if [[ ! -f "${INSTALL_ENV_PATH}" ]]; then
     return
@@ -268,17 +392,33 @@ normalize_tls_ca_settings() {
     return
   fi
 
-  local ca_file
+  local ca_file ca_source_file tls_server_name
   normalize_env_key NETWATCH_TLS_CA_FILE "${INSTALL_ENV_PATH}"
+  normalize_env_key NETWATCH_TLS_CA_SOURCE_FILE "${INSTALL_ENV_PATH}"
+  normalize_env_key NETWATCH_TLS_SERVER_NAME "${INSTALL_ENV_PATH}"
+
   ca_file="$(trim "$(read_env_value NETWATCH_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
   if [[ -z "${ca_file}" ]]; then
     ca_file="${DEFAULT_CA_FILE}"
     set_env_value NETWATCH_TLS_CA_FILE "${ca_file}" "${INSTALL_ENV_PATH}"
   fi
 
+  ca_source_file="$(discover_ca_source_file)"
+  if [[ -n "${ca_source_file}" ]]; then
+    set_env_value NETWATCH_TLS_CA_SOURCE_FILE "${ca_source_file}" "${INSTALL_ENV_PATH}"
+  fi
+
+  tls_server_name="$(discover_tls_server_name)"
+  if [[ -n "${tls_server_name}" ]]; then
+    set_env_value NETWATCH_TLS_SERVER_NAME "${tls_server_name}" "${INSTALL_ENV_PATH}"
+  fi
+
   install -d -m 0755 "$(dirname -- "${ca_file}")"
 
-  if [[ ! -f "${ca_file}" && "${AUTO_INSTALL_DEV_CA}" == "1" && -f "${DEV_CA_SOURCE}" ]]; then
+  if [[ -n "${ca_source_file}" && -f "${ca_source_file}" ]]; then
+    install -m 0644 "${ca_source_file}" "${ca_file}"
+    echo "[install] synchronized CA from ${ca_source_file} to ${ca_file}"
+  elif [[ ! -f "${ca_file}" && "${AUTO_INSTALL_DEV_CA}" == "1" && -f "${DEV_CA_SOURCE}" ]]; then
     install -m 0644 "${DEV_CA_SOURCE}" "${ca_file}"
     echo "[install] auto-installed CA from ${DEV_CA_SOURCE} to ${ca_file}"
   fi
@@ -287,6 +427,17 @@ normalize_tls_ca_settings() {
     chown root:root "${ca_file}" || true
     chmod 0644 "${ca_file}" || true
   fi
+}
+
+install_ca_sync_assets() {
+  if [[ ! -f "${CA_SYNC_SCRIPT_SOURCE}" || ! -f "${CA_SYNC_SERVICE_SOURCE}" || ! -f "${CA_SYNC_TIMER_SOURCE}" ]]; then
+    echo "[install] missing CA sync assets in deploy/systemd"
+    exit 1
+  fi
+
+  install -m 0755 "${CA_SYNC_SCRIPT_SOURCE}" "${CA_SYNC_SCRIPT_TARGET}"
+  install -m 0644 "${CA_SYNC_SERVICE_SOURCE}" "${CA_SYNC_SERVICE_TARGET}"
+  install -m 0644 "${CA_SYNC_TIMER_SOURCE}" "${CA_SYNC_TIMER_TARGET}"
 }
 
 sanitize_service_dropins() {
@@ -400,7 +551,9 @@ is_runtime_ready() {
 enable_service() {
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
+  systemctl enable netwatch-agent-ca-sync.timer
   systemctl reset-failed "${SERVICE_NAME}" || true
+  systemctl reset-failed netwatch-agent-ca-sync.service || true
 }
 
 auto_start_if_ready() {
@@ -436,9 +589,12 @@ main() {
   normalize_bootstrap_token_settings
   normalize_tls_ca_settings
   sanitize_service_dropins
+  install_ca_sync_assets
   install_service_file
   validate_runtime_readiness
   enable_service
+  systemctl start netwatch-agent-ca-sync.service || true
+  systemctl start netwatch-agent-ca-sync.timer || true
   auto_start_if_ready
 
   echo
