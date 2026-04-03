@@ -2,6 +2,15 @@
 
 This directory provides a native Linux/systemd deployment path for the NetWatch agent, without changing the existing Docker workflow.
 
+If you keep this systemd agent enabled while using the dev Docker stack, start/restart Docker with
+`SYSTEMD_AGENT=1` to prevent containerized `netwatch-agent-core`/`netwatch-agent-sensor` from being started:
+
+```bash
+make dev SYSTEMD_AGENT=1
+make restart SYSTEMD_AGENT=1
+make restart-quick SYSTEMD_AGENT=1
+```
+
 ## Installed paths
 
 - Binary: `/usr/local/bin/netwatch-agent`
@@ -46,6 +55,7 @@ Additional hardening behavior in the installer:
 - Deduplicates managed keys in `agent.env` and ensures sane host defaults for authlog and DDoS tuning.
 - If `NETWATCH_TLS_CA_FILE` is missing, it can auto-seed from local dev cert (`AUTO_INSTALL_DEV_CA=1`, default).
 - Optional `AUTO_START_IF_READY=1`: starts the service only if runtime prerequisites are met (CA file exists and credential or bootstrap token is available).
+- If dev edge certificates are rotated, re-run the installer (or update `NETWATCH_TLS_CA_FILE` manually) so the service CA trust stays in sync.
 
 ## Configure
 

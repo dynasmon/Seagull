@@ -216,6 +216,20 @@ This command:
 - Uses `docker-compose.yml + compose.dev.yml`
 - Builds and starts the development stack
 
+If you run the host agent with `systemd` (`netwatch-agent.service`) and do not want Docker to start
+`netwatch-agent-core`/`netwatch-agent-sensor`, run:
+
+```bash
+make dev SYSTEMD_AGENT=1
+```
+
+Use the same flag for restarts:
+
+```bash
+make restart SYSTEMD_AGENT=1
+make restart-quick SYSTEMD_AGENT=1
+```
+
 If you prefer raw Compose commands, use the provided wrapper (it auto-creates/syncs `.env` first):
 
 ```bash
