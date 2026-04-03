@@ -23,7 +23,7 @@ endif
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-tls prod up up-extra down restart restart-quick systemd-agent-restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-tls prod up up-extra down restart restart-quick systemd-agent-install systemd-agent-restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
@@ -41,6 +41,7 @@ help:
 	@echo "  make restart       - restart development stack"
 	@echo "  make restart-quick - recreate development containers without rebuild"
 	@echo "  * set SYSTEMD_AGENT=1 to keep docker agent-core/sensor stopped (systemd mode)"
+	@echo "  make systemd-agent-install - install/update the host systemd netwatch-agent deployment"
 	@echo "  make systemd-agent-restart - restart only host systemd netwatch-agent service"
 	@echo "  make ps            - list services (dev profile by default)"
 	@echo "  make logs          - follow logs (set SVC=service)"
@@ -160,6 +161,9 @@ restart: dev-preflight
 
 restart-quick: dev-preflight
 	$(DC) $(COMPOSE_DEV) up -d --force-recreate $(DEV_DOCKER_AGENT_SCALE_ARGS)
+
+systemd-agent-install:
+	sudo env AUTO_START_IF_READY=1 bash deploy/systemd/install-agent.sh
 
 systemd-agent-restart:
 	sudo systemctl restart netwatch-agent

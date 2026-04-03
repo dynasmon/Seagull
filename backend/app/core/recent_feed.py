@@ -47,6 +47,55 @@ def _to_ts(dt: Any) -> Optional[datetime]:
     return None
 
 
+
+
+def _compact_extra(extra: Any) -> Dict[str, Any]:
+    if not isinstance(extra, dict):
+        return {}
+
+    keep_keys = {
+        "attack",
+        "distributed",
+        "vector",
+        "severity",
+        "confidence",
+        "window_seconds",
+        "packets",
+        "requests",
+        "pps",
+        "bps",
+        "unique_src_ips",
+        "src_entropy_norm",
+        "tcp_syn_ratio",
+        "http_rps",
+        "tls_handshake_rps",
+        "port_entropy_norm",
+        "port_distinct",
+        "port_top",
+        "port_top_share",
+        "top_src",
+    }
+
+    out: Dict[str, Any] = {}
+    for key in keep_keys:
+        if key not in extra:
+            continue
+        value = extra.get(key)
+        if key == "top_src":
+            if isinstance(value, list):
+                trimmed = []
+                for item in value[:10]:
+                    if not isinstance(item, dict):
+                        continue
+                    trimmed.append({
+                        "ip": item.get("ip") or item.get("src_ip") or item.get("address"),
+                        "count": item.get("count"),
+                    })
+                out[key] = trimmed
+            continue
+        out[key] = value
+    return out
+
 def _event_id(row: Dict[str, Any]) -> int:
     raw = "|".join(
         [
@@ -95,6 +144,7 @@ def push_recent_events(rows: List[Dict[str, Any]]) -> int:
             "proto": row.get("proto"),
             "bytes": row.get("bytes"),
             "schema_version": int(row.get("schema_version") or 1),
+            "extra": _compact_extra(row.get("extra") or {}),
         }
         raw = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), default=str)
         pipe.lpush(_feed_key(None), raw)
