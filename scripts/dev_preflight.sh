@@ -188,6 +188,14 @@ if [[ ! -f "$abs_tls_cert_file" || ! -f "$abs_tls_key_file" ]]; then
   generate_dev_tls_cert "$tls_cert_file" "$tls_key_file" "$agent_tls_server_name"
 fi
 
+abs_agent_ca_file="$(as_abs_path "$agent_ca_file")"
+if [[ ! -f "$abs_agent_ca_file" && -f "$abs_tls_cert_file" ]]; then
+  mkdir -p "$(dirname -- "$abs_agent_ca_file")"
+  cp "$abs_tls_cert_file" "$abs_agent_ca_file"
+  chmod 644 "$abs_agent_ca_file"
+  echo "[preflight] seeded agent CA file from TLS certificate: $agent_ca_file"
+fi
+
 require_file_mount_source NETWATCH_TLS_CERT_FILE "$tls_cert_file"
 require_file_mount_source NETWATCH_TLS_KEY_FILE "$tls_key_file"
 require_file_mount_source NETWATCH_AGENT_SERVER_CA_FILE "$agent_ca_file"

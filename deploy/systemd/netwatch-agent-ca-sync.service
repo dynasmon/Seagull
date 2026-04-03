@@ -1,0 +1,7 @@
+[Unit]
+Description=Synchronize NetWatch agent CA bundle
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/netwatch/netwatch-agent-sync-ca.sh

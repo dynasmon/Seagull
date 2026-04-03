@@ -54,9 +54,12 @@ def get_recent_events_endpoint(
     limit: int = Query(50, ge=1, le=1000, description="Maximum number of events to return"),
     agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
     event_type: Optional[str] = Query(None, description="Filter by event type"),
+    since_minutes: Optional[int] = Query(None, ge=1, le=60 * 24 * 30, description="Optional lookback window in minutes"),
+    window_minutes: Optional[int] = Query(None, ge=1, le=60 * 24 * 30, description="Backward-compatible alias for since_minutes"),
     db: Session = Depends(get_db),
 ):
-    return get_recent_events(db, limit=limit, agent_id=agent_id, event_type=event_type)
+    lookback_minutes = since_minutes if since_minutes is not None else window_minutes
+    return get_recent_events(db, limit=limit, agent_id=agent_id, event_type=event_type, since_minutes=lookback_minutes)
 
 
 @router.get("/rollups/1s", response_model=List[NetEventRollup1s])

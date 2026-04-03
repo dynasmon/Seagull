@@ -233,7 +233,8 @@ export default function EventsPage() {
     const limit = viewRef.current.limit;
 
     try {
-      const payload = await getRecentEvents({ agent_id, window_minutes, limit });
+      const event_type = viewRef.current.event_type ? viewRef.current.event_type : undefined;
+      const payload = await getRecentEvents({ agent_id, event_type, since_minutes: window_minutes, limit });
       if (reqSeq.current !== mySeq) return;
 
       setEvents(payload);
