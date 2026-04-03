@@ -10,11 +10,20 @@ ENV_FILE := .env
 ENV_EXAMPLE := .env.example
 PROD_CORE_SERVICES := postgres redis elasticsearch clickhouse netwatch-backend netwatch-ingest-worker netwatch-rules-worker netwatch-audit-retention netwatch-es-indexer netwatch-rollup-worker netwatch-ip-intel netwatch-proto-intel netwatch-attack-chain netwatch-portal caddy grafana
 PROD_AGENT_SERVICES := netwatch-agent-core netwatch-agent-sensor
+SYSTEMD_AGENT ?= 0
+SYSTEMD_AGENT_ENABLED := $(filter 1 true TRUE yes YES y Y,$(SYSTEMD_AGENT))
+DEV_DOCKER_AGENT_SCALE_ARGS :=
+DEV_DOCKER_AGENT_SERVICES := netwatch-agent-core netwatch-agent-sensor
+
+ifneq ($(SYSTEMD_AGENT_ENABLED),)
+DEV_DOCKER_AGENT_SCALE_ARGS := --scale netwatch-agent-core=0 --scale netwatch-agent-sensor=0
+DEV_DOCKER_AGENT_SERVICES :=
+endif
 
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-tls prod up up-extra down restart restart-quick ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-tls prod up up-extra down restart restart-quick systemd-agent-restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
@@ -30,7 +39,9 @@ help:
 	@echo "  make up-extra      - start development stack with profile 'extra'"
 	@echo "  make down          - stop stack (dev profile by default)"
 	@echo "  make restart       - restart development stack"
-	@echo "  make restart-quick - restart development containers without rebuild"
+	@echo "  make restart-quick - recreate development containers without rebuild"
+	@echo "  * set SYSTEMD_AGENT=1 to keep docker agent-core/sensor stopped (systemd mode)"
+	@echo "  make systemd-agent-restart - restart only host systemd netwatch-agent service"
 	@echo "  make ps            - list services (dev profile by default)"
 	@echo "  make logs          - follow logs (set SVC=service)"
 	@echo "  make build-dev     - build dev images"
@@ -76,14 +87,22 @@ prod-prepare: bootstrap
 
 # Single-command bootstrap for development.
 dev: dev-preflight
-	$(DC) $(COMPOSE_DEV) up -d --build --force-recreate
+	$(DC) $(COMPOSE_DEV) up -d --build --force-recreate $(DEV_DOCKER_AGENT_SCALE_ARGS)
+ifneq ($(SYSTEMD_AGENT_ENABLED),)
+	@echo "[dev] SYSTEMD_AGENT=$(SYSTEMD_AGENT) -> skipping docker agent bootstrap/recreate"
+else
 	@$(MAKE) agent-tokens-bootstrap
-	$(DC) $(COMPOSE_DEV) up -d --force-recreate netwatch-agent-core netwatch-agent-sensor
+	$(DC) $(COMPOSE_DEV) up -d --force-recreate $(DEV_DOCKER_AGENT_SERVICES)
+endif
 
 dev-tls: dev-preflight
-	$(DC) $(COMPOSE_DEV_TLS) up -d --build --force-recreate
+	$(DC) $(COMPOSE_DEV_TLS) up -d --build --force-recreate $(DEV_DOCKER_AGENT_SCALE_ARGS)
+ifneq ($(SYSTEMD_AGENT_ENABLED),)
+	@echo "[dev-tls] SYSTEMD_AGENT=$(SYSTEMD_AGENT) -> skipping docker agent bootstrap/recreate"
+else
 	@$(MAKE) agent-tokens-bootstrap
-	$(DC) $(COMPOSE_DEV_TLS) up -d --force-recreate netwatch-agent-core netwatch-agent-sensor
+	$(DC) $(COMPOSE_DEV_TLS) up -d --force-recreate $(DEV_DOCKER_AGENT_SERVICES)
+endif
 
 # Single-command bootstrap for production-like runs.
 prod: bootstrap bootstrap-tools prod-prepare
@@ -123,19 +142,28 @@ prod-state-clear:
 up: dev
 
 up-extra: dev-preflight
-	$(DC) $(COMPOSE_DEV) --profile extra up -d --build --force-recreate
+	$(DC) $(COMPOSE_DEV) --profile extra up -d --build --force-recreate $(DEV_DOCKER_AGENT_SCALE_ARGS)
+ifneq ($(SYSTEMD_AGENT_ENABLED),)
+	@echo "[up-extra] SYSTEMD_AGENT=$(SYSTEMD_AGENT) -> skipping docker agent bootstrap/recreate for core/sensor"
+	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate netwatch-agent-lateral
+else
 	@$(MAKE) agent-tokens-bootstrap
 	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate netwatch-agent-core netwatch-agent-sensor netwatch-agent-lateral
+endif
 
 down:
 	$(DC) $(COMPOSE_DEV) down
 
 restart: dev-preflight
 	$(DC) $(COMPOSE_DEV) down
-	$(DC) $(COMPOSE_DEV) up -d --build
+	$(DC) $(COMPOSE_DEV) up -d --build $(DEV_DOCKER_AGENT_SCALE_ARGS)
 
-restart-quick:
-	$(DC) $(COMPOSE_DEV) restart
+restart-quick: dev-preflight
+	$(DC) $(COMPOSE_DEV) up -d --force-recreate $(DEV_DOCKER_AGENT_SCALE_ARGS)
+
+systemd-agent-restart:
+	sudo systemctl restart netwatch-agent
+	sudo systemctl status netwatch-agent --no-pager
 
 ps:
 	$(DC) $(COMPOSE_DEV) ps
