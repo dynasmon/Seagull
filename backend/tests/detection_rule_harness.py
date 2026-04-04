@@ -17,6 +17,13 @@ _ALLOWED_EVENT_FIELDS = {
     "src_port",
     "proto",
     "bytes",
+    "app_proto",
+    "proc_name",
+    "proc_parent_name",
+    "fim_path",
+    "fim_category",
+    "heuristic_name",
+    "heuristic_confidence",
 }
 
 
@@ -50,6 +57,11 @@ def _eq(a: Any, b: Any) -> bool:
 
 def _parse_field_op(raw_key: str) -> Tuple[str | None, str | None]:
     for suffix, op in (
+        ("_not_contains", "not_contains"),
+        ("_contains_all", "contains_all"),
+        ("_contains", "contains"),
+        ("_startswith", "startswith"),
+        ("_endswith", "endswith"),
         ("_not_in", "not_in"),
         ("_in", "in"),
         ("_gte", "gte"),
@@ -64,6 +76,22 @@ def _parse_field_op(raw_key: str) -> Tuple[str | None, str | None]:
 
 
 def _evaluate_op(actual: Any, op: str, expected: Any) -> bool:
+    if op in {"contains", "not_contains", "contains_all", "startswith", "endswith"}:
+        terms = expected if isinstance(expected, list) else [expected]
+        terms_n = [str(x).strip().lower() for x in terms if str(x).strip()]
+        if not terms_n:
+            return False
+        text = str(actual or "").lower()
+        if op == "contains":
+            return any(t in text for t in terms_n)
+        if op == "contains_all":
+            return all(t in text for t in terms_n)
+        if op == "not_contains":
+            return all(t not in text for t in terms_n)
+        if op == "startswith":
+            return any(text.startswith(t) for t in terms_n)
+        return any(text.endswith(t) for t in terms_n)
+
     if op in {"in", "not_in"}:
         items = expected if isinstance(expected, list) else [expected]
         matched = any(_eq(actual, x) for x in items)
@@ -109,6 +137,11 @@ def _event_matches(match: Dict[str, Any], event: Dict[str, Any]) -> bool:
         extra_key = key[len("extra_") :]
         op_key = "eq"
         for suffix, op_name in (
+            ("_not_contains", "not_contains"),
+            ("_contains_all", "contains_all"),
+            ("_contains", "contains"),
+            ("_startswith", "startswith"),
+            ("_endswith", "endswith"),
             ("_not_in", "not_in"),
             ("_in", "in"),
             ("_gte", "gte"),
@@ -130,6 +163,33 @@ def _event_matches(match: Dict[str, Any], event: Dict[str, Any]) -> bool:
 
 def _group_key(fields: List[str], event: Dict[str, Any]) -> Tuple[Any, ...]:
     return tuple(event.get(f) for f in fields)
+
+
+def _hot_fields(event_type: str, extra: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(extra, dict):
+        extra = {}
+    out: Dict[str, Any] = {
+        "app_proto": extra.get("app_proto"),
+        "proc_name": None,
+        "proc_parent_name": None,
+        "fim_path": None,
+        "fim_category": None,
+        "heuristic_name": None,
+        "heuristic_confidence": None,
+    }
+    if event_type == "proc_exec":
+        out["proc_name"] = extra.get("exe_name") or extra.get("comm") or extra.get("binary")
+        out["proc_parent_name"] = extra.get("parent_exe_name") or extra.get("parent_comm")
+    if event_type in {"fim_change", "persistence_systemd", "persistence_cron", "ssh_key_change"}:
+        out["fim_path"] = extra.get("path")
+        out["fim_category"] = extra.get("path_category")
+    if event_type in {"beacon_suspect", "c2_suspect", "exfil_suspect", "egress_anomaly"}:
+        out["heuristic_name"] = extra.get("heuristic_name") or extra.get("heuristic_kind") or extra.get("reason_kind")
+        try:
+            out["heuristic_confidence"] = int(extra.get("confidence"))
+        except Exception:
+            out["heuristic_confidence"] = None
+    return out
 
 
 def _condition_ok(value: int, condition: Dict[str, Any]) -> bool:
@@ -167,6 +227,8 @@ def evaluate_rule(rule: Dict[str, Any], events: Iterable[Dict[str, Any]], now: d
     for raw in events:
         parsed = NetEvent(**raw)
         ev = parsed.dict() if hasattr(parsed, "dict") else parsed.model_dump()
+        extra = ev.get("extra") if isinstance(ev.get("extra"), dict) else {}
+        ev.update(_hot_fields(str(ev.get("event_type") or ""), extra))
         ts = ev["timestamp"]
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)

@@ -1,0 +1,143 @@
+schema_version: 1
+pack: host
+category: lotl
+pack_version: 1
+maturity: stable
+
+rules:
+  - id: lotl_remote_fetch_pipe_shell_v1
+    name: "Remote fetch piped into shell"
+    description: "Process execution indicates download-and-execute pipeline into shell interpreter."
+    status: "active"
+    source: "proc_exec"
+    false_positives: "Controlled bootstrap scripts from trusted internal package infrastructure."
+    response: "Validate command source and destination trust, then isolate host if payload origin is unapproved."
+    mitre:
+      tactic: "execution"
+      technique_id: "T1059.004"
+      technique: "Command and Scripting Interpreter: Unix Shell"
+      confidence: 90
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "8m"
+    cooldown: "20m"
+    match:
+      event_type: "proc_exec"
+      extra_exec_pattern: "remote_fetch_exec"
+      extra_cmdline_contains: ["| sh", "| bash", "bash -c", "sh -c"]
+    group_by: ["agent_id", "proc_parent_name", "proc_name"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: lotl_base64_decode_execute_chain_v1
+    name: "Base64 decode-and-execute chain"
+    description: "Process command line includes decode-and-execute primitives with interpreter or shell context."
+    status: "active"
+    source: "proc_exec"
+    false_positives: "Build systems decoding small trusted blobs during package installation."
+    response: "Review decoded payload source and confirm execution target path legitimacy."
+    mitre:
+      tactic: "execution"
+      technique_id: "T1059"
+      technique: "Command and Scripting Interpreter"
+      confidence: 84
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "12m"
+    cooldown: "25m"
+    match:
+      event_type: "proc_exec"
+      extra_exec_pattern_in: ["interpreter", "shell_spawn", "lolbin"]
+      extra_cmdline_contains:
+        - "base64 -d"
+        - "base64 --decode"
+        - "openssl enc -d"
+    group_by: ["agent_id", "proc_name"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: lotl_eval_interpreter_abuse_v1
+    name: "Interpreter eval abuse"
+    description: "Interpreter execution includes eval-like primitives commonly seen in post-exploitation."
+    status: "active"
+    source: "proc_exec"
+    false_positives: "Developer tooling wrappers in sandboxed non-production environments."
+    response: "Inspect script origin, parent lineage, and whether execution occurred on a sensitive host role."
+    mitre:
+      tactic: "execution"
+      technique_id: "T1059"
+      technique: "Command and Scripting Interpreter"
+      confidence: 78
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "20m"
+    match:
+      event_type: "proc_exec"
+      extra_exec_pattern_in: ["interpreter", "shell_spawn"]
+      extra_cmdline_contains: [" eval ", "$(echo", "`echo"]
+    group_by: ["agent_id", "proc_name"]
+    min_events: 2
+    condition:
+      operator: ">="
+      value: 2
+
+  - id: lotl_tmp_chmod_execute_chain_v1
+    name: "chmod +x staging followed by execution path"
+    description: "Command modifies execute bits in temporary paths with shell/interpreter execution context."
+    status: "active"
+    source: "proc_exec"
+    false_positives: "Packaging scripts building temporary artifacts on CI hosts."
+    response: "Verify whether modified temporary artifact is trusted and expected for the host role."
+    mitre:
+      tactic: "execution"
+      technique_id: "T1059.004"
+      technique: "Command and Scripting Interpreter: Unix Shell"
+      confidence: 81
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "25m"
+    match:
+      event_type: "proc_exec"
+      extra_exec_pattern_in: ["shell_spawn", "interpreter", "lolbin"]
+      extra_cmdline_contains_all: ["chmod +x", "/tmp/"]
+    group_by: ["agent_id", "proc_name"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: lotl_network_service_shell_spawn_chain_v1
+    name: "Shell spawned from network-facing service chain"
+    description: "Shell is spawned from service lineage associated with network-facing workloads."
+    status: "active"
+    source: "proc_exec"
+    false_positives: "Rare live-debug sessions on application servers."
+    response: "Review parent process and network session context to confirm whether this execution path is authorized."
+    mitre:
+      tactic: "execution"
+      technique_id: "T1059.004"
+      technique: "Command and Scripting Interpreter: Unix Shell"
+      confidence: 83
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "6m"
+    cooldown: "20m"
+    match:
+      event_type: "proc_exec"
+      extra_exec_pattern: "service_shell_child"
+    group_by: ["agent_id", "proc_parent_name", "proc_name"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1

@@ -8,7 +8,7 @@ os.environ.setdefault("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
 
 from app.core.config import settings
-from app.workers.rules_engine import _build_beacon_candidates, _build_exfil_candidates
+from app.workers.rules_engine import _build_beacon_candidates, _build_egress_anomaly_candidates, _build_exfil_candidates
 
 
 class _Rows:
@@ -25,6 +25,19 @@ class _FakeDB:
 
     def execute(self, _stmt):
         return _Rows(self._rows)
+
+
+class _FakeDBSeq:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self._idx = 0
+
+    def execute(self, _stmt):
+        if self._idx >= len(self._responses):
+            return _Rows([])
+        rows = self._responses[self._idx]
+        self._idx += 1
+        return _Rows(rows)
 
 
 def _row(ts: datetime, *, bytes_sent: int, host: str = "c2.example.test") -> SimpleNamespace:
@@ -110,3 +123,82 @@ def test_build_exfil_candidates_detects_burst_to_rare_destination() -> None:
     assert cand["recent_events"] >= 4
     assert int(cand["recent_bytes"]) > int(cand["baseline_bytes"])
     assert int(cand["confidence"]) >= 62
+
+
+def test_build_egress_anomaly_candidates_with_exec_correlation() -> None:
+    now = datetime.now(timezone.utc)
+    flow_rows = [
+        SimpleNamespace(
+            agent_id="agent-1",
+            timestamp=now - timedelta(seconds=4200),
+            src_ip="10.0.0.8",
+            dst_ip="198.51.100.44",
+            dst_port=4444,
+            proto="tcp",
+            bytes=4000,
+            app_proto="dns",
+            extra={"flow_direction": "outbound_from_local", "http_host": "x1.bad.evil.test"},
+        ),
+        *[
+            SimpleNamespace(
+                agent_id="agent-1",
+                timestamp=now - timedelta(seconds=s),
+                src_ip="10.0.0.8",
+                dst_ip="198.51.100.44",
+                dst_port=4444,
+                proto="tcp",
+                bytes=900000,
+                app_proto="dns",
+                extra={"flow_direction": "outbound_from_local", "http_host": "x1.bad.evil.test"},
+            )
+            for s in [240, 180, 120, 60, 20]
+        ],
+    ]
+    suspicious_rows = [
+        SimpleNamespace(
+            agent_id="agent-1",
+            event_type="proc_exec",
+            extra={"exec_pattern": "remote_fetch_exec"},
+        )
+    ]
+
+    old_vals = (
+        settings.NETWATCH_HEUR_MAX_ROWS,
+        settings.NETWATCH_HEUR_EGRESS_BASELINE_SECONDS,
+        settings.NETWATCH_HEUR_EGRESS_WINDOW_SECONDS,
+        settings.NETWATCH_HEUR_EGRESS_MIN_EVENTS,
+        settings.NETWATCH_HEUR_EGRESS_MIN_BYTES,
+        settings.NETWATCH_HEUR_EGRESS_SPIKE_FACTOR,
+        settings.NETWATCH_HEUR_EGRESS_RARE_BASELINE_EVENTS,
+        settings.NETWATCH_HEUR_EGRESS_CORRELATION_SECONDS,
+    )
+    try:
+        settings.NETWATCH_HEUR_MAX_ROWS = 1000
+        settings.NETWATCH_HEUR_EGRESS_BASELINE_SECONDS = 7200
+        settings.NETWATCH_HEUR_EGRESS_WINDOW_SECONDS = 300
+        settings.NETWATCH_HEUR_EGRESS_MIN_EVENTS = 4
+        settings.NETWATCH_HEUR_EGRESS_MIN_BYTES = 1024
+        settings.NETWATCH_HEUR_EGRESS_SPIKE_FACTOR = 1.5
+        settings.NETWATCH_HEUR_EGRESS_RARE_BASELINE_EVENTS = 2
+        settings.NETWATCH_HEUR_EGRESS_CORRELATION_SECONDS = 1200
+        out = _build_egress_anomaly_candidates(_FakeDBSeq([flow_rows, suspicious_rows]), now)
+    finally:
+        (
+            settings.NETWATCH_HEUR_MAX_ROWS,
+            settings.NETWATCH_HEUR_EGRESS_BASELINE_SECONDS,
+            settings.NETWATCH_HEUR_EGRESS_WINDOW_SECONDS,
+            settings.NETWATCH_HEUR_EGRESS_MIN_EVENTS,
+            settings.NETWATCH_HEUR_EGRESS_MIN_BYTES,
+            settings.NETWATCH_HEUR_EGRESS_SPIKE_FACTOR,
+            settings.NETWATCH_HEUR_EGRESS_RARE_BASELINE_EVENTS,
+            settings.NETWATCH_HEUR_EGRESS_CORRELATION_SECONDS,
+        ) = old_vals
+
+    assert out
+    cand = out[0]
+    assert cand["dst_ip"] == "198.51.100.44"
+    assert int(cand["suspicious_exec_hits"]) >= 1
+    assert str(cand["reason_kind"]) in {
+        "rare_destination_after_suspicious_exec",
+        "rare_destination_unusual_protocol",
+    }

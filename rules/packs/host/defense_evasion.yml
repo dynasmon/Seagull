@@ -1,0 +1,162 @@
+schema_version: 1
+pack: host
+category: defense_evasion
+pack_version: 1
+maturity: stable
+
+rules:
+  - id: defense_log_tamper_sudo_cmd_v1
+    name: "Log tampering via privileged command"
+    description: "Privileged command sequence indicates log truncation, shredding, or aggressive cleanup."
+    status: "active"
+    source: "sudo_cmd"
+    false_positives: "Approved retention maintenance for controlled forensic data lifecycle."
+    response: "Verify maintenance authorization and inspect for adjacent malicious execution or persistence signals."
+    mitre:
+      tactic: "defense_evasion"
+      technique_id: "T1070"
+      technique: "Indicator Removal on Host"
+      confidence: 86
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "12m"
+    cooldown: "30m"
+    match:
+      event_type: "sudo_cmd"
+      extra_action: "sudo"
+      extra_target_user: "root"
+      extra_command_contains:
+        - "truncate -s 0"
+        - "shred "
+        - "rm -rf /var/log"
+        - "unlink /var/log"
+        - "journalctl --vacuum"
+    group_by: ["agent_id", "src_ip"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: defense_disable_security_services_cmd_v1
+    name: "Disable security telemetry services"
+    description: "Privileged command disables core security or observability services."
+    status: "active"
+    source: "sudo_cmd"
+    false_positives: "Rare emergency service migration with explicit incident ticketing."
+    response: "Immediately validate operator intent, recover service state, and scope potential impact window."
+    mitre:
+      tactic: "defense_evasion"
+      technique_id: "T1562"
+      technique: "Impair Defenses"
+      confidence: 90
+    enabled: true
+    severity: "critical"
+    type: "aggregate_count"
+    window: "8m"
+    cooldown: "30m"
+    match:
+      event_type: "sudo_cmd"
+      extra_action: "sudo"
+      extra_target_user: "root"
+      extra_command_contains:
+        - "systemctl stop auditd"
+        - "systemctl disable auditd"
+        - "systemctl stop rsyslog"
+        - "systemctl disable rsyslog"
+        - "systemctl stop netwatch"
+        - "systemctl disable netwatch"
+        - "setenforce 0"
+        - "ufw disable"
+        - "iptables -f"
+    group_by: ["agent_id", "src_ip"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: defense_security_file_permission_tamper_v1
+    name: "Security file permission/ownership tamper"
+    description: "Permission or ownership changes on security-sensitive files were detected."
+    status: "active"
+    source: "fim_change"
+    false_positives: "Authorized hardening actions performed under strict change control."
+    response: "Confirm authorized baseline drift and inspect whether tamper was followed by privilege or persistence activity."
+    mitre:
+      tactic: "defense_evasion"
+      technique_id: "T1562"
+      technique: "Impair Defenses"
+      confidence: 83
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "20m"
+    cooldown: "30m"
+    match:
+      event_type: "fim_change"
+      extra_path_category: "security_file"
+      extra_action_in: ["permission_change", "ownership_change", "delete", "rename"]
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: defense_hidden_artifact_persistence_path_v1
+    name: "Hidden artifact in persistence-sensitive path"
+    description: "File path indicates hidden payload-style naming inside persistence-sensitive locations."
+    status: "active"
+    source: "fim_change"
+    false_positives: "Temporary hidden state files from trusted package tooling."
+    response: "Review file content/hash and origin process; quarantine host when artifact is untrusted."
+    mitre:
+      tactic: "defense_evasion"
+      technique_id: "T1070"
+      technique: "Indicator Removal on Host"
+      confidence: 74
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "20m"
+    cooldown: "30m"
+    match:
+      event_type: "fim_change"
+      extra_action_in: ["create", "rename", "modify"]
+      extra_path_contains: ["/.", "/tmp/.", "/var/tmp/.", "/dev/shm/."]
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: defense_tmp_cleanup_after_exec_v1
+    name: "Suspicious cleanup in temporary execution paths"
+    description: "Command execution indicates artifact cleanup in temporary paths after potential payload staging."
+    status: "active"
+    source: "proc_exec"
+    false_positives: "Routine ephemeral workspace cleanup in CI hosts."
+    response: "Correlate with recent payload download/decode activity and investigate if cleanup hides malicious binaries."
+    mitre:
+      tactic: "defense_evasion"
+      technique_id: "T1070"
+      technique: "Indicator Removal on Host"
+      confidence: 78
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "20m"
+    match:
+      event_type: "proc_exec"
+      extra_exec_pattern_in: ["shell_spawn", "interpreter", "lolbin"]
+      extra_cmdline_contains:
+        - "rm -rf /tmp/"
+        - "rm -f /tmp/"
+        - "shred /tmp/"
+        - "unlink /tmp/"
+        - "rm -rf /var/tmp/"
+    group_by: ["agent_id", "proc_name"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
