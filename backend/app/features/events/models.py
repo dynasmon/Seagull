@@ -37,6 +37,15 @@ class NetEventModel(Base):
     ja4_ptype = Column(String(8), nullable=True)
     ssh_action = Column(String(64), nullable=True)
     ssh_username = Column(String(128), nullable=True)
+    proc_pid = Column(Integer, nullable=True)
+    proc_ppid = Column(Integer, nullable=True)
+    proc_name = Column(String(128), nullable=True)
+    proc_exe = Column(String(512), nullable=True)
+    proc_parent_name = Column(String(128), nullable=True)
+    fim_path = Column(String(1024), nullable=True)
+    fim_category = Column(String(64), nullable=True)
+    heuristic_name = Column(String(64), nullable=True)
+    heuristic_confidence = Column(SmallInteger, nullable=True)
 
 
 class NetEventRollup1sModel(Base):

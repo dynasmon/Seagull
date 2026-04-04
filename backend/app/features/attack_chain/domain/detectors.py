@@ -13,6 +13,15 @@ def _safe_str(v: Any, *, max_len: int = 256) -> str:
     return s[:max_len]
 
 
+def _safe_int(v: Any, default: int = 0) -> int:
+    try:
+        if v is None or v == "":
+            return int(default)
+        return int(float(v))
+    except Exception:
+        return int(default)
+
+
 def _extra_action(extra: Any) -> str:
     if not isinstance(extra, dict):
         return ""
@@ -58,6 +67,7 @@ _RE_REMOTE_FETCH_EXEC = re.compile(
     r"\b(curl|wget)\b.*\b(sh|bash)\b|\b(curl|wget)\b.*\|\s*\b(sh|bash)\b",
     re.IGNORECASE,
 )
+_RE_NET_SERVICE_PARENT = re.compile(r"\b(nginx|apache2|httpd|php-fpm|gunicorn|uwsgi|caddy|traefik)\b", re.IGNORECASE)
 _RE_SUDO_PRIV_ESC = re.compile(
     r"\b(visudo|sudoedit|pkexec|doas)\b|\b(usermod|useradd|adduser)\b.*\b(sudo|wheel)\b|\b(chmod|chown)\b.*\+s\b|\bsetcap\b|/etc/(sudoers|passwd|shadow)\b|/root/\.ssh/authorized_keys\b",
     re.IGNORECASE,
@@ -370,12 +380,82 @@ def detect_steps(event: Dict[str, Any], cfg: AttackChainConfig, *, allowlist: Op
         cmd = _extra_command(extra)
         out.append(_classify_sudo(agent_id, username, target, cmd, cfg, allowlist))
 
-    # --- Future-proof hooks (eBPF + FIM + C2/Exfil)
-    # These are intentionally conservative so the backend is ready for the next agents.
+    # --- Process execution telemetry
     if et in {"ebpf_exec", "proc_exec"}:
         argv = _safe_str(extra.get("argv") or extra.get("cmdline") or "", max_len=1024)
-        bin_name = _safe_str(extra.get("binary") or extra.get("comm") or "")
-        if argv and _RE_LOLBINS.search(argv):
+        bin_name = _safe_str(extra.get("binary") or extra.get("exe_name") or extra.get("comm") or "")
+        parent_name = _safe_str(extra.get("parent_exe_name") or extra.get("parent_comm") or "")
+        uid = _safe_str(extra.get("uid") or "")
+        euid = _safe_str(extra.get("euid") or "")
+        exec_pattern = _safe_str(extra.get("exec_pattern") or "")
+        patterns = extra.get("exec_patterns") if isinstance(extra.get("exec_patterns"), list) else []
+        patterns_txt = ",".join(str(x) for x in patterns)
+
+        if argv and (_RE_REMOTE_FETCH_EXEC.search(argv) or exec_pattern == "remote_fetch_exec"):
+            out.append(
+                StepCandidate(
+                    stage=AttackStage.execution,
+                    title="Remote fetch and execute",
+                    description="Process command line indicates download-and-execute behavior.",
+                    score_delta=28,
+                    fingerprint=f"exec_remote_fetch:{bin_name}:{argv}",
+                    suspect_ip=src_ip or None,
+                    details={"binary": bin_name, "parent": parent_name, "argv": argv, "patterns": patterns},
+                    kind="exec_remote_fetch",
+                    technique_id="T1059",
+                    confidence=86,
+                )
+            )
+
+        if argv and ("reverse_shell" in patterns_txt or "service_shell_child" in patterns_txt):
+            out.append(
+                StepCandidate(
+                    stage=AttackStage.command_and_control,
+                    title="Potential reverse shell",
+                    description="Execution pattern is consistent with reverse-shell activity.",
+                    score_delta=30,
+                    fingerprint=f"exec_reverse_shell:{bin_name}:{argv}",
+                    suspect_ip=src_ip or None,
+                    details={"binary": bin_name, "parent": parent_name, "argv": argv, "patterns": patterns},
+                    kind="exec_reverse_shell",
+                    technique_id="T1071",
+                    confidence=88,
+                )
+            )
+
+        if argv and _RE_NET_SERVICE_PARENT.search(parent_name) and _RE_SHELLS.search(bin_name):
+            out.append(
+                StepCandidate(
+                    stage=AttackStage.execution,
+                    title="Shell spawned by service",
+                    description="Network-facing service spawned an interactive shell.",
+                    score_delta=24,
+                    fingerprint=f"exec_service_shell:{parent_name}:{bin_name}:{argv}",
+                    suspect_ip=src_ip or None,
+                    details={"binary": bin_name, "parent": parent_name, "argv": argv},
+                    kind="exec_service_shell",
+                    technique_id="T1059",
+                    confidence=82,
+                )
+            )
+
+        if uid and euid and uid != euid and euid == "0":
+            out.append(
+                StepCandidate(
+                    stage=AttackStage.privilege_escalation,
+                    title="Execution with elevated EUID",
+                    description="Process executed with effective UID 0 from a non-root UID.",
+                    score_delta=22,
+                    fingerprint=f"exec_euid_root:{bin_name}:{argv}:{uid}:{euid}",
+                    suspect_ip=src_ip or None,
+                    details={"binary": bin_name, "argv": argv, "uid": uid, "euid": euid},
+                    kind="exec_priv_escalation",
+                    technique_id="T1548.003",
+                    confidence=80,
+                )
+            )
+
+        if argv and (_RE_LOLBINS.search(argv) or exec_pattern == "lolbin"):
             out.append(
                 StepCandidate(
                     stage=AttackStage.execution,
@@ -391,52 +471,88 @@ def detect_steps(event: Dict[str, Any], cfg: AttackChainConfig, *, allowlist: Op
                 )
             )
 
+    # --- File integrity / persistence telemetry
     if et in {"fim_change", "persistence_systemd", "persistence_cron", "ssh_key_change"}:
         path = _safe_str(extra.get("path") or "")
+        category = _safe_str(extra.get("path_category") or "")
+        action = _safe_str(extra.get("action") or extra.get("op") or "")
+        persist = bool(extra.get("persistence_related")) or et in {"persistence_systemd", "persistence_cron", "ssh_key_change"}
+        tamper = bool(extra.get("tamper_related"))
+        stage = AttackStage.persistence if persist else AttackStage.defense_evasion if tamper else AttackStage.persistence
+        technique = "T1543"
+        if category == "cron" or et == "persistence_cron":
+            technique = "T1053.003"
+        elif category == "ssh_authorized_keys" or et == "ssh_key_change":
+            technique = "T1098"
+        elif tamper:
+            technique = "T1562"
         out.append(
             StepCandidate(
-                stage=AttackStage.persistence,
-                    title="Persistence indicator",
-                    description="Potential persistence-related change observed.",
-                score_delta=26,
-                fingerprint=f"persist:{et}:{path}",
+                stage=stage,
+                title="Persistence / tamper indicator",
+                description="High-signal file integrity change in a persistence-sensitive path.",
+                score_delta=26 if persist else 22,
+                fingerprint=f"fim:{et}:{category}:{action}:{path}",
                 suspect_ip=None,
-                details={"event_type": et, "path": path, "op": _safe_str(extra.get("op") or "")},
-                    kind="persistence",
-                    technique_id="T1543",
-                    confidence=70,
+                details={
+                    "event_type": et,
+                    "path": path,
+                    "path_category": category,
+                    "action": action,
+                    "persistence_related": persist,
+                    "tamper_related": tamper,
+                },
+                kind="persistence" if persist else "tamper",
+                technique_id=technique,
+                confidence=74 if persist else 70,
             )
         )
 
     if et in {"beacon_suspect", "c2_suspect"}:
+        conf = _safe_int(extra.get("confidence"), 75) if isinstance(extra, dict) else 75
         out.append(
             StepCandidate(
                 stage=AttackStage.command_and_control,
                 title="Command & Control indicator",
                 description="Suspicious outbound pattern consistent with beaconing/control traffic.",
                 score_delta=28,
-                fingerprint=f"c2:{src_ip}:{_safe_str(event.get('dst_ip') or '')}:{_safe_str(event.get('dst_port') or '')}",
+                fingerprint=f"c2:{src_ip}:{_safe_str(event.get('dst_ip') or '')}:{_safe_str(event.get('dst_port') or '')}:{_safe_str(extra.get('heuristic_name') if isinstance(extra, dict) else '')}",
                 suspect_ip=src_ip or None,
-                details={"src_ip": src_ip, "dst_ip": _safe_str(event.get("dst_ip") or ""), "dst_port": event.get("dst_port")},
+                details={
+                    "src_ip": src_ip,
+                    "dst_ip": _safe_str(event.get("dst_ip") or ""),
+                    "dst_port": event.get("dst_port"),
+                    "confidence": conf,
+                    "heuristic_name": _safe_str(extra.get("heuristic_name") if isinstance(extra, dict) else ""),
+                    "reasons": extra.get("reasons") if isinstance(extra, dict) else [],
+                },
                 kind="c2",
                 technique_id="T1071",
-                confidence=75,
+                confidence=max(50, min(99, conf)),
             )
         )
 
     if et in {"exfil_suspect", "egress_anomaly"}:
+        conf = _safe_int(extra.get("confidence"), 75) if isinstance(extra, dict) else 75
         out.append(
             StepCandidate(
                 stage=AttackStage.exfiltration,
                 title="Potential exfiltration",
                 description="Anomalous egress activity consistent with data exfiltration.",
                 score_delta=34,
-                fingerprint=f"exfil:{src_ip}:{_safe_str(event.get('dst_ip') or '')}:{_safe_str(event.get('dst_port') or '')}",
+                fingerprint=f"exfil:{src_ip}:{_safe_str(event.get('dst_ip') or '')}:{_safe_str(event.get('dst_port') or '')}:{_safe_str(extra.get('heuristic_name') if isinstance(extra, dict) else '')}",
                 suspect_ip=src_ip or None,
-                details={"src_ip": src_ip, "dst_ip": _safe_str(event.get("dst_ip") or ""), "bytes": event.get("bytes")},
+                details={
+                    "src_ip": src_ip,
+                    "dst_ip": _safe_str(event.get("dst_ip") or ""),
+                    "bytes": event.get("bytes"),
+                    "confidence": conf,
+                    "heuristic_name": _safe_str(extra.get("heuristic_name") if isinstance(extra, dict) else ""),
+                    "reasons": extra.get("reasons") if isinstance(extra, dict) else [],
+                },
                 kind="exfil",
-                technique_id="T1041",
-                confidence=75,
+                technique_id="T1048",
+                confidence=max(50, min(99, conf)),
             )
         )
 
