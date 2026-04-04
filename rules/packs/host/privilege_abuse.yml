@@ -1,0 +1,179 @@
+schema_version: 1
+pack: host
+category: privilege_abuse
+pack_version: 1
+maturity: stable
+
+rules:
+  - id: privilege_sudo_sensitive_file_manipulation_v1
+    name: "Suspicious sudo manipulation of sensitive auth files"
+    description: "Sudo command targets root and touches sensitive local authentication or elevation files."
+    status: "active"
+    source: "sudo_cmd"
+    false_positives: "Planned identity-management maintenance performed by privileged platform teams."
+    response: "Validate operator intent and correlate with new account, key, or sudoers changes."
+    mitre:
+      tactic: "privilege_escalation"
+      technique_id: "T1548.003"
+      technique: "Abuse Elevation Control Mechanism: Sudo and Sudo Caching"
+      confidence: 85
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "12m"
+    cooldown: "30m"
+    match:
+      event_type: "sudo_cmd"
+      extra_action: "sudo"
+      extra_target_user: "root"
+      extra_username_not_in: ["root"]
+      extra_command_contains:
+        - "visudo"
+        - "sudoedit"
+        - "/etc/sudoers"
+        - "/etc/shadow"
+        - "/etc/passwd"
+        - "/root/.ssh/authorized_keys"
+        - "setcap "
+        - "chmod +s"
+    group_by: ["agent_id", "src_ip"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: privilege_sudo_root_shell_or_interpreter_v1
+    name: "Sudo root shell/interpreter abuse"
+    description: "Non-root user invokes sudo to run shell or interpreter payload as root."
+    status: "active"
+    source: "sudo_cmd"
+    false_positives: "Break-glass troubleshooting sessions on hardened servers."
+    response: "Confirm break-glass approval and inspect recent command history for post-escalation actions."
+    mitre:
+      tactic: "privilege_escalation"
+      technique_id: "T1548.003"
+      technique: "Abuse Elevation Control Mechanism: Sudo and Sudo Caching"
+      confidence: 82
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "25m"
+    match:
+      event_type: "sudo_cmd"
+      extra_action: "sudo"
+      extra_target_user: "root"
+      extra_username_not_in: ["root"]
+      extra_command_contains:
+        - "/bin/bash"
+        - "/bin/sh"
+        - "python -c"
+        - "python3 -c"
+        - "perl -e"
+        - "ruby -e"
+        - "node -e"
+    group_by: ["agent_id", "src_ip"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: privilege_proc_euid_root_nonroot_uid_chain_v1
+    name: "Process chain with non-root UID and root EUID"
+    description: "Process execution shows UID-to-EUID pivot to root with suspicious interpreter or LOLBin context."
+    status: "active"
+    source: "proc_exec"
+    false_positives: "Setuid helper binaries during controlled maintenance tasks."
+    response: "Inspect parent-child chain and binary provenance; treat unknown chains as probable privilege abuse."
+    mitre:
+      tactic: "privilege_escalation"
+      technique_id: "T1548.003"
+      technique: "Abuse Elevation Control Mechanism: Sudo and Sudo Caching"
+      confidence: 87
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "8m"
+    cooldown: "20m"
+    match:
+      event_type: "proc_exec"
+      extra_uid_neq: 0
+      extra_euid: 0
+      extra_exec_pattern_in: ["interpreter", "shell_spawn", "lolbin", "remote_fetch_exec", "reverse_shell"]
+    group_by: ["agent_id", "src_ip"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: privilege_repeated_root_exec_after_user_context_v1
+    name: "Repeated risky root execution after user context"
+    description: "Root-context process execution repeatedly uses high-risk execution patterns on the same host."
+    status: "active"
+    source: "proc_exec"
+    false_positives: "Short-lived response playbooks executed by security automation agents."
+    response: "Validate automation identity and investigate if execution source is untrusted or newly observed."
+    mitre:
+      tactic: "privilege_escalation"
+      technique_id: "T1548.003"
+      technique: "Abuse Elevation Control Mechanism: Sudo and Sudo Caching"
+      confidence: 78
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "15m"
+    cooldown: "30m"
+    match:
+      event_type: "proc_exec"
+      extra_euid: 0
+      extra_exec_pattern_in: ["remote_fetch_exec", "reverse_shell", "lolbin"]
+    group_by: ["agent_id"]
+    min_events: 3
+    condition:
+      operator: ">="
+      value: 3
+    tuning:
+      threshold_scopes:
+        - name: "prod-server-threshold"
+          when:
+            environments: ["prod", "production"]
+          min_events: 4
+          condition: {operator: ">=", value: 4}
+        - name: "admin-jump-host-tuning"
+          when:
+            host_roles: ["jump", "bastion"]
+          min_events: 5
+          condition: {operator: ">=", value: 5}
+
+  - id: privilege_sudo_service_control_abuse_v1
+    name: "Suspicious sudo service control abuse"
+    description: "Sudo command manipulates service states in a way aligned with privilege abuse and control takeover."
+    status: "active"
+    source: "sudo_cmd"
+    false_positives: "Legitimate emergency service maintenance by platform SRE on designated hosts."
+    response: "Validate service change approval and inspect whether service action was followed by suspicious process execution."
+    mitre:
+      tactic: "privilege_escalation"
+      technique_id: "T1548.003"
+      technique: "Abuse Elevation Control Mechanism: Sudo and Sudo Caching"
+      confidence: 76
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "25m"
+    match:
+      event_type: "sudo_cmd"
+      extra_action: "sudo"
+      extra_target_user: "root"
+      extra_username_not_in: ["root"]
+      extra_command_contains:
+        - "systemctl stop "
+        - "systemctl disable "
+        - "systemctl mask "
+        - "service "
+    group_by: ["agent_id", "src_ip"]
+    min_events: 2
+    condition:
+      operator: ">="
+      value: 2

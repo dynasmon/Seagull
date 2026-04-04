@@ -424,7 +424,18 @@ export default function AlertsQueuePage() {
     if (!qq) return alerts;
 
     return (alerts || []).filter((a) => {
-      const hay = [a.rule_id, a.src_ip, a.dst_ip, a.description].filter(Boolean).join(" ").toLowerCase();
+      const hay = [
+        a.rule_id,
+        a.src_ip,
+        a.dst_ip,
+        a.description,
+        a.mitre_tactic,
+        a.mitre_technique_id,
+        a.mitre_technique
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
       return hay.includes(qq);
     });
   }, [alerts, view.search]);
@@ -448,6 +459,10 @@ export default function AlertsQueuePage() {
       src_ip: selected.src_ip,
       dst_ip: selected.dst_ip,
       dst_port: selected.dst_port,
+      confidence: selected.confidence,
+      mitre_tactic: selected.mitre_tactic,
+      mitre_technique_id: selected.mitre_technique_id,
+      mitre_technique: selected.mitre_technique,
       created_at: selected.created_at,
       description: selected.description,
       details: selected.details
@@ -687,6 +702,19 @@ export default function AlertsQueuePage() {
                 <div className="font-mono text-sm truncate">
                   {selected.dst_ip || "-"}
                   {typeof selected.dst_port === "number" ? `:${selected.dst_port}` : ""}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Confidence</div>
+                <div className="font-mono text-sm truncate">{typeof selected.confidence === "number" ? selected.confidence : "-"}</div>
+              </div>
+
+              <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">ATT&CK</div>
+                <div className="font-mono text-sm truncate">
+                  {selected.mitre_tactic || "-"}
+                  {selected.mitre_technique_id ? ` · ${selected.mitre_technique_id}` : ""}
                 </div>
               </div>
             </div>

@@ -4,6 +4,10 @@ export type Alert = {
   id: number;
   rule_id: string;
   severity: AlertSeverity | string;
+  confidence?: number;
+  mitre_tactic?: string | null;
+  mitre_technique_id?: string | null;
+  mitre_technique?: string | null;
   src_ip: string | null;
   dst_ip: string | null;
   dst_port: number | null;
