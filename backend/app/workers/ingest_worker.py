@@ -250,6 +250,21 @@ def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
             if vv:
                 doc[dst] = vv
 
+    if event_type == "proc_exec":
+        doc["proc_pid"] = _as_int(extra.get("pid"))
+        doc["proc_ppid"] = _as_int(extra.get("ppid"))
+        doc["proc_name"] = _as_str(extra.get("exe_name") or extra.get("comm") or extra.get("binary"))
+        doc["proc_exe"] = _as_str(extra.get("exe_path"))
+        doc["proc_parent_name"] = _as_str(extra.get("parent_exe_name") or extra.get("parent_comm"))
+
+    if event_type in {"fim_change", "persistence_systemd", "persistence_cron", "ssh_key_change"}:
+        doc["fim_path"] = _as_str(extra.get("path"))
+        doc["fim_category"] = _as_str(extra.get("path_category"))
+
+    if event_type in {"beacon_suspect", "c2_suspect", "exfil_suspect", "egress_anomaly"}:
+        doc["heuristic_name"] = _as_str(extra.get("heuristic_name") or extra.get("heuristic_kind") or extra.get("reason_kind"))
+        doc["heuristic_confidence"] = _as_int(extra.get("confidence"))
+
     return {k: v for k, v in doc.items() if v is not None}
 
 
@@ -330,6 +345,17 @@ def _ensure_warm_ilm_and_template(es, cfg: WorkerConfig) -> None:
                 "sudo_command": {"type": "keyword"},
                 "sudo_tty": {"type": "keyword"},
                 "sudo_pwd": {"type": "keyword"},
+
+                # Process / FIM / heuristic signals
+                "proc_pid": {"type": "integer"},
+                "proc_ppid": {"type": "integer"},
+                "proc_name": {"type": "keyword"},
+                "proc_exe": {"type": "keyword"},
+                "proc_parent_name": {"type": "keyword"},
+                "fim_path": {"type": "keyword"},
+                "fim_category": {"type": "keyword"},
+                "heuristic_name": {"type": "keyword"},
+                "heuristic_confidence": {"type": "integer"},
 
                 "extra": {"type": "flattened"},
             },
@@ -585,6 +611,15 @@ def _event_hot_columns(event_type: str, extra: Dict[str, Any]) -> Dict[str, Any]
             return v.upper()
         return v
 
+    def _i(k: str) -> Optional[int]:
+        raw = extra.get(k)
+        if raw is None or raw == "":
+            return None
+        try:
+            return int(raw)
+        except Exception:
+            return None
+
     out: Dict[str, Any] = {
         "app_proto": _s("app_proto"),
         "app_proto_reason": _s("app_proto_reason"),
@@ -597,6 +632,15 @@ def _event_hot_columns(event_type: str, extra: Dict[str, Any]) -> Dict[str, Any]
         "ja3": _s("ja3"),
         "ja4": _s("ja4"),
         "ja4_ptype": _s("ja4_ptype", default="t"),
+        "proc_pid": None,
+        "proc_ppid": None,
+        "proc_name": None,
+        "proc_exe": None,
+        "proc_parent_name": None,
+        "fim_path": None,
+        "fim_category": None,
+        "heuristic_name": None,
+        "heuristic_confidence": None,
     }
     if event_type == "ssh_auth":
         out["ssh_action"] = _s("action")
@@ -604,6 +648,21 @@ def _event_hot_columns(event_type: str, extra: Dict[str, Any]) -> Dict[str, Any]
     else:
         out["ssh_action"] = None
         out["ssh_username"] = None
+
+    if event_type == "proc_exec":
+        out["proc_pid"] = _i("pid")
+        out["proc_ppid"] = _i("ppid")
+        out["proc_name"] = _s("exe_name") or _s("comm") or _s("binary")
+        out["proc_exe"] = _s("exe_path")
+        out["proc_parent_name"] = _s("parent_exe_name") or _s("parent_comm")
+
+    if event_type in {"fim_change", "persistence_systemd", "persistence_cron", "ssh_key_change"}:
+        out["fim_path"] = _s("path")
+        out["fim_category"] = _s("path_category")
+
+    if event_type in {"beacon_suspect", "c2_suspect", "exfil_suspect", "egress_anomaly"}:
+        out["heuristic_name"] = _s("heuristic_name") or _s("heuristic_kind") or _s("reason_kind")
+        out["heuristic_confidence"] = _i("confidence")
     return out
 
 
@@ -732,6 +791,15 @@ def _write_clickhouse_events(*, ch_client: Any, hot_rows: List[Dict[str, Any]]) 
                 (str(extra.get("target_user")) if is_sudo and extra.get("target_user") else None),
                 (str(extra.get("command")) if is_sudo and extra.get("command") else None),
                 (str(extra.get("tty")) if is_sudo and extra.get("tty") else None),
+                (int(r.get("proc_pid")) if r.get("proc_pid") is not None else None),
+                (int(r.get("proc_ppid")) if r.get("proc_ppid") is not None else None),
+                (str(r.get("proc_name")) if r.get("proc_name") else None),
+                (str(r.get("proc_exe")) if r.get("proc_exe") else None),
+                (str(r.get("proc_parent_name")) if r.get("proc_parent_name") else None),
+                (str(r.get("fim_path")) if r.get("fim_path") else None),
+                (str(r.get("fim_category")) if r.get("fim_category") else None),
+                (str(r.get("heuristic_name")) if r.get("heuristic_name") else None),
+                (int(r.get("heuristic_confidence")) if r.get("heuristic_confidence") is not None else None),
                 json.dumps(extra, ensure_ascii=False, separators=(",", ":"), default=str),
             )
         )
@@ -769,6 +837,15 @@ def _write_clickhouse_events(*, ch_client: Any, hot_rows: List[Dict[str, Any]]) 
             "sudo_target_user",
             "sudo_command",
             "sudo_tty",
+            "proc_pid",
+            "proc_ppid",
+            "proc_name",
+            "proc_exe",
+            "proc_parent_name",
+            "fim_path",
+            "fim_category",
+            "heuristic_name",
+            "heuristic_confidence",
             "extra_json",
         ],
     )

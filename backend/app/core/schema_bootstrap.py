@@ -172,6 +172,33 @@ def _ensure_indexes(conn) -> None:
             ),
         ),
         (
+            "net_events",
+            Index(
+                "idx_net_events_proc_name_ts",
+                NetEventModel.proc_name,
+                NetEventModel.timestamp.desc(),
+                postgresql_where=(NetEventModel.event_type == "proc_exec"),
+            ),
+        ),
+        (
+            "net_events",
+            Index(
+                "idx_net_events_fim_path_ts",
+                NetEventModel.fim_path,
+                NetEventModel.timestamp.desc(),
+                postgresql_where=(NetEventModel.event_type.in_(["fim_change", "persistence_systemd", "persistence_cron", "ssh_key_change"])),
+            ),
+        ),
+        (
+            "net_events",
+            Index(
+                "idx_net_events_heuristic_name_ts",
+                NetEventModel.heuristic_name,
+                NetEventModel.timestamp.desc(),
+                postgresql_where=(NetEventModel.event_type.in_(["beacon_suspect", "exfil_suspect", "c2_suspect", "egress_anomaly"])),
+            ),
+        ),
+        (
             "agents",
             Index("idx_agents_last_seen_at", AgentModel.last_seen_at),
         ),

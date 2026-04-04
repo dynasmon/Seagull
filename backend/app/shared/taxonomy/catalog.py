@@ -57,7 +57,14 @@ TECHNIQUES: Dict[str, str] = {
     # Command and scripting interpreter
     "T1059": "Command and Scripting Interpreter",
 
+    # Scheduled tasks and persistence
+    "T1053": "Scheduled Task/Job",
+    "T1053.003": "Scheduled Task/Job: Cron",
+    "T1098": "Account Manipulation",
+    "T1543": "Create or Modify System Process",
+
     # Exfiltration
+    "T1041": "Exfiltration Over C2 Channel",
     "T1048": "Exfiltration Over Alternative Protocol",
 }
 
