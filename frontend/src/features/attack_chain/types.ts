@@ -64,6 +64,45 @@ export type AttackChainCaseWithSteps = {
   case: AttackChainCase;
   steps: AttackChainStep[];
   mitre: MitreCaseSummary;
+  reasoning?: {
+    generated_at?: string;
+    overall?: {
+      verdict?: string;
+      analyst_hint?: string;
+      quality_counts?: {
+        observed?: number;
+        strongly_supported?: number;
+        inferred?: number;
+        weakly_inferred?: number;
+      };
+      stage_count?: number;
+    };
+    stages?: Array<{
+      stage: string;
+      label?: string;
+      support_level?: "observed" | "strongly_supported" | "inferred" | "weakly_inferred" | string;
+      confidence?: number;
+      support_score?: number;
+      direct_support?: number;
+      inferred_support?: number;
+      evidence_count?: number;
+      observed_count?: number;
+      strong_count?: number;
+      inferred_count?: number;
+      weak_count?: number;
+      direct_count?: number;
+      inferred_nature_count?: number;
+      families?: string[];
+      top_factors?: string[];
+      missing_evidence?: string[];
+      promoted?: boolean;
+      transition?: {
+        allowed?: boolean;
+        promoted?: boolean;
+        reason?: string;
+      };
+    }>;
+  };
 };
 
 export type AttackChainCasesPage = CursorPage<AttackChainCase>;

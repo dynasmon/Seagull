@@ -35,6 +35,11 @@ type StepView = {
   kind: string;
   confidence: number;
   techniqueId: string;
+  evidenceClass: "observed" | "strongly_supported" | "inferred" | "weakly_inferred";
+  evidenceNature: "direct" | "inferred";
+  confidenceFactors: string[];
+  missingEvidence: string[];
+  transition: { allowed: boolean; promoted: boolean; reason: string };
   raw: AttackChainStep;
 };
 
@@ -89,6 +94,28 @@ function confidenceVariant(c: number) {
   return "neutral";
 }
 
+function normalizeEvidenceClass(v: any): "observed" | "strongly_supported" | "inferred" | "weakly_inferred" {
+  const s = String(v || "").trim().toLowerCase();
+  if (s === "observed") return "observed";
+  if (s === "strongly_supported") return "strongly_supported";
+  if (s === "inferred") return "inferred";
+  return "weakly_inferred";
+}
+
+function evidenceLabel(level: StepView["evidenceClass"]) {
+  if (level === "observed") return "Observed";
+  if (level === "strongly_supported") return "Strongly Supported";
+  if (level === "inferred") return "Inferred";
+  return "Weakly Inferred";
+}
+
+function evidenceVariant(level: StepView["evidenceClass"]) {
+  if (level === "observed") return "high";
+  if (level === "strongly_supported") return "medium";
+  if (level === "inferred") return "low";
+  return "neutral";
+}
+
 function buildStepView(s: AttackChainStep): StepView {
   const d = (s.details && typeof s.details === "object") ? s.details : {};
   const title = String((s as any).label || "").trim() || "Step";
@@ -96,6 +123,20 @@ function buildStepView(s: AttackChainStep): StepView {
   const kind = String(d.kind || s.event_type || "").trim() || "signal";
   const confidence = Number(d.confidence);
   const techniqueId = String(d.technique_id || "").trim();
+  const evidenceClass = normalizeEvidenceClass(d.evidence_class);
+  const evidenceNature = String(d.evidence_nature || "").trim().toLowerCase() === "inferred" ? "inferred" : "direct";
+  const confidenceFactors = Array.isArray(d.confidence_factors)
+    ? d.confidence_factors.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 4)
+    : [];
+  const missingEvidence = Array.isArray(d.missing_evidence)
+    ? d.missing_evidence.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 4)
+    : [];
+  const tr = (d.transition && typeof d.transition === "object") ? d.transition : {};
+  const transition = {
+    allowed: Boolean((tr as any).allowed),
+    promoted: Boolean((tr as any).promoted),
+    reason: String((tr as any).reason || "").trim(),
+  };
 
   // Operator-friendly fallbacks for common evidence.
   let description = desc;
@@ -128,26 +169,41 @@ function buildStepView(s: AttackChainStep): StepView {
     kind,
     confidence: Number.isFinite(confidence) ? confidence : 0,
     techniqueId,
+    evidenceClass,
+    evidenceNature,
+    confidenceFactors,
+    missingEvidence,
+    transition,
     raw: s,
   };
 }
 
 function assessCase(payload: AttackChainCaseWithSteps): { verdict: string; hint: string } {
+  const backendVerdict = String(payload.reasoning?.overall?.verdict || "").trim();
+  const backendHint = String(payload.reasoning?.overall?.analyst_hint || "").trim();
+  if (backendVerdict || backendHint) {
+    return {
+      verdict: backendVerdict || "Assessment",
+      hint: backendHint || "Review supporting evidence before taking remediation action.",
+    };
+  }
+
   const score = Number(payload.case.score) || 0;
   const steps = (payload.steps || []).map(buildStepView);
-  const hi = steps.some((s) => s.confidence >= 80);
-  const med = steps.some((s) => s.confidence >= 55);
+  const observed = steps.filter((s) => s.evidenceClass === "observed").length;
+  const strong = steps.filter((s) => s.evidenceClass === "strongly_supported").length;
+  const inferred = steps.filter((s) => s.evidenceClass === "inferred").length;
 
-  if (score >= 80 || (hi && score >= 60)) {
-    return { verdict: "High confidence", hint: "Multiple strong indicators are correlated. Treat as likely malicious until proven otherwise." };
+  if (observed > 0 || (strong >= 2 && score >= 55)) {
+    return { verdict: "Observed-led chain", hint: "Direct telemetry supports core stages. Validate scope and begin containment." };
   }
-  if (score >= 55 || (med && score >= 40)) {
-    return { verdict: "Suspicious", hint: "Correlated activity is suspicious. Validate on-host artifacts and review the timeline." };
+  if (strong > 0 || (inferred >= 2 && score >= 40)) {
+    return { verdict: "Strongly supported chain", hint: "Signals converge with useful confidence. Confirm artifacts before escalation." };
   }
-  if (score > 0) {
-    return { verdict: "Low signal", hint: "Some indicators were observed but confidence is low. Often benign admin activity unless correlated with other alerts." };
+  if (inferred > 0 || score > 0) {
+    return { verdict: "Inferred chain", hint: "Evidence exists but remains indirect. Seek direct host and network confirmation." };
   }
-  return { verdict: "Informational", hint: "No scored indicators. This is usually context-only and can often be ignored." };
+  return { verdict: "Weakly inferred chain", hint: "Evidence is sparse or weak. Avoid high-confidence conclusions." };
 }
 
 function TabButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
@@ -250,6 +306,21 @@ export default function AttackChainDrawer({
     return stageRank(payload.case.max_stage);
   }, [payload]);
 
+  const stageReasoning = useMemo(() => {
+    if (!payload?.reasoning?.stages || !Array.isArray(payload.reasoning.stages)) return [];
+    return payload.reasoning.stages;
+  }, [payload]);
+
+  const qualityCounts = useMemo(() => {
+    const q = payload?.reasoning?.overall?.quality_counts || {};
+    return {
+      observed: Number((q as any).observed) || 0,
+      stronglySupported: Number((q as any).strongly_supported) || 0,
+      inferred: Number((q as any).inferred) || 0,
+      weaklyInferred: Number((q as any).weakly_inferred) || 0,
+    };
+  }, [payload]);
+
   async function doCloseCase() {
     if (!payload) return;
     setCloseBusy(true);
@@ -322,15 +393,37 @@ export default function AttackChainDrawer({
               <div className="text-sm font-semibold truncate">{s.title}</div>
               {s.scoreDelta ? <Badge variant={scoreVariant(Math.max(0, s.scoreDelta))}>+{s.scoreDelta}</Badge> : null}
               {s.techniqueId ? <Badge variant="neutral">{s.techniqueId}</Badge> : null}
+              <Badge variant={evidenceVariant(s.evidenceClass) as any}>{evidenceLabel(s.evidenceClass)}</Badge>
+              <Badge variant={s.evidenceNature === "direct" ? "info" : "neutral"}>{s.evidenceNature}</Badge>
               {s.confidence ? <Badge variant={confidenceVariant(s.confidence)}>{confidenceLabel(s.confidence)}</Badge> : null}
             </div>
             {s.description ? <div className="mt-1 text-sm text-muted-foreground">{s.description}</div> : null}
+            {s.confidenceFactors.length ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {s.confidenceFactors.map((f) => (
+                  <span
+                    key={f}
+                    className="inline-flex items-center rounded-md border border-border/60 bg-background/30 px-2 py-1 text-[10px] text-muted-foreground"
+                  >
+                    {f}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {s.missingEvidence.length ? (
+              <div className="mt-2 text-xs text-yellow-500">
+                Missing for stronger confidence: {s.missingEvidence.join(" · ")}
+              </div>
+            ) : null}
             <div className="mt-2 text-[11px] font-mono text-muted-foreground">{fmtTs(s.at)}</div>
           </div>
 
           <div className="shrink-0 text-right">
             <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Kind</div>
             <div className="text-xs font-mono text-foreground">{s.kind || "-"}</div>
+            {s.transition.reason ? (
+              <div className="mt-2 text-[10px] text-muted-foreground max-w-[240px]">{s.transition.reason}</div>
+            ) : null}
           </div>
         </div>
 
@@ -360,6 +453,14 @@ export default function AttackChainDrawer({
             <Badge variant={statusVariant(payload.case.status)}>{payload.case.status}</Badge>
             <Badge variant={scoreVariant(payload.case.score)}>score {payload.case.score}</Badge>
             <Badge variant="neutral">{stageLabel(payload.case.max_stage)}</Badge>
+            {qualityCounts.observed > 0 ? <Badge variant="high">observed {qualityCounts.observed}</Badge> : null}
+            {qualityCounts.stronglySupported > 0 ? (
+              <Badge variant="medium">strong {qualityCounts.stronglySupported}</Badge>
+            ) : null}
+            {qualityCounts.inferred > 0 ? <Badge variant="low">inferred {qualityCounts.inferred}</Badge> : null}
+            {qualityCounts.weaklyInferred > 0 ? (
+              <Badge variant="neutral">weak {qualityCounts.weaklyInferred}</Badge>
+            ) : null}
             <WorkflowBadge wf={wf} />
             {wf.assignee ? <Badge variant="neutral">assigned: {wf.assignee}</Badge> : null}
             {wf.notes.length ? <Badge variant="neutral">notes: {wf.notes.length}</Badge> : null}
@@ -426,7 +527,7 @@ export default function AttackChainDrawer({
                 })}
               </div>
               <div className="mt-3 text-[11px] text-muted-foreground">
-                Stages are inferred from correlated telemetry and baselines. Validate on-host artifacts before taking action.
+                Stage progression is evidence-gated. Weak inferred signals are kept visible but do not auto-promote the chain.
               </div>
             </div>
           </div>
@@ -464,7 +565,7 @@ export default function AttackChainDrawer({
               {tab === "overview" ? (
                 <div className="space-y-3">
                   <div className="text-sm text-muted-foreground">
-                    This case groups multiple signals into a single ATT&CK-aligned chain to reduce noise and speed triage.
+                    This case links telemetry into an ATT&CK-aligned chain while preserving evidence quality and transition guardrails.
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -478,12 +579,90 @@ export default function AttackChainDrawer({
                     <div className="rounded-lg border border-border/60 bg-background/30 p-3">
                       <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Score</div>
                       <div className="mt-1 text-sm font-semibold">{payload.case.score}</div>
-                      <div className="mt-1 text-[11px] text-muted-foreground">Higher scores indicate stronger / more correlated signals.</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        Score is weighted by evidence quality. Weak inferred signals are intentionally capped.
+                      </div>
                     </div>
                     <div className="rounded-lg border border-border/60 bg-background/30 p-3">
                       <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Steps</div>
                       <div className="mt-1 text-sm font-semibold">{payload.steps.length}</div>
                       <div className="mt-1 text-[11px] text-muted-foreground">Timeline signals used to compute the chain.</div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="rounded-lg border border-border/60 bg-background/30 p-3">
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Observed</div>
+                      <div className="mt-1 text-sm font-semibold">{qualityCounts.observed}</div>
+                    </div>
+                    <div className="rounded-lg border border-border/60 bg-background/30 p-3">
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Strong</div>
+                      <div className="mt-1 text-sm font-semibold">{qualityCounts.stronglySupported}</div>
+                    </div>
+                    <div className="rounded-lg border border-border/60 bg-background/30 p-3">
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Inferred</div>
+                      <div className="mt-1 text-sm font-semibold">{qualityCounts.inferred}</div>
+                    </div>
+                    <div className="rounded-lg border border-border/60 bg-background/30 p-3">
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Weakly inferred</div>
+                      <div className="mt-1 text-sm font-semibold">{qualityCounts.weaklyInferred}</div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border/60 bg-background/30 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold">Stage Evidence</div>
+                        <div className="text-xs text-muted-foreground">
+                          Each stage shows support level, evidence families, and missing evidence for stronger confidence.
+                        </div>
+                      </div>
+                      <Badge variant={scoreVariant(payload.case.score)}>{assessment?.verdict || "Assessment"}</Badge>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {stageReasoning.length === 0 ? (
+                        <div className="text-sm text-muted-foreground">No stage reasoning metadata available yet.</div>
+                      ) : (
+                        stageReasoning.map((st) => (
+                          <div key={st.stage} className="rounded-lg border border-border/60 bg-background/40 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                                {stageLabel(st.stage) || st.label || st.stage}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant={evidenceVariant(normalizeEvidenceClass(st.support_level)) as any}>
+                                  {evidenceLabel(normalizeEvidenceClass(st.support_level))}
+                                </Badge>
+                                <Badge variant={Boolean(st.promoted) ? "info" : "neutral"}>
+                                  {Boolean(st.promoted) ? "promoted" : "held"}
+                                </Badge>
+                              </div>
+                            </div>
+                            <div className="mt-2 text-[11px] text-muted-foreground">
+                              confidence {Number(st.confidence) || 0}% · support {Number(st.support_score || 0).toFixed(2)} ·
+                              events {Number(st.evidence_count) || 0}
+                            </div>
+                            {(st.families || []).length ? (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {(st.families || []).map((fam) => (
+                                  <span
+                                    key={`${st.stage}_${fam}`}
+                                    className="inline-flex items-center rounded-md border border-border/60 bg-background/30 px-2 py-1 text-[10px] text-muted-foreground"
+                                  >
+                                    {fam}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                            {(st.missing_evidence || []).length ? (
+                              <div className="mt-2 text-xs text-yellow-500">
+                                Missing: {(st.missing_evidence || []).join(" · ")}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
 

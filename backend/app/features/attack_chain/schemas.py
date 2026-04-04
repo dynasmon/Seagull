@@ -97,3 +97,5 @@ class AttackChainStepDB(BaseModel):
 class AttackChainCaseWithSteps(BaseModel):
     case: AttackChainCaseDB
     steps: List[AttackChainStepDB]
+    mitre: MitreCaseSummary
+    reasoning: Dict[str, Any] = Field(default_factory=dict)

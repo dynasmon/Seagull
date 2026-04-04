@@ -158,6 +158,7 @@ def insert_step_and_update_case(
     event: Dict[str, Any],
     details: Optional[Dict[str, Any]] = None,
     context_patch: Optional[Dict[str, Any]] = None,
+    promote_stage: bool = True,
 ) -> Tuple[int, int, str]:
     """Insert a step and update case aggregates.
 
@@ -171,7 +172,7 @@ def insert_step_and_update_case(
 
     old_stage = str(case.max_stage or "initial_access")
     new_max_stage = old_stage
-    if stage_rank(stage.value) > stage_rank(old_stage):
+    if bool(promote_stage) and stage_rank(stage.value) > stage_rank(old_stage):
         new_max_stage = stage.value
 
     ev_id = event.get("id")
