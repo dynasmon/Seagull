@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 
 class AttackStage(str, Enum):
@@ -51,6 +51,13 @@ class StepCandidate:
     technique_id: Optional[str] = None  # MITRE ATT&CK technique (optional)
     confidence: int = 50  # 0..100
 
-    # If False, the worker may still use the candidate to update baselines,
-    # but it should not be written as a visible step.
+    evidence_nature: str = ""
+
+    evidence_source: str = ""
+
+    evidence_reliability: int = 0
+
+    evidence_families: Sequence[str] | None = None
+
+
     emit: bool = True
