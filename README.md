@@ -230,6 +230,93 @@ make restart SYSTEMD_AGENT=1
 make restart-quick SYSTEMD_AGENT=1
 ```
 
+### 3.1 Native Linux `systemd` agent deployment
+
+If you want to run the NetWatch agent natively on a Linux host (without containerized agent services), use the deployment scripts under `deploy/systemd/`.
+
+This path is compatible with the existing Docker workflow. When the host `systemd` agent is enabled, use `SYSTEMD_AGENT=1` in the compose/make commands shown above so Docker does not start `netwatch-agent-core`/`netwatch-agent-sensor`.
+
+#### Installed paths
+
+| Purpose | Path |
+|---|---|
+| Agent binary | `/usr/local/bin/netwatch-agent` |
+| Service unit | `/etc/systemd/system/netwatch-agent.service` |
+| Environment config | `/etc/netwatch/agent.env` |
+| CA file | `/etc/netwatch/pki/root_ca.crt` |
+| CA sync helper | `/usr/local/lib/netwatch/netwatch-agent-sync-ca.sh` |
+| CA sync timer | `netwatch-agent-ca-sync.timer` |
+| State files | `/var/lib/netwatch` |
+| Runtime logs | `journalctl -u netwatch-agent` and `/var/log/netwatch` |
+
+#### Install
+
+Run from repository root as `root`:
+
+```bash
+bash deploy/systemd/install-agent.sh
+```
+
+Install modes:
+
+- Build from source (default):
+  ```bash
+  BUILD_FROM_SOURCE=1 bash deploy/systemd/install-agent.sh
+  ```
+- Install from an existing binary:
+  ```bash
+  BUILD_FROM_SOURCE=0 SOURCE_BINARY=/path/to/netwatch-agent bash deploy/systemd/install-agent.sh
+  ```
+- Install and auto-start only when runtime prerequisites are met:
+  ```bash
+  AUTO_START_IF_READY=1 bash deploy/systemd/install-agent.sh
+  ```
+
+Installer behavior (idempotent and hardening-oriented):
+
+- Reuses existing user/directories, preserves existing `/etc/netwatch/agent.env`, reloads systemd, enables the service.
+- Migrates legacy `NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE=/etc/netwatch/bootstrap.token` to `/var/lib/netwatch/bootstrap.token`.
+- Moves inline `NETWATCH_AGENT_BOOTSTRAP_TOKEN` content to file-based token storage and clears inline value.
+- Normalizes bootstrap token file ownership/permissions to `netwatch:netwatch` and `0600`.
+- Clears stale `NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE` when credential-based enroll is already complete and token file was consumed.
+- Removes stale systemd drop-ins that override bootstrap token env vars (unless `PRESERVE_BOOTSTRAP_DROPINS=1`).
+- Deduplicates managed keys in `agent.env` and applies sane host defaults for authlog and DDoS tuning.
+- If `NETWATCH_TLS_CA_FILE` is missing, can auto-seed from local dev CA (`AUTO_INSTALL_DEV_CA=1`, default).
+- Auto-discovers the local CA source, writes `NETWATCH_TLS_CA_SOURCE_FILE`, and installs CA sync timer to keep trust aligned.
+
+#### Configure
+
+Edit `/etc/netwatch/agent.env` and set at least:
+
+- `NETWATCH_AGENT_ID`
+- `NETWATCH_API_URL`
+- One bootstrap source:
+  - `NETWATCH_AGENT_BOOTSTRAP_TOKEN`, or
+  - `NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE`
+- `NETWATCH_TLS_CA_FILE` (default: `/etc/netwatch/pki/root_ca.crt`)
+- `NETWATCH_TLS_CA_SOURCE_FILE` (typically your repo `secrets/tls/ca.crt`)
+
+Optional backend mTLS:
+
+- `NETWATCH_TLS_CERT_FILE`
+- `NETWATCH_TLS_KEY_FILE`
+
+If one of `NETWATCH_TLS_CERT_FILE` / `NETWATCH_TLS_KEY_FILE` is set, the other must also be set.
+
+#### Start and inspect
+
+```bash
+systemctl start netwatch-agent
+systemctl status netwatch-agent --no-pager
+journalctl -u netwatch-agent -f
+```
+
+#### Current limitations
+
+- No `ExecReload` is configured in the unit.
+- Bootstrap token file deletion occurs only after successful enroll/re-enroll.
+- Service auto-start is intentionally conservative unless explicitly requested with `AUTO_START_IF_READY=1`.
+
 If you prefer raw Compose commands, use the provided wrapper (it auto-creates/syncs `.env` first):
 
 ```bash
