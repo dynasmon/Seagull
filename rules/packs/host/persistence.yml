@@ -1,0 +1,236 @@
+schema_version: 1
+pack: host
+category: persistence
+pack_version: 1
+maturity: stable
+
+rules:
+  - id: persistence_cron_unprivileged_write_v1
+    name: "Unprivileged cron persistence write"
+    description: "Cron persistence files were created or modified by a non-root account."
+    status: "active"
+    source: "persistence_cron"
+    false_positives: "Rare automation agents with delegated cron ownership on non-production hosts."
+    response: "Validate actor identity, review cron payload, and confirm whether host role expects delegated cron control."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1053.003"
+      technique: "Scheduled Task/Job: Cron"
+      confidence: 86
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "12m"
+    cooldown: "25m"
+    match:
+      event_type: "persistence_cron"
+      extra_action_in: ["create", "modify", "rename"]
+      extra_uid_neq: 0
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+    tuning:
+      threshold_scopes:
+        - name: "prod-hardening-threshold"
+          when:
+            environments: ["prod", "production"]
+          min_events: 2
+          condition: {operator: ">=", value: 2}
+      allowlist_scopes:
+        - name: "approved-config-mgmt-host"
+          reason: "Known configuration-management host"
+          when:
+            host_roles: ["config-mgmt", "automation"]
+            environments: ["dev", "lab"]
+
+  - id: persistence_systemd_unit_create_modify_v1
+    name: "Systemd unit create/modify persistence"
+    description: "Systemd unit file was created, modified, or renamed in persistence paths."
+    status: "active"
+    source: "persistence_systemd"
+    false_positives: "Expected service rollout windows and package upgrades."
+    response: "Inspect unit diff and ensure ExecStart target and owner align with approved deployment policy."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1543.002"
+      technique: "Create or Modify System Process: Systemd Service"
+      confidence: 82
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "20m"
+    match:
+      event_type: "persistence_systemd"
+      extra_path_category: "systemd_unit"
+      extra_action_in: ["create", "modify", "rename"]
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: persistence_systemd_override_dropin_change_v1
+    name: "Systemd override/drop-in persistence change"
+    description: "Systemd override/drop-in content changed and may alter service startup behavior."
+    status: "active"
+    source: "persistence_systemd"
+    false_positives: "Legitimate service hardening with approved override snippets."
+    response: "Review override directives and verify whether changed directives are expected for this host role."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1543.002"
+      technique: "Create or Modify System Process: Systemd Service"
+      confidence: 84
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "12m"
+    cooldown: "25m"
+    match:
+      event_type: "persistence_systemd"
+      extra_path_category: "systemd_override"
+      extra_action_in: ["create", "modify", "rename", "permission_change", "ownership_change"]
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: persistence_authorized_keys_nonroot_change_v1
+    name: "authorized_keys change by non-root user"
+    description: "authorized_keys was changed and recorded UID is non-root."
+    status: "active"
+    source: "ssh_key_change"
+    false_positives: "Self-service key enrollment on non-privileged user accounts with approved workflows."
+    response: "Validate account ownership and key provenance, then review lateral movement indicators from the same host."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1098"
+      technique: "Account Manipulation"
+      confidence: 88
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "15m"
+    cooldown: "30m"
+    match:
+      event_type: "ssh_key_change"
+      extra_action_in: ["create", "modify", "rename", "permission_change", "ownership_change"]
+      extra_uid_neq: 0
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: persistence_ssh_config_tamper_v1
+    name: "SSH configuration tamper"
+    description: "SSH daemon or client configuration changed in a security-sensitive way."
+    status: "active"
+    source: "fim_change"
+    false_positives: "Approved SSH hardening change windows."
+    response: "Confirm authorized change request and inspect adjacent account/persistence activity on host."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1098"
+      technique: "Account Manipulation"
+      confidence: 76
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "15m"
+    cooldown: "25m"
+    match:
+      event_type: "fim_change"
+      extra_path_category: "ssh_config"
+      extra_action_in: ["modify", "rename", "permission_change", "ownership_change", "delete"]
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: persistence_shell_profile_startup_change_v1
+    name: "Shell startup/profile persistence"
+    description: "Shell profile startup files changed, indicating potential user-level persistence."
+    status: "active"
+    source: "fim_change"
+    false_positives: "Expected shell profile customization by developers on workstation hosts."
+    response: "Review modified profile command content and correlate with suspicious process execution from the same user context."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1037"
+      technique: "Boot or Logon Initialization Scripts"
+      confidence: 74
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "20m"
+    cooldown: "30m"
+    match:
+      event_type: "fim_change"
+      extra_path_category: "shell_profile"
+      extra_action_in: ["create", "modify", "rename"]
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: persistence_rc_local_reactivation_v1
+    name: "rc.local persistence reactivation"
+    description: "rc.local changed, potentially re-enabling startup execution."
+    status: "active"
+    source: "fim_change"
+    false_positives: "Legacy init compatibility changes during approved maintenance."
+    response: "Validate rc.local ownership, execution bits, and command payload legitimacy."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1037"
+      technique: "Boot or Logon Initialization Scripts"
+      confidence: 80
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "30m"
+    cooldown: "40m"
+    match:
+      event_type: "fim_change"
+      extra_path_category: "rc_local"
+      extra_action_in: ["create", "modify", "rename", "permission_change", "ownership_change"]
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: persistence_unusual_tmp_staging_path_v1
+    name: "Persistence staging in temporary execution paths"
+    description: "Persistence-related file change occurred under temporary or memory-backed execution paths."
+    status: "active"
+    source: "fim_change"
+    false_positives: "Ephemeral test automation creating temporary bootstrap scripts."
+    response: "Inspect artifact contents and process lineage that created the file; isolate host if unapproved."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1037"
+      technique: "Boot or Logon Initialization Scripts"
+      confidence: 79
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "15m"
+    cooldown: "30m"
+    match:
+      event_type: "fim_change"
+      extra_persistence_related: true
+      extra_action_in: ["create", "rename", "modify"]
+      extra_path_contains: ["/tmp/", "/var/tmp/", "/dev/shm/"]
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1

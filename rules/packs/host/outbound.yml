@@ -1,0 +1,189 @@
+schema_version: 1
+pack: host
+category: outbound_anomaly
+pack_version: 1
+maturity: stable
+
+rules:
+  - id: outbound_dns_app_on_non_dns_port_v1
+    name: "Outbound DNS application protocol on non-DNS port"
+    description: "Outbound L7 flow is classified as DNS but destination port is outside expected DNS ports."
+    status: "active"
+    source: "l7_flow"
+    false_positives: "Custom service-mesh forwarding where DNS-over-nonstandard ports is explicitly approved."
+    response: "Validate destination service profile and inspect payload patterns for tunneling or C2 behavior."
+    mitre:
+      tactic: "command_and_control"
+      technique_id: "T1071.004"
+      technique: "Application Layer Protocol: DNS"
+      confidence: 82
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "20m"
+    match:
+      event_type: "l7_flow"
+      extra_flow_direction: "outbound_from_local"
+      extra_app_proto: "dns"
+      dst_port_not_in: [53, 5353, 853]
+    group_by: ["agent_id", "dst_ip", "dst_port", "proto"]
+    min_events: 3
+    condition:
+      operator: ">="
+      value: 3
+
+  - id: outbound_http_on_admin_or_control_ports_v1
+    name: "Outbound HTTP on admin/control ports"
+    description: "Outbound HTTP traffic repeatedly targets ports atypical for HTTP usage."
+    status: "active"
+    source: "l7_flow"
+    false_positives: "Internal diagnostics services using alternate HTTP control ports."
+    response: "Check destination ownership and inspect request metadata for command-and-control behavior."
+    mitre:
+      tactic: "command_and_control"
+      technique_id: "T1071"
+      technique: "Application Layer Protocol"
+      confidence: 74
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "20m"
+    match:
+      event_type: "l7_flow"
+      extra_flow_direction: "outbound_from_local"
+      extra_app_proto: "http"
+      dst_port_in: [22, 53, 123]
+    group_by: ["agent_id", "dst_ip", "dst_port", "proto"]
+    min_events: 2
+    condition:
+      operator: ">="
+      value: 2
+
+  - id: outbound_tls_on_suspicious_ports_v1
+    name: "Outbound TLS on suspicious protocol/port combination"
+    description: "Outbound TLS is observed on ports commonly associated with non-TLS traffic or control channels."
+    status: "active"
+    source: "l7_flow"
+    false_positives: "Approved encrypted overlays using custom control-plane ports."
+    response: "Validate destination profile and inspect SNI/host evidence for newly observed encrypted channels."
+    mitre:
+      tactic: "command_and_control"
+      technique_id: "T1071"
+      technique: "Application Layer Protocol"
+      confidence: 80
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "20m"
+    match:
+      event_type: "l7_flow"
+      extra_flow_direction: "outbound_from_local"
+      extra_app_proto: "tls"
+      dst_port_in: [53, 123, 1900]
+    group_by: ["agent_id", "dst_ip", "dst_port", "proto"]
+    min_events: 2
+    condition:
+      operator: ">="
+      value: 2
+
+  - id: outbound_contextual_rare_destination_v1
+    name: "Contextual rare outbound destination anomaly"
+    description: "Derived egress anomaly indicates rare destination correlated with suspicious local execution or persistence."
+    status: "active"
+    source: "egress_anomaly"
+    false_positives: "One-time onboarding to newly approved external services without baseline warm-up."
+    response: "Validate destination trust, inspect local suspicious chain, and block egress if destination is unapproved."
+    mitre:
+      tactic: "command_and_control"
+      technique_id: "T1071"
+      technique: "Application Layer Protocol"
+      confidence: 88
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "20m"
+    cooldown: "30m"
+    match:
+      event_type: "egress_anomaly"
+      extra_reason_kind_in:
+        - "rare_destination_after_suspicious_exec"
+        - "bursty_outbound_after_persistence"
+        - "rare_destination_unusual_protocol"
+      extra_confidence_gte: 70
+    group_by: ["agent_id", "dst_ip", "dst_port", "proto"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: outbound_contextual_bursty_upload_anomaly_v1
+    name: "Contextual bursty outbound upload anomaly"
+    description: "Derived egress anomaly reports bursty outbound bytes with baseline deviation."
+    status: "active"
+    source: "egress_anomaly"
+    false_positives: "Scheduled backup jobs to newly provisioned endpoints on approved backup hosts."
+    response: "Confirm transfer intent and inspect associated process lineage and destination ownership."
+    mitre:
+      tactic: "exfiltration"
+      technique_id: "T1048"
+      technique: "Exfiltration Over Alternative Protocol"
+      confidence: 84
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "25m"
+    cooldown: "35m"
+    match:
+      event_type: "egress_anomaly"
+      extra_reason_kind_in: ["bursty_outbound", "bursty_outbound_after_persistence"]
+      extra_recent_bytes_gte: 2097152
+      extra_confidence_gte: 68
+    group_by: ["agent_id", "dst_ip", "dst_port", "proto"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+    tuning:
+      threshold_scopes:
+        - name: "prod-backup-hosts"
+          when:
+            environments: ["prod", "production"]
+            host_roles: ["backup", "storage"]
+          min_events: 2
+          condition: {operator: ">=", value: 2}
+      allowlist_scopes:
+        - name: "known-egress-gateway"
+          reason: "Dedicated egress gateway host role"
+          when:
+            host_roles: ["egress-gateway", "proxy"]
+            environments: ["dev", "lab"]
+
+  - id: outbound_contextual_suspicious_host_pattern_v1
+    name: "Contextual suspicious SNI/host pattern"
+    description: "Derived egress anomaly identifies suspicious destination host naming patterns."
+    status: "active"
+    source: "egress_anomaly"
+    false_positives: "Legitimate CDNs with deep subdomain labels in specific SaaS integrations."
+    response: "Inspect DNS/SNI profile, JA3/JA4 metadata, and whether destination was previously trusted for this host."
+    mitre:
+      tactic: "command_and_control"
+      technique_id: "T1071"
+      technique: "Application Layer Protocol"
+      confidence: 76
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "25m"
+    cooldown: "35m"
+    match:
+      event_type: "egress_anomaly"
+      extra_host_suspicion_reason_in: ["many_labels", "long_host", "digit_heavy_host"]
+      extra_confidence_gte: 62
+    group_by: ["agent_id", "dst_ip", "dst_port", "proto"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1

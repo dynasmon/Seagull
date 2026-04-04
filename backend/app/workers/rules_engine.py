@@ -13,6 +13,7 @@ from sqlalchemy.sql.sqltypes import Float
 
 from app.core.config import settings
 from app.core.db import SessionLocal
+from app.features.agents.models import AgentModel
 from app.features.alerts.models import AlertModel
 from app.features.events.models import NetEventModel
 from app.workers.rules_registry import (
@@ -36,6 +37,13 @@ _ALLOWED_EVENT_FIELDS = {
     "src_port",
     "proto",
     "bytes",
+    "app_proto",
+    "proc_name",
+    "proc_parent_name",
+    "fim_path",
+    "fim_category",
+    "heuristic_name",
+    "heuristic_confidence",
 }
 
 
@@ -358,11 +366,229 @@ def _build_exfil_candidates(db: Session, now: datetime) -> List[Dict[str, Any]]:
     return out
 
 
+def _has_exec_pattern(extra: Dict[str, Any], patterns: set[str]) -> bool:
+    if not isinstance(extra, dict) or not patterns:
+        return False
+    p0 = str(extra.get("exec_pattern") or "").strip().lower()
+    if p0 and p0 in patterns:
+        return True
+    items = extra.get("exec_patterns")
+    if isinstance(items, list):
+        for p in items:
+            s = str(p or "").strip().lower()
+            if s and s in patterns:
+                return True
+    return False
+
+
+def _suspicious_activity_by_agent(
+    db: Session,
+    *,
+    now: datetime,
+    agent_ids: List[str],
+    lookback_seconds: int,
+) -> Dict[str, Dict[str, int]]:
+    out: Dict[str, Dict[str, int]] = {}
+    ids = [str(x or "").strip() for x in agent_ids if str(x or "").strip()]
+    if not ids:
+        return out
+
+    since = now - timedelta(seconds=max(60, int(lookback_seconds or 900)))
+    rows = db.execute(
+        select(NetEventModel.agent_id, NetEventModel.event_type, NetEventModel.extra).where(
+            NetEventModel.timestamp >= since,
+            NetEventModel.agent_id.in_(ids),
+            NetEventModel.event_type.in_(
+                [
+                    "proc_exec",
+                    "persistence_systemd",
+                    "persistence_cron",
+                    "ssh_key_change",
+                    "fim_change",
+                ]
+            ),
+        )
+    ).all()
+
+    suspicious_exec_patterns = {"remote_fetch_exec", "reverse_shell", "service_shell_child", "lolbin"}
+    for r in rows:
+        aid = str(r.agent_id or "").strip()
+        if not aid:
+            continue
+        bucket = out.setdefault(
+            aid,
+            {
+                "suspicious_exec_hits": 0,
+                "persistence_hits": 0,
+                "tamper_hits": 0,
+            },
+        )
+        et = str(r.event_type or "").strip().lower()
+        extra = r.extra if isinstance(r.extra, dict) else {}
+        if et == "proc_exec":
+            if _has_exec_pattern(extra, suspicious_exec_patterns):
+                bucket["suspicious_exec_hits"] += 1
+            continue
+        if et in {"persistence_systemd", "persistence_cron", "ssh_key_change"}:
+            bucket["persistence_hits"] += 1
+            continue
+        if et == "fim_change" and str(extra.get("tamper_related") or "").strip().lower() in {"1", "true", "yes"}:
+            bucket["tamper_hits"] += 1
+    return out
+
+
+def _build_egress_anomaly_candidates(db: Session, now: datetime) -> List[Dict[str, Any]]:
+    baseline_s = max(1800, int(settings.NETWATCH_HEUR_EGRESS_BASELINE_SECONDS or 21600))
+    recent_s = max(120, int(settings.NETWATCH_HEUR_EGRESS_WINDOW_SECONDS or 900))
+    min_events = max(3, int(settings.NETWATCH_HEUR_EGRESS_MIN_EVENTS or 5))
+    min_recent_bytes = max(256 * 1024, int(settings.NETWATCH_HEUR_EGRESS_MIN_BYTES or 2 * 1024 * 1024))
+    spike_factor = max(1.0, float(settings.NETWATCH_HEUR_EGRESS_SPIKE_FACTOR or 2.5))
+    rare_baseline_events = max(1, int(settings.NETWATCH_HEUR_EGRESS_RARE_BASELINE_EVENTS or 3))
+    correlation_s = max(120, int(settings.NETWATCH_HEUR_EGRESS_CORRELATION_SECONDS or 900))
+    max_rows = max(1000, int(settings.NETWATCH_HEUR_MAX_ROWS or 50000))
+
+    since = now - timedelta(seconds=baseline_s)
+    recent_since = now - timedelta(seconds=recent_s)
+    rows = db.execute(
+        select(
+            NetEventModel.agent_id,
+            NetEventModel.timestamp,
+            NetEventModel.src_ip,
+            NetEventModel.dst_ip,
+            NetEventModel.dst_port,
+            NetEventModel.proto,
+            NetEventModel.bytes,
+            NetEventModel.app_proto,
+            NetEventModel.extra,
+        ).where(
+            NetEventModel.timestamp >= since,
+            NetEventModel.event_type.in_(["flow", "l7_flow"]),
+            NetEventModel.dst_ip.is_not(None),
+        )
+        .order_by(NetEventModel.timestamp.desc())
+        .limit(max_rows)
+    ).all()
+
+    groups: Dict[Tuple[str, str, int, str, str, str], List[Dict[str, Any]]] = {}
+    for r in rows:
+        extra = r.extra if isinstance(r.extra, dict) else {}
+        if _extra_flow_direction(extra) != "outbound_from_local":
+            continue
+        agent_id = str(r.agent_id or "").strip()
+        src_ip = str(r.src_ip or "").strip()
+        dst_ip = str(r.dst_ip or "").strip()
+        if not agent_id or not dst_ip:
+            continue
+        dst_port = _as_int(r.dst_port, 0)
+        proto = str(r.proto or "").strip().lower() or "tcp"
+        app_proto = str(r.app_proto or extra.get("app_proto") or "").strip().lower()
+        host = _extra_indicator_host(extra)
+        key = (agent_id, dst_ip, dst_port, proto, host, app_proto)
+        groups.setdefault(key, []).append(
+            {
+                "timestamp": r.timestamp,
+                "src_ip": src_ip,
+                "bytes": max(0, _as_int(r.bytes, 0)),
+            }
+        )
+
+    suspicious_ctx = _suspicious_activity_by_agent(
+        db,
+        now=now,
+        agent_ids=[k[0] for k in groups.keys()],
+        lookback_seconds=correlation_s,
+    )
+    risky_ports = {4444, 1337, 6667, 31337}
+
+    out: List[Dict[str, Any]] = []
+    for key, items in groups.items():
+        recent = [x for x in items if x["timestamp"] >= recent_since]
+        if len(recent) < min_events:
+            continue
+        baseline = [x for x in items if x["timestamp"] < recent_since]
+        recent_bytes = sum(int(x["bytes"]) for x in recent)
+        baseline_bytes = sum(int(x["bytes"]) for x in baseline)
+        if recent_bytes < min_recent_bytes:
+            continue
+
+        rare_ok = len(baseline) <= rare_baseline_events
+        spike_ok = baseline_bytes <= 0 or recent_bytes >= int(float(max(1, baseline_bytes)) * spike_factor)
+        unusual_app = _is_unusual_app_protocol_use(key[5], key[2], key[3])
+        risky_port = key[2] in risky_ports if key[2] > 0 else False
+        host_reason = _host_suspicion_reason(key[4])
+        agent_ctx = suspicious_ctx.get(key[0]) or {}
+        exec_hits = int(agent_ctx.get("suspicious_exec_hits") or 0)
+        persistence_hits = int(agent_ctx.get("persistence_hits") or 0)
+        tamper_hits = int(agent_ctx.get("tamper_hits") or 0)
+
+        if not (rare_ok or spike_ok or unusual_app or risky_port or host_reason):
+            continue
+
+        reason_kind = "bursty_outbound"
+        if rare_ok and exec_hits > 0:
+            reason_kind = "rare_destination_after_suspicious_exec"
+        elif rare_ok and persistence_hits > 0:
+            reason_kind = "bursty_outbound_after_persistence"
+        elif rare_ok and unusual_app:
+            reason_kind = "rare_destination_unusual_protocol"
+        elif risky_port:
+            reason_kind = "suspicious_destination_port"
+        elif host_reason:
+            reason_kind = "suspicious_host_pattern"
+
+        confidence = 56
+        if rare_ok:
+            confidence += 10
+        if spike_ok:
+            confidence += 8
+        if unusual_app:
+            confidence += 8
+        if risky_port:
+            confidence += 8
+        if host_reason:
+            confidence += 5
+        if exec_hits > 0:
+            confidence += 10
+        if persistence_hits > 0:
+            confidence += 7
+        if tamper_hits > 0:
+            confidence += 6
+        if recent_bytes >= 16 * 1024 * 1024:
+            confidence += 6
+        confidence = min(99, confidence)
+
+        latest = max(recent, key=lambda x: x["timestamp"])
+        out.append(
+            {
+                "agent_id": key[0],
+                "src_ip": latest["src_ip"],
+                "dst_ip": key[1],
+                "dst_port": key[2] if key[2] > 0 else None,
+                "proto": key[3],
+                "host": key[4],
+                "app_proto": key[5],
+                "recent_events": len(recent),
+                "baseline_events": len(baseline),
+                "recent_bytes": recent_bytes,
+                "baseline_bytes": baseline_bytes,
+                "confidence": int(confidence),
+                "reason_kind": reason_kind,
+                "unusual_app_proto_use": unusual_app,
+                "host_suspicion_reason": host_reason,
+                "suspicious_exec_hits": exec_hits,
+                "persistence_hits": persistence_hits,
+                "tamper_hits": tamper_hits,
+            }
+        )
+    return out
+
+
 def _emit_heuristic_signals(db: Session, now: datetime) -> Tuple[List[NetEventModel], List[AlertModel]]:
     derived_events: List[NetEventModel] = []
     derived_alerts: List[AlertModel] = []
     beacon_cd = max(120, int(settings.NETWATCH_HEUR_BEACON_COOLDOWN_SECONDS or 900))
     exfil_cd = max(120, int(settings.NETWATCH_HEUR_EXFIL_COOLDOWN_SECONDS or 1200))
+    egress_cd = max(120, int(settings.NETWATCH_HEUR_EGRESS_COOLDOWN_SECONDS or 1200))
 
     for cand in _build_beacon_candidates(db, now):
         fp = f"beacon:{cand['agent_id']}:{cand['dst_ip']}:{cand.get('dst_port') or 0}:{cand['proto']}:{cand.get('host') or '-'}"
@@ -498,6 +724,76 @@ def _emit_heuristic_signals(db: Session, now: datetime) -> Tuple[List[NetEventMo
                 details=extra,
             )
         )
+
+    for cand in _build_egress_anomaly_candidates(db, now):
+        fp = f"egress:{cand['agent_id']}:{cand['dst_ip']}:{cand.get('dst_port') or 0}:{cand['proto']}:{cand.get('host') or '-'}"
+        if _netevent_exists_recent(
+            db,
+            event_type="egress_anomaly",
+            agent_id=str(cand["agent_id"]),
+            dst_ip=str(cand["dst_ip"]),
+            dst_port=cand.get("dst_port"),
+            fingerprint=fp,
+            since=now - timedelta(seconds=egress_cd),
+        ):
+            continue
+        reasons = [
+            "outbound connection profile deviates from host baseline",
+            "destination is rare or burst behavior exceeds baseline",
+        ]
+        if int(cand.get("suspicious_exec_hits") or 0) > 0:
+            reasons.append("recent suspicious process execution on same host")
+        if int(cand.get("persistence_hits") or 0) > 0:
+            reasons.append("recent persistence change on same host")
+        if int(cand.get("tamper_hits") or 0) > 0:
+            reasons.append("recent defense evasion/tamper signal on same host")
+        if cand.get("unusual_app_proto_use"):
+            reasons.append("application protocol is unusual for destination port")
+        if cand.get("host_suspicion_reason"):
+            reasons.append(f"suspicious destination host pattern: {cand.get('host_suspicion_reason')}")
+
+        extra = {
+            "heuristic_name": "egress_contextual_anomaly",
+            "heuristic_kind": "egress_anomaly",
+            "reason_kind": cand.get("reason_kind"),
+            "fingerprint": fp,
+            "confidence": int(cand["confidence"]),
+            "recent_events": int(cand["recent_events"]),
+            "baseline_events": int(cand["baseline_events"]),
+            "recent_bytes": int(cand["recent_bytes"]),
+            "baseline_bytes": int(cand["baseline_bytes"]),
+            "dst_host": cand.get("host"),
+            "app_proto": cand.get("app_proto"),
+            "unusual_app_proto_use": bool(cand.get("unusual_app_proto_use")),
+            "host_suspicion_reason": cand.get("host_suspicion_reason"),
+            "suspicious_exec_hits": int(cand.get("suspicious_exec_hits") or 0),
+            "persistence_hits": int(cand.get("persistence_hits") or 0),
+            "tamper_hits": int(cand.get("tamper_hits") or 0),
+            "mitre": {
+                "tactic": "command_and_control",
+                "technique_id": "T1071",
+                "technique": technique_name("T1071") or "Application Layer Protocol",
+                "confidence": int(cand["confidence"]),
+            },
+            "reasons": reasons,
+        }
+        ev = NetEventModel(
+            agent_id=str(cand["agent_id"]),
+            event_type="egress_anomaly",
+            schema_version=1,
+            timestamp=now,
+            src_ip=str(cand["src_ip"] or "") or None,
+            dst_ip=str(cand["dst_ip"] or "") or None,
+            dst_port=cand.get("dst_port"),
+            proto=str(cand.get("proto") or "") or None,
+            bytes=int(cand["recent_bytes"]),
+            app_proto=str(cand.get("app_proto") or "") or None,
+            heuristic_name="egress_contextual_anomaly",
+            heuristic_confidence=int(cand["confidence"]),
+            extra=extra,
+        )
+        db.add(ev)
+        derived_events.append(ev)
     return derived_events, derived_alerts
 
 
@@ -654,6 +950,11 @@ def _parse_extra_key(raw_key: str) -> Tuple[str, str]:
     k = raw_key[len("extra_") :]
 
     for suffix, op in (
+        ("_not_contains", "not_contains"),
+        ("_contains_all", "contains_all"),
+        ("_contains", "contains"),
+        ("_startswith", "startswith"),
+        ("_endswith", "endswith"),
         ("_not_in", "not_in"),
         ("_in", "in"),
         ("_gte", "gte"),
@@ -789,6 +1090,32 @@ def _build_match_filters(match: Dict, since: datetime, until: datetime) -> List:
 
         if op == "neq":
             filters.append(text_col != str(val).lower() if isinstance(val, bool) else text_col != str(val))
+            continue
+
+        if op in ("contains", "not_contains", "contains_all", "startswith", "endswith"):
+            items = val if isinstance(val, list) else [val]
+            terms = [str(x).strip().lower() for x in items if str(x).strip()]
+            if not terms:
+                continue
+            lower_col = func.lower(text_col)
+
+            like_parts = []
+            for term in terms:
+                if op in ("contains", "not_contains", "contains_all"):
+                    like_parts.append(lower_col.like(f"%{term}%"))
+                elif op == "startswith":
+                    like_parts.append(lower_col.like(f"{term}%"))
+                else:
+                    like_parts.append(lower_col.like(f"%{term}"))
+
+            if op == "contains":
+                filters.append(or_(*like_parts))
+            elif op == "contains_all":
+                filters.append(and_(*like_parts))
+            elif op == "not_contains":
+                filters.append(or_(text_col.is_(None), and_(*[~p for p in like_parts])))
+            else:
+                filters.append(or_(*like_parts))
             continue
 
         if isinstance(val, bool):
@@ -1114,6 +1441,24 @@ def _as_str_set(values: Any) -> set[str]:
     return out
 
 
+def _as_optional_str(value: Any) -> str:
+    s = str(value or "").strip().lower()
+    return s
+
+
+def _as_ctx_list(values: Any) -> set[str]:
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, (list, tuple, set)):
+        return set()
+    out: set[str] = set()
+    for v in values:
+        s = _as_optional_str(v)
+        if s:
+            out.add(s)
+    return out
+
+
 def _as_int_set(values: Any) -> set[int]:
     if isinstance(values, (int, float)):
         values = [values]
@@ -1151,63 +1496,320 @@ def _ip_in_cidrs(ip_value: Any, cidrs: Any) -> bool:
     return False
 
 
+def _selector_matches(selector: Dict[str, Any], ctx: Dict[str, Any]) -> bool:
+    if not isinstance(selector, dict) or not selector:
+        return False
+
+    checks = 0
+    c = ctx if isinstance(ctx, dict) else {}
+
+    def _check_str_set(sel_key: str, ctx_keys: List[str]) -> bool:
+        nonlocal checks
+        expected = _as_str_set(selector.get(sel_key))
+        if not expected:
+            return True
+        checks += 1
+        actual_values = {_as_optional_str(c.get(k)) for k in ctx_keys}
+        actual_values = {x for x in actual_values if x}
+        return bool(actual_values.intersection(expected))
+
+    def _check_int_set(sel_key: str, ctx_keys: List[str]) -> bool:
+        nonlocal checks
+        expected = _as_int_set(selector.get(sel_key))
+        if not expected:
+            return True
+        checks += 1
+        actual: set[int] = set()
+        for k in ctx_keys:
+            try:
+                v = c.get(k)
+                if v is None or v == "":
+                    continue
+                actual.add(int(v))
+            except Exception:
+                continue
+        return bool(actual.intersection(expected))
+
+    def _check_overlap(sel_key: str, ctx_keys: List[str]) -> bool:
+        nonlocal checks
+        expected = _as_str_set(selector.get(sel_key))
+        if not expected:
+            return True
+        checks += 1
+        actual: set[str] = set()
+        for k in ctx_keys:
+            actual.update(_as_ctx_list(c.get(k)))
+        return bool(actual.intersection(expected))
+
+    if not _check_str_set("src_ips", ["src_ip"]):
+        return False
+    if not _check_str_set("dst_ips", ["dst_ip"]):
+        return False
+    if not _check_str_set("agent_ids", ["agent_id"]):
+        return False
+    if not _check_str_set("protos", ["proto"]):
+        return False
+    if not _check_str_set("event_types", ["event_type"]):
+        return False
+    if not _check_str_set("rule_ids", ["rule_id"]):
+        return False
+    if not _check_str_set("path_categories", ["path_category", "fim_category"]):
+        return False
+    if not _check_str_set("usernames", ["username"]):
+        return False
+    if not _check_str_set("target_users", ["target_user"]):
+        return False
+    if not _check_str_set("proc_names", ["proc_name"]):
+        return False
+    if not _check_str_set("proc_parent_names", ["proc_parent_name"]):
+        return False
+    if not _check_str_set("hostnames", ["agent_hostname", "hostname"]):
+        return False
+    if not _check_str_set("agent_hostnames", ["agent_hostname", "hostname"]):
+        return False
+    if not _check_str_set("host_roles", ["agent_host_role", "host_role"]):
+        return False
+    if not _check_str_set("agent_roles", ["agent_host_role", "host_role"]):
+        return False
+    if not _check_str_set("environments", ["agent_environment", "environment"]):
+        return False
+    if not _check_str_set("envs", ["agent_environment", "environment"]):
+        return False
+    if not _check_int_set("dst_ports", ["dst_port"]):
+        return False
+    if not _check_int_set("src_ports", ["src_port"]):
+        return False
+    if not _check_overlap("tags", ["agent_tags", "tags"]):
+        return False
+    if not _check_overlap("agent_tags", ["agent_tags", "tags"]):
+        return False
+
+    src_cidrs = selector.get("src_cidrs")
+    if src_cidrs:
+        checks += 1
+        if not _ip_in_cidrs(c.get("src_ip"), src_cidrs):
+            return False
+
+    dst_cidrs = selector.get("dst_cidrs")
+    if dst_cidrs:
+        checks += 1
+        if not _ip_in_cidrs(c.get("dst_ip"), dst_cidrs):
+            return False
+
+    known_keys = {
+        "src_ips",
+        "dst_ips",
+        "agent_ids",
+        "protos",
+        "event_types",
+        "rule_ids",
+        "path_categories",
+        "usernames",
+        "target_users",
+        "proc_names",
+        "proc_parent_names",
+        "hostnames",
+        "agent_hostnames",
+        "host_roles",
+        "agent_roles",
+        "environments",
+        "envs",
+        "dst_ports",
+        "src_ports",
+        "tags",
+        "agent_tags",
+        "src_cidrs",
+        "dst_cidrs",
+    }
+    for k, expected in selector.items():
+        if k in known_keys:
+            continue
+        if isinstance(expected, dict):
+            continue
+        checks += 1
+        actual = c.get(str(k))
+        if isinstance(expected, list):
+            opts = _as_str_set(expected)
+            if _as_optional_str(actual) not in opts:
+                return False
+        else:
+            if _as_optional_str(actual) != _as_optional_str(expected):
+                return False
+
+    return checks > 0
+
+
+def _resolve_tuning_eval(
+    rule: Dict[str, Any],
+    *,
+    ctx: Dict[str, Any],
+    base_min_events: int,
+    base_condition: Dict[str, Any],
+    base_cooldown_seconds: int,
+    base_severity: str,
+) -> Dict[str, Any]:
+    out = {
+        "min_events": int(base_min_events),
+        "condition": dict(base_condition or {}),
+        "cooldown_seconds": int(max(0, base_cooldown_seconds)),
+        "severity": str(base_severity or "low"),
+        "applied_scopes": [],
+    }
+    tuning = rule.get("tuning") if isinstance(rule.get("tuning"), dict) else {}
+    scopes = tuning.get("threshold_scopes") or tuning.get("scopes") or []
+    if not isinstance(scopes, list) or not scopes:
+        return out
+
+    for i, scope in enumerate(scopes):
+        if not isinstance(scope, dict):
+            continue
+        if scope.get("enabled") is False:
+            continue
+        when = scope.get("when") if isinstance(scope.get("when"), dict) else {}
+        if when and not _selector_matches(when, ctx):
+            continue
+        if when == {}:
+            continue
+
+        name = str(scope.get("name") or f"scope_{i+1}").strip()
+        out["applied_scopes"].append(name)
+
+        if scope.get("min_events") is not None:
+            try:
+                out["min_events"] = max(0, int(scope.get("min_events")))
+            except Exception:
+                pass
+
+        if isinstance(scope.get("condition"), dict):
+            cond = scope.get("condition") or {}
+            out["condition"] = dict(cond)
+        elif scope.get("condition_value") is not None:
+            try:
+                v = int(scope.get("condition_value"))
+                cur = dict(out.get("condition") or {})
+                cur["value"] = v
+                if not cur.get("operator"):
+                    cur["operator"] = ">="
+                out["condition"] = cur
+            except Exception:
+                pass
+
+        cooldown_raw = scope.get("cooldown")
+        if cooldown_raw is not None and str(cooldown_raw).strip():
+            try:
+                out["cooldown_seconds"] = max(0, int(_parse_window(str(cooldown_raw))))
+            except Exception:
+                pass
+
+        sev_raw = str(scope.get("severity") or "").strip().lower()
+        if sev_raw in {"low", "medium", "high", "critical"}:
+            out["severity"] = sev_raw
+
+    return out
+
+
+def _load_agent_context(db: Session) -> Dict[str, Dict[str, Any]]:
+    rows = db.execute(select(AgentModel.agent_id, AgentModel.agent_metadata, AgentModel.tags)).all()
+    out: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        aid = str(row.agent_id or "").strip()
+        if not aid:
+            continue
+        meta = row.agent_metadata if isinstance(row.agent_metadata, dict) else {}
+        row_tags = row.tags if isinstance(row.tags, list) else []
+        meta_tags = meta.get("tags") if isinstance(meta.get("tags"), list) else []
+        tags: list[str] = []
+        for item in [*row_tags, *meta_tags]:
+            v = str(item or "").strip().lower()
+            if v and v not in tags:
+                tags.append(v)
+
+        hostname = (
+            str(meta.get("hostname") or meta.get("host") or meta.get("node_name") or "").strip().lower()
+        )
+        host_role = (
+            str(meta.get("host_role") or meta.get("role") or meta.get("agent_role") or "").strip().lower()
+        )
+        agent_env = (
+            str(meta.get("environment") or meta.get("env") or meta.get("deployment_env") or settings.NETWATCH_ENV or "")
+            .strip()
+            .lower()
+        )
+        out[aid] = {
+            "agent_hostname": hostname,
+            "agent_host_role": host_role,
+            "agent_environment": agent_env,
+            "agent_tags": tags,
+        }
+    return out
+
+
+def _build_rule_context(
+    *,
+    group_key: Dict[str, Any],
+    match: Dict[str, Any],
+    rule_id: str,
+    severity: str,
+    src_ip: Optional[str],
+    dst_ip: Optional[str],
+    dst_port: Optional[int],
+    agent_ctx_map: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    out = dict(group_key or {})
+    out.update(
+        {
+            "rule_id": rule_id,
+            "severity": severity,
+            "agent_id": (group_key or {}).get("agent_id") or (match or {}).get("agent_id"),
+            "src_ip": src_ip,
+            "dst_ip": dst_ip,
+            "dst_port": dst_port,
+            "proto": (group_key or {}).get("proto") or (match or {}).get("proto"),
+            "event_type": (group_key or {}).get("event_type") or (match or {}).get("event_type"),
+            "path_category": (group_key or {}).get("fim_category") or (match or {}).get("extra_path_category"),
+            "username": (match or {}).get("extra_username"),
+            "target_user": (match or {}).get("extra_target_user"),
+            "proc_name": (group_key or {}).get("proc_name") or (match or {}).get("extra_exe_name"),
+            "proc_parent_name": (group_key or {}).get("proc_parent_name") or (match or {}).get("extra_parent_exe_name"),
+        }
+    )
+
+    aid = str(out.get("agent_id") or "").strip()
+    if aid and aid in agent_ctx_map:
+        meta = agent_ctx_map.get(aid) or {}
+        out["agent_hostname"] = meta.get("agent_hostname")
+        out["hostname"] = meta.get("agent_hostname")
+        out["agent_host_role"] = meta.get("agent_host_role")
+        out["host_role"] = meta.get("agent_host_role")
+        out["agent_environment"] = meta.get("agent_environment")
+        out["environment"] = meta.get("agent_environment")
+        out["agent_tags"] = meta.get("agent_tags") or []
+    else:
+        out["environment"] = str(settings.NETWATCH_ENV or "").strip().lower()
+
+    return out
+
+
 def _is_tuning_allowlisted(rule: Dict[str, Any], ctx: Dict[str, Any]) -> tuple[bool, Optional[str]]:
     tuning = rule.get("tuning") if isinstance(rule.get("tuning"), dict) else {}
     allowlist = tuning.get("allowlist") if isinstance(tuning, dict) else None
-    if not isinstance(allowlist, dict) or not allowlist:
-        return False, None
+    if isinstance(allowlist, dict) and allowlist and _selector_matches(allowlist, ctx):
+        return True, "tuning.allowlist"
 
-    checks = 0
+    scoped = tuning.get("allowlist_scopes")
+    if isinstance(scoped, list):
+        for i, item in enumerate(scoped):
+            if not isinstance(item, dict):
+                continue
+            if item.get("enabled") is False:
+                continue
+            when = item.get("when") if isinstance(item.get("when"), dict) else {}
+            if not when or not _selector_matches(when, ctx):
+                continue
+            reason = str(item.get("reason") or item.get("name") or f"tuning.allowlist_scopes[{i}]").strip()
+            return True, reason or "tuning.allowlist_scope"
 
-    src_ips = _as_str_set(allowlist.get("src_ips"))
-    if src_ips:
-        checks += 1
-        if str(ctx.get("src_ip") or "").strip().lower() not in src_ips:
-            return False, None
-
-    dst_ips = _as_str_set(allowlist.get("dst_ips"))
-    if dst_ips:
-        checks += 1
-        if str(ctx.get("dst_ip") or "").strip().lower() not in dst_ips:
-            return False, None
-
-    agent_ids = _as_str_set(allowlist.get("agent_ids"))
-    if agent_ids:
-        checks += 1
-        if str(ctx.get("agent_id") or "").strip().lower() not in agent_ids:
-            return False, None
-
-    protos = _as_str_set(allowlist.get("protos"))
-    if protos:
-        checks += 1
-        if str(ctx.get("proto") or "").strip().lower() not in protos:
-            return False, None
-
-    dst_ports = _as_int_set(allowlist.get("dst_ports"))
-    if dst_ports:
-        checks += 1
-        try:
-            port_v = int(ctx.get("dst_port"))
-        except Exception:
-            return False, None
-        if port_v not in dst_ports:
-            return False, None
-
-    src_cidrs = allowlist.get("src_cidrs")
-    if src_cidrs:
-        checks += 1
-        if not _ip_in_cidrs(ctx.get("src_ip"), src_cidrs):
-            return False, None
-
-    dst_cidrs = allowlist.get("dst_cidrs")
-    if dst_cidrs:
-        checks += 1
-        if not _ip_in_cidrs(ctx.get("dst_ip"), dst_cidrs):
-            return False, None
-
-    if checks == 0:
-        return False, None
-    return True, "tuning.allowlist"
+    return False, None
 
 
 def run_rules_once():
@@ -1241,6 +1843,7 @@ def run_rules_once():
         # Keep a sane floor to avoid pathological small horizons.
         horizon = timedelta(seconds=max(120, max_cooldown_s))
         recent_idx = _recent_alert_index(db, horizon)
+        agent_ctx_map = _load_agent_context(db)
 
         for rule in rules:
             if not rule.get("enabled", True):
@@ -1254,7 +1857,7 @@ def run_rules_once():
                 continue
 
             rule_type = rule.get("type")
-            severity = rule.get("severity", "low")
+            severity = str(rule.get("severity", "low") or "low").strip().lower()
             description = rule.get("description", "")
             mitre = _extract_mitre_meta(rule)
 
@@ -1300,11 +1903,6 @@ def run_rules_once():
                     group_key = {f: row._mapping.get(f) for f in group_fields}
                     count = int(row.count)
 
-                    if min_events and count < min_events:
-                        continue
-                    if not _evaluate_condition(count, condition):
-                        continue
-
                     src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
 
                     src_ip, dst_ip, enrichment = _enrich_alert_ips(
@@ -1319,22 +1917,38 @@ def run_rules_once():
                         dst_port,
                     )
 
-                    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
-                    if last_at and cooldown.total_seconds() > 0 and (now - last_at) < cooldown:
+                    sup_ctx = _build_rule_context(
+                        group_key=group_key,
+                        match=match or {},
+                        rule_id=str(rule_id),
+                        severity=severity,
+                        src_ip=src_ip,
+                        dst_ip=dst_ip,
+                        dst_port=dst_port,
+                        agent_ctx_map=agent_ctx_map,
+                    )
+                    eval_cfg = _resolve_tuning_eval(
+                        rule,
+                        ctx=sup_ctx,
+                        base_min_events=min_events,
+                        base_condition=condition,
+                        base_cooldown_seconds=int(cooldown.total_seconds()),
+                        base_severity=severity,
+                    )
+                    eff_min_events = int(eval_cfg.get("min_events") or 0)
+                    eff_condition = eval_cfg.get("condition") if isinstance(eval_cfg.get("condition"), dict) else condition
+                    eff_cooldown = timedelta(seconds=max(0, int(eval_cfg.get("cooldown_seconds") or 0)))
+                    eff_severity = str(eval_cfg.get("severity") or severity)
+                    sup_ctx["severity"] = eff_severity
+
+                    if eff_min_events and count < eff_min_events:
+                        continue
+                    if not _evaluate_condition(count, eff_condition):
                         continue
 
-                    sup_ctx = dict(group_key)
-                    sup_ctx.update(
-                        {
-                            "rule_id": rule_id,
-                            "severity": severity,
-                            "agent_id": group_key.get("agent_id") or match.get("agent_id"),
-                            "src_ip": src_ip,
-                            "dst_ip": dst_ip,
-                            "dst_port": dst_port,
-                            "proto": group_key.get("proto") or match.get("proto"),
-                        }
-                    )
+                    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
+                    if last_at and eff_cooldown.total_seconds() > 0 and (now - last_at) < eff_cooldown:
+                        continue
 
                     allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
                     if allowlisted:
@@ -1357,6 +1971,14 @@ def run_rules_once():
                             "rule_version": int(rule.get("rule_version") or 1),
                         },
                     }
+                    if eval_cfg.get("applied_scopes"):
+                        details["tuning"] = {
+                            "applied_scopes": list(eval_cfg.get("applied_scopes") or []),
+                            "effective_min_events": eff_min_events,
+                            "effective_condition": eff_condition,
+                            "effective_cooldown_seconds": int(eff_cooldown.total_seconds()),
+                            "effective_severity": eff_severity,
+                        }
                     # Mirror to root for easier dashboards (optional but useful)
                     if enrichment.get("src_ips"):
                         details["src_ips"] = enrichment["src_ips"]
@@ -1366,7 +1988,7 @@ def run_rules_once():
                         details["mitre"] = mitre
                     alert = AlertModel(
                         rule_id=rule_id,
-                        severity=severity,
+                        severity=eff_severity,
                         src_ip=src_ip,
                         dst_ip=dst_ip,
                         dst_port=dst_port,
@@ -1418,11 +2040,6 @@ def run_rules_once():
                     distinct_count = int(row.distinct_count)
                     event_count = int(row.event_count)
 
-                    if min_events and event_count < min_events:
-                        continue
-                    if not _evaluate_condition(distinct_count, condition):
-                        continue
-
                     src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
 
                     src_ip, dst_ip, enrichment = _enrich_alert_ips(
@@ -1437,22 +2054,38 @@ def run_rules_once():
                         dst_port,
                     )
 
-                    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
-                    if last_at and cooldown.total_seconds() > 0 and (now - last_at) < cooldown:
+                    sup_ctx = _build_rule_context(
+                        group_key=group_key,
+                        match=match or {},
+                        rule_id=str(rule_id),
+                        severity=severity,
+                        src_ip=src_ip,
+                        dst_ip=dst_ip,
+                        dst_port=dst_port,
+                        agent_ctx_map=agent_ctx_map,
+                    )
+                    eval_cfg = _resolve_tuning_eval(
+                        rule,
+                        ctx=sup_ctx,
+                        base_min_events=min_events,
+                        base_condition=condition,
+                        base_cooldown_seconds=int(cooldown.total_seconds()),
+                        base_severity=severity,
+                    )
+                    eff_min_events = int(eval_cfg.get("min_events") or 0)
+                    eff_condition = eval_cfg.get("condition") if isinstance(eval_cfg.get("condition"), dict) else condition
+                    eff_cooldown = timedelta(seconds=max(0, int(eval_cfg.get("cooldown_seconds") or 0)))
+                    eff_severity = str(eval_cfg.get("severity") or severity)
+                    sup_ctx["severity"] = eff_severity
+
+                    if eff_min_events and event_count < eff_min_events:
+                        continue
+                    if not _evaluate_condition(distinct_count, eff_condition):
                         continue
 
-                    sup_ctx = dict(group_key)
-                    sup_ctx.update(
-                        {
-                            "rule_id": rule_id,
-                            "severity": severity,
-                            "agent_id": group_key.get("agent_id") or match.get("agent_id"),
-                            "src_ip": src_ip,
-                            "dst_ip": dst_ip,
-                            "dst_port": dst_port,
-                            "proto": group_key.get("proto") or match.get("proto"),
-                        }
-                    )
+                    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
+                    if last_at and eff_cooldown.total_seconds() > 0 and (now - last_at) < eff_cooldown:
+                        continue
 
                     allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
                     if allowlisted:
@@ -1477,6 +2110,14 @@ def run_rules_once():
                             "rule_version": int(rule.get("rule_version") or 1),
                         },
                     }
+                    if eval_cfg.get("applied_scopes"):
+                        details["tuning"] = {
+                            "applied_scopes": list(eval_cfg.get("applied_scopes") or []),
+                            "effective_min_events": eff_min_events,
+                            "effective_condition": eff_condition,
+                            "effective_cooldown_seconds": int(eff_cooldown.total_seconds()),
+                            "effective_severity": eff_severity,
+                        }
                     if enrichment.get("src_ips"):
                         details["src_ips"] = enrichment["src_ips"]
                         details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
@@ -1485,7 +2126,7 @@ def run_rules_once():
                         details["mitre"] = mitre
                     alert = AlertModel(
                         rule_id=rule_id,
-                        severity=severity,
+                        severity=eff_severity,
                         src_ip=src_ip,
                         dst_ip=dst_ip,
                         dst_port=dst_port,
@@ -1540,21 +2181,6 @@ def run_rules_once():
                 for row in rows:
                     group_key = {f: row._mapping.get(f) for f in group_fields}
                     event_count = int(row.event_count)
-                    if min_events and event_count < min_events:
-                        continue
-
-                    # Evaluate each distinct condition
-                    distinct_result: Dict[str, int] = {}
-                    ok = True
-                    for i, dc in enumerate(dcs):
-                        value = int(row._mapping.get(f"d{i}") or 0)
-                        f = dc.get("field")
-                        distinct_result[f] = value
-                        if not _evaluate_condition(value, dc):
-                            ok = False
-                            break
-                    if not ok:
-                        continue
 
                     src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
 
@@ -1570,22 +2196,48 @@ def run_rules_once():
                         dst_port,
                     )
 
-                    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
-                    if last_at and cooldown.total_seconds() > 0 and (now - last_at) < cooldown:
+                    sup_ctx = _build_rule_context(
+                        group_key=group_key,
+                        match=match or {},
+                        rule_id=str(rule_id),
+                        severity=severity,
+                        src_ip=src_ip,
+                        dst_ip=dst_ip,
+                        dst_port=dst_port,
+                        agent_ctx_map=agent_ctx_map,
+                    )
+                    eval_cfg = _resolve_tuning_eval(
+                        rule,
+                        ctx=sup_ctx,
+                        base_min_events=min_events,
+                        base_condition=condition,
+                        base_cooldown_seconds=int(cooldown.total_seconds()),
+                        base_severity=severity,
+                    )
+                    eff_min_events = int(eval_cfg.get("min_events") or 0)
+                    eff_cooldown = timedelta(seconds=max(0, int(eval_cfg.get("cooldown_seconds") or 0)))
+                    eff_severity = str(eval_cfg.get("severity") or severity)
+                    sup_ctx["severity"] = eff_severity
+
+                    if eff_min_events and event_count < eff_min_events:
                         continue
 
-                    sup_ctx = dict(group_key)
-                    sup_ctx.update(
-                        {
-                            "rule_id": rule_id,
-                            "severity": severity,
-                            "agent_id": group_key.get("agent_id") or match.get("agent_id"),
-                            "src_ip": src_ip,
-                            "dst_ip": dst_ip,
-                            "dst_port": dst_port,
-                            "proto": group_key.get("proto") or match.get("proto"),
-                        }
-                    )
+                    # Evaluate each distinct condition (rule-level for each signal)
+                    distinct_result: Dict[str, int] = {}
+                    ok = True
+                    for i, dc in enumerate(dcs):
+                        value = int(row._mapping.get(f"d{i}") or 0)
+                        f = dc.get("field")
+                        distinct_result[f] = value
+                        if not _evaluate_condition(value, dc):
+                            ok = False
+                            break
+                    if not ok:
+                        continue
+
+                    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
+                    if last_at and eff_cooldown.total_seconds() > 0 and (now - last_at) < eff_cooldown:
+                        continue
 
                     allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
                     if allowlisted:
@@ -1609,6 +2261,14 @@ def run_rules_once():
                             "rule_version": int(rule.get("rule_version") or 1),
                         },
                     }
+                    if eval_cfg.get("applied_scopes"):
+                        details["tuning"] = {
+                            "applied_scopes": list(eval_cfg.get("applied_scopes") or []),
+                            "effective_min_events": eff_min_events,
+                            "effective_condition": condition,
+                            "effective_cooldown_seconds": int(eff_cooldown.total_seconds()),
+                            "effective_severity": eff_severity,
+                        }
                     if enrichment.get("src_ips"):
                         details["src_ips"] = enrichment["src_ips"]
                         details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
@@ -1617,7 +2277,7 @@ def run_rules_once():
                         details["mitre"] = mitre
                     alert = AlertModel(
                         rule_id=rule_id,
-                        severity=severity,
+                        severity=eff_severity,
                         src_ip=src_ip,
                         dst_ip=dst_ip,
                         dst_port=dst_port,

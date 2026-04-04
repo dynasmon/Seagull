@@ -1,0 +1,115 @@
+schema_version: 1
+pack: host
+category: suspicious_services
+pack_version: 1
+maturity: stable
+
+rules:
+  - id: service_systemd_unit_nonroot_change_v1
+    name: "Systemd unit changed by non-root UID"
+    description: "Systemd unit file changed and reported UID is non-root, indicating potential service abuse."
+    status: "active"
+    source: "persistence_systemd"
+    false_positives: "Delegated service management in controlled development hosts."
+    response: "Validate delegated permissions and inspect service payload for unexpected interpreters or shell execution."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1543.002"
+      technique: "Create or Modify System Process: Systemd Service"
+      confidence: 88
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "12m"
+    cooldown: "30m"
+    match:
+      event_type: "persistence_systemd"
+      extra_path_category: "systemd_unit"
+      extra_action_in: ["create", "modify", "rename", "permission_change", "ownership_change"]
+      extra_uid_neq: 0
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: service_systemd_override_abuse_v1
+    name: "Systemd override/drop-in abuse"
+    description: "Systemd override/drop-in file changed in a way consistent with service execution hijacking."
+    status: "active"
+    source: "persistence_systemd"
+    false_positives: "Expected service tuning updates through approved infra-as-code pipelines."
+    response: "Review override directives and correlate with suspicious outbound/process activity from same host."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1543.002"
+      technique: "Create or Modify System Process: Systemd Service"
+      confidence: 84
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "12m"
+    cooldown: "25m"
+    match:
+      event_type: "persistence_systemd"
+      extra_path_category: "systemd_override"
+      extra_action_in: ["create", "modify", "rename"]
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: service_enablement_from_shell_chain_v1
+    name: "Service enablement from shell chain"
+    description: "systemctl enable/reenable command is executed from shell/interpreter lineage."
+    status: "active"
+    source: "proc_exec"
+    false_positives: "Manual service onboarding by infrastructure engineers during approved windows."
+    response: "Verify target service legitimacy and validate that the parent process and operator are expected."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1543.002"
+      technique: "Create or Modify System Process: Systemd Service"
+      confidence: 77
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "20m"
+    match:
+      event_type: "proc_exec"
+      extra_cmdline_contains: ["systemctl enable ", "systemctl reenable "]
+      extra_parent_exe_name_in: ["bash", "sh", "dash", "zsh", "ksh", "python", "python3", "perl"]
+    group_by: ["agent_id", "proc_parent_name"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: service_shell_execstart_control_v1
+    name: "Shell-driven service control chain"
+    description: "Shell/interpreter lineage repeatedly starts or restarts services, a common post-exploitation persistence pattern."
+    status: "active"
+    source: "proc_exec"
+    false_positives: "Service fleet orchestration scripts on designated automation hosts."
+    response: "Validate host role and inspect whether service control chain introduced unusual network or persistence behavior."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1543.002"
+      technique: "Create or Modify System Process: Systemd Service"
+      confidence: 72
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "15m"
+    cooldown: "30m"
+    match:
+      event_type: "proc_exec"
+      extra_cmdline_contains: ["systemctl start ", "systemctl restart ", "service "]
+      extra_parent_exe_name_in: ["bash", "sh", "dash", "zsh", "ksh", "python", "python3", "perl", "ruby", "node"]
+    group_by: ["agent_id", "proc_parent_name"]
+    min_events: 3
+    condition:
+      operator: ">="
+      value: 3
