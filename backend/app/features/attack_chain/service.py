@@ -10,6 +10,7 @@ from app.core.audit import audit_actor, write_audit_event
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.portal_auth import PortalPrincipal
 from app.features.attack_chain import repository
+from app.features.attack_chain.domain.reasoning import build_case_reasoning
 from app.features.attack_chain.domain.types import stage_rank
 from app.features.attack_chain.models import AttackChainAllowlistModel
 from app.features.attack_chain.schemas import (
@@ -166,7 +167,8 @@ def get_case_with_steps(db: Session, *, case_id: int) -> AttackChainCaseWithStep
         )
     tactics_out.sort(key=lambda x: (-int(x.total), x.tactic))
     mitre_summary = MitreCaseSummary(progression=stage_seen, tactics=tactics_out)
-    return {"case": case, "steps": steps, "mitre": mitre_summary}
+    reasoning = build_case_reasoning(case=case, steps=steps)
+    return {"case": case, "steps": steps, "mitre": mitre_summary, "reasoning": reasoning}
 
 
 def close_case(

@@ -80,6 +80,7 @@ class AttackChainConfig:
     # Noise control
     step_dedup_seconds: int
     max_score: int
+    stage_transition_window_seconds: int
 
     # Default weights (can evolve without DB migrations)
     # SSH correlation
@@ -121,6 +122,7 @@ def load_config() -> AttackChainConfig:
         attach_local_window_seconds=_env_int("NETWATCH_ATTACK_CHAIN_ATTACH_LOCAL_WINDOW_SECONDS", 20 * 60),
         step_dedup_seconds=_env_int("NETWATCH_ATTACK_CHAIN_STEP_DEDUP_SECONDS", 60),
         max_score=_env_int("NETWATCH_ATTACK_CHAIN_MAX_SCORE", 100),
+        stage_transition_window_seconds=_env_int("NETWATCH_ATTACK_CHAIN_STAGE_TRANSITION_WINDOW_SECONDS", 90 * 60),
 
         # SSH correlation
         ssh_fail_window_seconds=_env_int("NETWATCH_ATTACK_CHAIN_SSH_FAIL_WINDOW_SECONDS", 10 * 60),

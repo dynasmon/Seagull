@@ -20,6 +20,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.features.attack_chain.domain.config import load_config
 from app.features.attack_chain.domain.detectors import detect_steps
+from app.features.attack_chain.domain.scoring import evaluate_candidate
 from app.features.attack_chain.domain.store import (
     CaseRow,
     close_stale_cases,
@@ -648,11 +649,36 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
                     stats["dedup"] += 1
                     continue
 
+                scored = evaluate_candidate(
+                    case_max_stage=str(case.max_stage or "initial_access"),
+                    case_context=dict(case.context or {}),
+                    candidate=cand,
+                    event=ev,
+                    now=now,
+                    transition_window_seconds=int(getattr(cfg, "stage_transition_window_seconds", 90 * 60)),
+                )
+
+                merged_context_patch = dict(context_patch or {})
+                merged_context_patch.update(dict(scored.context_patch or {}))
+
                 details = dict(cand.details or {})
                 details.setdefault("raw_fingerprint", cand.fingerprint)
                 details.setdefault("kind", getattr(cand, "kind", "signal"))
                 details.setdefault("technique_id", getattr(cand, "technique_id", None))
-                details.setdefault("confidence", int(getattr(cand, "confidence", 50) or 50))
+                details["confidence"] = int(scored.confidence)
+                details["evidence_class"] = str(scored.evidence_class)
+                details["evidence_nature"] = str(scored.evidence_nature)
+                details["evidence_source"] = str(scored.evidence_source)
+                details["evidence_families"] = list(scored.evidence_families or [])
+                details["confidence_factors"] = list(scored.confidence_factors or [])
+                details["missing_evidence"] = list(scored.missing_evidence or [])
+                details["support_gain"] = float(scored.support_gain)
+                details["stage_support_snapshot"] = dict(scored.stage_support_snapshot or {})
+                details["transition"] = {
+                    "allowed": bool(scored.transition_allowed),
+                    "promoted": bool(scored.promote_stage),
+                    "reason": str(scored.transition_reason or ""),
+                }
                 details.setdefault("description", getattr(cand, "description", ""))
 
                 step_id, new_score, new_max_stage = insert_step_and_update_case(
@@ -661,12 +687,23 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
                     stage=cand.stage,
                     label=cand.title,
                     fingerprint=fp,
-                    score_delta=cand.score_delta,
+                    score_delta=int(scored.score_delta),
                     now=now,
                     max_score=cfg.max_score,
                     event=ev,
                     details=details,
-                    context_patch=context_patch or None,
+                    context_patch=merged_context_patch or None,
+                    promote_stage=bool(scored.promote_stage),
+                )
+
+                merged_case_context = dict(case.context or {})
+                merged_case_context.update(merged_context_patch)
+                case = CaseRow(
+                    id=int(case.id),
+                    score=int(new_score),
+                    max_stage=str(new_max_stage),
+                    step_count=int(case.step_count) + 1,
+                    context=merged_case_context,
                 )
 
                 touched_case_ids.add(int(case.id))
@@ -684,9 +721,11 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
                         case_id=case.id,
                         step_id=step_id,
                         stage=cand.stage.value,
-                        score_delta=int(cand.score_delta or 0),
+                        score_delta=int(scored.score_delta or 0),
                         new_score=new_score,
                         max_stage=new_max_stage,
+                        evidence_class=str(scored.evidence_class),
+                        transition_promoted=bool(scored.promote_stage),
                         ev_id=ev_id,
                         ev_type=ev_type,
                         src_ip=src_ip,
@@ -726,6 +765,7 @@ def main() -> None:
         dedup_s=cfg.step_dedup_seconds,
         attach_window_s=cfg.attach_local_window_seconds,
         idle_close_s=cfg.case_idle_close_seconds,
+        transition_window_s=int(getattr(cfg, "stage_transition_window_seconds", 90 * 60)),
         max_score=cfg.max_score,
         log_every_s=log_every_s,
         log_idle_every_s=log_idle_every_s,
