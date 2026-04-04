@@ -156,6 +156,15 @@ def ensure_clickhouse_events_schema() -> bool:
             sudo_target_user Nullable(String),
             sudo_command Nullable(String),
             sudo_tty Nullable(String),
+            proc_pid Nullable(Int32),
+            proc_ppid Nullable(Int32),
+            proc_name Nullable(String),
+            proc_exe Nullable(String),
+            proc_parent_name Nullable(String),
+            fim_path Nullable(String),
+            fim_category Nullable(String),
+            heuristic_name Nullable(String),
+            heuristic_confidence Nullable(Int16),
             extra_json String,
             ingested_at DateTime64(3, 'UTC') DEFAULT now64(3)
         )
@@ -195,6 +204,15 @@ def ensure_clickhouse_events_schema() -> bool:
     client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS sudo_target_user Nullable(String)")
     client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS sudo_command Nullable(String)")
     client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS sudo_tty Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS proc_pid Nullable(Int32)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS proc_ppid Nullable(Int32)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS proc_name Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS proc_exe Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS proc_parent_name Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS fim_path Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS fim_category Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS heuristic_name Nullable(String)")
+    client.command(f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS heuristic_confidence Nullable(Int16)")
     client.command(
         f"""
         CREATE TABLE IF NOT EXISTS {db}.{agg_table}

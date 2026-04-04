@@ -166,9 +166,11 @@ def guess_application_proto(
         return "quic", 95, "extra_hint"
     if bool(extra.get("is_dtls")) or (str(extra.get("ja4_ptype") or "").lower() == "d"):
         return "dtls", 95, "extra_hint"
+    if extra.get("l7_protocol"):
+        return str(extra.get("l7_protocol")).strip().lower(), 97, "agent_l7_protocol"
     if extra.get("dns_qname"):
         return "dns", 98, "parsed_dns"
-    if extra.get("http_method") or extra.get("http_host"):
+    if extra.get("http_method") or extra.get("http_host") or extra.get("http_status"):
         return "http", 98, "parsed_http"
     if extra.get("tls_sni") or extra.get("ja4") or extra.get("ja3"):
         return "tls", 98, "parsed_tls"

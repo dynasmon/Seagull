@@ -1,0 +1,212 @@
+schema_version: 1
+pack: host
+category: telemetry
+pack_version: 1
+maturity: stable
+
+rules:
+  - id: proc_remote_fetch_exec_v1
+    name: "Remote fetch-and-execute process chain"
+    description: "Process execution indicates remote download piped to interpreter or reverse shell primitives."
+    status: "active"
+    source: "proc_exec"
+    false_positives: "Automation scripts that intentionally bootstrap software over trusted channels."
+    response: "Validate command origin, parent process lineage, and network destination trust."
+    mitre:
+      tactic: "execution"
+      technique_id: "T1059"
+      technique: "Command and Scripting Interpreter"
+      confidence: 86
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "3m"
+    cooldown: "15m"
+    match:
+      event_type: "proc_exec"
+      extra_exec_pattern_in: ["remote_fetch_exec", "reverse_shell"]
+    group_by: ["agent_id", "proc_name", "dst_ip"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: proc_service_shell_child_v1
+    name: "Shell spawned by network-facing service"
+    description: "A shell process appears as a child of a network-facing service process."
+    status: "active"
+    source: "proc_exec"
+    false_positives: "Rare maintenance shells from web service workers during troubleshooting."
+    response: "Investigate parent process lineage and isolate host if command execution is unauthorized."
+    mitre:
+      tactic: "execution"
+      technique_id: "T1059"
+      technique: "Command and Scripting Interpreter"
+      confidence: 82
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "4m"
+    cooldown: "20m"
+    match:
+      event_type: "proc_exec"
+      extra_exec_pattern: "service_shell_child"
+    group_by: ["agent_id", "proc_parent_name", "proc_name"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: persistence_authorized_keys_change_v1
+    name: "Suspicious authorized_keys change"
+    description: "SSH authorized_keys modified with persistence implications."
+    status: "active"
+    source: "ssh_key_change"
+    false_positives: "Legitimate key rotations performed by approved IAM workflows."
+    response: "Review key diff, actor process lineage, and source account legitimacy."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1098"
+      technique: "Account Manipulation"
+      confidence: 84
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "30m"
+    match:
+      event_type: "ssh_key_change"
+      extra_action_in: ["create", "modify", "rename", "permission_change", "ownership_change"]
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: persistence_systemd_unit_change_v1
+    name: "Systemd persistence change"
+    description: "Systemd unit or override changed in watched persistence paths."
+    status: "active"
+    source: "persistence_systemd"
+    false_positives: "Legitimate package upgrades and service rollout actions."
+    response: "Validate service delta and ensure change ownership aligns with approved maintenance."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1543"
+      technique: "Create or Modify System Process"
+      confidence: 80
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "20m"
+    match:
+      event_type: "persistence_systemd"
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: persistence_cron_change_v1
+    name: "Cron persistence change"
+    description: "Cron path changed in a persistence-sensitive location."
+    status: "active"
+    source: "persistence_cron"
+    false_positives: "Scheduled maintenance jobs and expected patch automation."
+    response: "Compare job command against baseline and validate ownership/mode drift."
+    mitre:
+      tactic: "persistence"
+      technique_id: "T1053.003"
+      technique: "Scheduled Task/Job: Cron"
+      confidence: 78
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "20m"
+    match:
+      event_type: "persistence_cron"
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: fim_security_tamper_v1
+    name: "Security-sensitive file tamper"
+    description: "FIM reported tamper on a security-sensitive path."
+    status: "active"
+    source: "fim_change"
+    false_positives: "Expected configuration hardening or policy updates."
+    response: "Confirm authorized change window and inspect actor/process context."
+    mitre:
+      tactic: "defense_evasion"
+      technique_id: "T1562"
+      technique: "Impair Defenses"
+      confidence: 76
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "10m"
+    cooldown: "20m"
+    match:
+      event_type: "fim_change"
+      extra_tamper_related: true
+    group_by: ["agent_id", "fim_path"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: beacon_suspect_heuristic_v1
+    name: "Beaconing heuristic signal"
+    description: "Derived beaconing signal from periodic low-jitter outbound intervals."
+    status: "active"
+    source: "beacon_suspect"
+    false_positives: "Expected health-check traffic to managed control endpoints."
+    response: "Review destination profile, process lineage, and historical interval pattern."
+    mitre:
+      tactic: "command_and_control"
+      technique_id: "T1071"
+      technique: "Application Layer Protocol"
+      confidence: 78
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "20m"
+    cooldown: "20m"
+    match:
+      event_type: "beacon_suspect"
+      extra_confidence_gte: 65
+    group_by: ["agent_id", "dst_ip", "dst_port"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+
+  - id: exfil_suspect_heuristic_v1
+    name: "Exfiltration heuristic signal"
+    description: "Derived exfiltration signal from burst outbound bytes to rare destinations."
+    status: "active"
+    source: "exfil_suspect"
+    false_positives: "Large planned data transfers to new approved destinations."
+    response: "Validate data movement purpose and inspect transfer process lineage."
+    mitre:
+      tactic: "exfiltration"
+      technique_id: "T1048"
+      technique: "Exfiltration Over Alternative Protocol"
+      confidence: 82
+    enabled: true
+    severity: "high"
+    type: "aggregate_count"
+    window: "30m"
+    cooldown: "30m"
+    match:
+      event_type: "exfil_suspect"
+      extra_confidence_gte: 65
+    group_by: ["agent_id", "dst_ip", "dst_port"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1

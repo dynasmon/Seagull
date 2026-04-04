@@ -27,6 +27,17 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
 
   const isDdos = event.event_type === "dos_attack";
   const ddos = isDdos ? extractDdosFields(extra) : null;
+  const isProcExec = event.event_type === "proc_exec";
+  const isFim = ["fim_change", "persistence_systemd", "persistence_cron", "ssh_key_change"].includes(event.event_type);
+  const isHeuristic = ["beacon_suspect", "exfil_suspect", "c2_suspect", "egress_anomaly"].includes(event.event_type);
+  const isL7 = event.event_type === "l7_flow";
+
+  const l7 = extra.l7 && typeof extra.l7 === "object" ? extra.l7 : {};
+  const l7Dns = l7.dns && typeof l7.dns === "object" ? l7.dns : {};
+  const l7Http = l7.http && typeof l7.http === "object" ? l7.http : {};
+  const l7Tls = l7.tls && typeof l7.tls === "object" ? l7.tls : {};
+  const reasons = Array.isArray(extra.reasons) ? extra.reasons.map((x) => String(x)).filter(Boolean).join("; ") : "";
+  const procPatterns = Array.isArray(extra.exec_patterns) ? extra.exec_patterns.map((x) => String(x)).filter(Boolean).join(", ") : "";
 
   return (
     <div className="space-y-4">
@@ -93,6 +104,95 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
                 <div className="text-muted-foreground">{safeNumber(x.count) ?? "-"}</div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {isProcExec && (
+        <div className="space-y-2">
+          <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Process execution</div>
+          <div className="border border-border/60 bg-background/40 p-3 space-y-2">
+            <Kv k="pid" v={extra.pid} />
+            <Kv k="ppid" v={extra.ppid} />
+            <Kv k="exe_name" v={extra.exe_name || extra.comm || extra.binary} />
+            <Kv k="exe_path" v={extra.exe_path} />
+            <Kv k="cmdline" v={extra.cmdline} />
+            <Kv k="parent_exe_name" v={extra.parent_exe_name || extra.parent_comm} />
+            <Kv k="uid/euid" v={`${extra.uid ?? "-"} / ${extra.euid ?? "-"}`} />
+            <Kv k="gid/egid" v={`${extra.gid ?? "-"} / ${extra.egid ?? "-"}`} />
+            <Kv k="username" v={extra.username} />
+            <Kv k="cwd" v={extra.cwd} />
+            <Kv k="process_start_time" v={extra.process_start_time} />
+            <Kv k="exe_sha256" v={extra.exe_sha256} />
+            <Kv k="exec_patterns" v={procPatterns} />
+            <Kv k="collection_method" v={extra.collection_method} />
+          </div>
+        </div>
+      )}
+
+      {isFim && (
+        <div className="space-y-2">
+          <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">FIM / Persistence</div>
+          <div className="border border-border/60 bg-background/40 p-3 space-y-2">
+            <Kv k="path" v={extra.path} />
+            <Kv k="path_category" v={extra.path_category} />
+            <Kv k="action" v={extra.action} />
+            <Kv k="persistence_related" v={extra.persistence_related} />
+            <Kv k="tamper_related" v={extra.tamper_related} />
+            <Kv k="path_from" v={extra.path_from} />
+            <Kv k="path_to" v={extra.path_to} />
+            <Kv k="uid/gid" v={`${extra.uid ?? "-"} / ${extra.gid ?? "-"}`} />
+            <Kv k="mode" v={extra.mode} />
+            <Kv k="digest_before" v={extra.digest_before} />
+            <Kv k="digest_after" v={extra.digest_after} />
+          </div>
+        </div>
+      )}
+
+      {isL7 && (
+        <div className="space-y-2">
+          <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">L7 evidence</div>
+          <div className="border border-border/60 bg-background/40 p-3 space-y-2">
+            <Kv k="l7_protocol" v={extra.l7_protocol || l7.protocol} />
+            <Kv k="flow_direction" v={extra.flow_direction} />
+            <Kv k="dns_qname" v={l7Dns.qname || extra.dns_qname} />
+            <Kv k="dns_qtype" v={l7Dns.qtype || extra.dns_qtype} />
+            <Kv k="dns_rcode" v={l7Dns.rcode || extra.dns_rcode} />
+            <Kv k="dns_answers" v={Array.isArray(l7Dns.answers) ? l7Dns.answers.join(", ") : extra.dns_answers} />
+            <Kv k="http_method" v={l7Http.method || extra.http_method} />
+            <Kv k="http_host" v={l7Http.host || extra.http_host} />
+            <Kv k="http_path" v={l7Http.path || extra.http_path} />
+            <Kv k="http_status" v={l7Http.status || extra.http_status} />
+            <Kv k="http_user_agent" v={l7Http.user_agent || extra.http_user_agent} />
+            <Kv k="tls_sni" v={l7Tls.sni || extra.tls_sni} />
+            <Kv k="tls_alpn_first" v={l7Tls.alpn || extra.tls_alpn_first} />
+            <Kv k="tls_version" v={l7Tls.version || l7Tls.record_version || extra.tls_version} />
+            <Kv k="ja3" v={extra.ja3} />
+            <Kv k="ja4" v={extra.ja4} />
+            <Kv k="ja4_ptype" v={extra.ja4_ptype} />
+          </div>
+        </div>
+      )}
+
+      {isHeuristic && (
+        <div className="space-y-2">
+          <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Heuristic reasoning</div>
+          <div className="border border-border/60 bg-background/40 p-3 space-y-2">
+            <Kv k="heuristic_name" v={extra.heuristic_name} />
+            <Kv k="heuristic_kind" v={extra.heuristic_kind} />
+            <Kv k="reason_kind" v={extra.reason_kind} />
+            <Kv k="confidence" v={extra.confidence} />
+            <Kv k="sample_count" v={extra.sample_count} />
+            <Kv k="interval_mean_s" v={extra.interval_mean_s} />
+            <Kv k="interval_jitter_cv" v={extra.interval_jitter_cv} />
+            <Kv k="recent_events" v={extra.recent_events} />
+            <Kv k="baseline_events" v={extra.baseline_events} />
+            <Kv k="recent_bytes" v={extra.recent_bytes || extra.bytes_total} />
+            <Kv k="baseline_bytes" v={extra.baseline_bytes} />
+            <Kv k="spike_factor_observed" v={extra.spike_factor_observed} />
+            <Kv k="dst_host" v={extra.dst_host} />
+            <Kv k="app_proto" v={extra.app_proto} />
+            <Kv k="reasons" v={reasons} />
           </div>
         </div>
       )}

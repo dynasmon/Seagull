@@ -50,3 +50,37 @@ def test_event_hot_columns_sets_ssh_fields_when_event_is_ssh_auth() -> None:
     assert out["ssh_username"] == "root"
     assert out["ja4"] == "ja4x"
     assert out["ja4_ptype"] == "t"
+
+
+def test_event_hot_columns_sets_process_and_fim_fields() -> None:
+    proc = _event_hot_columns(
+        event_type="proc_exec",
+        extra={
+            "pid": 123,
+            "ppid": 1,
+            "exe_name": "bash",
+            "exe_path": "/usr/bin/bash",
+            "parent_exe_name": "nginx",
+        },
+    )
+    assert proc["proc_pid"] == 123
+    assert proc["proc_ppid"] == 1
+    assert proc["proc_name"] == "bash"
+    assert proc["proc_exe"] == "/usr/bin/bash"
+    assert proc["proc_parent_name"] == "nginx"
+
+    fim = _event_hot_columns(
+        event_type="persistence_systemd",
+        extra={"path": "/etc/systemd/system/evil.service", "path_category": "systemd_unit"},
+    )
+    assert fim["fim_path"] == "/etc/systemd/system/evil.service"
+    assert fim["fim_category"] == "systemd_unit"
+
+
+def test_event_hot_columns_sets_heuristic_fields() -> None:
+    out = _event_hot_columns(
+        event_type="beacon_suspect",
+        extra={"heuristic_name": "beacon_periodic", "confidence": 91},
+    )
+    assert out["heuristic_name"] == "beacon_periodic"
+    assert out["heuristic_confidence"] == 91
