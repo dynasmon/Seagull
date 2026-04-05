@@ -8,6 +8,7 @@ import Drawer from "@/shared/components/Drawer";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import { isAbortError } from "@/shared/lib/http";
 
 import { useAgentsCatalog } from "@/app/providers";
 
@@ -262,26 +263,39 @@ export default function InventoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
-  const inFlight = useRef(false);
+  const refreshSeqRef = useRef(0);
+  const refreshAbortRef = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
+    const mySeq = ++refreshSeqRef.current;
+    refreshAbortRef.current?.abort();
+    const controller = new AbortController();
+    refreshAbortRef.current = controller;
     setBusy(true);
 
     try {
-      const data = await getInventoryOverview({
-        window_minutes: windowMinutes,
-        agent_id: agentScope
-      });
+      const data = await getInventoryOverview(
+        {
+          window_minutes: windowMinutes,
+          agent_id: agentScope
+        },
+        { signal: controller.signal, timeoutMs: 12000 }
+      );
+      if (refreshSeqRef.current !== mySeq) return;
       setSnapshot(data);
       setError(null);
       setLastUpdatedAt(new Date());
     } catch (e: any) {
+      if (isAbortError(e)) return;
+      if (refreshSeqRef.current !== mySeq) return;
       setError(e?.message || "Failed to load inventory overview");
     } finally {
-      setBusy(false);
-      inFlight.current = false;
+      if (refreshSeqRef.current === mySeq) {
+        setBusy(false);
+      }
+      if (refreshAbortRef.current === controller) {
+        refreshAbortRef.current = null;
+      }
     }
   }, [agentScope, windowMinutes]);
 
@@ -296,6 +310,7 @@ export default function InventoryPage() {
 
     return () => {
       alive = false;
+      refreshAbortRef.current?.abort();
       window.clearInterval(t);
     };
   }, [refresh]);
