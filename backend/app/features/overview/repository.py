@@ -5,7 +5,7 @@ import logging
 import time
 import zlib
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import Float, and_, case, cast, func, or_, select
 from sqlalchemy.orm import Session
@@ -21,7 +21,7 @@ from app.core.es import es_is_available, get_es_client
 from app.core.recent_feed import fetch_recent_events as fetch_recent_feed_events, recent_feed_health
 from app.core.redis_client import get_redis
 from app.core.config import settings
-from app.core.ingest_control import get_backlog as ingest_get_backlog
+from app.core.ingest_control import get_backlog as ingest_get_backlog, read_overview_live_window
 from app.core.observability import incr_counter, log_event, observe_hist
 from app.features.agents.models import AgentModel
 from app.features.alerts.models import AlertModel
@@ -158,6 +158,34 @@ def _best_effort_ingest_backlog() -> Tuple[int, int]:
         return (max(0, ev), max(0, msgs))
     except Exception:
         return (0, 0)
+
+
+def _choose_series_source(*, rollups_fresh: bool, rollup_stuck: bool, live_fresh: bool, fallback: str) -> tuple[str, str | None]:
+    if rollups_fresh and not rollup_stuck:
+        return ("rollup_1s", None)
+    if live_fresh:
+        return ("live_1s", "rollup_stale_fallback_live")
+    if rollup_stuck:
+        return (fallback, "rollup_stuck_live_stale")
+    return (fallback, "rollup_stale_live_stale")
+
+
+def _source_meta(
+    *,
+    now: datetime,
+    source: str,
+    last_data_ts: datetime | None,
+    degraded_reason: str | None,
+) -> Dict[str, Any]:
+    freshness = None
+    if last_data_ts is not None:
+        freshness = int(max(0.0, (now - last_data_ts).total_seconds()))
+    return {
+        "source": str(source or "unknown"),
+        "source_freshness_seconds": freshness,
+        "last_data_ts": (last_data_ts.isoformat() if last_data_ts is not None else None),
+        "degraded_reason": (str(degraded_reason) if degraded_reason else None),
+    }
 
 
 def _storm_key_active() -> bool:
@@ -378,11 +406,9 @@ def get_overview_payload(
     draining = (backlog_ev >= draining_ev_threshold and draining_ev_threshold > 0) or (
         backlog_msgs >= draining_msg_threshold and draining_msg_threshold > 0
     )
-    use_ingest_rollups = bool(rollups_fresh and (protection_active or draining))
-    rollup_stuck = False
 
-    # Failsafe: when pressure flags stay high after drain, do not keep overview pinned to stale rollups.
-    if use_ingest_rollups and last_roll_ts is not None:
+    rollup_stuck = False
+    if rollups_fresh and last_roll_ts is not None:
         hot_max_stmt = select(func.max(NetEventModel.timestamp))
         if agent_id:
             hot_max_stmt = hot_max_stmt.where(NetEventModel.agent_id == agent_id)
@@ -391,8 +417,32 @@ def get_overview_payload(
             drift_s = (hot_last_ts - last_roll_ts).total_seconds()
             if drift_s > float(max(20, rollup_fresh_s)):
                 rollup_stuck = True
-                use_ingest_rollups = False
 
+    live_window_s = max(60, _env_int("NETWATCH_OVERVIEW_LIVE_WINDOW_SECONDS", 900))
+    live_fresh_s = max(5, _env_int("NETWATCH_OVERVIEW_LIVE_FRESH_SECONDS", 15))
+    live_payload = read_overview_live_window(seconds=min(window_minutes * 60, live_window_s))
+    live_rows = list(live_payload.get("rows") or [])
+    live_last_ts = _to_utc(live_payload.get("last_data_ts"))
+    live_freshness_s = live_payload.get("freshness_seconds")
+    live_fresh = live_freshness_s is not None and int(live_freshness_s) <= int(live_fresh_s)
+
+    traffic_fallback = "rollup_1m"
+    if protection_active or draining:
+        traffic_fallback = "rollup_1m"
+    traffic_source, traffic_degraded_reason = _choose_series_source(
+        rollups_fresh=bool(rollups_fresh),
+        rollup_stuck=bool(rollup_stuck),
+        live_fresh=bool(live_fresh),
+        fallback=traffic_fallback,
+    )
+    ddos_source, ddos_degraded_reason = _choose_series_source(
+        rollups_fresh=bool(rollups_fresh),
+        rollup_stuck=bool(rollup_stuck),
+        live_fresh=bool(live_fresh),
+        fallback="historical",
+    )
+
+    use_ingest_rollups = traffic_source == "rollup_1s"
     data_end_ts = last_roll_ts if (use_ingest_rollups and last_roll_ts is not None) else now
     start_ts = data_end_ts - timedelta(minutes=window_minutes)
     ch = _ch_client_or_none()
@@ -411,7 +461,7 @@ def get_overview_payload(
 
     events_5m = 0
     last_event_ts = None
-    if use_ingest_rollups:
+    if traffic_source == "rollup_1s":
         ev_stmt = select(func.coalesce(func.sum(NetEventRollup1sModel.count), 0)).where(
             NetEventRollup1sModel.bucket_ts >= data_end_ts - timedelta(minutes=5),
             NetEventRollup1sModel.bucket_ts <= data_end_ts,
@@ -420,6 +470,15 @@ def get_overview_payload(
             ev_stmt = ev_stmt.where(NetEventRollup1sModel.agent_id == agent_id)
         events_5m = int(db.execute(ev_stmt).scalar() or 0)
         last_event_ts = data_end_ts if last_roll_ts is not None else None
+    elif traffic_source == "live_1s":
+        cutoff = now - timedelta(minutes=5)
+        events_5m = 0
+        for row in live_rows:
+            ts = _to_utc((row or {}).get("ts"))
+            if ts is None or ts < cutoff:
+                continue
+            events_5m += int((row or {}).get("ingest_received") or 0)
+        last_event_ts = live_last_ts
     elif ch is not None:
         params: Dict[str, Any] = {
             "since_5m": data_end_ts - timedelta(minutes=5),
@@ -489,7 +548,7 @@ def get_overview_payload(
         "last_event_age_m": last_event_age_m,
     }
 
-    if use_ingest_rollups:
+    if traffic_source == "rollup_1s":
         top_stmt = (
             select(NetEventRollup1sModel.event_type, func.sum(NetEventRollup1sModel.count).label("total"))
             .where(
@@ -505,6 +564,20 @@ def get_overview_payload(
             top_stmt = top_stmt.where(NetEventRollup1sModel.agent_id == agent_id)
         top_rows = db.execute(top_stmt).all()
         top_types = [str(r.event_type) for r in top_rows if r.event_type]
+    elif traffic_source == "live_1s":
+        live_totals: Dict[str, int] = {}
+        for row in live_rows:
+            ets = (row or {}).get("event_types") or {}
+            if not isinstance(ets, dict):
+                continue
+            for ev_type, cnt in ets.items():
+                key = str(ev_type or "").strip().lower()
+                if not key:
+                    continue
+                live_totals[key] = int(live_totals.get(key) or 0) + max(0, int(cnt or 0))
+        top_types = [k for k, _ in sorted(live_totals.items(), key=lambda kv: kv[1], reverse=True)[:3]]
+        if not top_types:
+            top_types = _top_event_types(db, start_ts, data_end_ts, agent_id)
     else:
         top_types = _top_event_types(db, start_ts, data_end_ts, agent_id)
 
@@ -556,6 +629,22 @@ def get_overview_payload(
         bucket_vals = traffic_map.setdefault(b, {})
         cnt = int((r.get("cnt") if isinstance(r, dict) else r.cnt) or 0)
         bucket_vals[event_type] = bucket_vals.get(event_type, 0) + cnt
+
+    if traffic_source == "live_1s":
+        for row in live_rows:
+            ts = _to_utc((row or {}).get("ts"))
+            if ts is None:
+                continue
+            b = _minute_floor(ts)
+            ets = (row or {}).get("event_types") or {}
+            if not isinstance(ets, dict):
+                continue
+            vals = traffic_map.setdefault(b, {})
+            for ev_type, cnt in ets.items():
+                key = str(ev_type or "").strip().lower()
+                if not key:
+                    continue
+                vals[key] = int(vals.get(key) or 0) + max(0, int(cnt or 0))
 
     traffic_series = [x for x in [t1, t2, t3] if x] + ["other"]
     traffic_data: List[Dict[str, Any]] = []
@@ -626,6 +715,20 @@ def get_overview_payload(
         sev = str(r.sev or "unknown")
         sev_map.setdefault(b, {})[sev] = int(r.cnt or 0)
 
+    if traffic_source == "live_1s":
+        for row in live_rows:
+            ts = _to_utc((row or {}).get("ts"))
+            if ts is None:
+                continue
+            b = _minute_floor(ts)
+            sev_vals = (row or {}).get("severity") or {}
+            if not isinstance(sev_vals, dict):
+                continue
+            bucket = sev_map.setdefault(b, {})
+            for sev, cnt in sev_vals.items():
+                key = str(sev or "unknown").strip().lower() or "unknown"
+                bucket[key] = int(bucket.get(key) or 0) + max(0, int(cnt or 0))
+
     sev_series = ["critical", "high", "medium", "low", "unknown"]
     sev_data: List[Dict[str, Any]] = []
     for b in _minute_buckets(start_ts, data_end_ts):
@@ -673,7 +776,7 @@ def get_overview_payload(
         for b in _minute_buckets(start_ts, data_end_ts)
     ]
 
-    if use_ingest_rollups:
+    if ddos_source == "rollup_1s":
         ddos_vol_stmt = (
             select(
                 func.date_trunc("minute", NetEventRollup1sModel.bucket_ts).label("bucket_ts"),
@@ -683,7 +786,7 @@ def get_overview_payload(
             .where(
                 NetEventRollup1sModel.bucket_ts >= start_ts,
                 NetEventRollup1sModel.bucket_ts <= data_end_ts,
-                NetEventRollup1sModel.event_type == "dos_attack",
+                NetEventRollup1sModel.event_type.in_(["dos_attack", "ddos_telemetry"]),
             )
             .group_by("bucket_ts")
         )
@@ -695,11 +798,26 @@ def get_overview_payload(
             for r in ddos_vol_rows
             if _to_utc(r.bucket_ts) is not None
         }
+    elif ddos_source == "live_1s":
+        ddos_vol_map: Dict[datetime, Dict[str, float]] = {}
+        for row in live_rows:
+            ts = _to_utc((row or {}).get("ts"))
+            if ts is None:
+                continue
+            b = _minute_floor(ts)
+            cur = ddos_vol_map.setdefault(b, {"packets": 0.0, "peak_pps": 0.0, "peak_bps": 0.0})
+            cur["packets"] += float(max(0, int((row or {}).get("ddos_packets_estimated") or 0)))
+            cur["peak_pps"] = max(
+                float(cur.get("peak_pps") or 0.0),
+                float((row or {}).get("ddos_peak_pps") or 0.0),
+                float((row or {}).get("ingest_received") or 0.0),
+            )
+            cur["peak_bps"] = max(float(cur.get("peak_bps") or 0.0), float((row or {}).get("ddos_peak_bps") or 0.0))
     elif ch is not None:
         ddos_params: Dict[str, Any] = {"start_ts": start_ts, "end_ts": data_end_ts}
         ddos_where = (
             "timestamp >= {start_ts:DateTime64(3)} AND timestamp <= {end_ts:DateTime64(3)} "
-            "AND event_type = 'dos_attack'"
+            "AND event_type IN ('dos_attack','ddos_telemetry')"
         )
         if agent_id:
             ddos_where += " AND agent_id = {agent_id:String}"
@@ -707,34 +825,43 @@ def get_overview_payload(
         ddos_vol_rows = _ch_query_dicts(
             ch,
             f"SELECT toStartOfMinute(timestamp) AS bucket_ts, "
-            "sum(JSONExtractFloat(extra_json, 'packets')) AS packets, "
-            "max(JSONExtractFloat(extra_json, 'pps')) AS peak_pps "
+            "sumIf(JSONExtractFloat(extra_json, 'packets'), event_type = 'dos_attack') "
+            "+ countIf(event_type = 'ddos_telemetry') AS packets, "
+            "max(greatest(JSONExtractFloat(extra_json, 'pps'), JSONExtractFloat(extra_json, 'estimated_pps'))) AS peak_pps, "
+            "max(greatest(JSONExtractFloat(extra_json, 'bps'), JSONExtractFloat(extra_json, 'estimated_bps'))) AS peak_bps "
             f"FROM {clickhouse_events_table_ref()} "
             f"WHERE {ddos_where} "
             "GROUP BY bucket_ts",
             ddos_params,
         )
         ddos_vol_map = {
-            _to_utc(r.get("bucket_ts")): {"packets": float(r.get("packets") or 0.0), "peak_pps": float(r.get("peak_pps") or 0.0)}
+            _to_utc(r.get("bucket_ts")): {
+                "packets": float(r.get("packets") or 0.0),
+                "peak_pps": float(r.get("peak_pps") or 0.0),
+                "peak_bps": float(r.get("peak_bps") or 0.0),
+            }
             for r in ddos_vol_rows
             if _to_utc(r.get("bucket_ts")) is not None
         }
     else:
         packets_txt = NetEventModel.extra["packets"].astext
         pps_txt = NetEventModel.extra["pps"].astext
+        bps_txt = NetEventModel.extra["bps"].astext
         packet_num = case((packets_txt.op("~")(r"^[0-9]+(\\.[0-9]+)?$"), cast(packets_txt, Float)), else_=0.0)
         pps_num = case((pps_txt.op("~")(r"^[0-9]+(\\.[0-9]+)?$"), cast(pps_txt, Float)), else_=0.0)
+        bps_num = case((bps_txt.op("~")(r"^[0-9]+(\\.[0-9]+)?$"), cast(bps_txt, Float)), else_=0.0)
 
         ddos_vol_stmt = (
             select(
                 func.date_trunc("minute", NetEventModel.timestamp).label("bucket_ts"),
                 func.coalesce(func.sum(packet_num), 0.0).label("packets"),
                 func.coalesce(func.max(pps_num), 0.0).label("peak_pps"),
+                func.coalesce(func.max(bps_num), 0.0).label("peak_bps"),
             )
             .where(
                 NetEventModel.timestamp >= start_ts,
                 NetEventModel.timestamp <= data_end_ts,
-                NetEventModel.event_type == "dos_attack",
+                NetEventModel.event_type.in_(["dos_attack", "ddos_telemetry"]),
             )
             .group_by("bucket_ts")
         )
@@ -742,20 +869,25 @@ def get_overview_payload(
             ddos_vol_stmt = ddos_vol_stmt.where(NetEventModel.agent_id == agent_id)
         ddos_vol_rows = db.execute(ddos_vol_stmt).all()
         ddos_vol_map = {
-            _to_utc(r.bucket_ts): {"packets": float(r.packets or 0), "peak_pps": float(r.peak_pps or 0)}
+            _to_utc(r.bucket_ts): {
+                "packets": float(r.packets or 0),
+                "peak_pps": float(r.peak_pps or 0),
+                "peak_bps": float(r.peak_bps or 0),
+            }
             for r in ddos_vol_rows
             if _to_utc(r.bucket_ts) is not None
         }
 
-    ddos_volume_series = ["packets", "peak_pps"]
+    ddos_volume_series = ["packets", "peak_pps", "peak_bps"]
     ddos_volume_data = []
     for b in _minute_buckets(start_ts, data_end_ts):
-        vals = ddos_vol_map.get(b, {"packets": 0.0, "peak_pps": 0.0})
+        vals = ddos_vol_map.get(b, {"packets": 0.0, "peak_pps": 0.0, "peak_bps": 0.0})
         ddos_volume_data.append(
             {
                 "t": _fmt_hhmm(b),
                 "packets": int(vals.get("packets", 0.0)),
                 "peak_pps": float(vals.get("peak_pps", 0.0)),
+                "peak_bps": float(vals.get("peak_bps", 0.0)),
             }
         )
 
@@ -978,7 +1110,63 @@ def get_overview_payload(
                 raw_stmt = raw_stmt.where(NetEventModel.agent_id == agent_id)
             raw_events = [dict(r) for r in db.execute(raw_stmt).mappings().all()]
 
+    ingest_rates_map: Dict[datetime, Dict[str, float]] = {}
+    for row in live_rows:
+        ts = _to_utc((row or {}).get("ts"))
+        if ts is None:
+            continue
+        b = _minute_floor(ts)
+        vals = ingest_rates_map.setdefault(b, {"ingest_events": 0.0, "processed_events": 0.0})
+        vals["ingest_events"] += float((row or {}).get("ingest_received") or 0.0)
+        vals["processed_events"] += float((row or {}).get("processed_events") or 0.0)
+
+    ingest_stats_last_ts = None
+    if not ingest_rates_map or not live_fresh:
+        ingest_stmt = (
+            select(
+                func.date_trunc("minute", IngestStats1sModel.bucket_ts).label("bucket_ts"),
+                func.coalesce(func.sum(IngestStats1sModel.received), 0).label("ingest_events"),
+                func.coalesce(func.sum(IngestStats1sModel.hot_stored), 0).label("processed_events"),
+                func.max(IngestStats1sModel.bucket_ts).label("last_bucket_ts"),
+            )
+            .where(
+                IngestStats1sModel.bucket_ts >= start_ts,
+                IngestStats1sModel.bucket_ts <= data_end_ts,
+            )
+            .group_by("bucket_ts")
+        )
+        ingest_rows = db.execute(ingest_stmt).all()
+        for r in ingest_rows:
+            b = _to_utc(r.bucket_ts)
+            if b is None:
+                continue
+            vals = ingest_rates_map.setdefault(b, {"ingest_events": 0.0, "processed_events": 0.0})
+            vals["ingest_events"] = max(float(vals.get("ingest_events") or 0.0), float(r.ingest_events or 0.0))
+            vals["processed_events"] = max(float(vals.get("processed_events") or 0.0), float(r.processed_events or 0.0))
+            last_b = _to_utc(r.last_bucket_ts)
+            if last_b is not None and (ingest_stats_last_ts is None or last_b > ingest_stats_last_ts):
+                ingest_stats_last_ts = last_b
+
+    ingest_rates_data = []
+    for b in _minute_buckets(start_ts, data_end_ts):
+        vals = ingest_rates_map.get(b, {"ingest_events": 0.0, "processed_events": 0.0})
+        ingest_rates_data.append(
+            {
+                "t": _fmt_hhmm(b),
+                "ingest_events": int(max(0.0, float(vals.get("ingest_events") or 0.0))),
+                "processed_events": int(max(0.0, float(vals.get("processed_events") or 0.0))),
+            }
+        )
+    ingest_rates_series = ["ingest_events", "processed_events"]
+
     data_lag_s = int(max(0.0, (now - data_end_ts).total_seconds()))
+    rollup_lag_s = int(max(0.0, (now - last_roll_ts).total_seconds())) if last_roll_ts is not None else None
+    live_lag_s = int(max(0.0, (now - live_last_ts).total_seconds())) if live_last_ts is not None else None
+    traffic_last_ts = last_roll_ts if traffic_source == "rollup_1s" else (live_last_ts if traffic_source == "live_1s" else data_end_ts)
+    ddos_last_ts = last_roll_ts if ddos_source == "rollup_1s" else (live_last_ts if ddos_source == "live_1s" else data_end_ts)
+    ingest_source = "live_1s" if live_fresh else "ingest_stats_1s"
+    ingest_source_reason = None if live_fresh else "live_stale_fallback_ingest_stats"
+    ingest_last_ts = live_last_ts if live_fresh else (ingest_stats_last_ts or live_last_ts)
 
     payload = {
             "meta": {
@@ -989,18 +1177,45 @@ def get_overview_payload(
                 "rollups_fresh": bool(rollups_fresh),
                 "rollup_stuck_fallback": bool(rollup_stuck),
                 "rollups_last_bucket": (last_roll_ts.isoformat() if last_roll_ts is not None else None),
+                "rollup_lag_seconds": rollup_lag_s,
+                "live_lag_seconds": live_lag_s,
+                "live_last_bucket": (live_last_ts.isoformat() if live_last_ts is not None else None),
+                "live_fresh": bool(live_fresh),
                 "window_start": start_ts.isoformat(),
                 "window_end": data_end_ts.isoformat(),
                 "data_lag_seconds": data_lag_s,
                 "backlog_events": int(backlog_ev),
                 "backlog_messages": int(backlog_msgs),
+                "ddos_telemetry_emission_per_sec": int(live_payload.get("ddos_samples_last_second") or 0),
+                "ddos_telemetry_dropped_per_sec": int(live_payload.get("dropped_last_second") or 0),
                 "recent_feed_last_event_ts": recent_health.get("last_event_ts"),
                 "recent_feed_freshness_seconds": recent_health.get("freshness_seconds"),
                 "recent_feed_events_per_sec": int(recent_health.get("events_last_second") or 0),
                 "recent_feed_dropped_per_sec": int(recent_health.get("dropped_last_second") or 0),
+                "sources": {
+                    "traffic": _source_meta(
+                        now=now,
+                        source=traffic_source,
+                        last_data_ts=traffic_last_ts,
+                        degraded_reason=traffic_degraded_reason,
+                    ),
+                    "ddos_volume": _source_meta(
+                        now=now,
+                        source=ddos_source,
+                        last_data_ts=ddos_last_ts,
+                        degraded_reason=ddos_degraded_reason,
+                    ),
+                    "ingest_rates": _source_meta(
+                        now=now,
+                        source=ingest_source,
+                        last_data_ts=ingest_last_ts,
+                        degraded_reason=ingest_source_reason,
+                    ),
+                },
             },
             "kpis": kpis,
             "traffic": {"series": traffic_series, "data": traffic_data},
+            "ingest_rates": {"series": ingest_rates_series, "data": ingest_rates_data},
             "ssh_failures": {"series": ssh_series, "data": ssh_data},
             "alert_severity": {"series": sev_series, "data": sev_data},
             "ddos": {"series": ddos_series, "data": ddos_data},
@@ -1012,6 +1227,30 @@ def get_overview_payload(
             "recent_ssh": recent_ssh,
             "raw_events": raw_events,
     }
+    incr_counter(
+        "overview_source_selected_total",
+        chart="traffic",
+        source=str(traffic_source),
+        degraded=str(bool(traffic_degraded_reason)).lower(),
+    )
+    incr_counter(
+        "overview_source_selected_total",
+        chart="ddos_volume",
+        source=str(ddos_source),
+        degraded=str(bool(ddos_degraded_reason)).lower(),
+    )
+    observe_hist(
+        "overview_source_freshness_seconds",
+        float(payload["meta"]["sources"]["traffic"].get("source_freshness_seconds") or 0.0),
+        chart="traffic",
+        source=str(traffic_source),
+    )
+    observe_hist(
+        "overview_source_freshness_seconds",
+        float(payload["meta"]["sources"]["ddos_volume"].get("source_freshness_seconds") or 0.0),
+        chart="ddos_volume",
+        source=str(ddos_source),
+    )
     observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/overview")
     log_event(
         logger,
@@ -1021,5 +1260,7 @@ def get_overview_payload(
         agent_id=agent_id or "",
         lite=bool(lite),
         use_ingest_rollups=bool(use_ingest_rollups),
+        traffic_source=str(traffic_source),
+        ddos_source=str(ddos_source),
     )
     return payload

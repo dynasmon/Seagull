@@ -67,6 +67,11 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
         { signal: fastController.signal, timeoutMs: FULL_REFRESH_TIMEOUT_MS }
       );
       if (refreshSeqRef.current !== mySeq) return;
+      const prevEnd = Date.parse(snapshotRef.current?.meta?.window_end || "");
+      const nextFastEnd = Date.parse(fast?.meta?.window_end || "");
+      if (Number.isFinite(prevEnd) && Number.isFinite(nextFastEnd) && nextFastEnd < prevEnd) {
+        return;
+      }
 
       const prev = snapshotRef.current;
       const mergedFast: OverviewSnapshot = {
@@ -99,6 +104,11 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
         )
           .then((full) => {
             if (refreshSeqRef.current !== mySeq) return;
+            const currentEnd = Date.parse(snapshotRef.current?.meta?.window_end || "");
+            const incomingEnd = Date.parse(full?.meta?.window_end || "");
+            if (Number.isFinite(currentEnd) && Number.isFinite(incomingEnd) && incomingEnd < currentEnd) {
+              return;
+            }
             setSnapshot(full);
             lastFullAtRef.current = Date.now();
             try {
