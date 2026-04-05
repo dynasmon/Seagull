@@ -254,6 +254,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
           <div className="space-y-1">
             <NavItem collapsed={collapsed} to="/alerts/queue" label="Alerts" icon="alerts" />
             <NavItem collapsed={collapsed} to={toPlain("/attack-chain")} label="Attack Chains" icon="attackchain" />
+            <NavItem collapsed={collapsed} to={toPlain("/investigations")} label="Investigations" icon="attackchain" />
             <NavItem collapsed={collapsed} to="/correlations/findings" label="Correlations" icon="correlations" />
             <NavItem collapsed={collapsed} to={toPlain("/vulnerabilities")} label="Vulnerabilities" icon="vuln" />
           </div>

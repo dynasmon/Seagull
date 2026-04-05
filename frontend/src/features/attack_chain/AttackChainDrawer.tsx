@@ -5,23 +5,29 @@ import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
+import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
+import {
+  createInvestigationNote,
+  createInvestigationWorkspace,
+  linkAttackChainCaseToWorkspace,
+  listInvestigationNotes,
+  listInvestigationWorkspaces,
+  pinAttackChainCaseToWorkspace,
+  pinAttackChainStepToWorkspace,
+  updateInvestigationWorkspace,
+} from "@/features/investigations/api";
+import type {
+  InvestigationNote,
+  InvestigationWorkspace,
+  InvestigationWorkspacePriority,
+  InvestigationWorkspaceTriage,
+} from "@/features/investigations/types";
 
 import { useAuth } from "@/features/auth/context";
 
 import { closeAttackChainCase, getAttackChainCaseFull } from "./api";
 import { stageLabel, stageRank, STAGES } from "./stages";
 import type { AttackChainCaseWithSteps, AttackChainStep } from "./types";
-import {
-  addWorkflowNote,
-  clearWorkflow,
-  loadWorkflow,
-  setWorkflowAssignee,
-  setWorkflowPriority,
-  setWorkflowTriage,
-  type InvestigationWorkflow,
-  type Priority,
-  type TriageState
-} from "./workflow";
 
 type TabKey = "overview" | "timeline" | "investigation";
 
@@ -41,6 +47,18 @@ type StepView = {
   missingEvidence: string[];
   transition: { allowed: boolean; promoted: boolean; reason: string };
   raw: AttackChainStep;
+};
+
+type TriageState = InvestigationWorkspaceTriage;
+type Priority = InvestigationWorkspacePriority;
+
+type InvestigationWorkflow = {
+  triage: TriageState;
+  priority: Priority;
+  assignee: string;
+  notes: InvestigationNote[];
+  workspaceId: number | null;
+  workspaceKey: string;
 };
 
 function fmtTs(iso: string) {
@@ -255,7 +273,24 @@ export default function AttackChainDrawer({
   const [payload, setPayload] = useState<AttackChainCaseWithSteps | null>(null);
   const [tab, setTab] = useState<TabKey>("overview");
 
-  const [wf, setWf] = useState<InvestigationWorkflow>(() => (caseId ? loadWorkflow(caseId) : loadWorkflow(0)));
+  const [workspace, setWorkspace] = useState<InvestigationWorkspace | null>(null);
+  const [workspaceNotes, setWorkspaceNotes] = useState<InvestigationNote[]>([]);
+  const [workspaceChoices, setWorkspaceChoices] = useState<InvestigationWorkspace[]>([]);
+  const [attachWorkspaceId, setAttachWorkspaceId] = useState<number | null>(null);
+  const [wfBusy, setWfBusy] = useState(false);
+  const [wfError, setWfError] = useState<string | null>(null);
+  const [pinResultText, setPinResultText] = useState<string | null>(null);
+  const [pinStepId, setPinStepId] = useState<number | null>(null);
+  const [pinCaseOpen, setPinCaseOpen] = useState(false);
+
+  const [wf, setWf] = useState<InvestigationWorkflow>({
+    triage: "untriaged",
+    priority: "p3",
+    assignee: "",
+    notes: [],
+    workspaceId: null,
+    workspaceKey: "",
+  });
   const [noteText, setNoteText] = useState("");
   const [assigneeDraft, setAssigneeDraft] = useState("");
 
@@ -263,6 +298,51 @@ export default function AttackChainDrawer({
   const [closeError, setCloseError] = useState<string | null>(null);
 
   const reqSeq = useRef(0);
+
+  function setWorkflowFromWorkspace(ws: InvestigationWorkspace | null, notes: InvestigationNote[]) {
+    if (!ws) {
+      const empty: InvestigationWorkflow = {
+        triage: "untriaged",
+        priority: "p3",
+        assignee: "",
+        notes: [],
+        workspaceId: null,
+        workspaceKey: "",
+      };
+      setWf(empty);
+      setAssigneeDraft("");
+      return;
+    }
+    const next: InvestigationWorkflow = {
+      triage: ws.triage_state,
+      priority: ws.priority,
+      assignee: ws.assignee || "",
+      notes: notes.slice(),
+      workspaceId: ws.id,
+      workspaceKey: ws.workspace_key,
+    };
+    setWf(next);
+    setAssigneeDraft(next.assignee);
+  }
+
+  async function loadWorkspaceState(caseIdValue: number) {
+    const [linked, allChoices] = await Promise.all([
+      listInvestigationWorkspaces({ page_size: 1, linked_attack_chain_case_id: caseIdValue }),
+      listInvestigationWorkspaces({ page_size: 100 }),
+    ]);
+    const ws = (linked.items || [])[0] || null;
+    setWorkspace(ws);
+    setWorkspaceChoices(allChoices.items || []);
+    setAttachWorkspaceId((allChoices.items || [])[0]?.id ?? null);
+    if (!ws) {
+      setWorkspaceNotes([]);
+      setWorkflowFromWorkspace(null, []);
+      return;
+    }
+    const notes = await listInvestigationNotes(ws.id, { limit: 300 });
+    setWorkspaceNotes(notes || []);
+    setWorkflowFromWorkspace(ws, notes || []);
+  }
 
   useEffect(() => {
     if (!open || !caseId) return;
@@ -273,14 +353,15 @@ export default function AttackChainDrawer({
     setPayload(null);
     setTab("overview");
     setCloseError(null);
+    setWfError(null);
+    setPinResultText(null);
+    setPinStepId(null);
+    setPinCaseOpen(false);
 
-    // Load workflow for this case.
-    setWf(loadWorkflow(caseId));
-    setAssigneeDraft(loadWorkflow(caseId).assignee || "");
     setNoteText("");
 
-    getAttackChainCaseFull(caseId)
-      .then((data) => {
+    Promise.all([getAttackChainCaseFull(caseId), loadWorkspaceState(caseId)])
+      .then(([data]) => {
         if (reqSeq.current !== mySeq) return;
         setPayload(data);
       })
@@ -332,9 +413,14 @@ export default function AttackChainDrawer({
         if (!prev) return prev;
         return { ...prev, case: { ...prev.case, status: "closed" } };
       });
-      if (caseId) {
-        const next = setWorkflowTriage(caseId, "closed");
-        setWf(next);
+      if (workspace) {
+        const nextWs = await updateInvestigationWorkspace(workspace.id, { status: "closed", triage_state: "closed" });
+        const notes = await listInvestigationNotes(workspace.id, { limit: 300 });
+        setWorkspace(nextWs);
+        setWorkspaceNotes(notes || []);
+        setWorkflowFromWorkspace(nextWs, notes || []);
+      } else {
+        setWorkflowFromWorkspace(null, []);
       }
       if (onClosed) onClosed(payload.case.id);
     } catch (e: any) {
@@ -344,43 +430,115 @@ export default function AttackChainDrawer({
     }
   }
 
-  function applyTriage(t: TriageState) {
-    if (!caseId) return;
-    const next = setWorkflowTriage(caseId, t);
-    setWf(next);
+  async function applyTriage(t: TriageState) {
+    if (!workspace) return;
+    setWfBusy(true);
+    setWfError(null);
+    try {
+      const next = await updateInvestigationWorkspace(workspace.id, { triage_state: t });
+      setWorkspace(next);
+      setWorkflowFromWorkspace(next, workspaceNotes);
+    } catch (e: any) {
+      setWfError(e?.message || "Failed to update triage state");
+    } finally {
+      setWfBusy(false);
+    }
   }
 
-  function applyPriority(p: Priority) {
-    if (!caseId) return;
-    const next = setWorkflowPriority(caseId, p);
-    setWf(next);
+  async function applyPriority(p: Priority) {
+    if (!workspace) return;
+    setWfBusy(true);
+    setWfError(null);
+    try {
+      const next = await updateInvestigationWorkspace(workspace.id, { priority: p });
+      setWorkspace(next);
+      setWorkflowFromWorkspace(next, workspaceNotes);
+    } catch (e: any) {
+      setWfError(e?.message || "Failed to update priority");
+    } finally {
+      setWfBusy(false);
+    }
   }
 
-  function applyAssignee() {
-    if (!caseId) return;
-    const next = setWorkflowAssignee(caseId, assigneeDraft);
-    // automatically promote triage state when assigning.
-    const promoted = next.assignee ? setWorkflowTriage(caseId, "assigned") : next;
-    setWf(promoted);
+  async function applyAssignee() {
+    if (!workspace) return;
+    setWfBusy(true);
+    setWfError(null);
+    try {
+      const next = await updateInvestigationWorkspace(workspace.id, {
+        assignee: assigneeDraft || "",
+        triage_state: assigneeDraft.trim() ? "assigned" : wf.triage,
+      });
+      setWorkspace(next);
+      setWorkflowFromWorkspace(next, workspaceNotes);
+    } catch (e: any) {
+      setWfError(e?.message || "Failed to update assignee");
+    } finally {
+      setWfBusy(false);
+    }
   }
 
-  function addNote() {
-    if (!caseId) return;
+  async function addNote() {
+    if (!workspace) return;
     const text = noteText.trim();
     if (!text) return;
-    const author = user?.username || "analyst";
-    const next = addWorkflowNote(caseId, { author, text });
-    setWf(next);
-    setNoteText("");
+    setWfBusy(true);
+    setWfError(null);
+    try {
+      await createInvestigationNote(workspace.id, text);
+      const notes = await listInvestigationNotes(workspace.id, { limit: 300 });
+      setWorkspaceNotes(notes || []);
+      setWorkflowFromWorkspace(workspace, notes || []);
+      setNoteText("");
+    } catch (e: any) {
+      setWfError(e?.message || "Failed to add note");
+    } finally {
+      setWfBusy(false);
+    }
   }
 
-  function resetWorkflow() {
-    if (!caseId) return;
-    clearWorkflow(caseId);
-    const next = loadWorkflow(caseId);
-    setWf(next);
-    setAssigneeDraft(next.assignee || "");
-    setNoteText("");
+  async function createWorkspaceFromCase() {
+    if (!payload) return;
+    setWfBusy(true);
+    setWfError(null);
+    try {
+      const ws = await createInvestigationWorkspace({
+        title: `Attack Chain Case #${payload.case.id}`,
+        description: `Workspace created from attack chain case #${payload.case.id}.`,
+        linked_attack_chain_case_id: payload.case.id,
+        primary_agent_id: payload.case.agent_id,
+        triage_state: "triage",
+        priority: "p2",
+        severity: payload.case.score >= 80 ? "critical" : payload.case.score >= 60 ? "high" : "medium",
+      });
+      const notes = await listInvestigationNotes(ws.id, { limit: 300 });
+      setWorkspace(ws);
+      setWorkspaceNotes(notes || []);
+      setWorkflowFromWorkspace(ws, notes || []);
+      setPinResultText("Workspace created and linked to this case.");
+    } catch (e: any) {
+      setWfError(e?.message || "Failed to create workspace");
+    } finally {
+      setWfBusy(false);
+    }
+  }
+
+  async function attachWorkspace() {
+    if (!payload || !attachWorkspaceId) return;
+    setWfBusy(true);
+    setWfError(null);
+    try {
+      const next = await linkAttackChainCaseToWorkspace(attachWorkspaceId, payload.case.id, payload.case.agent_id);
+      const notes = await listInvestigationNotes(next.id, { limit: 300 });
+      setWorkspace(next);
+      setWorkspaceNotes(notes || []);
+      setWorkflowFromWorkspace(next, notes || []);
+      setPinResultText(`Workspace ${next.workspace_key} linked to this case.`);
+    } catch (e: any) {
+      setWfError(e?.message || "Failed to attach workspace");
+    } finally {
+      setWfBusy(false);
+    }
   }
 
   function StepRow({ s }: { s: StepView }) {
@@ -421,6 +579,17 @@ export default function AttackChainDrawer({
           <div className="shrink-0 text-right">
             <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Kind</div>
             <div className="text-xs font-mono text-foreground">{s.kind || "-"}</div>
+            <button
+              type="button"
+              onClick={() => setPinStepId(s.id)}
+              className={cx(
+                "mt-2 rounded-md border border-border/60 bg-background/40",
+                "px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
+                "hover:bg-muted/15 hover:text-foreground"
+              )}
+            >
+              Pin step
+            </button>
             {s.transition.reason ? (
               <div className="mt-2 text-[10px] text-muted-foreground max-w-[240px]">{s.transition.reason}</div>
             ) : null}
@@ -461,7 +630,8 @@ export default function AttackChainDrawer({
             {qualityCounts.weaklyInferred > 0 ? (
               <Badge variant="neutral">weak {qualityCounts.weaklyInferred}</Badge>
             ) : null}
-            <WorkflowBadge wf={wf} />
+            {workspace ? <WorkflowBadge wf={wf} /> : <Badge variant="neutral">no workspace</Badge>}
+            {workspace?.workspace_key ? <Badge variant="neutral">{workspace.workspace_key}</Badge> : null}
             {wf.assignee ? <Badge variant="neutral">assigned: {wf.assignee}</Badge> : null}
             {wf.notes.length ? <Badge variant="neutral">notes: {wf.notes.length}</Badge> : null}
           </div>
@@ -756,119 +926,178 @@ export default function AttackChainDrawer({
                       <div>
                         <div className="text-sm font-semibold">Investigation workflow</div>
                         <div className="text-xs text-muted-foreground">
-                          Triage → Assign → Notes → Close. Saved locally in your browser for now.
+                          Triage → Assign → Notes → Close. Persisted in the server-backed investigation workspace.
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={resetWorkflow}
-                        className={cx(
-                          "rounded-md border border-border/60 bg-background/40",
-                          "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                          "hover:bg-muted/15 hover:text-foreground"
+                      <div className="flex items-center gap-2">
+                        {workspace ? (
+                          <div className="text-[11px] text-muted-foreground font-mono">workspace {workspace.workspace_key}</div>
+                        ) : (
+                          <div className="text-[11px] text-amber-300 font-mono">no workspace linked</div>
                         )}
-                        title="Reset local workflow state"
-                      >
-                        Reset
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => setPinCaseOpen(true)}
+                          className={cx(
+                            "rounded-md border border-border/60 bg-background/40",
+                            "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                            "hover:bg-muted/15 hover:text-foreground"
+                          )}
+                        >
+                          Pin case
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div>
-                        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Triage</div>
-                        <select
-                          className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
-                          value={wf.triage}
-                          onChange={(e) => applyTriage(e.target.value as TriageState)}
+                    {!workspace ? (
+                      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          disabled={wfBusy}
+                          onClick={createWorkspaceFromCase}
+                          className={cx(
+                            "rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest",
+                            "hover:bg-muted/15 hover:text-foreground",
+                            wfBusy && "opacity-60 cursor-not-allowed"
+                          )}
                         >
-                          <option value="untriaged">Untriaged</option>
-                          <option value="triage">Triage</option>
-                          <option value="assigned">Assigned</option>
-                          <option value="investigating">Investigating</option>
-                          <option value="contained">Contained</option>
-                          <option value="closed">Closed</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Priority</div>
-                        <select
-                          className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
-                          value={wf.priority}
-                          onChange={(e) => applyPriority(e.target.value as Priority)}
-                        >
-                          <option value="p1">P1 (critical)</option>
-                          <option value="p2">P2 (high)</option>
-                          <option value="p3">P3 (medium)</option>
-                          <option value="p4">P4 (low)</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Assignee</div>
-                        <div className="mt-1 flex items-center gap-2">
-                          <input
-                            value={assigneeDraft}
-                            onChange={(e) => setAssigneeDraft(e.target.value)}
-                            placeholder="e.g. admin"
+                          Create workspace from this case
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={attachWorkspaceId ? String(attachWorkspaceId) : ""}
+                            onChange={(e) => setAttachWorkspaceId(Number(e.target.value) || null)}
                             className="flex-1 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
-                          />
+                          >
+                            <option value="">Select workspace to attach</option>
+                            {workspaceChoices.map((ws) => (
+                              <option key={ws.id} value={ws.id}>
+                                {ws.title} · {ws.workspace_key}
+                              </option>
+                            ))}
+                          </select>
                           <button
                             type="button"
-                            onClick={applyAssignee}
+                            disabled={wfBusy || !attachWorkspaceId}
+                            onClick={attachWorkspace}
                             className={cx(
-                              "rounded-md border border-border/60 bg-background/40",
-                              "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                              "hover:bg-muted/15 hover:text-foreground"
+                              "rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest",
+                              "hover:bg-muted/15 hover:text-foreground",
+                              (wfBusy || !attachWorkspaceId) && "opacity-60 cursor-not-allowed"
                             )}
                           >
-                            Assign
+                            Attach
                           </button>
                         </div>
                       </div>
-                    </div>
-                  </div>
+                    ) : (
+                      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Triage</div>
+                          <select
+                            className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                            value={wf.triage}
+                            onChange={(e) => applyTriage(e.target.value as TriageState)}
+                          >
+                            <option value="untriaged">Untriaged</option>
+                            <option value="triage">Triage</option>
+                            <option value="assigned">Assigned</option>
+                            <option value="investigating">Investigating</option>
+                            <option value="contained">Contained</option>
+                            <option value="closed">Closed</option>
+                          </select>
+                        </div>
 
-                  <div className="rounded-xl border border-border/60 bg-background/30 p-4">
-                    <div className="text-sm font-semibold">Notes</div>
-                    <div className="mt-3 flex items-start gap-2">
-                      <textarea
-                        value={noteText}
-                        onChange={(e) => setNoteText(e.target.value)}
-                        rows={3}
-                        placeholder="Add investigation notes, indicators, or next steps..."
-                        className="flex-1 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm font-mono"
-                      />
-                      <button
-                        type="button"
-                        onClick={addNote}
-                        className={cx(
-                          "rounded-md border border-border/60 bg-background/40",
-                          "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                          "hover:bg-muted/15 hover:text-foreground"
-                        )}
-                      >
-                        Add
-                      </button>
-                    </div>
+                        <div>
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Priority</div>
+                          <select
+                            className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                            value={wf.priority}
+                            onChange={(e) => applyPriority(e.target.value as Priority)}
+                          >
+                            <option value="p1">P1 (critical)</option>
+                            <option value="p2">P2 (high)</option>
+                            <option value="p3">P3 (medium)</option>
+                            <option value="p4">P4 (low)</option>
+                          </select>
+                        </div>
 
-                    <div className="mt-4 space-y-2">
-                      {wf.notes.length === 0 ? (
-                        <div className="text-sm text-muted-foreground">No notes yet.</div>
-                      ) : (
-                        wf.notes.map((n) => (
-                          <div key={n.id} className="rounded-lg border border-border/60 bg-background/40 p-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="text-[11px] font-mono text-muted-foreground">
-                                {n.author ? `${n.author} · ` : ""}{fmtTs(n.at)}
-                              </div>
-                            </div>
-                            <div className="mt-2 whitespace-pre-wrap break-words text-sm font-mono">{n.text}</div>
+                        <div>
+                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Assignee</div>
+                          <div className="mt-1 flex items-center gap-2">
+                            <input
+                              value={assigneeDraft}
+                              onChange={(e) => setAssigneeDraft(e.target.value)}
+                              placeholder="e.g. admin"
+                              className="flex-1 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                            />
+                            <button
+                              type="button"
+                              onClick={applyAssignee}
+                              disabled={wfBusy}
+                              className={cx(
+                                "rounded-md border border-border/60 bg-background/40",
+                                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                                "hover:bg-muted/15 hover:text-foreground",
+                                wfBusy && "opacity-60 cursor-not-allowed"
+                              )}
+                            >
+                              Assign
+                            </button>
                           </div>
-                        ))
-                      )}
-                    </div>
+                        </div>
+                      </div>
+                    )}
+                    {wfError ? <div className="mt-2 text-xs text-red-400">{wfError}</div> : null}
+                    {pinResultText ? <div className="mt-2 text-xs text-emerald-400">{pinResultText}</div> : null}
                   </div>
+
+                  {workspace ? (
+                    <div className="rounded-xl border border-border/60 bg-background/30 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold">Notes</div>
+                      </div>
+                      <div className="mt-3 flex items-start gap-2">
+                        <textarea
+                          value={noteText}
+                          onChange={(e) => setNoteText(e.target.value)}
+                          rows={3}
+                          placeholder="Add investigation notes, indicators, or next steps..."
+                          className="flex-1 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={addNote}
+                          disabled={wfBusy}
+                          className={cx(
+                            "rounded-md border border-border/60 bg-background/40",
+                            "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                            "hover:bg-muted/15 hover:text-foreground",
+                            wfBusy && "opacity-60 cursor-not-allowed"
+                          )}
+                        >
+                          Add
+                        </button>
+                      </div>
+
+                      <div className="mt-4 space-y-2">
+                        {wf.notes.length === 0 ? (
+                          <div className="text-sm text-muted-foreground">No notes yet.</div>
+                        ) : (
+                          wf.notes.map((n) => (
+                            <div key={n.id} className="rounded-lg border border-border/60 bg-background/40 p-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-[11px] font-mono text-muted-foreground">
+                                  {n.author ? `${n.author} · ` : ""}{fmtTs(n.created_at)}
+                                </div>
+                              </div>
+                              <div className="mt-2 whitespace-pre-wrap break-words text-sm font-mono">{n.body}</div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-xs text-muted-foreground">
@@ -897,6 +1126,60 @@ export default function AttackChainDrawer({
             </div>
           </div>
         </div>
+      ) : null}
+
+      {payload ? (
+        <PinToWorkspaceDrawer
+          open={pinCaseOpen}
+          onClose={() => setPinCaseOpen(false)}
+          title={`attack chain case #${payload.case.id}`}
+          defaultWorkspaceTitle={`Attack Chain Case #${payload.case.id}`}
+          workspaceDefaults={{
+            linked_attack_chain_case_id: payload.case.id,
+            primary_agent_id: payload.case.agent_id,
+            triage_state: "triage",
+            priority: "p2",
+            severity: payload.case.score >= 80 ? "critical" : payload.case.score >= 60 ? "high" : "medium",
+          }}
+          onPin={async (workspaceId, options) => {
+            const result = await pinAttackChainCaseToWorkspace(workspaceId, payload.case.id, {
+              ...options,
+              source_module: "attack_chain",
+            });
+            setPinResultText(result.created ? "Case pinned to workspace." : "Case already pinned in this workspace.");
+            await loadWorkspaceState(payload.case.id);
+            return result;
+          }}
+        />
+      ) : null}
+
+      {payload && pinStepId ? (
+        <PinToWorkspaceDrawer
+          open={Boolean(pinStepId)}
+          onClose={() => setPinStepId(null)}
+          title={`attack chain step #${pinStepId}`}
+          defaultWorkspaceTitle={`Attack Chain Case #${payload.case.id}`}
+          workspaceDefaults={{
+            linked_attack_chain_case_id: payload.case.id,
+            primary_agent_id: payload.case.agent_id,
+            triage_state: "triage",
+            priority: "p2",
+            severity: payload.case.score >= 80 ? "critical" : payload.case.score >= 60 ? "high" : "medium",
+          }}
+          onPin={async (workspaceId, options) => {
+            const stepId = pinStepId;
+            if (!stepId) {
+              return { created: false, duplicate_of_id: null };
+            }
+            const result = await pinAttackChainStepToWorkspace(workspaceId, stepId, {
+              ...options,
+              source_module: "attack_chain",
+            });
+            setPinResultText(result.created ? `Step #${stepId} pinned to workspace.` : `Step #${stepId} is already pinned.`);
+            await loadWorkspaceState(payload.case.id);
+            return result;
+          }}
+        />
       ) : null}
     </Drawer>
   );

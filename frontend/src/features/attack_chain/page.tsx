@@ -14,7 +14,6 @@ import AttackChainDrawer from "./AttackChainDrawer";
 import { listAttackChainCases } from "./api";
 import { stageLabel } from "./stages";
 import type { AttackChainCase } from "./types";
-import { loadWorkflow } from "./workflow";
 
 type Density = "comfortable" | "compact";
 type SincePreset = "any" | "15m" | "1h" | "6h" | "24h" | "7d" | "custom";
@@ -108,7 +107,6 @@ type DraftFilters = {
   density: Density;
   sincePreset: SincePreset;
   sinceCustomLocal: string;
-  showWorkflow: boolean;
 };
 
 type AppliedFilters = {
@@ -118,7 +116,6 @@ type AppliedFilters = {
   minScore?: number;
   since?: string;
   density: Density;
-  showWorkflow: boolean;
 };
 
 export default function AttackChainPage() {
@@ -133,7 +130,6 @@ export default function AttackChainPage() {
     density: "comfortable",
     sincePreset: "24h",
     sinceCustomLocal: "",
-    showWorkflow: true
   });
 
   const [applied, setApplied] = useState<AppliedFilters>({
@@ -143,7 +139,6 @@ export default function AttackChainPage() {
     minScore: undefined,
     since: computeSinceIso("24h", ""),
     density: "comfortable",
-    showWorkflow: true
   });
 
   const [loading, setLoading] = useState(false);
@@ -258,7 +253,6 @@ export default function AttackChainPage() {
       minScore,
       since,
       density: draft.density,
-      showWorkflow: draft.showWorkflow
     };
     setApplied(next);
     fetchFirstPage(next);
@@ -277,16 +271,6 @@ export default function AttackChainPage() {
 
   const density = applied.density;
   const dense = density === "compact";
-
-  const workflowCache = useMemo(() => {
-    if (!applied.showWorkflow) return new Map<number, { triage: string; assignee: string; notes: number; priority: string }>();
-    const m = new Map<number, { triage: string; assignee: string; notes: number; priority: string }>();
-    for (const r of rows) {
-      const wf = loadWorkflow(r.id);
-      m.set(r.id, { triage: wf.triage, assignee: wf.assignee, notes: wf.notes.length, priority: wf.priority });
-    }
-    return m;
-  }, [rows, applied.showWorkflow]);
 
   return (
     <div className="w-full max-w-none space-y-6">
@@ -424,14 +408,6 @@ export default function AttackChainPage() {
                     <option value="compact">Compact</option>
                   </select>
 
-                  <label className="mt-3 flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={draft.showWorkflow}
-                      onChange={(e) => setDraft((p) => ({ ...p, showWorkflow: e.target.checked }))}
-                    />
-                    <span className="text-muted-foreground">Show investigation workflow</span>
-                  </label>
                 </div>
               </div>
 
@@ -456,7 +432,7 @@ export default function AttackChainPage() {
               <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
                 <li>• Start with <span className="text-foreground">Open</span> cases, sorted by <span className="text-foreground">last seen</span>.</li>
                 <li>• Use <span className="text-foreground">since</span> to scope recent campaigns.</li>
-                <li>• Open a case to see a stage-by-stage timeline and capture analyst notes.</li>
+                <li>• Open a case to use a persistent investigation workspace with notes and evidence.</li>
                 <li>• Close is enforced by backend admin role.</li>
               </ul>
             </div>
@@ -486,16 +462,12 @@ export default function AttackChainPage() {
                     <th className="text-left font-medium px-3 py-2 w-[220px]">Stage</th>
                     <th className="text-left font-medium px-3 py-2 w-[260px]">Suspect</th>
                     <th className="text-left font-medium px-3 py-2 w-[220px]">Last seen</th>
-                    {applied.showWorkflow ? (
-                      <th className="text-left font-medium px-3 py-2 w-[220px]">Workflow</th>
-                    ) : null}
                     <th className="text-right font-medium px-3 py-2 w-[120px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => {
                     const selected = selectedId !== null && r.id === selectedId;
-                    const wf = applied.showWorkflow ? workflowCache.get(r.id) : null;
                     return (
                       <tr
                         key={r.id}
@@ -527,23 +499,6 @@ export default function AttackChainPage() {
                         >
                           {fmtTs(r.last_seen_at)}
                         </td>
-
-                        {applied.showWorkflow ? (
-                          <td className={cx("px-3", dense ? "py-1.5" : "py-2")}
-                          >
-                            {wf ? (
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <Badge variant="neutral">{wf.triage}</Badge>
-                                <Badge variant="neutral">{wf.priority}</Badge>
-                                {wf.assignee ? <Badge variant="neutral">{wf.assignee}</Badge> : null}
-                                {wf.notes ? <span className="text-[11px] text-muted-foreground">notes {wf.notes}</span> : null}
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </td>
-                        ) : null}
-
                         <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2")}>
                           <button
                             type="button"

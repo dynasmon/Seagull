@@ -11,6 +11,8 @@ import { getErrorMessage } from "@/shared/lib/errors";
 import type { NetEvent } from "../../types";
 import { fmtDateTime } from "../../lib/aggregates";
 import EventDrawer from "../../components/EventDrawer";
+import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
+import { pinProtocolIntelEventToWorkspace } from "@/features/investigations/api";
 
 import { getProtocolIntelSamples } from "./api";
 import type { ProtocolIntelIndicatorKind } from "./types";
@@ -51,6 +53,7 @@ export default function ProtocolIndicatorDrawer({
 
   const [eventDrawerOpen, setEventDrawerOpen] = useState(false);
   const [eventDrawerEvent, setEventDrawerEvent] = useState<NetEvent | null>(null);
+  const [pinEvent, setPinEvent] = useState<NetEvent | null>(null);
 
   const title = selection ? selection.label : "Indicator";
 
@@ -95,6 +98,26 @@ export default function ProtocolIndicatorDrawer({
         title: "PROTO",
         width: 90,
         render: (ev) => <span className="font-mono text-[12px]">{ev.proto || "-"}</span>
+      },
+      {
+        key: "pin",
+        title: "",
+        width: 96,
+        className: "text-right",
+        render: (ev) => (
+          <button
+            type="button"
+            onClick={() => setPinEvent(ev)}
+            className={cx(
+              "inline-flex items-center rounded-md border border-border/60 bg-background/40",
+              "px-2 py-1 text-xs font-medium text-muted-foreground",
+              "hover:bg-muted/15 hover:text-foreground",
+              "focus:outline-none focus:ring-2 focus:ring-primary/30"
+            )}
+          >
+            Pin
+          </button>
+        )
       },
       {
         key: "open",
@@ -275,6 +298,22 @@ export default function ProtocolIndicatorDrawer({
           setEventDrawerEvent(null);
         }}
       />
+
+      {pinEvent ? (
+        <PinToWorkspaceDrawer
+          open={Boolean(pinEvent)}
+          onClose={() => setPinEvent(null)}
+          title={`protocol intel · event #${pinEvent.id}`}
+          defaultWorkspaceTitle={`Protocol intel investigation · ${selection?.value || "indicator"}`}
+          workspaceDefaults={{ primary_agent_id: pinEvent.agent_id }}
+          onPin={(workspaceId, options) =>
+            pinProtocolIntelEventToWorkspace(workspaceId, pinEvent.id, {
+              ...options,
+              source_module: "protocol_intel",
+            })
+          }
+        />
+      ) : null}
     </>
   );
 }

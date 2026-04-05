@@ -3,6 +3,8 @@ import { useMemo, useState } from "react";
 import Drawer from "@/shared/components/Drawer";
 import { Badge } from "@/shared/components/Badge";
 import { cx } from "@/shared/lib/cx";
+import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
+import { pinEventToWorkspace } from "@/features/investigations/api";
 
 import type { NetEvent } from "../types";
 import { fmtDateTime } from "../lib/aggregates";
@@ -93,6 +95,7 @@ export default function EventDrawer({
   onApplySearch?: (q: string) => void;
 }) {
   const [copied, setCopied] = useState<null | "ok" | "fail">(null);
+  const [pinOpen, setPinOpen] = useState(false);
 
   const title = useMemo(() => {
     if (!event) return "Event";
@@ -180,6 +183,13 @@ export default function EventDrawer({
               >
                 Search src
               </ActionButton>
+
+              <ActionButton
+                title="Pin this event into an investigation workspace"
+                onClick={() => setPinOpen(true)}
+              >
+                Pin to workspace
+              </ActionButton>
             </div>
           </div>
 
@@ -224,6 +234,17 @@ export default function EventDrawer({
           </div>
         </div>
       )}
+
+      {event ? (
+        <PinToWorkspaceDrawer
+          open={pinOpen}
+          onClose={() => setPinOpen(false)}
+          title={`${event.event_type} · #${event.id}`}
+          defaultWorkspaceTitle={`Investigation · ${event.event_type} #${event.id}`}
+          workspaceDefaults={{ primary_agent_id: event.agent_id }}
+          onPin={(workspaceId, options) => pinEventToWorkspace(workspaceId, event.id, { ...options, source_module: "events" })}
+        />
+      ) : null}
     </Drawer>
   );
 }
