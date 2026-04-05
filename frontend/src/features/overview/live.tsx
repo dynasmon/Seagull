@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
+import { isAbortError } from "@/shared/lib/http";
+
 import { getOverview } from "./api";
 import type { OverviewSnapshot } from "./types";
 
@@ -41,34 +43,31 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
-  const inFlight = useRef(false);
-  const fullInFlight = useRef(false);
   const snapshotRef = useRef<OverviewSnapshot | null>(snapshot);
   const lastFullAtRef = useRef(0);
+  const refreshSeqRef = useRef(0);
+  const fastAbortRef = useRef<AbortController | null>(null);
+  const fullAbortRef = useRef<AbortController | null>(null);
+  const fullPendingRef = useRef(false);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
   }, [snapshot]);
 
-  function withTimeout<T>(p: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const t = window.setTimeout(() => reject(new Error(message)), timeoutMs);
-      p.then((v) => {
-        window.clearTimeout(t);
-        resolve(v);
-      }).catch((err) => {
-        window.clearTimeout(t);
-        reject(err);
-      });
-    });
-  }
-
   const refresh = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
+    const mySeq = ++refreshSeqRef.current;
+
+    fastAbortRef.current?.abort();
+    const fastController = new AbortController();
+    fastAbortRef.current = fastController;
 
     try {
-      const fast = await getOverview({ window_minutes: WINDOW_MINUTES, lite: true });
+      const fast = await getOverview(
+        { window_minutes: WINDOW_MINUTES, lite: true },
+        { signal: fastController.signal, timeoutMs: FULL_REFRESH_TIMEOUT_MS }
+      );
+      if (refreshSeqRef.current !== mySeq) return;
+
       const prev = snapshotRef.current;
       const mergedFast: OverviewSnapshot = {
         ...fast,
@@ -89,14 +88,17 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       }
 
       const needFull = !snapshotRef.current || (Date.now() - lastFullAtRef.current) >= FULL_REFRESH_MS;
-      if (needFull && !fullInFlight.current) {
-        fullInFlight.current = true;
-        void withTimeout(
-          getOverview({ window_minutes: WINDOW_MINUTES }),
-          FULL_REFRESH_TIMEOUT_MS,
-          "Overview full refresh timed out"
+      if (needFull && !fullPendingRef.current) {
+        fullPendingRef.current = true;
+        const fullController = new AbortController();
+        fullAbortRef.current = fullController;
+
+        void getOverview(
+          { window_minutes: WINDOW_MINUTES },
+          { signal: fullController.signal, timeoutMs: FULL_REFRESH_TIMEOUT_MS }
         )
           .then((full) => {
+            if (refreshSeqRef.current !== mySeq) return;
             setSnapshot(full);
             lastFullAtRef.current = Date.now();
             try {
@@ -105,18 +107,28 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
               // no-op
             }
           })
-          .catch(() => {
+          .catch((e: any) => {
+            if (isAbortError(e)) return;
             // Full refresh is opportunistic; keep fast snapshot.
           })
           .finally(() => {
-            fullInFlight.current = false;
+            if (fullAbortRef.current === fullController) {
+              fullAbortRef.current = null;
+            }
+            fullPendingRef.current = false;
           });
       }
     } catch (e: any) {
+      if (isAbortError(e)) return;
+      if (refreshSeqRef.current !== mySeq) return;
       setError(e?.message || "Failed to load overview");
     } finally {
-      setIsLoading(false);
-      inFlight.current = false;
+      if (fastAbortRef.current === fastController) {
+        fastAbortRef.current = null;
+      }
+      if (refreshSeqRef.current === mySeq) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
@@ -132,6 +144,8 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
 
     return () => {
       alive = false;
+      fastAbortRef.current?.abort();
+      fullAbortRef.current?.abort();
       window.clearInterval(timer);
     };
   }, [refresh]);

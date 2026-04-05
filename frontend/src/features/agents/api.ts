@@ -1,4 +1,5 @@
 import { apiGet, apiPatch, apiPost, apiPut } from "@/shared/lib/http";
+import type { ApiGetOptions } from "@/shared/lib/http";
 import type {
   AgentDetail,
   AgentPublic,
@@ -12,8 +13,8 @@ export function listAgents() {
   return apiGet<AgentPublic[]>("/api/agents");
 }
 
-export function getAgent(agentId: string) {
-  return apiGet<AgentDetail>(`/api/agents/${encodeURIComponent(agentId)}`);
+export function getAgent(agentId: string, opts?: ApiGetOptions) {
+  return apiGet<AgentDetail>(`/api/agents/${encodeURIComponent(agentId)}`, opts);
 }
 
 export function updateAgent(agentId: string, patch: AgentUpdateIn) {

@@ -26,6 +26,19 @@ let refreshInFlight: Promise<RefreshResult> | null = null;
 const getCache = new Map<string, { expiresAt: number; value: any }>();
 const getInFlight = new Map<string, Promise<any>>();
 
+const DEFAULT_API_TIMEOUT_MS = 15000;
+
+export type ApiRequestInit = RequestInit & {
+  timeoutMs?: number;
+};
+
+export type ApiGetOptions = {
+  cacheMs?: number;
+  force?: boolean;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+};
+
 export function setAccessToken(token: string | null) {
   accessToken = token;
 }
@@ -39,10 +52,62 @@ function getCookie(name: string): string | null {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-async function rawFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(path, {
+function isAbortErrorLike(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { name?: string }).name === "AbortError");
+}
+
+export function isAbortError(error: unknown): boolean {
+  return isAbortErrorLike(error);
+}
+
+async function fetchWithPolicy(path: string, init?: ApiRequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutMs = Math.max(0, init?.timeoutMs ?? DEFAULT_API_TIMEOUT_MS);
+  let didTimeout = false;
+  let timeoutId: number | null = null;
+  let onAbort: (() => void) | null = null;
+
+  if (init?.signal) {
+    if (init.signal.aborted) controller.abort();
+    else {
+      onAbort = () => controller.abort();
+      init.signal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+
+  if (timeoutMs > 0) {
+    timeoutId = window.setTimeout(() => {
+      didTimeout = true;
+      controller.abort();
+    }, timeoutMs);
+  }
+
+  try {
+    return await fetch(path, {
+      ...init,
+      credentials: "include",
+      signal: controller.signal,
+      headers: {
+        ...(init?.headers || {}),
+        "Accept": "application/json",
+      },
+    });
+  } catch (error) {
+    if (didTimeout) {
+      const timeoutError = new Error("Request timed out");
+      timeoutError.name = "TimeoutError";
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+    if (init?.signal && onAbort) init.signal.removeEventListener("abort", onAbort);
+  }
+}
+
+async function rawFetch(path: string, init?: ApiRequestInit): Promise<Response> {
+  return fetchWithPolicy(path, {
     ...init,
-    credentials: "include",
     headers: {
       ...(init?.headers || {}),
       "Accept": "application/json",
@@ -134,7 +199,7 @@ function invalidateGetCache(prefix?: string) {
   }
 }
 
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, init?: ApiRequestInit): Promise<T> {
   const isAuthEndpoint = path.startsWith("/api/auth/");
 
   const doFetch = async (): Promise<Response> => {
@@ -152,9 +217,8 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
       headers["Authorization"] = `Bearer ${accessToken}`;
     }
 
-    return fetch(path, {
+    return fetchWithPolicy(path, {
       ...init,
-      credentials: "include",
       headers: {
         ...headers,
         ...(init?.headers || {}),
@@ -195,9 +259,10 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return body as T;
 }
 
-export function apiGet<T>(path: string, opts?: { cacheMs?: number; force?: boolean }): Promise<T> {
+export function apiGet<T>(path: string, opts?: ApiGetOptions): Promise<T> {
   const ms = Math.max(0, opts?.cacheMs ?? defaultGetCacheMs(path));
   const force = Boolean(opts?.force);
+  const canShareInFlight = !opts?.signal && typeof opts?.timeoutMs !== "number";
 
   if (ms > 0 && !force) {
     const key = cacheKey(path);
@@ -206,10 +271,12 @@ export function apiGet<T>(path: string, opts?: { cacheMs?: number; force?: boole
     if (cached && cached.expiresAt > now) {
       return Promise.resolve(cached.value as T);
     }
-    const pending = getInFlight.get(key);
-    if (pending) return pending as Promise<T>;
+    if (canShareInFlight) {
+      const pending = getInFlight.get(key);
+      if (pending) return pending as Promise<T>;
+    }
 
-    const p = apiFetch<T>(path)
+    const p = apiFetch<T>(path, { signal: opts?.signal, timeoutMs: opts?.timeoutMs })
       .then((out) => {
         getCache.set(key, { expiresAt: Date.now() + ms, value: out });
         return out;
@@ -217,11 +284,11 @@ export function apiGet<T>(path: string, opts?: { cacheMs?: number; force?: boole
       .finally(() => {
         getInFlight.delete(key);
       });
-    getInFlight.set(key, p as Promise<any>);
+    if (canShareInFlight) getInFlight.set(key, p as Promise<any>);
     return p;
   }
 
-  return apiFetch<T>(path);
+  return apiFetch<T>(path, { signal: opts?.signal, timeoutMs: opts?.timeoutMs });
 }
 
 export function apiPost<T>(path: string, body?: any): Promise<T> {
