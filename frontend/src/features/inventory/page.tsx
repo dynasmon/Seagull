@@ -9,6 +9,8 @@ import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 import { isAbortError } from "@/shared/lib/http";
+import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
+import { pinInventorySnapshotToWorkspace } from "@/features/investigations/api";
 
 import { useAgentsCatalog } from "@/app/providers";
 
@@ -339,6 +341,7 @@ export default function InventoryPage() {
   const [drawerHistory, setDrawerHistory] = useState<InventorySnapshotOut[]>([]);
   const [drawerErr, setDrawerErr] = useState<string | null>(null);
   const [drawerBusy, setDrawerBusy] = useState(false);
+  const [pinSnapshotId, setPinSnapshotId] = useState<number | null>(null);
 
   // editable state
   const [editName, setEditName] = useState("");
@@ -870,6 +873,19 @@ export default function InventoryPage() {
                 <div className="mt-2 text-[11px] text-muted-foreground">
                   Packages: {drawerLatest?.packages_count ?? "-"} · Manager: {drawerLatest?.manager ?? "-"}
                 </div>
+                {drawerLatest ? (
+                  <button
+                    type="button"
+                    onClick={() => setPinSnapshotId(drawerLatest.id)}
+                    className={cx(
+                      "mt-3 rounded-md border border-border/60 bg-background/40 px-3 py-2",
+                      "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
+                      "hover:bg-muted/15 hover:text-foreground"
+                    )}
+                  >
+                    Pin latest snapshot
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -1105,6 +1121,7 @@ export default function InventoryPage() {
                             <th className="text-left px-3 py-2">Collected</th>
                             <th className="text-right px-3 py-2">Packages</th>
                             <th className="text-right px-3 py-2">Changed</th>
+                            <th className="text-right px-3 py-2">Action</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border/60">
@@ -1127,12 +1144,25 @@ export default function InventoryPage() {
                                     {changed ? "yes" : "no"}
                                   </span>
                                 </td>
+                                <td className="px-3 py-2 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => setPinSnapshotId(s.id)}
+                                    className={cx(
+                                      "rounded-md border border-border/60 bg-background/40 px-2 py-1",
+                                      "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
+                                      "hover:bg-muted/15 hover:text-foreground"
+                                    )}
+                                  >
+                                    Pin
+                                  </button>
+                                </td>
                               </tr>
                             );
                           })}
                           {drawerHistory.length === 0 ? (
                             <tr>
-                              <td className="px-3 py-3 text-[11px] text-muted-foreground" colSpan={3}>
+                              <td className="px-3 py-3 text-[11px] text-muted-foreground" colSpan={4}>
                                 No history.
                               </td>
                             </tr>
@@ -1197,6 +1227,22 @@ export default function InventoryPage() {
           </div>
         ) : null}
       </Drawer>
+
+      {pinSnapshotId ? (
+        <PinToWorkspaceDrawer
+          open={Boolean(pinSnapshotId)}
+          onClose={() => setPinSnapshotId(null)}
+          title={`inventory snapshot #${pinSnapshotId}`}
+          defaultWorkspaceTitle={`Inventory investigation · ${drawerAgentId || "agent"}`}
+          workspaceDefaults={{ primary_agent_id: drawerAgentId || undefined }}
+          onPin={(workspaceId, options) =>
+            pinInventorySnapshotToWorkspace(workspaceId, pinSnapshotId, {
+              ...options,
+              source_module: "inventory",
+            })
+          }
+        />
+      ) : null}
     </div>
   );
 }

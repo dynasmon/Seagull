@@ -9,6 +9,7 @@ def load_all_models() -> None:
     from app.features.correlations import models as _correlations  # noqa: F401
     from app.features.events import models as _events  # noqa: F401
     from app.features.inventory import models as _inventory  # noqa: F401
+    from app.features.investigations import models as _investigations  # noqa: F401
     from app.features.response import models as _response  # noqa: F401
     from app.features.settings import models as _settings  # noqa: F401
     from app.features.vuln import models as _vuln  # noqa: F401
