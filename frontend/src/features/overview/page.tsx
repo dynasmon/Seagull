@@ -89,6 +89,16 @@ function fmtCompact(value: number): string {
   return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
+function fmtSource(meta?: { source?: string; source_freshness_seconds?: number | null; degraded_reason?: string | null }) {
+  if (!meta) return "source: -";
+  const src = String(meta.source || "unknown");
+  const fresh = Number.isFinite(meta.source_freshness_seconds as number)
+    ? `${Number(meta.source_freshness_seconds)}s`
+    : "-";
+  const degraded = meta.degraded_reason ? "degraded" : "ok";
+  return `source: ${src} · freshness: ${fresh} · ${degraded}`;
+}
+
 function inferAttackKindFromRule(ruleIdRaw: unknown): { attack: string; vector: string } {
   const ruleId = String(ruleIdRaw || "").toLowerCase();
   if (!ruleId) return { attack: "ddos", vector: "-" };
@@ -437,6 +447,13 @@ export default function OverviewPage() {
       });
   }, [snapshot, lastUpdatedAt]);
 
+  const trafficSourceMeta = snapshot?.meta?.sources?.traffic;
+  const ddosVolumeSourceMeta = snapshot?.meta?.sources?.ddos_volume;
+  const ingestRatesSourceMeta = snapshot?.meta?.sources?.ingest_rates;
+  const degradedSources = [trafficSourceMeta, ddosVolumeSourceMeta, ingestRatesSourceMeta].filter(
+    (x) => Boolean(x?.degraded_reason)
+  ).length;
+
   if (isLoading && !snapshot) {
     return (
       <div className="min-h-screen p-6">
@@ -455,6 +472,16 @@ export default function OverviewPage() {
 
   const headerRight = (
     <div className="flex items-center gap-3">
+      {degradedSources > 0 && (
+        <span className="text-[10px] font-mono text-amber-400">
+          DEGRADED SOURCES: {degradedSources}
+        </span>
+      )}
+      {snapshot.meta?.ddos_telemetry_dropped_per_sec > 0 && (
+        <span className="text-[10px] font-mono text-amber-400">
+          DDOS TELEMETRY DROP/s: {snapshot.meta.ddos_telemetry_dropped_per_sec}
+        </span>
+      )}
       {error && <span className="text-[10px] font-mono text-red-400">API ERROR</span>}
       {lastUpdatedAt && (
         <span className="text-[10px] font-mono text-muted-foreground">UPDATED: {fmtHHMM(lastUpdatedAt)}</span>
@@ -618,9 +645,12 @@ export default function OverviewPage() {
             className={cx("lg:col-span-2")}
             style={{ height: H_PANEL_BIG }}
             right={
-              <Link to="/events" className="text-[10px] font-mono uppercase tracking-wider text-primary hover:underline">
-                View events
-              </Link>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] font-mono text-muted-foreground">{fmtSource(trafficSourceMeta)}</span>
+                <Link to="/events" className="text-[10px] font-mono uppercase tracking-wider text-primary hover:underline">
+                  View events
+                </Link>
+              </div>
             }
           >
             {snapshot.traffic.data.length === 0 ? (
@@ -659,17 +689,17 @@ export default function OverviewPage() {
               )}
             </CyberPanel>
 
-            <CyberPanel title="Alert severity" style={{ height: H_PANEL_SM }}>
-              {snapshot.alert_severity.data.length === 0 ? (
+            <CyberPanel title="Ingest vs processed (events/min)" style={{ height: H_PANEL_SM }} right={fmtSource(ingestRatesSourceMeta)}>
+              {!snapshot.ingest_rates || snapshot.ingest_rates.data.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-[10px] text-muted-foreground font-mono tracking-widest">
-                  NO ACTIVE THREATS
+                  NO INGEST RATE SIGNAL
                 </div>
               ) : (
                 <div className="h-full w-full flex items-center justify-center overflow-hidden">
                   <div className="w-full max-w-full flex justify-center">
                     <SimpleTimeSeries
-                      data={snapshot.alert_severity.data}
-                      seriesKeys={snapshot.alert_severity.series}
+                      data={snapshot.ingest_rates.data}
+                      seriesKeys={snapshot.ingest_rates.series}
                       height={160}
                       allowHorizontalScroll={false}
                     />
@@ -900,9 +930,9 @@ export default function OverviewPage() {
             )}
           </CyberPanel>
 
-          <CyberPanel title="Estimated DDoS packet volume / peak PPS" style={{ height: H_PANEL_SM }}>
+          <CyberPanel title="Estimated DDoS packet volume / peak PPS" style={{ height: H_PANEL_SM }} right={fmtSource(ddosVolumeSourceMeta)}>
             {!snapshot.ddos_volume || snapshot.ddos_volume.data.length === 0 ? (
-              <EmptyState title="NO DDOS VOLUME" hint="No packet telemetry captured from dos_attack events." />
+              <EmptyState title="NO DDOS VOLUME" hint="No continuous DDoS telemetry available in the selected window." />
             ) : (
               <div className="h-full w-full flex items-center justify-center overflow-hidden">
                 <div className="w-full max-w-full flex justify-center">

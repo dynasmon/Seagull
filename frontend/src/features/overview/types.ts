@@ -47,13 +47,52 @@ export type OverviewKPIs = {
   last_event_age_m: number | null;
 };
 
+export type OverviewSourceMeta = {
+  source: string;
+  source_freshness_seconds: number | null;
+  last_data_ts: string | null;
+  degraded_reason: string | null;
+};
+
+export type OverviewMeta = {
+  lite: boolean;
+  use_ingest_rollups: boolean;
+  protection_active: boolean;
+  draining: boolean;
+  rollups_fresh: boolean;
+  rollup_stuck_fallback: boolean;
+  rollups_last_bucket: string | null;
+  rollup_lag_seconds: number | null;
+  live_lag_seconds: number | null;
+  live_last_bucket: string | null;
+  live_fresh: boolean;
+  window_start: string;
+  window_end: string;
+  data_lag_seconds: number;
+  backlog_events: number;
+  backlog_messages: number;
+  ddos_telemetry_emission_per_sec: number;
+  ddos_telemetry_dropped_per_sec: number;
+  recent_feed_last_event_ts: string | null;
+  recent_feed_freshness_seconds: number | null;
+  recent_feed_events_per_sec: number;
+  recent_feed_dropped_per_sec: number;
+  sources: {
+    traffic: OverviewSourceMeta;
+    ddos_volume: OverviewSourceMeta;
+    ingest_rates: OverviewSourceMeta;
+  };
+};
+
 /**
  * A single payload for the Overview page.
  * The goal is to avoid multiple heavy queries on the frontend.
  */
 export type OverviewSnapshot = {
+  meta: OverviewMeta;
   kpis: OverviewKPIs;
   traffic: TimeSeries;
+  ingest_rates: TimeSeries;
   ssh_failures: TimeSeries;
   alert_severity: TimeSeries;
   ddos: TimeSeries;
