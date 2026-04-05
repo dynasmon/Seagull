@@ -1,4 +1,5 @@
 import { apiGet } from "@/shared/lib/http";
+import type { ApiGetOptions } from "@/shared/lib/http";
 import type { Agent, Alert, NetEvent, OverviewSnapshot, StormStatus } from "./types";
 
 export function getAgents() {
@@ -23,16 +24,19 @@ export function getPortStats(limit = 10) {
 
 // Aggregated snapshot for the Overview page (Grafana-like refresh).
 // This endpoint is intentionally lightweight and optimized for frequent polling.
-export function getOverview(params?: { window_minutes?: number; agent_id?: string; lite?: boolean }) {
+export function getOverview(
+  params?: { window_minutes?: number; agent_id?: string; lite?: boolean },
+  opts?: ApiGetOptions
+) {
   const q = new URLSearchParams();
   if (params?.window_minutes) q.set("window_minutes", String(params.window_minutes));
   if (params?.agent_id) q.set("agent_id", params.agent_id);
   if (params?.lite) q.set("lite", "true");
   const qs = q.toString();
-  return apiGet<OverviewSnapshot>(`/api/overview${qs ? `?${qs}` : ""}`);
+  return apiGet<OverviewSnapshot>(`/api/overview${qs ? `?${qs}` : ""}`, opts);
 }
 
 
-export function getStormStatus() {
-  return apiGet<StormStatus>("/api/ingest/storm/status");
+export function getStormStatus(opts?: ApiGetOptions) {
+  return apiGet<StormStatus>("/api/ingest/storm/status", opts);
 }

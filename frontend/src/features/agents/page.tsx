@@ -7,6 +7,7 @@ import Drawer from "@/shared/components/Drawer";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
+import { isAbortError } from "@/shared/lib/http";
 import { getErrorMessage } from "@/shared/lib/errors";
 
 import { useAgentsCatalog } from "@/app/providers";
@@ -606,8 +607,10 @@ export default function AgentsPage() {
   const [responseActionResultError, setResponseActionResultError] = useState<string | null>(null);
   const [responseActionResultRawOpen, setResponseActionResultRawOpen] = useState(false);
 
-  const inFlightSnapshot = useRef(false);
-  const inFlightEvents = useRef(false);
+  const snapshotSeqRef = useRef(0);
+  const eventsSeqRef = useRef(0);
+  const snapshotAbortRef = useRef<AbortController | null>(null);
+  const eventsAbortRef = useRef<AbortController | null>(null);
 
   const lastUrlId = useRef<string | null>(null);
 
@@ -653,32 +656,48 @@ export default function AgentsPage() {
   }, []);
 
   const loadSnapshot = useCallback(async (agentId: string, cfg: EventsCfg) => {
-    if (inFlightSnapshot.current) return;
-    inFlightSnapshot.current = true;
+    const mySeq = ++snapshotSeqRef.current;
+    snapshotAbortRef.current?.abort();
+    const controller = new AbortController();
+    snapshotAbortRef.current = controller;
 
     try {
       const win = Math.max(1, safeNumber(cfg.window_minutes, DEFAULT_WINDOW_MINUTES));
-      const snap = await getOverview({ window_minutes: win, agent_id: agentId });
+      const snap = await getOverview(
+        { window_minutes: win, agent_id: agentId },
+        { signal: controller.signal, timeoutMs: 12000 }
+      );
+      if (snapshotSeqRef.current !== mySeq) return;
       setSnapshot(snap);
       setSnapshotError(null);
       setLastUpdatedAt(new Date());
     } catch (e: any) {
+      if (isAbortError(e)) return;
+      if (snapshotSeqRef.current !== mySeq) return;
       setSnapshotError(getErrorMessage(e, "Failed to load overview"));
     } finally {
-      inFlightSnapshot.current = false;
+      if (snapshotAbortRef.current === controller) {
+        snapshotAbortRef.current = null;
+      }
     }
   }, []);
 
   const loadEvents = useCallback(async (agentId: string, cfg: EventsCfg) => {
-    if (inFlightEvents.current) return;
-    inFlightEvents.current = true;
+    const mySeq = ++eventsSeqRef.current;
+    eventsAbortRef.current?.abort();
+    const controller = new AbortController();
+    eventsAbortRef.current = controller;
 
     setEventsLoading(true);
     try {
       const lim = Math.max(50, Math.min(5000, safeNumber(cfg.limit, DEFAULT_EVENTS_LIMIT)));
       const win = Math.max(1, safeNumber(cfg.window_minutes, DEFAULT_WINDOW_MINUTES));
       const eventType = (cfg.event_type || "").trim() || undefined;
-      const ev = await getRecentEvents({ limit: lim, agent_id: agentId, event_type: eventType, since_minutes: win });
+      const ev = await getRecentEvents(
+        { limit: lim, agent_id: agentId, event_type: eventType, since_minutes: win },
+        { signal: controller.signal, timeoutMs: 12000 }
+      );
+      if (eventsSeqRef.current !== mySeq) return;
 
       setEvents(ev);
       setSelectedEvent((prev) => {
@@ -690,12 +709,18 @@ export default function AgentsPage() {
       setEventsError(null);
       setLastUpdatedAt(new Date());
     } catch (e: any) {
+      if (isAbortError(e)) return;
+      if (eventsSeqRef.current !== mySeq) return;
       setEventsError(getErrorMessage(e, "Failed to load events"));
       setEvents([]);
       setSelectedEvent(null);
     } finally {
-      setEventsLoading(false);
-      inFlightEvents.current = false;
+      if (eventsSeqRef.current === mySeq) {
+        setEventsLoading(false);
+      }
+      if (eventsAbortRef.current === controller) {
+        eventsAbortRef.current = null;
+      }
     }
   }, []);
 
@@ -718,6 +743,13 @@ export default function AgentsPage() {
     loadEvents(selectedAgentId, cfg);
     refresh();
   }, [selectedAgentId, loadAgent, loadSnapshot, loadEvents, refresh]);
+
+  useEffect(() => {
+    return () => {
+      snapshotAbortRef.current?.abort();
+      eventsAbortRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (!selectedAgentId) return;

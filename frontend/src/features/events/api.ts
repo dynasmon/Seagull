@@ -1,4 +1,5 @@
 import { apiGet } from "@/shared/lib/http";
+import type { ApiGetOptions } from "@/shared/lib/http";
 import type { Agent, NetEvent } from "./types";
 
 export function getAgents() {
@@ -12,7 +13,7 @@ export function getRecentEvents(params?: {
   since_minutes?: number;
   window_minutes?: number;
   search?: string;
-}) {
+}, opts?: ApiGetOptions) {
   const q = new URLSearchParams();
   q.set("limit", String(params?.limit ?? 500));
   if (params?.agent_id) q.set("agent_id", params.agent_id);
@@ -21,5 +22,5 @@ export function getRecentEvents(params?: {
   if (typeof sinceMinutes === "number") q.set("since_minutes", String(sinceMinutes));
   if (params?.search) q.set("search", params.search);
 
-  return apiGet<NetEvent[]>(`/api/events/recent?${q.toString()}`);
+  return apiGet<NetEvent[]>(`/api/events/recent?${q.toString()}`, opts);
 }

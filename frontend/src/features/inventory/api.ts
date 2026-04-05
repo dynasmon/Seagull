@@ -1,13 +1,17 @@
 import { apiGet } from "@/shared/lib/http";
+import type { ApiGetOptions } from "@/shared/lib/http";
 
 import type { InventoryOverviewSnapshot, InventorySnapshotOut } from "./types";
 
-export function getInventoryOverview(params?: { window_minutes?: number; agent_id?: string }) {
+export function getInventoryOverview(
+  params?: { window_minutes?: number; agent_id?: string },
+  opts?: ApiGetOptions
+) {
   const q = new URLSearchParams();
   if (params?.window_minutes) q.set("window_minutes", String(params.window_minutes));
   if (params?.agent_id) q.set("agent_id", params.agent_id);
   const qs = q.toString();
-  return apiGet<InventoryOverviewSnapshot>(`/api/inventory/overview${qs ? `?${qs}` : ""}`);
+  return apiGet<InventoryOverviewSnapshot>(`/api/inventory/overview${qs ? `?${qs}` : ""}`, opts);
 }
 
 export function getInventoryLatest(agentId: string) {
