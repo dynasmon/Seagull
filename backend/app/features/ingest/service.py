@@ -14,6 +14,8 @@ from app.core.ingest_control import (
     enqueue_ingest_message,
     bump_ingest_counters,
     record_ingest_quality,
+    record_overview_live_drop,
+    record_overview_live_telemetry,
     maybe_flush_stats_to_db,
     mark_storm_active,
     storm_maybe_open_alert,
@@ -230,6 +232,69 @@ def _as_float(value: object, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return float(default)
+
+
+def _norm_severity(value: object) -> str:
+    sev = str(value or "").strip().lower()
+    if sev in {"critical", "high", "medium", "low"}:
+        return sev
+    return "unknown"
+
+
+def _build_live_overview_summary(events: List[NetEvent]) -> Dict[str, object]:
+    event_type_counts: Dict[str, int] = {}
+    severity_counts: Dict[str, int] = {}
+    bytes_sum = 0
+    ddos_packets_estimated = 0
+    ddos_samples = 0
+    ddos_peak_pps = 0.0
+    ddos_peak_bps = 0.0
+    ddos_peak_syn_ratio = 0.0
+    ddos_peak_flow_rps = 0.0
+
+    for e in events:
+        ev_type = str(e.event_type or "unknown").strip().lower() or "unknown"
+        event_type_counts[ev_type] = int(event_type_counts.get(ev_type) or 0) + 1
+
+        extra = dict(e.extra or {})
+        severity = _norm_severity(extra.get("severity"))
+        severity_counts[severity] = int(severity_counts.get(severity) or 0) + 1
+
+        bytes_sum += max(0, _as_int(e.bytes, 0))
+
+        has_network_shape = bool(e.src_ip or e.dst_ip or e.proto or e.dst_port is not None)
+        if has_network_shape:
+            pkt = max(0, _as_int(extra.get("packets"), 0))
+            ddos_packets_estimated += (pkt if pkt > 0 else 1)
+
+        pps = max(0.0, _as_float(extra.get("pps"), 0.0))
+        bps = max(0.0, _as_float(extra.get("bps"), 0.0))
+        syn_ratio = max(0.0, _as_float(extra.get("tcp_syn_ratio"), 0.0))
+        http_rps = max(0.0, _as_float(extra.get("http_rps"), 0.0))
+        tls_hs_rps = max(0.0, _as_float(extra.get("tls_handshake_rps"), 0.0))
+        reqs = max(0.0, _as_float(extra.get("requests"), 0.0))
+        window_s = max(1.0, _as_float(extra.get("window_seconds"), 1.0))
+        flow_rps = max(http_rps, tls_hs_rps, (reqs / window_s))
+
+        ddos_peak_pps = max(ddos_peak_pps, pps)
+        ddos_peak_bps = max(ddos_peak_bps, bps)
+        ddos_peak_syn_ratio = max(ddos_peak_syn_ratio, syn_ratio)
+        ddos_peak_flow_rps = max(ddos_peak_flow_rps, flow_rps)
+
+        if ev_type in {"dos_attack", "ddos_telemetry"} or any(v > 0 for v in (pps, bps, syn_ratio, http_rps, tls_hs_rps)):
+            ddos_samples += 1
+
+    return {
+        "event_type_counts": event_type_counts,
+        "severity_counts": severity_counts,
+        "bytes_sum": int(max(0, bytes_sum)),
+        "ddos_packets_estimated": int(max(0, ddos_packets_estimated)),
+        "ddos_samples": int(max(0, ddos_samples)),
+        "ddos_peak_pps": float(max(0.0, ddos_peak_pps)),
+        "ddos_peak_bps": float(max(0.0, ddos_peak_bps)),
+        "ddos_peak_syn_ratio": float(max(0.0, ddos_peak_syn_ratio)),
+        "ddos_peak_flow_rps": float(max(0.0, ddos_peak_flow_rps)),
+    }
 
 
 def _top_src_ip(extra: Dict) -> str | None:
@@ -556,6 +621,20 @@ def ingest_events(
         if e.agent_id != agent.agent_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="agent_id mismatch")
 
+    live_summary = _build_live_overview_summary(events)
+    record_overview_live_telemetry(
+        ingest_received=len(events),
+        event_type_counts=live_summary.get("event_type_counts") if isinstance(live_summary, dict) else {},
+        severity_counts=live_summary.get("severity_counts") if isinstance(live_summary, dict) else {},
+        bytes_sum=int(live_summary.get("bytes_sum") or 0),
+        ddos_packets_estimated=int(live_summary.get("ddos_packets_estimated") or 0),
+        ddos_samples=int(live_summary.get("ddos_samples") or 0),
+        ddos_peak_pps=float(live_summary.get("ddos_peak_pps") or 0.0),
+        ddos_peak_bps=float(live_summary.get("ddos_peak_bps") or 0.0),
+        ddos_peak_syn_ratio=float(live_summary.get("ddos_peak_syn_ratio") or 0.0),
+        ddos_peak_flow_rps=float(live_summary.get("ddos_peak_flow_rps") or 0.0),
+    )
+
     # Backpressure decision based on current backlog.
     bp = evaluate_backpressure(received=len(events))
 
@@ -599,6 +678,7 @@ def ingest_events(
         maybe_flush_stats_to_db()
         mark_storm_active(reason=bp.reason, sample_hot=0, sample_warm=0)
         storm_maybe_open_alert(reason=bp.reason, sample_hot=0, sample_warm=0)
+        record_overview_live_drop(dropped_events=len(events))
 
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
