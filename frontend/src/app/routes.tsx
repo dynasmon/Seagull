@@ -20,6 +20,7 @@ const loadCorrelationFindingsPage = () => import("@/features/correlations/views/
 const loadCorrelationRulesPage = () => import("@/features/correlations/views/rules");
 
 const loadAttackChainPage = () => import("@/features/attack_chain/page");
+const loadInvestigationsPage = () => import("@/features/investigations/page");
 
 const loadVulnerabilitiesPage = () => import("@/features/vulnerabilities/page");
 const loadVulnerabilityScansPage = () => import("@/features/vulnerabilities/scans");
@@ -55,6 +56,7 @@ const CorrelationFindingsPage = lazy(loadCorrelationFindingsPage);
 const CorrelationRulesPage = lazy(loadCorrelationRulesPage);
 
 const AttackChainPage = lazy(loadAttackChainPage);
+const InvestigationsPage = lazy(loadInvestigationsPage);
 
 const VulnerabilitiesPage = lazy(loadVulnerabilitiesPage);
 const VulnerabilityScansPage = lazy(loadVulnerabilityScansPage);
@@ -150,6 +152,7 @@ export function Routes() {
           </Route>
 
           <Route path="/attack-chain" element={<AttackChainPage />} />
+          <Route path="/investigations" element={<InvestigationsPage />} />
 
           <Route path="/vulnerabilities" element={<VulnerabilitiesPage />} />
           <Route path="/vulnerabilities/scans" element={<VulnerabilityScansPage />} />

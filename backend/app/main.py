@@ -19,6 +19,7 @@ from app.features.alerts.api import router as alerts_router
 from app.features.events.api import router as events_router
 from app.features.ingest.api import router as ingest_router
 from app.features.inventory.api import router as inventory_router
+from app.features.investigations.api import router as investigations_router
 from app.core.db_lifecycle import ensure_database_ready
 from app.features.overview.api import router as overview_router
 from app.features.auth.api import router as auth_router
@@ -362,3 +363,4 @@ app.include_router(response_router)
 app.include_router(agents_router)
 app.include_router(inventory_router)
 app.include_router(overview_router)
+app.include_router(investigations_router)

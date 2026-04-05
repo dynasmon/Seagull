@@ -9,6 +9,8 @@ import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
 import { isAbortError } from "@/shared/lib/http";
 import { getErrorMessage } from "@/shared/lib/errors";
+import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
+import { pinResponseResultToWorkspace } from "@/features/investigations/api";
 
 import { useAgentsCatalog } from "@/app/providers";
 import { useAuth } from "@/features/auth/context";
@@ -606,6 +608,7 @@ export default function AgentsPage() {
   const [responseActionResultLoading, setResponseActionResultLoading] = useState(false);
   const [responseActionResultError, setResponseActionResultError] = useState<string | null>(null);
   const [responseActionResultRawOpen, setResponseActionResultRawOpen] = useState(false);
+  const [pinResponseResultId, setPinResponseResultId] = useState<number | null>(null);
 
   const snapshotSeqRef = useRef(0);
   const eventsSeqRef = useRef(0);
@@ -2360,6 +2363,16 @@ export default function AgentsPage() {
                           </button>
                           <button
                             type="button"
+                            onClick={() => setPinResponseResultId(responseActionResult.id)}
+                            className={cx(
+                              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+                              "hover:bg-primary/5"
+                            )}
+                          >
+                            Pin to workspace
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => setResponseActionResultRawOpen((prev) => !prev)}
                             className={cx(
                               "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
@@ -2438,6 +2451,22 @@ export default function AgentsPage() {
           </div>
         )}
       </Drawer>
+
+      {pinResponseResultId && responseActionResult ? (
+        <PinToWorkspaceDrawer
+          open={Boolean(pinResponseResultId)}
+          onClose={() => setPinResponseResultId(null)}
+          title={`response result #${pinResponseResultId}`}
+          defaultWorkspaceTitle={`Response action investigation · ${responseActionAgentId || "agent"}`}
+          workspaceDefaults={{ primary_agent_id: responseActionResult.agent_id || undefined }}
+          onPin={(workspaceId, options) =>
+            pinResponseResultToWorkspace(workspaceId, pinResponseResultId, {
+              ...options,
+              source_module: "agents_response",
+            })
+          }
+        />
+      ) : null}
 
       <Drawer
         open={configOpen}
