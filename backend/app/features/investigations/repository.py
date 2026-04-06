@@ -3,9 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import String, and_, cast, exists, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.features.admin.models import AdminAuditEventModel
 from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
 from app.features.events.models import NetEventModel
 from app.features.inventory.models import AgentInventorySnapshotModel
@@ -201,6 +202,70 @@ def list_bookmarks_page(
             or_(
                 InvestigationEvidenceBookmarkModel.created_at < c_ts,
                 and_(InvestigationEvidenceBookmarkModel.created_at == c_ts, InvestigationEvidenceBookmarkModel.id < c_id),
+            )
+        )
+
+    return db.execute(stmt.limit(int(page_size) + 1)).scalars().all()
+
+
+def list_workspace_activity_audit_page(
+    db: Session,
+    *,
+    workspace_id: int,
+    page_size: int,
+    cursor_parsed: tuple[datetime, str] | None,
+) -> list[AdminAuditEventModel]:
+    ws_id = int(workspace_id)
+    ws_id_text = str(ws_id)
+
+    note_exists = exists(
+        select(InvestigationNoteModel.id).where(
+            InvestigationNoteModel.workspace_id == ws_id,
+            cast(InvestigationNoteModel.id, String) == AdminAuditEventModel.resource_id,
+        )
+    )
+    note_workspace_match = or_(
+        AdminAuditEventModel.before["workspace_id"].astext == ws_id_text,
+        AdminAuditEventModel.after["workspace_id"].astext == ws_id_text,
+    )
+    bookmark_exists = exists(
+        select(InvestigationEvidenceBookmarkModel.id).where(
+            InvestigationEvidenceBookmarkModel.workspace_id == ws_id,
+            cast(InvestigationEvidenceBookmarkModel.id, String) == AdminAuditEventModel.resource_id,
+        )
+    )
+    bookmark_workspace_match = or_(
+        AdminAuditEventModel.before["workspace_id"].astext == ws_id_text,
+        AdminAuditEventModel.after["workspace_id"].astext == ws_id_text,
+    )
+
+    stmt = (
+        select(AdminAuditEventModel)
+        .where(
+            or_(
+                and_(
+                    AdminAuditEventModel.resource_type == "investigation_workspace",
+                    AdminAuditEventModel.resource_id == ws_id_text,
+                ),
+                and_(
+                    AdminAuditEventModel.resource_type == "investigation_note",
+                    or_(note_exists, note_workspace_match),
+                ),
+                and_(
+                    AdminAuditEventModel.resource_type == "investigation_bookmark",
+                    or_(bookmark_exists, bookmark_workspace_match),
+                ),
+            )
+        )
+        .order_by(AdminAuditEventModel.created_at.desc(), AdminAuditEventModel.id.desc())
+    )
+
+    if cursor_parsed:
+        c_ts, c_id = cursor_parsed
+        stmt = stmt.where(
+            or_(
+                AdminAuditEventModel.created_at < c_ts,
+                and_(AdminAuditEventModel.created_at == c_ts, AdminAuditEventModel.id < c_id),
             )
         )
 

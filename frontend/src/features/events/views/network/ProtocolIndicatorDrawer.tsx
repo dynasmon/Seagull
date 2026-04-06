@@ -34,6 +34,7 @@ export type ProtocolIndicatorSelection = {
 export default function ProtocolIndicatorDrawer({
   open,
   selection,
+  focusEventId,
   onClose,
   agentId,
   sinceMinutes,
@@ -41,6 +42,7 @@ export default function ProtocolIndicatorDrawer({
 }: {
   open: boolean;
   selection: ProtocolIndicatorSelection | null;
+  focusEventId?: number | null;
   onClose: () => void;
   agentId?: string;
   sinceMinutes: number;
@@ -54,6 +56,7 @@ export default function ProtocolIndicatorDrawer({
   const [eventDrawerOpen, setEventDrawerOpen] = useState(false);
   const [eventDrawerEvent, setEventDrawerEvent] = useState<NetEvent | null>(null);
   const [pinEvent, setPinEvent] = useState<NetEvent | null>(null);
+  const focusHandledRef = useRef<number | null>(null);
 
   const title = selection ? selection.label : "Indicator";
 
@@ -182,6 +185,16 @@ export default function ProtocolIndicatorDrawer({
       });
   }, [open, selection?.kind, selection?.value, agentId, sinceMinutes, selection]);
 
+  useEffect(() => {
+    if (!open || !focusEventId || items.length === 0) return;
+    if (focusHandledRef.current === focusEventId) return;
+    const found = items.find((x) => Number(x.id) === Number(focusEventId));
+    if (!found) return;
+    focusHandledRef.current = focusEventId;
+    setEventDrawerEvent(found);
+    setEventDrawerOpen(true);
+  }, [open, focusEventId, items]);
+
   return (
     <>
       <Drawer
@@ -193,6 +206,7 @@ export default function ProtocolIndicatorDrawer({
           setError(null);
           setEventDrawerEvent(null);
           setEventDrawerOpen(false);
+          focusHandledRef.current = null;
           onClose();
         }}
         widthClassName="w-[980px]"
@@ -310,6 +324,11 @@ export default function ProtocolIndicatorDrawer({
             pinProtocolIntelEventToWorkspace(workspaceId, pinEvent.id, {
               ...options,
               source_module: "protocol_intel",
+              metadata: {
+                ...(options.metadata || {}),
+                protocol_indicator_kind: selection?.kind,
+                protocol_indicator_value: selection?.value,
+              },
             })
           }
         />

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -43,6 +44,7 @@ class _FakeInvestigationsRepo:
         self.response_actions: dict[int, ResponseActionModel] = {}
         self.attack_cases: dict[int, AttackChainCaseModel] = {}
         self.attack_steps: dict[int, AttackChainStepModel] = {}
+        self.audit_events: list[Any] = []
 
         self._workspace_seq = 1
         self._note_seq = 1
@@ -118,6 +120,52 @@ class _FakeInvestigationsRepo:
         if evidence_type:
             rows = [b for b in rows if b.evidence_type == evidence_type]
         rows.sort(key=lambda x: (x.created_at, x.id), reverse=True)
+        return rows[: int(page_size) + 1]
+
+    def list_workspace_activity_audit_page(self, db, *, workspace_id: int, page_size: int, cursor_parsed=None):
+        ws_id = int(workspace_id)
+        rows = []
+        for ev in self.audit_events:
+            resource_type = str(getattr(ev, "resource_type", "") or "")
+            resource_id = str(getattr(ev, "resource_id", "") or "")
+            if resource_type == "investigation_workspace" and resource_id == str(ws_id):
+                rows.append(ev)
+                continue
+            if resource_type == "investigation_note":
+                try:
+                    note_id = int(resource_id)
+                except ValueError:
+                    note_id = 0
+                note = self.notes.get(note_id)
+                if note and int(note.workspace_id) == ws_id:
+                    rows.append(ev)
+                    continue
+                before_ws = str(getattr(ev, "before", {}).get("workspace_id", "") or "")
+                after_ws = str(getattr(ev, "after", {}).get("workspace_id", "") or "")
+                if before_ws == str(ws_id) or after_ws == str(ws_id):
+                    rows.append(ev)
+                continue
+            if resource_type == "investigation_bookmark":
+                try:
+                    bookmark_id = int(resource_id)
+                except ValueError:
+                    bookmark_id = 0
+                bookmark = self.bookmarks.get(bookmark_id)
+                if bookmark and int(bookmark.workspace_id) == ws_id:
+                    rows.append(ev)
+                    continue
+                before_ws = str(getattr(ev, "before", {}).get("workspace_id", "") or "")
+                after_ws = str(getattr(ev, "after", {}).get("workspace_id", "") or "")
+                if before_ws == str(ws_id) or after_ws == str(ws_id):
+                    rows.append(ev)
+                continue
+
+        rows.sort(key=lambda x: (x.created_at, x.id), reverse=True)
+
+        if cursor_parsed:
+            c_ts, c_id = cursor_parsed
+            rows = [r for r in rows if r.created_at < c_ts or (r.created_at == c_ts and str(r.id) < str(c_id))]
+
         return rows[: int(page_size) + 1]
 
     def get_bookmark(self, db, bookmark_id: int, *, for_update: bool = False):
@@ -306,6 +354,21 @@ def test_pin_event_and_dedupe(fake_repo: _FakeInvestigationsRepo, actor: PortalP
         app_proto="dns",
         dns_qname="example.org",
     )
+    fake_repo.events[45] = NetEventModel(
+        id=45,
+        agent_id="agent-a",
+        event_type="dns",
+        timestamp=now,
+        src_ip="10.0.0.9",
+        dst_ip="1.1.1.1",
+        src_port=55111,
+        dst_port=53,
+        proto="udp",
+        bytes=98,
+        extra={"dns_qname": "example.net"},
+        app_proto="dns",
+        dns_qname="example.net",
+    )
 
     audits: list[dict[str, Any]] = []
 
@@ -331,6 +394,11 @@ def test_pin_event_and_dedupe(fake_repo: _FakeInvestigationsRepo, actor: PortalP
     )
     assert first.created is True
     assert first.bookmark.evidence_type == "net_event"
+    assert "event_id=44" in str(first.bookmark.payload_snapshot.get("deep_link") or "")
+    assert "agent_id=agent-a" in str(first.bookmark.payload_snapshot.get("deep_link") or "")
+    ws_after_first_pin = service.get_workspace(db=object(), workspace_id=ws.id)
+    assert ws_after_first_pin.bookmarks_count == 1
+    assert ws_after_first_pin.notes_count == 1
 
     second = service.pin_event(
         db=object(),
@@ -344,9 +412,37 @@ def test_pin_event_and_dedupe(fake_repo: _FakeInvestigationsRepo, actor: PortalP
     assert second.created is False
     assert second.duplicate_of_id == first.bookmark.id
 
+    third = service.pin_event(
+        db=object(),
+        workspace_id=ws.id,
+        event_id=45,
+        payload=InvestigationPinOptionsIn(),
+        request=None,
+        user=actor,
+        audit_writer=_audit,
+    )
+    assert third.created is True
+    assert third.bookmark.evidence_type == "net_event"
+    ws_after_third_pin = service.get_workspace(db=object(), workspace_id=ws.id)
+    assert ws_after_third_pin.bookmarks_count == 2
+    assert ws_after_third_pin.notes_count == 1
+
+    fourth = service.pin_event(
+        db=object(),
+        workspace_id=ws.id,
+        event_id=45,
+        payload=InvestigationPinOptionsIn(),
+        request=None,
+        user=actor,
+        audit_writer=_audit,
+    )
+    assert fourth.created is False
+    assert fourth.duplicate_of_id == third.bookmark.id
+
     ws_after = service.get_workspace(db=object(), workspace_id=ws.id)
-    assert ws_after.bookmarks_count == 1
-    assert ws_after.evidence_type_counts.get("net_event") == 1
+    assert ws_after.bookmarks_count == 2
+    assert ws_after.notes_count == 1
+    assert ws_after.evidence_type_counts.get("net_event") == 2
 
     delete_out = service.delete_bookmark(
         db=object(),
@@ -358,7 +454,8 @@ def test_pin_event_and_dedupe(fake_repo: _FakeInvestigationsRepo, actor: PortalP
     assert delete_out["status"] == "ok"
 
     ws_final = service.get_workspace(db=object(), workspace_id=ws.id)
-    assert ws_final.bookmarks_count == 0
+    assert ws_final.bookmarks_count == 1
+    assert ws_final.notes_count == 1
 
     bookmark_create_audits = [a for a in audits if a.get("action") == "workspace.bookmark.create"]
     assert len(bookmark_create_audits) == 1
@@ -452,6 +549,8 @@ def test_pin_inventory_response_result_and_attack_case(fake_repo: _FakeInvestiga
     )
     assert inv.created is True
     assert inv.bookmark.evidence_type == "inventory_snapshot"
+    assert "agent_id=agent-z" in str(inv.bookmark.payload_snapshot.get("deep_link") or "")
+    assert "snapshot_id=12" in str(inv.bookmark.payload_snapshot.get("deep_link") or "")
 
     rr = service.pin_response_result(
         db=object(),
@@ -464,6 +563,10 @@ def test_pin_inventory_response_result_and_attack_case(fake_repo: _FakeInvestiga
     )
     assert rr.created is True
     assert rr.bookmark.evidence_type == "response_action_result"
+    response_link = str(rr.bookmark.payload_snapshot.get("deep_link") or "")
+    assert "response_action_id=55" in response_link
+    assert "response_result_id=56" in response_link
+    assert "response_tab=result" in response_link
 
     ac = service.pin_attack_chain_case(
         db=object(),
@@ -476,6 +579,7 @@ def test_pin_inventory_response_result_and_attack_case(fake_repo: _FakeInvestiga
     )
     assert ac.created is True
     assert ac.bookmark.evidence_type == "attack_chain_case"
+    assert "case_id=77" in str(ac.bookmark.payload_snapshot.get("deep_link") or "")
 
     st = service.pin_attack_chain_step(
         db=object(),
@@ -488,6 +592,9 @@ def test_pin_inventory_response_result_and_attack_case(fake_repo: _FakeInvestiga
     )
     assert st.created is True
     assert st.bookmark.evidence_type == "attack_chain_step"
+    step_link = str(st.bookmark.payload_snapshot.get("deep_link") or "")
+    assert "case_id=77" in step_link
+    assert "step_id=78" in step_link
 
     ws_after = service.get_workspace(db=object(), workspace_id=ws.id)
     assert ws_after.bookmarks_count == 4
@@ -561,3 +668,168 @@ def test_not_found_and_audit_actions(fake_repo: _FakeInvestigationsRepo, actor: 
     assert "workspace.create" in action_set
     assert "workspace.bookmark.create" in action_set
     assert "workspace.bookmark.delete" in action_set
+
+
+def test_pin_protocol_intel_event_deep_link_includes_focus_context(
+    fake_repo: _FakeInvestigationsRepo, actor: PortalPrincipal
+) -> None:
+    now = _utc_now()
+    fake_repo.events[301] = NetEventModel(
+        id=301,
+        agent_id="agent-pi",
+        event_type="http",
+        timestamp=now,
+        src_ip="10.20.0.4",
+        dst_ip="203.0.113.8",
+        src_port=42001,
+        dst_port=443,
+        proto="tcp",
+        bytes=512,
+        extra={"app_proto_reason": "http_host"},
+        app_proto="http",
+        http_host="example.com",
+    )
+
+    ws = service.create_workspace(
+        db=object(),
+        payload=InvestigationWorkspaceCreateIn(title="Protocol Deep Link"),
+        request=None,
+        user=actor,
+        audit_writer=lambda *_args, **_kwargs: None,
+    )
+
+    out = service.pin_protocol_intel_event(
+        db=object(),
+        workspace_id=ws.id,
+        event_id=301,
+        payload=InvestigationPinOptionsIn(
+            metadata={
+                "protocol_indicator_kind": "http_host",
+                "protocol_indicator_value": "example.com",
+            }
+        ),
+        request=None,
+        user=actor,
+        audit_writer=lambda *_args, **_kwargs: None,
+    )
+    assert out.created is True
+    link = str(out.bookmark.payload_snapshot.get("deep_link") or "")
+    assert "/events/network?" in link
+    assert "focus_event_id=301" in link
+    assert "indicator_kind=http_host" in link
+    assert "indicator_value=example.com" in link
+
+
+def test_activity_feed_covers_workspace_lifecycle_and_pinning(
+    fake_repo: _FakeInvestigationsRepo, actor: PortalPrincipal
+) -> None:
+    now = _utc_now()
+    fake_repo.attack_cases[910] = AttackChainCaseModel(
+        id=910,
+        agent_id="agent-ac",
+        suspect_ip="198.51.100.20",
+        status="open",
+        score=72,
+        max_stage="discovery",
+        first_seen_at=now,
+        last_seen_at=now,
+        step_count=1,
+        context={"confidence": 84},
+    )
+    fake_repo.attack_steps[911] = AttackChainStepModel(
+        id=911,
+        case_id=910,
+        stage="discovery",
+        label="Discovery sample",
+        score_delta=9,
+        event_id=1001,
+        event_type="scan",
+        timestamp=now,
+        src_ip="10.0.0.1",
+        dst_ip="198.51.100.20",
+        src_port=40000,
+        dst_port=22,
+        proto="tcp",
+        fingerprint="step-911",
+        details={"confidence": 70},
+    )
+
+    def _audit(_db, **kwargs):
+        before = kwargs.get("before") if isinstance(kwargs.get("before"), dict) else {}
+        after = kwargs.get("after") if isinstance(kwargs.get("after"), dict) else {}
+        changed_fields = sorted(set(before.keys()) | set(after.keys()))
+        changed_fields = [k for k in changed_fields if before.get(k) != after.get(k)]
+        seq = len(fake_repo.audit_events) + 1
+        fake_repo.audit_events.append(
+            SimpleNamespace(
+                id=f"audit-{seq:06d}",
+                created_at=_utc_now(),
+                action=kwargs.get("action"),
+                outcome=kwargs.get("outcome") or "success",
+                actor_username=getattr(kwargs.get("actor"), "username", None),
+                resource_type=kwargs.get("resource_type"),
+                resource_id=kwargs.get("resource_id"),
+                before=before,
+                after=after,
+                changed_fields=changed_fields,
+                context=kwargs.get("context") or {},
+            )
+        )
+
+    ws = service.create_workspace(
+        db=object(),
+        payload=InvestigationWorkspaceCreateIn(title="Activity Workspace"),
+        request=None,
+        user=actor,
+        audit_writer=_audit,
+    )
+
+    service.update_workspace(
+        db=object(),
+        workspace_id=ws.id,
+        payload=InvestigationWorkspaceUpdateIn(linked_attack_chain_case_id=910),
+        request=None,
+        user=actor,
+        audit_writer=_audit,
+    )
+    service.create_note(
+        db=object(),
+        workspace_id=ws.id,
+        payload=InvestigationNoteCreateIn(body="Analyst note"),
+        request=None,
+        user=actor,
+        audit_writer=_audit,
+    )
+    service.pin_attack_chain_step(
+        db=object(),
+        workspace_id=ws.id,
+        step_id=911,
+        payload=InvestigationPinOptionsIn(),
+        request=None,
+        user=actor,
+        audit_writer=_audit,
+    )
+    service.close_workspace(
+        db=object(),
+        workspace_id=ws.id,
+        request=None,
+        user=actor,
+        audit_writer=_audit,
+    )
+    service.reopen_workspace(
+        db=object(),
+        workspace_id=ws.id,
+        request=None,
+        user=actor,
+        audit_writer=_audit,
+    )
+
+    page = service.list_activity(db=object(), workspace_id=ws.id, page_size=50, cursor=None)
+    activity_types = [item.activity_type for item in page.items]
+    assert activity_types[0] == "workspace_reopened"
+    assert "workspace_created" in activity_types
+    assert "attack_chain_case_linked" in activity_types
+    assert "note_created" in activity_types
+    assert "attack_chain_step_pinned" in activity_types
+    assert "workspace_closed" in activity_types
+    assert all(item.summary for item in page.items)

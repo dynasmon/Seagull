@@ -1,5 +1,6 @@
 import { apiDelete, apiGet, apiPost, apiPut } from "@/shared/lib/http";
 import type {
+  InvestigationActivityPage,
   InvestigationBookmarkCreateIn,
   InvestigationBookmarkCreateResult,
   InvestigationBookmarksPage,
@@ -90,6 +91,13 @@ export function listInvestigationBookmarks(workspaceId: number, params?: { evide
   if (params?.evidence_type) q.set("evidence_type", params.evidence_type);
   if (params?.cursor) q.set("cursor", params.cursor);
   return apiGet<InvestigationBookmarksPage>(`/api/investigations/workspaces/${workspaceId}/bookmarks?${q.toString()}`);
+}
+
+export function listInvestigationActivity(workspaceId: number, params?: { page_size?: number; cursor?: string | null }) {
+  const q = new URLSearchParams();
+  q.set("page_size", String(params?.page_size ?? 100));
+  if (params?.cursor) q.set("cursor", params.cursor);
+  return apiGet<InvestigationActivityPage>(`/api/investigations/workspaces/${workspaceId}/activity?${q.toString()}`);
 }
 
 export function createInvestigationBookmark(workspaceId: number, payload: InvestigationBookmarkCreateIn) {

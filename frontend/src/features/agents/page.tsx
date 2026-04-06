@@ -391,6 +391,14 @@ function normalizePositiveFloat(v: any, fallback: number, min = 0) {
   return Math.max(min, n);
 }
 
+function parsePositiveInt(v: string | null): number | null {
+  const raw = String(v || "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.trunc(n);
+}
+
 function getDdosConfig(cfg: Record<string, any>): DdosConfigDraft {
   const dd = ((cfg?.modules || {}) as any)?.ddos || {};
   return {
@@ -616,16 +624,34 @@ export default function AgentsPage() {
   const eventsAbortRef = useRef<AbortController | null>(null);
 
   const lastUrlId = useRef<string | null>(null);
+  const responseUrlHandledRef = useRef<string | null>(null);
 
   useEffect(() => {
     const q = (searchParams.get("agent_id") || "").trim();
 
     // Apply only when the URL actually changes.
-    if (lastUrlId.current === q) return;
-    lastUrlId.current = q;
+    if (lastUrlId.current !== q) {
+      lastUrlId.current = q;
+      setSelectedAgentId(q);
+    }
 
-    setSelectedAgentId(q);
-  }, [searchParams, setSelectedAgentId]);
+    const responseActionId = parsePositiveInt(searchParams.get("response_action_id"));
+    const responseTab = (searchParams.get("response_tab") || "").trim().toLowerCase();
+    const shouldOpenResponse = String(searchParams.get("open_response_action") || "").trim() === "1" || !!responseActionId;
+    const responseKey = `${q}:${responseActionId || ""}:${responseTab}:${shouldOpenResponse ? "1" : "0"}`;
+    if (!shouldOpenResponse) return;
+    if (responseUrlHandledRef.current === responseKey) return;
+    responseUrlHandledRef.current = responseKey;
+
+    resetResponseActionForm(q || "");
+    setResponseActionOpen(true);
+    if (responseActionId) setResponseActionSelectedId(responseActionId);
+    if (responseTab === "result" || responseTab === "execution" || responseTab === "create") {
+      setResponseActionTab(responseTab);
+    } else if (responseActionId) {
+      setResponseActionTab("result");
+    }
+  }, [searchParams, setSelectedAgentId, resetResponseActionForm]);
 
   const selectedAgentRow = useMemo<AgentPublic | null>(() => {
     if (!selectedAgentId) return null;
@@ -634,8 +660,9 @@ export default function AgentsPage() {
 
   useEffect(() => {
     if (!responseActionOpen) return;
+    if (responseActionSelectedId) return;
     resetResponseActionForm(selectedAgentId || "");
-  }, [responseActionOpen, selectedAgentId, resetResponseActionForm]);
+  }, [responseActionOpen, selectedAgentId, responseActionSelectedId, resetResponseActionForm]);
 
   const loadAgent = useCallback(async (agentId: string) => {
     try {
@@ -1015,7 +1042,7 @@ export default function AgentsPage() {
         setResponseActionHistory(rows);
         setResponseActionHistoryError(null);
         setResponseActionSelectedId((prev) => {
-          if (prev && rows.some((x) => x.id === prev)) return prev;
+          if (prev) return prev;
           return rows[0]?.id ?? null;
         });
       } catch (e: any) {
