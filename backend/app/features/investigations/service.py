@@ -5,6 +5,7 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -13,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor, write_audit_event
+from app.core.recent_feed import fetch_event_by_id as fetch_recent_feed_event_by_id
 from app.core.pagination import decode_cursor, encode_cursor, make_cursor_ts_id, parse_cursor_ts_id
 from app.core.portal_auth import PortalPrincipal
 from app.features.investigations import repository
@@ -363,6 +365,86 @@ def _event_extra(event) -> dict[str, Any]:
     if isinstance(getattr(event, "extra", None), dict):
         return dict(event.extra)
     return {}
+
+
+def _parse_event_ts(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    if isinstance(value, str) and value.strip():
+        s = value.strip()
+        try:
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(s)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except Exception:
+            return None
+    return None
+
+
+def _to_int_or_none(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _event_from_feed_row(row: dict[str, Any], *, event_id: int) -> Any | None:
+    if not isinstance(row, dict):
+        return None
+    extra = row.get("extra")
+    if not isinstance(extra, dict):
+        extra = {}
+
+    resolved_id = _to_int_or_none(row.get("id")) or int(event_id)
+    resolved_ts = _parse_event_ts(row.get("timestamp")) or _utc_now()
+
+    return SimpleNamespace(
+        id=resolved_id,
+        timestamp=resolved_ts,
+        agent_id=_norm_optional(row.get("agent_id"), max_len=64),
+        event_type=_clip_text(row.get("event_type"), max_len=64) or "event",
+        src_ip=_norm_optional(row.get("src_ip"), max_len=128),
+        dst_ip=_norm_optional(row.get("dst_ip"), max_len=128),
+        src_port=_to_int_or_none(row.get("src_port")),
+        dst_port=_to_int_or_none(row.get("dst_port")),
+        proto=_norm_optional(row.get("proto"), max_len=32),
+        bytes=_to_int_or_none(row.get("bytes")),
+        app_proto=_norm_optional(row.get("app_proto"), max_len=64) or _norm_optional(extra.get("app_proto"), max_len=64),
+        app_proto_reason=_norm_optional(row.get("app_proto_reason"), max_len=128)
+        or _norm_optional(extra.get("app_proto_reason"), max_len=128),
+        app_proto_conf_band=_norm_optional(row.get("app_proto_conf_band"), max_len=64)
+        or _norm_optional(extra.get("app_proto_conf_band"), max_len=64),
+        dns_qname=_norm_optional(row.get("dns_qname"), max_len=512) or _norm_optional(extra.get("dns_qname"), max_len=512),
+        http_host=_norm_optional(row.get("http_host"), max_len=512) or _norm_optional(extra.get("http_host"), max_len=512),
+        http_method=_norm_optional(row.get("http_method"), max_len=32) or _norm_optional(extra.get("http_method"), max_len=32),
+        tls_sni=_norm_optional(row.get("tls_sni"), max_len=512) or _norm_optional(extra.get("tls_sni"), max_len=512),
+        tls_alpn_first=_norm_optional(row.get("tls_alpn_first"), max_len=64)
+        or _norm_optional(extra.get("tls_alpn_first"), max_len=64),
+        ja3=_norm_optional(row.get("ja3"), max_len=256) or _norm_optional(extra.get("ja3"), max_len=256),
+        ja4=_norm_optional(row.get("ja4"), max_len=256) or _norm_optional(extra.get("ja4"), max_len=256),
+        ja4_ptype=_norm_optional(row.get("ja4_ptype"), max_len=16) or _norm_optional(extra.get("ja4_ptype"), max_len=16),
+        extra=extra,
+    )
+
+
+def _resolve_event_for_pin(db: Session, *, event_id: int, agent_id_hint: str | None = None) -> Any | None:
+    event = repository.get_event(db, int(event_id))
+    if event:
+        return event
+
+    feed_row = fetch_recent_feed_event_by_id(event_id=int(event_id), agent_id=agent_id_hint)
+    if feed_row is None and agent_id_hint:
+        feed_row = fetch_recent_feed_event_by_id(event_id=int(event_id), agent_id=None)
+    if feed_row is None:
+        return None
+    return _event_from_feed_row(feed_row, event_id=int(event_id))
 
 
 def _build_net_event_snapshot(event) -> dict[str, Any]:
@@ -1175,14 +1257,17 @@ def _pin_bookmark_from_event(
     actor: PortalPrincipal,
     audit_writer,
 ) -> InvestigationBookmarkCreateResult:
-    event = repository.get_event(db, int(event_id))
+    metadata = _sanitize_json(opts.metadata or {}) if isinstance(opts.metadata, dict) else {}
+    agent_id_hint = _norm_optional(metadata.get("agent_id"), max_len=64) if isinstance(metadata, dict) else None
+
+    event = _resolve_event_for_pin(db, event_id=int(event_id), agent_id_hint=agent_id_hint)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
     if evidence_type == "protocol_intel":
         snapshot = _build_protocol_intel_snapshot(
             event,
-            indicator_context=_sanitize_json(opts.metadata or {}) if isinstance(opts.metadata, dict) else {},
+            indicator_context=metadata,
         )
         subtype = _norm_optional(opts.evidence_subtype, max_len=64) or str(snapshot.get("app_proto") or "protocol")[:64]
         title = f"Protocol intel · event #{int(event.id)}"
@@ -1209,7 +1294,7 @@ def _pin_bookmark_from_event(
         fingerprint=str(int(event.id)),
         tags=opts.tags,
         payload_snapshot=snapshot,
-        metadata=_sanitize_json(opts.metadata or {}),
+        metadata=metadata,
         note_text=_norm_optional(opts.note, max_len=1000),
         request=request,
         actor=actor,

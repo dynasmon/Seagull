@@ -223,6 +223,40 @@ def fetch_recent_events(*, limit: int, agent_id: str | None = None, event_type: 
     return out
 
 
+def fetch_event_by_id(*, event_id: int, agent_id: str | None = None) -> Dict[str, Any] | None:
+    r = get_redis()
+    if r is None:
+        return None
+
+    scan_n = (
+        max(50, int(getattr(settings, "NETWATCH_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS", 1000) or 1000))
+        if agent_id
+        else max(100, int(getattr(settings, "NETWATCH_INGEST_RECENT_FEED_MAX_EVENTS", 5000) or 5000))
+    )
+    scan_n = min(scan_n, 10000)
+
+    try:
+        rows = r.lrange(_feed_key(agent_id), 0, scan_n - 1) or []
+    except Exception:
+        return None
+
+    target_id = int(event_id)
+    for raw in rows:
+        try:
+            item = json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(item, dict):
+            continue
+        try:
+            row_id = int(item.get("id") or 0)
+        except Exception:
+            continue
+        if row_id == target_id:
+            return item
+    return None
+
+
 def recent_feed_health(*, agent_id: str | None = None) -> Dict[str, Any]:
     r = get_redis()
     if r is None:
