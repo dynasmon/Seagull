@@ -558,3 +558,57 @@ def test_precise_deep_links_for_protocol_inventory_response_and_attack_chain(fak
         ws_after = r_ws_after.json()
         assert ws_after["bookmarks_count"] == 5
         assert ws_after["notes_count"] == 0
+
+
+def test_pin_event_endpoint_falls_back_to_recent_feed_for_synthetic_event_id(
+    fake_investigations_api: _FakeInvestigationsRepo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synthetic_event_id = 1176742294
+    now = _utc_now()
+
+    def _fake_fetch_event_by_id(*, event_id: int, agent_id: str | None = None):
+        if int(event_id) != synthetic_event_id:
+            return None
+        return {
+            "id": synthetic_event_id,
+            "timestamp": now.isoformat(),
+            "agent_id": "agent-flow",
+            "event_type": "flow",
+            "src_ip": "10.10.0.2",
+            "dst_ip": "203.0.113.9",
+            "src_port": 53211,
+            "dst_port": 443,
+            "proto": "tcp",
+            "bytes": 1580,
+            "extra": {"app_proto": "tls", "tls_sni": "login.example.net"},
+        }
+
+    monkeypatch.setattr(service, "fetch_recent_feed_event_by_id", _fake_fetch_event_by_id)
+
+    with TestClient(app) as client:
+        r_ws = client.post("/investigations/workspaces", json={"title": "Synthetic Event Pin"})
+        assert r_ws.status_code == 201
+        ws_id = r_ws.json()["id"]
+
+        r_pin = client.post(
+            f"/investigations/workspaces/{ws_id}/pin-event/{synthetic_event_id}",
+            json={"note": "pin from feed fallback"},
+        )
+        assert r_pin.status_code == 200
+        body = r_pin.json()
+        assert body["created"] is True
+        assert int(body["bookmark"]["payload_snapshot"].get("event_id") or 0) == synthetic_event_id
+        assert "event_id=1176742294" in str(body["bookmark"]["payload_snapshot"].get("deep_link") or "")
+
+        r_pin_dup = client.post(
+            f"/investigations/workspaces/{ws_id}/pin-event/{synthetic_event_id}",
+            json={"note": "duplicate"},
+        )
+        assert r_pin_dup.status_code == 200
+        assert r_pin_dup.json()["created"] is False
+
+        r_ws_after = client.get(f"/investigations/workspaces/{ws_id}")
+        assert r_ws_after.status_code == 200
+        ws_after = r_ws_after.json()
+        assert ws_after["bookmarks_count"] == 1
+        assert ws_after["notes_count"] == 1
