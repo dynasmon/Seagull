@@ -72,6 +72,34 @@ export type InvestigationBookmarkCreateResult = {
   bookmark: InvestigationBookmark;
 };
 
+export type InvestigationActivityType =
+  | "workspace_created"
+  | "workspace_updated"
+  | "workspace_closed"
+  | "workspace_reopened"
+  | "note_created"
+  | "note_updated"
+  | "bookmark_created"
+  | "bookmark_deleted"
+  | "attack_chain_case_linked"
+  | "attack_chain_step_pinned"
+  | "workspace_action";
+
+export type InvestigationActivityEntry = {
+  id: string;
+  workspace_id: number;
+  activity_type: InvestigationActivityType;
+  action: string;
+  actor_username: string | null;
+  created_at: string;
+  outcome: string;
+  target_type: string | null;
+  target_id: string | null;
+  summary: string;
+  changed_fields: string[];
+  context: Record<string, unknown>;
+};
+
 export type InvestigationPinOptions = {
   source_module?: string;
   evidence_subtype?: string;
@@ -100,9 +128,9 @@ export type InvestigationWorkspaceUpdateIn = {
   severity?: InvestigationWorkspaceSeverity;
   priority?: InvestigationWorkspacePriority;
   triage_state?: InvestigationWorkspaceTriage;
-  assignee?: string;
-  linked_attack_chain_case_id?: number;
-  primary_agent_id?: string;
+  assignee?: string | null;
+  linked_attack_chain_case_id?: number | null;
+  primary_agent_id?: string | null;
 };
 
 export type InvestigationBookmarkCreateIn = InvestigationPinOptions & {
@@ -116,3 +144,4 @@ export type InvestigationBookmarkCreateIn = InvestigationPinOptions & {
 
 export type InvestigationWorkspacePage = CursorPage<InvestigationWorkspace>;
 export type InvestigationBookmarksPage = CursorPage<InvestigationBookmark>;
+export type InvestigationActivityPage = CursorPage<InvestigationActivityEntry>;

@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import PageHeader from "@/shared/components/PageHeader";
 import Loading from "@/shared/components/Loading";
@@ -99,6 +100,14 @@ function computeSinceIso(preset: SincePreset, customLocal: string): string | und
   return new Date(now - ms).toISOString();
 }
 
+function parsePositiveInt(value: string | null): number | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.trunc(n);
+}
+
 type DraftFilters = {
   agentId: string;
   status: "all" | "open" | "closed";
@@ -119,6 +128,7 @@ type AppliedFilters = {
 };
 
 export default function AttackChainPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [agents, setAgents] = useState<AgentPublic[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
 
@@ -149,6 +159,7 @@ export default function AttackChainPage() {
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [deepLinkStepId, setDeepLinkStepId] = useState<number | null>(null);
 
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const reqSeq = useRef(0);
@@ -264,10 +275,36 @@ export default function AttackChainPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function openCase(id: number) {
+  function openCase(id: number, stepId?: number | null) {
     setSelectedId(id);
     setDrawerOpen(true);
+    setDeepLinkStepId(typeof stepId === "number" && stepId > 0 ? stepId : null);
   }
+
+  useEffect(() => {
+    const caseId = parsePositiveInt(searchParams.get("case_id"));
+    const stepId = parsePositiveInt(searchParams.get("step_id"));
+    if (!caseId) return;
+    if (selectedId === caseId && drawerOpen && (deepLinkStepId || null) === (stepId || null)) return;
+    setSelectedId(caseId);
+    setDrawerOpen(true);
+    setDeepLinkStepId(stepId);
+  }, [searchParams, selectedId, drawerOpen, deepLinkStepId]);
+
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (drawerOpen && selectedId) {
+      next.set("case_id", String(selectedId));
+      if (deepLinkStepId) next.set("step_id", String(deepLinkStepId));
+      else next.delete("step_id");
+    } else {
+      next.delete("case_id");
+      next.delete("step_id");
+    }
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [drawerOpen, selectedId, deepLinkStepId, searchParams, setSearchParams]);
 
   const density = applied.density;
   const dense = density === "compact";
@@ -546,7 +583,11 @@ export default function AttackChainPage() {
       <AttackChainDrawer
         open={drawerOpen}
         caseId={selectedId}
-        onClose={() => setDrawerOpen(false)}
+        initialStepId={deepLinkStepId}
+        onClose={() => {
+          setDrawerOpen(false);
+          setDeepLinkStepId(null);
+        }}
         onClosed={(id) => {
           // update list item status on close (optimistic)
           setRows((prev) => prev.map((r) => (r.id === id ? { ...r, status: "closed" } : r)));
