@@ -477,6 +477,13 @@ export default function OverviewPage() {
           DEGRADED SOURCES: {degradedSources}
         </span>
       )}
+      {snapshot.query_meta ? (
+        <span className={cx("text-[10px] font-mono", snapshot.query_meta.degraded_reason ? "text-amber-400" : "text-muted-foreground")}>
+          QUERY: {snapshot.query_meta.source}
+          {typeof snapshot.query_meta.source_freshness_seconds === "number" ? ` · ${snapshot.query_meta.source_freshness_seconds}s` : ""}
+          {snapshot.query_meta.cache_hit ? " · cache" : ""}
+        </span>
+      ) : null}
       {snapshot.meta?.ddos_telemetry_dropped_per_sec > 0 && (
         <span className="text-[10px] font-mono text-amber-400">
           DDOS TELEMETRY DROP/s: {snapshot.meta.ddos_telemetry_dropped_per_sec}

@@ -27,12 +27,15 @@ from app.core.redis_client import get_redis
 from app.features.events import repository
 from app.features.events.models import NetEventModel, NetEventRollup1sModel
 from app.features.events.schemas import (
+    EventHuntResponse,
     NetEventDB,
     NetEventRollup1s,
     ProtocolIntelSummaryResponse,
     ProtoCount,
     ProtoDnsQueryStat,
     ProtoJa4Stat,
+    QueryProvenanceMeta,
+    QuerySource,
     SshAuthEvent,
     SshIpStat,
     SshLoginEvent,
@@ -43,6 +46,59 @@ from app.features.events.schemas import (
 from app.shared.schemas import CursorPage
 
 logger = logging.getLogger("netwatch.api.events")
+
+
+def _coerce_utc_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid timestamp format; use ISO-8601")
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _freshness_seconds(now: datetime, ts: datetime | None) -> int | None:
+    if ts is None:
+        return None
+    base = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    return int(max(0.0, (now - base).total_seconds()))
+
+
+def _meta(
+    *,
+    source: QuerySource,
+    fallback_chain: list[str],
+    degraded_reason: str | None,
+    source_freshness_seconds: int | None,
+    query_latency_ms: float | None,
+    cache_hit: bool,
+    approximate: bool,
+    query_window_start: datetime | None,
+    query_window_end: datetime | None,
+) -> QueryProvenanceMeta:
+    return QueryProvenanceMeta(
+        source=source,
+        fallback_chain=[str(x) for x in fallback_chain if str(x).strip()],
+        degraded_reason=(str(degraded_reason) if degraded_reason else None),
+        source_freshness_seconds=(int(source_freshness_seconds) if source_freshness_seconds is not None else None),
+        query_latency_ms=(round(float(query_latency_ms), 2) if query_latency_ms is not None else None),
+        cache_hit=bool(cache_hit),
+        approximate=bool(approximate),
+        query_window_start=query_window_start,
+        query_window_end=query_window_end,
+    )
 
 
 def _cache_get_json(key: str) -> Optional[Dict[str, Any]]:
@@ -562,85 +618,66 @@ def _es_base_filters(
     return filters
 
 
-def list_events(
+def _search_tokens(search: str | None) -> list[str]:
+    if not search:
+        return []
+    raw = str(search).strip()
+    if not raw:
+        return []
+    return [tok for tok in raw.split() if tok][:8]
+
+
+def _select_hunt_chain(*, has_search: bool, window_minutes: int | None) -> list[str]:
+    if has_search:
+        return ["elasticsearch", "postgres"]
+
+    ch_min_minutes = max(15, int(getattr(settings, "NETWATCH_EVENTS_HUNT_CLICKHOUSE_MINUTES", 240) or 240))
+    if window_minutes is not None and int(window_minutes) >= int(ch_min_minutes):
+        return ["clickhouse", "postgres"]
+    return ["postgres", "clickhouse"]
+
+
+def _pg_hunt_query(
     db: Session,
     *,
-    page_size: int = 50,
-    cursor: Optional[str] = None,
-    agent_id: Optional[str] = None,
-    event_type: Optional[str] = None,
-) -> CursorPage[NetEventDB]:
-    """Cursor-paginated event timeline.
-
-    Returns the most recent events first (DESC). To fetch the next page, pass the
-    `next_cursor` from the previous response.
-
-    This endpoint is the recommended replacement for `/events/recent` when you
-    want an infinite-scroll / paginated UI.
-    """
-
-    es = _es_client_or_none()
-    if es is not None:
-        try:
-            body: Dict[str, Any] = {
-                "size": int(page_size) + 1,
-                "sort": [
-                    {"timestamp": {"order": "desc"}},
-                    {"id": {"order": "desc"}},
-                ],
-                "query": {
-                    "bool": {
-                        "filter": _es_base_filters(since=since_ts, agent_id=agent_id, event_type=event_type),
-                    }
-                },
-            }
-
-            if cursor:
-                c_ts, c_id = parse_cursor_ts_id(cursor)
-                # search_after values correspond to the 'sort' array.
-                body["search_after"] = [c_ts.isoformat(), int(c_id)]
-
-            res = es.search(
-                index=_es_index_pattern(),
-                body=body,
-                ignore_unavailable=True,
-                allow_no_indices=True,
-                track_total_hits=False,
-            )
-
-            hits = (res.get("hits") or {}).get("hits") or []
-            has_more = len(hits) > int(page_size)
-            page_hits = hits[: int(page_size)]
-
-            if not page_hits and _es_failover_allowed():
-                raise LookupError("es_empty_page")
-
-            items = [_hit_to_event(h) for h in page_hits]
-            if items and _es_failover_allowed():
-                if _pg_has_newer_event(db, latest_ts=items[0].timestamp, agent_id=agent_id, event_type=event_type):
-                    raise LookupError("es_stale")
-
-            next_cursor = None
-            if has_more and page_hits:
-                last_evt = items[-1]
-                next_cursor = make_cursor_ts_id(last_evt.timestamp, last_evt.id)
-
-            return CursorPage(items=items, next_cursor=next_cursor, has_more=has_more)
-        except Exception as e:
-            if not _es_failover_allowed():
-                raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(e).__name__}")
-            # Fallback to Postgres.
-
+    page_size: int,
+    cursor: str | None,
+    agent_id: str | None,
+    event_type: str | None,
+    start_ts: datetime | None,
+    end_ts: datetime | None,
+    tokens: list[str],
+) -> tuple[list[NetEventDB], str | None, bool]:
     stmt = select(NetEventModel).order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
 
     if agent_id:
         stmt = stmt.where(NetEventModel.agent_id == agent_id)
     if event_type:
         stmt = stmt.where(NetEventModel.event_type == event_type)
+    if start_ts is not None:
+        stmt = stmt.where(NetEventModel.timestamp >= start_ts)
+    if end_ts is not None:
+        stmt = stmt.where(NetEventModel.timestamp <= end_ts)
+
+    if tokens:
+        for tok in tokens:
+            like = f"%{tok}%"
+            stmt = stmt.where(
+                or_(
+                    cast(NetEventModel.id, String).ilike(like),
+                    NetEventModel.agent_id.ilike(like),
+                    NetEventModel.event_type.ilike(like),
+                    cast(NetEventModel.src_ip, String).ilike(like),
+                    cast(NetEventModel.dst_ip, String).ilike(like),
+                    cast(NetEventModel.src_port, String).ilike(like),
+                    cast(NetEventModel.dst_port, String).ilike(like),
+                    cast(NetEventModel.proto, String).ilike(like),
+                    cast(NetEventModel.extra, String).ilike(like),
+                )
+            )
 
     if cursor:
         c_ts, c_id = parse_cursor_ts_id(cursor)
-        # Keyset pagination for DESC order.
         stmt = stmt.where(
             or_(
                 NetEventModel.timestamp < c_ts,
@@ -649,16 +686,301 @@ def list_events(
         )
 
     rows = repository.run(db, stmt.limit(int(page_size) + 1)).scalars().all()
-
     has_more = len(rows) > int(page_size)
-    items = rows[: int(page_size)]
-
+    items = [NetEventDB.model_validate(r) for r in rows[: int(page_size)]]
     next_cursor = None
     if has_more and items:
         last = items[-1]
         next_cursor = make_cursor_ts_id(last.timestamp, last.id)
+    return items, next_cursor, has_more
 
-    return CursorPage(items=items, next_cursor=next_cursor, has_more=has_more)
+
+def _es_hunt_query(
+    *,
+    es,
+    page_size: int,
+    cursor: str | None,
+    agent_id: str | None,
+    event_type: str | None,
+    start_ts: datetime | None,
+    end_ts: datetime | None,
+    search: str | None,
+) -> tuple[list[NetEventDB], str | None, bool]:
+    filters = _es_base_filters(since=start_ts, agent_id=agent_id, event_type=event_type)
+    if end_ts is not None:
+        filters.append({"range": {"timestamp": {"lte": end_ts.isoformat()}}})
+
+    query: Dict[str, Any] = {"bool": {"filter": filters}}
+    if search and search.strip():
+        query["bool"]["must"] = [
+            {
+                "simple_query_string": {
+                    "query": str(search),
+                    "fields": [
+                        "agent_id^2",
+                        "event_type^2",
+                        "src_ip",
+                        "dst_ip",
+                        "proto",
+                        "ssh_username",
+                        "http_host",
+                        "dns_qname",
+                        "tls_sni",
+                        "ja3",
+                        "ja4",
+                        "extra_json",
+                        "extra.*",
+                    ],
+                    "default_operator": "and",
+                }
+            }
+        ]
+
+    body: Dict[str, Any] = {
+        "size": int(page_size) + 1,
+        "sort": [
+            {"timestamp": {"order": "desc", "unmapped_type": "date"}},
+            {"id": {"order": "desc", "unmapped_type": "long"}},
+        ],
+        "query": query,
+    }
+    if cursor:
+        c_ts, c_id = parse_cursor_ts_id(cursor)
+        body["search_after"] = [c_ts.isoformat(), int(c_id)]
+
+    res = es.search(
+        index=_es_index_pattern(),
+        body=body,
+        ignore_unavailable=True,
+        allow_no_indices=True,
+        track_total_hits=False,
+    )
+    hits = (res.get("hits") or {}).get("hits") or []
+    has_more = len(hits) > int(page_size)
+    page_hits = hits[: int(page_size)]
+    items = [_hit_to_event(h) for h in page_hits]
+    next_cursor = None
+    if has_more and items:
+        last_evt = items[-1]
+        next_cursor = make_cursor_ts_id(last_evt.timestamp, last_evt.id)
+    return items, next_cursor, has_more
+
+
+def _ch_hunt_query(
+    *,
+    ch,
+    page_size: int,
+    cursor: str | None,
+    agent_id: str | None,
+    event_type: str | None,
+    start_ts: datetime | None,
+    end_ts: datetime | None,
+    search: str | None,
+) -> tuple[list[NetEventDB], str | None, bool]:
+    where_sql, params = _ch_where(since=start_ts, agent_id=agent_id, event_type=event_type)
+    if end_ts is not None:
+        where_sql = f"{where_sql} AND timestamp <= {{end_ts:DateTime64(3)}}"
+        params["end_ts"] = end_ts
+
+    if cursor:
+        c_ts, c_id = parse_cursor_ts_id(cursor)
+        where_sql = (
+            f"{where_sql} AND (timestamp < {{cursor_ts:DateTime64(3)}} OR "
+            f"(timestamp = {{cursor_ts:DateTime64(3)}} AND pg_event_id < {{cursor_id:UInt64}}))"
+        )
+        params["cursor_ts"] = c_ts
+        params["cursor_id"] = int(c_id)
+
+    if search and search.strip():
+        params["search"] = str(search).lower()
+        where_sql = (
+            f"{where_sql} AND ("
+            "positionCaseInsensitiveUTF8(ifNull(agent_id, ''), {search:String}) > 0 OR "
+            "positionCaseInsensitiveUTF8(ifNull(event_type, ''), {search:String}) > 0 OR "
+            "positionCaseInsensitiveUTF8(ifNull(src_ip, ''), {search:String}) > 0 OR "
+            "positionCaseInsensitiveUTF8(ifNull(dst_ip, ''), {search:String}) > 0 OR "
+            "positionCaseInsensitiveUTF8(ifNull(proto, ''), {search:String}) > 0 OR "
+            "positionCaseInsensitiveUTF8(ifNull(extra_json, ''), {search:String}) > 0)"
+        )
+
+    source_sql = _ch_deduped_events_source_sql(table=clickhouse_events_table_ref(), where_sql=where_sql)
+    sql = (
+        "SELECT pg_event_id, agent_id, event_type, schema_version, timestamp, "
+        "src_ip, dst_ip, src_port, dst_port, proto, bytes, extra_json "
+        f"FROM ({source_sql}) AS d "
+        "ORDER BY timestamp DESC, pg_event_id DESC, ingested_at DESC "
+        f"LIMIT {int(page_size) + 1}"
+    )
+    rows = _ch_query_dicts(ch, sql, params)
+    out: list[NetEventDB] = []
+    for r in rows[: int(page_size) + 1]:
+        ev = _ch_row_to_event(r)
+        if ev is not None:
+            out.append(ev)
+
+    has_more = len(out) > int(page_size)
+    items = out[: int(page_size)]
+    next_cursor = None
+    if has_more and items:
+        last = items[-1]
+        next_cursor = make_cursor_ts_id(last.timestamp, int(last.id or 0))
+    return items, next_cursor, has_more
+
+
+def hunt_events(
+    db: Session,
+    *,
+    page_size: int = 50,
+    cursor: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    event_type: Optional[str] = None,
+    since_minutes: Optional[int] = None,
+    start_ts_iso: Optional[str] = None,
+    end_ts_iso: Optional[str] = None,
+    search: Optional[str] = None,
+) -> EventHuntResponse:
+    started = time.perf_counter()
+    now = _now_utc()
+    size = max(1, min(int(page_size), 1000))
+
+    start_ts = _coerce_utc_iso(start_ts_iso)
+    end_ts = _coerce_utc_iso(end_ts_iso)
+    if since_minutes is not None and start_ts is not None:
+        raise HTTPException(status_code=422, detail="Use either since_minutes or start_ts, not both")
+    if since_minutes is not None and end_ts is not None and start_ts is None:
+        start_ts = end_ts - timedelta(minutes=max(1, int(since_minutes)))
+    elif since_minutes is not None and start_ts is None:
+        start_ts = now - timedelta(minutes=max(1, int(since_minutes)))
+    if end_ts is None:
+        end_ts = now
+    if start_ts is not None and end_ts is not None and start_ts > end_ts:
+        raise HTTPException(status_code=422, detail="start_ts must be less than or equal to end_ts")
+
+    tokens = _search_tokens(search)
+    has_search = bool(tokens)
+    if search is not None and not str(search).strip():
+        raise HTTPException(status_code=422, detail="search must contain non-whitespace characters")
+
+    window_minutes = None
+    if start_ts is not None and end_ts is not None:
+        window_minutes = int(max(1, (end_ts - start_ts).total_seconds() // 60))
+    elif since_minutes is not None:
+        window_minutes = int(max(1, int(since_minutes)))
+
+    chain = _select_hunt_chain(has_search=has_search, window_minutes=window_minutes)
+    attempted: list[str] = []
+    degraded_reason: str | None = None
+    items: list[NetEventDB] = []
+    next_cursor: str | None = None
+    has_more = False
+    succeeded = False
+    selected_source: QuerySource = "postgres"
+
+    for candidate in chain:
+        attempted.append(candidate)
+        try:
+            if candidate == "elasticsearch":
+                es = _es_client_or_none()
+                if es is None:
+                    raise LookupError("elasticsearch_unavailable")
+                items, next_cursor, has_more = _es_hunt_query(
+                    es=es,
+                    page_size=size,
+                    cursor=cursor,
+                    agent_id=agent_id,
+                    event_type=event_type,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                    search=search,
+                )
+                if items and _es_failover_allowed():
+                    check_latest = items[0].timestamp
+                    if _pg_has_newer_event(db, latest_ts=check_latest, agent_id=agent_id, event_type=event_type):
+                        raise LookupError("elasticsearch_stale")
+                selected_source = "elasticsearch"
+                succeeded = True
+                break
+
+            if candidate == "clickhouse":
+                ch = _ch_client_or_none()
+                if ch is None:
+                    raise LookupError("clickhouse_unavailable")
+                items, next_cursor, has_more = _ch_hunt_query(
+                    ch=ch,
+                    page_size=size,
+                    cursor=cursor,
+                    agent_id=agent_id,
+                    event_type=event_type,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                    search=search,
+                )
+                if items:
+                    if _pg_has_newer_event(db, latest_ts=items[0].timestamp, agent_id=agent_id, event_type=event_type):
+                        raise LookupError("clickhouse_stale")
+                selected_source = "clickhouse"
+                succeeded = True
+                break
+
+            items, next_cursor, has_more = _pg_hunt_query(
+                db,
+                page_size=size,
+                cursor=cursor,
+                agent_id=agent_id,
+                event_type=event_type,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                tokens=tokens,
+            )
+            selected_source = "postgres"
+            succeeded = True
+            break
+        except HTTPException:
+            raise
+        except Exception as exc:
+            reason = type(exc).__name__
+            if isinstance(exc, LookupError):
+                reason = str(exc)
+            degraded_reason = f"{candidate}_fallback:{reason}"[:200]
+            continue
+
+    if not attempted:
+        attempted = ["postgres"]
+    if not succeeded:
+        raise HTTPException(status_code=503, detail="No analytics backend is currently available for event hunt")
+
+    freshness = _freshness_seconds(now, items[0].timestamp if items else None)
+    meta = _meta(
+        source=selected_source,
+        fallback_chain=attempted,
+        degraded_reason=degraded_reason,
+        source_freshness_seconds=freshness,
+        query_latency_ms=(time.perf_counter() - started) * 1000.0,
+        cache_hit=False,
+        approximate=False,
+        query_window_start=start_ts,
+        query_window_end=end_ts,
+    )
+    return EventHuntResponse(items=items, next_cursor=next_cursor, has_more=has_more, meta=meta)
+
+
+def list_events(
+    db: Session,
+    *,
+    page_size: int = 50,
+    cursor: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    event_type: Optional[str] = None,
+) -> CursorPage[NetEventDB]:
+    """Backward-compatible wrapper for legacy callers expecting CursorPage."""
+    out = hunt_events(
+        db,
+        page_size=page_size,
+        cursor=cursor,
+        agent_id=agent_id,
+        event_type=event_type,
+    )
+    return CursorPage(items=out.items, next_cursor=out.next_cursor, has_more=out.has_more)
 
 
 def get_recent_events(
@@ -908,17 +1230,28 @@ def get_ssh_summary(
     """
 
     started = time.perf_counter()
-    since_ts = datetime.now(timezone.utc) - timedelta(minutes=int(since_minutes))
+    query_end = _now_utc()
+    since_ts = query_end - timedelta(minutes=int(since_minutes))
     cache_key = f"netwatch:events:ssh_summary:v3:sm={int(since_minutes)}:l={int(limit)}:a={agent_id or '*'}"
     cached = _cache_get_json(cache_key)
     if cached is not None:
-        incr_counter("api_cache_hit_total", route="/events/ssh/summary")
-        return SshSummaryResponse(**cached)
+        out_cached = dict(cached)
+        existing_meta = out_cached.get("meta")
+        if isinstance(existing_meta, dict) and str(existing_meta.get("source") or "").strip():
+            incr_counter("api_cache_hit_total", route="/events/ssh/summary")
+            cached_meta = dict(existing_meta)
+            cached_meta["cache_hit"] = True
+            cached_meta["query_latency_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+            out_cached["meta"] = cached_meta
+            return SshSummaryResponse(**out_cached)
 
     tracked_actions = ["accepted", "failed_password", "invalid_user"]
+    attempted_sources: list[str] = []
+    degraded_reason: str | None = None
 
     ch = _ch_client_or_none()
     if ch is not None:
+        attempted_sources.append("clickhouse")
         try:
             table = clickhouse_events_table_ref()
             ssh_where_sql, ssh_params = _ch_where(since=since_ts, agent_id=agent_id, event_type="ssh_auth")
@@ -1048,15 +1381,34 @@ def get_ssh_summary(
                 root_logins=root_logins,
                 users_attempted=users_attempted,
                 sudo_recent=sudo_recent,
+                meta=_meta(
+                    source="clickhouse",
+                    fallback_chain=attempted_sources,
+                    degraded_reason=degraded_reason,
+                    source_freshness_seconds=_freshness_seconds(
+                        query_end,
+                        max(
+                            ([x.timestamp for x in recent_auth_events] + [x.timestamp for x in sudo_recent])
+                            or [None]
+                        ),
+                    ),
+                    query_latency_ms=(time.perf_counter() - started) * 1000.0,
+                    cache_hit=False,
+                    approximate=False,
+                    query_window_start=since_ts,
+                    query_window_end=query_end,
+                ),
             )
             _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
             observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/ssh/summary", source="clickhouse")
             return payload
         except Exception as e:
             log_event(logger, "warning", "events_ssh_summary_clickhouse_error", error_type=type(e).__name__)
+            degraded_reason = f"clickhouse_fallback:{type(e).__name__}"[:200]
 
     es = _es_client_or_none()
     if es is not None:
+        attempted_sources.append("elasticsearch")
         try:
             base = _es_base_filters(since=since_ts, agent_id=agent_id)
 
@@ -1366,6 +1718,23 @@ def get_ssh_summary(
                 root_logins=root_logins,
                 users_attempted=users_attempted,
                 sudo_recent=sudo_recent,
+                meta=_meta(
+                    source="elasticsearch",
+                    fallback_chain=attempted_sources,
+                    degraded_reason=degraded_reason,
+                    source_freshness_seconds=_freshness_seconds(
+                        query_end,
+                        max(
+                            ([x.timestamp for x in recent_auth_events] + [x.timestamp for x in sudo_recent])
+                            or [None]
+                        ),
+                    ),
+                    query_latency_ms=(time.perf_counter() - started) * 1000.0,
+                    cache_hit=False,
+                    approximate=False,
+                    query_window_start=since_ts,
+                    query_window_end=query_end,
+                ),
             )
             _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
             observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/ssh/summary", source="elasticsearch")
@@ -1373,6 +1742,9 @@ def get_ssh_summary(
         except Exception as e:
             if not _es_failover_allowed():
                 raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(e).__name__}")
+            degraded_reason = f"elasticsearch_fallback:{type(e).__name__}"[:200]
+
+    attempted_sources.append("postgres")
 
     ssh_action = func.coalesce(NetEventModel.ssh_action, NetEventModel.extra["action"].astext)
     ssh_user = func.coalesce(NetEventModel.ssh_username, NetEventModel.extra["username"].astext)
@@ -1582,6 +1954,23 @@ def get_ssh_summary(
         root_logins=root_logins,
         users_attempted=users_attempted,
         sudo_recent=sudo_recent,
+        meta=_meta(
+            source="postgres",
+            fallback_chain=attempted_sources,
+            degraded_reason=degraded_reason,
+            source_freshness_seconds=_freshness_seconds(
+                query_end,
+                max(
+                    ([x.timestamp for x in recent_auth_events] + [x.timestamp for x in sudo_recent])
+                    or [None]
+                ),
+            ),
+            query_latency_ms=(time.perf_counter() - started) * 1000.0,
+            cache_hit=False,
+            approximate=False,
+            query_window_start=since_ts,
+            query_window_end=query_end,
+        ),
     )
     _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
     observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/ssh/summary", source="postgres")
@@ -1604,18 +1993,30 @@ def get_protocol_intel_summary(
     """
 
     started = time.perf_counter()
-    since_ts = datetime.now(timezone.utc) - timedelta(minutes=int(since_minutes))
+    query_end = _now_utc()
+    since_ts = query_end - timedelta(minutes=int(since_minutes))
     cache_key = (
         "netwatch:events:network_summary:v4:"
         f"sb={search_backend_mode()}:sm={int(since_minutes)}:l={int(limit)}:a={agent_id or '*'}"
     )
     cached = _cache_get_json(cache_key)
     if cached is not None:
-        incr_counter("api_cache_hit_total", route="/events/network/summary")
-        return ProtocolIntelSummaryResponse(**cached)
+        out_cached = dict(cached)
+        existing_meta = out_cached.get("meta")
+        if isinstance(existing_meta, dict) and str(existing_meta.get("source") or "").strip():
+            incr_counter("api_cache_hit_total", route="/events/network/summary")
+            cached_meta = dict(existing_meta)
+            cached_meta["cache_hit"] = True
+            cached_meta["query_latency_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+            out_cached["meta"] = cached_meta
+            return ProtocolIntelSummaryResponse(**out_cached)
+
+    attempted_sources: list[str] = []
+    degraded_reason: str | None = None
 
     ch = _ch_client_or_none()
     if ch is not None:
+        attempted_sources.append("clickhouse")
         try:
             table = clickhouse_events_table_ref()
             where_sql, params = _ch_where(since=since_ts, agent_id=agent_id)
@@ -1778,6 +2179,17 @@ def get_protocol_intel_summary(
                 top_alpn=top_alpn,
                 top_ja4=top_ja4,
                 top_ja3=top_ja3,
+                meta=_meta(
+                    source="clickhouse",
+                    fallback_chain=attempted_sources,
+                    degraded_reason=degraded_reason,
+                    source_freshness_seconds=_freshness_seconds(query_end, ch_last_ts),
+                    query_latency_ms=(time.perf_counter() - started) * 1000.0,
+                    cache_hit=False,
+                    approximate=False,
+                    query_window_start=since_ts,
+                    query_window_end=query_end,
+                ),
             )
             _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
             observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/network/summary", source="clickhouse")
@@ -1785,9 +2197,11 @@ def get_protocol_intel_summary(
         except Exception as e:
             if not isinstance(e, LookupError):
                 log_event(logger, "warning", "events_network_summary_clickhouse_error", error_type=type(e).__name__)
+            degraded_reason = f"clickhouse_fallback:{str(e)[:120]}"[:200]
 
     es = _es_client_or_none()
     if es is not None:
+        attempted_sources.append("elasticsearch")
         try:
             base = _es_base_filters(since=since_ts, agent_id=agent_id)
 
@@ -1960,6 +2374,17 @@ def get_protocol_intel_summary(
                 top_alpn=top_alpn,
                 top_ja4=top_ja4,
                 top_ja3=top_ja3,
+                meta=_meta(
+                    source="elasticsearch",
+                    fallback_chain=attempted_sources,
+                    degraded_reason=degraded_reason,
+                    source_freshness_seconds=_freshness_seconds(query_end, es_latest_ts),
+                    query_latency_ms=(time.perf_counter() - started) * 1000.0,
+                    cache_hit=False,
+                    approximate=False,
+                    query_window_start=since_ts,
+                    query_window_end=query_end,
+                ),
             )
             _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
             observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/network/summary", source="elasticsearch")
@@ -1967,6 +2392,9 @@ def get_protocol_intel_summary(
         except Exception as e:
             if not _es_failover_allowed():
                 raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(e).__name__}")
+            degraded_reason = f"elasticsearch_fallback:{type(e).__name__}"[:200]
+
+    attempted_sources.append("postgres")
 
     # Postgres fallback (original implementation)
     app_proto_expr = func.coalesce(NetEventModel.app_proto, NetEventModel.extra["app_proto"].astext)
@@ -2122,6 +2550,17 @@ def get_protocol_intel_summary(
         top_alpn=top_alpn,
         top_ja4=top_ja4,
         top_ja3=top_ja3,
+        meta=_meta(
+            source="postgres",
+            fallback_chain=attempted_sources,
+            degraded_reason=degraded_reason,
+            source_freshness_seconds=_freshness_seconds(query_end, None),
+            query_latency_ms=(time.perf_counter() - started) * 1000.0,
+            cache_hit=False,
+            approximate=bool(total_events > 0 and with_proto_metadata <= 0 and len(app_protocols) > 0),
+            query_window_start=since_ts,
+            query_window_end=query_end,
+        ),
     )
     _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
     observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/network/summary", source="postgres")

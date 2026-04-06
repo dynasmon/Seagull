@@ -138,6 +138,12 @@ export default function InternalHealthView() {
           latency_ms: snapshot.components.elasticsearch.latency_ms ?? null
         },
         {
+          component: "clickhouse",
+          status: snapshot.components.clickhouse.status,
+          detail: snapshot.components.clickhouse.error || (snapshot.components.clickhouse.enabled ? "analytics enabled" : "analytics disabled"),
+          latency_ms: snapshot.components.clickhouse.latency_ms ?? null
+        },
+        {
           component: "ingest_pressure",
           status: snapshot.components.ingest_pressure.status,
           detail: snapshot.components.ingest_pressure.storm.reason || "ok",

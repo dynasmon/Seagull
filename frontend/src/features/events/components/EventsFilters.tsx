@@ -33,7 +33,7 @@ type Props = {
 const DEFAULTS: { search: string; window_minutes: number; limit: number } = {
   search: "",
   window_minutes: 60,
-  limit: 500
+  limit: 200
 };
 
 function norm(cfg: EventsViewConfig | undefined | null): EventsViewConfig {
@@ -188,7 +188,7 @@ function EventsFiltersImpl(props: Props) {
           <DraftNumberInput
             value={Number(effectiveCfg.limit ?? DEFAULTS.limit)}
             min={10}
-            max={5000}
+            max={500}
             fallback={DEFAULTS.limit}
             onCommit={(v) => patch({ limit: v })}
             disabled={busy}
