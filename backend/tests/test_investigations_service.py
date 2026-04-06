@@ -462,6 +462,75 @@ def test_pin_event_and_dedupe(fake_repo: _FakeInvestigationsRepo, actor: PortalP
     assert any(a.get("action") == "workspace.bookmark.delete" for a in audits)
 
 
+def test_pin_event_falls_back_to_recent_feed_when_pg_event_missing(
+    fake_repo: _FakeInvestigationsRepo, actor: PortalPrincipal, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synthetic_event_id = 1176742294
+    now = _utc_now()
+
+    def _fake_fetch_event_by_id(*, event_id: int, agent_id: str | None = None):
+        if int(event_id) != synthetic_event_id:
+            return None
+        return {
+            "id": synthetic_event_id,
+            "timestamp": now.isoformat(),
+            "agent_id": "agent-flow",
+            "event_type": "flow",
+            "src_ip": "10.0.0.22",
+            "dst_ip": "198.51.100.22",
+            "src_port": 55123,
+            "dst_port": 443,
+            "proto": "tcp",
+            "bytes": 2048,
+            "extra": {"app_proto": "tls", "tls_sni": "api.example.net"},
+        }
+
+    monkeypatch.setattr(service, "fetch_recent_feed_event_by_id", _fake_fetch_event_by_id)
+
+    ws = service.create_workspace(
+        db=object(),
+        payload=InvestigationWorkspaceCreateIn(title="Recent feed fallback"),
+        request=None,
+        user=actor,
+        audit_writer=lambda *_args, **_kwargs: None,
+    )
+
+    first = service.pin_event(
+        db=object(),
+        workspace_id=ws.id,
+        event_id=synthetic_event_id,
+        payload=InvestigationPinOptionsIn(note="Pinned from recent feed"),
+        request=None,
+        user=actor,
+        audit_writer=lambda *_args, **_kwargs: None,
+    )
+    assert first.created is True
+    assert first.bookmark.ref_id == str(synthetic_event_id)
+    assert first.bookmark.evidence_type == "net_event"
+    assert int(first.bookmark.payload_snapshot.get("event_id") or 0) == synthetic_event_id
+    assert "event_id=1176742294" in str(first.bookmark.payload_snapshot.get("deep_link") or "")
+
+    ws_after_first = service.get_workspace(db=object(), workspace_id=ws.id)
+    assert ws_after_first.bookmarks_count == 1
+    assert ws_after_first.notes_count == 1
+
+    second = service.pin_event(
+        db=object(),
+        workspace_id=ws.id,
+        event_id=synthetic_event_id,
+        payload=InvestigationPinOptionsIn(note="duplicate should not add note"),
+        request=None,
+        user=actor,
+        audit_writer=lambda *_args, **_kwargs: None,
+    )
+    assert second.created is False
+    assert second.duplicate_of_id == first.bookmark.id
+
+    ws_after_second = service.get_workspace(db=object(), workspace_id=ws.id)
+    assert ws_after_second.bookmarks_count == 1
+    assert ws_after_second.notes_count == 1
+
+
 def test_pin_inventory_response_result_and_attack_case(fake_repo: _FakeInvestigationsRepo, actor: PortalPrincipal) -> None:
     now = _utc_now()
 
