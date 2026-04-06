@@ -34,3 +34,17 @@ def test_choose_series_source_falls_back_cleanly_when_both_stale() -> None:
     )
     assert source == "historical"
     assert reason == "rollup_stuck_live_stale"
+
+
+def test_overview_query_source_maps_historical_rollups_to_postgres() -> None:
+    assert ov._overview_query_source("rollup_1m") == "postgres"
+    assert ov._overview_query_source("historical") == "postgres"
+
+
+def test_overview_fallback_chain_marks_degraded_progression() -> None:
+    assert ov._overview_fallback_chain(selected_source="rollup_1s", degraded_reason=None) == ["rollup_1s"]
+    assert ov._overview_fallback_chain(selected_source="postgres", degraded_reason="rollup_stale_fallback") == [
+        "rollup_1s",
+        "live_1s",
+        "postgres",
+    ]

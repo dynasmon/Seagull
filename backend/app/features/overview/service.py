@@ -67,11 +67,19 @@ def _overview_cache_set(key: str, payload: Dict[str, Any]) -> None:
 
 
 def get_overview(db: Session, *, window_minutes: int, agent_id: str | None, lite: bool) -> Dict[str, Any]:
+    started = time.perf_counter()
     cache_key = f"w={int(window_minutes)}|a={agent_id or '*'}|lite={1 if lite else 0}"
     cached = _overview_cache_get(cache_key)
     if cached is not None:
-        incr_counter("api_cache_hit_total", route="/overview")
-        return cached
+        out = dict(cached)
+        qmeta = out.get("query_meta")
+        if isinstance(qmeta, dict) and str(qmeta.get("source") or "").strip():
+            incr_counter("api_cache_hit_total", route="/overview")
+            qmeta2 = dict(qmeta)
+            qmeta2["cache_hit"] = True
+            qmeta2["query_latency_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+            out["query_meta"] = qmeta2
+            return out
 
     payload = get_overview_payload(
         db,

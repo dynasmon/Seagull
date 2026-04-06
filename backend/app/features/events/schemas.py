@@ -1,7 +1,21 @@
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Literal
 
 from pydantic import BaseModel, Field
+
+QuerySource = Literal["clickhouse", "elasticsearch", "postgres", "recent_feed", "rollup_1s", "live_1s"]
+
+
+class QueryProvenanceMeta(BaseModel):
+    source: QuerySource
+    fallback_chain: List[str] = Field(default_factory=list)
+    degraded_reason: Optional[str] = None
+    source_freshness_seconds: Optional[int] = None
+    query_latency_ms: Optional[float] = None
+    cache_hit: bool = False
+    approximate: bool = False
+    query_window_start: Optional[datetime] = None
+    query_window_end: Optional[datetime] = None
 
 
 class NetEvent(BaseModel):
@@ -31,6 +45,13 @@ class NetEventDB(NetEvent):
 
     class Config:
         orm_mode = True
+
+
+class EventHuntResponse(BaseModel):
+    items: List[NetEventDB] = Field(default_factory=list)
+    next_cursor: Optional[str] = None
+    has_more: bool = False
+    meta: QueryProvenanceMeta
 
 
 class NetEventRollup1s(BaseModel):
@@ -109,6 +130,7 @@ class SshSummaryResponse(BaseModel):
     root_logins: list[SshLoginEvent]
     users_attempted: list[SshUserStat]
     sudo_recent: list[SudoEventSummary]
+    meta: Optional[QueryProvenanceMeta] = None
 
 
 class ProtoCount(BaseModel):
@@ -154,3 +176,4 @@ class ProtocolIntelSummaryResponse(BaseModel):
     top_alpn: list[ProtoCount]
     top_ja4: list[ProtoJa4Stat]
     top_ja3: list[ProtoCount]
+    meta: Optional[QueryProvenanceMeta] = None

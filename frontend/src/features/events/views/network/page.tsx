@@ -77,6 +77,17 @@ function fmtPct(num: number, den: number) {
   return `${p}%`;
 }
 
+function fmtQueryMeta(meta?: { source?: string; source_freshness_seconds?: number | null; degraded_reason?: string | null; cache_hit?: boolean; approximate?: boolean; query_latency_ms?: number | null } | null) {
+  if (!meta) return "source: -";
+  const src = String(meta.source || "unknown");
+  const fresh = typeof meta.source_freshness_seconds === "number" ? `${meta.source_freshness_seconds}s` : "-";
+  const latency = typeof meta.query_latency_ms === "number" ? `${Math.round(meta.query_latency_ms)}ms` : "-";
+  const degraded = meta.degraded_reason ? `degraded (${meta.degraded_reason})` : "ok";
+  const cache = meta.cache_hit ? "cache" : "live";
+  const approx = meta.approximate ? "approx" : "exact";
+  return `source ${src} · fresh ${fresh} · latency ${latency} · ${cache} · ${approx} · ${degraded}`;
+}
+
 function RiskPill({ risk }: { risk: number }) {
   const r = clampInt(risk, 0, 5, 0);
   const label = r === 0 ? "low" : r === 1 ? "medium" : r === 2 ? "high" : "critical";
@@ -628,6 +639,17 @@ export default function ProtocolIntelPage() {
             <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-200">
               No events were found in the selected window. Showing historical protocol telemetry from the last{" "}
               <span className="font-mono">{fallbackSinceMinutes}</span> minutes.
+            </div>
+          ) : null}
+
+          {!hasBlockingState && data?.meta ? (
+            <div
+              className={cx(
+                "rounded-xl border p-3 text-xs font-mono",
+                data.meta.degraded_reason ? "border-amber-500/40 bg-amber-500/10 text-amber-200" : "border-border/60 bg-background/40 text-muted-foreground"
+              )}
+            >
+              {fmtQueryMeta(data.meta)}
             </div>
           ) : null}
 

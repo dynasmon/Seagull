@@ -84,11 +84,24 @@ export type OverviewMeta = {
   };
 };
 
+export type OverviewQueryMeta = {
+  source: "clickhouse" | "elasticsearch" | "postgres" | "recent_feed" | "rollup_1s" | "live_1s";
+  fallback_chain: string[];
+  degraded_reason: string | null;
+  source_freshness_seconds: number | null;
+  query_latency_ms: number | null;
+  cache_hit: boolean;
+  approximate: boolean;
+  query_window_start: string | null;
+  query_window_end: string | null;
+};
+
 /**
  * A single payload for the Overview page.
  * The goal is to avoid multiple heavy queries on the frontend.
  */
 export type OverviewSnapshot = {
+  query_meta?: OverviewQueryMeta;
   meta: OverviewMeta;
   kpis: OverviewKPIs;
   traffic: TimeSeries;

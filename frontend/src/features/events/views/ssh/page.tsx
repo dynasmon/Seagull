@@ -7,6 +7,7 @@ import EmptyState from "@/shared/components/EmptyState";
 import { Card } from "@/shared/components/Card";
 import { Table } from "@/shared/components/Table";
 import { Badge } from "@/shared/components/Badge";
+import { cx } from "@/shared/lib/cx";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
 
@@ -102,6 +103,16 @@ function fmtAgo(ms: number) {
   if (m < 60) return `${m}m ago`;
   const h = Math.round(m / 60);
   return `${h}h ago`;
+}
+
+function fmtQueryMeta(meta?: { source?: string; source_freshness_seconds?: number | null; degraded_reason?: string | null; cache_hit?: boolean; approximate?: boolean; query_latency_ms?: number | null } | null) {
+  if (!meta) return "source: -";
+  const src = String(meta.source || "unknown");
+  const fresh = typeof meta.source_freshness_seconds === "number" ? `${meta.source_freshness_seconds}s` : "-";
+  const latency = typeof meta.query_latency_ms === "number" ? `${Math.round(meta.query_latency_ms)}ms` : "-";
+  const degraded = meta.degraded_reason ? `degraded (${meta.degraded_reason})` : "ok";
+  const cache = meta.cache_hit ? "cache" : "live";
+  return `source ${src} · fresh ${fresh} · latency ${latency} · ${cache} · ${degraded}`;
 }
 
 function toEventsLink(params: { agent_id?: string; event_type?: string; search?: string }): string {
@@ -308,9 +319,10 @@ export default function SshInsightsPage() {
     const parts: string[] = [];
     parts.push(`Lookback: ${view.since_minutes}m`);
     parts.push(`Rows: ${view.limit}`);
+    if (data?.meta?.source) parts.push(`Source: ${data.meta.source}`);
     if (lastUpdatedAt) parts.push(`Updated: ${fmtAgo(Date.now() - lastUpdatedAt)}`);
     return parts.join(" • ");
-  }, [view.since_minutes, view.limit, lastUpdatedAt]);
+  }, [view.since_minutes, view.limit, lastUpdatedAt, data?.meta?.source]);
 
   const headerRight = (
     <div className="flex items-center gap-2">
@@ -413,6 +425,17 @@ export default function SshInsightsPage() {
           </Card>
         </div>
       </div>
+
+      {current?.meta ? (
+        <div
+          className={cx(
+            "rounded-xl border p-3 text-xs font-mono",
+            current.meta.degraded_reason ? "border-amber-500/40 bg-amber-500/10 text-amber-200" : "border-border/60 bg-background/40 text-muted-foreground"
+          )}
+        >
+          {fmtQueryMeta(current.meta)}
+        </div>
+      ) : null}
 
       {loading || !current || (!!error && !current) ? (
         <AsyncState

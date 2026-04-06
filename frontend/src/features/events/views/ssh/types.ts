@@ -1,3 +1,5 @@
+import type { QueryProvenanceMeta } from "../../types";
+
 export type SshIpStat = {
   src_ip: string;
   count: number;
@@ -63,4 +65,5 @@ export type SshSummaryResponse = {
   root_logins: SshLoginEvent[];
   users_attempted: SshUserStat[];
   sudo_recent: SudoEventSummary[];
+  meta?: QueryProvenanceMeta | null;
 };
