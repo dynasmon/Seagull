@@ -1,3 +1,5 @@
+import type { QueryProvenanceMeta } from "../../types";
+
 export type ProtoCount = { key: string; count: number };
 
 export type ProtoDnsQueryStat = { qname: string; risk: number; count: number };
@@ -30,6 +32,7 @@ export type ProtocolIntelSummaryResponse = {
   top_alpn: ProtoCount[];
   top_ja4: ProtoJa4Stat[];
   top_ja3: ProtoCount[];
+  meta?: QueryProvenanceMeta | null;
 };
 
 export type ProtocolIntelIndicatorKind =

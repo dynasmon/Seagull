@@ -8,9 +8,9 @@ import { Badge } from "@/shared/components/Badge";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 
-import { getRecentEvents } from "@/features/events/api";
+import { huntEvents } from "@/features/events/api";
 import EventDrawer from "@/features/events/components/EventDrawer";
-import type { NetEvent } from "@/features/events/types";
+import type { NetEvent, QueryProvenanceMeta } from "@/features/events/types";
 
 import type { SshIpStat } from "./types";
 
@@ -89,6 +89,7 @@ export default function SshIpDrawer({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<NetEvent[]>([]);
+  const [queryMeta, setQueryMeta] = useState<QueryProvenanceMeta | null>(null);
 
   // No-flicker behavior on intermittent API failures.
   const eventsRef = useRef<NetEvent[]>([]);
@@ -103,30 +104,33 @@ export default function SshIpDrawer({
     if (!srcIp) return;
     setLoading(true);
     try {
-      // Backend only exposes /events/recent right now.
-      // We fetch the most recent SSH events and filter by src_ip client-side.
-      const payload = await getRecentEvents({
-        limit: 1000,
+      const payload = await huntEvents({
+        page_size: 200,
         agent_id: viewAgentId || undefined,
-        event_type: "ssh_auth"
+        event_type: "ssh_auth",
+        since_minutes: sinceMinutes,
+        search: srcIp,
       });
-
-      const filtered = (payload || []).filter((e) => (e.src_ip || "").trim() === srcIp);
-      setEvents(filtered);
+      setEvents(Array.isArray(payload?.items) ? payload.items : []);
+      setQueryMeta(payload?.meta ?? null);
       setError(null);
     } catch (e: any) {
-      setError(e?.message || "Failed to load recent events for this IP");
+      setError(e?.message || "Failed to load SSH events for this source IP");
       if (eventsRef.current.length) setEvents(eventsRef.current);
     } finally {
       setLoading(false);
     }
-  }, [srcIp, viewAgentId]);
+  }, [srcIp, viewAgentId, sinceMinutes]);
 
   useEffect(() => {
     if (!open) return;
     // reset event drawer when switching IPs
     setSelectedEvent(null);
     setEventDrawerOpen(false);
+    setEvents([]);
+    setQueryMeta(null);
+    setError(null);
+    eventsRef.current = [];
     load();
   }, [open, srcIp, load]);
 
@@ -188,7 +192,7 @@ export default function SshIpDrawer({
 
   const title = srcIp ? `Source IP · ${srcIp}` : "Source IP";
   const description = srcIp
-    ? `Lookback: ${sinceMinutes}m · Recent SSH events (from /events/recent) filtered by src_ip`
+    ? `Lookback: ${sinceMinutes}m · Server-side SSH hunt filtered by source IP`
     : undefined;
 
   const cols = useMemo(
@@ -307,6 +311,20 @@ export default function SshIpDrawer({
               </div>
             </div>
 
+            {queryMeta ? (
+              <div
+                className={cx(
+                  "rounded-lg border px-3 py-2 text-[11px] font-mono",
+                  queryMeta.degraded_reason ? "border-amber-500/40 bg-amber-500/10 text-amber-200" : "border-border/60 bg-background/40 text-muted-foreground"
+                )}
+              >
+                source {queryMeta.source}
+                {typeof queryMeta.source_freshness_seconds === "number" ? ` · freshness ${queryMeta.source_freshness_seconds}s` : ""}
+                {queryMeta.cache_hit ? " · cache" : ""}
+                {queryMeta.degraded_reason ? ` · ${queryMeta.degraded_reason}` : ""}
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
                 <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">accepted</div>
@@ -360,8 +378,8 @@ export default function SshIpDrawer({
                 {loading && events.length === 0 ? <Loading label="Loading recent events…" /> : null}
                 {!loading && events.length === 0 ? (
                   <EmptyState
-                    title="No recent SSH events"
-                    hint="This drawer uses /events/recent (last N). If the IP is older than the recent window, it might not show here."
+                    title="No SSH events"
+                    hint="No events matched this source IP in the selected lookback window."
                   />
                 ) : null}
                 {events.length ? <Table columns={cols as any} rows={events} rowKey={(r) => String(r.id)} className="text-sm" /> : null}

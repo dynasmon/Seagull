@@ -9,14 +9,13 @@ import { clampInt, normalizeFilterText, normalizeSearchText } from "@/shared/lib
 
 import { useAgentsCatalog } from "@/app/providers";
 
-import { getRecentEvents } from "../../api";
+import { huntEvents } from "../../api";
 import EventDrawer from "../../components/EventDrawer";
 import EventExplorer from "../../components/EventExplorer";
 import EventsFilters from "../../components/EventsFilters";
 import EventsTable from "../../components/EventsTable";
 import { buildTopCounts } from "../../lib/aggregates";
-import { eventMatchesSearch } from "../../lib/filter";
-import type { NetEvent } from "../../types";
+import type { NetEvent, QueryProvenanceMeta } from "../../types";
 
 type ViewCfg = {
   agent_id: string; // empty = all agents
@@ -37,7 +36,7 @@ const DEFAULTS: ViewCfg = {
   event_type: "",
   search: "",
   window_minutes: 60,
-  limit: 1000,
+  limit: 200,
   auto_refresh: false,
   refresh_ms: 15000,
   compact_rows: false,
@@ -53,7 +52,7 @@ function safeLoadView(): ViewCfg {
       ...DEFAULTS,
       ...parsed,
       window_minutes: clampInt(parsed.window_minutes, 1, 1440, DEFAULTS.window_minutes),
-      limit: clampInt(parsed.limit, 10, 5000, DEFAULTS.limit),
+      limit: clampInt(parsed.limit, 10, 500, DEFAULTS.limit),
       refresh_ms: clampInt(parsed.refresh_ms, 2000, 300000, DEFAULTS.refresh_ms),
       agent_id: normalizeFilterText(parsed.agent_id),
       event_type: normalizeFilterText(parsed.event_type),
@@ -84,6 +83,13 @@ function fmtTimeAgo(ms: number) {
   if (m < 60) return `${m}m ago`;
   const h = Math.round(m / 60);
   return `${h}h ago`;
+}
+
+function fmtSource(meta: QueryProvenanceMeta | null) {
+  if (!meta) return "source: -";
+  const fresh = typeof meta.source_freshness_seconds === "number" ? `${meta.source_freshness_seconds}s` : "-";
+  const degraded = meta.degraded_reason ? `degraded (${meta.degraded_reason})` : "ok";
+  return `source: ${meta.source} · freshness: ${fresh} · ${degraded}`;
 }
 
 function Panel(props: {
@@ -152,8 +158,12 @@ export default function EventsPage() {
 
   const [drawerId, setDrawerId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<NetEvent[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [queryMeta, setQueryMeta] = useState<QueryProvenanceMeta | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
 
@@ -162,6 +172,11 @@ export default function EventsPage() {
   useEffect(() => {
     eventsRef.current = events;
   }, [events]);
+
+  const viewSnapshotRef = useRef<ViewCfg>(view);
+  useEffect(() => {
+    viewSnapshotRef.current = view;
+  }, [view]);
 
   const reqSeq = useRef(0);
   const didInitFromUrl = useRef(false);
@@ -175,7 +190,7 @@ export default function EventsPage() {
     const event_type = (searchParams.get("event_type") ?? "").trim();
     const search = searchParams.get("search") ?? "";
     const window_minutes = clampInt(searchParams.get("window_minutes"), 1, 1440, viewRef.current.window_minutes);
-    const limit = clampInt(searchParams.get("limit"), 10, 5000, viewRef.current.limit);
+    const limit = clampInt(searchParams.get("limit"), 10, 500, viewRef.current.limit);
     const eventId = clampInt(searchParams.get("event_id"), 0, Number.MAX_SAFE_INTEGER, 0);
 
     setView((prev) => ({
@@ -224,32 +239,44 @@ export default function EventsPage() {
 
   const load = useCallback(async () => {
     const mySeq = ++reqSeq.current;
-
     setLoading(true);
     setError(null);
 
     const agent_id = viewRef.current.agent_id ? viewRef.current.agent_id : undefined;
-    const window_minutes = viewRef.current.window_minutes;
-    const limit = viewRef.current.limit;
+    const event_type = viewRef.current.event_type ? viewRef.current.event_type : undefined;
+    const search = (viewRef.current.search || "").trim() || undefined;
+    const since_minutes = viewRef.current.window_minutes;
+    const page_size = viewRef.current.limit;
 
     try {
-      const event_type = viewRef.current.event_type ? viewRef.current.event_type : undefined;
-      const payload = await getRecentEvents({ agent_id, event_type, since_minutes: window_minutes, limit });
+      const payload = await huntEvents({
+        page_size,
+        agent_id,
+        event_type,
+        since_minutes,
+        search,
+      });
       if (reqSeq.current !== mySeq) return;
 
-      setEvents(payload);
+      const rows = Array.isArray(payload?.items) ? payload.items : [];
+      setEvents(rows);
+      setNextCursor(payload?.next_cursor ?? null);
+      setHasMore(Boolean(payload?.has_more));
+      setQueryMeta(payload?.meta ?? null);
       setLastUpdatedAt(Date.now());
       setSelectedId((prev) => {
-        if (prev === null) return payload[0]?.id ?? null;
-        return payload.some((e) => e.id === prev) ? prev : payload[0]?.id ?? null;
+        if (prev === null) return rows[0]?.id ?? null;
+        return rows.some((e) => e.id === prev) ? prev : rows[0]?.id ?? null;
       });
     } catch (e: any) {
       if (reqSeq.current !== mySeq) return;
       setError(getErrorMessage(e, "Failed to load events"));
-      // If we already have data on screen, keep it and just surface the error.
       if (eventsRef.current.length === 0) {
         setEvents([]);
         setSelectedId(null);
+        setNextCursor(null);
+        setHasMore(false);
+        setQueryMeta(null);
       }
     } finally {
       if (reqSeq.current !== mySeq) return;
@@ -257,12 +284,53 @@ export default function EventsPage() {
     }
   }, []);
 
-  // Reload when heavy filters change.
-  useEffect(() => {
-    load();
-  }, [load, view.agent_id, view.window_minutes, view.limit]);
+  const loadMore = useCallback(async () => {
+    const cursor = nextCursor;
+    if (!cursor || loadingMore || loading) return;
+    setLoadingMore(true);
+    setError(null);
 
-  // Auto-refresh.
+    const v = viewSnapshotRef.current;
+    const agent_id = v.agent_id ? v.agent_id : undefined;
+    const event_type = v.event_type ? v.event_type : undefined;
+    const search = (v.search || "").trim() || undefined;
+
+    try {
+      const payload = await huntEvents({
+        page_size: v.limit,
+        cursor,
+        agent_id,
+        event_type,
+        since_minutes: v.window_minutes,
+        search,
+      });
+      const incoming = Array.isArray(payload?.items) ? payload.items : [];
+      setEvents((prev) => {
+        const seen = new Set(prev.map((e) => `${e.timestamp}|${e.id}`));
+        const merged = prev.slice();
+        for (const row of incoming) {
+          const key = `${row.timestamp}|${row.id}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          merged.push(row);
+        }
+        return merged;
+      });
+      setNextCursor(payload?.next_cursor ?? null);
+      setHasMore(Boolean(payload?.has_more));
+      setQueryMeta(payload?.meta ?? null);
+    } catch (e: any) {
+      setError(getErrorMessage(e, "Failed to load older events"));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [nextCursor, loadingMore, loading]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => load(), 180);
+    return () => window.clearTimeout(t);
+  }, [load, view.agent_id, view.event_type, view.search, view.window_minutes, view.limit]);
+
   useEffect(() => {
     if (!view.auto_refresh) return;
     const t = window.setInterval(() => {
@@ -271,17 +339,7 @@ export default function EventsPage() {
     return () => window.clearInterval(t);
   }, [view.auto_refresh, view.refresh_ms, load]);
 
-  const filteredBySearch = useMemo(() => {
-    const q = (view.search || "").trim();
-    if (!q) return events;
-    return events.filter((e) => eventMatchesSearch(e, q));
-  }, [events, view.search]);
-
-  const visible = useMemo(() => {
-    const t = (view.event_type || "").trim();
-    if (!t) return filteredBySearch;
-    return filteredBySearch.filter((e) => e.event_type === t);
-  }, [filteredBySearch, view.event_type]);
+  const visible = events;
 
   const drawerEvent = useMemo(() => {
     if (drawerId === null) return null;
@@ -297,7 +355,7 @@ export default function EventsPage() {
 
   const typeCounts = useMemo(() => {
     const m = new Map<string, number>();
-    for (const e of filteredBySearch) {
+    for (const e of events) {
       const k = (e.event_type || "").trim();
       if (!k) continue;
       m.set(k, (m.get(k) || 0) + 1);
@@ -305,7 +363,7 @@ export default function EventsPage() {
     return Array.from(m.entries())
       .map(([key, count]) => ({ key, count }))
       .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.key.localeCompare(b.key)));
-  }, [filteredBySearch]);
+  }, [events]);
 
   const topSrc = useMemo(() => buildTopCounts(visible.map((e) => e.src_ip ?? null), 10), [visible]);
   const topDst = useMemo(() => buildTopCounts(visible.map((e) => e.dst_ip ?? null), 10), [visible]);
@@ -321,7 +379,7 @@ export default function EventsPage() {
       merged.event_type = normalizeFilterText(merged.event_type);
       merged.search = normalizeSearchText(merged.search);
       merged.window_minutes = clampInt(merged.window_minutes, 1, 1440, DEFAULTS.window_minutes);
-      merged.limit = clampInt(merged.limit, 10, 5000, DEFAULTS.limit);
+      merged.limit = clampInt(merged.limit, 10, 500, DEFAULTS.limit);
       merged.refresh_ms = clampInt(merged.refresh_ms, 2000, 300000, DEFAULTS.refresh_ms);
       return merged;
     });
@@ -358,12 +416,12 @@ export default function EventsPage() {
   const headerRight = useMemo(() => {
     if (isInitialLoading) return "Loading…";
     if (error) return "Error";
-    const base = filteredBySearch.length;
     const shown = visible.length;
-    const suffix = base !== shown ? ` (showing ${shown} of ${base})` : ` (${shown})`;
+    const suffix = ` (${shown})`;
     const ago = lastUpdatedAt ? fmtTimeAgo(Date.now() - lastUpdatedAt) : "";
-    return `Events${suffix}${ago ? ` · updated ${ago}` : ""}${isRefreshing ? " · refreshing" : ""}`;
-  }, [isInitialLoading, isRefreshing, error, filteredBySearch.length, visible.length, lastUpdatedAt]);
+    const src = queryMeta ? ` · ${queryMeta.source}` : "";
+    return `Events${suffix}${src}${ago ? ` · updated ${ago}` : ""}${isRefreshing ? " · refreshing" : ""}`;
+  }, [isInitialLoading, isRefreshing, error, visible.length, lastUpdatedAt, queryMeta]);
 
   const toolbarRight = (
     <div className="flex items-center gap-2">
@@ -386,6 +444,9 @@ export default function EventsPage() {
           setDrawerId(null);
           setSelectedId(null);
           setEvents([]);
+          setNextCursor(null);
+          setHasMore(false);
+          setQueryMeta(null);
           setError(null);
           setLastUpdatedAt(null);
           setView(DEFAULTS);
@@ -493,7 +554,7 @@ export default function EventsPage() {
                     {visible.length} events
                   </div>
                   <div className="mt-1 text-[11px] text-muted-foreground">
-                    {view.search ? "Search is active" : "No local search"}
+                    {view.search ? "Server search is active" : "No server search"}
                   </div>
                 </div>
               </div>
@@ -565,6 +626,18 @@ export default function EventsPage() {
           bodyClassName="p-0"
           style={{ height: "calc(100vh - 260px)" }}
         >
+          {queryMeta ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-3 py-2 text-[11px]">
+              <div className={cx("font-mono text-muted-foreground", queryMeta.degraded_reason ? "text-amber-300" : "text-muted-foreground")}>
+                {fmtSource(queryMeta)}
+                {queryMeta.cache_hit ? " · cache" : ""}
+              </div>
+              {queryMeta.query_latency_ms != null ? (
+                <div className="font-mono text-muted-foreground">latency {Math.round(queryMeta.query_latency_ms)}ms</div>
+              ) : null}
+            </div>
+          ) : null}
+
           {isInitialLoading || (error && events.length === 0) || visible.length === 0 ? (
             <AsyncState
               loading={isInitialLoading}
@@ -599,6 +672,24 @@ export default function EventsPage() {
                 <div className="absolute right-3 top-3 rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[11px] font-mono text-muted-foreground backdrop-blur">
                   <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground mr-2 align-[-2px]" />
                   Refreshing…
+                </div>
+              ) : null}
+
+              {hasMore ? (
+                <div className="flex items-center justify-center border-t border-border/60 px-3 py-3">
+                  <button
+                    type="button"
+                    onClick={loadMore}
+                    disabled={loadingMore}
+                    className={cx(
+                      "rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest",
+                      "text-muted-foreground hover:bg-muted/15 hover:text-foreground",
+                      "focus:outline-none focus:ring-2 focus:ring-primary/30",
+                      loadingMore && "opacity-70 cursor-not-allowed"
+                    )}
+                  >
+                    {loadingMore ? "Loading…" : "Load older"}
+                  </button>
                 </div>
               ) : null}
             </div>

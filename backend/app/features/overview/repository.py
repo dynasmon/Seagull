@@ -188,6 +188,24 @@ def _source_meta(
     }
 
 
+def _overview_query_source(traffic_source: str) -> str:
+    src = str(traffic_source or "").strip().lower()
+    if src in {"rollup_1s", "live_1s", "recent_feed", "clickhouse", "elasticsearch", "postgres"}:
+        return src
+    # rollup_1m / historical are served from relational rollups.
+    return "postgres"
+
+
+def _overview_fallback_chain(*, selected_source: str, degraded_reason: str | None) -> list[str]:
+    if not degraded_reason:
+        return [selected_source]
+    if selected_source == "live_1s":
+        return ["rollup_1s", "live_1s"]
+    if selected_source == "postgres":
+        return ["rollup_1s", "live_1s", "postgres"]
+    return [selected_source]
+
+
 def _storm_key_active() -> bool:
     r = get_redis()
     if r is None:
@@ -1168,7 +1186,31 @@ def get_overview_payload(
     ingest_source_reason = None if live_fresh else "live_stale_fallback_ingest_stats"
     ingest_last_ts = live_last_ts if live_fresh else (ingest_stats_last_ts or live_last_ts)
 
+    query_source = _overview_query_source(traffic_source)
+    query_freshness = _source_meta(
+        now=now,
+        source=traffic_source,
+        last_data_ts=traffic_last_ts,
+        degraded_reason=traffic_degraded_reason,
+    ).get("source_freshness_seconds")
+    query_fallback_chain = _overview_fallback_chain(
+        selected_source=query_source,
+        degraded_reason=traffic_degraded_reason,
+    )
+    query_latency_ms = round((time.perf_counter() - started) * 1000.0, 2)
+
     payload = {
+            "query_meta": {
+                "source": query_source,
+                "fallback_chain": query_fallback_chain,
+                "degraded_reason": traffic_degraded_reason,
+                "source_freshness_seconds": query_freshness,
+                "query_latency_ms": query_latency_ms,
+                "cache_hit": False,
+                "approximate": bool(use_ingest_rollups and traffic_source != "rollup_1s"),
+                "query_window_start": start_ts.isoformat(),
+                "query_window_end": data_end_ts.isoformat(),
+            },
             "meta": {
                 "lite": bool(lite),
                 "use_ingest_rollups": bool(use_ingest_rollups),

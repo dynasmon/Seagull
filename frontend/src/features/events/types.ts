@@ -22,6 +22,33 @@ export type NetEvent = {
   extra: Record<string, any>;
 };
 
+export type QuerySource =
+  | "clickhouse"
+  | "elasticsearch"
+  | "postgres"
+  | "recent_feed"
+  | "rollup_1s"
+  | "live_1s";
+
+export type QueryProvenanceMeta = {
+  source: QuerySource;
+  fallback_chain: string[];
+  degraded_reason: string | null;
+  source_freshness_seconds: number | null;
+  query_latency_ms: number | null;
+  cache_hit: boolean;
+  approximate: boolean;
+  query_window_start: string | null;
+  query_window_end: string | null;
+};
+
+export type EventHuntResponse = {
+  items: NetEvent[];
+  next_cursor: string | null;
+  has_more: boolean;
+  meta: QueryProvenanceMeta;
+};
+
 export type EventsViewConfig = {
   agent_id: string; // empty = all
   event_type: string; // empty = all

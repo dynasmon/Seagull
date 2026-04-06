@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.core.audit import AuditActor, write_audit_event
+from app.core.clickhouse import clickhouse_is_available, clickhouse_is_enabled, get_clickhouse_client
 from app.core.config import settings
 from app.core.es import get_es_client, search_backend_mode
 from app.core.ingest_control import get_storm_status
@@ -171,6 +172,23 @@ def admin_system_status(db: Session) -> dict:
     es_required = es_mode == "elasticsearch"
     es_status = "ok" if es_ok else ("down" if es_required else "degraded")
 
+    ch_enabled = bool(clickhouse_is_enabled())
+    ch_ok = False
+    ch_latency_ms = None
+    ch_error = None
+    if ch_enabled:
+        try:
+            t_ch = time.perf_counter()
+            ch_ok = bool(clickhouse_is_available())
+            if ch_ok:
+                row = get_clickhouse_client().query("SELECT 1").first_row
+                ch_ok = bool(row and int(row[0]) == 1)
+            ch_latency_ms = round((time.perf_counter() - t_ch) * 1000.0, 2)
+        except Exception as e:
+            ch_error = str(e).splitlines()[0][:200]
+            ch_ok = False
+    ch_status = "ok" if ch_ok else ("down" if ch_enabled else "degraded")
+
     total_agents = repository.count_total_agents(db)
     online_agents = repository.count_online_agents(db, online_cutoff=online_cutoff)
     revoked_agents = repository.count_revoked_agents(db)
@@ -228,6 +246,13 @@ def admin_system_status(db: Session) -> dict:
                 "url": settings.NETWATCH_ES_URL,
                 "available": bool(es_ok),
                 "error": es_error,
+            },
+            "clickhouse": {
+                "status": ch_status,
+                "latency_ms": ch_latency_ms,
+                "enabled": ch_enabled,
+                "available": bool(ch_ok),
+                "error": ch_error,
             },
             "ingest_pressure": {
                 "status": pressure_status,

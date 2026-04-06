@@ -40,6 +40,13 @@ export type SystemStatusResponse = {
       available: boolean;
       error?: string | null;
     };
+    clickhouse: {
+      status: string;
+      latency_ms?: number | null;
+      enabled: boolean;
+      available: boolean;
+      error?: string | null;
+    };
     ingest_pressure: {
       status: string;
       latency_ms?: number | null;
