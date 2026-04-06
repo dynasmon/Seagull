@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { useAgentsCatalog } from "@/app/providers";
 import AsyncState from "@/shared/components/AsyncState";
@@ -45,6 +46,14 @@ const MAX_FALLBACK_SINCE_MINUTES = 60 * 24 * 30;
 
 function digitsOnly(v: string): string {
   return String(v ?? "").replace(/[^0-9]/g, "");
+}
+
+function parsePositiveInt(raw: string | null): number | null {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  const n = Number(text);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.trunc(n);
 }
 
 function parseDraftInt(raw: string, fallback: number): number {
@@ -119,6 +128,7 @@ function InspectButton({ onClick }: { onClick: () => void }) {
 }
 
 export default function ProtocolIntelPage() {
+  const [searchParams] = useSearchParams();
   const { agents } = useAgentsCatalog();
 
   const [view, setView] = useState<ViewState>(() => {
@@ -206,8 +216,57 @@ export default function ProtocolIntelPage() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSel, setDrawerSel] = useState<ProtocolIndicatorSelection | null>(null);
+  const [deepLinkFocusEventId, setDeepLinkFocusEventId] = useState<number | null>(null);
+  const didInitFromUrl = useRef(false);
 
   const [healthOpen, setHealthOpen] = useState(false);
+
+  useEffect(() => {
+    if (didInitFromUrl.current) return;
+    didInitFromUrl.current = true;
+
+    const agentId = (searchParams.get("agent_id") || "").trim();
+    const sinceFromUrl = clampInt(searchParams.get("since_minutes"), 1, 60 * 24 * 30, DEFAULTS.since_minutes);
+    const focusEventId = parsePositiveInt(searchParams.get("focus_event_id"));
+    const indicatorKind = (searchParams.get("indicator_kind") || "").trim().toLowerCase();
+    const indicatorValue = (searchParams.get("indicator_value") || "").trim();
+
+    if (agentId || sinceFromUrl !== DEFAULTS.since_minutes) {
+      setView((prev) => ({
+        ...prev,
+        agent_id: agentId || prev.agent_id,
+        since_minutes: sinceFromUrl,
+      }));
+    }
+    if (focusEventId) setDeepLinkFocusEventId(focusEventId);
+
+    const allowedKinds = new Set<ProtocolIntelIndicatorKind>([
+      "app_proto",
+      "transport",
+      "ja4_ptype",
+      "http_method",
+      "app_proto_reason",
+      "app_proto_conf_band",
+      "tls_sni",
+      "tls_alpn_first",
+      "http_host",
+      "dns_qname",
+      "dst_port",
+      "src_port",
+      "ja3",
+      "ja4",
+    ]);
+    if (indicatorValue && allowedKinds.has(indicatorKind as ProtocolIntelIndicatorKind)) {
+      const label = indicatorKind.replace(/_/g, " ");
+      setDrawerSel({
+        kind: indicatorKind as ProtocolIntelIndicatorKind,
+        value: indicatorValue,
+        label,
+        hint: "Focused from investigation bookmark",
+      });
+      setDrawerOpen(true);
+    }
+  }, [searchParams]);
 
   const load = useCallback(async () => {
     const mySeq = ++reqSeq.current;
@@ -1117,7 +1176,9 @@ export default function ProtocolIntelPage() {
         onClose={() => {
           setDrawerOpen(false);
           setDrawerSel(null);
+          setDeepLinkFocusEventId(null);
         }}
+        focusEventId={deepLinkFocusEventId}
         agentId={view.agent_id || undefined}
         sinceMinutes={view.since_minutes}
         agentNameById={agentNameById}

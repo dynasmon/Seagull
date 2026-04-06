@@ -257,11 +257,13 @@ function WorkflowBadge({ wf }: { wf: InvestigationWorkflow }) {
 export default function AttackChainDrawer({
   open,
   caseId,
+  initialStepId,
   onClose,
   onClosed
 }: {
   open: boolean;
   caseId: number | null;
+  initialStepId?: number | null;
   onClose: () => void;
   onClosed?: (caseId: number) => void;
 }) {
@@ -282,6 +284,7 @@ export default function AttackChainDrawer({
   const [pinResultText, setPinResultText] = useState<string | null>(null);
   const [pinStepId, setPinStepId] = useState<number | null>(null);
   const [pinCaseOpen, setPinCaseOpen] = useState(false);
+  const [focusedStepId, setFocusedStepId] = useState<number | null>(null);
 
   const [wf, setWf] = useState<InvestigationWorkflow>({
     triage: "untriaged",
@@ -357,6 +360,7 @@ export default function AttackChainDrawer({
     setPinResultText(null);
     setPinStepId(null);
     setPinCaseOpen(false);
+    setFocusedStepId(initialStepId || null);
 
     setNoteText("");
 
@@ -373,7 +377,18 @@ export default function AttackChainDrawer({
         if (reqSeq.current !== mySeq) return;
         setLoading(false);
       });
-  }, [open, caseId]);
+  }, [open, caseId, initialStepId]);
+
+  useEffect(() => {
+    if (!open || !payload || !focusedStepId) return;
+    if (!payload.steps.some((s) => s.id === focusedStepId)) return;
+    setTab("timeline");
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(`attack-step-${focusedStepId}`);
+      if (el) el.scrollIntoView({ block: "center" });
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [open, payload, focusedStepId]);
 
   const title = caseId ? `Attack Chain Case #${caseId}` : "Attack Chain";
   const description = payload
@@ -542,8 +557,15 @@ export default function AttackChainDrawer({
   }
 
   function StepRow({ s }: { s: StepView }) {
+    const isFocused = focusedStepId === s.id;
     return (
-      <div className="rounded-xl border border-border/60 bg-background/40 p-4">
+      <div
+        id={`attack-step-${s.id}`}
+        className={cx(
+          "rounded-xl border border-border/60 bg-background/40 p-4",
+          isFocused && "border-primary/60 bg-primary/10"
+        )}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">

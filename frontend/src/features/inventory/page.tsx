@@ -61,6 +61,14 @@ function normAgentId(v?: string | null) {
   return s ? s : "__all";
 }
 
+function parsePositiveInt(v?: string | null): number | null {
+  const raw = String(v || "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.trunc(n);
+}
+
 function StatusBadge({ status }: { status: FleetHealthRow["inventory_status"] }) {
   const s = status;
   const klass =
@@ -248,6 +256,8 @@ export default function InventoryPage() {
   const [sp, setSp] = useSearchParams();
 
   const urlAgentId = normAgentId(sp.get("agent_id"));
+  const urlSnapshotId = parsePositiveInt(sp.get("snapshot_id"));
+  const urlOpenDrawer = String(sp.get("open_drawer") || "").trim() === "1";
 
   const [agentScope, setAgentScope] = useState<string>(urlAgentId);
   const [windowMinutes, setWindowMinutes] = useState<number>(() => {
@@ -323,6 +333,8 @@ export default function InventoryPage() {
     const agent = normAgentId(nextAgent);
     if (agent && agent !== "__all") next.set("agent_id", agent);
     else next.delete("agent_id");
+    next.delete("snapshot_id");
+    next.delete("open_drawer");
 
     const w = nextWindow ?? windowMinutes;
     if (Number.isFinite(w)) next.set("window_minutes", String(w));
@@ -342,6 +354,8 @@ export default function InventoryPage() {
   const [drawerErr, setDrawerErr] = useState<string | null>(null);
   const [drawerBusy, setDrawerBusy] = useState(false);
   const [pinSnapshotId, setPinSnapshotId] = useState<number | null>(null);
+  const [focusedSnapshotId, setFocusedSnapshotId] = useState<number | null>(null);
+  const deepLinkHandledRef = useRef<string | null>(null);
 
   // editable state
   const [editName, setEditName] = useState("");
@@ -352,7 +366,7 @@ export default function InventoryPage() {
 
   const [pkgQuery, setPkgQuery] = useState("");
 
-  const openDrawer = useCallback(async (agentId: string) => {
+  const openDrawer = useCallback(async (agentId: string, focusSnapshotId?: number | null) => {
     const id = (agentId || "").trim();
     if (!id) return;
 
@@ -373,6 +387,7 @@ export default function InventoryPage() {
       setDrawerAgent(a);
       setDrawerLatest(latest);
       setDrawerHistory(hist);
+      setFocusedSnapshotId(typeof focusSnapshotId === "number" ? focusSnapshotId : null);
 
       setEditName(a.display_name || "");
       setEditDesc(a.description || "");
@@ -385,6 +400,15 @@ export default function InventoryPage() {
     }
   }, []);
 
+  useEffect(() => {
+    if (urlAgentId === "__all") return;
+    if (!urlSnapshotId && !urlOpenDrawer) return;
+    const key = `${urlAgentId}:${urlSnapshotId || ""}:${urlOpenDrawer ? "1" : "0"}`;
+    if (deepLinkHandledRef.current === key) return;
+    deepLinkHandledRef.current = key;
+    openDrawer(urlAgentId, urlSnapshotId);
+  }, [urlAgentId, urlSnapshotId, urlOpenDrawer, openDrawer]);
+
   function closeDrawer() {
     setDrawerOpen(false);
     setDrawerAgentId(null);
@@ -393,6 +417,7 @@ export default function InventoryPage() {
     setDrawerHistory([]);
     setDrawerErr(null);
     setEditMsg(null);
+    setFocusedSnapshotId(null);
   }
 
   const agentsOptions = useMemo(() => {
@@ -1129,7 +1154,13 @@ export default function InventoryPage() {
                             const next = drawerHistory[idx + 1];
                             const changed = next ? s.packages_hash !== next.packages_hash : false;
                             return (
-                              <tr key={s.id} className="text-[11px] font-mono">
+                              <tr
+                                key={s.id}
+                                className={cx(
+                                  "text-[11px] font-mono",
+                                  focusedSnapshotId === s.id && "bg-primary/10"
+                                )}
+                              >
                                 <td className="px-3 py-2 text-muted-foreground">{fmtDateTime(s.collected_at)}</td>
                                 <td className="px-3 py-2 text-right text-muted-foreground">{s.packages_count}</td>
                                 <td className="px-3 py-2 text-right">
@@ -1151,7 +1182,8 @@ export default function InventoryPage() {
                                     className={cx(
                                       "rounded-md border border-border/60 bg-background/40 px-2 py-1",
                                       "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                                      "hover:bg-muted/15 hover:text-foreground"
+                                      "hover:bg-muted/15 hover:text-foreground",
+                                      focusedSnapshotId === s.id && "border-primary/40 text-foreground"
                                     )}
                                   >
                                     Pin

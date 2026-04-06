@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
@@ -13,6 +13,7 @@ import {
   createInvestigationWorkspace,
   deleteInvestigationBookmark,
   getInvestigationWorkspace,
+  listInvestigationActivity,
   listInvestigationBookmarks,
   listInvestigationNotes,
   listInvestigationWorkspaces,
@@ -21,8 +22,10 @@ import {
   updateInvestigationWorkspace,
 } from "./api";
 import type {
+  InvestigationActivityEntry,
   InvestigationBookmark,
   InvestigationNote,
+  InvestigationWorkspaceUpdateIn,
   InvestigationWorkspace,
   InvestigationWorkspacePriority,
   InvestigationWorkspaceSeverity,
@@ -60,6 +63,45 @@ function statusVariant(v: string) {
   if (v === "contained") return "low";
   if (v === "resolved") return "medium";
   return "neutral";
+}
+
+function evidenceVariant(v: string) {
+  if (v === "attack_chain_step" || v === "attack_chain_case") return "high";
+  if (v === "response_action_result") return "info";
+  if (v === "protocol_intel") return "medium";
+  if (v === "inventory_snapshot") return "low";
+  return "neutral";
+}
+
+function parseOptionalPositiveInt(raw: string): number | null {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  const n = Number(text);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.trunc(n);
+}
+
+function activityVariant(activityType: InvestigationActivityEntry["activity_type"]) {
+  if (activityType === "workspace_closed") return "critical";
+  if (activityType === "workspace_reopened") return "info";
+  if (activityType === "attack_chain_case_linked" || activityType === "attack_chain_step_pinned") return "high";
+  if (activityType === "bookmark_created" || activityType === "note_created") return "medium";
+  if (activityType === "bookmark_deleted") return "low";
+  return "neutral";
+}
+
+function activityLabel(activityType: InvestigationActivityEntry["activity_type"]) {
+  if (activityType === "workspace_created") return "Workspace created";
+  if (activityType === "workspace_updated") return "Workspace updated";
+  if (activityType === "workspace_closed") return "Workspace closed";
+  if (activityType === "workspace_reopened") return "Workspace reopened";
+  if (activityType === "note_created") return "Note created";
+  if (activityType === "note_updated") return "Note updated";
+  if (activityType === "bookmark_created") return "Bookmark created";
+  if (activityType === "bookmark_deleted") return "Bookmark deleted";
+  if (activityType === "attack_chain_case_linked") return "Attack chain case linked";
+  if (activityType === "attack_chain_step_pinned") return "Attack chain step pinned";
+  return "Workspace action";
 }
 
 function parseCaseId(raw: string): number | undefined {
@@ -166,12 +208,48 @@ function WorkspaceDrawer({
   const [workspace, setWorkspace] = useState<InvestigationWorkspace | null>(null);
   const [notes, setNotes] = useState<InvestigationNote[]>([]);
   const [bookmarks, setBookmarks] = useState<InvestigationBookmark[]>([]);
+  const [activity, setActivity] = useState<InvestigationActivityEntry[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [noteText, setNoteText] = useState("");
   const [noteEditId, setNoteEditId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [edit, setEdit] = useState<{
+    title: string;
+    description: string;
+    status: InvestigationWorkspaceStatus;
+    severity: InvestigationWorkspaceSeverity;
+    priority: InvestigationWorkspacePriority;
+    assignee: string;
+    primaryAgentId: string;
+    linkedCaseId: string;
+  }>({
+    title: "",
+    description: "",
+    status: "open",
+    severity: "medium",
+    priority: "p3",
+    assignee: "",
+    primaryAgentId: "",
+    linkedCaseId: "",
+  });
+
+  const syncEditForm = useCallback((ws: InvestigationWorkspace) => {
+    setEdit({
+      title: ws.title || "",
+      description: ws.description || "",
+      status: ws.status,
+      severity: ws.severity,
+      priority: ws.priority,
+      assignee: ws.assignee || "",
+      primaryAgentId: ws.primary_agent_id || "",
+      linkedCaseId: ws.linked_attack_chain_case_id ? String(ws.linked_attack_chain_case_id) : "",
+    });
+  }, []);
 
   useEffect(() => {
     if (!open || !workspaceId) return;
@@ -179,36 +257,45 @@ function WorkspaceDrawer({
     setLoading(true);
     setError(null);
     setTab("overview");
+    setSaveError(null);
+    setSaveSuccess(null);
 
     Promise.all([
       getInvestigationWorkspace(workspaceId),
       listInvestigationNotes(workspaceId, { limit: 300 }),
       listInvestigationBookmarks(workspaceId, { page_size: 200 }),
+      listInvestigationActivity(workspaceId, { page_size: 200 }),
     ])
-      .then(([ws, ns, bs]) => {
+      .then(([ws, ns, bs, feed]) => {
         setWorkspace(ws);
+        syncEditForm(ws);
         setNotes(ns || []);
         setBookmarks(bs.items || []);
+        setActivity(feed.items || []);
       })
       .catch((e: any) => {
         setError(e?.message || "Failed to load workspace");
         setWorkspace(null);
         setNotes([]);
         setBookmarks([]);
+        setActivity([]);
       })
       .finally(() => setLoading(false));
-  }, [open, workspaceId]);
+  }, [open, workspaceId, syncEditForm]);
 
   async function refresh() {
     if (!workspaceId) return;
-    const [ws, ns, bs] = await Promise.all([
+    const [ws, ns, bs, feed] = await Promise.all([
       getInvestigationWorkspace(workspaceId),
       listInvestigationNotes(workspaceId, { limit: 300 }),
       listInvestigationBookmarks(workspaceId, { page_size: 200 }),
+      listInvestigationActivity(workspaceId, { page_size: 200 }),
     ]);
     setWorkspace(ws);
+    syncEditForm(ws);
     setNotes(ns || []);
     setBookmarks(bs.items || []);
+    setActivity(feed.items || []);
     onUpdated(ws);
   }
 
@@ -240,7 +327,10 @@ function WorkspaceDrawer({
     try {
       const next = await closeInvestigationWorkspace(workspaceId);
       setWorkspace(next);
+      syncEditForm(next);
       onUpdated(next);
+      const feed = await listInvestigationActivity(workspaceId, { page_size: 200 });
+      setActivity(feed.items || []);
     } catch (e: any) {
       setError(e?.message || "Failed to close workspace");
     } finally {
@@ -254,7 +344,10 @@ function WorkspaceDrawer({
     try {
       const next = await reopenInvestigationWorkspace(workspaceId);
       setWorkspace(next);
+      syncEditForm(next);
       onUpdated(next);
+      const feed = await listInvestigationActivity(workspaceId, { page_size: 200 });
+      setActivity(feed.items || []);
     } catch (e: any) {
       setError(e?.message || "Failed to reopen workspace");
     } finally {
@@ -275,13 +368,61 @@ function WorkspaceDrawer({
     }
   }
 
-  const activity = useMemo(() => {
-    const n = notes.map((x) => ({ type: "note" as const, at: x.updated_at || x.created_at, id: x.id, label: `${x.author}: ${x.body}` }));
-    const b = bookmarks.map((x) => ({ type: "bookmark" as const, at: x.created_at, id: x.id, label: `${x.evidence_type} · ${x.title}` }));
-    return [...n, ...b]
-      .sort((a, c) => (Date.parse(c.at || "") || 0) - (Date.parse(a.at || "") || 0))
-      .slice(0, 200);
-  }, [notes, bookmarks]);
+  const editDirty = useMemo(() => {
+    if (!workspace) return false;
+    return (
+      workspace.title !== edit.title ||
+      (workspace.description || "") !== edit.description ||
+      workspace.status !== edit.status ||
+      workspace.severity !== edit.severity ||
+      workspace.priority !== edit.priority ||
+      (workspace.assignee || "") !== edit.assignee ||
+      (workspace.primary_agent_id || "") !== edit.primaryAgentId ||
+      String(workspace.linked_attack_chain_case_id || "") !== edit.linkedCaseId.trim()
+    );
+  }, [workspace, edit]);
+
+  async function saveWorkspaceMetadata() {
+    if (!workspaceId || !workspace) return;
+    const title = edit.title.trim();
+    if (!title) {
+      setSaveError("Title is required.");
+      setSaveSuccess(null);
+      return;
+    }
+    const linkedCaseId = parseOptionalPositiveInt(edit.linkedCaseId);
+    if (edit.linkedCaseId.trim() && linkedCaseId === null) {
+      setSaveError("Linked attack case must be a positive numeric ID.");
+      setSaveSuccess(null);
+      return;
+    }
+    setSaveBusy(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+    try {
+      const payload: InvestigationWorkspaceUpdateIn = {
+        title,
+        description: edit.description.trim() || "",
+        status: edit.status,
+        severity: edit.severity,
+        priority: edit.priority,
+        assignee: edit.assignee.trim() || null,
+        primary_agent_id: edit.primaryAgentId.trim() || null,
+        linked_attack_chain_case_id: linkedCaseId,
+      };
+      const next = await updateInvestigationWorkspace(workspaceId, payload);
+      setWorkspace(next);
+      syncEditForm(next);
+      setSaveSuccess("Workspace details saved.");
+      onUpdated(next);
+      const feed = await listInvestigationActivity(workspaceId, { page_size: 200 });
+      setActivity(feed.items || []);
+    } catch (e: any) {
+      setSaveError(e?.message || "Failed to save workspace details");
+    } finally {
+      setSaveBusy(false);
+    }
+  }
 
   return (
     <Drawer
@@ -332,45 +473,156 @@ function WorkspaceDrawer({
           </div>
 
           {tab === "overview" ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="rounded-lg border border-border/60 bg-background/30 p-3">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Summary</div>
-                <div className="mt-2 text-sm">{workspace.description || "No description."}</div>
-                <div className="mt-2 text-[11px] text-muted-foreground">Created by {workspace.created_by} · {fmtTs(workspace.created_at)}</div>
-                <div className="text-[11px] text-muted-foreground">Updated by {workspace.updated_by} · {fmtTs(workspace.updated_at)}</div>
-              </div>
-
-              <div className="rounded-lg border border-border/60 bg-background/30 p-3">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Counters</div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-[12px]">
-                  <div>Notes: <span className="font-mono">{workspace.notes_count}</span></div>
-                  <div>Bookmarks: <span className="font-mono">{workspace.bookmarks_count}</span></div>
-                  {Object.entries(workspace.evidence_type_counts || {}).map(([k, v]) => (
-                    <div key={k}>{k}: <span className="font-mono">{v}</span></div>
-                  ))}
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+                <div className="rounded-md border border-border/60 bg-background/30 px-2 py-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Notes</div>
+                  <div className="mt-1 text-lg font-semibold font-mono">{workspace.notes_count}</div>
                 </div>
+                <div className="rounded-md border border-border/60 bg-background/30 px-2 py-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Evidence</div>
+                  <div className="mt-1 text-lg font-semibold font-mono">{workspace.bookmarks_count}</div>
+                </div>
+                {Object.entries(workspace.evidence_type_counts || {}).map(([k, v]) => (
+                  <div key={k} className="rounded-md border border-border/60 bg-background/30 px-2 py-2">
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground truncate">{k}</div>
+                    <div className="mt-1 text-lg font-semibold font-mono">{v}</div>
+                  </div>
+                ))}
               </div>
 
-              <div className="md:col-span-2 flex items-center gap-2">
-                {workspace.status === "closed" ? (
+              <div className="rounded-lg border border-border/60 bg-background/30 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Workspace details</div>
+                  <div className="text-[11px] text-muted-foreground font-mono">
+                    Created by {workspace.created_by} · {fmtTs(workspace.created_at)}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Title</div>
+                    <input
+                      value={edit.title}
+                      onChange={(e) => setEdit((prev) => ({ ...prev, title: e.target.value }))}
+                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Assignee</div>
+                    <input
+                      value={edit.assignee}
+                      onChange={(e) => setEdit((prev) => ({ ...prev, assignee: e.target.value }))}
+                      placeholder="Unassigned"
+                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Description</div>
+                    <textarea
+                      value={edit.description}
+                      onChange={(e) => setEdit((prev) => ({ ...prev, description: e.target.value }))}
+                      rows={3}
+                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Status</div>
+                    <select
+                      value={edit.status}
+                      onChange={(e) => setEdit((prev) => ({ ...prev, status: e.target.value as InvestigationWorkspaceStatus }))}
+                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                    >
+                      <option value="open">Open</option>
+                      <option value="contained">Contained</option>
+                      <option value="resolved">Resolved</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Severity</div>
+                    <select
+                      value={edit.severity}
+                      onChange={(e) => setEdit((prev) => ({ ...prev, severity: e.target.value as InvestigationWorkspaceSeverity }))}
+                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="critical">Critical</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Priority</div>
+                    <select
+                      value={edit.priority}
+                      onChange={(e) => setEdit((prev) => ({ ...prev, priority: e.target.value as InvestigationWorkspacePriority }))}
+                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                    >
+                      <option value="p1">P1</option>
+                      <option value="p2">P2</option>
+                      <option value="p3">P3</option>
+                      <option value="p4">P4</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Primary agent</div>
+                    <input
+                      value={edit.primaryAgentId}
+                      onChange={(e) => setEdit((prev) => ({ ...prev, primaryAgentId: e.target.value }))}
+                      placeholder="agent-id"
+                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm font-mono"
+                    />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Linked attack case</div>
+                    <input
+                      value={edit.linkedCaseId}
+                      onChange={(e) => setEdit((prev) => ({ ...prev, linkedCaseId: e.target.value }))}
+                      placeholder="case id"
+                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    disabled={busy}
-                    onClick={onReopenWorkspace}
-                    className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest hover:bg-muted/15"
+                    onClick={saveWorkspaceMetadata}
+                    disabled={saveBusy || !editDirty}
+                    className={cx(
+                      "rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest",
+                      "hover:bg-muted/15",
+                      (saveBusy || !editDirty) && "opacity-60 cursor-not-allowed"
+                    )}
                   >
-                    Reopen workspace
+                    {saveBusy ? "Saving..." : "Save workspace details"}
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={onCloseWorkspace}
-                    className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-mono uppercase tracking-widest text-red-300 hover:bg-red-500/15"
-                  >
-                    Close workspace
-                  </button>
-                )}
+                  {workspace.status === "closed" ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={onReopenWorkspace}
+                      className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest hover:bg-muted/15"
+                    >
+                      Reopen workspace
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={onCloseWorkspace}
+                      className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-mono uppercase tracking-widest text-red-300 hover:bg-red-500/15"
+                    >
+                      Close workspace
+                    </button>
+                  )}
+                  <div className="text-[11px] text-muted-foreground font-mono">
+                    Updated by {workspace.updated_by} · {fmtTs(workspace.updated_at)}
+                  </div>
+                </div>
+                {saveError ? <div className="text-sm text-red-400">{saveError}</div> : null}
+                {saveSuccess ? <div className="text-sm text-emerald-400">{saveSuccess}</div> : null}
               </div>
             </div>
           ) : null}
@@ -424,7 +676,7 @@ function WorkspaceDrawer({
                 <div key={b.id} className="rounded-lg border border-border/60 bg-background/30 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <Badge variant="neutral">{b.evidence_type}</Badge>
+                      <Badge variant={evidenceVariant(b.evidence_type) as any}>{b.evidence_type}</Badge>
                       <div className="text-sm font-semibold">{b.title}</div>
                     </div>
                     <button
@@ -437,13 +689,13 @@ function WorkspaceDrawer({
                   </div>
 
                   {b.summary ? <div className="mt-1 text-sm text-muted-foreground">{b.summary}</div> : null}
-                  <div className="mt-2">{renderEvidenceCardContent(b)}</div>
+                  <div className="mt-2 rounded-md border border-border/50 bg-background/20 p-2">{renderEvidenceCardContent(b)}</div>
 
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                     <span>pinned {fmtTs(b.created_at)} by {b.created_by}</span>
                     {b.tags.length ? <span>tags: {b.tags.join(", ")}</span> : null}
                     {b.payload_snapshot?.deep_link ? (
-                      <a href={String(b.payload_snapshot.deep_link)} className="text-primary hover:underline">
+                      <a href={String(b.payload_snapshot.deep_link)} className="rounded border border-border/60 px-2 py-1 text-primary hover:underline">
                         Open source
                       </a>
                     ) : null}
@@ -457,9 +709,19 @@ function WorkspaceDrawer({
             <div className="space-y-2">
               {activity.length === 0 ? <EmptyState title="No activity" /> : null}
               {activity.map((a) => (
-                <div key={`${a.type}-${a.id}`} className="rounded-lg border border-border/60 bg-background/30 p-2 text-sm">
-                  <div className="text-[11px] text-muted-foreground font-mono">{fmtTs(a.at)} · {a.type}</div>
-                  <div className="mt-1 break-words">{a.label}</div>
+                <div key={a.id} className="rounded-lg border border-border/60 bg-background/30 p-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={activityVariant(a.activity_type) as any}>{activityLabel(a.activity_type)}</Badge>
+                    <span className="text-[11px] text-muted-foreground font-mono">{fmtTs(a.created_at)}</span>
+                    <span className="text-[11px] text-muted-foreground font-mono">
+                      {a.actor_username ? `by ${a.actor_username}` : "by system"}
+                    </span>
+                  </div>
+                  <div className="mt-1 break-words">{a.summary}</div>
+                  <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground font-mono">
+                    {a.target_type ? <span>{a.target_type}{a.target_id ? ` #${a.target_id}` : ""}</span> : null}
+                    {a.changed_fields?.length ? <span>fields: {a.changed_fields.slice(0, 4).join(", ")}</span> : null}
+                  </div>
                 </div>
               ))}
             </div>

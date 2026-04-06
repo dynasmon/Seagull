@@ -6,13 +6,14 @@ import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor, write_audit_event
-from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
+from app.core.pagination import decode_cursor, encode_cursor, make_cursor_ts_id, parse_cursor_ts_id
 from app.core.portal_auth import PortalPrincipal
 from app.features.investigations import repository
 from app.features.investigations.models import (
@@ -22,6 +23,7 @@ from app.features.investigations.models import (
 )
 from app.features.investigations.schemas import (
     EvidenceType,
+    InvestigationActivityOut,
     InvestigationBookmarkCreateIn,
     InvestigationBookmarkCreateResult,
     InvestigationBookmarkOut,
@@ -61,6 +63,40 @@ _MAX_JSON_STR = 1024
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _build_deep_link(path: str, **params: Any) -> str:
+    items: list[tuple[str, str]] = []
+    for key, value in params.items():
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+        items.append((str(key), text))
+    if not items:
+        return path
+    return f"{path}?{urlencode(items)}"
+
+
+def _parse_activity_cursor(cursor: str) -> tuple[datetime, str]:
+    obj = decode_cursor(cursor)
+    ts_raw = obj.get("ts")
+    id_raw = obj.get("id")
+    if not isinstance(ts_raw, str) or not isinstance(id_raw, str):
+        raise HTTPException(status_code=400, detail="Invalid cursor")
+    try:
+        ts = datetime.fromisoformat(ts_raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid cursor")
+    row_id = id_raw.strip()
+    if not row_id:
+        raise HTTPException(status_code=400, detail="Invalid cursor")
+    return ts, row_id
+
+
+def _make_activity_cursor(ts: datetime, row_id: str) -> str:
+    return encode_cursor({"ts": ts.isoformat(), "id": str(row_id)})
 
 
 def _clip_text(value: Any, *, max_len: int) -> str:
@@ -350,14 +386,27 @@ def _build_net_event_snapshot(event) -> dict[str, Any]:
         "ja3": getattr(event, "ja3", None) or extra.get("ja3"),
         "ja4": getattr(event, "ja4", None) or extra.get("ja4"),
         "extra": extra,
-        "deep_link": f"/events?event_id={int(event.id)}",
+        "deep_link": _build_deep_link(
+            "/events",
+            event_id=int(event.id),
+            agent_id=event.agent_id,
+            event_type=event.event_type,
+            window_minutes=1440,
+        ),
     }
     return _ensure_snapshot_size(payload)
 
 
-def _build_protocol_intel_snapshot(event) -> dict[str, Any]:
+def _build_protocol_intel_snapshot(event, *, indicator_context: dict[str, Any] | None = None) -> dict[str, Any]:
     extra = _event_extra(event)
     app_proto = (getattr(event, "app_proto", None) or extra.get("app_proto") or "unknown")
+    indicator_context = indicator_context if isinstance(indicator_context, dict) else {}
+    indicator_kind = _norm_optional(indicator_context.get("protocol_indicator_kind"), max_len=64)
+    indicator_value = _norm_optional(indicator_context.get("protocol_indicator_value"), max_len=256)
+    if not indicator_kind:
+        indicator_kind = "app_proto"
+    if not indicator_value:
+        indicator_value = str(app_proto)
     payload = {
         "source_event_id": int(event.id),
         "timestamp": event.timestamp.isoformat() if event.timestamp else None,
@@ -379,7 +428,14 @@ def _build_protocol_intel_snapshot(event) -> dict[str, Any]:
         "src_port": event.src_port,
         "dst_port": event.dst_port,
         "proto": event.proto,
-        "deep_link": f"/events?event_id={int(event.id)}",
+        "deep_link": _build_deep_link(
+            "/events/network",
+            agent_id=event.agent_id,
+            since_minutes=720,
+            focus_event_id=int(event.id),
+            indicator_kind=indicator_kind,
+            indicator_value=indicator_value,
+        ),
     }
     return _ensure_snapshot_size(payload)
 
@@ -402,7 +458,12 @@ def _build_inventory_snapshot(snapshot) -> dict[str, Any]:
             "goos": os_data.get("goos"),
         },
         "warnings": extra.get("warnings") or extra.get("warning") or [],
-        "deep_link": f"/inventory?agent_id={snapshot.agent_id}",
+        "deep_link": _build_deep_link(
+            "/inventory",
+            agent_id=snapshot.agent_id,
+            snapshot_id=int(snapshot.id),
+            open_drawer=1,
+        ),
     }
     return _ensure_snapshot_size(payload)
 
@@ -420,7 +481,14 @@ def _build_response_result_snapshot(result, action) -> dict[str, Any]:
         "finished_at": result.finished_at.isoformat() if result.finished_at else None,
         "error": result.error,
         "result_payload": result_payload,
-        "deep_link": f"/agents?agent_id={result.agent_id}",
+        "deep_link": _build_deep_link(
+            "/agents",
+            agent_id=result.agent_id,
+            open_response_action=1,
+            response_action_id=int(result.response_action_id),
+            response_result_id=int(result.id),
+            response_tab="result",
+        ),
     }
     return _ensure_snapshot_size(payload)
 
@@ -438,7 +506,7 @@ def _build_attack_chain_case_snapshot(case) -> dict[str, Any]:
         "last_seen_at": case.last_seen_at.isoformat() if case.last_seen_at else None,
         "step_count": int(case.step_count or 0),
         "context": context,
-        "deep_link": f"/attack-chain?case_id={int(case.id)}",
+        "deep_link": _build_deep_link("/attack-chain", case_id=int(case.id)),
     }
     return _ensure_snapshot_size(payload)
 
@@ -461,7 +529,7 @@ def _build_attack_chain_step_snapshot(step, case_agent_id: str | None) -> dict[s
         "dst_port": step.dst_port,
         "proto": step.proto,
         "details": details,
-        "deep_link": f"/attack-chain?case_id={int(step.case_id)}",
+        "deep_link": _build_deep_link("/attack-chain", case_id=int(step.case_id), step_id=int(step.id)),
     }
     return _ensure_snapshot_size(payload)
 
@@ -943,6 +1011,158 @@ def list_bookmarks(
     return CursorPage(items=[_bookmark_out(r) for r in items], next_cursor=next_cursor, has_more=has_more)
 
 
+def _audit_dict(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _classify_activity_type(action: str, *, before: dict[str, Any], after: dict[str, Any]) -> str:
+    normalized = str(action or "").strip().lower()
+    if normalized == "workspace.create":
+        return "workspace_created"
+    if normalized == "workspace.close":
+        return "workspace_closed"
+    if normalized == "workspace.reopen":
+        return "workspace_reopened"
+    if normalized == "workspace.update":
+        before_case = before.get("linked_attack_chain_case_id")
+        after_case = after.get("linked_attack_chain_case_id")
+        if after_case and str(after_case) != str(before_case):
+            return "attack_chain_case_linked"
+        return "workspace_updated"
+    if normalized == "workspace.note.create":
+        return "note_created"
+    if normalized == "workspace.note.update":
+        return "note_updated"
+    if normalized == "workspace.bookmark.create":
+        if str(after.get("evidence_type") or "").strip().lower() == "attack_chain_step":
+            return "attack_chain_step_pinned"
+        return "bookmark_created"
+    if normalized == "workspace.bookmark.delete":
+        return "bookmark_deleted"
+    return "workspace_action"
+
+
+def _activity_summary(
+    *,
+    activity_type: str,
+    action: str,
+    changed_fields: list[str],
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> str:
+    if activity_type == "workspace_created":
+        return "Workspace created"
+    if activity_type == "workspace_closed":
+        return "Workspace closed"
+    if activity_type == "workspace_reopened":
+        return "Workspace reopened"
+    if activity_type == "workspace_updated":
+        fields = [str(f).strip() for f in changed_fields if str(f).strip()]
+        if fields:
+            return f"Workspace updated ({', '.join(fields[:4])})"
+        return "Workspace updated"
+    if activity_type == "attack_chain_case_linked":
+        case_id = after.get("linked_attack_chain_case_id")
+        return f"Linked attack chain case #{case_id}" if case_id is not None else "Linked attack chain case"
+    if activity_type == "note_created":
+        return "Note added"
+    if activity_type == "note_updated":
+        return "Note edited"
+    if activity_type == "bookmark_created":
+        ev_type = str(after.get("evidence_type") or "").strip()
+        return f"Evidence pinned ({ev_type})" if ev_type else "Evidence pinned"
+    if activity_type == "bookmark_deleted":
+        ev_type = str(before.get("evidence_type") or "").strip()
+        return f"Evidence removed ({ev_type})" if ev_type else "Evidence removed"
+    if activity_type == "attack_chain_step_pinned":
+        step_id = after.get("ref_id")
+        return f"Pinned attack chain step #{step_id}" if step_id is not None else "Pinned attack chain step"
+    action_label = str(action or "").strip() or "workspace.action"
+    return f"Workspace action: {action_label}"
+
+
+def _activity_out(row, *, workspace_id: int) -> InvestigationActivityOut:
+    before = _audit_dict(getattr(row, "before", {}))
+    after = _audit_dict(getattr(row, "after", {}))
+    context = _audit_dict(getattr(row, "context", {}))
+    action = str(getattr(row, "action", "") or "")
+    changed_fields = [str(x) for x in (getattr(row, "changed_fields", []) or []) if str(x).strip()]
+    activity_type = _classify_activity_type(action, before=before, after=after)
+
+    target_type: str | None = None
+    target_id: str | None = None
+    if activity_type in {"workspace_created", "workspace_updated", "workspace_closed", "workspace_reopened", "workspace_action"}:
+        target_type = "workspace"
+        target_id = str(workspace_id)
+    elif activity_type in {"note_created", "note_updated"}:
+        target_type = "note"
+        target_id = str(getattr(row, "resource_id", "") or "")
+    elif activity_type in {"bookmark_created", "bookmark_deleted"}:
+        target_type = "bookmark"
+        target_id = str(getattr(row, "resource_id", "") or "")
+    elif activity_type == "attack_chain_case_linked":
+        target_type = "attack_chain_case"
+        case_id = after.get("linked_attack_chain_case_id")
+        target_id = str(case_id) if case_id is not None else None
+    elif activity_type == "attack_chain_step_pinned":
+        target_type = "attack_chain_step"
+        step_id = after.get("ref_id")
+        target_id = str(step_id) if step_id is not None else None
+
+    return InvestigationActivityOut(
+        id=str(getattr(row, "id", "")),
+        workspace_id=int(workspace_id),
+        activity_type=activity_type,
+        action=action,
+        actor_username=getattr(row, "actor_username", None),
+        created_at=getattr(row, "created_at"),
+        outcome=str(getattr(row, "outcome", "success") or "success"),
+        target_type=target_type,
+        target_id=(target_id if target_id else None),
+        summary=_activity_summary(
+            activity_type=activity_type,
+            action=action,
+            changed_fields=changed_fields,
+            before=before,
+            after=after,
+        ),
+        changed_fields=changed_fields,
+        context=context,
+    )
+
+
+def list_activity(
+    db: Session,
+    *,
+    workspace_id: int,
+    page_size: int,
+    cursor: Optional[str],
+) -> CursorPage[InvestigationActivityOut]:
+    _ensure_workspace_or_404(db, int(workspace_id))
+
+    cursor_parsed = _parse_activity_cursor(cursor) if cursor else None
+    size = max(1, min(int(page_size), 200))
+    rows = repository.list_workspace_activity_audit_page(
+        db,
+        workspace_id=int(workspace_id),
+        page_size=size,
+        cursor_parsed=cursor_parsed,
+    )
+
+    has_more = len(rows) > size
+    items = rows[:size]
+    next_cursor = None
+    if has_more and items:
+        last = items[-1]
+        next_cursor = _make_activity_cursor(last.created_at, str(last.id))
+
+    return CursorPage(
+        items=[_activity_out(r, workspace_id=int(workspace_id)) for r in items],
+        next_cursor=next_cursor,
+        has_more=has_more,
+    )
+
+
 def _pin_bookmark_from_event(
     db: Session,
     *,
@@ -960,7 +1180,10 @@ def _pin_bookmark_from_event(
         raise HTTPException(status_code=404, detail="Event not found")
 
     if evidence_type == "protocol_intel":
-        snapshot = _build_protocol_intel_snapshot(event)
+        snapshot = _build_protocol_intel_snapshot(
+            event,
+            indicator_context=_sanitize_json(opts.metadata or {}) if isinstance(opts.metadata, dict) else {},
+        )
         subtype = _norm_optional(opts.evidence_subtype, max_len=64) or str(snapshot.get("app_proto") or "protocol")[:64]
         title = f"Protocol intel · event #{int(event.id)}"
         summary = f"{snapshot.get('app_proto') or 'unknown'} · {_event_addr_summary(event)}"
@@ -1255,8 +1478,8 @@ def _create_bookmark(
 
     workspace.updated_by = _clip_text(actor.username, max_len=64) or workspace.updated_by
     repository.save_workspace(db, workspace)
-    _refresh_workspace_summary(db, workspace)
 
+    note_row = None
     if note_text:
         note_row = repository.create_note(
             db,
@@ -1282,6 +1505,8 @@ def _create_bookmark(
             },
             context={"source": "bookmark_pin"},
         )
+
+    _refresh_workspace_summary(db, workspace)
 
     audit_writer(
         db,

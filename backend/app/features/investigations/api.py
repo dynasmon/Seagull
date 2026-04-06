@@ -12,6 +12,7 @@ from app.features.investigations.schemas import (
     InvestigationBookmarkCreateIn,
     InvestigationBookmarkCreateResult,
     InvestigationBookmarkOut,
+    InvestigationActivityOut,
     InvestigationNoteCreateIn,
     InvestigationNoteOut,
     InvestigationNoteUpdateIn,
@@ -208,6 +209,24 @@ def list_workspace_bookmarks(
             db,
             workspace_id=workspace_id,
             evidence_type=evidence_type,
+            page_size=page_size,
+            cursor=cursor,
+        )
+    finally:
+        db.close()
+
+
+@router.get("/workspaces/{workspace_id}/activity", response_model=CursorPage[InvestigationActivityOut])
+def list_workspace_activity(
+    workspace_id: int,
+    page_size: int = Query(100, ge=1, le=200),
+    cursor: Optional[str] = Query(None, description="Opaque cursor from a previous call"),
+):
+    db = SessionLocal()
+    try:
+        return service.list_activity(
+            db,
+            workspace_id=workspace_id,
             page_size=page_size,
             cursor=cursor,
         )

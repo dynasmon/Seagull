@@ -20,6 +20,20 @@ EvidenceType = Literal[
     "attack_chain_step",
 ]
 
+InvestigationActivityType = Literal[
+    "workspace_created",
+    "workspace_updated",
+    "workspace_closed",
+    "workspace_reopened",
+    "note_created",
+    "note_updated",
+    "bookmark_created",
+    "bookmark_deleted",
+    "attack_chain_case_linked",
+    "attack_chain_step_pinned",
+    "workspace_action",
+]
+
 
 class InvestigationWorkspaceCreateIn(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
@@ -227,3 +241,18 @@ class InvestigationBookmarkCreateResult(BaseModel):
     created: bool
     duplicate_of_id: Optional[int] = None
     bookmark: InvestigationBookmarkOut
+
+
+class InvestigationActivityOut(BaseModel):
+    id: str
+    workspace_id: int
+    activity_type: InvestigationActivityType
+    action: str
+    actor_username: Optional[str] = None
+    created_at: datetime
+    outcome: str
+    target_type: Optional[str] = None
+    target_id: Optional[str] = None
+    summary: str
+    changed_fields: List[str] = Field(default_factory=list)
+    context: Dict[str, Any] = Field(default_factory=dict)
