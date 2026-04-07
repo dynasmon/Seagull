@@ -36,7 +36,8 @@ def test_select_hunt_chain_prefers_elasticsearch_for_search() -> None:
 
 def test_select_hunt_chain_prefers_clickhouse_for_wide_window(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(service.settings, "NETWATCH_EVENTS_HUNT_CLICKHOUSE_MINUTES", 90, raising=False)
-    assert service._select_hunt_chain(has_search=False, window_minutes=120) == ["clickhouse", "postgres"]
+    monkeypatch.setattr(service, "search_backend_mode", lambda: "auto")
+    assert service._select_hunt_chain(has_search=False, window_minutes=120) == ["clickhouse", "postgres", "elasticsearch"]
 
 
 def test_hunt_events_falls_back_to_postgres_when_es_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -104,6 +105,39 @@ def test_hunt_events_falls_back_from_clickhouse_to_postgres(monkeypatch: pytest.
 
     assert out.meta.source == "postgres"
     assert out.meta.fallback_chain[:2] == ["clickhouse", "postgres"]
+    assert out.meta.degraded_reason is not None
+
+
+def test_hunt_events_falls_back_to_elasticsearch_after_pg_and_clickhouse_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    sample = _evt(903)
+    monkeypatch.setattr(service.settings, "NETWATCH_EVENTS_HUNT_CLICKHOUSE_MINUTES", 30, raising=False)
+    monkeypatch.setattr(service, "search_backend_mode", lambda: "auto")
+    monkeypatch.setattr(service, "_ch_client_or_none", lambda: object())
+    monkeypatch.setattr(
+        service,
+        "_ch_hunt_query",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("ch_down")),
+    )
+    monkeypatch.setattr(
+        service,
+        "_pg_hunt_query",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("pg_down")),
+    )
+    monkeypatch.setattr(service, "_es_client_or_none", lambda: object())
+    monkeypatch.setattr(service, "_es_hunt_query", lambda **_kwargs: ([sample], None, False))
+    monkeypatch.setattr(service, "_pg_has_newer_event", lambda *_args, **_kwargs: False)
+
+    out = service.hunt_events(
+        db=object(),
+        page_size=30,
+        cursor=None,
+        agent_id=None,
+        event_type=None,
+        since_minutes=120,
+    )
+
+    assert out.meta.source == "elasticsearch"
+    assert out.meta.fallback_chain == ["clickhouse", "postgres", "elasticsearch"]
     assert out.meta.degraded_reason is not None
 
 
