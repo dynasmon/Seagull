@@ -384,41 +384,24 @@ def _ch_dedup_key_expr(alias: str = "") -> str:
 def _ch_deduped_events_source_sql(*, table: str, where_sql: str) -> str:
     dedup_key = _ch_dedup_key_expr()
     return (
+        "SELECT timestamp, pg_event_id, agent_id, event_type, schema_version, severity, "
+        "src_ip, dst_ip, src_port, dst_port, proto, bytes, app_proto, app_proto_reason, "
+        "app_proto_conf_band, dns_qname, http_host, http_method, tls_sni, tls_alpn_first, "
+        "ja3, ja4, ja4_ptype, ssh_action, ssh_username, sudo_username, sudo_target_user, "
+        "sudo_command, sudo_tty, extra_json, ingested_at "
+        "FROM ("
         "SELECT "
-        "argMax(timestamp, ingested_at) AS timestamp, "
-        "argMax(pg_event_id, ingested_at) AS pg_event_id, "
-        "argMax(agent_id, ingested_at) AS agent_id, "
-        "argMax(event_type, ingested_at) AS event_type, "
-        "argMax(schema_version, ingested_at) AS schema_version, "
-        "argMax(severity, ingested_at) AS severity, "
-        "argMax(src_ip, ingested_at) AS src_ip, "
-        "argMax(dst_ip, ingested_at) AS dst_ip, "
-        "argMax(src_port, ingested_at) AS src_port, "
-        "argMax(dst_port, ingested_at) AS dst_port, "
-        "argMax(proto, ingested_at) AS proto, "
-        "argMax(bytes, ingested_at) AS bytes, "
-        "argMax(app_proto, ingested_at) AS app_proto, "
-        "argMax(app_proto_reason, ingested_at) AS app_proto_reason, "
-        "argMax(app_proto_conf_band, ingested_at) AS app_proto_conf_band, "
-        "argMax(dns_qname, ingested_at) AS dns_qname, "
-        "argMax(http_host, ingested_at) AS http_host, "
-        "argMax(http_method, ingested_at) AS http_method, "
-        "argMax(tls_sni, ingested_at) AS tls_sni, "
-        "argMax(tls_alpn_first, ingested_at) AS tls_alpn_first, "
-        "argMax(ja3, ingested_at) AS ja3, "
-        "argMax(ja4, ingested_at) AS ja4, "
-        "argMax(ja4_ptype, ingested_at) AS ja4_ptype, "
-        "argMax(ssh_action, ingested_at) AS ssh_action, "
-        "argMax(ssh_username, ingested_at) AS ssh_username, "
-        "argMax(sudo_username, ingested_at) AS sudo_username, "
-        "argMax(sudo_target_user, ingested_at) AS sudo_target_user, "
-        "argMax(sudo_command, ingested_at) AS sudo_command, "
-        "argMax(sudo_tty, ingested_at) AS sudo_tty, "
-        "argMax(extra_json, ingested_at) AS extra_json, "
-        "max(ingested_at) AS ingested_at "
+        "timestamp, pg_event_id, agent_id, event_type, schema_version, severity, "
+        "src_ip, dst_ip, src_port, dst_port, proto, bytes, app_proto, app_proto_reason, "
+        "app_proto_conf_band, dns_qname, http_host, http_method, tls_sni, tls_alpn_first, "
+        "ja3, ja4, ja4_ptype, ssh_action, ssh_username, sudo_username, sudo_target_user, "
+        "sudo_command, sudo_tty, extra_json, ingested_at, "
+        f"{dedup_key} AS dedup_key "
         f"FROM {table} "
         f"WHERE {where_sql} "
-        f"GROUP BY {dedup_key}"
+        "ORDER BY dedup_key, ingested_at DESC, timestamp DESC, pg_event_id DESC "
+        "LIMIT 1 BY dedup_key"
+        ")"
     )
 
 
@@ -632,9 +615,20 @@ def _select_hunt_chain(*, has_search: bool, window_minutes: int | None) -> list[
         return ["elasticsearch", "postgres"]
 
     ch_min_minutes = max(15, int(getattr(settings, "NETWATCH_EVENTS_HUNT_CLICKHOUSE_MINUTES", 240) or 240))
+    chain: list[str]
     if window_minutes is not None and int(window_minutes) >= int(ch_min_minutes):
-        return ["clickhouse", "postgres"]
-    return ["postgres", "clickhouse"]
+        chain = ["clickhouse", "postgres"]
+    else:
+        chain = ["postgres", "clickhouse"]
+
+    if search_backend_mode() != "postgres":
+        chain.append("elasticsearch")
+
+    out: list[str] = []
+    for source in chain:
+        if source not in out:
+            out.append(source)
+    return out
 
 
 def _pg_hunt_query(
