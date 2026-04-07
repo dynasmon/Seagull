@@ -1,8 +1,20 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import Drawer from "@/shared/components/Drawer";
 import { Badge } from "@/shared/components/Badge";
-import { cx } from "@/shared/lib/cx";
+import Drawer from "@/shared/components/Drawer";
+import {
+  InvestigationActionBar,
+  InvestigationActionButton,
+  InvestigationFactCard,
+  InvestigationMetaStrip,
+  InvestigationRawJsonPanel,
+  InvestigationSection,
+  InvestigationShell,
+  InvestigationSummaryGrid,
+  InvestigationTabs,
+  copyTextToClipboard,
+  safeJson,
+} from "@/shared/components/investigation";
 import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
 import { pinEventToWorkspace } from "@/features/investigations/api";
 
@@ -16,66 +28,7 @@ function fmtAddr(ip?: string | null, port?: number | null) {
   return ip;
 }
 
-function safeJson(v: any) {
-  try {
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return String(v);
-  }
-}
-
-async function copyToClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    // Fallback
-    try {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.left = "-9999px";
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      const ok = document.execCommand("copy");
-      document.body.removeChild(ta);
-      return ok;
-    } catch {
-      return false;
-    }
-  }
-}
-
-function ActionButton({
-  children,
-  onClick,
-  title,
-  disabled
-}: {
-  children: any;
-  onClick: () => void;
-  title?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={cx(
-        "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-        "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-        "hover:bg-muted/15 hover:text-foreground",
-        "focus:outline-none focus:ring-2 focus:ring-primary/30",
-        disabled && "opacity-60 cursor-not-allowed hover:bg-background/40 hover:text-muted-foreground"
-      )}
-    >
-      {children}
-    </button>
-  );
-}
+type DrawerTab = "summary" | "evidence" | "raw";
 
 export default function EventDrawer({
   open,
@@ -84,7 +37,7 @@ export default function EventDrawer({
   onClose,
   onApplyAgent,
   onApplyType,
-  onApplySearch
+  onApplySearch,
 }: {
   open: boolean;
   event: NetEvent | null;
@@ -94,8 +47,15 @@ export default function EventDrawer({
   onApplyType?: (type: string) => void;
   onApplySearch?: (q: string) => void;
 }) {
+  const [tab, setTab] = useState<DrawerTab>("summary");
   const [copied, setCopied] = useState<null | "ok" | "fail">(null);
   const [pinOpen, setPinOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setTab("summary");
+    setCopied(null);
+  }, [open, event?.id]);
 
   const title = useMemo(() => {
     if (!event) return "Event";
@@ -119,6 +79,11 @@ export default function EventDrawer({
 
   const rawJson = useMemo(() => (event ? safeJson(event) : ""), [event]);
 
+  const netSummary = useMemo(() => {
+    if (!event) return "-";
+    return `${fmtAddr(event.src_ip, event.src_port)} → ${fmtAddr(event.dst_ip, event.dst_port)}`;
+  }, [event]);
+
   return (
     <Drawer
       open={open}
@@ -128,111 +93,113 @@ export default function EventDrawer({
         setCopied(null);
         onClose();
       }}
-      widthClassName="w-[900px]"
+      widthClassName="w-[960px]"
     >
       {!event ? (
         <div className="text-sm text-muted-foreground">No event selected.</div>
       ) : (
-        <div className="space-y-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge>{event.event_type}</Badge>
-              <span className="text-[11px] font-mono text-muted-foreground">agent</span>
-              <span className="text-[12px] font-mono text-foreground">{agentLabel}</span>
-            </div>
+        <InvestigationShell>
+          <InvestigationMetaStrip
+            items={[
+              { label: "Type", value: event.event_type, variant: "info" },
+              { label: "Agent", value: agentLabel },
+              { label: "Timestamp", value: fmtDateTime(new Date(event.timestamp)) },
+              { label: "Source", value: "events" },
+              { label: "Schema", value: String(event.schema_version) },
+            ]}
+          />
 
-            <div className="flex flex-wrap items-center gap-2">
-              <ActionButton
-                title="Copy raw JSON"
-                onClick={async () => {
-                  const ok = await copyToClipboard(rawJson);
-                  setCopied(ok ? "ok" : "fail");
-                  window.setTimeout(() => setCopied(null), 1400);
-                }}
-              >
-                {copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy JSON"}
-              </ActionButton>
+          <InvestigationActionBar>
+            <InvestigationActionButton
+              title="Copy raw JSON"
+              onClick={async () => {
+                const ok = await copyTextToClipboard(rawJson);
+                setCopied(ok ? "ok" : "fail");
+                window.setTimeout(() => setCopied(null), 1400);
+              }}
+            >
+              {copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy JSON"}
+            </InvestigationActionButton>
+            <InvestigationActionButton
+              title="Open this indicator in Events search"
+              onClick={() => {
+                const q = String(event.id);
+                const sp = new URLSearchParams();
+                sp.set("search", q);
+                if (event.agent_id) sp.set("agent_id", event.agent_id);
+                window.open(`/events?${sp.toString()}`, "_blank", "noopener,noreferrer");
+              }}
+            >
+              Open in Events
+            </InvestigationActionButton>
+            <InvestigationActionButton
+              title="Filter to this agent"
+              onClick={() => onApplyAgent?.(event.agent_id)}
+              disabled={!onApplyAgent}
+            >
+              Scope agent
+            </InvestigationActionButton>
+            <InvestigationActionButton
+              title="Filter to this event type"
+              onClick={() => onApplyType?.(event.event_type)}
+              disabled={!onApplyType}
+            >
+              Scope type
+            </InvestigationActionButton>
+            <InvestigationActionButton
+              title="Search this source IP"
+              onClick={() => {
+                const q = (event.src_ip || "").trim();
+                if (q) onApplySearch?.(q);
+              }}
+              disabled={!onApplySearch || !event.src_ip}
+            >
+              Search src
+            </InvestigationActionButton>
+            <InvestigationActionButton
+              title="Pin this event into an investigation workspace"
+              onClick={() => setPinOpen(true)}
+              tone="primary"
+            >
+              Pin to workspace
+            </InvestigationActionButton>
+          </InvestigationActionBar>
 
-              <ActionButton
-                title="Filter to this agent"
-                onClick={() => {
-                  onApplyAgent?.(event.agent_id);
-                }}
-                disabled={!onApplyAgent}
-              >
-                Scope agent
-              </ActionButton>
+          <InvestigationTabs
+            value={tab}
+            onChange={setTab}
+            tabs={[
+              { key: "summary", label: "Summary" },
+              { key: "evidence", label: "Evidence" },
+              { key: "raw", label: "Raw" },
+            ]}
+          />
 
-              <ActionButton
-                title="Filter to this event type"
-                onClick={() => {
-                  onApplyType?.(event.event_type);
-                }}
-                disabled={!onApplyType}
-              >
-                Scope type
-              </ActionButton>
+          {tab === "summary" ? (
+            <InvestigationSection title="High-value facts" subtitle="Start with network path, protocol, and event identity.">
+              <InvestigationSummaryGrid>
+                <InvestigationFactCard label="Event ID" value={`#${event.id}`} mono />
+                <InvestigationFactCard label="Agent" value={agentLabel} mono />
+                <InvestigationFactCard label="Type" value={<Badge variant="info">{event.event_type}</Badge>} />
+                <InvestigationFactCard label="Network path" value={netSummary} mono />
+                <InvestigationFactCard label="Protocol" value={event.proto || "-"} mono />
+                <InvestigationFactCard
+                  label="Bytes"
+                  value={typeof event.bytes === "number" ? String(event.bytes) : "-"}
+                  mono
+                />
+              </InvestigationSummaryGrid>
+            </InvestigationSection>
+          ) : null}
 
-              <ActionButton
-                title="Search this source IP"
-                onClick={() => {
-                  const q = (event.src_ip || "").trim();
-                  if (q) onApplySearch?.(q);
-                }}
-                disabled={!onApplySearch || !event.src_ip}
-              >
-                Search src
-              </ActionButton>
+          {tab === "evidence" ? (
+            <InvestigationSection title="Evidence context" subtitle="Structured event details for investigation.">
+              <EventDetailsPanel event={event} />
+            </InvestigationSection>
+          ) : null}
 
-              <ActionButton
-                title="Pin this event into an investigation workspace"
-                onClick={() => setPinOpen(true)}
-              >
-                Pin to workspace
-              </ActionButton>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <div className="space-y-3">
-              <div className="rounded-lg border border-border/60 bg-background/60 p-4">
-                <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Network</div>
-                <div className="mt-3 grid grid-cols-2 gap-3 text-[12px] font-mono">
-                  <div className="space-y-1">
-                    <div className="text-[10px] uppercase tracking-widest text-muted-foreground">src</div>
-                    <div className="text-foreground">{fmtAddr(event.src_ip, event.src_port)}</div>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="text-[10px] uppercase tracking-widest text-muted-foreground">dst</div>
-                    <div className="text-foreground">{fmtAddr(event.dst_ip, event.dst_port)}</div>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="text-[10px] uppercase tracking-widest text-muted-foreground">proto</div>
-                    <div className="text-foreground">{event.proto || "-"}</div>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="text-[10px] uppercase tracking-widest text-muted-foreground">bytes</div>
-                    <div className="text-foreground">{typeof event.bytes === "number" ? String(event.bytes) : "-"}</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border/60 bg-background/60 p-4">
-                <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Raw (quick)</div>
-                <pre className="mt-3 max-h-[240px] overflow-auto border border-border/60 bg-background/40 p-3 text-[11px] leading-relaxed">
-                  {rawJson}
-                </pre>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border/60 bg-background/60 p-4">
-              <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Details</div>
-              <div className="mt-3">
-                <EventDetailsPanel event={event} />
-              </div>
-            </div>
-          </div>
-        </div>
+          {tab === "raw" ? <InvestigationRawJsonPanel value={event} title="Raw event payload" /> : null}
+        </InvestigationShell>
       )}
 
       {event ? (

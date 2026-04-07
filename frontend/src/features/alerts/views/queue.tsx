@@ -6,6 +6,19 @@ import { Badge } from "@/shared/components/Badge";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
+import {
+  InvestigationActionBar,
+  InvestigationActionButton,
+  InvestigationFactCard,
+  InvestigationKeyValueGrid,
+  InvestigationMetaStrip,
+  InvestigationRawJsonPanel,
+  InvestigationSection,
+  InvestigationShell,
+  InvestigationSummaryGrid,
+  InvestigationTabs,
+  copyTextToClipboard,
+} from "@/shared/components/investigation";
 import { cx } from "@/shared/lib/cx";
 
 import { getAlertsPage, runAllRules } from "../api";
@@ -127,13 +140,75 @@ function fmtTs(ts: string) {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
-function sevVariant(sev: string) {
+function sevVariant(sev: string): "critical" | "high" | "medium" | "low" | "neutral" {
   const s = String(sev || "").toLowerCase();
   if (s === "critical") return "critical";
   if (s === "high") return "high";
   if (s === "medium") return "medium";
   if (s === "low") return "low";
   return "neutral";
+}
+
+function fmtAddr(ip?: string | null, port?: number | null) {
+  if (!ip) return "-";
+  if (typeof port === "number") return `${ip}:${port}`;
+  return ip;
+}
+
+function toDetailEntries(details: Record<string, any> | null | undefined): Array<{ key: string; value: string }> {
+  if (!details || typeof details !== "object") return [];
+
+  const preferredOrder = [
+    "event_type",
+    "agent_id",
+    "hostname",
+    "username",
+    "process_name",
+    "process_path",
+    "command",
+    "action",
+    "proto",
+    "src_port",
+    "dst_port",
+    "dns_qname",
+    "http_host",
+    "http_method",
+    "tls_sni",
+    "ja4",
+    "ja3",
+    "severity",
+    "score",
+  ];
+  const keys = Object.keys(details);
+  keys.sort((a, b) => {
+    const ai = preferredOrder.indexOf(a);
+    const bi = preferredOrder.indexOf(b);
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+
+  const out: Array<{ key: string; value: string }> = [];
+  for (const key of keys) {
+    const value = (details as Record<string, unknown>)[key];
+    if (value === null || value === undefined || value === "") continue;
+    if (Array.isArray(value) || typeof value === "object") continue;
+    out.push({ key, value: String(value) });
+    if (out.length >= 24) break;
+  }
+  return out;
+}
+
+function toDetailNested(details: Record<string, any> | null | undefined): Array<{ key: string; value: any }> {
+  if (!details || typeof details !== "object") return [];
+  const out: Array<{ key: string; value: any }> = [];
+  for (const [k, v] of Object.entries(details)) {
+    if (!v || (typeof v !== "object" && !Array.isArray(v))) continue;
+    out.push({ key: k, value: v });
+    if (out.length >= 8) break;
+  }
+  return out;
 }
 
 function mergeUniqueById(newer: Alert[], older: Alert[]) {
@@ -255,6 +330,7 @@ export default function AlertsQueuePage() {
 
   const [selected, setSelected] = useState<Alert | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerTab, setDrawerTab] = useState<"summary" | "evidence" | "raw">("summary");
 
   const [copied, setCopied] = useState(false);
 
@@ -471,23 +547,33 @@ export default function AlertsQueuePage() {
 
   async function copyDetailsJson() {
     if (!detailsJson) return;
-    try {
-      await navigator.clipboard.writeText(detailsJson);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
-    } catch {
-      // ignore
-    }
+    const ok = await copyTextToClipboard(detailsJson);
+    if (!ok) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
   }
 
   function openDrawerFor(a: Alert) {
     setSelected(a);
+    setDrawerTab("summary");
     setDrawerOpen(true);
   }
 
   function openRuleEditor() {
     if (!selected?.rule_id) return;
     nav(`/alerts/rules?rule_id=${encodeURIComponent(selected.rule_id)}`);
+  }
+
+  function openEventsPivot() {
+    if (!selected) return;
+    const sp = new URLSearchParams();
+    const primaryQuery =
+      (selected.src_ip || "").trim() ||
+      (selected.dst_ip || "").trim() ||
+      (selected.mitre_technique_id || "").trim() ||
+      (selected.rule_id || "").trim();
+    if (primaryQuery) sp.set("search", primaryQuery);
+    nav(`/events${sp.toString() ? `?${sp.toString()}` : ""}`);
   }
 
   async function handleRunAll() {
@@ -658,96 +744,106 @@ export default function AlertsQueuePage() {
         onClose={() => setDrawerOpen(false)}
         title={selected ? `Alert #${selected.id}` : "Alert"}
         description={selected ? `${selected.rule_id} · ${fmtTs(selected.created_at)}` : undefined}
-        widthClassName="w-[860px]"
+        widthClassName="w-[980px]"
       >
         {!selected ? (
           <EmptyState title="No selection" description="Select an alert using the Edit button." />
         ) : (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Badge variant={sevVariant(String(selected.severity || "unknown"))}>{String(selected.severity || "unknown")}</Badge>
-                <div className="font-mono text-xs text-muted-foreground">{selected.rule_id}</div>
-              </div>
+          <InvestigationShell>
+            <InvestigationMetaStrip
+              items={[
+                { label: "Severity", value: String(selected.severity || "unknown"), variant: sevVariant(String(selected.severity || "unknown")) },
+                { label: "Rule", value: selected.rule_id },
+                { label: "Created", value: fmtTs(selected.created_at) },
+                { label: "Source", value: "alerts" },
+                {
+                  label: "ATT&CK",
+                  value:
+                    selected.mitre_technique_id || selected.mitre_tactic
+                      ? `${selected.mitre_tactic || "tactic"}${selected.mitre_technique_id ? ` · ${selected.mitre_technique_id}` : ""}`
+                      : "-",
+                },
+              ]}
+            />
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={openRuleEditor}
-                  className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30")}
-                  title="Open rule editor"
-                >
-                  Edit rule
-                </button>
+            <InvestigationActionBar>
+              <InvestigationActionButton onClick={openRuleEditor} title="Open rule editor">
+                Edit rule
+              </InvestigationActionButton>
+              <InvestigationActionButton onClick={openEventsPivot} title="Pivot into Events">
+                Open in Events
+              </InvestigationActionButton>
+              <InvestigationActionButton onClick={copyDetailsJson} title="Copy JSON to clipboard">
+                {copied ? "Copied" : "Copy JSON"}
+              </InvestigationActionButton>
+            </InvestigationActionBar>
 
-                <button
-                  type="button"
-                  onClick={copyDetailsJson}
-                  className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30")}
-                  title="Copy JSON to clipboard"
-                >
-                  {copied ? "Copied" : "Copy JSON"}
-                </button>
-              </div>
-            </div>
+            <InvestigationTabs
+              value={drawerTab}
+              onChange={setDrawerTab}
+              tabs={[
+                { key: "summary", label: "Summary" },
+                { key: "evidence", label: "Evidence" },
+                { key: "raw", label: "Raw" },
+              ]}
+            />
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Source</div>
-                <div className="font-mono text-sm truncate">{selected.src_ip || "-"}</div>
-              </div>
-
-              <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Destination</div>
-                <div className="font-mono text-sm truncate">
-                  {selected.dst_ip || "-"}
-                  {typeof selected.dst_port === "number" ? `:${selected.dst_port}` : ""}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Confidence</div>
-                <div className="font-mono text-sm truncate">{typeof selected.confidence === "number" ? selected.confidence : "-"}</div>
-              </div>
-
-              <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">ATT&CK</div>
-                <div className="font-mono text-sm truncate">
-                  {selected.mitre_tactic || "-"}
-                  {selected.mitre_technique_id ? ` · ${selected.mitre_technique_id}` : ""}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Description</div>
-              <div className="text-sm leading-relaxed">{selected.description || ""}</div>
-            </div>
-
-            <div className="rounded-xl border border-border/60 bg-background/20">
-              <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-border/60">
-                <div className="text-[11px] font-semibold">Raw event (JSON)</div>
-                <label className="flex items-center gap-2 text-[11px] text-muted-foreground select-none">
-                  <input
-                    type="checkbox"
-                    checked={view.wrap_json}
-                    onChange={(e) => patch({ wrap_json: e.target.checked })}
-                    className="h-4 w-4"
+            {drawerTab === "summary" ? (
+              <InvestigationSection title="Alert summary" subtitle="Highest-value triage facts first.">
+                <InvestigationSummaryGrid>
+                  <InvestigationFactCard label="Rule ID" value={selected.rule_id} mono />
+                  <InvestigationFactCard
+                    label="Severity"
+                    value={<Badge variant={sevVariant(String(selected.severity || "unknown"))}>{String(selected.severity || "unknown")}</Badge>}
                   />
-                  Wrap
-                </label>
-              </div>
+                  <InvestigationFactCard
+                    label="Confidence"
+                    value={typeof selected.confidence === "number" ? String(selected.confidence) : "-"}
+                    mono
+                  />
+                  <InvestigationFactCard label="Source IP" value={selected.src_ip || "-"} mono />
+                  <InvestigationFactCard label="Destination" value={fmtAddr(selected.dst_ip, selected.dst_port)} mono />
+                  <InvestigationFactCard
+                    label="ATT&CK"
+                    value={
+                      selected.mitre_technique || selected.mitre_technique_id || selected.mitre_tactic
+                        ? `${selected.mitre_tactic || "-"}${selected.mitre_technique_id ? ` · ${selected.mitre_technique_id}` : ""}${selected.mitre_technique ? ` · ${selected.mitre_technique}` : ""}`
+                        : "-"
+                    }
+                    mono
+                  />
+                </InvestigationSummaryGrid>
+                <div className="mt-4 rounded-lg border border-border/60 bg-background/35 px-3 py-2">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Description</div>
+                  <div className="mt-1 text-sm leading-relaxed">{selected.description || "No description."}</div>
+                </div>
+              </InvestigationSection>
+            ) : null}
 
-              <pre
-                className={cx(
-                  "p-3 text-[11px] leading-relaxed overflow-auto",
-                  view.wrap_json ? "whitespace-pre-wrap break-words" : "whitespace-pre"
-                )}
+            {drawerTab === "evidence" ? (
+              <InvestigationSection
+                title="Evidence context"
+                subtitle="Structured details extracted from rule output and telemetry context."
               >
-                {detailsJson}
-              </pre>
-            </div>
-          </div>
+                <div className="space-y-4">
+                  <InvestigationKeyValueGrid
+                    entries={toDetailEntries(selected.details).map((x) => ({ key: x.key, value: x.value }))}
+                  />
+
+                  {toDetailNested(selected.details).map((block) => (
+                    <div key={block.key} className="rounded-lg border border-border/60 bg-background/35 p-3">
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{block.key}</div>
+                      <pre className="mt-2 max-h-[220px] overflow-auto rounded border border-border/60 bg-background/30 p-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+                        {safeJson(block.value)}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              </InvestigationSection>
+            ) : null}
+
+            {drawerTab === "raw" ? <InvestigationRawJsonPanel value={detailsJson} title="Raw alert payload" initialWrap={view.wrap_json} /> : null}
+          </InvestigationShell>
         )}
       </Drawer>
     </div>
