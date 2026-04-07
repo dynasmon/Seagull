@@ -1,15 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 
-import AsyncState from "@/shared/components/AsyncState";
 import Drawer from "@/shared/components/Drawer";
 import { Badge } from "@/shared/components/Badge";
 import { Table, type Column } from "@/shared/components/Table";
+import {
+  InvestigationActionBar,
+  InvestigationActionButton,
+  InvestigationFactCard,
+  InvestigationMetaStrip,
+  InvestigationSection,
+  InvestigationShell,
+  InvestigationStateBlock,
+  InvestigationSummaryGrid,
+  copyTextToClipboard,
+} from "@/shared/components/investigation";
 import { cx } from "@/shared/lib/cx";
 import { getErrorMessage } from "@/shared/lib/errors";
 
 import type { NetEvent } from "../../types";
 import { fmtDateTime } from "../../lib/aggregates";
+import EventDetailsPanel from "../../components/EventDetailsPanel";
 import EventDrawer from "../../components/EventDrawer";
 import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
 import { pinProtocolIntelEventToWorkspace } from "@/features/investigations/api";
@@ -38,7 +48,7 @@ export default function ProtocolIndicatorDrawer({
   onClose,
   agentId,
   sinceMinutes,
-  agentNameById
+  agentNameById,
 }: {
   open: boolean;
   selection: ProtocolIndicatorSelection | null;
@@ -49,16 +59,31 @@ export default function ProtocolIndicatorDrawer({
   agentNameById?: Record<string, string>;
 }) {
   const reqSeq = useRef(0);
+  const focusHandledRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<NetEvent[]>([]);
+  const [selectedSampleId, setSelectedSampleId] = useState<number | null>(null);
+  const [copied, setCopied] = useState<null | "ok" | "fail">(null);
 
   const [eventDrawerOpen, setEventDrawerOpen] = useState(false);
   const [eventDrawerEvent, setEventDrawerEvent] = useState<NetEvent | null>(null);
   const [pinEvent, setPinEvent] = useState<NetEvent | null>(null);
-  const focusHandledRef = useRef<number | null>(null);
 
   const title = selection ? selection.label : "Indicator";
+
+  const eventsLink = useMemo(() => {
+    if (!selection) return "/events";
+    const sp = new URLSearchParams();
+    if (agentId) sp.set("agent_id", agentId);
+    sp.set("search", selection.value);
+    return `/events?${sp.toString()}`;
+  }, [selection, agentId]);
+
+  const selectedSample = useMemo(() => {
+    if (!selectedSampleId) return null;
+    return items.find((x) => Number(x.id) === Number(selectedSampleId)) || null;
+  }, [items, selectedSampleId]);
 
   const sampleColumns = useMemo<Array<Column<NetEvent>>>(() => {
     return [
@@ -70,37 +95,75 @@ export default function ProtocolIndicatorDrawer({
           const ts = new Date(ev.timestamp);
           const when = Number.isNaN(ts.getTime()) ? ev.timestamp : fmtDateTime(ts);
           return <span className="font-mono text-[12px]">{when}</span>;
-        }
+        },
       },
       {
         key: "agent",
         title: "AGENT",
-        width: 160,
-        render: (ev) => <span className="text-[12px]">{agentNameById?.[ev.agent_id] || ev.agent_id}</span>
+        width: 170,
+        render: (ev) => <span className="text-[12px]">{agentNameById?.[ev.agent_id] || ev.agent_id}</span>,
       },
       {
         key: "type",
         title: "TYPE",
         width: 150,
-        render: (ev) => <span className="font-mono text-[12px]">{ev.event_type}</span>
+        render: (ev) => <span className="font-mono text-[12px]">{ev.event_type}</span>,
       },
       {
         key: "src",
         title: "SRC",
         width: 170,
-        render: (ev) => <span className="font-mono text-[12px]">{fmtAddr(ev.src_ip, ev.src_port)}</span>
+        render: (ev) => <span className="font-mono text-[12px]">{fmtAddr(ev.src_ip, ev.src_port)}</span>,
       },
       {
         key: "dst",
         title: "DST",
         width: 170,
-        render: (ev) => <span className="font-mono text-[12px]">{fmtAddr(ev.dst_ip, ev.dst_port)}</span>
+        render: (ev) => <span className="font-mono text-[12px]">{fmtAddr(ev.dst_ip, ev.dst_port)}</span>,
       },
       {
-        key: "proto",
-        title: "PROTO",
-        width: 90,
-        render: (ev) => <span className="font-mono text-[12px]">{ev.proto || "-"}</span>
+        key: "inspect",
+        title: "",
+        width: 110,
+        className: "text-right",
+        render: (ev) => (
+          <button
+            type="button"
+            onClick={() => setSelectedSampleId(ev.id)}
+            className={cx(
+              "inline-flex items-center rounded-md border border-border/60 bg-background/40",
+              "px-2 py-1 text-xs font-medium text-muted-foreground",
+              "hover:bg-muted/15 hover:text-foreground",
+              "focus:outline-none focus:ring-2 focus:ring-primary/30",
+            )}
+          >
+            Inspect
+          </button>
+        ),
+      },
+      {
+        key: "open",
+        title: "",
+        width: 120,
+        className: "text-right",
+        render: (ev) => (
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedSampleId(ev.id);
+              setEventDrawerEvent(ev);
+              setEventDrawerOpen(true);
+            }}
+            className={cx(
+              "inline-flex items-center rounded-md border border-border/60 bg-background/40",
+              "px-2 py-1 text-xs font-medium text-muted-foreground",
+              "hover:bg-muted/15 hover:text-foreground",
+              "focus:outline-none focus:ring-2 focus:ring-primary/30",
+            )}
+          >
+            Full view
+          </button>
+        ),
       },
       {
         key: "pin",
@@ -115,46 +178,15 @@ export default function ProtocolIndicatorDrawer({
               "inline-flex items-center rounded-md border border-border/60 bg-background/40",
               "px-2 py-1 text-xs font-medium text-muted-foreground",
               "hover:bg-muted/15 hover:text-foreground",
-              "focus:outline-none focus:ring-2 focus:ring-primary/30"
+              "focus:outline-none focus:ring-2 focus:ring-primary/30",
             )}
           >
             Pin
           </button>
-        )
+        ),
       },
-      {
-        key: "open",
-        title: "",
-        width: 96,
-        className: "text-right",
-        render: (ev) => (
-          <button
-            type="button"
-            onClick={() => {
-              setEventDrawerEvent(ev);
-              setEventDrawerOpen(true);
-            }}
-            className={cx(
-              "inline-flex items-center rounded-md border border-border/60 bg-background/40",
-              "px-2 py-1 text-xs font-medium text-muted-foreground",
-              "hover:bg-muted/15 hover:text-foreground",
-              "focus:outline-none focus:ring-2 focus:ring-primary/30"
-            )}
-          >
-            Open
-          </button>
-        )
-      }
     ];
   }, [agentNameById]);
-
-  const eventsLink = useMemo(() => {
-    if (!selection) return "/events";
-    const sp = new URLSearchParams();
-    if (agentId) sp.set("agent_id", agentId);
-    sp.set("search", selection.value);
-    return `/events?${sp.toString()}`;
-  }, [selection, agentId]);
 
   useEffect(() => {
     if (!open || !selection) return;
@@ -162,28 +194,30 @@ export default function ProtocolIndicatorDrawer({
     const mySeq = ++reqSeq.current;
     setLoading(true);
     setError(null);
+    setCopied(null);
 
     getProtocolIntelSamples({
       kind: selection.kind,
       value: selection.value,
       since_minutes: sinceMinutes,
       limit: 80,
-      agent_id: agentId
+      agent_id: agentId,
     })
       .then((r) => {
         if (reqSeq.current !== mySeq) return;
-        setItems(Array.isArray(r) ? r : []);
+        const next = Array.isArray(r) ? r : [];
+        setItems(next);
+        setSelectedSampleId(next[0]?.id ?? null);
       })
-      .catch((e: any) => {
+      .catch((e: unknown) => {
         if (reqSeq.current !== mySeq) return;
-        const msg = getErrorMessage(e, "Failed to load samples");
-        setError(msg);
+        setError(getErrorMessage(e, "Failed to load samples"));
       })
       .finally(() => {
         if (reqSeq.current !== mySeq) return;
         setLoading(false);
       });
-  }, [open, selection?.kind, selection?.value, agentId, sinceMinutes, selection]);
+  }, [open, selection, agentId, sinceMinutes]);
 
   useEffect(() => {
     if (!open || !focusEventId || items.length === 0) return;
@@ -191,8 +225,7 @@ export default function ProtocolIndicatorDrawer({
     const found = items.find((x) => Number(x.id) === Number(focusEventId));
     if (!found) return;
     focusHandledRef.current = focusEventId;
-    setEventDrawerEvent(found);
-    setEventDrawerOpen(true);
+    setSelectedSampleId(found.id);
   }, [open, focusEventId, items]);
 
   return (
@@ -200,106 +233,135 @@ export default function ProtocolIndicatorDrawer({
       <Drawer
         open={open}
         title={title}
-        description={selection?.hint}
+        description={selection?.hint || "Protocol intelligence indicator context and matching evidence."}
         onClose={() => {
           setItems([]);
           setError(null);
+          setSelectedSampleId(null);
           setEventDrawerEvent(null);
           setEventDrawerOpen(false);
           focusHandledRef.current = null;
           onClose();
         }}
-        widthClassName="w-[980px]"
+        widthClassName="w-[1140px]"
       >
         {!selection ? (
           <div className="text-sm text-muted-foreground">No indicator selected.</div>
         ) : (
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge>{selection.kind}</Badge>
-              <span className="text-xs text-muted-foreground">Value</span>
-              <span className="text-xs font-mono text-foreground break-all">{selection.value}</span>
-                {typeof selection.count === "number" ? (
-                <span className="ml-2 text-xs text-muted-foreground">~{selection.count} hits</span>
-                ) : null}
-              </div>
+          <InvestigationShell>
+            <InvestigationMetaStrip
+              items={[
+                { label: "Kind", value: selection.kind, variant: "info" },
+                { label: "Value", value: selection.value },
+                { label: "Lookback", value: `${sinceMinutes}m` },
+                { label: "Scope", value: agentId || "all agents" },
+                { label: "Approx hits", value: typeof selection.count === "number" ? String(selection.count) : "n/a" },
+              ]}
+            />
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Link
-                  to={eventsLink}
-                  className={cx(
-                    "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                    "px-3 py-2 text-xs font-medium text-muted-foreground",
-                    "hover:bg-muted/15 hover:text-foreground",
-                    "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  )}
-                >
-                  Open in Events
-                </Link>
-              </div>
-            </div>
+            <InvestigationActionBar>
+              <InvestigationActionButton
+                title="Open this indicator directly in Events"
+                onClick={() => window.open(eventsLink, "_blank", "noopener,noreferrer")}
+              >
+                Open in Events
+              </InvestigationActionButton>
+              <InvestigationActionButton
+                onClick={async () => {
+                  const ok = await copyTextToClipboard(selection.value);
+                  setCopied(ok ? "ok" : "fail");
+                  window.setTimeout(() => setCopied(null), 1200);
+                }}
+              >
+                {copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy indicator"}
+              </InvestigationActionButton>
+              <InvestigationActionButton
+                onClick={() => {
+                  if (!selectedSample) return;
+                  setEventDrawerEvent(selectedSample);
+                  setEventDrawerOpen(true);
+                }}
+                disabled={!selectedSample}
+              >
+                Open full event view
+              </InvestigationActionButton>
+              <InvestigationActionButton
+                onClick={() => {
+                  if (selectedSample) setPinEvent(selectedSample);
+                }}
+                disabled={!selectedSample}
+                tone="primary"
+              >
+                Pin selected sample
+              </InvestigationActionButton>
+            </InvestigationActionBar>
 
-            <div className="rounded-lg border border-border/60 bg-background/40 p-4">
-              <div className="text-sm font-semibold tracking-tight">Matching samples</div>
+            <InvestigationSection title="Indicator summary" subtitle="Protocol-level context for this IOC-like value.">
+              <InvestigationSummaryGrid>
+                <InvestigationFactCard label="Indicator" value={selection.label} mono />
+                <InvestigationFactCard label="Value" value={selection.value} mono />
+                <InvestigationFactCard
+                  label="Approximate hit count"
+                  value={typeof selection.count === "number" ? String(selection.count) : "-"}
+                  mono
+                />
+                <InvestigationFactCard label="Lookback window" value={`${sinceMinutes} minutes`} mono />
+                <InvestigationFactCard label="Scoped agent" value={agentId || "all agents"} mono />
+                <InvestigationFactCard label="Samples loaded" value={String(items.length)} mono />
+              </InvestigationSummaryGrid>
+            </InvestigationSection>
 
-              <div className="mt-3">
-                {loading || error || items.length === 0 ? (
-                  <AsyncState
-                    loading={loading}
-                    error={error}
-                    empty={!loading && !error && items.length === 0}
-                    emptyTitle="No matches"
-                    emptyDescription="No events matched this indicator in the selected window."
-                    loadingLabel="Loading samples..."
-                    errorTitle="Samples error"
-                    onRetry={() => {
-                      if (!selection) return;
-                      const mySeq = ++reqSeq.current;
-                      setLoading(true);
-                      setError(null);
-                      getProtocolIntelSamples({
-                        kind: selection.kind,
-                        value: selection.value,
-                        since_minutes: sinceMinutes,
-                        limit: 80,
-                        agent_id: agentId
-                      })
-                        .then((r) => {
-                          if (reqSeq.current !== mySeq) return;
-                          setItems(Array.isArray(r) ? r : []);
-                        })
-                        .catch((e: unknown) => {
-                          if (reqSeq.current !== mySeq) return;
-                          setError(getErrorMessage(e, "Failed to load samples"));
-                        })
-                        .finally(() => {
-                          if (reqSeq.current !== mySeq) return;
-                          setLoading(false);
-                        });
-                    }}
-                    className="px-0"
-                  />
-                ) : null}
+            <InvestigationSection title="Matching samples" subtitle="Select a row to inspect evidence inline.">
+              <InvestigationStateBlock
+                loading={loading}
+                loadingLabel="Loading samples..."
+                error={error}
+                empty={!loading && !error && items.length === 0}
+                emptyTitle="No matches"
+                emptyHint="No events matched this indicator in the selected window."
+              />
 
-                {!loading && !error && items.length > 0 ? (
-                  <div className="overflow-auto">
-                    {/* Table.rowKey expects a string; id can be numeric depending on backend schema */}
-                    <Table columns={sampleColumns} rows={items} rowKey={(r) => String((r as any).id)} />
+              {!loading && !error && items.length > 0 ? (
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <div className="min-h-0 overflow-auto rounded-lg border border-border/60 bg-background/35">
+                    <Table
+                      columns={sampleColumns}
+                      rows={items}
+                      rowKey={(r) => String(r.id)}
+                    />
                   </div>
-                ) : null}
-              </div>
-            </div>
 
-            <div className="rounded-lg border border-border/60 bg-background/40 p-4">
-              <div className="text-sm font-semibold tracking-tight">Notes</div>
-              <div className="mt-3 text-sm text-muted-foreground leading-relaxed">
-                These samples are scoped to your current lookback window and (optionally) agent selection.
-                If you expect results but see none, verify that the <span className="font-mono">netwatch-proto-intel</span> worker
-                is running and that agents are shipping the evidence fields (DNS/HTTP payloads or TLS/DTLS/QUIC handshakes).
-              </div>
-            </div>
-          </div>
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-border/60 bg-background/35 p-3">
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Selected sample</div>
+                      {!selectedSample ? (
+                        <div className="mt-2 text-sm text-muted-foreground">Select a sample row to inspect details.</div>
+                      ) : (
+                        <div className="mt-2 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="info">{selectedSample.event_type}</Badge>
+                            <span className="text-[11px] font-mono text-muted-foreground">#{selectedSample.id}</span>
+                          </div>
+                          <div className="text-[12px] font-mono text-foreground">
+                            {fmtAddr(selectedSample.src_ip, selectedSample.src_port)} →{" "}
+                            {fmtAddr(selectedSample.dst_ip, selectedSample.dst_port)}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {fmtDateTime(new Date(selectedSample.timestamp))} ·{" "}
+                            {agentNameById?.[selectedSample.agent_id] || selectedSample.agent_id}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-border/60 bg-background/35 p-3">
+                      <EventDetailsPanel event={selectedSample} />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </InvestigationSection>
+          </InvestigationShell>
         )}
       </Drawer>
 
