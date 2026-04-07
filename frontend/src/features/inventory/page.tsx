@@ -7,6 +7,20 @@ import Loading from "@/shared/components/Loading";
 import Drawer from "@/shared/components/Drawer";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import { Table } from "@/shared/components/Table";
+import {
+  InvestigationActionBar,
+  InvestigationActionButton,
+  InvestigationFactCard,
+  InvestigationKeyValueGrid,
+  InvestigationMetaStrip,
+  InvestigationRawJsonPanel,
+  InvestigationSection,
+  InvestigationShell,
+  InvestigationSummaryGrid,
+  InvestigationTabs,
+  copyTextToClipboard,
+  safeJson,
+} from "@/shared/components/investigation";
 import { cx } from "@/shared/lib/cx";
 import { isAbortError } from "@/shared/lib/http";
 import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
@@ -347,6 +361,8 @@ export default function InventoryPage() {
   // -----------------------------
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerAgentId, setDrawerAgentId] = useState<string | null>(null);
+  const [drawerTab, setDrawerTab] = useState<"overview" | "snapshot" | "history" | "packages" | "configuration">("overview");
+  const [drawerCopied, setDrawerCopied] = useState<null | "ok" | "fail">(null);
 
   const [drawerAgent, setDrawerAgent] = useState<AgentDetail | null>(null);
   const [drawerLatest, setDrawerLatest] = useState<InventorySnapshotOut | null>(null);
@@ -372,8 +388,10 @@ export default function InventoryPage() {
 
     setDrawerOpen(true);
     setDrawerAgentId(id);
+    setDrawerTab("overview");
     setDrawerErr(null);
     setEditMsg(null);
+    setDrawerCopied(null);
     setPkgQuery("");
 
     setDrawerBusy(true);
@@ -418,6 +436,7 @@ export default function InventoryPage() {
     setDrawerErr(null);
     setEditMsg(null);
     setFocusedSnapshotId(null);
+    setDrawerCopied(null);
   }
 
   const agentsOptions = useMemo(() => {
@@ -870,312 +889,187 @@ export default function InventoryPage() {
       {/* Drawer Inspector */}
       <Drawer
         open={drawerOpen}
-        title={drawerAgentId ? `Agent inspector · ${drawerAgentId}` : "Agent inspector"}
-        description="Inventory + configuration. Changes apply immediately."
+        title={drawerAgentId ? `Agent inventory · ${drawerAgentId}` : "Agent inventory"}
+        description="Investigation-first inventory context with configuration controls."
         onClose={closeDrawer}
+        widthClassName="w-[1140px]"
       >
-        {drawerBusy ? <Loading label="Loading agent..." /> : null}
+        <InvestigationShell>
+          {drawerBusy ? <Loading label="Loading agent..." /> : null}
 
-        {drawerErr ? (
-          <div className="rounded-md border border-border/60 bg-background/20 px-4 py-3 text-sm text-muted-foreground">
-            {drawerErr}
-          </div>
-        ) : null}
-
-        {drawerAgent ? (
-          <div className="space-y-8">
-            {/* Quick meta */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="rounded-lg border border-border/60 bg-background/60 px-4 py-4">
-                <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Last seen</div>
-                <div className="mt-2 font-mono text-sm text-foreground">{fmtDateTime(drawerAgent.last_seen_at)}</div>
-                <div className="mt-2 text-[11px] text-muted-foreground">Revoked: {drawerAgent.is_revoked ? "yes" : "no"}</div>
-              </div>
-
-              <div className="rounded-lg border border-border/60 bg-background/60 px-4 py-4">
-                <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Last inventory</div>
-                <div className="mt-2 font-mono text-sm text-foreground">{fmtDateTime(drawerLatest?.collected_at || null)}</div>
-                <div className="mt-2 text-[11px] text-muted-foreground">
-                  Packages: {drawerLatest?.packages_count ?? "-"} · Manager: {drawerLatest?.manager ?? "-"}
-                </div>
-                {drawerLatest ? (
-                  <button
-                    type="button"
-                    onClick={() => setPinSnapshotId(drawerLatest.id)}
-                    className={cx(
-                      "mt-3 rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                      "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                      "hover:bg-muted/15 hover:text-foreground"
-                    )}
-                  >
-                    Pin latest snapshot
-                  </button>
-                ) : null}
-              </div>
+          {drawerErr ? (
+            <div className="rounded-md border border-red-400/50 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              {drawerErr}
             </div>
+          ) : null}
 
-            {/* Configuration */}
-            <div className="space-y-4">
-              <div className="text-[11px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Configuration</div>
+          {drawerAgent ? (
+            <>
+              <InvestigationMetaStrip
+                items={[
+                  { label: "Agent", value: drawerAgent.display_name || drawerAgent.agent_id, variant: "info" },
+                  { label: "Agent ID", value: drawerAgent.agent_id },
+                  { label: "Last seen", value: fmtDateTime(drawerAgent.last_seen_at) },
+                  { label: "State", value: drawerAgent.is_revoked ? "disabled" : "active", variant: drawerAgent.is_revoked ? "neutral" : "low" },
+                  { label: "Latest snapshot", value: drawerLatest ? fmtDateTime(drawerLatest.collected_at) : "none" },
+                ]}
+              />
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Display name</div>
-                    <input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className={cx(
-                        "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
-                        "text-[11px] text-foreground outline-none font-mono",
-                        "focus:ring-2 focus:ring-primary/30"
-                      )}
+              <InvestigationActionBar>
+                <InvestigationActionButton
+                  onClick={() => {
+                    if (!drawerLatest) return;
+                    setPinSnapshotId(drawerLatest.id);
+                  }}
+                  disabled={!drawerLatest}
+                  tone="primary"
+                >
+                  Pin latest snapshot
+                </InvestigationActionButton>
+                <InvestigationActionButton
+                  onClick={async () => {
+                    const payload = {
+                      agent: drawerAgent,
+                      latest_snapshot: drawerLatest,
+                      recent_history: drawerHistory.slice(0, 20),
+                    };
+                    const ok = await copyTextToClipboard(safeJson(payload));
+                    setDrawerCopied(ok ? "ok" : "fail");
+                    window.setTimeout(() => setDrawerCopied(null), 1200);
+                  }}
+                >
+                  {drawerCopied === "ok" ? "Copied" : drawerCopied === "fail" ? "Copy failed" : "Copy context JSON"}
+                </InvestigationActionButton>
+                <InvestigationActionButton
+                  onClick={() => {
+                    const sp = new URLSearchParams();
+                    sp.set("agent_id", drawerAgent.agent_id);
+                    setSp(sp, { replace: false });
+                  }}
+                >
+                  Scope inventory view
+                </InvestigationActionButton>
+              </InvestigationActionBar>
+
+              <InvestigationTabs
+                value={drawerTab}
+                onChange={setDrawerTab}
+                tabs={[
+                  { key: "overview", label: "Overview" },
+                  { key: "snapshot", label: "Snapshot" },
+                  { key: "history", label: "History" },
+                  { key: "packages", label: "Packages" },
+                  { key: "configuration", label: "Configuration" },
+                ]}
+              />
+
+              {drawerTab === "overview" ? (
+                <InvestigationSection title="Inventory overview" subtitle="Quick health and baseline context for this endpoint.">
+                  <InvestigationSummaryGrid>
+                    <InvestigationFactCard label="Display name" value={drawerAgent.display_name || "-"} mono />
+                    <InvestigationFactCard label="Description" value={drawerAgent.description || "-"} />
+                    <InvestigationFactCard label="Tags" value={drawerAgent.tags.length ? drawerAgent.tags.join(", ") : "-"} mono />
+                    <InvestigationFactCard label="Last seen" value={fmtDateTime(drawerAgent.last_seen_at)} mono />
+                    <InvestigationFactCard
+                      label="Snapshot manager"
+                      value={drawerLatest?.manager || "-"}
+                      mono
+                    />
+                    <InvestigationFactCard
+                      label="Package count"
+                      value={drawerLatest ? String(drawerLatest.packages_count) : "-"}
+                      mono
+                    />
+                  </InvestigationSummaryGrid>
+
+                  <div className="mt-4">
+                    <InvestigationKeyValueGrid
+                      entries={parseWarnings(drawerLatest?.extra || {}).slice(0, 8).map((w, idx) => ({
+                        key: `warning_${idx + 1}`,
+                        value: w,
+                      }))}
                     />
                   </div>
+                </InvestigationSection>
+              ) : null}
 
-                  <div>
-                    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Description</div>
-                    <input
-                      value={editDesc}
-                      onChange={(e) => setEditDesc(e.target.value)}
-                      className={cx(
-                        "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
-                        "text-[11px] text-foreground outline-none font-mono",
-                        "focus:ring-2 focus:ring-primary/30"
-                      )}
-                    />
+              {drawerTab === "snapshot" ? (
+                !drawerLatest ? (
+                  <EmptyState title="No snapshot" hint="No inventory snapshot for this agent." />
+                ) : (
+                  <div className="space-y-4">
+                    <InvestigationSection title="Latest snapshot details">
+                      <InvestigationSummaryGrid>
+                        <InvestigationFactCard
+                          label="Collected"
+                          value={fmtDateTime(drawerLatest.collected_at)}
+                          mono
+                        />
+                        <InvestigationFactCard label="Manager" value={drawerLatest.manager || "-"} mono />
+                        <InvestigationFactCard label="Schema" value={String(drawerLatest.schema_version)} mono />
+                        <InvestigationFactCard label="Packages hash" value={drawerLatest.packages_hash || "-"} mono />
+                        <InvestigationFactCard label="Packages count" value={String(drawerLatest.packages_count)} mono />
+                        <InvestigationFactCard
+                          label="OS"
+                          value={drawerLatest.os?.pretty_name || drawerLatest.os?.name || drawerLatest.os?.id || "unknown"}
+                          mono
+                        />
+                      </InvestigationSummaryGrid>
+                    </InvestigationSection>
+
+                    <InvestigationRawJsonPanel value={drawerLatest} title="Raw snapshot JSON" />
                   </div>
+                )
+              ) : null}
 
-                  <div>
-                    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Tags (comma)</div>
-                    <input
-                      value={editTags}
-                      onChange={(e) => setEditTags(e.target.value)}
-                      placeholder="prod, linux, web"
-                      className={cx(
-                        "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
-                        "text-[11px] text-foreground outline-none font-mono",
-                        "placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-primary/30"
-                      )}
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!drawerAgentId) return;
-                        setEditMsg(null);
-                        setDrawerBusy(true);
-                        try {
-                          const next = drawerAgent.is_revoked
-                            ? await enableAgent(drawerAgentId)
-                            : await disableAgent(drawerAgentId);
-                          setDrawerAgent(next);
-                          setEditMsg("State updated.");
-                        } catch (e: any) {
-                          setEditMsg(e?.message || "Failed to update state");
-                        } finally {
-                          setDrawerBusy(false);
-                        }
-                      }}
-                      className={cx(
-                        "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                        "text-xs font-mono uppercase tracking-widest",
-                        drawerAgent.is_revoked ? "text-emerald-400" : "text-amber-400",
-                        "hover:bg-muted/15 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      )}
-                    >
-                      {drawerAgent.is_revoked ? "Enable agent" : "Disable agent"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!drawerAgentId) return;
-                        setEditMsg(null);
-                        setDrawerBusy(true);
-                        try {
-                          const next = await updateAgent(drawerAgentId, {
-                            display_name: editName.trim() ? editName.trim() : null,
-                            description: editDesc.trim() ? editDesc.trim() : null,
-                            tags: normalizeTagsInput(editTags)
-                          });
-                          setDrawerAgent(next);
-                          setEditMsg("Metadata updated.");
-                        } catch (e: any) {
-                          setEditMsg(e?.message || "Failed to update metadata");
-                        } finally {
-                          setDrawerBusy(false);
-                        }
-                      }}
-                      className={cx(
-                        "rounded-md border border-border/60 bg-primary/20 px-3 py-2",
-                        "text-xs font-mono uppercase tracking-widest text-foreground",
-                        "hover:bg-primary/25 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      )}
-                    >
-                      Save metadata
-                    </button>
-
-                    {editMsg ? <div className="text-[11px] text-muted-foreground font-mono">{editMsg}</div> : null}
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Agent config (JSON)</div>
-                    <textarea
-                      value={editConfig}
-                      onChange={(e) => setEditConfig(e.target.value)}
-                      rows={12}
-                      className={cx(
-                        "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
-                        "text-[11px] text-foreground outline-none font-mono",
-                        "focus:ring-2 focus:ring-primary/30"
-                      )}
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!drawerAgentId) return;
-                        setEditMsg(null);
-                        const parsed = safeJsonParse(editConfig);
-                        if (!parsed.ok) {
-                          setEditMsg(parsed.error);
-                          return;
-                        }
-                        setDrawerBusy(true);
-                        try {
-                          const next = await setAgentConfig(drawerAgentId, parsed.data);
-                          setDrawerAgent(next);
-                          setEditMsg("Config updated.");
-                        } catch (e: any) {
-                          setEditMsg(e?.message || "Failed to update config");
-                        } finally {
-                          setDrawerBusy(false);
-                        }
-                      }}
-                      className={cx(
-                        "rounded-md border border-border/60 bg-primary/20 px-3 py-2",
-                        "text-xs font-mono uppercase tracking-widest text-foreground",
-                        "hover:bg-primary/25 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      )}
-                    >
-                      Save config
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setEditConfig(JSON.stringify(drawerAgent.config || {}, null, 2))}
-                      className={cx(
-                        "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                        "text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                        "hover:bg-muted/15 hover:text-foreground",
-                        "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      )}
-                    >
-                      Reset
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Inventory summary */}
-            <div className="space-y-4">
-              <div className="text-[11px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Inventory</div>
-
-              {!drawerLatest ? (
-                <div className="rounded-md border border-border/60 bg-background/20 px-4 py-3 text-sm text-muted-foreground">
-                  No inventory snapshot for this agent.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="rounded-lg border border-border/60 bg-background/60 px-4 py-4">
-                      <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">OS</div>
-                      <div className="mt-2 text-sm text-foreground font-mono">
-                        {drawerLatest.os?.pretty_name || drawerLatest.os?.name || drawerLatest.os?.id || "unknown"}
-                      </div>
-                      <div className="mt-2 text-[11px] text-muted-foreground font-mono opacity-80">
-                        {drawerLatest.os?.goos ? `goos=${drawerLatest.os.goos}` : ""}
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-border/60 bg-background/60 px-4 py-4">
-                      <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Packages hash</div>
-                      <div className="mt-2 text-[11px] font-mono text-foreground break-all">{drawerLatest.packages_hash}</div>
-                      <div className="mt-2 text-[11px] text-muted-foreground font-mono opacity-80">
-                        Count: {drawerLatest.packages_count}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Warnings */}
-                  <div>
-                    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Warnings</div>
-                    {parseWarnings(drawerLatest.extra).length === 0 ? (
-                      <div className="mt-2 rounded-md border border-border/60 bg-background/30 px-3 py-2 text-[11px] text-muted-foreground">
-                        No warnings.
-                      </div>
-                    ) : (
-                      <ul className="mt-2 space-y-2">
-                        {parseWarnings(drawerLatest.extra).slice(0, 8).map((w, idx) => (
-                          <li
-                            key={`${idx}-${w.slice(0, 24)}`}
-                            className="rounded-md border border-border/60 bg-background/30 px-3 py-2 text-[11px] text-muted-foreground whitespace-pre-wrap break-words"
-                          >
-                            {w}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-
-                  {/* History */}
-                  <div>
-                    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Recent snapshots</div>
-                    <div className="mt-2 overflow-hidden rounded-lg border border-border/60">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted/10">
-                          <tr className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">
-                            <th className="text-left px-3 py-2">Collected</th>
-                            <th className="text-right px-3 py-2">Packages</th>
-                            <th className="text-right px-3 py-2">Changed</th>
-                            <th className="text-right px-3 py-2">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border/60">
-                          {drawerHistory.slice(0, 20).map((s, idx) => {
-                            const next = drawerHistory[idx + 1];
-                            const changed = next ? s.packages_hash !== next.packages_hash : false;
-                            return (
-                              <tr
-                                key={s.id}
-                                className={cx(
-                                  "text-[11px] font-mono",
-                                  focusedSnapshotId === s.id && "bg-primary/10"
-                                )}
-                              >
-                                <td className="px-3 py-2 text-muted-foreground">{fmtDateTime(s.collected_at)}</td>
-                                <td className="px-3 py-2 text-right text-muted-foreground">{s.packages_count}</td>
-                                <td className="px-3 py-2 text-right">
-                                  <span
+              {drawerTab === "history" ? (
+                <InvestigationSection title="Recent snapshots" subtitle="Track package hash drift and pin relevant baseline states.">
+                  <div className="overflow-hidden rounded-lg border border-border/60">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/10">
+                        <tr className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">
+                          <th className="text-left px-3 py-2">Collected</th>
+                          <th className="text-right px-3 py-2">Packages</th>
+                          <th className="text-right px-3 py-2">Changed</th>
+                          <th className="text-right px-3 py-2">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {drawerHistory.slice(0, 20).map((s, idx) => {
+                          const next = drawerHistory[idx + 1];
+                          const changed = next ? s.packages_hash !== next.packages_hash : false;
+                          return (
+                            <tr
+                              key={s.id}
+                              className={cx("text-[11px] font-mono", focusedSnapshotId === s.id && "bg-primary/10")}
+                            >
+                              <td className="px-3 py-2 text-muted-foreground">{fmtDateTime(s.collected_at)}</td>
+                              <td className="px-3 py-2 text-right text-muted-foreground">{s.packages_count}</td>
+                              <td className="px-3 py-2 text-right">
+                                <span
+                                  className={cx(
+                                    "inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] uppercase",
+                                    changed
+                                      ? "border-amber-500/40 text-amber-400 bg-amber-500/10"
+                                      : "border-border/60 text-muted-foreground bg-muted/10",
+                                  )}
+                                >
+                                  {changed ? "yes" : "no"}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setFocusedSnapshotId(s.id)}
                                     className={cx(
-                                      "inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] uppercase",
-                                      changed
-                                        ? "border-amber-500/40 text-amber-400 bg-amber-500/10"
-                                        : "border-border/60 text-muted-foreground bg-muted/10"
+                                      "rounded-md border border-border/60 bg-background/40 px-2 py-1",
+                                      "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
+                                      "hover:bg-muted/15 hover:text-foreground",
                                     )}
                                   >
-                                    {changed ? "yes" : "no"}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-2 text-right">
+                                    Focus
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => setPinSnapshotId(s.id)}
@@ -1183,60 +1077,60 @@ export default function InventoryPage() {
                                       "rounded-md border border-border/60 bg-background/40 px-2 py-1",
                                       "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
                                       "hover:bg-muted/15 hover:text-foreground",
-                                      focusedSnapshotId === s.id && "border-primary/40 text-foreground"
+                                      focusedSnapshotId === s.id && "border-primary/40 text-foreground",
                                     )}
                                   >
                                     Pin
                                   </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                          {drawerHistory.length === 0 ? (
-                            <tr>
-                              <td className="px-3 py-3 text-[11px] text-muted-foreground" colSpan={4}>
-                                No history.
+                                </div>
                               </td>
                             </tr>
-                          ) : null}
-                        </tbody>
-                      </table>
-                    </div>
+                          );
+                        })}
+                        {drawerHistory.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-3 text-[11px] text-muted-foreground" colSpan={4}>
+                              No history.
+                            </td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
                   </div>
+                </InvestigationSection>
+              ) : null}
 
-                  {/* Packages */}
-                  <div>
-                    <div className="flex items-end justify-between gap-3">
-                      <div>
-                        <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Packages</div>
-                        <div className="mt-1 text-[11px] text-muted-foreground">
-                          Showing up to 200 entries (search filters client-side).
+              {drawerTab === "packages" ? (
+                <InvestigationSection title="Package evidence" subtitle="Search the latest package list without leaving the drawer.">
+                  {!drawerLatest ? (
+                    <EmptyState title="No snapshot" hint="No package list available." />
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-end justify-between gap-3">
+                        <div className="text-[11px] text-muted-foreground">
+                          Showing up to 200 entries from latest snapshot.
                         </div>
+                        <input
+                          value={pkgQuery}
+                          onChange={(e) => setPkgQuery(e.target.value)}
+                          placeholder="Search packages..."
+                          className={cx(
+                            "w-[260px] max-w-full border border-border/60 bg-background/40 px-3 py-2",
+                            "text-[11px] text-foreground outline-none font-mono",
+                            "placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-primary/30",
+                          )}
+                        />
                       </div>
-                      <input
-                        value={pkgQuery}
-                        onChange={(e) => setPkgQuery(e.target.value)}
-                        placeholder="Search packages..."
-                        className={cx(
-                          "w-[260px] max-w-full border border-border/60 bg-background/40 px-3 py-2",
-                          "text-[11px] text-foreground outline-none font-mono",
-                          "placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-primary/30"
-                        )}
-                      />
-                    </div>
 
-                    <div className="mt-3">
                       {(() => {
                         const filtered = filterPackages(drawerLatest.packages || [], pkgQuery);
                         const visible = filtered.slice(0, 200);
-                        if (filtered.length === 0) {
+                        if ((drawerLatest.packages || []).length === 0) {
                           return <EmptyState title="NO PACKAGES" hint="No package entries in the latest snapshot." />;
                         }
-
                         if (visible.length === 0) {
                           return <EmptyState title="NO MATCHES" hint="Your filter did not match any package." />;
                         }
-
                         return (
                           <Table
                             scrollX={false}
@@ -1244,7 +1138,12 @@ export default function InventoryPage() {
                             columns={[
                               { key: "name", title: "NAME", className: "font-mono text-foreground" },
                               { key: "version", title: "VERSION", className: "font-mono text-muted-foreground w-44" },
-                              { key: "arch", title: "ARCH", className: "text-right font-mono text-muted-foreground w-20", render: (p: PackageEntry) => p.arch || "" }
+                              {
+                                key: "arch",
+                                title: "ARCH",
+                                className: "text-right font-mono text-muted-foreground w-20",
+                                render: (p: PackageEntry) => p.arch || "",
+                              },
                             ]}
                             rows={visible}
                             rowKey={(p: PackageEntry, i) => `${p.name}-${p.version}-${p.arch || ""}-${i}`}
@@ -1252,12 +1151,181 @@ export default function InventoryPage() {
                         );
                       })()}
                     </div>
-                  </div>
+                  )}
+                </InvestigationSection>
+              ) : null}
+
+              {drawerTab === "configuration" ? (
+                <div className="space-y-4">
+                  <InvestigationSection title="Metadata controls" subtitle="Editable identity fields for this endpoint.">
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                      <div className="space-y-3">
+                        <div>
+                          <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Display name</div>
+                          <input
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className={cx(
+                              "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
+                              "text-[11px] text-foreground outline-none font-mono",
+                              "focus:ring-2 focus:ring-primary/30",
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Description</div>
+                          <input
+                            value={editDesc}
+                            onChange={(e) => setEditDesc(e.target.value)}
+                            className={cx(
+                              "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
+                              "text-[11px] text-foreground outline-none font-mono",
+                              "focus:ring-2 focus:ring-primary/30",
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Tags (comma)</div>
+                          <input
+                            value={editTags}
+                            onChange={(e) => setEditTags(e.target.value)}
+                            placeholder="prod, linux, web"
+                            className={cx(
+                              "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
+                              "text-[11px] text-foreground outline-none font-mono",
+                              "placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-primary/30",
+                            )}
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!drawerAgentId) return;
+                              setEditMsg(null);
+                              setDrawerBusy(true);
+                              try {
+                                const next = drawerAgent.is_revoked
+                                  ? await enableAgent(drawerAgentId)
+                                  : await disableAgent(drawerAgentId);
+                                setDrawerAgent(next);
+                                setEditMsg("State updated.");
+                              } catch (e: any) {
+                                setEditMsg(e?.message || "Failed to update state");
+                              } finally {
+                                setDrawerBusy(false);
+                              }
+                            }}
+                            className={cx(
+                              "rounded-md border border-border/60 bg-background/40 px-3 py-2",
+                              "text-xs font-mono uppercase tracking-widest",
+                              drawerAgent.is_revoked ? "text-emerald-400" : "text-amber-400",
+                              "hover:bg-muted/15 focus:outline-none focus:ring-2 focus:ring-primary/30",
+                            )}
+                          >
+                            {drawerAgent.is_revoked ? "Enable agent" : "Disable agent"}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!drawerAgentId) return;
+                              setEditMsg(null);
+                              setDrawerBusy(true);
+                              try {
+                                const next = await updateAgent(drawerAgentId, {
+                                  display_name: editName.trim() ? editName.trim() : null,
+                                  description: editDesc.trim() ? editDesc.trim() : null,
+                                  tags: normalizeTagsInput(editTags),
+                                });
+                                setDrawerAgent(next);
+                                setEditMsg("Metadata updated.");
+                              } catch (e: any) {
+                                setEditMsg(e?.message || "Failed to update metadata");
+                              } finally {
+                                setDrawerBusy(false);
+                              }
+                            }}
+                            className={cx(
+                              "rounded-md border border-border/60 bg-primary/20 px-3 py-2",
+                              "text-xs font-mono uppercase tracking-widest text-foreground",
+                              "hover:bg-primary/25 focus:outline-none focus:ring-2 focus:ring-primary/30",
+                            )}
+                          >
+                            Save metadata
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Agent config (JSON)</div>
+                          <textarea
+                            value={editConfig}
+                            onChange={(e) => setEditConfig(e.target.value)}
+                            rows={14}
+                            className={cx(
+                              "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
+                              "text-[11px] text-foreground outline-none font-mono",
+                              "focus:ring-2 focus:ring-primary/30",
+                            )}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!drawerAgentId) return;
+                              setEditMsg(null);
+                              const parsed = safeJsonParse(editConfig);
+                              if (!parsed.ok) {
+                                setEditMsg(parsed.error);
+                                return;
+                              }
+                              setDrawerBusy(true);
+                              try {
+                                const next = await setAgentConfig(drawerAgentId, parsed.data);
+                                setDrawerAgent(next);
+                                setEditMsg("Config updated.");
+                              } catch (e: any) {
+                                setEditMsg(e?.message || "Failed to update config");
+                              } finally {
+                                setDrawerBusy(false);
+                              }
+                            }}
+                            className={cx(
+                              "rounded-md border border-border/60 bg-primary/20 px-3 py-2",
+                              "text-xs font-mono uppercase tracking-widest text-foreground",
+                              "hover:bg-primary/25 focus:outline-none focus:ring-2 focus:ring-primary/30",
+                            )}
+                          >
+                            Save config
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditConfig(JSON.stringify(drawerAgent.config || {}, null, 2))}
+                            className={cx(
+                              "rounded-md border border-border/60 bg-background/40 px-3 py-2",
+                              "text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                              "hover:bg-muted/15 hover:text-foreground",
+                              "focus:outline-none focus:ring-2 focus:ring-primary/30",
+                            )}
+                          >
+                            Reset
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {editMsg ? <div className="text-[11px] text-muted-foreground font-mono">{editMsg}</div> : null}
+                  </InvestigationSection>
                 </div>
-              )}
-            </div>
-          </div>
-        ) : null}
+              ) : null}
+            </>
+          ) : (
+            !drawerBusy && <EmptyState title="No agent selected" hint="Open an agent from the inventory tables." />
+          )}
+        </InvestigationShell>
       </Drawer>
 
       {pinSnapshotId ? (

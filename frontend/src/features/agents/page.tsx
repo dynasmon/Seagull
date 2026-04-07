@@ -6,6 +6,18 @@ import EmptyState from "@/shared/components/EmptyState";
 import Drawer from "@/shared/components/Drawer";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import Loading from "@/shared/components/Loading";
+import {
+  InvestigationActionBar,
+  InvestigationActionButton,
+  InvestigationFactCard,
+  InvestigationMetaStrip,
+  InvestigationRawJsonPanel,
+  InvestigationSection,
+  InvestigationShell,
+  InvestigationSummaryGrid,
+  InvestigationTabs,
+  copyTextToClipboard,
+} from "@/shared/components/investigation";
 import { cx } from "@/shared/lib/cx";
 import { isAbortError } from "@/shared/lib/http";
 import { getErrorMessage } from "@/shared/lib/errors";
@@ -538,6 +550,7 @@ export default function AgentsPage() {
       setResponseActionExpiresAt("");
       setResponseActionError(null);
       setResponseActionCreated(null);
+      setResponseActionMode("create");
       setResponseActionTab("create");
       setResponseActionSelectedId(null);
       setResponseActionHistory([]);
@@ -604,6 +617,7 @@ export default function AgentsPage() {
   const [responseActionExpiresAt, setResponseActionExpiresAt] = useState("");
   const [responseActionError, setResponseActionError] = useState<string | null>(null);
   const [responseActionCreated, setResponseActionCreated] = useState<ResponseActionOut | null>(null);
+  const [responseActionMode, setResponseActionMode] = useState<"create" | "investigate">("create");
   const [responseActionTab, setResponseActionTab] = useState<"create" | "execution" | "result">("create");
   const [responseActionSelectedId, setResponseActionSelectedId] = useState<number | null>(null);
   const [responseActionHistory, setResponseActionHistory] = useState<ResponseActionOut[]>([]);
@@ -648,8 +662,10 @@ export default function AgentsPage() {
     if (responseActionId) setResponseActionSelectedId(responseActionId);
     if (responseTab === "result" || responseTab === "execution" || responseTab === "create") {
       setResponseActionTab(responseTab);
+      setResponseActionMode(responseTab === "create" ? "create" : "investigate");
     } else if (responseActionId) {
       setResponseActionTab("result");
+      setResponseActionMode("investigate");
     }
   }, [searchParams, setSelectedAgentId, resetResponseActionForm]);
 
@@ -1118,6 +1134,7 @@ export default function AgentsPage() {
     setResponseActionSelectedId(actionId);
     setResponseActionError(null);
     setResponseActionResultRawOpen(false);
+    setResponseActionMode("investigate");
     setResponseActionTab(nextTab);
   };
 
@@ -1138,9 +1155,8 @@ export default function AgentsPage() {
 
   const onCopyResponseResultJson = async () => {
     const payload = responseActionResult?.result_payload || {};
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-    } catch {
+    const ok = await copyTextToClipboard(JSON.stringify(payload, null, 2));
+    if (!ok) {
       setResponseActionError("Failed to copy result JSON");
     }
   };
@@ -1195,6 +1211,7 @@ export default function AgentsPage() {
       });
       setResponseActionCreated(out);
       setResponseActionSelectedId(out.id);
+      setResponseActionMode("investigate");
       setResponseActionTab("execution");
       setResponseActionLive(out);
       await loadResponseActionHistory(agentId);
@@ -1875,90 +1892,60 @@ export default function AgentsPage() {
         {!isAdmin ? (
           <EmptyState title="Access denied" hint="Only administrators can queue response actions." />
         ) : (
-          <div className="space-y-4">
-            <div className="rounded-lg border border-border/60 bg-background/40 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
-                    Operator workflow
-                  </div>
-                  <div className="text-base font-semibold">Queue agent response action</div>
-                  <div className="text-[12px] text-muted-foreground">
-                    Confirm target and intent before submitting. The request is queued for the selected agent.
-                  </div>
-                </div>
-                <div className="rounded border border-border/60 bg-background/30 px-3 py-2 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                  operator {user?.username || "-"}
-                </div>
-              </div>
+          <InvestigationShell>
+            <InvestigationMetaStrip
+              items={[
+                { label: "Operator", value: user?.username || "-", variant: "neutral" },
+                { label: "Target", value: responseActionAgentRow?.display_name || responseActionAgentId || "not selected", variant: "info" },
+                { label: "Agent ID", value: responseActionAgentId || "-" },
+                { label: "Agent status", value: responseActionAgentStatus, variant: responseActionAgentStatus === "Online" ? "low" : "neutral" },
+                { label: "Last seen", value: responseActionAgentRow ? fmtLastSeen(responseActionAgentRow.last_seen_at) : "-" },
+              ]}
+            />
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Target</div>
-                  <div className="mt-1 text-[12px] font-mono truncate">
-                    {responseActionAgentRow?.display_name || responseActionAgentId || "Not selected"}
-                  </div>
-                </div>
-                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Agent id</div>
-                  <div className="mt-1 text-[12px] font-mono truncate">{responseActionAgentId || "-"}</div>
-                </div>
-                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Status</div>
-                  <div className="mt-1 flex items-center gap-2 text-[12px] font-mono">
-                    <Dot
-                      state={
-                        responseActionAgentRow?.is_revoked
-                          ? "disabled"
-                          : isOnline(responseActionAgentRow?.last_seen_at)
-                            ? "online"
-                            : "offline"
-                      }
-                    />
-                    <span>{responseActionAgentStatus}</span>
-                  </div>
-                </div>
-                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Last seen</div>
-                  <div className="mt-1 text-[12px] font-mono">
-                    {responseActionAgentRow ? fmtLastSeen(responseActionAgentRow.last_seen_at) : "-"}
-                  </div>
-                </div>
-                <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Tags</div>
-                  <div className="mt-1 text-[12px] font-mono truncate" title={(responseActionAgentRow?.tags || []).join(", ")}>
-                    {(responseActionAgentRow?.tags || []).slice(0, 2).join(", ") || "-"}
-                    {(responseActionAgentRow?.tags || []).length > 2 ? ` +${(responseActionAgentRow?.tags || []).length - 2}` : ""}
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {(
-                [
-                  ["create", "Create action"],
-                  ["execution", "Live execution status"],
-                  ["result", "Result viewer"]
-                ] as const
-              ).map(([k, label]) => {
-                const active = responseActionTab === k;
-                return (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => setResponseActionTab(k)}
-                    className={cx(
-                      "rounded border px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                      active
-                        ? "border-primary/60 bg-primary/20 text-foreground"
-                        : "border-border/60 bg-background/30 text-muted-foreground hover:text-foreground hover:bg-muted/10"
-                    )}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
+            <InvestigationActionBar>
+              <InvestigationActionButton
+                onClick={() => {
+                  setResponseActionMode("create");
+                  setResponseActionTab("create");
+                }}
+                tone={responseActionMode === "create" ? "primary" : "default"}
+              >
+                Create action
+              </InvestigationActionButton>
+              <InvestigationActionButton
+                onClick={() => {
+                  setResponseActionMode("investigate");
+                  if (responseActionTab === "create") {
+                    setResponseActionTab(responseActionSelectedId ? "result" : "execution");
+                  }
+                }}
+                tone={responseActionMode === "investigate" ? "primary" : "default"}
+              >
+                Investigate results
+              </InvestigationActionButton>
+              <InvestigationActionButton
+                onClick={() => {
+                  if (responseActionSelectedId) {
+                    loadResponseActionLive(responseActionSelectedId);
+                    loadResponseActionResult(responseActionSelectedId);
+                  }
+                  loadResponseActionHistory(responseActionAgentId);
+                }}
+              >
+                Refresh action data
+              </InvestigationActionButton>
+              <InvestigationActionButton
+                onClick={() => {
+                  if (!responseActionResult) return;
+                  setPinResponseResultId(responseActionResult.id);
+                }}
+                disabled={!responseActionResult}
+                tone="primary"
+              >
+                Pin selected result
+              </InvestigationActionButton>
+            </InvestigationActionBar>
 
             {responseActionError && (
               <div className="rounded-lg border border-red-400/50 bg-red-500/10 px-4 py-3 text-[12px] text-red-300">
@@ -1972,7 +1959,7 @@ export default function AgentsPage() {
               </div>
             )}
 
-            {responseActionTab === "create" && (
+            {responseActionMode === "create" ? (
               <div className="space-y-4">
                 <div className="grid gap-4 lg:grid-cols-2">
                   <Panel title="Target & scheduling">
@@ -2199,9 +2186,63 @@ export default function AgentsPage() {
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
 
-            {responseActionTab === "execution" && (
+            {responseActionMode === "investigate" ? (
+              <>
+                <InvestigationSection title="Investigation focus" subtitle="Inspect execution timeline and returned evidence.">
+                  <InvestigationSummaryGrid>
+                    <InvestigationFactCard
+                      label="Selected action"
+                      value={responseActionSelectedId ? `#${responseActionSelectedId}` : "-"}
+                      mono
+                    />
+                    <InvestigationFactCard
+                      label="Action type"
+                      value={responseActionLiveView?.action_type || responseActionResult?.status || "-"}
+                      mono
+                    />
+                    <InvestigationFactCard
+                      label="Execution state"
+                      value={responseActionLiveView?.status || responseActionResult?.status || "-"}
+                      mono
+                    />
+                    <InvestigationFactCard
+                      label="Requested at"
+                      value={fmtMaybeIso(responseActionLiveView?.requested_at || null)}
+                      mono
+                    />
+                    <InvestigationFactCard
+                      label="Duration"
+                      value={
+                        responseActionResult
+                          ? fmtDuration(responseActionResult.started_at, responseActionResult.finished_at)
+                          : responseActionLiveView
+                            ? fmtDuration(responseActionLiveView.started_at, responseActionLiveView.finished_at)
+                            : "-"
+                      }
+                      mono
+                    />
+                    <InvestigationFactCard
+                      label="Result payload keys"
+                      value={String(Object.keys(responseActionResult?.result_payload || {}).length)}
+                      mono
+                    />
+                  </InvestigationSummaryGrid>
+                </InvestigationSection>
+
+                <InvestigationTabs
+                  value={responseActionTab === "result" ? "result" : "execution"}
+                  onChange={(next) => {
+                    setResponseActionTab(next);
+                  }}
+                  tabs={[
+                    { key: "execution", label: "Execution" },
+                    { key: "result", label: "Result" },
+                  ]}
+                />
+
+                {responseActionTab === "execution" && (
               <div className="space-y-4">
                 <Panel title="Live execution status" right={responseActionLiveLoading ? "Refreshing" : ""}>
                   <div className="space-y-4">
@@ -2312,9 +2353,9 @@ export default function AgentsPage() {
                   </div>
                 </Panel>
               </div>
-            )}
+                )}
 
-            {responseActionTab === "result" && (
+                {responseActionTab === "result" && (
               <div className="space-y-4">
                 <Panel title="Result viewer" right={responseActionResultLoading ? "Loading" : ""}>
                   <div className="space-y-4">
@@ -2410,19 +2451,17 @@ export default function AgentsPage() {
                           </button>
                         </div>
 
-                        {responseActionResultRawOpen && (
-                          <pre className="rounded border border-border/60 bg-background/20 p-3 text-[11px] font-mono overflow-auto max-h-[280px]">
-                            {prettyJson(responseActionResult)}
-                          </pre>
-                        )}
+                        {responseActionResultRawOpen ? (
+                          <InvestigationRawJsonPanel value={responseActionResult} title="Raw response result JSON" />
+                        ) : null}
                       </div>
                     )}
                   </div>
                 </Panel>
               </div>
-            )}
+                )}
 
-            <Panel
+                <Panel
               title="History"
               right={responseActionHistoryLoading ? "Loading" : responseActionHistory.length ? String(responseActionHistory.length) : "Empty"}
             >
@@ -2455,6 +2494,8 @@ export default function AgentsPage() {
                 </div>
               )}
             </Panel>
+              </>
+            ) : null}
 
             <div className="rounded-lg border border-border/60 bg-background/40 px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2475,7 +2516,7 @@ export default function AgentsPage() {
                 </button>
               </div>
             </div>
-          </div>
+          </InvestigationShell>
         )}
       </Drawer>
 
