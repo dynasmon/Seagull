@@ -42,7 +42,7 @@ from app.features.attack_chain.worker_runtime import (
     load_config,
 )
 from app.features.events.worker_runtime import NetEventModel
-from app.shared.indexing.models import SearchIndexOffsetModel
+from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
 
 
 OFFSET_NAME = "attack_chain_v1"
@@ -110,11 +110,7 @@ def _ensure_bootstrap() -> None:
 
     ensure_database_ready()
     with engine.begin() as conn:
-        conn.execute(
-            insert(SearchIndexOffsetModel)
-            .values(name=OFFSET_NAME, last_id=0)
-            .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
-        )
+        ensure_offset(OFFSET_NAME, conn=conn)
         Index("idx_attack_chain_ssh_failures_last_seen", AttackChainSshFailureModel.last_seen_at.desc()).create(bind=conn, checkfirst=True)
         Index("idx_attack_chain_login_baseline_last_seen", AttackChainLoginBaselineModel.last_seen_at.desc()).create(bind=conn, checkfirst=True)
         Index("idx_attack_chain_last_access_accepted_at", AttackChainLastAccessModel.accepted_at.desc()).create(bind=conn, checkfirst=True)
@@ -130,23 +126,12 @@ def _fingerprint(stage: str, raw: str) -> str:
 
 
 def _get_last_id() -> int:
-    with engine.begin() as conn:
-        conn.execute(
-            insert(SearchIndexOffsetModel)
-            .values(name=OFFSET_NAME, last_id=0)
-            .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
-        )
-        row = conn.execute(select(SearchIndexOffsetModel.last_id).where(SearchIndexOffsetModel.name == OFFSET_NAME).limit(1)).fetchone()
-        return int(row[0]) if row and row[0] is not None else 0
+    ensure_offset(OFFSET_NAME)
+    return get_offset(OFFSET_NAME)
 
 
 def _set_last_id(last_id: int) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            update(SearchIndexOffsetModel)
-            .where(SearchIndexOffsetModel.name == OFFSET_NAME)
-            .values(last_id=int(last_id), updated_at=func.now())
-        )
+    set_offset(OFFSET_NAME, last_id)
 
 
 def _fetch_events(after_id: int, limit: int) -> List[Dict[str, Any]]:

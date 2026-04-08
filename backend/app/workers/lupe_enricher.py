@@ -42,7 +42,7 @@ from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import NetEventModel
 from app.shared.enrichment.models import IpEnrichmentCacheModel
-from app.shared.indexing.models import SearchIndexOffsetModel
+from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
 
 
 OFFSET_LUPE = "lupe_enricher_ssh_v1"
@@ -234,11 +234,7 @@ def _ensure_bootstrap(default_ttl_days: int) -> None:
     """
     ensure_database_ready()
     with engine.begin() as conn:
-        conn.execute(
-            insert(SearchIndexOffsetModel)
-            .values(name=OFFSET_LUPE, last_id=0)
-            .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
-        )
+        ensure_offset(OFFSET_LUPE, conn=conn)
         conn.execute(
             update(IpEnrichmentCacheModel)
             .where(IpEnrichmentCacheModel.expires_at.is_(None))
@@ -247,23 +243,11 @@ def _ensure_bootstrap(default_ttl_days: int) -> None:
 
 
 def _get_last_id() -> int:
-    with engine.begin() as conn:
-        row = conn.execute(
-            select(SearchIndexOffsetModel.last_id).where(SearchIndexOffsetModel.name == OFFSET_LUPE).limit(1),
-        ).fetchone()
-        return int(row[0]) if row and row[0] is not None else 0
+    return get_offset(OFFSET_LUPE)
 
 
 def _set_last_id(last_id: int) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            insert(SearchIndexOffsetModel)
-            .values(name=OFFSET_LUPE, last_id=int(last_id))
-            .on_conflict_do_update(
-                index_elements=[SearchIndexOffsetModel.name],
-                set_={"last_id": int(last_id), "updated_at": func.now()},
-            )
-        )
+    set_offset(OFFSET_LUPE, last_id)
 
 
 def _pick_batch_max_id(last_id: int, max_rows: int) -> Optional[int]:
