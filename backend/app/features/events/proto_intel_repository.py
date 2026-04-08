@@ -3,40 +3,22 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert
 
 from app.core.db import engine
 from app.features.events.models import NetEventModel
-from app.shared.indexing.models import SearchIndexOffsetModel
+from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
 
 
 def ensure_offset_row(offset_name: str) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            insert(SearchIndexOffsetModel)
-            .values(name=offset_name, last_id=0)
-            .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
-        )
+    ensure_offset(offset_name)
 
 
 def get_last_offset(offset_name: str) -> int:
-    with engine.begin() as conn:
-        row = conn.execute(
-            select(SearchIndexOffsetModel.last_id).where(SearchIndexOffsetModel.name == offset_name).limit(1)
-        ).fetchone()
-        return int(row[0]) if row else 0
+    return get_offset(offset_name)
 
 
 def set_last_offset(offset_name: str, last_id: int) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            insert(SearchIndexOffsetModel)
-            .values(name=offset_name, last_id=int(last_id))
-            .on_conflict_do_update(
-                index_elements=[SearchIndexOffsetModel.name],
-                set_={"last_id": int(last_id), "updated_at": func.now()},
-            )
-        )
+    set_offset(offset_name, last_id)
 
 
 def pick_batch_max_event_id(last_id: int, max_rows: int) -> int:

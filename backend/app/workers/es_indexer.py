@@ -19,8 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
-from sqlalchemy import select, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
@@ -29,7 +28,7 @@ from app.core.db_lifecycle import ensure_database_ready
 from app.core.env_secrets import env_value
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import NetEventModel
-from app.shared.indexing.models import SearchIndexOffsetModel
+from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
 
 setup_logging("worker-es-indexer")
 logger = logging.getLogger("netwatch.worker.es_indexer")
@@ -231,26 +230,12 @@ def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _get_last_id() -> int:
-
-    with engine.begin() as conn:
-        conn.execute(
-            insert(SearchIndexOffsetModel)
-            .values(name="events", last_id=0)
-            .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
-        )
-        row = conn.execute(
-            select(SearchIndexOffsetModel.last_id).where(SearchIndexOffsetModel.name == "events").limit(1)
-        ).fetchone()
-        return int(row[0]) if row and row[0] is not None else 0
+    ensure_offset("events")
+    return get_offset("events")
 
 
 def _set_last_id(last_id: int) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            update(SearchIndexOffsetModel)
-            .where(SearchIndexOffsetModel.name == "events")
-            .values(last_id=int(last_id), updated_at=datetime.utcnow())
-        )
+    set_offset("events", last_id)
 
 
 def _fetch_events(after_id: int, limit: int) -> List[Dict[str, Any]]:
