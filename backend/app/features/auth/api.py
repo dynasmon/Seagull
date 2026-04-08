@@ -1,26 +1,17 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, Response, status
-from fastapi.params import Depends as DependsParam
 from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit_event  # backward-compatible symbol for tests
-from app.core.db import SessionLocal, get_db
+from app.core.api_db import managed_session
+from app.core.db import get_db
 from app.core.portal_auth import PortalPrincipal, get_current_user, require_admin
 from app.features.auth.schemas import LoginIn, OtpCreateIn, OtpCreateOut, OtpLoginIn, TokenOut, UserOut
 from app.features.auth import service
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-def _resolve_db(db: Session) -> tuple[Session, bool]:
-    if isinstance(db, Session):
-        return db, False
-    if isinstance(db, DependsParam):
-        real = SessionLocal()
-        return real, True
-    return db, False
 
 
 @router.post("/login", response_model=TokenOut)
@@ -30,12 +21,8 @@ def login_endpoint(
     response: Response,
     db: Session = Depends(get_db),
 ):
-    db2, owns_db = _resolve_db(db)
-    try:
-        return service.login(db2, body=body, request=request, response=response)
-    finally:
-        if owns_db:
-            db2.close()
+    with managed_session(db) as db_session:
+        return service.login(db_session, body=body, request=request, response=response)
 
 
 @router.post("/refresh", response_model=TokenOut)
@@ -44,12 +31,8 @@ def refresh_endpoint(
     response: Response,
     db: Session = Depends(get_db),
 ):
-    db2, owns_db = _resolve_db(db)
-    try:
-        return service.refresh(db2, request=request, response=response)
-    finally:
-        if owns_db:
-            db2.close()
+    with managed_session(db) as db_session:
+        return service.refresh(db_session, request=request, response=response)
 
 
 @router.post("/logout", status_code=204)
@@ -59,12 +42,8 @@ def logout_endpoint(
     user: PortalPrincipal = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    db2, owns_db = _resolve_db(db)
-    try:
-        service.logout(db2, request=request, response=response, user=user)
-    finally:
-        if owns_db:
-            db2.close()
+    with managed_session(db) as db_session:
+        service.logout(db_session, request=request, response=response, user=user)
     return None
 
 
@@ -75,12 +54,8 @@ def logout_all_endpoint(
     user: PortalPrincipal = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    db2, owns_db = _resolve_db(db)
-    try:
-        service.logout_all(db2, request=request, response=response, user=user)
-    finally:
-        if owns_db:
-            db2.close()
+    with managed_session(db) as db_session:
+        service.logout_all(db_session, request=request, response=response, user=user)
     return None
 
 
@@ -101,12 +76,8 @@ def otp_login_endpoint(
     response: Response,
     db: Session = Depends(get_db),
 ):
-    db2, owns_db = _resolve_db(db)
-    try:
-        return service.otp_login(db2, body=body, request=request, response=response)
-    finally:
-        if owns_db:
-            db2.close()
+    with managed_session(db) as db_session:
+        return service.otp_login(db_session, body=body, request=request, response=response)
 
 
 @router.post("/otp/create", response_model=OtpCreateOut)
@@ -116,9 +87,5 @@ def otp_create_endpoint(
     admin: PortalPrincipal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    db2, owns_db = _resolve_db(db)
-    try:
-        return service.otp_create(db2, body=body, request=request, admin=admin)
-    finally:
-        if owns_db:
-            db2.close()
+    with managed_session(db) as db_session:
+        return service.otp_create(db_session, body=body, request=request, admin=admin)
