@@ -679,9 +679,50 @@ def _pg_hunt_query(
             )
         )
 
-    rows = repository.run(db, stmt.limit(int(page_size) + 1)).scalars().all()
-    has_more = len(rows) > int(page_size)
-    items = [NetEventDB.model_validate(r) for r in rows[: int(page_size)]]
+    requested = max(1, int(page_size))
+    target = requested + 1
+    # Read a bounded cushion to absorb occasional malformed legacy rows.
+    scan_limit = min(max(target + 32, target * 2), 512)
+
+    stmt = stmt.with_only_columns(
+        NetEventModel.id,
+        NetEventModel.agent_id,
+        NetEventModel.event_type,
+        NetEventModel.schema_version,
+        NetEventModel.timestamp,
+        NetEventModel.src_ip,
+        NetEventModel.dst_ip,
+        NetEventModel.src_port,
+        NetEventModel.dst_port,
+        NetEventModel.proto,
+        NetEventModel.bytes,
+        NetEventModel.extra,
+    )
+    rows = repository.run(db, stmt.limit(scan_limit)).mappings().all()
+
+    items_plus_one: list[NetEventDB] = []
+    skipped_rows = 0
+    for row in rows:
+        item = _row_to_event_safe(dict(row))
+        if item is None:
+            skipped_rows += 1
+            continue
+        items_plus_one.append(item)
+        if len(items_plus_one) >= target:
+            break
+
+    if skipped_rows:
+        log_event(
+            logger,
+            "warning",
+            "events_hunt_pg_rows_skipped",
+            skipped_rows=skipped_rows,
+            fetched_rows=len(rows),
+            page_size=requested,
+        )
+
+    has_more = len(items_plus_one) > requested
+    items = items_plus_one[:requested]
     next_cursor = None
     if has_more and items:
         last = items[-1]
