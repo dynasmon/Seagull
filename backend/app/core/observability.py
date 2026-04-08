@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
+import os
 import threading
 import time
 import uuid
@@ -49,6 +50,10 @@ class JsonFormatter(logging.Formatter):
         event = getattr(record, "event", None)
         if event:
             payload["event"] = event
+
+        worker_process = (os.getenv("NETWATCH_WORKER_PROCESS", "") or "").strip()
+        if worker_process:
+            payload["worker_process"] = worker_process
 
         fields = getattr(record, "fields", None)
         if isinstance(fields, dict):

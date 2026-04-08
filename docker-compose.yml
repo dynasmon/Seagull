@@ -203,7 +203,7 @@ services:
   kibana:
     image: docker.elastic.co/kibana/kibana:8.13.4
     container_name: netwatch-kibana
-    profiles: ["extra"]
+    profiles: ["observability"]
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -369,9 +369,9 @@ services:
       start_period: 25s
     restart: unless-stopped
 
-  netwatch-ingest-worker:
+  netwatch-ingest-pipeline:
     build: ./backend
-    container_name: netwatch-ingest-worker
+    container_name: netwatch-ingest-pipeline
     depends_on:
       postgres:
         condition: service_healthy
@@ -402,6 +402,13 @@ services:
       NETWATCH_ES_PASSWORD_FILE: ${NETWATCH_ES_PASSWORD_FILE:-}
       NETWATCH_ES_VERIFY_CERTS: ${NETWATCH_ES_VERIFY_CERTS:-true}
       NETWATCH_ES_CA_CERTS: ${NETWATCH_ES_CA_CERTS:-}
+      NETWATCH_ES_BATCH_SIZE: ${NETWATCH_ES_BATCH_SIZE:-500}
+      NETWATCH_ES_EVERY_SECONDS: ${NETWATCH_ES_EVERY_SECONDS:-1}
+      NETWATCH_ES_IDLE_SLEEP_SECONDS: ${NETWATCH_ES_IDLE_SLEEP_SECONDS:-2}
+      NETWATCH_ES_BOOTSTRAP: ${NETWATCH_ES_BOOTSTRAP:-true}
+      NETWATCH_ES_ILM_ENABLED: ${NETWATCH_ES_ILM_ENABLED:-true}
+      NETWATCH_ES_ILM_DELETE_AFTER_DAYS: ${NETWATCH_ES_ILM_DELETE_AFTER_DAYS:-30}
+      NETWATCH_ES_ILM_POLICY_NAME: ${NETWATCH_ES_ILM_POLICY_NAME:-}
       NETWATCH_CLICKHOUSE_ENABLED: ${NETWATCH_CLICKHOUSE_ENABLED:-true}
       NETWATCH_CLICKHOUSE_REQUIRED: ${NETWATCH_CLICKHOUSE_REQUIRED:-true}
       NETWATCH_CLICKHOUSE_HOST: ${NETWATCH_CLICKHOUSE_HOST:-clickhouse}
@@ -424,21 +431,29 @@ services:
       NETWATCH_INGEST_VALUES_PAGE_SIZE: ${NETWATCH_INGEST_VALUES_PAGE_SIZE:-1000}
       NETWATCH_INGEST_ROLLUP_PAGE_SIZE: ${NETWATCH_INGEST_ROLLUP_PAGE_SIZE:-500}
       NETWATCH_INGEST_WARM_ENABLED: ${NETWATCH_INGEST_WARM_ENABLED:-true}
-    command: ["python", "-m", "app.workers.ingest_worker"]
+      NETWATCH_ROLLUP_EVERY_SECONDS: ${NETWATCH_ROLLUP_EVERY_SECONDS:-1}
+      NETWATCH_ROLLUP_IDLE_SLEEP_SECONDS: ${NETWATCH_ROLLUP_IDLE_SLEEP_SECONDS:-2}
+      NETWATCH_ROLLUP_MAX_ROWS: ${NETWATCH_ROLLUP_MAX_ROWS:-5000}
+    command: ["python", "-m", "app.workers.manager", "ingest"]
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    mem_limit: 768m
-    cpus: "0.75"
+    mem_limit: 1280m
+    cpus: "1.25"
     networks:
       - netwatch
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.workers.manager", "health", "ingest"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
-
-  netwatch-rules-worker:
+  netwatch-intelligence-worker:
     build: ./backend
-    container_name: netwatch-rules-worker
+    container_name: netwatch-intelligence-worker
     depends_on:
       postgres:
         condition: service_healthy
@@ -454,22 +469,61 @@ services:
       NETWATCH_RULES_ENABLED_PACKS: ${NETWATCH_RULES_ENABLED_PACKS:-core,network,lab}
       NETWATCH_RULES_DISABLED_PACKS: ${NETWATCH_RULES_DISABLED_PACKS:-}
       NETWATCH_RULES_INCLUDE_EXPERIMENTAL: ${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-true}
+      NETWATCH_IP_INTEL_PROVIDER: ${NETWATCH_IP_INTEL_PROVIDER:-auto}
+      NETWATCH_IP_INTEL_FALLBACK_PROVIDER: ${NETWATCH_IP_INTEL_FALLBACK_PROVIDER:-ipinfo}
+      NETWATCH_IP_INTEL_MAXMIND_CITY_DB_PATH: ${NETWATCH_IP_INTEL_MAXMIND_CITY_DB_PATH:-/app/data/geoip/GeoLite2-City.mmdb}
+      NETWATCH_IP_INTEL_MAXMIND_ASN_DB_PATH: ${NETWATCH_IP_INTEL_MAXMIND_ASN_DB_PATH:-/app/data/geoip/GeoLite2-ASN.mmdb}
+      NETWATCH_IPINFO_TOKEN: ${NETWATCH_IPINFO_TOKEN}
+      NETWATCH_IP_INTEL_EVERY_SECONDS: ${NETWATCH_IP_INTEL_EVERY_SECONDS:-1}
+      NETWATCH_IP_INTEL_IDLE_SLEEP_SECONDS: ${NETWATCH_IP_INTEL_IDLE_SLEEP_SECONDS:-2}
+      NETWATCH_IP_INTEL_MAX_ROWS: ${NETWATCH_IP_INTEL_MAX_ROWS:-2000}
+      NETWATCH_IP_INTEL_BATCH_SIZE: ${NETWATCH_IP_INTEL_BATCH_SIZE:-200}
+      NETWATCH_IP_INTEL_HTTP_TIMEOUT_SECONDS: ${NETWATCH_IP_INTEL_HTTP_TIMEOUT_SECONDS:-8}
+      NETWATCH_IP_INTEL_CACHE_TTL_DAYS: ${NETWATCH_IP_INTEL_CACHE_TTL_DAYS:-7}
+      NETWATCH_IP_INTEL_SKIP_PRIVATE: ${NETWATCH_IP_INTEL_SKIP_PRIVATE:-true}
+      NETWATCH_PROTO_INTEL_EVERY_SECONDS: ${NETWATCH_PROTO_INTEL_EVERY_SECONDS:-1.0}
+      NETWATCH_PROTO_INTEL_IDLE_SLEEP_SECONDS: ${NETWATCH_PROTO_INTEL_IDLE_SLEEP_SECONDS:-2.0}
+      NETWATCH_PROTO_INTEL_MAX_ROWS: ${NETWATCH_PROTO_INTEL_MAX_ROWS:-5000}
+      NETWATCH_PROTO_INTEL_BATCH_SIZE: ${NETWATCH_PROTO_INTEL_BATCH_SIZE:-500}
+      NETWATCH_PROTO_INTEL_PAYLOAD_MAX_BYTES: ${NETWATCH_PROTO_INTEL_PAYLOAD_MAX_BYTES:-4096}
+      NETWATCH_ATTACK_CHAIN_EVERY_SECONDS: ${NETWATCH_ATTACK_CHAIN_EVERY_SECONDS:-1.0}
+      NETWATCH_ATTACK_CHAIN_IDLE_SLEEP_SECONDS: ${NETWATCH_ATTACK_CHAIN_IDLE_SLEEP_SECONDS:-2.0}
+      NETWATCH_ATTACK_CHAIN_BATCH_SIZE: ${NETWATCH_ATTACK_CHAIN_BATCH_SIZE:-500}
+      NETWATCH_ATTACK_CHAIN_LOG_EVERY_SECONDS: ${NETWATCH_ATTACK_CHAIN_LOG_EVERY_SECONDS:-2.0}
+      NETWATCH_ATTACK_CHAIN_LOG_IDLE_EVERY_SECONDS: ${NETWATCH_ATTACK_CHAIN_LOG_IDLE_EVERY_SECONDS:-20.0}
+      NETWATCH_ATTACK_CHAIN_DEBUG: ${NETWATCH_ATTACK_CHAIN_DEBUG:-false}
+      NETWATCH_ATTACK_CHAIN_IDLE_CLOSE_SECONDS: ${NETWATCH_ATTACK_CHAIN_IDLE_CLOSE_SECONDS:-2700}
+      NETWATCH_ATTACK_CHAIN_ATTACH_LOCAL_WINDOW_SECONDS: ${NETWATCH_ATTACK_CHAIN_ATTACH_LOCAL_WINDOW_SECONDS:-1200}
+      NETWATCH_ATTACK_CHAIN_STEP_DEDUP_SECONDS: ${NETWATCH_ATTACK_CHAIN_STEP_DEDUP_SECONDS:-60}
+      NETWATCH_ATTACK_CHAIN_MAX_SCORE: ${NETWATCH_ATTACK_CHAIN_MAX_SCORE:-100}
+      NETWATCH_ATTACK_CHAIN_SSH_BRUTEFORCE_SCORE: ${NETWATCH_ATTACK_CHAIN_SSH_BRUTEFORCE_SCORE:-12}
+      NETWATCH_ATTACK_CHAIN_SSH_SUCCESS_SCORE: ${NETWATCH_ATTACK_CHAIN_SSH_SUCCESS_SCORE:-25}
+      NETWATCH_ATTACK_CHAIN_SUDO_ROOT_SCORE: ${NETWATCH_ATTACK_CHAIN_SUDO_ROOT_SCORE:-20}
+      NETWATCH_ATTACK_CHAIN_SUDO_LOLBIN_SCORE: ${NETWATCH_ATTACK_CHAIN_SUDO_LOLBIN_SCORE:-14}
+      NETWATCH_ATTACK_CHAIN_LOG_TAMPER_SCORE: ${NETWATCH_ATTACK_CHAIN_LOG_TAMPER_SCORE:-22}
     volumes:
       - ./rules:/app/rules:ro
-    command: ["python", "-m", "app.workers.runner"]
+      - ./backend/data/geoip:/app/data/geoip:ro
+    command: ["python", "-m", "app.workers.manager", "intelligence"]
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    mem_limit: 512m
-    cpus: "0.50"
+    mem_limit: 1280m
+    cpus: "1.00"
     networks:
       - netwatch
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.workers.manager", "health", "intelligence"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
-  netwatch-audit-retention:
+  netwatch-maintenance-worker:
     build: ./backend
-    container_name: netwatch-audit-retention
+    container_name: netwatch-maintenance-worker
     depends_on:
       postgres:
         condition: service_healthy
@@ -489,7 +543,19 @@ services:
       NETWATCH_GOVERNANCE_RETENTION_DAYS: ${NETWATCH_GOVERNANCE_RETENTION_DAYS:-30}
       NETWATCH_AUDIT_RETENTION_EVERY_SECONDS: ${NETWATCH_AUDIT_RETENTION_EVERY_SECONDS:-3600}
       NETWATCH_AUDIT_RETENTION_DELETE_BATCH: ${NETWATCH_AUDIT_RETENTION_DELETE_BATCH:-5000}
-    command: ["python", "-m", "app.workers.audit_retention"]
+      NETWATCH_MAINTENANCE_ENABLE_BOOTSTRAP_ROTATOR: ${NETWATCH_MAINTENANCE_ENABLE_BOOTSTRAP_ROTATOR:-false}
+      NETWATCH_BOOTSTRAP_ADMIN_USERNAME: ${NETWATCH_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: ${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD:-}
+      NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE: ${NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE:-}
+      NETWATCH_BOOTSTRAP_ROTATOR_BACKEND_BASE: ${NETWATCH_BOOTSTRAP_ROTATOR_BACKEND_BASE:-http://netwatch-backend:8000}
+      NETWATCH_BOOTSTRAP_ROTATOR_AGENT_IDS: ${NETWATCH_BOOTSTRAP_ROTATOR_AGENT_IDS:-agent-core-1,agent-sensor-1,agent-lateral-1,agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1}
+      NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS:-2592000}
+      NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_MAX_USES: ${NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_MAX_USES:-5}
+      NETWATCH_BOOTSTRAP_ROTATOR_EVERY_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_EVERY_SECONDS:-900}
+      NETWATCH_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS:-86400}
+      NETWATCH_BOOTSTRAP_ROTATOR_OUTPUT_DIR: ${NETWATCH_BOOTSTRAP_ROTATOR_OUTPUT_DIR:-/etc/netwatch/bootstrap}
+      NETWATCH_BOOTSTRAP_ROTATOR_STATE_DIR: ${NETWATCH_BOOTSTRAP_ROTATOR_STATE_DIR:-/var/lib/netwatch/bootstrap-rotator}
+    command: ["python", "-m", "app.workers.manager", "maintenance"]
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -498,198 +564,18 @@ services:
     cpus: "0.30"
     networks:
       - netwatch
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.workers.manager", "health", "maintenance"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
-
-  netwatch-es-indexer:
-    build: ./backend
-    container_name: netwatch-es-indexer
-    depends_on:
-      postgres:
-        condition: service_healthy
-      netwatch-backend:
-        condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
-    environment:
-      NETWATCH_DB_HOST: postgres
-      NETWATCH_DB_PORT: 5432
-      NETWATCH_DB_NAME: ${POSTGRES_DB}
-      NETWATCH_DB_USER: ${POSTGRES_USER}
-      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
-      NETWATCH_DB_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
-      NETWATCH_ES_URL: ${NETWATCH_ES_URL:-http://elasticsearch:9200}
-      NETWATCH_ES_INDEX_PREFIX: ${NETWATCH_ES_INDEX_PREFIX:-netwatch-events}
-      NETWATCH_INGEST_WARM_INDEX_PREFIX: ${NETWATCH_INGEST_WARM_INDEX_PREFIX:-netwatch-events-warm}
-      NETWATCH_INGEST_WARM_ILM_ENABLED: ${NETWATCH_INGEST_WARM_ILM_ENABLED:-true}
-      NETWATCH_INGEST_WARM_ILM_POLICY: ${NETWATCH_INGEST_WARM_ILM_POLICY:-netwatch-warm-delete-30d}
-      NETWATCH_INGEST_WARM_ILM_DELETE_AFTER_DAYS: ${NETWATCH_INGEST_WARM_ILM_DELETE_AFTER_DAYS:-30}
-      NETWATCH_ES_BATCH_SIZE: ${NETWATCH_ES_BATCH_SIZE:-500}
-      NETWATCH_ES_EVERY_SECONDS: ${NETWATCH_ES_EVERY_SECONDS:-1}
-      NETWATCH_ES_IDLE_SLEEP_SECONDS: ${NETWATCH_ES_IDLE_SLEEP_SECONDS:-2}
-      NETWATCH_ES_REQUEST_TIMEOUT_SECONDS: ${NETWATCH_ES_REQUEST_TIMEOUT_SECONDS:-30}
-      NETWATCH_ES_BOOTSTRAP: ${NETWATCH_ES_BOOTSTRAP:-true}
-      NETWATCH_ES_ILM_ENABLED: ${NETWATCH_ES_ILM_ENABLED:-true}
-      NETWATCH_ES_ILM_DELETE_AFTER_DAYS: ${NETWATCH_ES_ILM_DELETE_AFTER_DAYS:-30}
-      NETWATCH_ES_ILM_POLICY_NAME: ${NETWATCH_ES_ILM_POLICY_NAME:-}
-      NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-}
-      NETWATCH_ES_PASSWORD: ${NETWATCH_ES_PASSWORD:-}
-      NETWATCH_ES_PASSWORD_FILE: ${NETWATCH_ES_PASSWORD_FILE:-}
-      NETWATCH_ES_VERIFY_CERTS: ${NETWATCH_ES_VERIFY_CERTS:-true}
-      NETWATCH_ES_CA_CERTS: ${NETWATCH_ES_CA_CERTS:-}
-
-    command: ["python", "-m", "app.workers.es_indexer"]
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    mem_limit: 768m
-    cpus: "0.75"
-    networks:
-      - netwatch
-    restart: unless-stopped
-
-  netwatch-rollup-worker:
-    build: ./backend
-    container_name: netwatch-rollup-worker
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      NETWATCH_DB_HOST: postgres
-      NETWATCH_DB_PORT: 5432
-      NETWATCH_DB_NAME: ${POSTGRES_DB}
-      NETWATCH_DB_USER: ${POSTGRES_USER}
-      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
-      NETWATCH_DB_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
-      NETWATCH_ROLLUP_EVERY_SECONDS: ${NETWATCH_ROLLUP_EVERY_SECONDS:-1}
-      NETWATCH_ROLLUP_IDLE_SLEEP_SECONDS: ${NETWATCH_ROLLUP_IDLE_SLEEP_SECONDS:-2}
-      NETWATCH_ROLLUP_MAX_ROWS: ${NETWATCH_ROLLUP_MAX_ROWS:-5000}
-    command: ["python", "-m", "app.workers.rollup_1m"]
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    mem_limit: 512m
-    cpus: "0.50"
-    networks:
-      - netwatch
-    restart: unless-stopped
-
-  netwatch-ip-intel:
-    build: ./backend
-    container_name: netwatch-ip-intel
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      NETWATCH_DB_HOST: postgres
-      NETWATCH_DB_PORT: 5432
-      NETWATCH_DB_NAME: ${POSTGRES_DB}
-      NETWATCH_DB_USER: ${POSTGRES_USER}
-      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
-      NETWATCH_DB_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
-      NETWATCH_IP_INTEL_PROVIDER: ${NETWATCH_IP_INTEL_PROVIDER:-auto}
-      NETWATCH_IP_INTEL_FALLBACK_PROVIDER: ${NETWATCH_IP_INTEL_FALLBACK_PROVIDER:-ipinfo}
-      NETWATCH_IP_INTEL_MAXMIND_CITY_DB_PATH: ${NETWATCH_IP_INTEL_MAXMIND_CITY_DB_PATH:-/app/data/geoip/GeoLite2-City.mmdb}
-      NETWATCH_IP_INTEL_MAXMIND_ASN_DB_PATH: ${NETWATCH_IP_INTEL_MAXMIND_ASN_DB_PATH:-/app/data/geoip/GeoLite2-ASN.mmdb}
-      NETWATCH_IPINFO_TOKEN: ${NETWATCH_IPINFO_TOKEN}
-      NETWATCH_IP_INTEL_EVERY_SECONDS: ${NETWATCH_IP_INTEL_EVERY_SECONDS:-1}
-      NETWATCH_IP_INTEL_IDLE_SLEEP_SECONDS: ${NETWATCH_IP_INTEL_IDLE_SLEEP_SECONDS:-2}
-      NETWATCH_IP_INTEL_MAX_ROWS: ${NETWATCH_IP_INTEL_MAX_ROWS:-2000}
-      NETWATCH_IP_INTEL_BATCH_SIZE: ${NETWATCH_IP_INTEL_BATCH_SIZE:-200}
-      NETWATCH_IP_INTEL_HTTP_TIMEOUT_SECONDS: ${NETWATCH_IP_INTEL_HTTP_TIMEOUT_SECONDS:-8}
-      NETWATCH_IP_INTEL_CACHE_TTL_DAYS: ${NETWATCH_IP_INTEL_CACHE_TTL_DAYS:-7}
-      NETWATCH_IP_INTEL_SKIP_PRIVATE: ${NETWATCH_IP_INTEL_SKIP_PRIVATE:-true}
-    volumes:
-      - ./backend/data/geoip:/app/data/geoip:ro
-    command: ["python", "-m", "app.workers.ip_intel"]
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    mem_limit: 512m
-    cpus: "0.50"
-    networks:
-      - netwatch
-    restart: always
-
-  netwatch-proto-intel:
-    build: ./backend
-    container_name: netwatch-proto-intel
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      # Keep DB wiring consistent across workers.
-      NETWATCH_DB_HOST: postgres
-      NETWATCH_DB_PORT: 5432
-      NETWATCH_DB_NAME: ${POSTGRES_DB}
-      NETWATCH_DB_USER: ${POSTGRES_USER}
-      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
-      NETWATCH_DB_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
-
-      NETWATCH_PROTO_INTEL_EVERY_SECONDS: ${NETWATCH_PROTO_INTEL_EVERY_SECONDS:-1.0}
-      NETWATCH_PROTO_INTEL_IDLE_SLEEP_SECONDS: ${NETWATCH_PROTO_INTEL_IDLE_SLEEP_SECONDS:-2.0}
-      NETWATCH_PROTO_INTEL_MAX_ROWS: ${NETWATCH_PROTO_INTEL_MAX_ROWS:-5000}
-      NETWATCH_PROTO_INTEL_BATCH_SIZE: ${NETWATCH_PROTO_INTEL_BATCH_SIZE:-500}
-      NETWATCH_PROTO_INTEL_PAYLOAD_MAX_BYTES: ${NETWATCH_PROTO_INTEL_PAYLOAD_MAX_BYTES:-4096}
-    command: ["python", "-m", "app.workers.proto_intel"]
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    mem_limit: 512m
-    cpus: "0.50"
-    networks:
-      - netwatch
-    restart: always
-
-  netwatch-attack-chain:
-    build: ./backend
-    container_name: netwatch-attack-chain
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      NETWATCH_DB_HOST: postgres
-      NETWATCH_DB_PORT: 5432
-      NETWATCH_DB_NAME: ${POSTGRES_DB}
-      NETWATCH_DB_USER: ${POSTGRES_USER}
-      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
-      NETWATCH_DB_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
-
-      NETWATCH_ATTACK_CHAIN_EVERY_SECONDS: ${NETWATCH_ATTACK_CHAIN_EVERY_SECONDS:-1.0}
-      NETWATCH_ATTACK_CHAIN_IDLE_SLEEP_SECONDS: ${NETWATCH_ATTACK_CHAIN_IDLE_SLEEP_SECONDS:-2.0}
-      NETWATCH_ATTACK_CHAIN_BATCH_SIZE: ${NETWATCH_ATTACK_CHAIN_BATCH_SIZE:-500}
-
-      NETWATCH_ATTACK_CHAIN_LOG_EVERY_SECONDS: ${NETWATCH_ATTACK_CHAIN_LOG_EVERY_SECONDS:-2.0}
-      NETWATCH_ATTACK_CHAIN_LOG_IDLE_EVERY_SECONDS: ${NETWATCH_ATTACK_CHAIN_LOG_IDLE_EVERY_SECONDS:-20.0}
-      NETWATCH_ATTACK_CHAIN_DEBUG: ${NETWATCH_ATTACK_CHAIN_DEBUG:-false}
-
-      NETWATCH_ATTACK_CHAIN_IDLE_CLOSE_SECONDS: ${NETWATCH_ATTACK_CHAIN_IDLE_CLOSE_SECONDS:-2700}
-      NETWATCH_ATTACK_CHAIN_ATTACH_LOCAL_WINDOW_SECONDS: ${NETWATCH_ATTACK_CHAIN_ATTACH_LOCAL_WINDOW_SECONDS:-1200}
-      NETWATCH_ATTACK_CHAIN_STEP_DEDUP_SECONDS: ${NETWATCH_ATTACK_CHAIN_STEP_DEDUP_SECONDS:-60}
-      NETWATCH_ATTACK_CHAIN_MAX_SCORE: ${NETWATCH_ATTACK_CHAIN_MAX_SCORE:-100}
-
-      NETWATCH_ATTACK_CHAIN_SSH_BRUTEFORCE_SCORE: ${NETWATCH_ATTACK_CHAIN_SSH_BRUTEFORCE_SCORE:-12}
-      NETWATCH_ATTACK_CHAIN_SSH_SUCCESS_SCORE: ${NETWATCH_ATTACK_CHAIN_SSH_SUCCESS_SCORE:-25}
-      NETWATCH_ATTACK_CHAIN_SUDO_ROOT_SCORE: ${NETWATCH_ATTACK_CHAIN_SUDO_ROOT_SCORE:-20}
-      NETWATCH_ATTACK_CHAIN_SUDO_LOLBIN_SCORE: ${NETWATCH_ATTACK_CHAIN_SUDO_LOLBIN_SCORE:-14}
-      NETWATCH_ATTACK_CHAIN_LOG_TAMPER_SCORE: ${NETWATCH_ATTACK_CHAIN_LOG_TAMPER_SCORE:-22}
-    command: ["python", "-m", "app.workers.attack_chain"]
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    mem_limit: 512m
-    cpus: "0.50"
-    networks:
-      - netwatch
-    restart: always
 
   grafana:
     image: grafana/grafana-oss:latest
     container_name: netwatch-grafana
+    profiles: ["observability"]
     depends_on:
       postgres:
         condition: service_healthy
