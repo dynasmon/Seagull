@@ -18,29 +18,28 @@ from sqlalchemy import Index, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
-from app.features.attack_chain.domain.config import load_config
-from app.features.attack_chain.domain.detectors import detect_steps
-from app.features.attack_chain.domain.scoring import evaluate_candidate
-from app.features.attack_chain.domain.store import (
-    CaseRow,
-    close_stale_cases,
-    find_attachable_case_id,
-    get_or_create_open_case_ex,
-    insert_step_and_update_case,
-    case_recent_step_exists,
-)
-from app.features.attack_chain.domain.types import AttackStage, StepCandidate
 from app.core.db import engine
 from app.core.config import settings
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
-from app.features.attack_chain.models import (
+from app.features.attack_chain.worker_runtime import (
     AttackChainAllowlistModel,
     AttackChainCaseModel,
     AttackChainLastAccessModel,
     AttackChainLoginBaselineModel,
     AttackChainSshFailureModel,
     AttackChainStepModel,
+    AttackStage,
+    CaseRow,
+    StepCandidate,
+    case_recent_step_exists,
+    close_stale_cases,
+    detect_steps,
+    evaluate_candidate,
+    find_attachable_case_id,
+    get_or_create_open_case_ex,
+    insert_step_and_update_case,
+    load_config,
 )
 from app.features.events.models import NetEventModel
 from app.shared.indexing.models import SearchIndexOffsetModel
