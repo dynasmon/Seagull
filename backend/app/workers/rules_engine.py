@@ -15,8 +15,7 @@ from app.core.config import settings
 from app.core.db import SessionLocal
 from app.features.agents.models import AgentModel
 from app.features.alerts.models import AlertModel
-from app.features.events.models import NetEventModel
-from app.workers.rules_registry import (
+from app.features.alerts.rule_registry_runtime import (
     apply_override,
     apply_tuning_and_suppressions,
     fetch_overrides,
@@ -25,6 +24,7 @@ from app.workers.rules_registry import (
     load_baseline_rules,
     normalize_rule_list,
 )
+from app.features.events.worker_runtime import NetEventModel
 
 from app.shared.taxonomy.catalog import technique_name
 

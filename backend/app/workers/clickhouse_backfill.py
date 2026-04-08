@@ -18,8 +18,7 @@ from app.core.config import settings
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
-from app.features.events.models import NetEventModel
-from app.workers.ingest_worker import _write_clickhouse_events
+from app.features.events.worker_runtime import NetEventModel, write_clickhouse_events
 
 
 setup_logging("worker-clickhouse-backfill")
@@ -187,7 +186,7 @@ def run_backfill(
             break
 
         hot_rows = _pg_rows_to_hot_rows(pg_rows)
-        _write_clickhouse_events(ch_client=ch_client, hot_rows=hot_rows)
+        write_clickhouse_events(ch_client=ch_client, hot_rows=hot_rows)
 
         last_id = int(pg_rows[-1]["id"])
         processed += len(pg_rows)

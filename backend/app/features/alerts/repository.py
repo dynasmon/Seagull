@@ -8,10 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.features.alerts.models import AlertModel
 from app.features.alerts.models import AlertRuleOverrideModel
+from app.features.alerts.rule_registry_runtime import fetch_overrides, fetch_suppressions, fetch_tuning
 from app.features.alerts.models import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
 from app.features.alerts.models import AlertRuleTuningHistoryModel, AlertRuleTuningModel
 from app.features.events.models import NetEventModel
-from app.workers.rules_registry import fetch_overrides, fetch_suppressions, fetch_tuning
 
 
 # Alert queries
