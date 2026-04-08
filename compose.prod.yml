@@ -97,7 +97,7 @@ services:
       NETWATCH_ES_PASSWORD: ${NETWATCH_ES_PASSWORD:?set NETWATCH_ES_PASSWORD in .env}
       NETWATCH_ES_PASSWORD_FILE: ""
 
-  netwatch-ingest-worker:
+  netwatch-ingest-pipeline:
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
@@ -112,7 +112,23 @@ services:
       NETWATCH_ES_PASSWORD: ${NETWATCH_ES_PASSWORD:?set NETWATCH_ES_PASSWORD in .env}
       NETWATCH_ES_PASSWORD_FILE: ""
 
-  netwatch-audit-retention:
+  netwatch-intelligence-worker:
+    environment:
+      NETWATCH_ENV: prod
+      NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
+      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      NETWATCH_DB_PASSWORD_FILE: ""
+      NETWATCH_RULES_ENV: prod
+      NETWATCH_RULES_ENABLED_PACKS: ${NETWATCH_RULES_ENABLED_PACKS:-core,network}
+      NETWATCH_RULES_INCLUDE_EXPERIMENTAL: ${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-false}
+
+  netwatch-maintenance-worker:
+    user: "0:0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      netwatch-backend:
+        condition: service_healthy
     environment:
       NETWATCH_ENV: prod
       NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
@@ -128,53 +144,25 @@ services:
       NETWATCH_GOVERNANCE_RETENTION_DAYS: ${NETWATCH_GOVERNANCE_RETENTION_DAYS_PROD:-365}
       NETWATCH_AUDIT_RETENTION_EVERY_SECONDS: ${NETWATCH_AUDIT_RETENTION_EVERY_SECONDS:-3600}
       NETWATCH_AUDIT_RETENTION_DELETE_BATCH: ${NETWATCH_AUDIT_RETENTION_DELETE_BATCH:-5000}
-
-  netwatch-rules-worker:
-    environment:
-      NETWATCH_ENV: prod
-      NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      NETWATCH_DB_PASSWORD_FILE: ""
-
-  netwatch-es-indexer:
-    environment:
-      NETWATCH_ENV: prod
-      NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      NETWATCH_DB_PASSWORD_FILE: ""
-      NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
-      NETWATCH_ES_PASSWORD: ${NETWATCH_ES_PASSWORD:?set NETWATCH_ES_PASSWORD in .env}
-      NETWATCH_ES_PASSWORD_FILE: ""
-
-  netwatch-rollup-worker:
-    environment:
-      NETWATCH_ENV: prod
-      NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      NETWATCH_DB_PASSWORD_FILE: ""
-
-  netwatch-ip-intel:
-    environment:
-      NETWATCH_ENV: prod
-      NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      NETWATCH_DB_PASSWORD_FILE: ""
-
-  netwatch-proto-intel:
-    environment:
-      NETWATCH_ENV: prod
-      NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      NETWATCH_DB_PASSWORD_FILE: ""
-
-  netwatch-attack-chain:
-    environment:
-      NETWATCH_ENV: prod
-      NETWATCH_DB_AUTO_UPGRADE: ${NETWATCH_DB_AUTO_UPGRADE_PROD:-true}
-      NETWATCH_DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      NETWATCH_DB_PASSWORD_FILE: ""
+      NETWATCH_MAINTENANCE_ENABLE_BOOTSTRAP_ROTATOR: "true"
+      NETWATCH_BOOTSTRAP_ADMIN_USERNAME: ${NETWATCH_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: ${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD:?set NETWATCH_BOOTSTRAP_ADMIN_PASSWORD in .env}
+      NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE: ${NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE:-}
+      NETWATCH_BOOTSTRAP_ROTATOR_BACKEND_BASE: ${NETWATCH_BOOTSTRAP_ROTATOR_BACKEND_BASE:-http://netwatch-backend:8000}
+      NETWATCH_BOOTSTRAP_ROTATOR_AGENT_IDS: ${NETWATCH_BOOTSTRAP_ROTATOR_AGENT_IDS:-agent-core-1,agent-sensor-1,agent-lateral-1,agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1}
+      NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS:-2592000}
+      NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_MAX_USES: ${NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_MAX_USES:-5}
+      NETWATCH_BOOTSTRAP_ROTATOR_EVERY_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_EVERY_SECONDS:-900}
+      NETWATCH_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS:-86400}
+      NETWATCH_BOOTSTRAP_ROTATOR_OUTPUT_DIR: /etc/netwatch/bootstrap
+      NETWATCH_BOOTSTRAP_ROTATOR_STATE_DIR: /var/lib/netwatch/bootstrap-rotator
+    volumes:
+      - ./scripts/pki/agent_bootstrap_token_rotator.py:/scripts/agent_bootstrap_token_rotator.py:ro
+      - ./secrets/bootstrap:/etc/netwatch/bootstrap
+      - ./secrets/runtime:/var/lib/netwatch
 
   grafana:
+    profiles: ["observability"]
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-change_me_dev_grafana_password_123}
       GF_SECURITY_ADMIN_PASSWORD__FILE: ""
@@ -189,55 +177,11 @@ services:
     environment: {}
     volumes: []
 
-  netwatch-agent-bootstrap-rotator:
-    build: ./backend
-    container_name: netwatch-agent-bootstrap-rotator
-    user: "0:0"
-    depends_on:
-      netwatch-backend:
-        condition: service_healthy
-    environment:
-      NETWATCH_BOOTSTRAP_ADMIN_USERNAME: ${NETWATCH_BOOTSTRAP_ADMIN_USERNAME:-admin}
-      NETWATCH_BOOTSTRAP_ADMIN_PASSWORD: ${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD:?set NETWATCH_BOOTSTRAP_ADMIN_PASSWORD in .env}
-      NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE: ${NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE:-}
-      NETWATCH_BOOTSTRAP_ROTATOR_BACKEND_BASE: ${NETWATCH_BOOTSTRAP_ROTATOR_BACKEND_BASE:-http://netwatch-backend:8000}
-      NETWATCH_BOOTSTRAP_ROTATOR_AGENT_IDS: ${NETWATCH_BOOTSTRAP_ROTATOR_AGENT_IDS:-agent-core-1,agent-sensor-1,agent-lateral-1,agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1}
-      NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS:-2592000}
-      NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_MAX_USES: ${NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_MAX_USES:-5}
-      NETWATCH_BOOTSTRAP_ROTATOR_EVERY_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_EVERY_SECONDS:-900}
-      NETWATCH_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS: ${NETWATCH_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS:-86400}
-      NETWATCH_BOOTSTRAP_ROTATOR_OUTPUT_DIR: /etc/netwatch/bootstrap
-      NETWATCH_BOOTSTRAP_ROTATOR_STATE_DIR: /var/lib/netwatch/bootstrap-rotator
-    command:
-      - python
-      - /scripts/agent_bootstrap_token_rotator.py
-    volumes:
-      - ./scripts/pki/agent_bootstrap_token_rotator.py:/scripts/agent_bootstrap_token_rotator.py:ro
-      - ./secrets/bootstrap:/etc/netwatch/bootstrap
-      - ./secrets/runtime:/var/lib/netwatch
-    security_opt:
-      - no-new-privileges:true
-    mem_limit: 128m
-    cpus: "0.25"
-    networks:
-      - netwatch
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - >-
-          python -c "from pathlib import Path; import sys,time; p=Path('/var/lib/netwatch/bootstrap-rotator/last_success_at');
-          sys.exit(0 if p.exists() and time.time()-p.stat().st_mtime < 3600 else 1)"
-      interval: 30s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    restart: unless-stopped
-
   netwatch-agent-core:
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-agent-bootstrap-rotator:
+      netwatch-maintenance-worker:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
@@ -255,7 +199,7 @@ services:
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-agent-bootstrap-rotator:
+      netwatch-maintenance-worker:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
@@ -271,7 +215,7 @@ services:
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-agent-bootstrap-rotator:
+      netwatch-maintenance-worker:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
@@ -288,7 +232,7 @@ services:
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-agent-bootstrap-rotator:
+      netwatch-maintenance-worker:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
@@ -306,7 +250,7 @@ services:
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-agent-bootstrap-rotator:
+      netwatch-maintenance-worker:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
@@ -323,7 +267,7 @@ services:
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-agent-bootstrap-rotator:
+      netwatch-maintenance-worker:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"
@@ -340,7 +284,7 @@ services:
     depends_on:
       netwatch-backend:
         condition: service_healthy
-      netwatch-agent-bootstrap-rotator:
+      netwatch-maintenance-worker:
         condition: service_healthy
     environment:
       NETWATCH_FORCE_ENROLL_ON_START: "true"

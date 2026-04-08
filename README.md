@@ -6,10 +6,10 @@ At this stage, NetWatch provides an end‑to‑end pipeline:
 
 - Multiple Go agents that capture and ship telemetry (proc/authlog + PCAP‑based collectors + endpoint syscollector)
 - A FastAPI backend that ingests and persists events into PostgreSQL
-- A rules engine + worker that evaluates YAML detections and generates alerts
+- A rules engine executed by the grouped intelligence worker container
 - A **NetWatch Portal** (React) with authentication and an operator‑friendly UI
 - Optional search indexing into Elasticsearch (Postgres → ES) for fast hunting
-- Optional workers for **rollups** (Postgres CPU reduction) and **SSH enrichment** (Lupe/IPInfo)
+- Grouped background worker services for ingest, intelligence, and maintenance domains
 
 ## Recent changes (already implemented)
 
@@ -20,15 +20,15 @@ These items used to be “future work” and are now part of the project:
   - Events: `GET /events`
   - Alerts (admin‑only): `GET /alerts`
   - Inventory history paging: `GET /inventory/{agent_id}/history/page`
-- **Lupe SSH Insights** (`GET /events/ssh/summary`) + optional enrichment worker (`netwatch-lupe-enricher`) that adds Geo/ASN metadata, using my personal tool: https://github.com/dynasmon/lupe.
+- **Lupe SSH Insights** (`GET /events/ssh/summary`) + optional `ip-intel` worker process (inside `netwatch-intelligence-worker`) that adds Geo/ASN metadata, using my personal tool: https://github.com/dynasmon/lupe.
 - **Correlation Rules / Incidents** (admin‑only): CRUD correlation rules + run correlation to produce incident‑like findings.
-- **Rollup worker** (`netwatch-rollup-worker`) that pre‑aggregates data into 1‑minute buckets to keep Grafana responsive.
+- **1-minute rollup worker logic** (now hosted in `netwatch-ingest-pipeline`) that pre‑aggregates data to reduce dashboard query cost.
 - **Redis is now actively used** for portal rate‑limiting (best‑effort fail‑open) instead of being “reserved”.
 - **Administrative audit/governance**:
   - append-only admin audit timeline (`admin_audit_events`)
   - login/auth evidence with persistence and queryability
   - audit coverage for users, allowlists, rule governance, agent admin actions, and platform settings
-  - dedicated retention worker (`netwatch-audit-retention`)
+  - dedicated retention worker logic (now hosted in `netwatch-maintenance-worker`)
 
 ---
 
@@ -63,10 +63,17 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
   - Routes `/` -> portal, `/api/*` -> backend, `/agent/*` -> backend.
   - Adds HSTS + security headers and forwards `X-Forwarded-*` headers to upstream services.
 
-- **netwatch-rules-worker**
-  - Periodically loads baseline YAML detections from `./rules/` (supports packs under `./rules/packs/**`).
-  - Applies environment pack filters (`NETWATCH_RULES_ENABLED_PACKS`, `NETWATCH_RULES_INCLUDE_EXPERIMENTAL`) with the same engine in dev/prod.
-  - Applies optional rule overrides (enable/disable/severity) and writes findings to the `alerts` table.
+- **netwatch-ingest-pipeline**
+  - Runs ingest queue draining, Elasticsearch indexing, and 1-minute rollups in one supervised group.
+  - Child modules: `app.workers.ingest_worker`, `app.workers.es_indexer`, `app.workers.rollup_1m`.
+
+- **netwatch-intelligence-worker**
+  - Runs rule evaluation and enrichment/correlation workers in one supervised group.
+  - Child modules: `app.workers.runner`, `app.workers.ip_intel`, `app.workers.proto_intel`, `app.workers.attack_chain`.
+
+- **netwatch-maintenance-worker**
+  - Runs administrative maintenance loops.
+  - Child modules: `app.workers.audit_retention` and (in production when enabled) the bootstrap token rotator.
 
 - **PostgreSQL**
   - Stores raw events in `net_events`.
@@ -77,18 +84,19 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
   - Used for portal rate‑limiting (login/OTP) with short TTL keys.
   - Can be extended later for Streams/queues if needed.
 
-- **Grafana**
+- **Grafana (optional)**
   - Provisioned automatically (datasources + dashboards) via `infra/grafana/provisioning`.
   - Reads Postgres for rollups/events/alerts and Elasticsearch for indexed hunting (optional).
 
 - **Elasticsearch (optional)**
   - Stores indexed events for fast hunting and flexible aggregations (index pattern `netwatch-events-*`).
-  - Fed asynchronously by `netwatch-es-indexer` (Postgres → Elasticsearch).
+  - Fed asynchronously by the `es-indexer` child inside `netwatch-ingest-pipeline` (Postgres → Elasticsearch).
 
-- **Optional workers**
-  - `netwatch-rollup-worker`: pre‑aggregates data into 1‑minute rollup tables.
-  - `netwatch-lupe-enricher`: enriches SSH events (`ssh_auth`) with Geo/ASN metadata (IPInfo).
-  - `netwatch-audit-retention`: enforces retention for administrative evidence tables.
+Worker group manager entrypoints:
+
+- `python -m app.workers.manager ingest`
+- `python -m app.workers.manager intelligence`
+- `python -m app.workers.manager maintenance`
 
 ---
 
@@ -117,7 +125,7 @@ Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Com
 
 ### Observability / Search
 
-- **Grafana** (provisioned dashboards)
+- **Grafana** (optional, provisioned dashboards)
 - **Elasticsearch + Kibana** (optional)
 
 ---
@@ -152,12 +160,12 @@ Create runtime secret files (recommended for prod and supported in dev):
 ```bash
 mkdir -p secrets
 openssl rand -hex 24 > secrets/postgres_password.txt
-openssl rand -hex 24 > secrets/grafana_admin_password.txt
 openssl rand -hex 32 > secrets/netwatch_jwt_secret.txt
 openssl rand -hex 24 > secrets/netwatch_bootstrap_admin_password.txt
 openssl rand -hex 24 > secrets/netwatch_redis_password.txt
 openssl rand -hex 24 > secrets/netwatch_es_password.txt
 openssl rand -hex 32 > secrets/netwatch_audit_hash_pepper.txt
+openssl rand -hex 24 > secrets/grafana_admin_password.txt  # optional, only if observability profile is enabled
 ```
 
 The backend now supports both `VAR` and `VAR_FILE` for secrets. Compose prod mounts Docker secrets under `/run/secrets/*`.
@@ -346,35 +354,26 @@ It serves:
 - HTTP redirect: `http://localhost:${NETWATCH_EDGE_HTTP_PORT:-8081}`
 - HTTPS: `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}`
 
-### 4. Start optional profile (`extra`)
+### 4. Start optional profiles
 
 ```bash
 make up-extra
 ```
 
-By default, this starts:
+`make up-extra` starts the `extra` profile (for additional agent collectors such as `netwatch-agent-lateral`).
 
-- `netwatch-backend`
-- `netwatch-portal`
-- `netwatch-rules-worker`
-- `netwatch-audit-retention`
-- `netwatch-es-indexer`
-- `netwatch-rollup-worker`
-- `netwatch-ip-intel` (prefers local MaxMind GeoLite2 MMDB files; optionally falls back to IPInfo when configured)
-- `netwatch-postgres`
-- `netwatch-redis`
-- `netwatch-elasticsearch`
-- `netwatch-grafana`
-- `netwatch-agent-proc-1`
-- `netwatch-agent-scan-1`
-- `netwatch-agent-ddos`
+To start optional observability tooling (Grafana + Kibana), use:
 
-Optional services in profile `extra`:
+```bash
+make up-observability
+make prod-observability
+```
 
-- `netwatch-kibana`
-- `netwatch-agent-lateral`
+or with raw compose:
 
-The `make up-extra` target starts the profile above.
+```bash
+docker compose -f docker-compose.yml -f compose.dev.yml --profile observability up -d grafana kibana
+```
 
 ### 5. Open the Portal
 
@@ -403,13 +402,13 @@ Expected:
 {"status":"ok"}
 ```
 
-### 7. Grafana / Kibana
+### 7. Grafana / Kibana (optional)
 
 - Grafana: `http://localhost:${GRAFANA_PORT:-3000}`
   - Credentials: `GF_SECURITY_ADMIN_USER` + value from `GF_SECURITY_ADMIN_PASSWORD` or `GF_SECURITY_ADMIN_PASSWORD_FILE`
   - Datasources + dashboards are **auto‑provisioned** from `infra/grafana/provisioning`.
 
-- Kibana (optional, behind TLS edge): `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/kibana/` (start with `--profile extra`)
+- Kibana (optional, behind TLS edge): `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/kibana/` (start with `--profile observability`)
 - Elasticsearch HTTP API (if intentionally exposed via edge): `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/elasticsearch/`
 
 ### 8. Developer quality pipeline
@@ -476,7 +475,7 @@ Frontend audit/governance console:
 
 Retention enforcement:
 
-- worker: `netwatch-audit-retention`
+- worker group: `netwatch-maintenance-worker` (child: `audit-retention`)
 - same retention mechanism in dev/prod; only windows/volume change by config
 - defaults:
   - dev: 30 days
@@ -555,7 +554,7 @@ NetWatch includes an SSH Insights endpoint:
 
 - `GET /events/ssh/summary`
 
-When the optional enrichment worker is enabled (`netwatch-lupe-enricher`), SSH auth events can be enriched with:
+When enrichment is enabled (via the `ip-intel` child inside `netwatch-intelligence-worker`), SSH auth events can be enriched with:
 
 - Country/region/city (Geo)
 - ASN and ASN org
@@ -691,7 +690,7 @@ Validation suite:
 NetWatch includes an optional rollup worker that pre‑aggregates `net_events` into 1‑minute buckets.
 This significantly reduces CPU usage caused by Grafana dashboards that run COUNT/GROUP BY queries over large windows.
 
-- Worker: `netwatch-rollup-worker` (Docker Compose)
+- Worker group: `netwatch-ingest-pipeline` (child: `rollup-1m`)
 - Tables: `event_rollups_1m`, `ssh_fail_rollups_1m`
 - Offsets: `search_index_offsets` (`rollup_events_1m`, `rollup_ssh_fail_1m`)
 

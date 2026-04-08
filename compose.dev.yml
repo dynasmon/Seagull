@@ -43,12 +43,12 @@ services:
       NETWATCH_RULES_ENABLED_PACKS: ${NETWATCH_RULES_ENABLED_PACKS:-core,network,lab}
       NETWATCH_RULES_INCLUDE_EXPERIMENTAL: ${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-true}
 
-  netwatch-ingest-worker:
+  netwatch-ingest-pipeline:
     environment:
       NETWATCH_ENV: dev
       NETWATCH_DB_AUTO_UPGRADE: "true"
 
-  netwatch-rules-worker:
+  netwatch-intelligence-worker:
     environment:
       NETWATCH_ENV: dev
       NETWATCH_DB_AUTO_UPGRADE: "true"
@@ -56,32 +56,7 @@ services:
       NETWATCH_RULES_ENABLED_PACKS: ${NETWATCH_RULES_ENABLED_PACKS:-core,network,lab}
       NETWATCH_RULES_INCLUDE_EXPERIMENTAL: ${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-true}
 
-  netwatch-audit-retention:
-    environment:
-      NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "true"
-
-  netwatch-es-indexer:
-    environment:
-      NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "true"
-
-  netwatch-rollup-worker:
-    environment:
-      NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "true"
-
-  netwatch-ip-intel:
-    environment:
-      NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "true"
-
-  netwatch-proto-intel:
-    environment:
-      NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "true"
-
-  netwatch-attack-chain:
+  netwatch-maintenance-worker:
     environment:
       NETWATCH_ENV: dev
       NETWATCH_DB_AUTO_UPGRADE: "true"

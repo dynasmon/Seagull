@@ -8,7 +8,7 @@ COMPOSE_PROD := $(COMPOSE_BASE) -f compose.prod.yml
 
 ENV_FILE := .env
 ENV_EXAMPLE := .env.example
-PROD_CORE_SERVICES := postgres redis elasticsearch clickhouse netwatch-backend netwatch-ingest-worker netwatch-rules-worker netwatch-audit-retention netwatch-es-indexer netwatch-rollup-worker netwatch-ip-intel netwatch-proto-intel netwatch-attack-chain netwatch-portal caddy grafana
+PROD_CORE_SERVICES := postgres redis elasticsearch clickhouse netwatch-backend netwatch-ingest-pipeline netwatch-intelligence-worker netwatch-maintenance-worker netwatch-portal caddy
 PROD_AGENT_SERVICES := netwatch-agent-core netwatch-agent-sensor
 SYSTEMD_AGENT ?= 0
 SYSTEMD_AGENT_ENABLED := $(filter 1 true TRUE yes YES y Y,$(SYSTEMD_AGENT))
@@ -23,7 +23,7 @@ endif
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-tls prod up up-extra down restart restart-quick systemd-agent-install systemd-agent-restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-tls prod up up-extra up-observability prod-observability down restart restart-quick systemd-agent-install systemd-agent-restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
 
 help:
 	@echo "Targets:"
@@ -37,6 +37,8 @@ help:
 	@echo "  make admin-reset   - reset/sync bootstrap admin password"
 	@echo "  make up            - alias for make dev"
 	@echo "  make up-extra      - start development stack with profile 'extra'"
+	@echo "  make up-observability - start optional Grafana/Kibana profile in development"
+	@echo "  make prod-observability - start optional Grafana/Kibana profile in production"
 	@echo "  make down          - stop stack (dev profile by default)"
 	@echo "  make restart       - restart development stack"
 	@echo "  make restart-quick - recreate development containers without rebuild"
@@ -151,6 +153,12 @@ else
 	@$(MAKE) agent-tokens-bootstrap
 	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate netwatch-agent-core netwatch-agent-sensor netwatch-agent-lateral
 endif
+
+up-observability: dev-preflight
+	$(DC) $(COMPOSE_DEV) --profile observability up -d --build grafana kibana
+
+prod-observability: bootstrap bootstrap-tools prod-prepare
+	$(DC) $(COMPOSE_PROD) --profile observability up -d --build grafana kibana
 
 down:
 	$(DC) $(COMPOSE_DEV) down
