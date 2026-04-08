@@ -15,7 +15,7 @@ from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import EventRollup1mModel, NetEventModel, SshFailRollup1mModel
-from app.shared.indexing.models import SearchIndexOffsetModel
+from app.shared.indexing.offset_store import ensure_offsets, get_offset, set_offset
 
 
 setup_logging("worker-rollup")
@@ -65,33 +65,15 @@ def _ensure_bootstrap() -> None:
     This keeps the system self-healing and reduces noisy startup failures.
     """
     ensure_database_ready()
-    with engine.begin() as conn:
-        for name in [OFFSET_EVENTS, OFFSET_SSH_FAIL]:
-            conn.execute(
-                insert(SearchIndexOffsetModel)
-                .values(name=name, last_id=0)
-                .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
-            )
+    ensure_offsets([OFFSET_EVENTS, OFFSET_SSH_FAIL])
 
 
 def _get_last_id(name: str) -> int:
-    with engine.begin() as conn:
-        row = conn.execute(
-            select(SearchIndexOffsetModel.last_id).where(SearchIndexOffsetModel.name == name).limit(1)
-        ).first()
-        return int(row[0]) if row and row[0] is not None else 0
+    return get_offset(name)
 
 
 def _set_last_id(name: str, last_id: int) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            insert(SearchIndexOffsetModel)
-            .values(name=name, last_id=int(last_id))
-            .on_conflict_do_update(
-                index_elements=[SearchIndexOffsetModel.name],
-                set_={"last_id": int(last_id), "updated_at": func.now()},
-            )
-        )
+    set_offset(name, last_id)
 
 
 def _pick_batch_max_id(last_id: int, max_rows: int) -> int | None:

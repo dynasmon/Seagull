@@ -36,6 +36,9 @@ These items used to be “future work” and are now part of the project:
 
 Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Compose:
 
+Backend modular-monolith boundaries and contribution guardrails are documented in
+`backend/docs/architecture.md`.
+
 - **netwatch-agent-*** (Go)
   - Runs close to the network (host or segment).
   - Supports multiple telemetry sources (selected via `NETWATCH_SOURCES`), including:

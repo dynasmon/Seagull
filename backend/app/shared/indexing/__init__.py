@@ -1,1 +1,1 @@
-"""Shared indexing models."""
+"""Shared indexing utilities and models."""
