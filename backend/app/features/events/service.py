@@ -1073,6 +1073,39 @@ def get_recent_events(
     return _merge_recent_events(primary=feed_events, secondary=list(rows), limit=int(limit))
 
 
+def get_recent_events_view(
+    db: Session,
+    *,
+    limit: int = 50,
+    agent_id: Optional[str] = None,
+    event_type: Optional[str] = None,
+    search: Optional[str] = None,
+    since_minutes: Optional[int] = None,
+    window_minutes: Optional[int] = None,
+) -> List[NetEventDB]:
+    lookback_minutes = since_minutes if since_minutes is not None else window_minutes
+    if search:
+        page = hunt_events(
+            db,
+            page_size=limit,
+            cursor=None,
+            agent_id=agent_id,
+            event_type=event_type,
+            since_minutes=lookback_minutes,
+            start_ts_iso=None,
+            end_ts_iso=None,
+            search=search,
+        )
+        return page.items
+    return get_recent_events(
+        db,
+        limit=limit,
+        agent_id=agent_id,
+        event_type=event_type,
+        since_minutes=lookback_minutes,
+    )
+
+
 def list_rollups_1s(
     db: Session,
     *,

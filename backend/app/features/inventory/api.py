@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.agent_auth import AgentPrincipal, get_current_agent
+from app.core.api_db import managed_session
 from app.core.db import get_db
 from app.core.portal_auth import get_current_user
 from app.features.inventory.schemas import InventorySnapshotIn, InventorySnapshotOut
@@ -31,7 +32,8 @@ async def ingest_inventory_endpoint(
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ):
-    return ingest_inventory(db, payload=payload, agent_id=agent.agent_id)
+    with managed_session(db) as db_session:
+        return ingest_inventory(db_session, payload=payload, agent_id=agent.agent_id)
 
 
 @router.get("/me/latest", response_model=InventorySnapshotOut)
@@ -39,7 +41,8 @@ async def get_my_latest_inventory_endpoint(
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ):
-    return get_latest_inventory_or_404(db, agent_id=agent.agent_id)
+    with managed_session(db) as db_session:
+        return get_latest_inventory_or_404(db_session, agent_id=agent.agent_id)
 
 
 @router.get("/me/history", response_model=list[InventorySnapshotOut])
@@ -48,7 +51,8 @@ async def get_my_inventory_history_endpoint(
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ):
-    return list_inventory_history(db, agent_id=agent.agent_id, limit=limit)
+    with managed_session(db) as db_session:
+        return list_inventory_history(db_session, agent_id=agent.agent_id, limit=limit)
 
 
 @router.get("/me/history/page", response_model=CursorPage[InventorySnapshotOut])
@@ -58,7 +62,8 @@ async def get_my_inventory_history_page_endpoint(
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ):
-    return list_inventory_history_page(db, agent_id=agent.agent_id, page_size=page_size, cursor=cursor)
+    with managed_session(db) as db_session:
+        return list_inventory_history_page(db_session, agent_id=agent.agent_id, page_size=page_size, cursor=cursor)
 
 
 @router.get("/{agent_id}/latest", response_model=InventorySnapshotOut)
@@ -67,7 +72,8 @@ async def get_agent_latest_inventory_endpoint(
     _user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return get_latest_inventory_or_404(db, agent_id=agent_id)
+    with managed_session(db) as db_session:
+        return get_latest_inventory_or_404(db_session, agent_id=agent_id)
 
 
 @router.get("/{agent_id}/history", response_model=list[InventorySnapshotOut])
@@ -77,7 +83,8 @@ async def get_agent_inventory_history_endpoint(
     _user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return list_inventory_history(db, agent_id=agent_id, limit=limit)
+    with managed_session(db) as db_session:
+        return list_inventory_history(db_session, agent_id=agent_id, limit=limit)
 
 
 @router.get("/{agent_id}/history/page", response_model=CursorPage[InventorySnapshotOut])
@@ -88,7 +95,8 @@ async def get_agent_inventory_history_page_endpoint(
     _user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return list_inventory_history_page(db, agent_id=agent_id, page_size=page_size, cursor=cursor)
+    with managed_session(db) as db_session:
+        return list_inventory_history_page(db_session, agent_id=agent_id, page_size=page_size, cursor=cursor)
 
 
 @router.get("/overview")
@@ -98,4 +106,5 @@ async def get_inventory_overview_endpoint(
     _user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return get_inventory_overview(db, window_minutes=window_minutes, agent_id=agent_id)
+    with managed_session(db) as db_session:
+        return get_inventory_overview(db_session, window_minutes=window_minutes, agent_id=agent_id)
