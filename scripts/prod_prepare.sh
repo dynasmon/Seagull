@@ -162,7 +162,6 @@ require_env_secret "NETWATCH_REDIS_PASSWORD" 12 36
 require_env_secret "NETWATCH_ES_PASSWORD" 12 36
 require_env_secret "NETWATCH_JWT_SECRET" 32 48
 require_env_secret "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD" 12 36
-require_env_secret "GF_SECURITY_ADMIN_PASSWORD" 12 36
 require_env_secret "NETWATCH_AUDIT_HASH_PEPPER" 32 48
 
 reject_env_pair_conflict "POSTGRES_PASSWORD" "POSTGRES_PASSWORD_FILE"
@@ -170,7 +169,6 @@ reject_env_pair_conflict "NETWATCH_REDIS_PASSWORD" "NETWATCH_REDIS_PASSWORD_FILE
 reject_env_pair_conflict "NETWATCH_ES_PASSWORD" "NETWATCH_ES_PASSWORD_FILE"
 reject_env_pair_conflict "NETWATCH_JWT_SECRET" "NETWATCH_JWT_SECRET_FILE"
 reject_env_pair_conflict "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD" "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE"
-reject_env_pair_conflict "GF_SECURITY_ADMIN_PASSWORD" "GF_SECURITY_ADMIN_PASSWORD_FILE"
 
 if command -v docker >/dev/null 2>&1; then
   if docker compose -f docker-compose.yml -f compose.prod.yml config >/dev/null; then

@@ -312,7 +312,8 @@ redis_password="$(choose_secret 'NETWATCH_REDIS_PASSWORD' 12 24 'Redis password'
 es_password="$(choose_secret 'NETWATCH_ES_PASSWORD' 12 24 'Elasticsearch password')"
 jwt_secret="$(choose_secret 'NETWATCH_JWT_SECRET' 32 48 'JWT secret')"
 bootstrap_admin_password="$(choose_secret 'NETWATCH_BOOTSTRAP_ADMIN_PASSWORD' 12 24 'bootstrap admin password')"
-grafana_admin_password="$(choose_secret 'GF_SECURITY_ADMIN_PASSWORD' 12 24 'Grafana admin password')"
+grafana_admin_password_default="$(env_read 'GF_SECURITY_ADMIN_PASSWORD')"
+grafana_admin_password="$(prompt_optional_line 'Grafana admin password (optional; used only with observability profile)' "$grafana_admin_password_default")"
 
 allowed_hosts="$(normalize_csv "$public_domain,$extra_hosts,localhost,127.0.0.1")"
 agent_tls_server_name="$public_domain"
@@ -339,7 +340,11 @@ tty_println "  NETWATCH_REDIS_PASSWORD=<hidden>"
 tty_println "  NETWATCH_ES_PASSWORD=<hidden>"
 tty_println "  NETWATCH_JWT_SECRET=<hidden>"
 tty_println "  NETWATCH_BOOTSTRAP_ADMIN_PASSWORD=<hidden>"
-tty_println "  GF_SECURITY_ADMIN_PASSWORD=<hidden>"
+if [ -n "$grafana_admin_password" ]; then
+  tty_println "  GF_SECURITY_ADMIN_PASSWORD=<hidden> (optional observability profile)"
+else
+  tty_println "  GF_SECURITY_ADMIN_PASSWORD=<empty> (observability profile disabled by default)"
+fi
 tty_printf "\n"
 tty_println "[env-wizard] next steps:"
 tty_println "  1. make prod-prepare"
