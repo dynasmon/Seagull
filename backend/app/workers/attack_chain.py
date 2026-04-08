@@ -41,7 +41,7 @@ from app.features.attack_chain.worker_runtime import (
     insert_step_and_update_case,
     load_config,
 )
-from app.features.events.models import NetEventModel
+from app.features.events.worker_runtime import NetEventModel
 from app.shared.indexing.models import SearchIndexOffsetModel
 
 

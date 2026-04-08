@@ -29,7 +29,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.clickhouse import (
-    clickhouse_events_table_ref,
     ensure_clickhouse_events_schema,
     get_clickhouse_client,
     reset_clickhouse_client,
@@ -48,7 +47,7 @@ from app.core.ingest_control import (
     worker_heartbeat,
 )
 from app.core.observability import incr_counter, log_event, observe_hist, setup_logging
-from app.features.events.models import NetEventModel, NetEventRollup1sModel
+from app.features.events.worker_runtime import NetEventModel, NetEventRollup1sModel, write_clickhouse_events
 
 setup_logging("worker-ingest")
 logger = logging.getLogger("netwatch.worker.ingest")
@@ -596,14 +595,6 @@ def _norm_port(v: Any) -> Optional[int]:
         return None
 
 
-def _severity_from_extra(extra: Dict[str, Any]) -> Optional[str]:
-    raw = extra.get("severity")
-    if isinstance(raw, str):
-        s = raw.strip().lower()
-        return s[:16] if s else None
-    return None
-
-
 def _event_hot_columns(event_type: str, extra: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(extra, dict):
         extra = {}
@@ -753,113 +744,8 @@ def _event_from_wire(ev: List[Any]) -> Dict[str, Any] | None:
 
 
 def _write_clickhouse_events(*, ch_client: Any, hot_rows: List[Dict[str, Any]]) -> int:
-    if not hot_rows:
-        return 0
-
-    rows: List[Tuple[Any, ...]] = []
-    for r in hot_rows:
-        extra = r.get("extra") or {}
-        if not isinstance(extra, dict):
-            extra = {}
-        is_sudo = str(r.get("event_type") or "") == "sudo_cmd"
-
-        ts = _to_ch_ts(r.get("timestamp"))
-        pg_event_id = r.get("pg_event_id")
-        try:
-            pg_event_id_i = int(pg_event_id) if pg_event_id is not None else 0
-        except Exception:
-            pg_event_id_i = 0
-
-        rows.append(
-            (
-                ts,
-                pg_event_id_i,
-                str(r.get("agent_id") or ""),
-                str(r.get("event_type") or ""),
-                int(r.get("schema_version") or 1),
-                _severity_from_extra(extra),
-                (str(r.get("src_ip")) if r.get("src_ip") else None),
-                (str(r.get("dst_ip")) if r.get("dst_ip") else None),
-                _norm_port(r.get("src_port")),
-                _norm_port(r.get("dst_port")),
-                (str(r.get("proto")) if r.get("proto") else None),
-                (int(r.get("bytes")) if r.get("bytes") is not None else None),
-                (str(r.get("app_proto")) if r.get("app_proto") else None),
-                (str(r.get("app_proto_reason")) if r.get("app_proto_reason") else None),
-                (str(r.get("app_proto_conf_band")) if r.get("app_proto_conf_band") else None),
-                (str(r.get("dns_qname")) if r.get("dns_qname") else None),
-                (str(r.get("http_host")) if r.get("http_host") else None),
-                (str(r.get("http_method")) if r.get("http_method") else None),
-                (str(r.get("tls_sni")) if r.get("tls_sni") else None),
-                (str(r.get("tls_alpn_first")) if r.get("tls_alpn_first") else None),
-                (str(r.get("ja3")) if r.get("ja3") else None),
-                (str(r.get("ja4")) if r.get("ja4") else None),
-                (str(r.get("ja4_ptype")) if r.get("ja4_ptype") else None),
-                (str(r.get("ssh_action")) if r.get("ssh_action") else None),
-                (str(r.get("ssh_username")) if r.get("ssh_username") else None),
-                (str(extra.get("username")) if is_sudo and extra.get("username") else None),
-                (str(extra.get("target_user")) if is_sudo and extra.get("target_user") else None),
-                (str(extra.get("command")) if is_sudo and extra.get("command") else None),
-                (str(extra.get("tty")) if is_sudo and extra.get("tty") else None),
-                (int(r.get("proc_pid")) if r.get("proc_pid") is not None else None),
-                (int(r.get("proc_ppid")) if r.get("proc_ppid") is not None else None),
-                (str(r.get("proc_name")) if r.get("proc_name") else None),
-                (str(r.get("proc_exe")) if r.get("proc_exe") else None),
-                (str(r.get("proc_parent_name")) if r.get("proc_parent_name") else None),
-                (str(r.get("fim_path")) if r.get("fim_path") else None),
-                (str(r.get("fim_category")) if r.get("fim_category") else None),
-                (str(r.get("heuristic_name")) if r.get("heuristic_name") else None),
-                (int(r.get("heuristic_confidence")) if r.get("heuristic_confidence") is not None else None),
-                json.dumps(extra, ensure_ascii=False, separators=(",", ":"), default=str),
-            )
-        )
-
-    ch_client.insert(
-        clickhouse_events_table_ref(),
-        rows,
-        column_names=[
-            "timestamp",
-            "pg_event_id",
-            "agent_id",
-            "event_type",
-            "schema_version",
-            "severity",
-            "src_ip",
-            "dst_ip",
-            "src_port",
-            "dst_port",
-            "proto",
-            "bytes",
-            "app_proto",
-            "app_proto_reason",
-            "app_proto_conf_band",
-            "dns_qname",
-            "http_host",
-            "http_method",
-            "tls_sni",
-            "tls_alpn_first",
-            "ja3",
-            "ja4",
-            "ja4_ptype",
-            "ssh_action",
-            "ssh_username",
-            "sudo_username",
-            "sudo_target_user",
-            "sudo_command",
-            "sudo_tty",
-            "proc_pid",
-            "proc_ppid",
-            "proc_name",
-            "proc_exe",
-            "proc_parent_name",
-            "fim_path",
-            "fim_category",
-            "heuristic_name",
-            "heuristic_confidence",
-            "extra_json",
-        ],
-    )
-    return len(rows)
+    """Backward-compatible wrapper for tests and legacy imports."""
+    return write_clickhouse_events(ch_client=ch_client, hot_rows=hot_rows)
 
 
 def _try_bootstrap_clickhouse() -> Any | None:

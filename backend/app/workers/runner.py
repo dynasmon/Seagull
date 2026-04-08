@@ -5,7 +5,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.observability import log_event, setup_logging
 from app.core.config import settings
-from app.workers.rules_engine import run_all_rules
+from app.features.alerts.rule_runtime import run_all_rules
 
 
 setup_logging("worker-rules")
