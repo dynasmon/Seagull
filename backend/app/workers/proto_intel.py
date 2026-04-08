@@ -27,23 +27,18 @@ Marker:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
-from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
-from app.features.events.models import NetEventModel
-from app.shared.indexing.models import SearchIndexOffsetModel
+from app.features.events import proto_intel_repository
 from app.shared.protocol_intel import analyze_event
 
 
@@ -87,97 +82,27 @@ def _ensure_bootstrap() -> None:
     """Keep worker boot-safe when running in Compose."""
 
     ensure_database_ready()
-    with engine.begin() as conn:
-        conn.execute(
-            insert(SearchIndexOffsetModel)
-            .values(name=OFFSET_PROTO_INTEL, last_id=0)
-            .on_conflict_do_nothing(index_elements=[SearchIndexOffsetModel.name])
-        )
+    proto_intel_repository.ensure_offset_row(OFFSET_PROTO_INTEL)
 
 
 def _get_last_id() -> int:
-    with engine.begin() as conn:
-        row = conn.execute(
-            select(SearchIndexOffsetModel.last_id).where(SearchIndexOffsetModel.name == OFFSET_PROTO_INTEL).limit(1)
-        ).fetchone()
-        return int(row[0]) if row else 0
+    return proto_intel_repository.get_last_offset(OFFSET_PROTO_INTEL)
 
 
 def _set_last_id(last_id: int) -> None:
-    with engine.begin() as conn:
-        conn.execute(
-            insert(SearchIndexOffsetModel)
-            .values(name=OFFSET_PROTO_INTEL, last_id=int(last_id))
-            .on_conflict_do_update(
-                index_elements=[SearchIndexOffsetModel.name],
-                set_={"last_id": int(last_id), "updated_at": func.now()},
-            )
-        )
+    proto_intel_repository.set_last_offset(OFFSET_PROTO_INTEL, last_id)
 
 
 def _pick_batch_max_id(last_id: int, max_rows: int) -> int:
-    with engine.begin() as conn:
-        row = conn.execute(select(func.max(NetEventModel.id)).where(NetEventModel.id > int(last_id))).fetchone()
-        max_id = int(row[0]) if row and row[0] is not None else last_id
-    return min(max_id, last_id + max_rows)
+    return proto_intel_repository.pick_batch_max_event_id(last_id, max_rows)
 
 
 def _fetch_batch(last_id: int, max_id: int, batch_size: int) -> List[Dict[str, Any]]:
-    with engine.begin() as conn:
-        rows = conn.execute(
-            select(
-                NetEventModel.id,
-                NetEventModel.event_type,
-                NetEventModel.proto,
-                NetEventModel.src_port,
-                NetEventModel.dst_port,
-                NetEventModel.extra,
-            )
-            .where(
-                NetEventModel.id > int(last_id),
-                NetEventModel.id <= int(max_id),
-                ~NetEventModel.extra.has_key("proto_intel_at"),
-            )
-            .order_by(NetEventModel.id.asc())
-            .limit(int(batch_size))
-        ).mappings().all()
-        return [dict(r) for r in rows]
+    return proto_intel_repository.fetch_unprocessed_batch(last_id=last_id, max_id=max_id, batch_size=batch_size)
 
 
 def _patch_event(event_id: int, patch: Dict[str, Any]) -> None:
-    def _norm_str(k: str, *, lower: bool = False, upper: bool = False, default: str | None = None) -> str | None:
-        raw = patch.get(k)
-        if raw is None:
-            return default
-        v = str(raw).strip()
-        if not v:
-            return default
-        if lower:
-            return v.lower()
-        if upper:
-            return v.upper()
-        return v
-
-    values = {
-        "extra": NetEventModel.extra.op("||")(patch),
-        "app_proto": _norm_str("app_proto"),
-        "app_proto_reason": _norm_str("app_proto_reason"),
-        "app_proto_conf_band": _norm_str("app_proto_conf_band"),
-        "dns_qname": _norm_str("dns_qname", lower=True),
-        "http_host": _norm_str("http_host", lower=True),
-        "http_method": _norm_str("http_method", upper=True),
-        "tls_sni": _norm_str("tls_sni", lower=True),
-        "tls_alpn_first": _norm_str("tls_alpn_first", lower=True),
-        "ja3": _norm_str("ja3"),
-        "ja4": _norm_str("ja4"),
-        "ja4_ptype": _norm_str("ja4_ptype", default="t"),
-    }
-    with engine.begin() as conn:
-        conn.execute(
-            update(NetEventModel)
-            .where(NetEventModel.id == int(event_id))
-            .values(**values)
-        )
+    proto_intel_repository.patch_event_proto_intel(event_id, patch)
 
 
 def main() -> None:

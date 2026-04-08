@@ -16,16 +16,16 @@ from app.features.alerts.models import AlertRuleSuppressionHistoryModel, AlertRu
 from app.features.alerts.models import AlertRuleTuningHistoryModel, AlertRuleTuningModel
 from app.features.alerts.schemas import AlertOut
 from app.features.alerts.schemas import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn
-from app.shared.schemas import CursorPage
-from app.shared.taxonomy.catalog import technique_name
-from app.shared.taxonomy.schemas import MitreCoverageResponse, MitreTacticCoverage, MitreTechniqueStat
-from app.workers.rules_engine import run_all_rules
-from app.workers.rules_registry import (
+from app.features.alerts.rule_runtime import (
     apply_override,
     apply_tuning_and_suppressions,
     load_baseline_rules,
     normalize_rule_list,
+    run_all_rules,
 )
+from app.shared.schemas import CursorPage
+from app.shared.taxonomy.catalog import technique_name
+from app.shared.taxonomy.schemas import MitreCoverageResponse, MitreTacticCoverage, MitreTechniqueStat
 
 
 def _parse_optional_until(v: Any) -> Optional[datetime]:
