@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.core.api_db import managed_session
 from app.core.db import get_db
 from app.core.portal_auth import get_current_user
 from app.features.events.schemas import (
@@ -16,9 +17,9 @@ from app.features.events.schemas import (
 )
 from app.features.events.service import (
     get_port_stats,
+    get_recent_events_view,
     get_protocol_intel_samples,
     get_protocol_intel_summary,
-    get_recent_events,
     get_ssh_summary,
     hunt_events,
     list_rollups_1s,
@@ -44,17 +45,18 @@ def list_events_endpoint(
     search: Optional[str] = Query(None, min_length=1, max_length=256, description="Server-side hunt query"),
     db: Session = Depends(get_db),
 ):
-    return hunt_events(
-        db,
-        page_size=page_size,
-        cursor=cursor,
-        agent_id=agent_id,
-        event_type=event_type,
-        since_minutes=since_minutes,
-        start_ts_iso=start_ts,
-        end_ts_iso=end_ts,
-        search=search,
-    )
+    with managed_session(db) as db_session:
+        return hunt_events(
+            db_session,
+            page_size=page_size,
+            cursor=cursor,
+            agent_id=agent_id,
+            event_type=event_type,
+            since_minutes=since_minutes,
+            start_ts_iso=start_ts,
+            end_ts_iso=end_ts,
+            search=search,
+        )
 
 
 @router.get("/recent", response_model=List[NetEventDB])
@@ -67,21 +69,16 @@ def get_recent_events_endpoint(
     window_minutes: Optional[int] = Query(None, ge=1, le=60 * 24 * 30, description="Backward-compatible alias for since_minutes"),
     db: Session = Depends(get_db),
 ):
-    lookback_minutes = since_minutes if since_minutes is not None else window_minutes
-    if search:
-        page = hunt_events(
-            db,
-            page_size=limit,
-            cursor=None,
+    with managed_session(db) as db_session:
+        return get_recent_events_view(
+            db_session,
+            limit=limit,
             agent_id=agent_id,
             event_type=event_type,
-            since_minutes=lookback_minutes,
-            start_ts_iso=None,
-            end_ts_iso=None,
             search=search,
+            since_minutes=since_minutes,
+            window_minutes=window_minutes,
         )
-        return page.items
-    return get_recent_events(db, limit=limit, agent_id=agent_id, event_type=event_type, since_minutes=lookback_minutes)
 
 
 @router.get("/rollups/1s", response_model=List[NetEventRollup1s])
@@ -94,15 +91,16 @@ def list_rollups_1s_endpoint(
     dst_port: Optional[int] = Query(None, ge=0, le=65535),
     db: Session = Depends(get_db),
 ):
-    return list_rollups_1s(
-        db,
-        minutes=minutes,
-        limit=limit,
-        agent_id=agent_id,
-        event_type=event_type,
-        dst_ip=dst_ip,
-        dst_port=dst_port,
-    )
+    with managed_session(db) as db_session:
+        return list_rollups_1s(
+            db_session,
+            minutes=minutes,
+            limit=limit,
+            agent_id=agent_id,
+            event_type=event_type,
+            dst_ip=dst_ip,
+            dst_port=dst_port,
+        )
 
 
 @router.get("/stats/ports")
@@ -110,7 +108,8 @@ def get_port_stats_endpoint(
     limit: int = Query(20, ge=1, le=200, description="Maximum number of ports to return"),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
-    return get_port_stats(db, limit=limit)
+    with managed_session(db) as db_session:
+        return get_port_stats(db_session, limit=limit)
 
 
 @router.get("/ssh/summary", response_model=SshSummaryResponse)
@@ -120,12 +119,13 @@ def get_ssh_summary_endpoint(
     agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
     db: Session = Depends(get_db),
 ):
-    return get_ssh_summary(
-        db,
-        since_minutes=since_minutes,
-        limit=limit,
-        agent_id=agent_id,
-    )
+    with managed_session(db) as db_session:
+        return get_ssh_summary(
+            db_session,
+            since_minutes=since_minutes,
+            limit=limit,
+            agent_id=agent_id,
+        )
 
 
 @router.get("/network/summary", response_model=ProtocolIntelSummaryResponse)
@@ -135,12 +135,13 @@ def get_protocol_intel_summary_endpoint(
     agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
     db: Session = Depends(get_db),
 ):
-    return get_protocol_intel_summary(
-        db,
-        since_minutes=since_minutes,
-        limit=limit,
-        agent_id=agent_id,
-    )
+    with managed_session(db) as db_session:
+        return get_protocol_intel_summary(
+            db_session,
+            since_minutes=since_minutes,
+            limit=limit,
+            agent_id=agent_id,
+        )
 
 
 @router.get("/network/samples", response_model=List[NetEventDB])
@@ -152,11 +153,12 @@ def get_protocol_intel_samples_endpoint(
     agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
     db: Session = Depends(get_db),
 ):
-    return get_protocol_intel_samples(
-        db,
-        kind=kind,
-        value=value,
-        since_minutes=since_minutes,
-        limit=limit,
-        agent_id=agent_id,
-    )
+    with managed_session(db) as db_session:
+        return get_protocol_intel_samples(
+            db_session,
+            kind=kind,
+            value=value,
+            since_minutes=since_minutes,
+            limit=limit,
+            agent_id=agent_id,
+        )

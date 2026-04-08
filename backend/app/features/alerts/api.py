@@ -5,6 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.api_db import managed_session
 from app.core.db import get_db
 from app.core.portal_auth import PortalPrincipal, require_admin
 from app.features.alerts.schemas import AlertOut
@@ -45,16 +46,17 @@ def list_alerts_endpoint(
     min_confidence: Optional[int] = Query(None, ge=0, le=100, description="Optional minimum confidence (0..100)"),
     db: Session = Depends(get_db),
 ):
-    return list_alerts(
-        db,
-        page_size=page_size,
-        cursor=cursor,
-        severity=severity,
-        rule_id=rule_id,
-        tactic=tactic,
-        technique_id=technique_id,
-        min_confidence=min_confidence,
-    )
+    with managed_session(db) as db_session:
+        return list_alerts(
+            db_session,
+            page_size=page_size,
+            cursor=cursor,
+            severity=severity,
+            rule_id=rule_id,
+            tactic=tactic,
+            technique_id=technique_id,
+            min_confidence=min_confidence,
+        )
 
 
 @router.get("/mitre/coverage", response_model=MitreCoverageResponse)
@@ -62,7 +64,8 @@ def mitre_coverage_endpoint(
     minutes: int = Query(1440, ge=1, le=43200, description="Lookback window in minutes"),
     db: Session = Depends(get_db),
 ):
-    return mitre_coverage(db, minutes=minutes)
+    with managed_session(db) as db_session:
+        return mitre_coverage(db_session, minutes=minutes)
 
 
 @router.post("/run/ssh-bruteforce", response_model=List[AlertOut])
@@ -71,7 +74,8 @@ def run_ssh_bruteforce_rule_endpoint(
     min_events: int = Query(20, ge=1, le=100000, description="Minimum number of events per source IP"),
     db: Session = Depends(get_db),
 ):
-    return run_ssh_bruteforce_rule(db, minutes=minutes, min_events=min_events)
+    with managed_session(db) as db_session:
+        return run_ssh_bruteforce_rule(db_session, minutes=minutes, min_events=min_events)
 
 
 @router.post("/run/port-scan", response_model=List[AlertOut])
@@ -85,7 +89,8 @@ def run_port_scan_rule_endpoint(
     ),
     db: Session = Depends(get_db),
 ):
-    return run_port_scan_rule(db, minutes=minutes, min_distinct_ports=min_distinct_ports)
+    with managed_session(db) as db_session:
+        return run_port_scan_rule(db_session, minutes=minutes, min_distinct_ports=min_distinct_ports)
 
 
 @router.post("/run/horizontal-scan", response_model=List[AlertOut])
@@ -105,12 +110,13 @@ def run_horizontal_scan_rule_endpoint(
     ),
     db: Session = Depends(get_db),
 ):
-    return run_horizontal_scan_rule(
-        db,
-        minutes=minutes,
-        min_distinct_targets=min_distinct_targets,
-        dst_port=dst_port,
-    )
+    with managed_session(db) as db_session:
+        return run_horizontal_scan_rule(
+            db_session,
+            minutes=minutes,
+            min_distinct_targets=min_distinct_targets,
+            dst_port=dst_port,
+        )
 
 
 @router.post("/run/new-hosts", response_model=List[AlertOut])
@@ -129,7 +135,8 @@ def run_new_hosts_rule_endpoint(
     ),
     db: Session = Depends(get_db),
 ):
-    return run_new_hosts_rule(db, minutes=minutes, min_events=min_events)
+    with managed_session(db) as db_session:
+        return run_new_hosts_rule(db_session, minutes=minutes, min_events=min_events)
 
 
 @router.get("/recent", response_model=List[AlertOut])
@@ -137,7 +144,8 @@ def get_recent_alerts_endpoint(
     limit: int = Query(50, ge=1, le=1000, description="Maximum number of alerts to return"),
     db: Session = Depends(get_db),
 ):
-    return get_recent_alerts(db, limit=limit)
+    with managed_session(db) as db_session:
+        return get_recent_alerts(db_session, limit=limit)
 
 
 @router.post("/run/all", response_model=List[AlertOut])
@@ -147,7 +155,8 @@ def run_all_rules_endpoint():
 
 @router.get("/rules", response_model=List[RuleOut])
 def list_alert_rules_endpoint(db: Session = Depends(get_db)):
-    return list_alert_rules(db)
+    with managed_session(db) as db_session:
+        return list_alert_rules(db_session)
 
 
 @router.patch("/rules/{rule_id}", response_model=RuleOut)
@@ -158,13 +167,14 @@ def patch_alert_rule_endpoint(
     admin: PortalPrincipal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    return patch_alert_rule(
-        db,
-        rule_id=rule_id,
-        body=body,
-        request=request,
-        admin=admin,
-    )
+    with managed_session(db) as db_session:
+        return patch_alert_rule(
+            db_session,
+            rule_id=rule_id,
+            body=body,
+            request=request,
+            admin=admin,
+        )
 
 
 @router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -174,13 +184,14 @@ def delete_alert_rule_override_endpoint(
     admin: PortalPrincipal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    delete_alert_rule_override(
-        db,
-        rule_id=rule_id,
-        request=request,
-        admin=admin,
-    )
-    return None
+    with managed_session(db) as db_session:
+        delete_alert_rule_override(
+            db_session,
+            rule_id=rule_id,
+            request=request,
+            admin=admin,
+        )
+        return None
 
 
 @router.get("/rules/{rule_id}/history", response_model=List[RuleGovernanceHistoryOut])
@@ -189,4 +200,5 @@ def get_alert_rule_history_endpoint(
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    return get_alert_rule_history(db, rule_id=rule_id, limit=limit)
+    with managed_session(db) as db_session:
+        return get_alert_rule_history(db_session, rule_id=rule_id, limit=limit)

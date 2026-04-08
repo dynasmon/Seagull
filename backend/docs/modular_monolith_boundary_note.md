@@ -52,10 +52,30 @@ Cross-cutting/runtime modules are under:
    - `app/workers/attack_chain.py`
    - Keeps behavior unchanged while reducing deep cross-module import coupling.
 
+5. Standardized API DB boundary handling in priority modules:
+   - `app/features/events/api.py`
+   - `app/features/alerts/api.py`
+   - `app/features/inventory/api.py`
+   - These now follow the same `managed_session(...)` pattern already used in other APIs.
+
+6. Thinned route orchestration in events API:
+   - Added `get_recent_events_view(...)` in `app/features/events/service.py`
+   - Moved `/events/recent` search-vs-recent branching out of the route handler.
+
+7. Reduced alerts feature coupling to worker internals:
+   - Added `app/features/alerts/rule_runtime.py`
+   - `app/features/alerts/service.py` now imports rule runtime symbols from this feature-local adapter instead of importing worker modules directly.
+
+8. Moved proto-intel persistence details into events feature layer:
+   - Added `app/features/events/proto_intel_repository.py`
+   - `app/workers/proto_intel.py` now delegates offset/batch/update DB operations to this repository.
+   - Worker behavior remains unchanged; only layering was improved.
+
 ## Intentionally left for later phases
 
 - Full session-handling normalization for every API module (for example, `investigations/api.py` still has high repetition).
 - Deeper feature-level contracts to reduce direct model usage from workers beyond the attack-chain path.
+- Further decomposition of large service files in priority modules (especially `events/service.py`) into narrower application/domain units.
 - Broader consolidation of cross-feature orchestration patterns in service layer.
 
 This phase intentionally prioritized low-risk boundary improvements without changing API, worker runtime behavior, TLS/bootstrap flows, or systemd agent compatibility.
