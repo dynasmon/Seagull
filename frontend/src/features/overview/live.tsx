@@ -6,7 +6,13 @@ import type { RealtimeConnectionStatus } from "@/shared/realtime";
 import { isAbortError } from "@/shared/lib/http";
 
 import { getOverview, getStormStatus } from "./api";
-import { applyOverviewRealtimePatch, mergeStormStatus, nextRealtimeInvalidationDelayMs } from "./live_realtime";
+import {
+  applyOverviewRealtimeAlertCreated,
+  applyOverviewRealtimeAlertUpdated,
+  applyOverviewRealtimePatch,
+  mergeStormStatus,
+  nextRealtimeInvalidationDelayMs,
+} from "./live_realtime";
 import type { OverviewSnapshot, StormStatus } from "./types";
 
 const FALLBACK_POLL_MS = 5000;
@@ -213,6 +219,35 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
 
   usePortalRealtimeSubscription("storm.status", (event) => {
     setStorm((prev) => mergeStormStatus(prev, (event.payload || {}) as Partial<StormStatus>));
+    setLastUpdatedAt(new Date());
+  });
+
+  usePortalRealtimeSubscription("alert.created", (event) => {
+    setSnapshot((prev) => {
+      const next = applyOverviewRealtimeAlertCreated(prev, event.payload || {}, event.timestamp);
+      if (!next) return next;
+      try {
+        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
+      } catch {
+        // no-op
+      }
+      return next;
+    });
+    setLastUpdatedAt(new Date());
+  });
+
+  usePortalRealtimeSubscription("alert.updated", (event) => {
+    setSnapshot((prev) => {
+      const next = applyOverviewRealtimeAlertUpdated(prev, event.payload || {});
+      if (!next) return next;
+      try {
+        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
+      } catch {
+        // no-op
+      }
+      return next;
+    });
+    scheduleRefreshFromInvalidate();
     setLastUpdatedAt(new Date());
   });
 
