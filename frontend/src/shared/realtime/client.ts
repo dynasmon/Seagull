@@ -178,10 +178,14 @@ export class PortalRealtimeClient {
       return;
     }
 
-    const url = `/api/realtime/portal?st=${encodeURIComponent(streamToken)}`;
-    const source = this.eventSourceFactory(url);
-    this.attachSource(source);
-    this.source = source;
+    try {
+      const url = `/api/realtime/portal?st=${encodeURIComponent(streamToken)}`;
+      const source = this.eventSourceFactory(url);
+      this.attachSource(source);
+      this.source = source;
+    } catch {
+      this.scheduleReconnect();
+    }
   }
 
   private attachSource(source: EventSourceLike): void {

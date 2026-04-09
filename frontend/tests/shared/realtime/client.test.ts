@@ -163,6 +163,70 @@ describe("PortalRealtimeClient", () => {
     client.stop();
   });
 
+  it("schedules reconnect when event source creation throws", async () => {
+    const tokenProvider = vi
+      .fn<() => Promise<StreamTokenOut>>()
+      .mockResolvedValueOnce(tokenOut("token-a"))
+      .mockResolvedValueOnce(tokenOut("token-b"));
+    const eventSourceFactory = vi
+      .fn<(url: string) => EventSourceLike>()
+      .mockImplementationOnce(() => {
+        throw new Error("factory failed");
+      })
+      .mockImplementation((url) => new FakeEventSource(url));
+
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      eventSourceFactory,
+      reconnectBaseMs: 1,
+      reconnectMaxMs: 1,
+    });
+
+    client.start();
+    await waitForTick(6);
+
+    expect(tokenProvider).toHaveBeenCalledTimes(2);
+    expect(eventSourceFactory).toHaveBeenCalledTimes(2);
+    expect(client.status).toBe("retrying");
+
+    client.stop();
+  });
+
+  it("ignores malformed payloads and mismatched named events", async () => {
+    const tokenProvider = vi.fn(async () => tokenOut("token-ignore"));
+    const sources: FakeEventSource[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      eventSourceFactory: (url) => {
+        const source = new FakeEventSource(url);
+        sources.push(source);
+        return source;
+      },
+      reconnectBaseMs: 1,
+      reconnectMaxMs: 1,
+    });
+
+    const listener = vi.fn();
+    client.subscribe("alert.created", listener);
+
+    client.start();
+    await waitForTick(1);
+    sources[0]?.emitOpen();
+    sources[0]?.emitNamed("alert.created", "not-json");
+    sources[0]?.emitNamed(
+      "alert.created",
+      JSON.stringify({
+        version: 1,
+        type: "alert.updated",
+        timestamp: "2026-04-09T12:00:00Z",
+        payload: { alert_id: 3 },
+      }),
+    );
+
+    expect(listener).toHaveBeenCalledTimes(0);
+    client.stop();
+  });
+
   it("cleans up listeners and source resources on stop", async () => {
     const tokenProvider = vi.fn(async () => tokenOut("token-cleanup"));
     const sources: FakeEventSource[] = [];
