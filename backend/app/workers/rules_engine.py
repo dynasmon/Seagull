@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.db import SessionLocal
 from app.features.agents.models import AgentModel
 from app.features.alerts.models import AlertModel
+from app.features.alerts.realtime import publish_alert_created_from_row
 from app.features.alerts.rule_registry_runtime import (
     apply_override,
     apply_tuning_and_suppressions,
@@ -2311,6 +2312,8 @@ def run_rules_once():
             pass
 
         db.commit()
+        for alert in created_alerts:
+            publish_alert_created_from_row(alert)
     finally:
         db.close()
 

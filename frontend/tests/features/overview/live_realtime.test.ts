@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyOverviewRealtimeAlertCreated,
+  applyOverviewRealtimeAlertUpdated,
   applyOverviewRealtimePatch,
   mergeStormStatus,
   nextRealtimeInvalidationDelayMs,
@@ -125,5 +127,48 @@ describe("overview live realtime helpers", () => {
     });
 
     expect(immediate).toBe(300);
+  });
+
+  it("applies alert.created into recent summary lists and increments 60m counter", () => {
+    const base = makeSnapshot();
+    const next = applyOverviewRealtimeAlertCreated(
+      base,
+      {
+        alert_id: 77,
+        created_at: new Date().toISOString(),
+        rule_id: "ddos_tcp_flood_v1",
+        severity: "high",
+        src_ip: "192.0.2.10",
+        dst_ip: "198.51.100.20",
+        dst_port: 443,
+        description: "DDoS detected",
+      },
+      "2026-04-09T18:00:00Z",
+    );
+
+    expect(next?.recent_alerts[0]?.id).toBe(77);
+    expect(next?.ddos_alerts[0]?.id).toBe(77);
+    expect(next?.kpis.alerts_60m).toBe(2);
+  });
+
+  it("applies alert.updated to existing summary row severity", () => {
+    const base = makeSnapshot();
+    const seeded = applyOverviewRealtimeAlertCreated(
+      base,
+      {
+        alert_id: 88,
+        created_at: "2026-04-09T18:05:00Z",
+        rule_id: "port_scan_v1",
+        severity: "medium",
+        description: "Port scan",
+      },
+      "2026-04-09T18:05:00Z",
+    );
+    const updated = applyOverviewRealtimeAlertUpdated(seeded, {
+      alert_id: 88,
+      severity: "high",
+    });
+
+    expect(updated?.recent_alerts[0]?.severity).toBe("high");
   });
 });

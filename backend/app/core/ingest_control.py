@@ -17,6 +17,7 @@ from app.core.observability import incr_counter, log_event
 from app.core.recent_feed import recent_feed_health
 from app.core.redis_client import get_redis
 from app.features.alerts.models import AlertModel
+from app.features.alerts.realtime import publish_alert_created_payload, publish_alert_updated_payload
 from app.features.events.models import IngestStats1sModel
 
 logger = logging.getLogger("netwatch.ingest.control")
@@ -916,6 +917,15 @@ def storm_maybe_open_alert(*, reason: str, sample_hot: int, sample_warm: int) ->
 
         if alert_id:
             r.setex(storm_alert_id_key(), _env_int("NETWATCH_INGEST_STORM_ALERT_TTL_SECONDS", 3600), str(alert_id))
+            publish_alert_created_payload(
+                {
+                    "alert_id": int(alert_id),
+                    "created_at": now.isoformat(),
+                    "rule_id": "system.ingest_storm",
+                    "severity": "high",
+                    "description": "Ingest Storm Detected",
+                }
+            )
     except Exception:
         # fail open; the lock will expire and we can retry later
         return
@@ -1010,6 +1020,16 @@ def storm_maybe_close_alert() -> None:
                 .where(AlertModel.id == alert_id)
                 .values(details=AlertModel.details.op("||")(patch))
             )
+
+        publish_alert_updated_payload(
+            {
+                "alert_id": int(alert_id),
+                "rule_id": "system.ingest_storm",
+                "severity": "high",
+                "status": "closed",
+                "updated_at": end.isoformat(),
+            }
+        )
 
         # Clear keys
         try:

@@ -14,6 +14,7 @@ from app.features.alerts.models import AlertModel
 from app.features.alerts.models import AlertRuleOverrideModel
 from app.features.alerts.models import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
 from app.features.alerts.models import AlertRuleTuningHistoryModel, AlertRuleTuningModel
+from app.features.alerts.realtime import publish_alert_created_from_row
 from app.features.alerts.schemas import AlertOut
 from app.features.alerts.schemas import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn
 from app.features.alerts.rule_runtime import (
@@ -99,6 +100,7 @@ def _persist_alerts(db: Session, rows: list[AlertModel]) -> list[AlertModel]:
         repository.commit(db)
         for row in rows:
             repository.refresh(db, row)
+            publish_alert_created_from_row(row)
     return rows
 
 
