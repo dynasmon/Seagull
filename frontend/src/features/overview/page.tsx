@@ -5,11 +5,9 @@ import { Link } from "react-router-dom";
 import EmptyState from "@/shared/components/EmptyState";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
-import type { Alert, StormStatus } from "./types";
+import type { Alert } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
 import { useOverviewLive } from "./live";
-
-import { getStormStatus } from "./api";
 
 import { listAttackChainCases } from "@/features/attack_chain/api";
 
@@ -314,32 +312,7 @@ function SeverityBadge({ severity }: { severity: string }) {
 }
 
 export default function OverviewPage() {
-  const { snapshot, isLoading, error, lastUpdatedAt } = useOverviewLive();
-
-  const [storm, setStorm] = useState<StormStatus | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-
-    const tick = async () => {
-      try {
-        const s = await getStormStatus();
-        if (!alive) return;
-        setStorm(s);
-      } catch {
-        if (!alive) return;
-        setStorm(null);
-      }
-    };
-
-    tick();
-    const timer = window.setInterval(tick, 3000);
-
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
-  }, []);
+  const { snapshot, storm, isLoading, error, lastUpdatedAt } = useOverviewLive();
 
   const derived = useMemo(() => {
     if (!snapshot) {
