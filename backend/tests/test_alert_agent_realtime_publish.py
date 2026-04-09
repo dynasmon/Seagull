@@ -35,6 +35,7 @@ def test_build_alert_realtime_payload_from_row_contract() -> None:
     assert len(payload["description"]) == 240
     assert payload["confidence"] == 87
     assert isinstance(payload["created_at"], str)
+    assert "details" not in payload
 
 
 def test_publish_alert_created_payload_uses_realtime_event(monkeypatch) -> None:
