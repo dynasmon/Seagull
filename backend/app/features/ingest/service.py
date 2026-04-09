@@ -35,6 +35,7 @@ from app.core.observability import log_event
 from app.features.ingest import repository
 from app.features.events.schemas import NetEvent
 from app.features.alerts.models import AlertModel
+from app.features.alerts.realtime import publish_alert_created_from_row
 from app.features.realtime.service import publish_realtime
 
 logger = logging.getLogger("netwatch.api.ingest")
@@ -515,6 +516,7 @@ def _maybe_create_inline_ddos_alerts(db: Session, *, events: List[NetEvent], now
         return 0
 
     created = 0
+    created_rows: List[AlertModel] = []
     for candidate in candidates.values():
         cooldown_since = now - timedelta(minutes=int(candidate["cooldown_minutes"]))
         exists_stmt = (
@@ -535,26 +537,28 @@ def _maybe_create_inline_ddos_alerts(db: Session, *, events: List[NetEvent], now
         if existing_id is not None:
             continue
 
-        db.add(
-            AlertModel(
-                rule_id=candidate["rule_id"],
-                severity=candidate["severity"],
-                src_ip=candidate["src_ip"],
-                dst_ip=candidate["dst_ip"],
-                dst_port=candidate["dst_port"],
-                mitre_tactic=candidate["mitre_tactic"],
-                mitre_technique_id=candidate["mitre_technique_id"],
-                mitre_technique=candidate["mitre_technique"],
-                confidence=int(candidate["confidence"]),
-                description=candidate["description"],
-                details=candidate["details"],
-            )
+        row = AlertModel(
+            rule_id=candidate["rule_id"],
+            severity=candidate["severity"],
+            src_ip=candidate["src_ip"],
+            dst_ip=candidate["dst_ip"],
+            dst_port=candidate["dst_port"],
+            mitre_tactic=candidate["mitre_tactic"],
+            mitre_technique_id=candidate["mitre_technique_id"],
+            mitre_technique=candidate["mitre_technique"],
+            confidence=int(candidate["confidence"]),
+            description=candidate["description"],
+            details=candidate["details"],
         )
+        db.add(row)
+        created_rows.append(row)
         created += 1
 
     if created > 0:
         try:
             db.commit()
+            for row in created_rows:
+                publish_alert_created_from_row(row)
         except Exception as exc:
             db.rollback()
             log_event(logger, "warning", "inline_ddos_alert_commit_failed", error_type=type(exc).__name__)

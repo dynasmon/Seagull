@@ -1,4 +1,4 @@
-import type { OverviewSnapshot, StormStatus } from "@/features/overview/types";
+import type { Alert, OverviewSnapshot, StormStatus } from "@/features/overview/types";
 
 export type OverviewRealtimePatch = {
   events_5m_delta?: number;
@@ -9,10 +9,149 @@ export type OverviewRealtimePatch = {
   reason?: string;
 };
 
+export type OverviewRealtimeAlertPayload = {
+  alert_id?: number;
+  created_at?: string;
+  rule_id?: string;
+  severity?: string;
+  src_ip?: string | null;
+  dst_ip?: string | null;
+  dst_port?: number | null;
+  description?: string;
+  confidence?: number;
+};
+
 function toSafeInt(value: unknown): number | null {
   const num = Number(value);
   if (!Number.isFinite(num)) return null;
   return Math.trunc(num);
+}
+
+function toSafeTsMs(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const ts = Date.parse(value);
+  if (!Number.isFinite(ts)) return null;
+  return ts;
+}
+
+function isDdosRuleId(ruleId: string): boolean {
+  if (ruleId === "incident_ddos_correlated_v1") return true;
+  return ruleId.startsWith("ddos_") || ruleId.startsWith("dos_") || ruleId.startsWith("l7_");
+}
+
+function isDdosLikeSeverity(severity: string): boolean {
+  const s = String(severity || "").trim().toLowerCase();
+  return s === "critical" || s === "high" || s === "medium";
+}
+
+function sortByCreatedAtDesc(rows: Alert[]): Alert[] {
+  return rows.slice().sort((a, b) => {
+    const bt = toSafeTsMs(b.created_at) ?? 0;
+    const at = toSafeTsMs(a.created_at) ?? 0;
+    return bt - at;
+  });
+}
+
+function buildRealtimeAlert(
+  payload: OverviewRealtimeAlertPayload | null | undefined,
+  eventTimestamp: string,
+): Alert | null {
+  if (!payload || typeof payload !== "object") return null;
+  const alertId = toSafeInt(payload.alert_id);
+  if (alertId === null || alertId <= 0) return null;
+
+  const createdAt = typeof payload.created_at === "string" && payload.created_at.trim()
+    ? payload.created_at
+    : eventTimestamp;
+
+  return {
+    id: alertId,
+    created_at: createdAt,
+    rule_id: String(payload.rule_id || "realtime.alert"),
+    severity: String(payload.severity || "medium"),
+    src_ip: typeof payload.src_ip === "string" ? payload.src_ip : null,
+    dst_ip: typeof payload.dst_ip === "string" ? payload.dst_ip : null,
+    dst_port: toSafeInt(payload.dst_port),
+    description: String(payload.description || "Realtime alert"),
+    details: {},
+    confidence: toSafeInt(payload.confidence) ?? undefined,
+  };
+}
+
+export function applyOverviewRealtimeAlertCreated(
+  snapshot: OverviewSnapshot | null,
+  payload: OverviewRealtimeAlertPayload | null | undefined,
+  eventTimestamp: string,
+): OverviewSnapshot | null {
+  if (!snapshot) return snapshot;
+  const alert = buildRealtimeAlert(payload, eventTimestamp);
+  if (!alert) return snapshot;
+
+  const existed = snapshot.recent_alerts.some((row) => intOrZero(row.id) === intOrZero(alert.id));
+  const recentAlerts = sortByCreatedAtDesc(
+    [alert, ...snapshot.recent_alerts.filter((row) => intOrZero(row.id) !== intOrZero(alert.id))],
+  ).slice(0, 25);
+
+  const isDdos = isDdosRuleId(String(alert.rule_id || "")) && isDdosLikeSeverity(String(alert.severity || ""));
+  const ddosAlerts = isDdos
+    ? sortByCreatedAtDesc(
+        [alert, ...snapshot.ddos_alerts.filter((row) => intOrZero(row.id) !== intOrZero(alert.id))],
+      ).slice(0, 15)
+    : snapshot.ddos_alerts;
+
+  const createdTs = toSafeTsMs(alert.created_at);
+  const withinOneHour = createdTs !== null && createdTs >= (Date.now() - 60 * 60 * 1000);
+  const nextAlerts60m = (!existed && withinOneHour)
+    ? Math.max(0, intOrZero(snapshot.kpis.alerts_60m) + 1)
+    : snapshot.kpis.alerts_60m;
+
+  return {
+    ...snapshot,
+    kpis: {
+      ...snapshot.kpis,
+      alerts_60m: nextAlerts60m,
+    },
+    recent_alerts: recentAlerts,
+    ddos_alerts: ddosAlerts,
+  };
+}
+
+export function applyOverviewRealtimeAlertUpdated(
+  snapshot: OverviewSnapshot | null,
+  payload: OverviewRealtimeAlertPayload | null | undefined,
+): OverviewSnapshot | null {
+  if (!snapshot || !payload || typeof payload !== "object") return snapshot;
+  const alertId = toSafeInt(payload.alert_id);
+  if (alertId === null || alertId <= 0) return snapshot;
+
+  const severity = typeof payload.severity === "string" && payload.severity.trim()
+    ? payload.severity
+    : null;
+  const ruleId = typeof payload.rule_id === "string" && payload.rule_id.trim()
+    ? payload.rule_id
+    : null;
+
+  let changed = false;
+  const updateRows = (rows: Alert[]): Alert[] =>
+    rows.map((row) => {
+      if (intOrZero(row.id) !== alertId) return row;
+      changed = true;
+      return {
+        ...row,
+        severity: severity ?? row.severity,
+        rule_id: ruleId ?? row.rule_id,
+      };
+    });
+
+  const recentAlerts = updateRows(snapshot.recent_alerts);
+  const ddosAlerts = updateRows(snapshot.ddos_alerts);
+
+  if (!changed) return snapshot;
+  return {
+    ...snapshot,
+    recent_alerts: recentAlerts,
+    ddos_alerts: ddosAlerts,
+  };
 }
 
 export function applyOverviewRealtimePatch(

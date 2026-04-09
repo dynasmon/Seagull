@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.core.portal_auth import PortalPrincipal
 from app.features.agents import repository
 from app.features.agents.models import AgentBootstrapTokenModel, AgentCredentialModel, AgentModel
+from app.features.realtime.service import publish_realtime
 from app.features.agents.schemas import (
     AgentBootstrapTokenCreateIn,
     AgentBootstrapTokenOut,
@@ -75,6 +76,27 @@ def _safe_json_size(obj: Any, max_bytes: int, field_name: str) -> None:
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"{field_name} exceeds {max_bytes} bytes",
         )
+
+
+def _build_agent_heartbeat_payload(*, row: AgentModel, status_text: str) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "agent_id": str(row.agent_id or "").strip(),
+        "status": str(status_text or "").strip()[:32],
+        "is_revoked": bool(row.is_revoked),
+    }
+    if row.last_seen_at is not None:
+        payload["last_seen_at"] = row.last_seen_at.isoformat()
+    return payload
+
+
+def _publish_agent_heartbeat_realtime(*, row: AgentModel, status_text: str) -> None:
+    payload = _build_agent_heartbeat_payload(row=row, status_text=status_text)
+    if not payload.get("agent_id"):
+        return
+    try:
+        publish_realtime("agent.heartbeat", payload)
+    except Exception:
+        return
 
 
 def _agent_to_public(a: AgentModel) -> AgentPublic:
@@ -342,10 +364,11 @@ def heartbeat(db: Session, *, payload: AgentHeartbeatIn, agent: AgentPrincipal) 
     row = repository.get_agent_by_id(db, agent.id)
     if not row or row.is_revoked:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
+    status_text = str(payload.status or "").strip()[:32]
     row.last_seen_at = datetime.utcnow()
     row.metrics = {
         **(row.metrics or {}),
-        "status": payload.status,
+        "status": status_text,
         "uptime_seconds": payload.uptime_seconds,
         "modules": payload.modules,
         "metrics": payload.metrics,
@@ -354,6 +377,7 @@ def heartbeat(db: Session, *, payload: AgentHeartbeatIn, agent: AgentPrincipal) 
     }
     repository.save_agent(db, row)
     repository.commit(db)
+    _publish_agent_heartbeat_realtime(row=row, status_text=status_text)
 
 
 def list_pending_actions(

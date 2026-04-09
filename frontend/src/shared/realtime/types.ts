@@ -48,18 +48,27 @@ export type PortalRealtimeEventPayloadMap = {
   };
   "alert.created": {
     alert_id?: number;
+    created_at?: string;
     severity?: string;
     rule_id?: string;
+    src_ip?: string | null;
+    dst_ip?: string | null;
+    dst_port?: number | null;
+    description?: string;
+    confidence?: number;
   };
   "alert.updated": {
     alert_id?: number;
     status?: string;
+    updated_at?: string;
     severity?: string;
+    rule_id?: string;
   };
   "agent.heartbeat": {
     agent_id?: string;
     status?: string;
     last_seen_at?: string;
+    is_revoked?: boolean;
   };
 };
 

@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
+import { applyAgentHeartbeatRealtime } from "@/app/agents_realtime";
 import { OverviewLiveProvider } from "@/features/overview/live";
 import { listAgents } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
 import { AuthProvider, useAuth } from "@/features/auth/context";
-import { PortalRealtimeProvider } from "@/shared/realtime";
+import { PortalRealtimeProvider, usePortalRealtimeSubscription } from "@/shared/realtime";
 import { getErrorMessage } from "@/shared/lib/errors";
 
 type Theme = "dark" | "light";
@@ -102,9 +103,14 @@ function AgentsProvider({ children }: { children: ReactNode }) {
   };
 
   const selectedAgentRef = useRef(selectedAgentId);
+  const agentsRef = useRef<AgentPublic[]>(agents);
+  const unknownHeartbeatRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     selectedAgentRef.current = selectedAgentId;
   }, [selectedAgentId]);
+  useEffect(() => {
+    agentsRef.current = agents;
+  }, [agents]);
 
   const refreshAgents = useCallback(async () => {
     try {
@@ -124,6 +130,25 @@ function AgentsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const scheduleRealtimeCatalogRefresh = useCallback(() => {
+    if (unknownHeartbeatRefreshTimerRef.current) return;
+    unknownHeartbeatRefreshTimerRef.current = window.setTimeout(() => {
+      unknownHeartbeatRefreshTimerRef.current = null;
+      void refreshAgents();
+    }, 400);
+  }, [refreshAgents]);
+
+  usePortalRealtimeSubscription("agent.heartbeat", (event) => {
+    const result = applyAgentHeartbeatRealtime(agentsRef.current, event.payload || {}, event.timestamp);
+    if (!result.agentId) return;
+    if (!result.updated) {
+      scheduleRealtimeCatalogRefresh();
+      return;
+    }
+    agentsRef.current = result.agents;
+    setAgents(result.agents);
+  });
+
   useEffect(() => {
     let alive = true;
     refreshAgents();
@@ -136,6 +161,10 @@ function AgentsProvider({ children }: { children: ReactNode }) {
 
     return () => {
       alive = false;
+      if (unknownHeartbeatRefreshTimerRef.current) {
+        window.clearTimeout(unknownHeartbeatRefreshTimerRef.current);
+        unknownHeartbeatRefreshTimerRef.current = null;
+      }
       window.clearInterval(t);
     };
   }, [refreshAgents]);
