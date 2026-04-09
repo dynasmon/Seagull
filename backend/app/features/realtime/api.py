@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from typing import AsyncGenerator
 
@@ -75,8 +74,6 @@ async def _stream_events(
                 envelope = parse_realtime_envelope(raw_payload)
                 if envelope is not None and allow_envelope_for_stream(envelope=envelope, principal=principal):
                     yield format_sse_chunk(event=envelope.type, data=envelope.as_json())
-                elif raw_payload:
-                    yield format_sse_chunk(event="message", data=json.dumps({"raw": raw_payload}, ensure_ascii=True))
 
             now = time.monotonic()
             if now - last_keepalive >= float(keepalive_seconds):
@@ -110,7 +107,8 @@ async def portal_stream_endpoint(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Realtime unavailable")
 
     headers = {
-        "Cache-Control": "no-cache",
+        "Cache-Control": "no-cache, no-transform",
+        "Pragma": "no-cache",
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
     }
