@@ -68,6 +68,8 @@ class Settings:
     NETWATCH_REDIS_PORT: int = _env_int("NETWATCH_REDIS_PORT", 6379)
     NETWATCH_REDIS_USERNAME: str | None = _env_str("NETWATCH_REDIS_USERNAME", None)
     NETWATCH_REDIS_PASSWORD: str | None = _env_str("NETWATCH_REDIS_PASSWORD", None)
+    NETWATCH_REALTIME_STREAM_TOKEN_TTL_SECONDS: int = _env_int("NETWATCH_REALTIME_STREAM_TOKEN_TTL_SECONDS", 30)
+    NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS: int = _env_int("NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS", 15)
     NETWATCH_RULES_DIR: str = _env_str("NETWATCH_RULES_DIR", "/app/rules") or "/app/rules"
 
     # Optional full SQLAlchemy DSN (preferred). Example:
@@ -353,6 +355,14 @@ class Settings:
             errors.append("NETWATCH_MAX_REQUEST_BODY_BYTES must be >= 1024")
         if (self.NETWATCH_REDIS_PORT or 0) < 1:
             errors.append("NETWATCH_REDIS_PORT must be >= 1")
+        if (self.NETWATCH_REALTIME_STREAM_TOKEN_TTL_SECONDS or 0) < 5:
+            errors.append("NETWATCH_REALTIME_STREAM_TOKEN_TTL_SECONDS must be >= 5")
+        if (self.NETWATCH_REALTIME_STREAM_TOKEN_TTL_SECONDS or 0) > 300:
+            errors.append("NETWATCH_REALTIME_STREAM_TOKEN_TTL_SECONDS must be <= 300")
+        if (self.NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS or 0) < 5:
+            errors.append("NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS must be >= 5")
+        if (self.NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS or 0) > 60:
+            errors.append("NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS must be <= 60")
         if (self.NETWATCH_AUDIT_RETENTION_DAYS or 0) < 1:
             errors.append("NETWATCH_AUDIT_RETENTION_DAYS must be >= 1")
         if (self.NETWATCH_LOGIN_AUDIT_RETENTION_DAYS or 0) < 1:
@@ -471,6 +481,8 @@ class Settings:
                 "request_body_max_bytes": self.NETWATCH_MAX_REQUEST_BODY_BYTES,
                 "clock_skew_max_seconds": self.NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS,
                 "allowed_hosts": list(self.NETWATCH_ALLOWED_HOSTS or []),
+                "realtime_stream_token_ttl_seconds": int(self.NETWATCH_REALTIME_STREAM_TOKEN_TTL_SECONDS),
+                "realtime_sse_keepalive_seconds": int(self.NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS),
             },
             "ingest": {
                 "max_batch": self.NETWATCH_INGEST_MAX_BATCH,

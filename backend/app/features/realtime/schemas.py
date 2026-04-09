@@ -51,3 +51,9 @@ class RealtimeEnvelope(BaseModel):
             return json.dumps(self.as_dict(), ensure_ascii=True, separators=(",", ":"), allow_nan=False)
         except (TypeError, ValueError) as exc:
             raise ValueError("payload must be JSON-serializable") from exc
+
+
+class StreamTokenOut(BaseModel):
+    stream_token: str
+    token_type: str = "stream"
+    expires_in: int = Field(..., ge=1, le=300)
