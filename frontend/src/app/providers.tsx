@@ -5,6 +5,7 @@ import { OverviewLiveProvider } from "@/features/overview/live";
 import { listAgents } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
 import { AuthProvider, useAuth } from "@/features/auth/context";
+import { PortalRealtimeProvider } from "@/shared/realtime";
 import { getErrorMessage } from "@/shared/lib/errors";
 
 type Theme = "dark" | "light";
@@ -71,7 +72,11 @@ function AuthedProviders({ children }: { children: ReactNode }) {
   // The login screen is public; avoid polling protected APIs until authenticated.
   if (status !== "authed") return <>{children}</>;
 
-  return <AgentsProvider>{children}</AgentsProvider>;
+  return (
+    <PortalRealtimeProvider enabled={status === "authed"}>
+      <AgentsProvider>{children}</AgentsProvider>
+    </PortalRealtimeProvider>
+  );
 }
 
 function AgentsProvider({ children }: { children: ReactNode }) {
