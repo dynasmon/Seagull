@@ -23,6 +23,7 @@ from app.core.ingest_control import (
     recover_runtime_state,
 )
 from app.core.recent_feed import push_recent_events
+from app.core.redis_client import get_redis
 from app.core.config import settings
 from app.core.clickhouse import (
     clickhouse_events_table_ref,
@@ -34,6 +35,7 @@ from app.core.observability import log_event
 from app.features.ingest import repository
 from app.features.events.schemas import NetEvent
 from app.features.alerts.models import AlertModel
+from app.features.realtime.service import publish_realtime
 
 logger = logging.getLogger("netwatch.api.ingest")
 
@@ -42,6 +44,76 @@ _HOT_PRIORITY_EVENT_TYPES = {"dos_attack"}
 
 def _is_hot_priority_event(event_type: str | None) -> bool:
     return str(event_type or "").strip().lower() in _HOT_PRIORITY_EVENT_TYPES
+
+
+def _realtime_gate_once(*, key: str, ttl_s: int) -> bool:
+    ttl = max(1, int(ttl_s))
+    r = get_redis()
+    if r is None:
+        return True
+    try:
+        return bool(r.set(str(key), "1", ex=ttl, nx=True))
+    except Exception:
+        return True
+
+
+def _build_overview_patch_payload(
+    *,
+    received: int,
+    backlog_events: int,
+    backlog_messages: int,
+    protection_active: bool,
+    phase: str,
+    reason: str,
+) -> Dict[str, object]:
+    return {
+        "events_5m_delta": int(max(0, int(received))),
+        "backlog_events": int(max(0, int(backlog_events))),
+        "backlog_messages": int(max(0, int(backlog_messages))),
+        "protection_active": bool(protection_active),
+        "phase": str(phase or "ok"),
+        "reason": str(reason or "ok"),
+    }
+
+
+def _publish_overview_realtime(
+    *,
+    received: int,
+    backlog_events: int,
+    backlog_messages: int,
+    protection_active: bool,
+    phase: str,
+    reason: str,
+) -> None:
+    patch_payload = _build_overview_patch_payload(
+        received=received,
+        backlog_events=backlog_events,
+        backlog_messages=backlog_messages,
+        protection_active=protection_active,
+        phase=phase,
+        reason=reason,
+    )
+
+    if _realtime_gate_once(key="netwatch:realtime:overview:patch:1s", ttl_s=1):
+        publish_realtime("overview.patch", patch_payload)
+
+    if _realtime_gate_once(key="netwatch:realtime:overview:invalidate:2s", ttl_s=2):
+        publish_realtime(
+            "overview.invalidate",
+            {
+                "reason": "ingest_update",
+                "phase": str(phase or "ok"),
+                "scope": "overview",
+            },
+        )
+
+    if _realtime_gate_once(key="netwatch:realtime:storm:status:1s", ttl_s=1):
+        try:
+            status_payload = get_storm_status()
+        except Exception:
+            status_payload = None
+        if isinstance(status_payload, dict):
+            publish_realtime("storm.status", status_payload)
 
 
 def _degradation_level(*, bp_mode: str, storm_active: bool, backlog_events: int, received: int) -> str:
@@ -584,6 +656,10 @@ def storm_recover(
     )
     if not bool(res.get("ok")):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(res.get("reason") or "recover_failed"))
+    publish_realtime("overview.invalidate", {"reason": "storm_recover", "scope": "overview"})
+    storm_payload = get_storm_status()
+    if isinstance(storm_payload, dict):
+        publish_realtime("storm.status", storm_payload)
     return res
 
 
@@ -679,6 +755,14 @@ def ingest_events(
         mark_storm_active(reason=bp.reason, sample_hot=0, sample_warm=0)
         storm_maybe_open_alert(reason=bp.reason, sample_hot=0, sample_warm=0)
         record_overview_live_drop(dropped_events=len(events))
+        _publish_overview_realtime(
+            received=len(events),
+            backlog_events=int(bp.backlog_events or 0),
+            backlog_messages=int(bp.backlog_messages or 0),
+            protection_active=True,
+            phase="shedding",
+            reason=bp.reason,
+        )
 
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -887,6 +971,14 @@ def ingest_events(
         if active_for_metrics:
             mark_storm_active(reason=storm_reason, sample_hot=hot_pct, sample_warm=warm_pct)
             storm_maybe_open_alert(reason=storm_reason, sample_hot=hot_pct, sample_warm=warm_pct)
+        _publish_overview_realtime(
+            received=len(events),
+            backlog_events=int(bp.backlog_events or 0),
+            backlog_messages=int(bp.backlog_messages or 0),
+            protection_active=bool(active_for_metrics),
+            phase="storm" if storm_active else ("draining" if pressure_active else "ok"),
+            reason=storm_reason,
+        )
 
         return {
             "received": len(events),
@@ -929,6 +1021,14 @@ def ingest_events(
     if active_for_metrics:
         mark_storm_active(reason=storm_reason, sample_hot=hot_pct, sample_warm=warm_pct)
         storm_maybe_open_alert(reason=storm_reason, sample_hot=hot_pct, sample_warm=warm_pct)
+    _publish_overview_realtime(
+        received=len(events),
+        backlog_events=int(bp.backlog_events or 0),
+        backlog_messages=int(bp.backlog_messages or 0),
+        protection_active=bool(active_for_metrics),
+        phase="storm" if storm_active else ("draining" if pressure_active else "ok"),
+        reason=storm_reason,
+    )
 
     return {
         "received": len(events),
