@@ -21,6 +21,15 @@ STREAM_TOKEN_SCOPE_ADMIN = "portal:admin"
 STREAM_TOKEN_AUDIENCE_SUFFIX = ":stream"
 
 REALTIME_EVENT_POLICIES: dict[str, dict[str, str]] = {
+    "ui.overview.invalidate": {"topic": "overview", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
+    "ui.overview.kpi.patch": {"topic": "overview", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
+    "ui.overview.storm.patch": {"topic": "overview", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
+    "ui.alerts.invalidate": {"topic": "alerts", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE_ADMIN},
+    "ui.alerts.delta.patch": {"topic": "alerts", "mode": "patch", "scope": STREAM_TOKEN_SCOPE_ADMIN},
+    "ui.agents.invalidate": {"topic": "agents", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
+    "ui.agents.presence.patch": {"topic": "agents", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
+    "ui.investigations.invalidate": {"topic": "investigations", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
+    "ui.investigations.timeline.append": {"topic": "investigations", "mode": "append", "scope": STREAM_TOKEN_SCOPE},
     "overview.invalidate": {"topic": "overview", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
     "overview.patch": {"topic": "overview", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
     "storm.status": {"topic": "overview", "mode": "replace", "scope": STREAM_TOKEN_SCOPE},
@@ -36,11 +45,13 @@ TOPIC_REQUIRED_SCOPE: dict[str, str] = {
     "overview": STREAM_TOKEN_SCOPE,
     "agents": STREAM_TOKEN_SCOPE,
     "alerts": STREAM_TOKEN_SCOPE_ADMIN,
+    "investigations": STREAM_TOKEN_SCOPE,
 }
 TOPIC_INVALIDATE_EVENT: dict[str, str] = {
-    "overview": "overview.invalidate",
-    "agents": "agents.invalidate",
-    "alerts": "alerts.invalidate",
+    "overview": "ui.overview.invalidate",
+    "agents": "ui.agents.invalidate",
+    "alerts": "ui.alerts.invalidate",
+    "investigations": "ui.investigations.invalidate",
 }
 
 
@@ -149,7 +160,7 @@ def resolve_stream_topics(*, principal: StreamPrincipal, requested_topics: list[
 
 def topic_invalidate_event(topic: str) -> str:
     normalized = str(topic or "").strip().lower()
-    return TOPIC_INVALIDATE_EVENT.get(normalized, "overview.invalidate")
+    return TOPIC_INVALIDATE_EVENT.get(normalized, "ui.overview.invalidate")
 
 
 def issue_stream_token(*, user: PortalPrincipal) -> tuple[str, int]:

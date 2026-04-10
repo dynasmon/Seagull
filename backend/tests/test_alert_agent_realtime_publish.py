@@ -44,7 +44,20 @@ def test_publish_alert_created_payload_uses_realtime_event(monkeypatch) -> None:
 
     alerts_realtime.publish_alert_created_payload({"alert_id": 7, "rule_id": "x", "severity": "low"})
 
-    assert emitted == [("alert.created", {"alert_id": 7, "rule_id": "x", "severity": "low"})]
+    assert emitted == [
+        (
+            "ui.alerts.delta.patch",
+            {
+                "action": "upsert",
+                "alert": {
+                    "id": 7,
+                    "rule_id": "x",
+                    "severity": "low",
+                },
+                "counters": {"alerts_60m_delta": 1},
+            },
+        )
+    ]
 
 
 def test_publish_alert_updated_payload_uses_realtime_event(monkeypatch) -> None:
@@ -53,7 +66,18 @@ def test_publish_alert_updated_payload_uses_realtime_event(monkeypatch) -> None:
 
     alerts_realtime.publish_alert_updated_payload({"alert_id": 7, "status": "closed"})
 
-    assert emitted == [("alert.updated", {"alert_id": 7, "status": "closed"})]
+    assert emitted == [
+        (
+            "ui.alerts.delta.patch",
+            {
+                "action": "patch",
+                "alert": {
+                    "id": 7,
+                    "status": "closed",
+                },
+            },
+        )
+    ]
 
 
 def test_build_agent_heartbeat_payload_contract() -> None:
@@ -81,6 +105,6 @@ def test_publish_agent_heartbeat_realtime_uses_event(monkeypatch) -> None:
 
     agents_service._publish_agent_heartbeat_realtime(row=row, status_text="ok")
 
-    assert emitted and emitted[0][0] == "agent.heartbeat"
+    assert emitted and emitted[0][0] == "ui.agents.presence.patch"
     assert emitted[0][1]["agent_id"] == "agent-core-1"
     assert emitted[0][1]["status"] == "ok"

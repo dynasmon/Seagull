@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict
 
+from app.features.realtime.projectors import project_alerts_delta_patch
 from app.features.realtime.service import publish_realtime
 
 _MAX_DESCRIPTION_LEN = 240
@@ -103,7 +104,8 @@ def build_alert_realtime_payload_from_row(row: Any) -> Dict[str, Any]:
 
 def publish_alert_created_payload(payload: Dict[str, Any]) -> None:
     try:
-        publish_realtime("alert.created", payload)
+        projected = project_alerts_delta_patch(action="upsert", alert=payload, alerts_60m_delta=1)
+        publish_realtime("ui.alerts.delta.patch", projected)
     except Exception:
         return
 
@@ -118,6 +120,7 @@ def publish_alert_created_from_row(row: Any) -> None:
 
 def publish_alert_updated_payload(payload: Dict[str, Any]) -> None:
     try:
-        publish_realtime("alert.updated", payload)
+        projected = project_alerts_delta_patch(action="patch", alert=payload, alerts_60m_delta=0)
+        publish_realtime("ui.alerts.delta.patch", projected)
     except Exception:
         return

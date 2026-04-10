@@ -44,7 +44,7 @@ def test_publish_overview_realtime_emits_patch_invalidate_and_storm(monkeypatch)
         reason="soft_backlog",
     )
 
-    assert [t for t, _ in emitted] == ["overview.patch", "overview.invalidate", "storm.status"]
+    assert [t for t, _ in emitted] == ["ui.overview.kpi.patch", "ui.overview.invalidate", "ui.overview.storm.patch"]
     assert emitted[0][1]["events_5m_delta"] == 80
     assert emitted[1][1]["reason"] == "ingest_update"
     assert emitted[2][1]["phase"] == "storm"
@@ -67,4 +67,4 @@ def test_publish_overview_realtime_respects_gate(monkeypatch) -> None:
         reason="ok",
     )
 
-    assert [t for t, _ in emitted] == ["overview.patch"]
+    assert [t for t, _ in emitted] == ["ui.overview.kpi.patch"]

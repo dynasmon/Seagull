@@ -1,7 +1,7 @@
 import type { AgentPublic } from "@/features/agents/types";
 import type { PortalRealtimeEventPayloadMap } from "@/shared/realtime/types";
 
-export type AgentHeartbeatPayload = PortalRealtimeEventPayloadMap["agent.heartbeat"];
+export type AgentHeartbeatPayload = PortalRealtimeEventPayloadMap["ui.agents.presence.patch"];
 
 export type ApplyAgentHeartbeatResult = {
   agents: AgentPublic[];
