@@ -15,6 +15,18 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 0
 fi
 
+# Drop deprecated keys that can break current startup flags.
+# Keep this list short and only for vars we explicitly retire.
+deprecated_removed=0
+for deprecated_key in COMPOSE_IGNORE_ORPHANS; do
+  if grep -qE "^${deprecated_key}=" "$ENV_FILE"; then
+    tmp_clean="$(mktemp)"
+    awk -v key="$deprecated_key" '!($0 ~ "^[[:space:]]*" key "=")' "$ENV_FILE" > "$tmp_clean"
+    mv "$tmp_clean" "$ENV_FILE"
+    deprecated_removed=$((deprecated_removed + 1))
+  fi
+done
+
 tmp_keys="$(mktemp)"
 trap 'rm -f "$tmp_keys"' EXIT
 
@@ -41,4 +53,8 @@ if [[ $added -gt 0 ]]; then
   echo "[bootstrap] synced $added missing vars from $TEMPLATE_FILE into $ENV_FILE"
 else
   echo "[bootstrap] $ENV_FILE already up-to-date"
+fi
+
+if [[ $deprecated_removed -gt 0 ]]; then
+  echo "[bootstrap] removed $deprecated_removed deprecated var(s) from $ENV_FILE"
 fi
