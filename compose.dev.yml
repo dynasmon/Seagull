@@ -27,7 +27,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget -q -O - --no-check-certificate https://127.0.0.1:8443/api/health/ready >/dev/null 2>&1",
+          "wget -q -O - --no-check-certificate https://127.0.0.1:8443/api/health/live >/dev/null 2>&1",
         ]
       interval: 10s
       timeout: 5s
@@ -36,17 +36,40 @@ services:
     restart: unless-stopped
 
   netwatch-backend:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       NETWATCH_ENV: dev
       NETWATCH_DB_AUTO_UPGRADE: "true"
+      NETWATCH_SEARCH_BACKEND: auto
+      NETWATCH_CLICKHOUSE_REQUIRED: "false"
       NETWATCH_RULES_ENV: dev
       NETWATCH_RULES_ENABLED_PACKS: ${NETWATCH_RULES_ENABLED_PACKS:-core,network,lab}
       NETWATCH_RULES_INCLUDE_EXPERIMENTAL: ${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-true}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import sys,urllib.request; u=urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2); sys.exit(0 if u.getcode()==200 else 1)\"",
+        ]
+      interval: 10s
+      timeout: 4s
+      retries: 20
+      start_period: 25s
 
   netwatch-ingest-pipeline:
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       NETWATCH_ENV: dev
       NETWATCH_DB_AUTO_UPGRADE: "true"
+      NETWATCH_CLICKHOUSE_REQUIRED: "false"
 
   netwatch-intelligence-worker:
     environment:

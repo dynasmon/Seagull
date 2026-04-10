@@ -223,9 +223,21 @@ make dev
 This command:
 
 - Creates `.env` from `.env.example` when missing
+- Syncs newly introduced env keys into an existing `.env`
+- Runs preflight checks (Docker daemon, TLS files/SAN, compose config)
+- Starts the stack with `--remove-orphans` to keep container state predictable
 - Mints short-lived per-agent bootstrap tokens and rewires agent containers with the fresh tokens
 - Uses `docker-compose.yml + compose.dev.yml`
 - Builds and starts the development stack
+
+Recommended local startup path: use `make dev` as the single entrypoint.
+
+If local runtime state gets corrupted and you want a clean dev reset:
+
+```bash
+make nuke
+make dev
+```
 
 If you run the host agent with `systemd` (`netwatch-agent.service`) and do not want Docker to start
 `netwatch-agent-core`/`netwatch-agent-sensor`, run:
@@ -328,19 +340,8 @@ journalctl -u netwatch-agent -f
 - Bootstrap token file deletion occurs only after successful enroll/re-enroll.
 - Service auto-start is intentionally conservative unless explicitly requested with `AUTO_START_IF_READY=1`.
 
-If you prefer raw Compose commands, use the provided wrapper (it auto-creates/syncs `.env` first):
-
-```bash
-./scripts/compose.sh -f docker-compose.yml -f compose.dev.yml up -d --build
-```
-
-If you start services manually with `docker compose` (without `make dev`), run token bootstrap before (re)creating agent containers:
-
-```bash
-./scripts/mint_agent_bootstrap_tokens.sh
-docker compose up -d --force-recreate netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln
-docker compose --profile extra up -d --force-recreate netwatch-agent-lateral
-```
+Advanced/manual compose invocations are still possible, but they are not the recommended developer path.
+Use them only for debugging custom scenarios.
 
 For production-style local runs:
 
@@ -380,8 +381,8 @@ docker compose -f docker-compose.yml -f compose.dev.yml --profile observability 
 
 ### 5. Open the Portal
 
-- Dev (default): `http://localhost:${NETWATCH_PORTAL_PORT:-8080}`
-- Dev with TLS edge: `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}`
+- Recommended (dev TLS edge): `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}`
+- Direct Vite port (fallback): `http://localhost:${NETWATCH_PORTAL_PORT:-8080}`
 - Prod compose: `https://<NETWATCH_CADDY_DOMAIN>` (for local runs, use `https://127.0.0.1:${NETWATCH_EDGE_HTTPS_PORT:-8443}`)
 - Login with:
   - Username: `NETWATCH_BOOTSTRAP_ADMIN_USERNAME` (default: `admin`)
@@ -404,6 +405,15 @@ Expected:
 ```json
 {"status":"ok"}
 ```
+
+Readiness endpoint:
+
+```bash
+curl -k https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/api/health/ready
+```
+
+- `/health` and `/health/live` mean process liveness.
+- `/health/ready` means the API is usable (DB required; optional backends like Elasticsearch/ClickHouse are only blocking when explicitly configured as required).
 
 ### 7. Grafana / Kibana (optional)
 
@@ -497,7 +507,13 @@ Troubleshooting (Postgres auth failed):
 
 - If you see `password authentication failed for user "netwatch"` after changing `POSTGRES_PASSWORD`, your existing `postgres-data` volume still has the old password.
 - Option 1 (keep data): set `.env` `POSTGRES_PASSWORD` back to the password used when that volume was first created.
-- Option 2 (reset local dev DB): `docker compose down -v` and start again to reinitialize with current credentials.
+- Option 2 (reset disposable local state): run `make nuke` and then `make dev`.
+
+Other common first-run issues:
+
+- `Bootstrap admin password rejected`: your `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD` does not meet policy (12+ chars, upper/lower/digit/symbol, cannot include username).
+- Portal loads but UI fails behind TLS edge: check `infra/caddy/Caddyfile.dev` (dev CSP/HMR policy) and restart with `make restart`.
+- Optional workers degraded while API is available: this is expected when optional services (for example Elasticsearch/ClickHouse) are unavailable and not required.
 
 ### 11. Development observability
 

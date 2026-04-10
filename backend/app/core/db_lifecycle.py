@@ -7,6 +7,7 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, OperationalError
 
 from app.core.config import settings
 from app.core.db import engine
@@ -61,13 +62,44 @@ def is_schema_current() -> bool:
 
 
 def ensure_database_ready() -> None:
-    if settings.NETWATCH_DB_AUTO_UPGRADE:
-        run_migrations()
-    elif not is_schema_current():
-        raise RuntimeError(
-            "Database schema is not at Alembic head. "
-            "Run 'alembic upgrade head' (in backend/) or set NETWATCH_DB_AUTO_UPGRADE=true."
+    try:
+        if settings.NETWATCH_DB_AUTO_UPGRADE:
+            run_migrations()
+        elif not is_schema_current():
+            raise RuntimeError(
+                "Database schema is not at Alembic head. "
+                "Run 'alembic upgrade head' (in backend/) or set NETWATCH_DB_AUTO_UPGRADE=true."
+            )
+
+        # Runtime-safe post-migration bootstrap (indexes/checks/seeds).
+        bootstrap_schema(engine)
+    except Exception as exc:
+        raise _runtime_db_error(exc) from exc
+
+
+def _runtime_db_error(exc: Exception) -> Exception:
+    if not isinstance(exc, (OperationalError, DBAPIError)):
+        return exc
+
+    msg = str(exc).strip()
+    msg_lower = msg.lower()
+
+    if "password authentication failed for user" in msg_lower:
+        user = settings.DB_USER or settings.DB_NAME or "netwatch"
+        return RuntimeError(
+            "PostgreSQL authentication failed during startup "
+            f"(user={user!r}). This usually means credentials in .env no longer "
+            "match the existing postgres-data volume.\n"
+            "Fix options:\n"
+            "1) Keep data: restore POSTGRES_PASSWORD/NETWATCH_DB_PASSWORD to the "
+            "password used when the volume was first initialized.\n"
+            "2) Reset disposable local state: run 'make nuke' then 'make dev'."
         )
 
-    # Runtime-safe post-migration bootstrap (indexes/checks/seeds).
-    bootstrap_schema(engine)
+    if "database" in msg_lower and "does not exist" in msg_lower:
+        return RuntimeError(
+            "PostgreSQL is reachable, but the configured database does not exist. "
+            "Verify POSTGRES_DB/NETWATCH_DB_NAME and re-run 'make dev'."
+        )
+
+    return exc
