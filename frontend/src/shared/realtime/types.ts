@@ -1,3 +1,20 @@
+export const PORTAL_REALTIME_TOPICS = [
+  "overview",
+  "alerts",
+  "agents",
+] as const;
+
+export type PortalRealtimeTopic = (typeof PORTAL_REALTIME_TOPICS)[number];
+
+export const PORTAL_REALTIME_MODES = [
+  "patch",
+  "append",
+  "replace",
+  "invalidate",
+] as const;
+
+export type PortalRealtimeMode = (typeof PORTAL_REALTIME_MODES)[number];
+
 export const PORTAL_REALTIME_EVENT_TYPES = [
   "overview.invalidate",
   "overview.patch",
@@ -8,6 +25,33 @@ export const PORTAL_REALTIME_EVENT_TYPES = [
 ] as const;
 
 export type PortalRealtimeEventType = (typeof PORTAL_REALTIME_EVENT_TYPES)[number];
+
+export const PORTAL_REALTIME_EVENT_TOPIC: Record<PortalRealtimeEventType, PortalRealtimeTopic> = {
+  "overview.invalidate": "overview",
+  "overview.patch": "overview",
+  "storm.status": "overview",
+  "alert.created": "alerts",
+  "alert.updated": "alerts",
+  "agent.heartbeat": "agents",
+};
+
+export const PORTAL_REALTIME_EVENT_MODE: Record<PortalRealtimeEventType, PortalRealtimeMode> = {
+  "overview.invalidate": "invalidate",
+  "overview.patch": "patch",
+  "storm.status": "replace",
+  "alert.created": "append",
+  "alert.updated": "patch",
+  "agent.heartbeat": "patch",
+};
+
+export const PORTAL_REALTIME_EVENT_SCOPE: Record<PortalRealtimeEventType, string> = {
+  "overview.invalidate": "portal:realtime",
+  "overview.patch": "portal:realtime",
+  "storm.status": "portal:realtime",
+  "alert.created": "portal:admin",
+  "alert.updated": "portal:admin",
+  "agent.heartbeat": "portal:realtime",
+};
 
 export type PortalRealtimeEventPayloadMap = {
   "overview.invalidate": {
@@ -74,8 +118,12 @@ export type PortalRealtimeEventPayloadMap = {
 
 export type PortalRealtimeEnvelope<TType extends PortalRealtimeEventType = PortalRealtimeEventType> = {
   version: number;
+  topic: PortalRealtimeTopic;
   type: TType;
+  cursor: string;
   timestamp: string;
+  scope: string;
+  mode: PortalRealtimeMode;
   payload: PortalRealtimeEventPayloadMap[TType];
 };
 
@@ -87,5 +135,19 @@ export function isPortalRealtimeEventType(value: unknown): value is PortalRealti
   return (
     typeof value === "string" &&
     (PORTAL_REALTIME_EVENT_TYPES as readonly string[]).includes(value)
+  );
+}
+
+export function isPortalRealtimeTopic(value: unknown): value is PortalRealtimeTopic {
+  return (
+    typeof value === "string" &&
+    (PORTAL_REALTIME_TOPICS as readonly string[]).includes(value)
+  );
+}
+
+export function isPortalRealtimeMode(value: unknown): value is PortalRealtimeMode {
+  return (
+    typeof value === "string" &&
+    (PORTAL_REALTIME_MODES as readonly string[]).includes(value)
   );
 }
