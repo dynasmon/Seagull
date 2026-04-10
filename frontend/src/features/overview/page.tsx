@@ -7,7 +7,7 @@ import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 import type { Alert } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
-import { useOverviewLive } from "./live";
+import { OverviewLiveProvider, useOverviewLive } from "./live";
 
 import { listAttackChainCases } from "@/features/attack_chain/api";
 
@@ -311,7 +311,7 @@ function SeverityBadge({ severity }: { severity: string }) {
   return <span className={`px-2 py-0.5 text-[10px] uppercase font-mono border ${color} font-medium`}>{severity}</span>;
 }
 
-export default function OverviewPage() {
+function OverviewPageView() {
   const { snapshot, storm, isLoading, error, lastUpdatedAt } = useOverviewLive();
 
   const derived = useMemo(() => {
@@ -956,5 +956,13 @@ export default function OverviewPage() {
         </div>
       </DashboardSection>
     </div>
+  );
+}
+
+export default function OverviewPage() {
+  return (
+    <OverviewLiveProvider>
+      <OverviewPageView />
+    </OverviewLiveProvider>
   );
 }

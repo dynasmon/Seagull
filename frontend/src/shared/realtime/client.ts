@@ -8,6 +8,7 @@ import {
   type PortalRealtimeAnyEvent,
   type PortalRealtimeEnvelope,
   type PortalRealtimeEventType,
+  type PortalRealtimeTopic,
   isPortalRealtimeMode,
   isPortalRealtimeEventType,
   isPortalRealtimeTopic,
@@ -33,10 +34,12 @@ export type PortalRealtimeClientOptions = {
   eventSourceFactory?: (url: string) => EventSourceLike;
   reconnectBaseMs?: number;
   reconnectMaxMs?: number;
+  baseTopics?: PortalRealtimeTopic[];
 };
 
 const DEFAULT_RECONNECT_BASE_MS = 1000;
 const DEFAULT_RECONNECT_MAX_MS = 15000;
+const DEFAULT_BASE_TOPICS: readonly PortalRealtimeTopic[] = ["agents"];
 
 function defaultEventSourceFactory(url: string): EventSourceLike {
   return new EventSource(url) as unknown as EventSourceLike;
@@ -98,6 +101,7 @@ export class PortalRealtimeClient {
   private readonly eventSourceFactory: (url: string) => EventSourceLike;
   private readonly reconnectBaseMs: number;
   private readonly reconnectMaxMs: number;
+  private readonly baseTopics: readonly PortalRealtimeTopic[];
 
   private source: EventSourceLike | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -112,12 +116,15 @@ export class PortalRealtimeClient {
   private readonly anyListeners = new Set<PortalRealtimeAnyListener>();
   private readonly namedSourceListeners = new Map<string, EventListener>();
   private lastCursor = 0;
+  private connectedTopicsCsv = "";
+  private topicRebindTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: PortalRealtimeClientOptions = {}) {
     this.tokenProvider = options.tokenProvider ?? requestRealtimeStreamToken;
     this.eventSourceFactory = options.eventSourceFactory ?? defaultEventSourceFactory;
     this.reconnectBaseMs = Math.max(1, Math.trunc(options.reconnectBaseMs ?? DEFAULT_RECONNECT_BASE_MS));
     this.reconnectMaxMs = Math.max(this.reconnectBaseMs, Math.trunc(options.reconnectMaxMs ?? DEFAULT_RECONNECT_MAX_MS));
+    this.baseTopics = this.normalizeTopics(options.baseTopics ?? Array.from(DEFAULT_BASE_TOPICS));
   }
 
   get status(): RealtimeConnectionStatus {
@@ -133,8 +140,10 @@ export class PortalRealtimeClient {
   stop(): void {
     this.running = false;
     this.clearReconnectTimer();
+    this.clearTopicRebindTimer();
     this.teardownSource();
     this.reconnectAttempt = 0;
+    this.connectedTopicsCsv = "";
     this.setStatus("stopped");
   }
 
@@ -154,6 +163,7 @@ export class PortalRealtimeClient {
     }
     const wrapped = listener as unknown as PortalRealtimeAnyListener;
     set.add(wrapped);
+    this.scheduleTopicRebind();
     return () => {
       const cur = this.listenersByType.get(eventType);
       if (!cur) return;
@@ -161,13 +171,16 @@ export class PortalRealtimeClient {
       if (cur.size === 0) {
         this.listenersByType.delete(eventType);
       }
+      this.scheduleTopicRebind();
     };
   }
 
   subscribeAll(listener: PortalRealtimeAnyListener): () => void {
     this.anyListeners.add(listener);
+    this.scheduleTopicRebind();
     return () => {
       this.anyListeners.delete(listener);
+      this.scheduleTopicRebind();
     };
   }
 
@@ -205,10 +218,17 @@ export class PortalRealtimeClient {
       return;
     }
 
+    const requestedTopics = this.computeRequestedTopics();
+    if (requestedTopics.length === 0) {
+      this.setStatus("idle");
+      return;
+    }
+
     try {
       const params = new URLSearchParams();
       params.set("st", streamToken);
-      params.set("topics", PORTAL_REALTIME_TOPICS.join(","));
+      const topicsCsv = requestedTopics.join(",");
+      params.set("topics", topicsCsv);
       if (this.lastCursor > 0) {
         params.set("cursor", String(this.lastCursor));
       }
@@ -216,6 +236,7 @@ export class PortalRealtimeClient {
       const source = this.eventSourceFactory(url);
       this.attachSource(source);
       this.source = source;
+      this.connectedTopicsCsv = topicsCsv;
     } catch {
       this.scheduleReconnect();
     }
@@ -261,6 +282,7 @@ export class PortalRealtimeClient {
     source.onmessage = null;
     source.close();
     this.source = null;
+    this.connectedTopicsCsv = "";
   }
 
   private scheduleReconnect(): void {
@@ -279,6 +301,63 @@ export class PortalRealtimeClient {
     if (!this.reconnectTimer) return;
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+  }
+
+  private clearTopicRebindTimer(): void {
+    if (!this.topicRebindTimer) return;
+    clearTimeout(this.topicRebindTimer);
+    this.topicRebindTimer = null;
+  }
+
+  private scheduleTopicRebind(): void {
+    if (!this.running) return;
+    if (this.topicRebindTimer) return;
+    this.topicRebindTimer = setTimeout(() => {
+      this.topicRebindTimer = null;
+      this.applyTopicRebind();
+    }, 120);
+  }
+
+  private applyTopicRebind(): void {
+    if (!this.running) return;
+    const nextTopics = this.computeRequestedTopics();
+    const nextCsv = nextTopics.join(",");
+    if (nextCsv === this.connectedTopicsCsv) return;
+
+    this.clearReconnectTimer();
+    this.teardownSource();
+    if (nextTopics.length === 0) {
+      this.setStatus("idle");
+      return;
+    }
+    this.ensureConnected();
+  }
+
+  private normalizeTopics(raw: readonly string[]): PortalRealtimeTopic[] {
+    const out: PortalRealtimeTopic[] = [];
+    for (const topic of raw) {
+      if (!isPortalRealtimeTopic(topic)) continue;
+      if (out.includes(topic)) continue;
+      out.push(topic);
+    }
+    return out;
+  }
+
+  private computeRequestedTopics(): PortalRealtimeTopic[] {
+    const topics = new Set<PortalRealtimeTopic>(this.baseTopics);
+
+    if (this.anyListeners.size > 0) {
+      for (const topic of PORTAL_REALTIME_TOPICS) topics.add(topic);
+      return Array.from(topics);
+    }
+
+    for (const eventType of this.listenersByType.keys()) {
+      const topic = PORTAL_REALTIME_EVENT_TOPIC[eventType];
+      if (isPortalRealtimeTopic(topic)) {
+        topics.add(topic);
+      }
+    }
+    return Array.from(topics);
   }
 
   private nextReconnectDelayMs(): number {
