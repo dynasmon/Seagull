@@ -24,6 +24,13 @@ const INVALIDATE_MIN_REFRESH_MS = 2500;
 const INVALIDATE_DEBOUNCE_MS = 300;
 const STORM_FALLBACK_POLL_MS = 3000;
 const STORM_BASELINE_POLL_MS = 15000;
+const REALTIME_KPI_FLUSH_MS = 180;
+const REALTIME_ALERTS_FLUSH_MS = 220;
+const REALTIME_STORM_FLUSH_MS = 220;
+const REALTIME_BURST_WINDOW_MS = 1000;
+const REALTIME_KPI_BURST_LIMIT = 60;
+const REALTIME_ALERTS_BURST_LIMIT = 80;
+const REALTIME_STORM_BURST_LIMIT = 80;
 
 type OverviewLiveCtx = {
   snapshot: OverviewSnapshot | null;
@@ -70,6 +77,18 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
   const fullPendingRef = useRef(false);
   const lastRefreshAtRef = useRef(0);
   const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const kpiFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stormFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const alertsFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const kpiPendingRef = useRef<Record<string, unknown> | null>(null);
+  const stormPendingRef = useRef<Record<string, unknown> | null>(null);
+  const alertsPendingRef = useRef<Array<{ payload: Record<string, unknown>; timestamp: string }>>([]);
+  const kpiBurstStartRef = useRef(0);
+  const kpiBurstCountRef = useRef(0);
+  const stormBurstStartRef = useRef(0);
+  const stormBurstCountRef = useRef(0);
+  const alertsBurstStartRef = useRef(0);
+  const alertsBurstCountRef = useRef(0);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -182,9 +201,30 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     }, delayMs);
   }, [refresh]);
 
-  usePortalRealtimeSubscription("ui.overview.kpi.patch", (event) => {
+  const consumeBurstBudget = useCallback(
+    (startRef: { current: number }, countRef: { current: number }, limit: number): boolean => {
+      const now = Date.now();
+      if ((now - startRef.current) > REALTIME_BURST_WINDOW_MS) {
+        startRef.current = now;
+        countRef.current = 0;
+      }
+      countRef.current += 1;
+      if (countRef.current > limit) {
+        scheduleRefreshFromInvalidate();
+        return false;
+      }
+      return true;
+    },
+    [scheduleRefreshFromInvalidate],
+  );
+
+  const flushKpiPending = useCallback(() => {
+    kpiFlushTimerRef.current = null;
+    const pending = kpiPendingRef.current;
+    if (!pending) return;
+    kpiPendingRef.current = null;
     setSnapshot((prev) => {
-      const next = applyOverviewRealtimePatch(prev, event.payload || {});
+      const next = applyOverviewRealtimePatch(prev, pending as any);
       if (!next) return next;
       try {
         sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
@@ -195,21 +235,81 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     });
     setStorm((prev) => {
       const patch: Partial<StormStatus> = {
-        phase: event.payload?.phase,
-        reason: event.payload?.reason,
+        phase: pending?.phase as any,
+        reason: pending?.reason as any,
       };
-      if (typeof event.payload?.backlog_events === "number") {
-        patch.backlog_events = event.payload.backlog_events;
+      if (typeof pending?.backlog_events === "number") {
+        patch.backlog_events = pending.backlog_events as number;
       }
-      if (typeof event.payload?.backlog_messages === "number") {
-        patch.backlog_messages = event.payload.backlog_messages;
+      if (typeof pending?.backlog_messages === "number") {
+        patch.backlog_messages = pending.backlog_messages as number;
       }
-      if (typeof event.payload?.protection_active === "boolean") {
-        patch.active = event.payload.protection_active;
+      if (typeof pending?.protection_active === "boolean") {
+        patch.active = pending.protection_active as boolean;
       }
       return mergeStormStatus(prev, patch);
     });
     setLastUpdatedAt(new Date());
+  }, []);
+
+  const scheduleKpiFlush = useCallback(() => {
+    if (kpiFlushTimerRef.current) return;
+    kpiFlushTimerRef.current = window.setTimeout(flushKpiPending, REALTIME_KPI_FLUSH_MS);
+  }, [flushKpiPending]);
+
+  const flushStormPending = useCallback(() => {
+    stormFlushTimerRef.current = null;
+    const pending = stormPendingRef.current;
+    if (!pending) return;
+    stormPendingRef.current = null;
+    setStorm((prev) => mergeStormStatus(prev, pending as Partial<StormStatus>));
+    setLastUpdatedAt(new Date());
+  }, []);
+
+  const scheduleStormFlush = useCallback(() => {
+    if (stormFlushTimerRef.current) return;
+    stormFlushTimerRef.current = window.setTimeout(flushStormPending, REALTIME_STORM_FLUSH_MS);
+  }, [flushStormPending]);
+
+  const flushAlertsPending = useCallback(() => {
+    alertsFlushTimerRef.current = null;
+    const queued = alertsPendingRef.current;
+    if (queued.length === 0) return;
+    alertsPendingRef.current = [];
+    setSnapshot((prev) => {
+      let next = prev;
+      for (const item of queued) {
+        next = applyOverviewRealtimeAlertsDelta(next, item.payload as any, item.timestamp);
+      }
+      if (!next || next === prev) return next;
+      try {
+        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
+      } catch {
+        // no-op
+      }
+      return next;
+    });
+    setLastUpdatedAt(new Date());
+  }, []);
+
+  const scheduleAlertsFlush = useCallback(() => {
+    if (alertsFlushTimerRef.current) return;
+    alertsFlushTimerRef.current = window.setTimeout(flushAlertsPending, REALTIME_ALERTS_FLUSH_MS);
+  }, [flushAlertsPending]);
+
+  usePortalRealtimeSubscription("ui.overview.kpi.patch", (event) => {
+    if (!consumeBurstBudget(kpiBurstStartRef, kpiBurstCountRef, REALTIME_KPI_BURST_LIMIT)) return;
+
+    const payload = (event.payload || {}) as Record<string, unknown>;
+    const previous = kpiPendingRef.current || {};
+    kpiPendingRef.current = {
+      ...previous,
+      ...payload,
+      events_5m_delta:
+        (typeof previous.events_5m_delta === "number" ? previous.events_5m_delta : 0) +
+        (typeof payload.events_5m_delta === "number" ? payload.events_5m_delta : 0),
+    };
+    scheduleKpiFlush();
   });
 
   usePortalRealtimeSubscription("ui.overview.invalidate", () => {
@@ -221,22 +321,26 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
   });
 
   usePortalRealtimeSubscription("ui.overview.storm.patch", (event) => {
-    setStorm((prev) => mergeStormStatus(prev, (event.payload || {}) as Partial<StormStatus>));
-    setLastUpdatedAt(new Date());
+    if (!consumeBurstBudget(stormBurstStartRef, stormBurstCountRef, REALTIME_STORM_BURST_LIMIT)) return;
+    stormPendingRef.current = {
+      ...(stormPendingRef.current || {}),
+      ...((event.payload || {}) as Record<string, unknown>),
+    };
+    scheduleStormFlush();
   });
 
   usePortalRealtimeSubscription("ui.alerts.delta.patch", (event) => {
-    setSnapshot((prev) => {
-      const next = applyOverviewRealtimeAlertsDelta(prev, event.payload || {}, event.timestamp);
-      if (!next) return next;
-      try {
-        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
-      } catch {
-        // no-op
-      }
-      return next;
+    if (!consumeBurstBudget(alertsBurstStartRef, alertsBurstCountRef, REALTIME_ALERTS_BURST_LIMIT)) return;
+    alertsPendingRef.current.push({
+      payload: (event.payload || {}) as Record<string, unknown>,
+      timestamp: String(event.timestamp || ""),
     });
-    setLastUpdatedAt(new Date());
+    if (alertsPendingRef.current.length > REALTIME_ALERTS_BURST_LIMIT) {
+      alertsPendingRef.current = [];
+      scheduleRefreshFromInvalidate();
+      return;
+    }
+    scheduleAlertsFlush();
   });
 
   useEffect(() => {
@@ -256,6 +360,18 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       if (invalidateTimerRef.current) {
         window.clearTimeout(invalidateTimerRef.current);
         invalidateTimerRef.current = null;
+      }
+      if (kpiFlushTimerRef.current) {
+        window.clearTimeout(kpiFlushTimerRef.current);
+        kpiFlushTimerRef.current = null;
+      }
+      if (stormFlushTimerRef.current) {
+        window.clearTimeout(stormFlushTimerRef.current);
+        stormFlushTimerRef.current = null;
+      }
+      if (alertsFlushTimerRef.current) {
+        window.clearTimeout(alertsFlushTimerRef.current);
+        alertsFlushTimerRef.current = null;
       }
       window.clearInterval(timer);
     };

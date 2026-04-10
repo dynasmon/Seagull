@@ -2,7 +2,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from "react";
 
 import { applyAgentHeartbeatRealtime } from "@/app/agents_realtime";
-import { OverviewLiveProvider } from "@/features/overview/live";
 import { listAgents } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
 import { AuthProvider, useAuth } from "@/features/auth/context";
@@ -187,7 +186,7 @@ function AgentsProvider({ children }: { children: ReactNode }) {
 
   return (
     <AgentsContext.Provider value={agentsValue}>
-      <OverviewLiveProvider>{children}</OverviewLiveProvider>
+      {children}
     </AgentsContext.Provider>
   );
 }
