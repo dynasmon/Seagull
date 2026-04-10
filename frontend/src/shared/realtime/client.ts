@@ -1,10 +1,16 @@
 import { requestRealtimeStreamToken, type StreamTokenOut } from "@/shared/realtime/api";
 import {
+  PORTAL_REALTIME_EVENT_MODE,
+  PORTAL_REALTIME_EVENT_SCOPE,
+  PORTAL_REALTIME_EVENT_TOPIC,
+  PORTAL_REALTIME_TOPICS,
   PORTAL_REALTIME_EVENT_TYPES,
   type PortalRealtimeAnyEvent,
   type PortalRealtimeEnvelope,
   type PortalRealtimeEventType,
+  isPortalRealtimeMode,
   isPortalRealtimeEventType,
+  isPortalRealtimeTopic,
 } from "@/shared/realtime/types";
 
 export type RealtimeConnectionStatus = "idle" | "connecting" | "open" | "retrying" | "stopped";
@@ -36,6 +42,14 @@ function defaultEventSourceFactory(url: string): EventSourceLike {
   return new EventSource(url) as unknown as EventSourceLike;
 }
 
+function parseCursorValue(value: unknown): number {
+  const text = String(value ?? "").trim();
+  if (!/^[0-9]+$/.test(text)) return 0;
+  const out = Number(text);
+  if (!Number.isFinite(out) || out < 0) return 0;
+  return Math.trunc(out);
+}
+
 export function decodePortalRealtimeEnvelope(rawData: unknown): PortalRealtimeAnyEvent | null {
   if (typeof rawData !== "string") return null;
 
@@ -56,13 +70,25 @@ export function decodePortalRealtimeEnvelope(rawData: unknown): PortalRealtimeAn
   const timestamp = String(obj.timestamp ?? "").trim();
   if (!Number.isFinite(version) || version < 1 || !timestamp) return null;
 
+  const topic = isPortalRealtimeTopic(obj.topic) ? obj.topic : PORTAL_REALTIME_EVENT_TOPIC[rawType];
+  const mode = isPortalRealtimeMode(obj.mode) ? obj.mode : PORTAL_REALTIME_EVENT_MODE[rawType];
+  const scope = String(obj.scope ?? PORTAL_REALTIME_EVENT_SCOPE[rawType]).trim();
+  if (!scope) return null;
+
+  const cursorNum = parseCursorValue(obj.cursor);
+  const cursor = String(cursorNum);
+
   const payload = obj.payload;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
 
   return {
     version,
+    topic,
     type: rawType,
+    cursor,
     timestamp,
+    scope,
+    mode,
     payload,
   } as PortalRealtimeAnyEvent;
 }
@@ -85,6 +111,7 @@ export class PortalRealtimeClient {
   private readonly listenersByType = new Map<PortalRealtimeEventType, Set<PortalRealtimeAnyListener>>();
   private readonly anyListeners = new Set<PortalRealtimeAnyListener>();
   private readonly namedSourceListeners = new Map<string, EventListener>();
+  private lastCursor = 0;
 
   constructor(options: PortalRealtimeClientOptions = {}) {
     this.tokenProvider = options.tokenProvider ?? requestRealtimeStreamToken;
@@ -179,7 +206,13 @@ export class PortalRealtimeClient {
     }
 
     try {
-      const url = `/api/realtime/portal?st=${encodeURIComponent(streamToken)}`;
+      const params = new URLSearchParams();
+      params.set("st", streamToken);
+      params.set("topics", PORTAL_REALTIME_TOPICS.join(","));
+      if (this.lastCursor > 0) {
+        params.set("cursor", String(this.lastCursor));
+      }
+      const url = `/api/realtime/portal?${params.toString()}`;
       const source = this.eventSourceFactory(url);
       this.attachSource(source);
       this.source = source;
@@ -259,6 +292,9 @@ export class PortalRealtimeClient {
     const envelope = decodePortalRealtimeEnvelope(data);
     if (!envelope) return;
     if (eventType !== "message" && envelope.type !== eventType) return;
+    const cursor = parseCursorValue(envelope.cursor);
+    if (cursor > 0 && cursor <= this.lastCursor) return;
+    if (cursor > this.lastCursor) this.lastCursor = cursor;
     this.dispatch(envelope);
   }
 

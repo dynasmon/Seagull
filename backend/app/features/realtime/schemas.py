@@ -2,22 +2,59 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 
 from pydantic import BaseModel, Field, validator
 
 
+RealtimeMode = Literal["patch", "append", "replace", "invalidate"]
+
+
 class RealtimeEnvelope(BaseModel):
-    version: int = Field(1, ge=1, le=1)
+    version: int = Field(2, ge=1, le=2)
+    topic: str = Field(..., min_length=1, max_length=64)
     type: str = Field(..., min_length=1, max_length=128)
+    cursor: str = Field(..., min_length=1, max_length=64)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    scope: str = Field(..., min_length=1, max_length=128)
+    mode: RealtimeMode = Field(...)
     payload: Dict[str, Any] = Field(default_factory=dict)
+
+    @validator("topic", pre=True)
+    def _v_topic(cls, v):
+        value = str(v or "").strip().lower()
+        if not value:
+            raise ValueError("topic is required")
+        return value
 
     @validator("type", pre=True)
     def _v_type(cls, v):
         value = str(v or "").strip()
         if not value:
             raise ValueError("type is required")
+        return value
+
+    @validator("cursor", pre=True)
+    def _v_cursor(cls, v):
+        value = str(v or "").strip()
+        if not value:
+            raise ValueError("cursor is required")
+        if not value.isdigit():
+            raise ValueError("cursor must be numeric")
+        return value
+
+    @validator("scope", pre=True)
+    def _v_scope(cls, v):
+        value = str(v or "").strip().lower()
+        if not value:
+            raise ValueError("scope is required")
+        return value
+
+    @validator("mode", pre=True)
+    def _v_mode(cls, v):
+        value = str(v or "").strip().lower()
+        if value not in {"patch", "append", "replace", "invalidate"}:
+            raise ValueError("mode is invalid")
         return value
 
     @validator("payload", pre=True)
@@ -41,8 +78,12 @@ class RealtimeEnvelope(BaseModel):
     def as_dict(self) -> Dict[str, Any]:
         return {
             "version": int(self.version),
+            "topic": self.topic,
             "type": self.type,
+            "cursor": self.cursor,
             "timestamp": self.timestamp.isoformat(),
+            "scope": self.scope,
+            "mode": self.mode,
             "payload": self.payload,
         }
 

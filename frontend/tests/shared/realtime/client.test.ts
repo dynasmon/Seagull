@@ -163,6 +163,48 @@ describe("PortalRealtimeClient", () => {
     client.stop();
   });
 
+  it("reconnects using last processed cursor", async () => {
+    const tokenProvider = vi
+      .fn<() => Promise<StreamTokenOut>>()
+      .mockResolvedValueOnce(tokenOut("token-a"))
+      .mockResolvedValueOnce(tokenOut("token-b"));
+    const sources: FakeEventSource[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      eventSourceFactory: (url) => {
+        const source = new FakeEventSource(url);
+        sources.push(source);
+        return source;
+      },
+      reconnectBaseMs: 1,
+      reconnectMaxMs: 1,
+    });
+
+    client.start();
+    await waitForTick(2);
+    sources[0]?.emitOpen();
+    sources[0]?.emitNamed(
+      "overview.patch",
+      JSON.stringify({
+        version: 2,
+        topic: "overview",
+        type: "overview.patch",
+        cursor: "9",
+        timestamp: "2026-04-09T12:00:00Z",
+        scope: "portal:realtime",
+        mode: "patch",
+        payload: { events_5m_delta: 1 },
+      }),
+    );
+
+    sources[0]?.emitError();
+    await waitForTick(6);
+
+    expect(sources).toHaveLength(2);
+    expect(sources[1]?.url).toContain("cursor=9");
+    client.stop();
+  });
+
   it("schedules reconnect when event source creation throws", async () => {
     const tokenProvider = vi
       .fn<() => Promise<StreamTokenOut>>()

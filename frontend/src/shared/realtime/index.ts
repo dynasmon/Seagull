@@ -17,9 +17,17 @@ export {
 } from "@/shared/realtime/context";
 export {
   PORTAL_REALTIME_EVENT_TYPES,
+  PORTAL_REALTIME_EVENT_MODE,
+  PORTAL_REALTIME_EVENT_SCOPE,
+  PORTAL_REALTIME_EVENT_TOPIC,
+  PORTAL_REALTIME_TOPICS,
   isPortalRealtimeEventType,
+  isPortalRealtimeMode,
+  isPortalRealtimeTopic,
   type PortalRealtimeAnyEvent,
   type PortalRealtimeEnvelope,
   type PortalRealtimeEventPayloadMap,
   type PortalRealtimeEventType,
+  type PortalRealtimeMode,
+  type PortalRealtimeTopic,
 } from "@/shared/realtime/types";
