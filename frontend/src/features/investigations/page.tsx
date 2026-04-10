@@ -43,6 +43,8 @@ type Filters = {
   linkedCaseId: string;
   search: string;
 };
+const INVESTIGATIONS_RT_BURST_WINDOW_MS = 1000;
+const INVESTIGATIONS_RT_BURST_LIMIT = 80;
 
 function fmtTs(iso?: string | null) {
   if (!iso) return "-";
@@ -234,6 +236,9 @@ function WorkspaceDrawer({
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const realtimeBurstWindowStartRef = useRef(0);
+  const realtimeBurstCountRef = useRef(0);
+  const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [edit, setEdit] = useState<{
     title: string;
     description: string;
@@ -315,7 +320,34 @@ function WorkspaceDrawer({
     onUpdated(ws);
   }
 
+  const scheduleRealtimeRefresh = useCallback(() => {
+    if (realtimeRefreshTimerRef.current) return;
+    realtimeRefreshTimerRef.current = window.setTimeout(() => {
+      realtimeRefreshTimerRef.current = null;
+      void refresh();
+    }, 300);
+  }, [refresh]);
+
+  useEffect(() => {
+    return () => {
+      if (!realtimeRefreshTimerRef.current) return;
+      window.clearTimeout(realtimeRefreshTimerRef.current);
+      realtimeRefreshTimerRef.current = null;
+    };
+  }, []);
+
   usePortalRealtimeSubscription("ui.investigations.timeline.append", (event) => {
+    const now = Date.now();
+    if ((now - realtimeBurstWindowStartRef.current) > INVESTIGATIONS_RT_BURST_WINDOW_MS) {
+      realtimeBurstWindowStartRef.current = now;
+      realtimeBurstCountRef.current = 0;
+    }
+    realtimeBurstCountRef.current += 1;
+    if (realtimeBurstCountRef.current > INVESTIGATIONS_RT_BURST_LIMIT) {
+      scheduleRealtimeRefresh();
+      return;
+    }
+
     const activeWorkspaceId = workspaceId ? Number(workspaceId) : 0;
     if (activeWorkspaceId <= 0) return;
     const eventWorkspaceId = Number(event.payload?.workspace_id ?? 0);
@@ -374,7 +406,7 @@ function WorkspaceDrawer({
     if (activeWorkspaceId <= 0) return;
     const eventWorkspaceId = Number(event.payload?.workspace_id ?? 0);
     if (eventWorkspaceId > 0 && eventWorkspaceId !== activeWorkspaceId) return;
-    void refresh();
+    scheduleRealtimeRefresh();
   });
 
   async function submitNote() {
@@ -836,6 +868,8 @@ export default function InvestigationsPage() {
   const [newSeverity, setNewSeverity] = useState<InvestigationWorkspaceSeverity>("medium");
   const [newPriority, setNewPriority] = useState<InvestigationWorkspacePriority>("p3");
   const invalidateRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimeBurstWindowStartRef = useRef(0);
+  const realtimeBurstCountRef = useRef(0);
 
   async function fetchFirst() {
     setLoading(true);
@@ -890,6 +924,21 @@ export default function InvestigationsPage() {
   }
 
   usePortalRealtimeSubscription("ui.investigations.timeline.append", (event) => {
+    const now = Date.now();
+    if ((now - realtimeBurstWindowStartRef.current) > INVESTIGATIONS_RT_BURST_WINDOW_MS) {
+      realtimeBurstWindowStartRef.current = now;
+      realtimeBurstCountRef.current = 0;
+    }
+    realtimeBurstCountRef.current += 1;
+    if (realtimeBurstCountRef.current > INVESTIGATIONS_RT_BURST_LIMIT) {
+      if (invalidateRefreshTimerRef.current) return;
+      invalidateRefreshTimerRef.current = window.setTimeout(() => {
+        invalidateRefreshTimerRef.current = null;
+        void fetchFirst();
+      }, 300);
+      return;
+    }
+
     const patch = event.payload?.workspace_patch;
     const patchId = Number(patch?.id ?? 0);
     if (patchId <= 0) return;

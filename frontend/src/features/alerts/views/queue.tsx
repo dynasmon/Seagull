@@ -20,6 +20,8 @@ import {
   copyTextToClipboard,
 } from "@/shared/components/investigation";
 import { cx } from "@/shared/lib/cx";
+import { usePortalRealtimeSubscription } from "@/shared/realtime";
+import type { PortalRealtimeEventPayloadMap } from "@/shared/realtime";
 
 import { getAlertsPage, runAllRules } from "../api";
 import SeverityFilter from "../components/SeverityFilter";
@@ -55,6 +57,9 @@ const DEFAULTS: ViewCfg = {
   wrap_json: true,
   density: "comfortable"
 };
+const ALERTS_RT_FLUSH_MS = 220;
+const ALERTS_RT_BURST_WINDOW_MS = 1000;
+const ALERTS_RT_BURST_LIMIT = 80;
 
 function clampInt(v: any, min: number, max: number, fallback: number) {
   const n = Number.parseInt(String(v ?? ""), 10);
@@ -230,6 +235,29 @@ function mergeUniqueById(newer: Alert[], older: Alert[]) {
   return out;
 }
 
+function buildAlertFromRealtimeDelta(
+  payload: PortalRealtimeEventPayloadMap["ui.alerts.delta.patch"],
+  fallbackTimestamp: string,
+): Alert | null {
+  const projected = payload?.alert;
+  const id = Number(projected?.id ?? 0);
+  if (!Number.isFinite(id) || id <= 0) return null;
+
+  const createdAt = String(projected?.created_at || fallbackTimestamp || new Date().toISOString());
+  return {
+    id: Math.trunc(id),
+    rule_id: String(projected?.rule_id || "realtime.alert"),
+    severity: String(projected?.severity || "medium"),
+    confidence: typeof projected?.confidence === "number" ? projected.confidence : undefined,
+    src_ip: typeof projected?.src_ip === "string" ? projected.src_ip : null,
+    dst_ip: typeof projected?.dst_ip === "string" ? projected.dst_ip : null,
+    dst_port: typeof projected?.dst_port === "number" ? projected.dst_port : null,
+    description: String(projected?.description || "Realtime alert"),
+    details: null,
+    created_at: createdAt,
+  };
+}
+
 function AlertsQueueTable(props: {
   rows: Alert[];
   selectedId: number | null;
@@ -344,6 +372,11 @@ export default function AlertsQueuePage() {
   const moreSeq = useRef(0);
   const nextCursorRef = useRef<string | null>(null);
   const hasMoreRef = useRef(false);
+  const realtimeFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimeInvalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimePendingRef = useRef<Array<{ payload: PortalRealtimeEventPayloadMap["ui.alerts.delta.patch"]; timestamp: string }>>([]);
+  const realtimeBurstWindowStartRef = useRef(0);
+  const realtimeBurstCountRef = useRef(0);
   useEffect(() => {
     nextCursorRef.current = nextCursor;
     hasMoreRef.current = hasMore;
@@ -456,10 +489,122 @@ export default function AlertsQueuePage() {
     }
   }, [loadingMore]);
 
+  const scheduleRealtimeInvalidateRefresh = useCallback(() => {
+    if (realtimeInvalidateTimerRef.current) return;
+    realtimeInvalidateTimerRef.current = window.setTimeout(() => {
+      realtimeInvalidateTimerRef.current = null;
+      void loadHead("merge");
+    }, 300);
+  }, [loadHead]);
+
+  const flushRealtimeDeltaQueue = useCallback(() => {
+    realtimeFlushTimerRef.current = null;
+    const queued = realtimePendingRef.current;
+    if (queued.length === 0) return;
+    realtimePendingRef.current = [];
+
+    const severityFilter = String(viewRef.current.severity || "all").toLowerCase();
+    const ruleFilter = String(viewRef.current.rule_id || "").trim().toLowerCase();
+    if (severityFilter !== "all" || ruleFilter) {
+      scheduleRealtimeInvalidateRefresh();
+      return;
+    }
+
+    setAlerts((prev) => {
+      let next = prev;
+      for (const item of queued) {
+        const action = String(item.payload?.action || "patch").toLowerCase();
+        const projected = buildAlertFromRealtimeDelta(item.payload, item.timestamp);
+        if (!projected) continue;
+        const idx = next.findIndex((row) => row.id === projected.id);
+        if (idx >= 0) {
+          const current = next[idx];
+          const merged: Alert = {
+            ...current,
+            ...projected,
+            description: projected.description || current.description,
+            created_at: current.created_at || projected.created_at,
+            details: current.details ?? projected.details ?? null,
+          };
+          if (
+            merged.rule_id === current.rule_id &&
+            merged.severity === current.severity &&
+            merged.src_ip === current.src_ip &&
+            merged.dst_ip === current.dst_ip &&
+            merged.dst_port === current.dst_port &&
+            merged.description === current.description
+          ) {
+            continue;
+          }
+          const cloned = next.slice();
+          cloned[idx] = merged;
+          next = cloned;
+          continue;
+        }
+
+        if (action === "upsert") {
+          next = [projected, ...next].slice(0, Math.max(25, viewRef.current.page_size));
+        }
+      }
+      return next;
+    });
+    setLastRefresh(new Date());
+  }, [scheduleRealtimeInvalidateRefresh]);
+
+  const scheduleRealtimeDeltaFlush = useCallback(() => {
+    if (realtimeFlushTimerRef.current) return;
+    realtimeFlushTimerRef.current = window.setTimeout(() => {
+      flushRealtimeDeltaQueue();
+    }, ALERTS_RT_FLUSH_MS);
+  }, [flushRealtimeDeltaQueue]);
+
+  usePortalRealtimeSubscription("ui.alerts.delta.patch", (event) => {
+    const now = Date.now();
+    if ((now - realtimeBurstWindowStartRef.current) > ALERTS_RT_BURST_WINDOW_MS) {
+      realtimeBurstWindowStartRef.current = now;
+      realtimeBurstCountRef.current = 0;
+    }
+    realtimeBurstCountRef.current += 1;
+    if (realtimeBurstCountRef.current > ALERTS_RT_BURST_LIMIT) {
+      realtimePendingRef.current = [];
+      scheduleRealtimeInvalidateRefresh();
+      return;
+    }
+
+    realtimePendingRef.current.push({
+      payload: (event.payload || {}) as PortalRealtimeEventPayloadMap["ui.alerts.delta.patch"],
+      timestamp: String(event.timestamp || new Date().toISOString()),
+    });
+    if (realtimePendingRef.current.length > ALERTS_RT_BURST_LIMIT) {
+      realtimePendingRef.current = [];
+      scheduleRealtimeInvalidateRefresh();
+      return;
+    }
+    scheduleRealtimeDeltaFlush();
+  });
+
+  usePortalRealtimeSubscription("ui.alerts.invalidate", () => {
+    realtimePendingRef.current = [];
+    scheduleRealtimeInvalidateRefresh();
+  });
+
   // Initial load
   useEffect(() => {
     loadHead("reset");
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (realtimeFlushTimerRef.current) {
+        window.clearTimeout(realtimeFlushTimerRef.current);
+        realtimeFlushTimerRef.current = null;
+      }
+      if (realtimeInvalidateTimerRef.current) {
+        window.clearTimeout(realtimeInvalidateTimerRef.current);
+        realtimeInvalidateTimerRef.current = null;
+      }
+    };
   }, []);
 
   // Hard reset when backend scope changes.
