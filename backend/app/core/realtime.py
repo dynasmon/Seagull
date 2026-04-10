@@ -12,7 +12,7 @@ from app.core.redis_client import get_redis
 
 logger = logging.getLogger("netwatch.api.realtime")
 
-PORTAL_REALTIME_TOPICS = ("overview", "alerts", "agents")
+PORTAL_REALTIME_TOPICS = ("overview", "alerts", "agents", "investigations")
 PORTAL_REALTIME_STREAM_KEY = "netwatch:portal:realtime:v3:stream"
 PORTAL_REALTIME_CURSOR_KEY = "netwatch:portal:realtime:v3:cursor"
 

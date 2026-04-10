@@ -138,7 +138,7 @@ function AgentsProvider({ children }: { children: ReactNode }) {
     }, 400);
   }, [refreshAgents]);
 
-  usePortalRealtimeSubscription("agent.heartbeat", (event) => {
+  usePortalRealtimeSubscription("ui.agents.presence.patch", (event) => {
     const result = applyAgentHeartbeatRealtime(agentsRef.current, event.payload || {}, event.timestamp);
     if (!result.agentId) return;
     if (!result.updated) {
@@ -149,7 +149,7 @@ function AgentsProvider({ children }: { children: ReactNode }) {
     setAgents(result.agents);
   });
 
-  usePortalRealtimeSubscription("agents.invalidate", () => {
+  usePortalRealtimeSubscription("ui.agents.invalidate", () => {
     scheduleRealtimeCatalogRefresh();
   });
 

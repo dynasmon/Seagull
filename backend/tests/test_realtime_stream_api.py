@@ -292,8 +292,8 @@ def test_stream_events_emits_invalidate_on_cursor_gap() -> None:
     )
 
     full = "".join(chunks)
-    assert "event: overview.invalidate" in full
-    assert "event: agents.invalidate" in full
+    assert "event: ui.overview.invalidate" in full
+    assert "event: ui.agents.invalidate" in full
     assert "cursor_gap" in full
 
 

@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.core.portal_auth import PortalPrincipal
 from app.features.agents import repository
 from app.features.agents.models import AgentBootstrapTokenModel, AgentCredentialModel, AgentModel
+from app.features.realtime.projectors import project_agent_presence_patch
 from app.features.realtime.service import publish_realtime
 from app.features.agents.schemas import (
     AgentBootstrapTokenCreateIn,
@@ -79,14 +80,12 @@ def _safe_json_size(obj: Any, max_bytes: int, field_name: str) -> None:
 
 
 def _build_agent_heartbeat_payload(*, row: AgentModel, status_text: str) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {
-        "agent_id": str(row.agent_id or "").strip(),
-        "status": str(status_text or "").strip()[:32],
-        "is_revoked": bool(row.is_revoked),
-    }
-    if row.last_seen_at is not None:
-        payload["last_seen_at"] = row.last_seen_at.isoformat()
-    return payload
+    return project_agent_presence_patch(
+        agent_id=str(row.agent_id or "").strip(),
+        status=str(status_text or "").strip()[:32],
+        is_revoked=bool(row.is_revoked),
+        last_seen_at=row.last_seen_at.isoformat() if row.last_seen_at is not None else None,
+    )
 
 
 def _publish_agent_heartbeat_realtime(*, row: AgentModel, status_text: str) -> None:
@@ -94,7 +93,7 @@ def _publish_agent_heartbeat_realtime(*, row: AgentModel, status_text: str) -> N
     if not payload.get("agent_id"):
         return
     try:
-        publish_realtime("agent.heartbeat", payload)
+        publish_realtime("ui.agents.presence.patch", payload)
     except Exception:
         return
 

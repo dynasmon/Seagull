@@ -7,8 +7,7 @@ import { isAbortError } from "@/shared/lib/http";
 
 import { getOverview, getStormStatus } from "./api";
 import {
-  applyOverviewRealtimeAlertCreated,
-  applyOverviewRealtimeAlertUpdated,
+  applyOverviewRealtimeAlertsDelta,
   applyOverviewRealtimePatch,
   mergeStormStatus,
   nextRealtimeInvalidationDelayMs,
@@ -183,7 +182,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     }, delayMs);
   }, [refresh]);
 
-  usePortalRealtimeSubscription("overview.patch", (event) => {
+  usePortalRealtimeSubscription("ui.overview.kpi.patch", (event) => {
     setSnapshot((prev) => {
       const next = applyOverviewRealtimePatch(prev, event.payload || {});
       if (!next) return next;
@@ -213,22 +212,22 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     setLastUpdatedAt(new Date());
   });
 
-  usePortalRealtimeSubscription("overview.invalidate", () => {
+  usePortalRealtimeSubscription("ui.overview.invalidate", () => {
     scheduleRefreshFromInvalidate();
   });
 
-  usePortalRealtimeSubscription("alerts.invalidate", () => {
+  usePortalRealtimeSubscription("ui.alerts.invalidate", () => {
     scheduleRefreshFromInvalidate();
   });
 
-  usePortalRealtimeSubscription("storm.status", (event) => {
+  usePortalRealtimeSubscription("ui.overview.storm.patch", (event) => {
     setStorm((prev) => mergeStormStatus(prev, (event.payload || {}) as Partial<StormStatus>));
     setLastUpdatedAt(new Date());
   });
 
-  usePortalRealtimeSubscription("alert.created", (event) => {
+  usePortalRealtimeSubscription("ui.alerts.delta.patch", (event) => {
     setSnapshot((prev) => {
-      const next = applyOverviewRealtimeAlertCreated(prev, event.payload || {}, event.timestamp);
+      const next = applyOverviewRealtimeAlertsDelta(prev, event.payload || {}, event.timestamp);
       if (!next) return next;
       try {
         sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
@@ -237,21 +236,6 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-    setLastUpdatedAt(new Date());
-  });
-
-  usePortalRealtimeSubscription("alert.updated", (event) => {
-    setSnapshot((prev) => {
-      const next = applyOverviewRealtimeAlertUpdated(prev, event.payload || {});
-      if (!next) return next;
-      try {
-        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
-      } catch {
-        // no-op
-      }
-      return next;
-    });
-    scheduleRefreshFromInvalidate();
     setLastUpdatedAt(new Date());
   });
 

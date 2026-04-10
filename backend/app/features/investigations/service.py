@@ -41,6 +41,8 @@ from app.features.investigations.schemas import (
     WorkspaceStatus,
     WorkspaceTriageState,
 )
+from app.features.realtime.projectors import project_investigation_timeline_append, project_investigation_workspace_patch
+from app.features.realtime.service import publish_realtime
 from app.shared.schemas import CursorPage
 
 _ALLOWED_STATUS: set[str] = {"open", "contained", "resolved", "closed"}
@@ -259,6 +261,46 @@ def _workspace_out(row: InvestigationWorkspaceModel) -> InvestigationWorkspaceOu
             if str(k) in _ALLOWED_EVIDENCE
         },
     )
+
+
+def _workspace_realtime_patch(row: InvestigationWorkspaceModel) -> dict[str, Any]:
+    workspace = _workspace_out(row).dict()
+    return project_investigation_workspace_patch(workspace)
+
+
+def _publish_investigation_timeline_append(
+    *,
+    workspace: InvestigationWorkspaceModel,
+    action: str,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    actor_username: str,
+    resource_id: str | None,
+    changed_fields: list[str] | None = None,
+    context: dict[str, Any] | None = None,
+) -> None:
+    try:
+        row = SimpleNamespace(
+            id=f"rt:{uuid.uuid4().hex}",
+            action=str(action or ""),
+            before=dict(before or {}),
+            after=dict(after or {}),
+            context=dict(context or {}),
+            changed_fields=list(changed_fields or []),
+            actor_username=str(actor_username or "") or None,
+            created_at=_utc_now(),
+            outcome="success",
+            resource_id=str(resource_id or ""),
+        )
+        activity = _activity_out(row, workspace_id=int(workspace.id)).dict()
+        payload = project_investigation_timeline_append(
+            workspace_id=int(workspace.id),
+            activity=activity,
+            workspace_patch=_workspace_realtime_patch(workspace),
+        )
+        publish_realtime("ui.investigations.timeline.append", payload)
+    except Exception:
+        return
 
 
 def _note_out(row: InvestigationNoteModel) -> InvestigationNoteOut:
@@ -774,6 +816,14 @@ def create_workspace(
 
     repository.commit(db)
     repository.refresh(db, row)
+    _publish_investigation_timeline_append(
+        workspace=row,
+        action="workspace.create",
+        before={},
+        after=_workspace_snapshot(row),
+        actor_username=user.username,
+        resource_id=str(row.id),
+    )
     return _workspace_out(row)
 
 
@@ -861,6 +911,15 @@ def update_workspace(
 
     repository.commit(db)
     repository.refresh(db, row)
+    _publish_investigation_timeline_append(
+        workspace=row,
+        action="workspace.update",
+        before=before,
+        after=_workspace_snapshot(row),
+        actor_username=user.username,
+        resource_id=str(row.id),
+        changed_fields=sorted(fields_set),
+    )
     return _workspace_out(row)
 
 
@@ -900,6 +959,14 @@ def close_workspace(
 
     repository.commit(db)
     repository.refresh(db, row)
+    _publish_investigation_timeline_append(
+        workspace=row,
+        action="workspace.close",
+        before=before,
+        after=_workspace_snapshot(row),
+        actor_username=user.username,
+        resource_id=str(row.id),
+    )
     return _workspace_out(row)
 
 
@@ -940,6 +1007,14 @@ def reopen_workspace(
 
     repository.commit(db)
     repository.refresh(db, row)
+    _publish_investigation_timeline_append(
+        workspace=row,
+        action="workspace.reopen",
+        before=before,
+        after=_workspace_snapshot(row),
+        actor_username=user.username,
+        resource_id=str(row.id),
+    )
     return _workspace_out(row)
 
 
@@ -994,6 +1069,19 @@ def create_note(
 
     repository.commit(db)
     repository.refresh(db, row)
+    repository.refresh(db, workspace)
+    _publish_investigation_timeline_append(
+        workspace=workspace,
+        action="workspace.note.create",
+        before={},
+        after={
+            "id": row.id,
+            "workspace_id": row.workspace_id,
+            "author": row.author,
+        },
+        actor_username=user.username,
+        resource_id=str(row.id),
+    )
     return _note_out(row)
 
 
@@ -1046,6 +1134,21 @@ def update_note(
 
     repository.commit(db)
     repository.refresh(db, row)
+    repository.refresh(db, workspace)
+    _publish_investigation_timeline_append(
+        workspace=workspace,
+        action="workspace.note.update",
+        before=before,
+        after={
+            "id": row.id,
+            "workspace_id": row.workspace_id,
+            "author": row.author,
+            "body": row.body,
+        },
+        actor_username=user.username,
+        resource_id=str(row.id),
+        changed_fields=["body"],
+    )
     return _note_out(row)
 
 
@@ -1614,6 +1717,36 @@ def _create_bookmark(
 
     repository.commit(db)
     repository.refresh(db, row)
+    repository.refresh(db, workspace)
+    _publish_investigation_timeline_append(
+        workspace=workspace,
+        action="workspace.bookmark.create",
+        before={},
+        after={
+            "id": row.id,
+            "workspace_id": row.workspace_id,
+            "evidence_type": row.evidence_type,
+            "ref_id": row.ref_id,
+            "ref_table": row.ref_table,
+        },
+        actor_username=actor.username,
+        resource_id=str(row.id),
+        context={"source": "bookmark_pin"} if note_row is not None else {},
+    )
+    if note_row is not None:
+        _publish_investigation_timeline_append(
+            workspace=workspace,
+            action="workspace.note.create",
+            before={},
+            after={
+                "id": note_row.id,
+                "workspace_id": note_row.workspace_id,
+                "author": note_row.author,
+            },
+            actor_username=actor.username,
+            resource_id=str(note_row.id),
+            context={"source": "bookmark_pin"},
+        )
     return InvestigationBookmarkCreateResult(created=True, duplicate_of_id=None, bookmark=_bookmark_out(row))
 
 
@@ -1747,6 +1880,15 @@ def delete_bookmark(
     )
 
     repository.commit(db)
+    repository.refresh(db, workspace)
+    _publish_investigation_timeline_append(
+        workspace=workspace,
+        action="workspace.bookmark.delete",
+        before=before,
+        after={},
+        actor_username=user.username,
+        resource_id=str(bookmark_id),
+    )
     return {"status": "ok", "bookmark_id": int(bookmark_id)}
 
 

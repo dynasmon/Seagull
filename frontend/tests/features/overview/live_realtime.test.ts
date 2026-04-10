@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyOverviewRealtimeAlertsDelta,
   applyOverviewRealtimeAlertCreated,
   applyOverviewRealtimeAlertUpdated,
   applyOverviewRealtimePatch,
@@ -170,5 +171,29 @@ describe("overview live realtime helpers", () => {
     });
 
     expect(updated?.recent_alerts[0]?.severity).toBe("high");
+  });
+
+  it("applies ui alerts delta patch with compact alert projection", () => {
+    const base = makeSnapshot();
+    const next = applyOverviewRealtimeAlertsDelta(
+      base,
+      {
+        action: "upsert",
+        alert: {
+          id: 99,
+          created_at: new Date().toISOString(),
+          rule_id: "ddos_tcp_flood_v1",
+          severity: "high",
+          description: "Projected alert",
+        },
+        counters: {
+          alerts_60m_delta: 1,
+        },
+      },
+      new Date().toISOString(),
+    );
+
+    expect(next?.recent_alerts[0]?.id).toBe(99);
+    expect(next?.kpis.alerts_60m).toBe(2);
   });
 });

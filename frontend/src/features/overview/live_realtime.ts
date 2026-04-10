@@ -21,6 +21,25 @@ export type OverviewRealtimeAlertPayload = {
   confidence?: number;
 };
 
+export type OverviewRealtimeAlertsDeltaPayload = {
+  action?: "upsert" | "patch";
+  alert?: {
+    id?: number;
+    created_at?: string;
+    severity?: string;
+    rule_id?: string;
+    status?: string;
+    src_ip?: string | null;
+    dst_ip?: string | null;
+    dst_port?: number | null;
+    description?: string;
+    confidence?: number;
+  };
+  counters?: {
+    alerts_60m_delta?: number;
+  };
+};
+
 function toSafeInt(value: unknown): number | null {
   const num = Number(value);
   if (!Number.isFinite(num)) return null;
@@ -75,6 +94,28 @@ function buildRealtimeAlert(
     description: String(payload.description || "Realtime alert"),
     details: {},
     confidence: toSafeInt(payload.confidence) ?? undefined,
+  };
+}
+
+function buildRealtimeAlertFromDelta(
+  payload: OverviewRealtimeAlertsDeltaPayload | null | undefined,
+): OverviewRealtimeAlertPayload | null {
+  if (!payload || typeof payload !== "object") return null;
+  const alert = payload.alert;
+  if (!alert || typeof alert !== "object") return null;
+  const alertId = toSafeInt(alert.id);
+  if (alertId === null || alertId <= 0) return null;
+
+  return {
+    alert_id: alertId,
+    created_at: typeof alert.created_at === "string" ? alert.created_at : undefined,
+    rule_id: typeof alert.rule_id === "string" ? alert.rule_id : undefined,
+    severity: typeof alert.severity === "string" ? alert.severity : undefined,
+    src_ip: typeof alert.src_ip === "string" ? alert.src_ip : null,
+    dst_ip: typeof alert.dst_ip === "string" ? alert.dst_ip : null,
+    dst_port: toSafeInt(alert.dst_port),
+    description: typeof alert.description === "string" ? alert.description : undefined,
+    confidence: toSafeInt(alert.confidence) ?? undefined,
   };
 }
 
@@ -151,6 +192,36 @@ export function applyOverviewRealtimeAlertUpdated(
     ...snapshot,
     recent_alerts: recentAlerts,
     ddos_alerts: ddosAlerts,
+  };
+}
+
+export function applyOverviewRealtimeAlertsDelta(
+  snapshot: OverviewSnapshot | null,
+  payload: OverviewRealtimeAlertsDeltaPayload | null | undefined,
+  eventTimestamp: string,
+): OverviewSnapshot | null {
+  if (!snapshot || !payload || typeof payload !== "object") return snapshot;
+  const action = String(payload.action || "patch").trim().toLowerCase();
+  const alertProjection = buildRealtimeAlertFromDelta(payload);
+  let next = snapshot;
+
+  if (action === "upsert") {
+    next = applyOverviewRealtimeAlertCreated(snapshot, alertProjection, eventTimestamp);
+  } else {
+    next = applyOverviewRealtimeAlertUpdated(snapshot, alertProjection);
+  }
+
+  if (!next) return next;
+
+  const delta = toSafeInt(payload.counters?.alerts_60m_delta) ?? 0;
+  if (!delta) return next;
+
+  return {
+    ...next,
+    kpis: {
+      ...next.kpis,
+      alerts_60m: Math.max(0, intOrZero(next.kpis.alerts_60m) + delta),
+    },
   };
 }
 
