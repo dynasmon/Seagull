@@ -36,6 +36,7 @@ from app.features.ingest import repository
 from app.features.events.schemas import NetEvent
 from app.features.alerts.models import AlertModel
 from app.features.alerts.realtime import publish_alert_created_from_row
+from app.features.realtime.projectors import project_overview_kpi_patch, project_storm_status_patch
 from app.features.realtime.service import publish_realtime
 
 logger = logging.getLogger("netwatch.api.ingest")
@@ -67,14 +68,14 @@ def _build_overview_patch_payload(
     phase: str,
     reason: str,
 ) -> Dict[str, object]:
-    return {
-        "events_5m_delta": int(max(0, int(received))),
-        "backlog_events": int(max(0, int(backlog_events))),
-        "backlog_messages": int(max(0, int(backlog_messages))),
-        "protection_active": bool(protection_active),
-        "phase": str(phase or "ok"),
-        "reason": str(reason or "ok"),
-    }
+    return project_overview_kpi_patch(
+        received=received,
+        backlog_events=backlog_events,
+        backlog_messages=backlog_messages,
+        protection_active=protection_active,
+        phase=phase,
+        reason=reason,
+    )
 
 
 def _publish_overview_realtime(
@@ -96,11 +97,11 @@ def _publish_overview_realtime(
     )
 
     if _realtime_gate_once(key="netwatch:realtime:overview:patch:1s", ttl_s=1):
-        publish_realtime("overview.patch", patch_payload)
+        publish_realtime("ui.overview.kpi.patch", patch_payload)
 
     if _realtime_gate_once(key="netwatch:realtime:overview:invalidate:2s", ttl_s=2):
         publish_realtime(
-            "overview.invalidate",
+            "ui.overview.invalidate",
             {
                 "reason": "ingest_update",
                 "phase": str(phase or "ok"),
@@ -114,7 +115,7 @@ def _publish_overview_realtime(
         except Exception:
             status_payload = None
         if isinstance(status_payload, dict):
-            publish_realtime("storm.status", status_payload)
+            publish_realtime("ui.overview.storm.patch", project_storm_status_patch(status_payload))
 
 
 def _degradation_level(*, bp_mode: str, storm_active: bool, backlog_events: int, received: int) -> str:
@@ -660,10 +661,10 @@ def storm_recover(
     )
     if not bool(res.get("ok")):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(res.get("reason") or "recover_failed"))
-    publish_realtime("overview.invalidate", {"reason": "storm_recover", "scope": "overview"})
+    publish_realtime("ui.overview.invalidate", {"reason": "storm_recover", "scope": "overview"})
     storm_payload = get_storm_status()
     if isinstance(storm_payload, dict):
-        publish_realtime("storm.status", storm_payload)
+        publish_realtime("ui.overview.storm.patch", project_storm_status_patch(storm_payload))
     return res
 
 

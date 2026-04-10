@@ -2,6 +2,7 @@ export const PORTAL_REALTIME_TOPICS = [
   "overview",
   "alerts",
   "agents",
+  "investigations",
 ] as const;
 
 export type PortalRealtimeTopic = (typeof PORTAL_REALTIME_TOPICS)[number];
@@ -16,6 +17,15 @@ export const PORTAL_REALTIME_MODES = [
 export type PortalRealtimeMode = (typeof PORTAL_REALTIME_MODES)[number];
 
 export const PORTAL_REALTIME_EVENT_TYPES = [
+  "ui.overview.invalidate",
+  "ui.overview.kpi.patch",
+  "ui.overview.storm.patch",
+  "ui.alerts.invalidate",
+  "ui.alerts.delta.patch",
+  "ui.agents.invalidate",
+  "ui.agents.presence.patch",
+  "ui.investigations.invalidate",
+  "ui.investigations.timeline.append",
   "overview.invalidate",
   "overview.patch",
   "storm.status",
@@ -29,6 +39,15 @@ export const PORTAL_REALTIME_EVENT_TYPES = [
 export type PortalRealtimeEventType = (typeof PORTAL_REALTIME_EVENT_TYPES)[number];
 
 export const PORTAL_REALTIME_EVENT_TOPIC: Record<PortalRealtimeEventType, PortalRealtimeTopic> = {
+  "ui.overview.invalidate": "overview",
+  "ui.overview.kpi.patch": "overview",
+  "ui.overview.storm.patch": "overview",
+  "ui.alerts.invalidate": "alerts",
+  "ui.alerts.delta.patch": "alerts",
+  "ui.agents.invalidate": "agents",
+  "ui.agents.presence.patch": "agents",
+  "ui.investigations.invalidate": "investigations",
+  "ui.investigations.timeline.append": "investigations",
   "overview.invalidate": "overview",
   "overview.patch": "overview",
   "storm.status": "overview",
@@ -40,6 +59,15 @@ export const PORTAL_REALTIME_EVENT_TOPIC: Record<PortalRealtimeEventType, Portal
 };
 
 export const PORTAL_REALTIME_EVENT_MODE: Record<PortalRealtimeEventType, PortalRealtimeMode> = {
+  "ui.overview.invalidate": "invalidate",
+  "ui.overview.kpi.patch": "patch",
+  "ui.overview.storm.patch": "patch",
+  "ui.alerts.invalidate": "invalidate",
+  "ui.alerts.delta.patch": "patch",
+  "ui.agents.invalidate": "invalidate",
+  "ui.agents.presence.patch": "patch",
+  "ui.investigations.invalidate": "invalidate",
+  "ui.investigations.timeline.append": "append",
   "overview.invalidate": "invalidate",
   "overview.patch": "patch",
   "storm.status": "replace",
@@ -51,6 +79,15 @@ export const PORTAL_REALTIME_EVENT_MODE: Record<PortalRealtimeEventType, PortalR
 };
 
 export const PORTAL_REALTIME_EVENT_SCOPE: Record<PortalRealtimeEventType, string> = {
+  "ui.overview.invalidate": "portal:realtime",
+  "ui.overview.kpi.patch": "portal:realtime",
+  "ui.overview.storm.patch": "portal:realtime",
+  "ui.alerts.invalidate": "portal:admin",
+  "ui.alerts.delta.patch": "portal:admin",
+  "ui.agents.invalidate": "portal:realtime",
+  "ui.agents.presence.patch": "portal:realtime",
+  "ui.investigations.invalidate": "portal:realtime",
+  "ui.investigations.timeline.append": "portal:realtime",
   "overview.invalidate": "portal:realtime",
   "overview.patch": "portal:realtime",
   "storm.status": "portal:realtime",
@@ -62,6 +99,115 @@ export const PORTAL_REALTIME_EVENT_SCOPE: Record<PortalRealtimeEventType, string
 };
 
 export type PortalRealtimeEventPayloadMap = {
+  "ui.overview.invalidate": {
+    reason?: string;
+    source?: string;
+    scope?: string;
+    phase?: "ok" | "storm" | "shedding" | "draining";
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
+  };
+  "ui.overview.kpi.patch": {
+    events_5m_delta?: number;
+    backlog_events?: number;
+    backlog_messages?: number;
+    protection_active?: boolean;
+    phase?: "ok" | "storm" | "shedding" | "draining";
+    reason?: string;
+  };
+  "ui.overview.storm.patch": {
+    active?: boolean;
+    phase?: "ok" | "storm" | "shedding" | "draining";
+    eps?: number;
+    ingest_rate_eps?: number;
+    process_rate_eps?: number;
+    processed_messages_per_sec?: number;
+    sample_hot_percent?: number;
+    sample_warm_percent?: number;
+    drop_percent?: number;
+    shed_percent?: number;
+    rejected_events?: number;
+    rollup_only_events?: number;
+    backlog_events?: number;
+    backlog_messages?: number;
+    workers_active?: number;
+    draining_seconds?: number;
+    reason?: string;
+    since?: string | null;
+    open_alert_id?: number | null;
+  };
+  "ui.alerts.invalidate": {
+    reason?: string;
+    scope?: string;
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
+  };
+  "ui.alerts.delta.patch": {
+    action?: "upsert" | "patch";
+    alert?: {
+      id?: number;
+      created_at?: string;
+      updated_at?: string;
+      severity?: string;
+      rule_id?: string;
+      status?: string;
+      src_ip?: string | null;
+      dst_ip?: string | null;
+      dst_port?: number | null;
+      description?: string;
+      confidence?: number;
+    };
+    counters?: {
+      alerts_60m_delta?: number;
+    };
+  };
+  "ui.agents.invalidate": {
+    reason?: string;
+    scope?: string;
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
+  };
+  "ui.agents.presence.patch": {
+    agent_id?: string;
+    status?: string;
+    last_seen_at?: string;
+    is_revoked?: boolean;
+  };
+  "ui.investigations.invalidate": {
+    reason?: string;
+    scope?: string;
+    workspace_id?: number;
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
+  };
+  "ui.investigations.timeline.append": {
+    workspace_id?: number;
+    activity?: {
+      id?: string;
+      activity_type?: string;
+      action?: string;
+      actor_username?: string | null;
+      created_at?: string;
+      outcome?: string;
+      target_type?: string | null;
+      target_id?: string | null;
+      summary?: string;
+      changed_fields?: string[];
+    };
+    workspace_patch?: {
+      id?: number;
+      updated_at?: string;
+      status?: string;
+      severity?: string;
+      priority?: string;
+      triage_state?: string;
+      assignee?: string | null;
+      updated_by?: string;
+      notes_count?: number;
+      bookmarks_count?: number;
+      evidence_type_counts?: Record<string, number>;
+    };
+  };
   "overview.invalidate": {
     reason?: string;
     source?: string;

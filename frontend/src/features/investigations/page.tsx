@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
@@ -6,6 +6,7 @@ import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
 import { Badge } from "@/shared/components/Badge";
 import { cx } from "@/shared/lib/cx";
+import { usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import {
   closeInvestigationWorkspace,
@@ -102,6 +103,21 @@ function activityLabel(activityType: InvestigationActivityEntry["activity_type"]
   if (activityType === "attack_chain_case_linked") return "Attack chain case linked";
   if (activityType === "attack_chain_step_pinned") return "Attack chain step pinned";
   return "Workspace action";
+}
+
+function normalizeActivityType(value: unknown): InvestigationActivityEntry["activity_type"] {
+  const v = String(value || "").trim();
+  if (v === "workspace_created") return "workspace_created";
+  if (v === "workspace_updated") return "workspace_updated";
+  if (v === "workspace_closed") return "workspace_closed";
+  if (v === "workspace_reopened") return "workspace_reopened";
+  if (v === "note_created") return "note_created";
+  if (v === "note_updated") return "note_updated";
+  if (v === "bookmark_created") return "bookmark_created";
+  if (v === "bookmark_deleted") return "bookmark_deleted";
+  if (v === "attack_chain_case_linked") return "attack_chain_case_linked";
+  if (v === "attack_chain_step_pinned") return "attack_chain_step_pinned";
+  return "workspace_action";
 }
 
 function parseCaseId(raw: string): number | undefined {
@@ -298,6 +314,68 @@ function WorkspaceDrawer({
     setActivity(feed.items || []);
     onUpdated(ws);
   }
+
+  usePortalRealtimeSubscription("ui.investigations.timeline.append", (event) => {
+    const activeWorkspaceId = workspaceId ? Number(workspaceId) : 0;
+    if (activeWorkspaceId <= 0) return;
+    const eventWorkspaceId = Number(event.payload?.workspace_id ?? 0);
+    if (eventWorkspaceId !== activeWorkspaceId) return;
+
+    const activityPatch = event.payload?.activity;
+    const activityId = String(activityPatch?.id || "").trim();
+    const createdAt = String(activityPatch?.created_at || "").trim();
+    if (activityId && createdAt) {
+      const appended: InvestigationActivityEntry = {
+        id: activityId,
+        workspace_id: activeWorkspaceId,
+        activity_type: normalizeActivityType(activityPatch?.activity_type),
+        action: String(activityPatch?.action || "workspace.action"),
+        actor_username: activityPatch?.actor_username ? String(activityPatch.actor_username) : null,
+        created_at: createdAt,
+        outcome: String(activityPatch?.outcome || "success"),
+        target_type: activityPatch?.target_type ? String(activityPatch.target_type) : null,
+        target_id: activityPatch?.target_id ? String(activityPatch.target_id) : null,
+        summary: String(activityPatch?.summary || "Workspace activity"),
+        changed_fields: Array.isArray(activityPatch?.changed_fields)
+          ? activityPatch.changed_fields.map((field) => String(field)).slice(0, 12)
+          : [],
+        context: {},
+      };
+      setActivity((prev) => {
+        if (prev.some((row) => row.id === appended.id)) return prev;
+        return [appended, ...prev].slice(0, 300);
+      });
+    }
+
+    const patch = event.payload?.workspace_patch;
+    const patchId = Number(patch?.id ?? 0);
+    if (patchId === activeWorkspaceId) {
+      setWorkspace((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          updated_at: patch?.updated_at ? String(patch.updated_at) : prev.updated_at,
+          status: patch?.status ? (patch.status as InvestigationWorkspaceStatus) : prev.status,
+          severity: patch?.severity ? (patch.severity as InvestigationWorkspaceSeverity) : prev.severity,
+          priority: patch?.priority ? (patch.priority as InvestigationWorkspacePriority) : prev.priority,
+          triage_state: patch?.triage_state ? (patch.triage_state as InvestigationWorkspaceTriage) : prev.triage_state,
+          assignee: patch?.assignee === undefined ? prev.assignee : (patch.assignee ?? null),
+          updated_by: patch?.updated_by ? String(patch.updated_by) : prev.updated_by,
+          notes_count: typeof patch?.notes_count === "number" ? patch.notes_count : prev.notes_count,
+          bookmarks_count: typeof patch?.bookmarks_count === "number" ? patch.bookmarks_count : prev.bookmarks_count,
+          evidence_type_counts: patch?.evidence_type_counts || prev.evidence_type_counts,
+        };
+      });
+    }
+  });
+
+  usePortalRealtimeSubscription("ui.investigations.invalidate", (event) => {
+    const activeWorkspaceId = workspaceId ? Number(workspaceId) : 0;
+    if (activeWorkspaceId <= 0) return;
+    const eventWorkspaceId = Number(event.payload?.workspace_id ?? 0);
+    if (eventWorkspaceId > 0 && eventWorkspaceId !== activeWorkspaceId) return;
+    void refresh();
+  });
 
   async function submitNote() {
     if (!workspaceId) return;
@@ -757,6 +835,7 @@ export default function InvestigationsPage() {
   const [newDescription, setNewDescription] = useState("");
   const [newSeverity, setNewSeverity] = useState<InvestigationWorkspaceSeverity>("medium");
   const [newPriority, setNewPriority] = useState<InvestigationWorkspacePriority>("p3");
+  const invalidateRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function fetchFirst() {
     setLoading(true);
@@ -810,9 +889,49 @@ export default function InvestigationsPage() {
     }
   }
 
+  usePortalRealtimeSubscription("ui.investigations.timeline.append", (event) => {
+    const patch = event.payload?.workspace_patch;
+    const patchId = Number(patch?.id ?? 0);
+    if (patchId <= 0) return;
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.id !== patchId) return row;
+        return {
+          ...row,
+          updated_at: patch?.updated_at ? String(patch.updated_at) : row.updated_at,
+          status: patch?.status ? (patch.status as InvestigationWorkspaceStatus) : row.status,
+          severity: patch?.severity ? (patch.severity as InvestigationWorkspaceSeverity) : row.severity,
+          priority: patch?.priority ? (patch.priority as InvestigationWorkspacePriority) : row.priority,
+          triage_state: patch?.triage_state ? (patch.triage_state as InvestigationWorkspaceTriage) : row.triage_state,
+          assignee: patch?.assignee === undefined ? row.assignee : (patch.assignee ?? null),
+          updated_by: patch?.updated_by ? String(patch.updated_by) : row.updated_by,
+          notes_count: typeof patch?.notes_count === "number" ? patch.notes_count : row.notes_count,
+          bookmarks_count: typeof patch?.bookmarks_count === "number" ? patch.bookmarks_count : row.bookmarks_count,
+          evidence_type_counts: patch?.evidence_type_counts || row.evidence_type_counts,
+        };
+      }),
+    );
+  });
+
+  usePortalRealtimeSubscription("ui.investigations.invalidate", () => {
+    if (invalidateRefreshTimerRef.current) return;
+    invalidateRefreshTimerRef.current = window.setTimeout(() => {
+      invalidateRefreshTimerRef.current = null;
+      void fetchFirst();
+    }, 300);
+  });
+
   useEffect(() => {
     fetchFirst();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (!invalidateRefreshTimerRef.current) return;
+      window.clearTimeout(invalidateRefreshTimerRef.current);
+      invalidateRefreshTimerRef.current = null;
+    };
   }, []);
 
   async function createWorkspaceInline() {
