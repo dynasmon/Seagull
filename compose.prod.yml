@@ -96,6 +96,7 @@ services:
       NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
       NETWATCH_ES_PASSWORD: ${NETWATCH_ES_PASSWORD:?set NETWATCH_ES_PASSWORD in .env}
       NETWATCH_ES_PASSWORD_FILE: ""
+      NETWATCH_CLICKHOUSE_REQUIRED: "true"
 
   netwatch-ingest-pipeline:
     environment:
@@ -111,6 +112,7 @@ services:
       NETWATCH_ES_USERNAME: ${NETWATCH_ES_USERNAME:-elastic}
       NETWATCH_ES_PASSWORD: ${NETWATCH_ES_PASSWORD:?set NETWATCH_ES_PASSWORD in .env}
       NETWATCH_ES_PASSWORD_FILE: ""
+      NETWATCH_CLICKHOUSE_REQUIRED: "true"
 
   netwatch-intelligence-worker:
     environment:

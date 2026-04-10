@@ -90,21 +90,21 @@ prod-prepare: bootstrap
 
 # Single-command bootstrap for development.
 dev: dev-preflight
-	$(DC) $(COMPOSE_DEV) up -d --build --force-recreate $(DEV_DOCKER_AGENT_SCALE_ARGS)
+	$(DC) $(COMPOSE_DEV) up -d --build --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
 ifneq ($(SYSTEMD_AGENT_ENABLED),)
 	@echo "[dev] SYSTEMD_AGENT=$(SYSTEMD_AGENT) -> skipping docker agent bootstrap/recreate"
 else
 	@$(MAKE) agent-tokens-bootstrap
-	$(DC) $(COMPOSE_DEV) up -d --force-recreate $(DEV_DOCKER_AGENT_SERVICES)
+	$(DC) $(COMPOSE_DEV) up -d --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SERVICES)
 endif
 
 dev-tls: dev-preflight
-	$(DC) $(COMPOSE_DEV_TLS) up -d --build --force-recreate $(DEV_DOCKER_AGENT_SCALE_ARGS)
+	$(DC) $(COMPOSE_DEV_TLS) up -d --build --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
 ifneq ($(SYSTEMD_AGENT_ENABLED),)
 	@echo "[dev-tls] SYSTEMD_AGENT=$(SYSTEMD_AGENT) -> skipping docker agent bootstrap/recreate"
 else
 	@$(MAKE) agent-tokens-bootstrap
-	$(DC) $(COMPOSE_DEV_TLS) up -d --force-recreate $(DEV_DOCKER_AGENT_SERVICES)
+	$(DC) $(COMPOSE_DEV_TLS) up -d --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SERVICES)
 endif
 
 # Single-command bootstrap for production-like runs.
@@ -145,13 +145,13 @@ prod-state-clear:
 up: dev
 
 up-extra: dev-preflight
-	$(DC) $(COMPOSE_DEV) --profile extra up -d --build --force-recreate $(DEV_DOCKER_AGENT_SCALE_ARGS)
+	$(DC) $(COMPOSE_DEV) --profile extra up -d --build --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
 ifneq ($(SYSTEMD_AGENT_ENABLED),)
 	@echo "[up-extra] SYSTEMD_AGENT=$(SYSTEMD_AGENT) -> skipping docker agent bootstrap/recreate for core/sensor"
-	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate netwatch-agent-lateral
+	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate --remove-orphans netwatch-agent-lateral
 else
 	@$(MAKE) agent-tokens-bootstrap
-	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate netwatch-agent-core netwatch-agent-sensor netwatch-agent-lateral
+	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate --remove-orphans netwatch-agent-core netwatch-agent-sensor netwatch-agent-lateral
 endif
 
 up-observability: dev-preflight
@@ -161,14 +161,14 @@ prod-observability: bootstrap bootstrap-tools prod-prepare
 	$(DC) $(COMPOSE_PROD) --profile observability up -d --build grafana kibana
 
 down:
-	$(DC) $(COMPOSE_DEV) down
+	$(DC) $(COMPOSE_DEV) down --remove-orphans
 
 restart: dev-preflight
-	$(DC) $(COMPOSE_DEV) down
-	$(DC) $(COMPOSE_DEV) up -d --build $(DEV_DOCKER_AGENT_SCALE_ARGS)
+	$(DC) $(COMPOSE_DEV) down --remove-orphans
+	$(DC) $(COMPOSE_DEV) up -d --build --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
 
 restart-quick: dev-preflight
-	$(DC) $(COMPOSE_DEV) up -d --force-recreate $(DEV_DOCKER_AGENT_SCALE_ARGS)
+	$(DC) $(COMPOSE_DEV) up -d --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
 
 systemd-agent-install:
 	sudo env AUTO_START_IF_READY=1 bash deploy/systemd/install-agent.sh
