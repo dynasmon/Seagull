@@ -60,11 +60,11 @@ class _FakePubSub:
         self.unsubscribed: list[str] = []
         self.closed = False
 
-    def subscribe(self, channel: str) -> None:
-        self.subscribed.append(channel)
+    def subscribe(self, *channels: str) -> None:
+        self.subscribed.extend(list(channels))
 
-    def unsubscribe(self, channel: str) -> None:
-        self.unsubscribed.append(channel)
+    def unsubscribe(self, *channels: str) -> None:
+        self.unsubscribed.extend(list(channels))
 
     def close(self) -> None:
         self.closed = True
@@ -78,10 +78,14 @@ class _FakePubSub:
 class _FakeRedis:
     def __init__(self, pubsub: _FakePubSub):
         self._pubsub = pubsub
+        self._replay: dict[str, list[str]] = {}
 
     def pubsub(self, ignore_subscribe_messages: bool = True):
         _ = ignore_subscribe_messages
         return self._pubsub
+
+    def lrange(self, key: str, _start: int, _end: int):
+        return list(self._replay.get(key, []))
 
 
 class _DisconnectAfter:
@@ -103,12 +107,19 @@ def _collect_stream_chunks(*, messages: list[dict], max_disconnect_checks: int =
         username="eve",
         role="admin",
         scope=realtime_service.STREAM_TOKEN_SCOPE,
+        scopes=(realtime_service.STREAM_TOKEN_SCOPE, realtime_service.STREAM_TOKEN_SCOPE_ADMIN),
         purpose=realtime_service.STREAM_TOKEN_PURPOSE,
     )
 
     async def _run() -> list[str]:
         out: list[str] = []
-        async for chunk in realtime_api._stream_events(req, principal=principal, redis_client=redis_client):
+        async for chunk in realtime_api._stream_events(
+            req,
+            principal=principal,
+            redis_client=redis_client,
+            topics=["overview", "alerts"],
+            replay_after_cursor=0,
+        ):
             out.append(chunk)
             if len(out) >= 6:
                 break
@@ -130,6 +141,8 @@ def test_stream_token_issuance_for_authenticated_user() -> None:
             assert claims["typ"] == realtime_service.STREAM_TOKEN_TYPE
             assert claims["purpose"] == realtime_service.STREAM_TOKEN_PURPOSE
             assert claims["scope"] == realtime_service.STREAM_TOKEN_SCOPE
+            assert realtime_service.STREAM_TOKEN_SCOPE in claims["scopes"]
+            assert realtime_service.STREAM_TOKEN_SCOPE_ADMIN in claims["scopes"]
             assert claims["typ"] != "access"
     finally:
         app.dependency_overrides.pop(get_current_user, None)
@@ -175,8 +188,8 @@ def test_sse_endpoint_rejects_wrong_purpose_claim() -> None:
 
 
 def test_sse_chunk_format_supports_named_event_and_multiline_data() -> None:
-    chunk = realtime_service.format_sse_chunk(event="overview.updated", data='{"a":1}\n{"b":2}')
-    assert chunk == "event: overview.updated\ndata: {\"a\":1}\ndata: {\"b\":2}\n\n"
+    chunk = realtime_service.format_sse_chunk(event="overview.patch", sse_id="9", data='{"a":1}\n{"b":2}')
+    assert chunk == "id: 9\nevent: overview.patch\ndata: {\"a\":1}\ndata: {\"b\":2}\n\n"
 
 
 def test_stream_events_emits_named_event_and_cleans_up_pubsub() -> None:
@@ -184,7 +197,11 @@ def test_stream_events_emits_named_event_and_cleans_up_pubsub() -> None:
         messages=[
             {
                 "type": "message",
-                "data": '{"version":1,"type":"overview.patch","timestamp":"2026-04-09T12:00:00Z","payload":{"events_5m_delta":2}}',
+                "data": (
+                    '{"version":2,"topic":"overview","type":"overview.patch","cursor":"4",'
+                    '"timestamp":"2026-04-09T12:00:00Z","scope":"portal:realtime","mode":"patch",'
+                    '"payload":{"events_5m_delta":2}}'
+                ),
             }
         ],
         max_disconnect_checks=4,
@@ -206,3 +223,46 @@ def test_stream_events_drops_malformed_payload_without_raw_echo() -> None:
     full = "".join(chunks)
     assert "event: message" not in full
     assert "not-json" not in full
+
+
+def test_stream_events_filters_admin_topic_for_non_admin() -> None:
+    pubsub = _FakePubSub(
+        [
+            {
+                "type": "message",
+                "data": (
+                    '{"version":2,"topic":"alerts","type":"alert.created","cursor":"12",'
+                    '"timestamp":"2026-04-09T12:00:00Z","scope":"portal:admin","mode":"append",'
+                    '"payload":{"alert_id":42}}'
+                ),
+            }
+        ]
+    )
+    redis_client = _FakeRedis(pubsub)
+    req = _DisconnectAfter(4)
+    principal = realtime_service.StreamPrincipal(
+        user_id=9,
+        username="user",
+        role="user",
+        scope=realtime_service.STREAM_TOKEN_SCOPE,
+        scopes=(realtime_service.STREAM_TOKEN_SCOPE,),
+        purpose=realtime_service.STREAM_TOKEN_PURPOSE,
+    )
+
+    async def _run() -> list[str]:
+        out: list[str] = []
+        async for chunk in realtime_api._stream_events(
+            req,
+            principal=principal,
+            redis_client=redis_client,
+            topics=["alerts"],
+            replay_after_cursor=0,
+        ):
+            out.append(chunk)
+            if len(out) >= 4:
+                break
+        return out
+
+    chunks = asyncio.run(_run())
+    full = "".join(chunks)
+    assert "alert.created" not in full
