@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from dataclasses import dataclass
 from typing import Any
 
 from app.core.observability import log_event
@@ -12,18 +13,24 @@ from app.core.redis_client import get_redis
 logger = logging.getLogger("netwatch.api.realtime")
 
 PORTAL_REALTIME_TOPICS = ("overview", "alerts", "agents")
-PORTAL_REALTIME_CHANNEL_PREFIX = "netwatch:portal:realtime:v2:topic"
-PORTAL_REALTIME_REPLAY_PREFIX = "netwatch:portal:realtime:v2:replay"
-PORTAL_REALTIME_CURSOR_KEY = "netwatch:portal:realtime:v2:cursor"
+PORTAL_REALTIME_STREAM_KEY = "netwatch:portal:realtime:v3:stream"
+PORTAL_REALTIME_CURSOR_KEY = "netwatch:portal:realtime:v3:cursor"
+
+
+@dataclass(frozen=True)
+class PortalRealtimeStreamEntry:
+    stream_id: str
+    cursor: int
+    message: str
 
 
 def _replay_max_events() -> int:
-    raw = str(os.getenv("NETWATCH_REALTIME_REPLAY_MAX_EVENTS", "256") or "256").strip()
+    raw = str(os.getenv("NETWATCH_REALTIME_REPLAY_MAX_EVENTS", "512") or "512").strip()
     try:
         parsed = int(raw, 10)
     except Exception:
-        parsed = 256
-    return max(32, parsed)
+        parsed = 512
+    return max(64, min(parsed, 5000))
 
 
 PORTAL_REALTIME_REPLAY_MAX_EVENTS = _replay_max_events()
@@ -40,14 +47,8 @@ def _normalize_topic(topic: str | None) -> str:
     return "overview"
 
 
-def portal_realtime_channel(topic: str = "overview") -> str:
-    normalized = _normalize_topic(topic)
-    return f"{PORTAL_REALTIME_CHANNEL_PREFIX}:{normalized}"
-
-
-def portal_realtime_replay_key(topic: str = "overview") -> str:
-    normalized = _normalize_topic(topic)
-    return f"{PORTAL_REALTIME_REPLAY_PREFIX}:{normalized}"
+def portal_realtime_stream_key() -> str:
+    return PORTAL_REALTIME_STREAM_KEY
 
 
 def _cursor_to_int(value: Any) -> int:
@@ -70,25 +71,88 @@ def _parse_message_json(raw_message: str) -> dict[str, Any]:
     return parsed
 
 
-def load_portal_realtime_replay(redis_client: Any, *, topic: str, max_events: int = 200) -> list[str]:
+def _entry_from_stream_row(stream_id: Any, fields: Any) -> PortalRealtimeStreamEntry | None:
+    entry_id = str(stream_id or "").strip()
+    if not entry_id:
+        return None
+    if not isinstance(fields, dict):
+        return None
+
+    message_raw = fields.get("envelope")
+    if not isinstance(message_raw, str) or not message_raw.strip():
+        return None
+
+    cursor_raw = fields.get("cursor")
+    cursor = _cursor_to_int(cursor_raw)
+    if cursor <= 0:
+        return None
+
+    return PortalRealtimeStreamEntry(
+        stream_id=entry_id,
+        cursor=cursor,
+        message=message_raw.strip(),
+    )
+
+
+def load_portal_realtime_replay(
+    redis_client: Any,
+    *,
+    max_events: int = 200,
+) -> list[PortalRealtimeStreamEntry]:
     if redis_client is None:
         return []
 
     limit = max(1, int(max_events or 1))
-    key = portal_realtime_replay_key(topic)
+    key = portal_realtime_stream_key()
     try:
-        rows = redis_client.lrange(key, -limit, -1) or []
+        rows = redis_client.xrevrange(key, max="+", min="-", count=limit) or []
+    except Exception:
+        try:
+            rows = redis_client.xrange(key, min="-", max="+", count=limit) or []
+        except Exception:
+            return []
+
+    out: list[PortalRealtimeStreamEntry] = []
+    for row in rows:
+        if not isinstance(row, (tuple, list)) or len(row) != 2:
+            continue
+        entry = _entry_from_stream_row(row[0], row[1])
+        if entry is not None:
+            out.append(entry)
+    out.sort(key=lambda item: item.cursor)
+    return out
+
+
+def read_portal_realtime_stream(
+    redis_client: Any,
+    *,
+    last_stream_id: str,
+    block_ms: int = 1000,
+    count: int = 100,
+) -> list[PortalRealtimeStreamEntry]:
+    if redis_client is None:
+        return []
+
+    stream_id = str(last_stream_id or "").strip() or "$"
+    key = portal_realtime_stream_key()
+    try:
+        result = redis_client.xread(streams={key: stream_id}, count=max(1, int(count or 1)), block=max(0, int(block_ms or 0)))
     except Exception:
         return []
 
-    out: list[str] = []
-    for row in rows:
-        if isinstance(row, str):
-            text = row.strip()
-        else:
-            text = str(row or "").strip()
-        if text:
-            out.append(text)
+    out: list[PortalRealtimeStreamEntry] = []
+    for stream_row in result or []:
+        if not isinstance(stream_row, (tuple, list)) or len(stream_row) != 2:
+            continue
+        entries = stream_row[1]
+        if not isinstance(entries, list):
+            continue
+        for entry_row in entries:
+            if not isinstance(entry_row, (tuple, list)) or len(entry_row) != 2:
+                continue
+            entry = _entry_from_stream_row(entry_row[0], entry_row[1])
+            if entry is not None:
+                out.append(entry)
     return out
 
 
@@ -104,28 +168,28 @@ def publish_portal_realtime_message(message: str, *, topic: str | None = None) -
     event_topic = _normalize_topic(str(payload.get("topic") or topic or "overview"))
 
     try:
-        cursor = _cursor_to_int(payload.get("cursor"))
-        if cursor <= 0:
-            cursor = int(redis_client.incr(PORTAL_REALTIME_CURSOR_KEY))
+        cursor = int(redis_client.incr(PORTAL_REALTIME_CURSOR_KEY))
         payload["cursor"] = str(cursor)
         payload["topic"] = event_topic
         message_out = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), allow_nan=False)
 
-        replay_key = portal_realtime_replay_key(event_topic)
-        channel = portal_realtime_channel(event_topic)
-
-        pipe = redis_client.pipeline()
-        pipe.rpush(replay_key, message_out)
-        pipe.ltrim(replay_key, -PORTAL_REALTIME_REPLAY_MAX_EVENTS, -1)
-        pipe.publish(channel, message_out)
-        pipe.execute()
+        redis_client.xadd(
+            portal_realtime_stream_key(),
+            {
+                "cursor": str(cursor),
+                "topic": event_topic,
+                "envelope": message_out,
+            },
+            maxlen=PORTAL_REALTIME_REPLAY_MAX_EVENTS,
+            approximate=True,
+        )
         return True
     except Exception as exc:
         log_event(
             logger,
             "warning",
             "realtime_publish_failed",
-            channel=portal_realtime_channel(event_topic),
+            stream=portal_realtime_stream_key(),
             error_type=type(exc).__name__,
             error=str(exc),
         )
