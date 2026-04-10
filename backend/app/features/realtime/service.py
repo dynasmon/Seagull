@@ -24,7 +24,9 @@ REALTIME_EVENT_POLICIES: dict[str, dict[str, str]] = {
     "overview.invalidate": {"topic": "overview", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
     "overview.patch": {"topic": "overview", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
     "storm.status": {"topic": "overview", "mode": "replace", "scope": STREAM_TOKEN_SCOPE},
+    "agents.invalidate": {"topic": "agents", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
     "agent.heartbeat": {"topic": "agents", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
+    "alerts.invalidate": {"topic": "alerts", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE_ADMIN},
     "alert.created": {"topic": "alerts", "mode": "append", "scope": STREAM_TOKEN_SCOPE_ADMIN},
     "alert.updated": {"topic": "alerts", "mode": "patch", "scope": STREAM_TOKEN_SCOPE_ADMIN},
 }
@@ -34,6 +36,11 @@ TOPIC_REQUIRED_SCOPE: dict[str, str] = {
     "overview": STREAM_TOKEN_SCOPE,
     "agents": STREAM_TOKEN_SCOPE,
     "alerts": STREAM_TOKEN_SCOPE_ADMIN,
+}
+TOPIC_INVALIDATE_EVENT: dict[str, str] = {
+    "overview": "overview.invalidate",
+    "agents": "agents.invalidate",
+    "alerts": "alerts.invalidate",
 }
 
 
@@ -138,6 +145,11 @@ def resolve_stream_topics(*, principal: StreamPrincipal, requested_topics: list[
         if principal.has_scope(required):
             allowed.append(topic)
     return allowed
+
+
+def topic_invalidate_event(topic: str) -> str:
+    normalized = str(topic or "").strip().lower()
+    return TOPIC_INVALIDATE_EVENT.get(normalized, "overview.invalidate")
 
 
 def issue_stream_token(*, user: PortalPrincipal) -> tuple[str, int]:

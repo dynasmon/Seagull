@@ -149,6 +149,10 @@ function AgentsProvider({ children }: { children: ReactNode }) {
     setAgents(result.agents);
   });
 
+  usePortalRealtimeSubscription("agents.invalidate", () => {
+    scheduleRealtimeCatalogRefresh();
+  });
+
   useEffect(() => {
     let alive = true;
     refreshAgents();

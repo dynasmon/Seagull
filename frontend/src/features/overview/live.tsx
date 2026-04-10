@@ -217,6 +217,10 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     scheduleRefreshFromInvalidate();
   });
 
+  usePortalRealtimeSubscription("alerts.invalidate", () => {
+    scheduleRefreshFromInvalidate();
+  });
+
   usePortalRealtimeSubscription("storm.status", (event) => {
     setStorm((prev) => mergeStormStatus(prev, (event.payload || {}) as Partial<StormStatus>));
     setLastUpdatedAt(new Date());

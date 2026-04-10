@@ -53,39 +53,26 @@ def _stream_token_with_claims(*, typ: str | None = None, purpose: str | None = N
     return jwt.encode(payload, settings.NETWATCH_JWT_SECRET, algorithm="HS256")
 
 
-class _FakePubSub:
-    def __init__(self, messages: list[dict]):
-        self._messages = list(messages)
-        self.subscribed: list[str] = []
-        self.unsubscribed: list[str] = []
-        self.closed = False
-
-    def subscribe(self, *channels: str) -> None:
-        self.subscribed.extend(list(channels))
-
-    def unsubscribe(self, *channels: str) -> None:
-        self.unsubscribed.extend(list(channels))
-
-    def close(self) -> None:
-        self.closed = True
-
-    def get_message(self, _ignore_subscribe_messages: bool, _timeout: float):
-        if self._messages:
-            return self._messages.pop(0)
-        return None
-
-
 class _FakeRedis:
-    def __init__(self, pubsub: _FakePubSub):
-        self._pubsub = pubsub
-        self._replay: dict[str, list[str]] = {}
+    def __init__(self, *, replay_rows: list[tuple[str, dict[str, str]]], live_batches: list[list[tuple[str, dict[str, str]]]]):
+        self._replay_rows = list(replay_rows)
+        self._live_batches = [list(batch) for batch in live_batches]
 
-    def pubsub(self, ignore_subscribe_messages: bool = True):
-        _ = ignore_subscribe_messages
-        return self._pubsub
+    def xrevrange(self, _key: str, max: str, min: str, count: int):
+        _ = (min, max)
+        rows = list(self._replay_rows[-max(1, int(count)) :])
+        rows.reverse()
+        return rows
 
-    def lrange(self, key: str, _start: int, _end: int):
-        return list(self._replay.get(key, []))
+    def xread(self, streams: dict[str, str], count: int, block: int):
+        _ = (count, block)
+        stream_key = next(iter(streams.keys()))
+        if not self._live_batches:
+            return []
+        batch = self._live_batches.pop(0)
+        if not batch:
+            return []
+        return [(stream_key, batch)]
 
 
 class _DisconnectAfter:
@@ -98,18 +85,29 @@ class _DisconnectAfter:
         return self._checks > self._max_checks
 
 
-def _collect_stream_chunks(*, messages: list[dict], max_disconnect_checks: int = 3) -> tuple[list[str], _FakePubSub]:
-    pubsub = _FakePubSub(messages)
-    redis_client = _FakeRedis(pubsub)
-    req = _DisconnectAfter(max_disconnect_checks)
-    principal = realtime_service.StreamPrincipal(
-        user_id=7,
-        username="eve",
-        role="admin",
-        scope=realtime_service.STREAM_TOKEN_SCOPE,
-        scopes=(realtime_service.STREAM_TOKEN_SCOPE, realtime_service.STREAM_TOKEN_SCOPE_ADMIN),
-        purpose=realtime_service.STREAM_TOKEN_PURPOSE,
+def _make_stream_row(*, stream_id: str, cursor: int, envelope_json: str) -> tuple[str, dict[str, str]]:
+    return (
+        stream_id,
+        {
+            "cursor": str(cursor),
+            "topic": "overview",
+            "envelope": envelope_json,
+        },
     )
+
+
+def _collect_stream_chunks(
+    *,
+    replay_rows: list[tuple[str, dict[str, str]]],
+    live_batches: list[list[tuple[str, dict[str, str]]]],
+    principal: realtime_service.StreamPrincipal,
+    topics: list[str],
+    replay_after_cursor: int,
+    max_disconnect_checks: int = 3,
+    max_chunks: int = 8,
+) -> list[str]:
+    redis_client = _FakeRedis(replay_rows=replay_rows, live_batches=live_batches)
+    req = _DisconnectAfter(max_disconnect_checks)
 
     async def _run() -> list[str]:
         out: list[str] = []
@@ -117,15 +115,26 @@ def _collect_stream_chunks(*, messages: list[dict], max_disconnect_checks: int =
             req,
             principal=principal,
             redis_client=redis_client,
-            topics=["overview", "alerts"],
-            replay_after_cursor=0,
+            topics=topics,
+            replay_after_cursor=replay_after_cursor,
         ):
             out.append(chunk)
-            if len(out) >= 6:
+            if len(out) >= max_chunks:
                 break
         return out
 
-    return asyncio.run(_run()), pubsub
+    return asyncio.run(_run())
+
+
+def _admin_principal() -> realtime_service.StreamPrincipal:
+    return realtime_service.StreamPrincipal(
+        user_id=7,
+        username="eve",
+        role="admin",
+        scope=realtime_service.STREAM_TOKEN_SCOPE,
+        scopes=(realtime_service.STREAM_TOKEN_SCOPE, realtime_service.STREAM_TOKEN_SCOPE_ADMIN),
+        purpose=realtime_service.STREAM_TOKEN_PURPOSE,
+    )
 
 
 def test_stream_token_issuance_for_authenticated_user() -> None:
@@ -192,32 +201,109 @@ def test_sse_chunk_format_supports_named_event_and_multiline_data() -> None:
     assert chunk == "id: 9\nevent: overview.patch\ndata: {\"a\":1}\ndata: {\"b\":2}\n\n"
 
 
-def test_stream_events_emits_named_event_and_cleans_up_pubsub() -> None:
-    chunks, pubsub = _collect_stream_chunks(
-        messages=[
-            {
-                "type": "message",
-                "data": (
-                    '{"version":2,"topic":"overview","type":"overview.patch","cursor":"4",'
-                    '"timestamp":"2026-04-09T12:00:00Z","scope":"portal:realtime","mode":"patch",'
-                    '"payload":{"events_5m_delta":2}}'
-                ),
-            }
+def test_stream_events_emits_named_event_from_stream() -> None:
+    chunks = _collect_stream_chunks(
+        replay_rows=[],
+        live_batches=[
+            [
+                _make_stream_row(
+                    stream_id="1700000000000-0",
+                    cursor=4,
+                    envelope_json=(
+                        '{"version":2,"topic":"overview","type":"overview.patch","cursor":"4",'
+                        '"timestamp":"2026-04-09T12:00:00Z","scope":"portal:realtime","mode":"patch",'
+                        '"payload":{"events_5m_delta":2}}'
+                    ),
+                )
+            ]
         ],
+        principal=_admin_principal(),
+        topics=["overview", "alerts"],
+        replay_after_cursor=0,
         max_disconnect_checks=4,
     )
 
     full = "".join(chunks)
     assert "event: overview.patch" in full
     assert "events_5m_delta" in full
-    assert pubsub.subscribed
-    assert pubsub.unsubscribed
-    assert pubsub.closed is True
+
+
+def test_stream_events_replays_from_cursor_when_available() -> None:
+    chunks = _collect_stream_chunks(
+        replay_rows=[
+            _make_stream_row(
+                stream_id="1700000000000-0",
+                cursor=3,
+                envelope_json=(
+                    '{"version":2,"topic":"overview","type":"overview.patch","cursor":"3",'
+                    '"timestamp":"2026-04-09T12:00:00Z","scope":"portal:realtime","mode":"patch","payload":{}}'
+                ),
+            ),
+            _make_stream_row(
+                stream_id="1700000000001-0",
+                cursor=4,
+                envelope_json=(
+                    '{"version":2,"topic":"overview","type":"overview.patch","cursor":"4",'
+                    '"timestamp":"2026-04-09T12:00:01Z","scope":"portal:realtime","mode":"patch",'
+                    '"payload":{"events_5m_delta":2}}'
+                ),
+            ),
+        ],
+        live_batches=[],
+        principal=_admin_principal(),
+        topics=["overview"],
+        replay_after_cursor=3,
+        max_disconnect_checks=2,
+        max_chunks=3,
+    )
+
+    full = "".join(chunks)
+    assert "event: overview.patch" in full
+    assert '"cursor":"4"' in full
+    assert '"cursor":"3"' not in full
+
+
+def test_stream_events_emits_invalidate_on_cursor_gap() -> None:
+    chunks = _collect_stream_chunks(
+        replay_rows=[
+            _make_stream_row(
+                stream_id="1700000000100-0",
+                cursor=100,
+                envelope_json=(
+                    '{"version":2,"topic":"overview","type":"overview.patch","cursor":"100",'
+                    '"timestamp":"2026-04-09T12:00:00Z","scope":"portal:realtime","mode":"patch","payload":{}}'
+                ),
+            ),
+            _make_stream_row(
+                stream_id="1700000000101-0",
+                cursor=101,
+                envelope_json=(
+                    '{"version":2,"topic":"agents","type":"agent.heartbeat","cursor":"101",'
+                    '"timestamp":"2026-04-09T12:00:01Z","scope":"portal:realtime","mode":"patch","payload":{}}'
+                ),
+            ),
+        ],
+        live_batches=[],
+        principal=_admin_principal(),
+        topics=["overview", "agents"],
+        replay_after_cursor=10,
+        max_disconnect_checks=2,
+        max_chunks=4,
+    )
+
+    full = "".join(chunks)
+    assert "event: overview.invalidate" in full
+    assert "event: agents.invalidate" in full
+    assert "cursor_gap" in full
 
 
 def test_stream_events_drops_malformed_payload_without_raw_echo() -> None:
-    chunks, _ = _collect_stream_chunks(
-        messages=[{"type": "message", "data": "not-json"}],
+    chunks = _collect_stream_chunks(
+        replay_rows=[],
+        live_batches=[[_make_stream_row(stream_id="1700000000200-0", cursor=12, envelope_json="not-json")]],
+        principal=_admin_principal(),
+        topics=["overview", "alerts"],
+        replay_after_cursor=0,
         max_disconnect_checks=4,
     )
     full = "".join(chunks)
@@ -226,20 +312,6 @@ def test_stream_events_drops_malformed_payload_without_raw_echo() -> None:
 
 
 def test_stream_events_filters_admin_topic_for_non_admin() -> None:
-    pubsub = _FakePubSub(
-        [
-            {
-                "type": "message",
-                "data": (
-                    '{"version":2,"topic":"alerts","type":"alert.created","cursor":"12",'
-                    '"timestamp":"2026-04-09T12:00:00Z","scope":"portal:admin","mode":"append",'
-                    '"payload":{"alert_id":42}}'
-                ),
-            }
-        ]
-    )
-    redis_client = _FakeRedis(pubsub)
-    req = _DisconnectAfter(4)
     principal = realtime_service.StreamPrincipal(
         user_id=9,
         username="user",
@@ -249,20 +321,26 @@ def test_stream_events_filters_admin_topic_for_non_admin() -> None:
         purpose=realtime_service.STREAM_TOKEN_PURPOSE,
     )
 
-    async def _run() -> list[str]:
-        out: list[str] = []
-        async for chunk in realtime_api._stream_events(
-            req,
-            principal=principal,
-            redis_client=redis_client,
-            topics=["alerts"],
-            replay_after_cursor=0,
-        ):
-            out.append(chunk)
-            if len(out) >= 4:
-                break
-        return out
+    chunks = _collect_stream_chunks(
+        replay_rows=[],
+        live_batches=[
+            [
+                _make_stream_row(
+                    stream_id="1700000000300-0",
+                    cursor=12,
+                    envelope_json=(
+                        '{"version":2,"topic":"alerts","type":"alert.created","cursor":"12",'
+                        '"timestamp":"2026-04-09T12:00:00Z","scope":"portal:admin","mode":"append",'
+                        '"payload":{"alert_id":42}}'
+                    ),
+                )
+            ]
+        ],
+        principal=principal,
+        topics=["alerts"],
+        replay_after_cursor=0,
+        max_disconnect_checks=4,
+    )
 
-    chunks = asyncio.run(_run())
     full = "".join(chunks)
     assert "alert.created" not in full

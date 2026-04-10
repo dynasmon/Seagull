@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from typing import AsyncGenerator
 
@@ -9,21 +10,22 @@ from fastapi.responses import StreamingResponse
 
 from app.core.config import settings
 from app.core.portal_auth import PortalPrincipal, get_current_user
-from app.core.realtime import load_portal_realtime_replay, portal_realtime_channel
+from app.core.realtime import PORTAL_REALTIME_REPLAY_MAX_EVENTS, load_portal_realtime_replay, read_portal_realtime_stream
 from app.core.redis_client import get_redis
-from app.features.realtime.schemas import RealtimeEnvelope, StreamTokenOut
+from app.features.realtime.schemas import StreamTokenOut
 from app.features.realtime.service import (
-    available_realtime_topics,
-    cursor_to_int,
-    envelope_cursor_to_int,
+    StreamPrincipal,
     allow_envelope_for_stream,
+    available_realtime_topics,
+    build_realtime_envelope,
+    cursor_to_int,
     decode_stream_token,
     format_sse_chunk,
     issue_stream_token,
-    parse_requested_topics,
     parse_realtime_envelope,
+    parse_requested_topics,
     resolve_stream_topics,
-    StreamPrincipal,
+    topic_invalidate_event,
 )
 
 
@@ -42,10 +44,51 @@ def _sse_keepalive_seconds() -> int:
     return configured
 
 
+def _stream_read_block_ms() -> int:
+    configured = int(getattr(settings, "NETWATCH_REALTIME_STREAM_READ_BLOCK_MS", 1000) or 1000)
+    if configured < 100:
+        return 100
+    if configured > 5000:
+        return 5000
+    return configured
+
+
+def _replay_delivery_max() -> int:
+    raw = str(os.getenv("NETWATCH_REALTIME_REPLAY_DELIVERY_MAX", "200") or "200").strip()
+    try:
+        parsed = int(raw, 10)
+    except Exception:
+        parsed = 200
+    return max(16, min(parsed, PORTAL_REALTIME_REPLAY_MAX_EVENTS))
+
+
 @router.post("/token", response_model=StreamTokenOut)
 def issue_stream_token_endpoint(user: PortalPrincipal = Depends(get_current_user)) -> StreamTokenOut:
     token, expires_in = issue_stream_token(user=user)
     return StreamTokenOut(stream_token=token, expires_in=expires_in)
+
+
+def _invalidate_chunk(
+    *,
+    topic: str,
+    reason: str,
+    resume_from_cursor: int,
+    resume_to_cursor: int,
+) -> str:
+    event_type = topic_invalidate_event(topic)
+    envelope = build_realtime_envelope(
+        event_type=event_type,
+        topic=topic,
+        mode="invalidate",
+        cursor=str(max(0, int(resume_to_cursor or 0))),
+        payload={
+            "reason": str(reason or "reconcile"),
+            "scope": str(topic),
+            "resume_from_cursor": str(max(0, int(resume_from_cursor or 0))),
+            "resume_to_cursor": str(max(0, int(resume_to_cursor or 0))),
+        },
+    )
+    return format_sse_chunk(event=envelope.type, sse_id=envelope.cursor, data=envelope.as_json())
 
 
 async def _stream_events(
@@ -56,27 +99,83 @@ async def _stream_events(
     topics: list[str],
     replay_after_cursor: int,
 ) -> AsyncGenerator[str, None]:
-    channels = [portal_realtime_channel(topic) for topic in topics]
     allowed_topics = set(topics)
-    pubsub = redis_client.pubsub(ignore_subscribe_messages=True)
     keepalive_seconds = _sse_keepalive_seconds()
+    read_block_ms = _stream_read_block_ms()
+    replay_cap = _replay_delivery_max()
+
     last_keepalive = 0.0
     last_cursor = max(0, int(replay_after_cursor or 0))
-    subscription_ready = False
+    last_stream_id = "$"
 
-    try:
-        await asyncio.to_thread(pubsub.subscribe, *channels)
-        subscription_ready = True
-        yield format_sse_chunk(comment="stream-open")
+    yield format_sse_chunk(comment="stream-open")
 
-        replay = await _load_replay_envelopes(
-            redis_client=redis_client,
-            topics=topics,
-            after_cursor=last_cursor,
+    replay_rows = await asyncio.to_thread(
+        load_portal_realtime_replay,
+        redis_client,
+        max_events=PORTAL_REALTIME_REPLAY_MAX_EVENTS,
+    )
+
+    if replay_rows:
+        earliest_cursor = replay_rows[0].cursor
+        latest_cursor = replay_rows[-1].cursor
+        last_stream_id = replay_rows[-1].stream_id
+
+        if replay_after_cursor > 0 and latest_cursor > replay_after_cursor:
+            if replay_after_cursor < (earliest_cursor - 1):
+                last_cursor = max(last_cursor, latest_cursor)
+                for topic in topics:
+                    yield _invalidate_chunk(
+                        topic=topic,
+                        reason="cursor_gap",
+                        resume_from_cursor=replay_after_cursor,
+                        resume_to_cursor=latest_cursor,
+                    )
+            else:
+                pending = [entry for entry in replay_rows if entry.cursor > replay_after_cursor]
+                if len(pending) > replay_cap:
+                    last_cursor = max(last_cursor, latest_cursor)
+                    for topic in topics:
+                        yield _invalidate_chunk(
+                            topic=topic,
+                            reason="cursor_lag",
+                            resume_from_cursor=replay_after_cursor,
+                            resume_to_cursor=latest_cursor,
+                        )
+                else:
+                    for entry in pending:
+                        envelope = parse_realtime_envelope(entry.message)
+                        if envelope is None:
+                            continue
+                        if not allow_envelope_for_stream(
+                            envelope=envelope,
+                            principal=principal,
+                            allowed_topics=allowed_topics,
+                        ):
+                            continue
+                        if entry.cursor <= last_cursor:
+                            continue
+                        last_cursor = entry.cursor
+                        last_stream_id = entry.stream_id
+                        yield format_sse_chunk(event=envelope.type, sse_id=envelope.cursor, data=envelope.as_json())
+
+    while True:
+        if await request.is_disconnected():
+            break
+
+        rows = await asyncio.to_thread(
+            read_portal_realtime_stream,
+            redis_client,
+            last_stream_id=last_stream_id,
+            block_ms=read_block_ms,
+            count=100,
         )
-        for envelope in replay:
-            cursor = envelope_cursor_to_int(envelope)
-            if cursor <= last_cursor:
+        for entry in rows:
+            last_stream_id = entry.stream_id
+            if entry.cursor <= last_cursor:
+                continue
+            envelope = parse_realtime_envelope(entry.message)
+            if envelope is None:
                 continue
             if not allow_envelope_for_stream(
                 envelope=envelope,
@@ -84,72 +183,13 @@ async def _stream_events(
                 allowed_topics=allowed_topics,
             ):
                 continue
-            last_cursor = cursor
+            last_cursor = entry.cursor
             yield format_sse_chunk(event=envelope.type, sse_id=envelope.cursor, data=envelope.as_json())
 
-        while True:
-            if await request.is_disconnected():
-                break
-
-            message = await asyncio.to_thread(pubsub.get_message, True, 1.0)
-            if message and str(message.get("type") or "") == "message":
-                raw_payload = message.get("data")
-                if not isinstance(raw_payload, str):
-                    try:
-                        raw_payload = str(raw_payload or "")
-                    except Exception:
-                        raw_payload = ""
-                envelope = parse_realtime_envelope(raw_payload)
-                if envelope is None:
-                    continue
-                cursor = envelope_cursor_to_int(envelope)
-                if cursor <= last_cursor:
-                    continue
-                if not allow_envelope_for_stream(
-                    envelope=envelope,
-                    principal=principal,
-                    allowed_topics=allowed_topics,
-                ):
-                    continue
-                last_cursor = cursor
-                yield format_sse_chunk(event=envelope.type, sse_id=envelope.cursor, data=envelope.as_json())
-
-            now = time.monotonic()
-            if now - last_keepalive >= float(keepalive_seconds):
-                last_keepalive = now
-                yield format_sse_chunk(comment="keepalive")
-    except asyncio.CancelledError:
-        raise
-    finally:
-        if subscription_ready:
-            try:
-                await asyncio.to_thread(pubsub.unsubscribe, *channels)
-            except Exception:
-                pass
-        try:
-            await asyncio.to_thread(pubsub.close)
-        except Exception:
-            pass
-
-
-async def _load_replay_envelopes(
-    *,
-    redis_client: object,
-    topics: list[str],
-    after_cursor: int,
-) -> list[RealtimeEnvelope]:
-    out: list[RealtimeEnvelope] = []
-    for topic in topics:
-        rows = await asyncio.to_thread(load_portal_realtime_replay, redis_client, topic=topic, max_events=200)
-        for row in rows:
-            envelope = parse_realtime_envelope(row)
-            if envelope is None:
-                continue
-            if envelope_cursor_to_int(envelope) <= int(after_cursor or 0):
-                continue
-            out.append(envelope)
-    out.sort(key=envelope_cursor_to_int)
-    return out
+        now = time.monotonic()
+        if now - last_keepalive >= float(keepalive_seconds):
+            last_keepalive = now
+            yield format_sse_chunk(comment="keepalive")
 
 
 @router.get("/portal")
