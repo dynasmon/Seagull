@@ -19,8 +19,10 @@ export const PORTAL_REALTIME_EVENT_TYPES = [
   "overview.invalidate",
   "overview.patch",
   "storm.status",
+  "alerts.invalidate",
   "alert.created",
   "alert.updated",
+  "agents.invalidate",
   "agent.heartbeat",
 ] as const;
 
@@ -30,8 +32,10 @@ export const PORTAL_REALTIME_EVENT_TOPIC: Record<PortalRealtimeEventType, Portal
   "overview.invalidate": "overview",
   "overview.patch": "overview",
   "storm.status": "overview",
+  "alerts.invalidate": "alerts",
   "alert.created": "alerts",
   "alert.updated": "alerts",
+  "agents.invalidate": "agents",
   "agent.heartbeat": "agents",
 };
 
@@ -39,8 +43,10 @@ export const PORTAL_REALTIME_EVENT_MODE: Record<PortalRealtimeEventType, PortalR
   "overview.invalidate": "invalidate",
   "overview.patch": "patch",
   "storm.status": "replace",
+  "alerts.invalidate": "invalidate",
   "alert.created": "append",
   "alert.updated": "patch",
+  "agents.invalidate": "invalidate",
   "agent.heartbeat": "patch",
 };
 
@@ -48,8 +54,10 @@ export const PORTAL_REALTIME_EVENT_SCOPE: Record<PortalRealtimeEventType, string
   "overview.invalidate": "portal:realtime",
   "overview.patch": "portal:realtime",
   "storm.status": "portal:realtime",
+  "alerts.invalidate": "portal:admin",
   "alert.created": "portal:admin",
   "alert.updated": "portal:admin",
+  "agents.invalidate": "portal:realtime",
   "agent.heartbeat": "portal:realtime",
 };
 
@@ -59,6 +67,8 @@ export type PortalRealtimeEventPayloadMap = {
     source?: string;
     scope?: string;
     phase?: "ok" | "storm" | "shedding" | "draining";
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
   };
   "overview.patch": {
     events_5m_delta?: number;
@@ -90,6 +100,12 @@ export type PortalRealtimeEventPayloadMap = {
     open_alert_id?: number | null;
     quality_by_event_type?: Array<Record<string, unknown>>;
   };
+  "alerts.invalidate": {
+    reason?: string;
+    scope?: string;
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
+  };
   "alert.created": {
     alert_id?: number;
     created_at?: string;
@@ -107,6 +123,12 @@ export type PortalRealtimeEventPayloadMap = {
     updated_at?: string;
     severity?: string;
     rule_id?: string;
+  };
+  "agents.invalidate": {
+    reason?: string;
+    scope?: string;
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
   };
   "agent.heartbeat": {
     agent_id?: string;
