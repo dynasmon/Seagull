@@ -76,7 +76,7 @@ export default function SettingsPage() {
     setPwOk(null);
 
     if (!canSubmit) {
-      setPwError("Password policy is not satisfied.");
+      setPwError("Password policy is not correct.");
       return;
     }
 
@@ -128,7 +128,7 @@ export default function SettingsPage() {
               <span className="font-mono">{user?.role || "-"}</span>
             </div>
             <div className="text-[11px] text-muted-foreground pt-2">
-              Keep your credentials unique. Password changes revoke active refresh sessions.
+              Keep your credentials unique. Password changes revoke active refresh sessions and tokens.
             </div>
           </div>
         </Card>
