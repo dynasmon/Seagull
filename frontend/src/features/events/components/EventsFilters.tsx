@@ -26,6 +26,7 @@ type Props = {
 
   // When set, agent selection is driven by the sidebar (global scope).
   lockAgentId?: string | null;
+  lockEventType?: string | null;
 
   busy?: boolean;
 };
@@ -51,11 +52,13 @@ function EventsFiltersImpl(props: Props) {
   const cfg = useMemo(() => norm(props.config ?? props.value), [props.config, props.value]);
 
   const lockedAgentId = (props.lockAgentId ?? null) || null;
+  const lockedEventType = (props.lockEventType ?? null) || null;
   const effectiveAgentId = lockedAgentId ? lockedAgentId : (cfg.agent_id ?? null);
+  const effectiveEventType = lockedEventType ? lockedEventType : (cfg.event_type ?? null);
 
   const effectiveCfg = useMemo<EventsViewConfig>(() => {
-    return norm({ ...cfg, agent_id: effectiveAgentId });
-  }, [cfg, effectiveAgentId]);
+    return norm({ ...cfg, agent_id: effectiveAgentId, event_type: effectiveEventType });
+  }, [cfg, effectiveAgentId, effectiveEventType]);
 
   // Keep config consistent when the sidebar selection changes.
   useEffect(() => {
@@ -64,11 +67,12 @@ function EventsFiltersImpl(props: Props) {
     const b = JSON.stringify(effectiveCfg);
     if (a !== b) props.onChange(effectiveCfg);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lockedAgentId]);
+  }, [lockedAgentId, lockedEventType]);
 
   function patch(next: Partial<EventsViewConfig>) {
     const merged = norm({ ...effectiveCfg, ...next });
     if (lockedAgentId) merged.agent_id = lockedAgentId;
+    if (lockedEventType) merged.event_type = lockedEventType;
     props.onChange?.(merged);
   }
 
@@ -126,23 +130,37 @@ function EventsFiltersImpl(props: Props) {
       {/* Event type */}
       <div>
         <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Event type</div>
-        <select
-          value={effectiveCfg.event_type ?? ""}
-          onChange={(e) => patch({ event_type: e.target.value ? e.target.value : null })}
-          disabled={busy}
-          className={cx(
-            "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-            "focus:ring-2 focus:ring-primary/30",
-            busy && "opacity-60 cursor-not-allowed"
-          )}
-        >
-          <option value="">All types</option>
-          <option value="dos_attack">dos_attack</option>
-          <option value="ssh_auth">ssh_auth</option>
-          <option value="scan_probe">scan_probe</option>
-          <option value="lateral_conn">lateral_conn</option>
-          <option value="flow">flow</option>
-        </select>
+        {lockedEventType ? (
+          <>
+            <input
+              value={lockedEventType}
+              readOnly
+              className={cx(
+                "mt-1 w-full border border-border/60 bg-background/30 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
+                "opacity-80"
+              )}
+            />
+            <div className="mt-1 text-[11px] text-muted-foreground">Event type is locked for this module.</div>
+          </>
+        ) : (
+          <select
+            value={effectiveCfg.event_type ?? ""}
+            onChange={(e) => patch({ event_type: e.target.value ? e.target.value : null })}
+            disabled={busy}
+            className={cx(
+              "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
+              "focus:ring-2 focus:ring-primary/30",
+              busy && "opacity-60 cursor-not-allowed"
+            )}
+          >
+            <option value="">All types</option>
+            <option value="dos_attack">dos_attack</option>
+            <option value="ssh_auth">ssh_auth</option>
+            <option value="scan_probe">scan_probe</option>
+            <option value="lateral_conn">lateral_conn</option>
+            <option value="flow">flow</option>
+          </select>
+        )}
       </div>
 
       {/* Search */}

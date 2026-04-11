@@ -3,12 +3,12 @@ import type { ReactNode } from "react";
 type Variant = "critical" | "high" | "medium" | "low" | "info" | "neutral";
 
 const map: Record<Variant, string> = {
-  critical: "bg-red-500/10 text-red-500 border-red-500/30",
-  high: "bg-orange-500/10 text-orange-500 border-orange-500/30",
-  medium: "bg-yellow-500/10 text-yellow-500 border-yellow-500/30",
-  low: "bg-blue-500/10 text-blue-400 border-blue-500/30",
-  info: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30",
-  neutral: "bg-muted/10 text-muted-foreground border-border/60"
+  critical: "border-severity-critical/45 bg-severity-critical/10 text-severity-critical",
+  high: "border-severity-high/45 bg-severity-high/10 text-severity-high",
+  medium: "border-severity-medium/45 bg-severity-medium/10 text-severity-medium",
+  low: "border-severity-low/45 bg-severity-low/10 text-severity-low",
+  info: "border-info/45 bg-info/10 text-info",
+  neutral: "border-border/70 bg-muted/40 text-muted-foreground"
 };
 
 export function Badge({
@@ -19,7 +19,7 @@ export function Badge({
   variant?: Variant;
 }) {
   return (
-    <span className={`inline-flex items-center border px-2 py-0.5 text-[10px] font-mono uppercase tracking-widest ${map[variant]}`}>
+    <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.06em] ${map[variant]}`}>
       {children}
     </span>
   );

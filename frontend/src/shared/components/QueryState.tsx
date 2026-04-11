@@ -40,7 +40,7 @@ export default function QueryState({
                 <button
                   type="button"
                   onClick={onRetry}
-                  className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest text-foreground hover:bg-muted/15"
+                  className="ui-btn"
                 >
                   Retry
                 </button>

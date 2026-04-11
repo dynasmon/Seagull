@@ -29,6 +29,11 @@ type ViewCfg = {
   show_extra: boolean;
 };
 
+type EventsStreamPageProps = {
+  forcedEventType?: string;
+  moduleTitle?: string;
+};
+
 const LS_KEY = "nw_events_view_v1";
 
 const DEFAULTS: ViewCfg = {
@@ -145,11 +150,16 @@ function SmallToggle({
   );
 }
 
-export default function EventsPage() {
+export default function EventsPage({ forcedEventType, moduleTitle }: EventsStreamPageProps = {}) {
   const { agents } = useAgentsCatalog();
   const [searchParams, setSearchParams] = useSearchParams();
+  const pinnedEventType = normalizeFilterText(forcedEventType);
 
-  const [view, setView] = useState<ViewCfg>(() => safeLoadView());
+  const [view, setView] = useState<ViewCfg>(() => {
+    const base = safeLoadView();
+    if (!pinnedEventType) return base;
+    return { ...base, event_type: pinnedEventType };
+  });
   const viewRef = useRef(view);
   useEffect(() => {
     viewRef.current = view;
@@ -187,7 +197,7 @@ export default function EventsPage() {
     didInitFromUrl.current = true;
 
     const agent_id = (searchParams.get("agent_id") ?? "").trim();
-    const event_type = (searchParams.get("event_type") ?? "").trim();
+    const event_type = pinnedEventType || (searchParams.get("event_type") ?? "").trim();
     const search = searchParams.get("search") ?? "";
     const window_minutes = clampInt(searchParams.get("window_minutes"), 1, 1440, viewRef.current.window_minutes);
     const limit = clampInt(searchParams.get("limit"), 10, 500, viewRef.current.limit);
@@ -204,14 +214,15 @@ export default function EventsPage() {
 
     if (eventId > 0) setDrawerId(eventId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [pinnedEventType, searchParams]);
 
   // Keep URL in sync with the view (shareable state + deep-link drawer).
   useEffect(() => {
     const sp = new URLSearchParams();
 
     if (view.agent_id) sp.set("agent_id", view.agent_id);
-    if (view.event_type) sp.set("event_type", view.event_type);
+    if (pinnedEventType) sp.set("event_type", pinnedEventType);
+    else if (view.event_type) sp.set("event_type", view.event_type);
     if (view.search) sp.set("search", view.search);
 
     if (view.window_minutes !== DEFAULTS.window_minutes) sp.set("window_minutes", String(view.window_minutes));
@@ -222,7 +233,7 @@ export default function EventsPage() {
     if (sp.toString() !== searchParams.toString()) {
       setSearchParams(sp, { replace: true });
     }
-  }, [view.agent_id, view.event_type, view.search, view.window_minutes, view.limit, drawerId, searchParams, setSearchParams]);
+  }, [view.agent_id, view.event_type, view.search, view.window_minutes, view.limit, drawerId, searchParams, setSearchParams, pinnedEventType]);
 
   const agentNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -381,9 +392,10 @@ export default function EventsPage() {
       merged.window_minutes = clampInt(merged.window_minutes, 1, 1440, DEFAULTS.window_minutes);
       merged.limit = clampInt(merged.limit, 10, 500, DEFAULTS.limit);
       merged.refresh_ms = clampInt(merged.refresh_ms, 2000, 300000, DEFAULTS.refresh_ms);
+      if (pinnedEventType) merged.event_type = pinnedEventType;
       return merged;
     });
-  }, []);
+  }, [pinnedEventType]);
 
   const isInitialLoading = loading && events.length === 0;
   const isRefreshing = loading && events.length > 0;
@@ -404,13 +416,13 @@ export default function EventsPage() {
     (next: { agent_id?: string | null; event_type?: string | null; search?: string | null; window_minutes?: number | null; limit?: number | null }) => {
       patch({
         agent_id: (next.agent_id ?? "") || "",
-        event_type: (next.event_type ?? "") || "",
+        event_type: pinnedEventType || ((next.event_type ?? "") || ""),
         search: next.search ?? "",
         window_minutes: next.window_minutes ?? DEFAULTS.window_minutes,
         limit: next.limit ?? DEFAULTS.limit
       });
     },
-    [patch]
+    [patch, pinnedEventType]
   );
 
   const headerRight = useMemo(() => {
@@ -449,7 +461,7 @@ export default function EventsPage() {
           setQueryMeta(null);
           setError(null);
           setLastUpdatedAt(null);
-          setView(DEFAULTS);
+          setView({ ...DEFAULTS, event_type: pinnedEventType || DEFAULTS.event_type });
         }}
         className={cx(
           "rounded-md border border-border/60 bg-background/40",
@@ -467,7 +479,7 @@ export default function EventsPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm font-semibold tracking-tight">Event Stream</div>
+        <div className="text-sm font-semibold tracking-tight">{moduleTitle || "Event Stream"}</div>
         {toolbarRight}
       </div>
 
@@ -482,6 +494,7 @@ export default function EventsPage() {
               agents={agentOptions}
               busy={isInitialLoading}
               value={filtersValue}
+              lockEventType={pinnedEventType || null}
               onChange={onFiltersChange}
             />
 
@@ -561,14 +574,22 @@ export default function EventsPage() {
             </div>
           </Panel>
 
-          <Panel title="Explorer" right={view.event_type ? `Type: ${view.event_type}` : "All types"} scrollY style={{ maxHeight: 360 }}>
-            <EventExplorer
-              types={typeCounts}
-              activeType={view.event_type || null}
-              onSelectType={(t) => patch({ event_type: t || "" })}
-              onClearType={() => patch({ event_type: "" })}
-            />
-          </Panel>
+          {!pinnedEventType ? (
+            <Panel title="Explorer" right={view.event_type ? `Type: ${view.event_type}` : "All types"} scrollY style={{ maxHeight: 360 }}>
+              <EventExplorer
+                types={typeCounts}
+                activeType={view.event_type || null}
+                onSelectType={(t) => patch({ event_type: t || "" })}
+                onClearType={() => patch({ event_type: "" })}
+              />
+            </Panel>
+          ) : (
+            <Panel title="Explorer" right={`Locked: ${pinnedEventType}`}>
+              <div className="text-[12px] text-muted-foreground">
+                Type explorer is locked for this module to preserve the DDoS-focused workflow.
+              </div>
+            </Panel>
+          )}
 
           <Panel title="Top sources" right={topSrc.length ? "" : "No data"}>
             <div className="space-y-2">

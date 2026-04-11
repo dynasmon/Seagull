@@ -44,12 +44,7 @@ export default function AsyncState({
             <button
               type="button"
               onClick={onRetry}
-              className={cx(
-                "rounded-md border border-border/60 bg-background/40",
-                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground",
-                "focus:outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              className={cx("ui-btn")}
             >
               Retry
             </button>
@@ -69,4 +64,3 @@ export default function AsyncState({
 
   return null;
 }
-
