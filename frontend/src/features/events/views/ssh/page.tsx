@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 
 import AsyncState from "@/shared/components/AsyncState";
 import EmptyState from "@/shared/components/EmptyState";
+import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import { Card } from "@/shared/components/Card";
 import { Table } from "@/shared/components/Table";
 import { Badge } from "@/shared/components/Badge";
@@ -237,27 +238,36 @@ export default function SshInsightsPage() {
   }, [data]);
 
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const reqSeq = useRef(0);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    const mySeq = ++reqSeq.current;
+    const hasData = Boolean(dataRef.current);
+    if (hasData) setRefreshing(true);
+    else setLoading(true);
     try {
       const r = await getSshSummary({
         agent_id: viewRef.current.agent_id,
         since_minutes: viewRef.current.since_minutes,
         limit: viewRef.current.limit
       });
+      if (reqSeq.current !== mySeq) return;
       setData(r);
       setError(null);
       setLastUpdatedAt(Date.now());
     } catch (e: any) {
+      if (reqSeq.current !== mySeq) return;
       const msg = getErrorMessage(e, "Failed to load SSH summary");
       setError(msg);
       // keep last known good data (no flicker)
       if (dataRef.current) setData(dataRef.current);
     } finally {
+      if (reqSeq.current !== mySeq) return;
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -326,7 +336,7 @@ export default function SshInsightsPage() {
 
   const headerRight = (
     <div className="flex items-center gap-2">
-      {loading ? <Badge variant="info">Refreshing…</Badge> : null}
+      {refreshing ? <Badge variant="info">Refreshing…</Badge> : null}
       {error ? <Badge variant="high">{error}</Badge> : null}
       <button
         type="button"
@@ -342,10 +352,30 @@ export default function SshInsightsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm font-semibold tracking-tight">SSH Insights</div>
-        {headerRight}
-      </div>
+      <DataViewToolbar
+        left={<div className="text-sm font-semibold tracking-tight">SSH Insights</div>}
+        right={headerRight}
+      />
+
+      <DataStatsStrip
+        stats={[
+          { label: "Accepted", value: totals.success },
+          { label: "Failed password", value: totals.failed },
+          { label: "Invalid user", value: totals.invalid },
+          { label: "Total actions", value: totals.actions },
+          { label: "Unique source IPs", value: totals.uniqueIps },
+          { label: "Enriched source IPs", value: `${totals.enrichPct}%`, hint: `${totals.enriched}/${totals.uniqueIps}` },
+          { label: "Scope", value: view.agent_id || "all agents", hint: `Lookback ${view.since_minutes}m` },
+          { label: "Rows", value: view.limit, hint: view.auto_refresh ? `Auto ${Math.round(view.refresh_ms / 1000)}s` : "Manual refresh" },
+        ]}
+      />
+
+      {current?.meta ? (
+        <DataQueryStateBanner
+          tone={current.meta.degraded_reason ? "warning" : "neutral"}
+          message={fmtQueryMeta(current.meta)}
+        />
+      ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
         <div className="lg:col-span-8">
@@ -425,17 +455,6 @@ export default function SshInsightsPage() {
           </Card>
         </div>
       </div>
-
-      {current?.meta ? (
-        <div
-          className={cx(
-            "rounded-xl border p-3 text-xs font-mono",
-            current.meta.degraded_reason ? "border-amber-500/40 bg-amber-500/10 text-amber-200" : "border-border/60 bg-background/40 text-muted-foreground"
-          )}
-        >
-          {fmtQueryMeta(current.meta)}
-        </div>
-      ) : null}
 
       {loading || !current || (!!error && !current) ? (
         <AsyncState

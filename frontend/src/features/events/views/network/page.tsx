@@ -5,6 +5,7 @@ import { useAgentsCatalog } from "@/app/providers";
 import AsyncState from "@/shared/components/AsyncState";
 import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
+import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Table, type Column } from "@/shared/components/Table";
@@ -421,10 +422,23 @@ export default function ProtocolIntelPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm font-semibold tracking-tight">Protocol Intelligence</div>
-        {headerRight}
-      </div>
+      <DataViewToolbar
+        left={<div className="text-sm font-semibold tracking-tight">Protocol Intelligence</div>}
+        right={headerRight}
+      />
+
+      <DataStatsStrip
+        stats={[
+          { label: "Total events", value: data ? data.total_events : "-" },
+          { label: "With metadata", value: data ? data.with_proto_metadata : "-", hint: `Coverage ${coverage}` },
+          { label: "DNS events", value: data ? data.dns_events : "-" },
+          { label: "HTTP events", value: data ? data.http_events : "-" },
+          { label: "TLS/DTLS/QUIC", value: data ? data.tls_events : "-" },
+          { label: "Generated at", value: generatedAt },
+          { label: "Scope", value: view.agent_id || "all agents", hint: `Lookback ${view.since_minutes}m` },
+          { label: "Top-N", value: view.top_n, hint: view.auto_refresh ? `Auto ${Math.round(view.refresh_ms / 1000)}s` : "Manual refresh" },
+        ]}
+      />
 
       <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-5">
         <div className="space-y-5">
@@ -644,14 +658,10 @@ export default function ProtocolIntelPage() {
           ) : null}
 
           {!hasBlockingState && data?.meta ? (
-            <div
-              className={cx(
-                "rounded-xl border p-3 text-xs font-mono",
-                data.meta.degraded_reason ? "border-amber-500/40 bg-amber-500/10 text-amber-200" : "border-border/60 bg-background/40 text-muted-foreground"
-              )}
-            >
-              {fmtQueryMeta(data.meta)}
-            </div>
+            <DataQueryStateBanner
+              tone={data.meta.degraded_reason ? "warning" : "neutral"}
+              message={fmtQueryMeta(data.meta)}
+            />
           ) : null}
 
           {!hasBlockingState && shouldWarnNoCoverage ? (

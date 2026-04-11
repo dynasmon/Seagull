@@ -3,6 +3,7 @@ import type { ReactNode, CSSProperties } from "react";
 import { Link } from "react-router-dom";
 
 import EmptyState from "@/shared/components/EmptyState";
+import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 import type { Alert } from "./types";
@@ -299,6 +300,45 @@ function StatLinkTile({
   );
 }
 
+function BadgeTone({
+  text,
+  tone
+}: {
+  text: string;
+  tone: "neutral" | "warning" | "danger";
+}) {
+  const cls =
+    tone === "danger"
+      ? "border-red-500/40 bg-red-500/10 text-red-300"
+      : tone === "warning"
+        ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+        : "border-border/60 bg-background/40 text-muted-foreground";
+  return <span className={cx("rounded-md border px-2 py-1 text-[10px] font-mono", cls)}>{text}</span>;
+}
+
+function QuickPivot({
+  to,
+  label,
+  hint
+}: {
+  to: string;
+  label: string;
+  hint: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className={cx(
+        "rounded-lg border border-border/60 bg-background/70 px-3 py-2.5",
+        "hover:bg-muted/15 focus:outline-none focus:ring-2 focus:ring-primary/30"
+      )}
+    >
+      <div className="text-[10px] font-mono uppercase tracking-[0.15em] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-xs text-foreground">{hint}</div>
+    </Link>
+  );
+}
+
 function SeverityBadge({ severity }: { severity: string }) {
   const s = (severity || "").toLowerCase();
   let color = "text-muted-foreground border-border/60 bg-muted/10";
@@ -444,36 +484,52 @@ function OverviewPageView() {
   }
 
   const headerRight = (
-    <div className="flex items-center gap-3">
-      {degradedSources > 0 && (
-        <span className="text-[10px] font-mono text-amber-400">
-          DEGRADED SOURCES: {degradedSources}
-        </span>
-      )}
-      {snapshot.query_meta ? (
-        <span className={cx("text-[10px] font-mono", snapshot.query_meta.degraded_reason ? "text-amber-400" : "text-muted-foreground")}>
-          QUERY: {snapshot.query_meta.source}
-          {typeof snapshot.query_meta.source_freshness_seconds === "number" ? ` · ${snapshot.query_meta.source_freshness_seconds}s` : ""}
-          {snapshot.query_meta.cache_hit ? " · cache" : ""}
-        </span>
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {degradedSources > 0 ? <BadgeTone text={`Degraded sources: ${degradedSources}`} tone="warning" /> : null}
+      {snapshot.meta?.ddos_telemetry_dropped_per_sec > 0 ? (
+        <BadgeTone text={`DDoS drop/s: ${snapshot.meta.ddos_telemetry_dropped_per_sec}`} tone="warning" />
       ) : null}
-      {snapshot.meta?.ddos_telemetry_dropped_per_sec > 0 && (
-        <span className="text-[10px] font-mono text-amber-400">
-          DDOS TELEMETRY DROP/s: {snapshot.meta.ddos_telemetry_dropped_per_sec}
-        </span>
-      )}
-      {error && <span className="text-[10px] font-mono text-red-400">API ERROR</span>}
-      {lastUpdatedAt && (
-        <span className="text-[10px] font-mono text-muted-foreground">UPDATED: {fmtHHMM(lastUpdatedAt)}</span>
-      )}
+      {error ? <BadgeTone text="API error" tone="danger" /> : null}
+      {lastUpdatedAt ? <BadgeTone text={`Updated ${fmtHHMM(lastUpdatedAt)}`} tone="neutral" /> : null}
     </div>
   );
 
   return (
-    <div className="min-h-screen pb-20 font-sans text-sm text-foreground">
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-xs font-mono uppercase tracking-[0.35em] text-muted-foreground">Overview</div>
-        {headerRight}
+    <div className="min-h-screen pb-20 font-sans text-sm text-foreground space-y-4">
+      <DataViewToolbar
+        left={<div className="text-xs font-mono uppercase tracking-[0.35em] text-muted-foreground">Overview</div>}
+        right={headerRight}
+      />
+
+      {snapshot.query_meta ? (
+        <DataQueryStateBanner
+          tone={snapshot.query_meta.degraded_reason ? "warning" : "neutral"}
+          message={`query ${snapshot.query_meta.source}${typeof snapshot.query_meta.source_freshness_seconds === "number" ? ` · ${snapshot.query_meta.source_freshness_seconds}s` : ""}${snapshot.query_meta.cache_hit ? " · cache" : ""}`}
+        />
+      ) : null}
+
+      <DataStatsStrip
+        stats={[
+          { label: "Events (5m)", value: derived.events5m },
+          { label: `Events (${WINDOW_MINUTES}m)`, value: derived.events1h },
+          { label: "Active agents", value: `${derived.onlineAgents}/${derived.totalAgents}` },
+          { label: "Alerts (1h)", value: derived.alerts1h },
+          { label: "DDoS detections (5m)", value: derived.ddos5m },
+          { label: "DDoS peak PPS", value: fmtCompact(derived.ddosPeakPps) },
+          { label: "Storm phase", value: storm?.phase || (storm?.active ? "active" : "ok") },
+          { label: "Ingest EPS", value: storm?.eps ?? 0 },
+        ]}
+      />
+
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+        <QuickPivot to="/events" label="Event Stream" hint="Live telemetry and drilldown" />
+        <QuickPivot to="/alerts/queue" label="Alerts Queue" hint="Active detections and triage" />
+        <QuickPivot to="/attack-chain" label="Attack Chains" hint="Open incident timelines" />
+        <QuickPivot to="/events/ddos" label="DDoS Module" hint="Detection stream and attack posture" />
+        <QuickPivot to="/events/network" label="Protocol Intel" hint="L4/L7 evidence and pivots" />
+        <QuickPivot to="/events/ssh" label="SSH Insights" hint="Auth anomalies and source IP context" />
+        <QuickPivot to="/investigations" label="Investigations" hint="Workspaces and evidence tracking" />
+        <QuickPivot to="/inventory" label="Inventory" hint="Agent asset and exposure context" />
       </div>
 
       <DashboardSection id="ingestion" title="INGESTION & HEALTH" defaultOpen>
