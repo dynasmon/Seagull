@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 
 import PageHeader from "@/shared/components/PageHeader";
+import DetectionWorkflowRail from "@/shared/components/DetectionWorkflow";
 
 export default function CorrelationsLayout() {
   return (
@@ -16,6 +17,8 @@ export default function CorrelationsLayout() {
           { label: "Rules", to: "/correlations/rules" },
         ]}
       />
+
+      <DetectionWorkflowRail compact />
 
       <Outlet />
     </div>

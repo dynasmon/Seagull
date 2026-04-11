@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/shared/components/Badge";
+import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
@@ -144,6 +145,16 @@ export default function CorrelationRulesPage() {
     });
   }, [rules, q, showDisabled]);
 
+  const stats = useMemo(() => {
+    const enabled = rules.filter((row) => row.enabled).length;
+    const chain = rules.filter((row) => String(row.strategy || "").toLowerCase() === "chain").length;
+    const criticalHigh = rules.filter((row) => {
+      const sev = String(row.severity || "").toLowerCase();
+      return sev === "critical" || sev === "high";
+    }).length;
+    return { enabled, chain, criticalHigh };
+  }, [rules]);
+
   function resetForm() {
     setName("");
     setDescription("");
@@ -251,62 +262,72 @@ export default function CorrelationRulesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Correlation rules</h2>
-          <div className="text-xs text-muted-foreground">
-            Create and manage correlation rules that group alerts into higher-level incidents.
+      <DataViewToolbar
+        left={
+          <div>
+            <h2 className="text-lg font-semibold">Correlation rules</h2>
+            <div className="text-xs text-muted-foreground">
+              Define burst and stage-chain logic to connect low-level detections into investigation-ready incidents.
+            </div>
           </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search rules, patterns…"
-            className={cx(
-              "h-9 min-w-[220px] flex-1 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none",
-              "focus:ring-1 focus:ring-primary/40"
-            )}
-          />
-
-          <label className="flex items-center gap-2 text-sm text-muted-foreground select-none">
-            <input
-              type="checkbox"
-              checked={showDisabled}
-              onChange={(e) => setShowDisabled(e.target.checked)}
-              className="h-4 w-4"
+        }
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <DebouncedSearchInput
+              value={q}
+              onChange={setQ}
+              placeholder="Search rule name, strategy, patterns..."
+              className="h-9 min-w-[240px]"
             />
-            Show disabled
-          </label>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground select-none">
+              <input
+                type="checkbox"
+                checked={showDisabled}
+                onChange={(e) => setShowDisabled(e.target.checked)}
+                className="h-4 w-4"
+              />
+              Show disabled
+            </label>
+            <button
+              onClick={load}
+              className={cx(
+                "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
+                "hover:bg-muted/30"
+              )}
+            >
+              Refresh
+            </button>
+            <button
+              onClick={openCreate}
+              className={cx(
+                "h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground",
+                "hover:opacity-95"
+              )}
+            >
+              New rule
+            </button>
+          </div>
+        }
+      />
 
-          <button
-            onClick={load}
-            className={cx(
-              "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-              "hover:bg-muted/30"
-            )}
-          >
-            Refresh
-          </button>
+      <DataQueryStateBanner
+        tone={error ? "danger" : "neutral"}
+        message={error || `${filtered.length} shown · ${rules.length} total`}
+        right={loading ? "loading" : "ready"}
+      />
 
-          <button
-            onClick={openCreate}
-            className={cx(
-              "h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground",
-              "hover:opacity-95"
-            )}
-          >
-            New rule
-          </button>
-        </div>
-      </div>
-
-      {error ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
+      <DataStatsStrip
+        stats={[
+          { label: "Rules", value: rules.length },
+          { label: "Filtered", value: filtered.length },
+          { label: "Enabled", value: stats.enabled },
+          { label: "Chain strategy", value: stats.chain },
+          { label: "Critical/High", value: stats.criticalHigh },
+          { label: "Show disabled", value: showDisabled ? "yes" : "no" },
+          { label: "Editor", value: drawerOpen ? "open" : "closed" },
+          { label: "Mode", value: editing ? "edit existing" : "create available" },
+        ]}
+      />
 
       <div className="rounded-xl border border-border/60 bg-background/70 backdrop-blur-md">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-muted/10">

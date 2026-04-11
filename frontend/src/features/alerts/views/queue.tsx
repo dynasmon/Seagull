@@ -1,8 +1,15 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Badge } from "@/shared/components/Badge";
+import {
+  DataPaginationFooter,
+  DataQueryStateBanner,
+  DataStatsStrip,
+  DataViewToolbar,
+  DebouncedSearchInput,
+} from "@/shared/components/DataView";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
@@ -262,15 +269,28 @@ function AlertsQueueTable(props: {
   rows: Alert[];
   selectedId: number | null;
   onEdit: (a: Alert) => void;
+  selectedRowIds: Set<number>;
+  onToggleRow: (alertId: number, nextChecked: boolean) => void;
+  onToggleAllRows: (nextChecked: boolean) => void;
   density?: Density;
 }) {
   const dense = props.density === "compact";
+  const allVisibleSelected = props.rows.length > 0 && props.rows.every((row) => props.selectedRowIds.has(row.id));
 
   return (
     <div className="w-full overflow-auto">
       <table className="w-full text-sm">
         <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
           <tr className="border-b border-border/60 text-muted-foreground">
+            <th className="px-3 py-2 w-[40px]">
+              <input
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={(e) => props.onToggleAllRows(e.target.checked)}
+                aria-label="Select visible alerts"
+                className="h-4 w-4"
+              />
+            </th>
             <th className="text-left font-medium px-3 py-2 w-[180px]">Time</th>
             <th className="text-left font-medium px-3 py-2 w-[120px]">Severity</th>
             <th className="text-left font-medium px-3 py-2 w-[260px]">Rule</th>
@@ -285,7 +305,29 @@ function AlertsQueueTable(props: {
           {props.rows.map((a) => {
             const selected = props.selectedId !== null && a.id === props.selectedId;
             return (
-              <tr key={a.id} className={cx("border-b border-border/40 hover:bg-muted/30", selected && "bg-muted/40")}>
+              <tr
+                key={a.id}
+                className={cx("border-b border-border/40 hover:bg-muted/30", selected && "bg-muted/40")}
+                role="button"
+                tabIndex={0}
+                onClick={() => props.onEdit(a)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    props.onEdit(a);
+                  }
+                }}
+              >
+                <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
+                  <input
+                    type="checkbox"
+                    checked={props.selectedRowIds.has(a.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => props.onToggleRow(a.id, e.target.checked)}
+                    aria-label={`Select alert ${a.id}`}
+                    className="h-4 w-4"
+                  />
+                </td>
                 <td className={cx("px-3 font-mono text-[12px] text-muted-foreground", dense ? "py-1.5" : "py-2")}>
                   {fmtTs(a.created_at)}
                 </td>
@@ -324,7 +366,7 @@ function AlertsQueueTable(props: {
                     )}
                     title="Open drawer"
                   >
-                    Edit
+                    View
                   </button>
                 </td>
               </tr>
@@ -338,6 +380,7 @@ function AlertsQueueTable(props: {
 
 export default function AlertsQueuePage() {
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [view, setView] = useState<ViewCfg>(() => safeLoadView());
   const viewRef = useRef(view);
@@ -359,6 +402,7 @@ export default function AlertsQueuePage() {
   const [selected, setSelected] = useState<Alert | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState<"summary" | "evidence" | "raw">("summary");
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<number>>(() => new Set());
 
   const [copied, setCopied] = useState(false);
 
@@ -384,6 +428,7 @@ export default function AlertsQueuePage() {
 
   const panelBodyRef = useRef<HTMLDivElement | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const hydratedFromQueryRef = useRef(false);
 
   const patch = useCallback((next: Partial<ViewCfg>) => {
     setView((prev) => {
@@ -398,6 +443,19 @@ export default function AlertsQueuePage() {
       return merged;
     });
   }, []);
+
+  useEffect(() => {
+    if (hydratedFromQueryRef.current) return;
+    hydratedFromQueryRef.current = true;
+    const ruleId = String(searchParams.get("rule_id") || "").trim();
+    const search = String(searchParams.get("search") || "").trim();
+    const severity = String(searchParams.get("severity") || "").trim().toLowerCase();
+    const next: Partial<ViewCfg> = {};
+    if (ruleId) next.rule_id = ruleId;
+    if (search) next.search = search;
+    if (severity) next.severity = severity;
+    if (Object.keys(next).length > 0) patch(next);
+  }, [patch, searchParams]);
 
   const loadHead = useCallback(async (mode: "reset" | "merge" = "reset") => {
     const mySeq = ++reqSeq.current;
@@ -446,6 +504,7 @@ export default function AlertsQueuePage() {
         setNextCursor(null);
         setHasMore(false);
         setSelected(null);
+        setSelectedRowIds(new Set());
         setDrawerOpen(false);
       }
     } finally {
@@ -613,6 +672,7 @@ export default function AlertsQueuePage() {
     setNextCursor(null);
     setHasMore(false);
     setSelected(null);
+    setSelectedRowIds(new Set());
     setDrawerOpen(false);
     setError(null);
     setLastRefresh(null);
@@ -661,6 +721,18 @@ export default function AlertsQueuePage() {
     });
   }, [alerts, view.search]);
 
+  useEffect(() => {
+    const visible = new Set(filtered.map((row) => row.id));
+    setSelectedRowIds((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set<number>();
+      prev.forEach((id) => {
+        if (visible.has(id)) next.add(id);
+      });
+      return next;
+    });
+  }, [filtered]);
+
   const headerRight = useMemo(() => {
     if (loading && alerts.length === 0) return "Loading…";
     const base = `${filtered.length} alerts`;
@@ -670,6 +742,27 @@ export default function AlertsQueuePage() {
     const ss = String(lastRefresh.getSeconds()).padStart(2, "0");
     return `${base} · refreshed ${hh}:${mm}:${ss}`;
   }, [filtered.length, lastRefresh, loading, alerts.length]);
+
+  const severityBreakdown = useMemo(() => {
+    const counts: Record<string, number> = {
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      unknown: 0,
+    };
+    for (const alert of filtered) {
+      const key = String(alert.severity || "unknown").toLowerCase();
+      if (counts[key] === undefined) counts.unknown += 1;
+      else counts[key] += 1;
+    }
+    return counts;
+  }, [filtered]);
+
+  const selectedRows = useMemo(() => {
+    if (selectedRowIds.size === 0) return [];
+    return filtered.filter((row) => selectedRowIds.has(row.id));
+  }, [filtered, selectedRowIds]);
 
   const detailsJson = useMemo(() => {
     if (!selected) return "";
@@ -704,6 +797,37 @@ export default function AlertsQueuePage() {
     setDrawerOpen(true);
   }
 
+  function toggleRowSelection(alertId: number, nextChecked: boolean) {
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      if (nextChecked) next.add(alertId);
+      else next.delete(alertId);
+      return next;
+    });
+  }
+
+  function toggleAllVisibleRows(nextChecked: boolean) {
+    setSelectedRowIds((prev) => {
+      if (!nextChecked) {
+        const next = new Set(prev);
+        filtered.forEach((row) => next.delete(row.id));
+        return next;
+      }
+      const next = new Set(prev);
+      filtered.forEach((row) => next.add(row.id));
+      return next;
+    });
+  }
+
+  function clearSelectedRows() {
+    setSelectedRowIds(new Set());
+  }
+
+  function openFirstSelected() {
+    if (selectedRows.length === 0) return;
+    openDrawerFor(selectedRows[0]);
+  }
+
   function openRuleEditor() {
     if (!selected?.rule_id) return;
     nav(`/alerts/rules?rule_id=${encodeURIComponent(selected.rule_id)}`);
@@ -718,6 +842,31 @@ export default function AlertsQueuePage() {
       (selected.mitre_technique_id || "").trim() ||
       (selected.rule_id || "").trim();
     if (primaryQuery) sp.set("search", primaryQuery);
+    nav(`/events${sp.toString() ? `?${sp.toString()}` : ""}`);
+  }
+
+  function openSelectedRuleEditor() {
+    if (selectedRows.length === 0) return;
+    const firstRule = String(selectedRows[0].rule_id || "").trim();
+    if (!firstRule) return;
+    nav(`/alerts/rules?rule_id=${encodeURIComponent(firstRule)}`);
+  }
+
+  function pivotSelectedToEvents() {
+    if (selectedRows.length === 0) return;
+    const first = selectedRows[0];
+    setSelected(first);
+    const sp = new URLSearchParams();
+    const query = [
+      first.src_ip,
+      first.dst_ip,
+      first.mitre_technique_id,
+      first.rule_id,
+    ]
+      .filter(Boolean)
+      .map((part) => String(part).trim())
+      .find(Boolean);
+    if (query) sp.set("search", query);
     nav(`/events${sp.toString() ? `?${sp.toString()}` : ""}`);
   }
 
@@ -739,91 +888,116 @@ export default function AlertsQueuePage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Alert queue</h2>
-          <div className="text-xs text-muted-foreground">
-            Inspect alerts generated by rules. Use the <span className="text-foreground">Rules</span> tab to tune detection.
+      <DataViewToolbar
+        left={
+          <div>
+            <h2 className="text-lg font-semibold">Alert queue</h2>
+            <div className="text-xs text-muted-foreground">
+              Inspect alert triage queue, pivot into evidence, and tune detections from the same workflow.
+            </div>
           </div>
-        </div>
+        }
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <DebouncedSearchInput
+              value={view.search}
+              onChange={(value) => patch({ search: value })}
+              placeholder="Search rule, IP, technique, description..."
+              className="h-9 min-w-[220px] max-w-[360px]"
+            />
+            <SeverityFilter value={view.severity} onChange={(value) => patch({ severity: value })} />
+            <input
+              value={view.rule_id}
+              onChange={(event) => patch({ rule_id: event.target.value })}
+              placeholder="Rule ID (exact)"
+              className={cx(
+                "h-9 w-[210px] rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none",
+                "focus:ring-1 focus:ring-primary/40"
+              )}
+              title="Exact server-side rule filter"
+            />
+            <button
+              onClick={() => patch({ density: view.density === "comfortable" ? "compact" : "comfortable" })}
+              className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30")}
+              title="Toggle row density"
+            >
+              {view.density === "compact" ? "Compact" : "Comfort"}
+            </button>
+            <button
+              onClick={() => patch({ infinite_scroll: !view.infinite_scroll })}
+              className={cx(
+                "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
+                view.infinite_scroll ? "text-foreground" : "text-muted-foreground",
+                "hover:bg-muted/30"
+              )}
+              title="Auto-load older pages when scrolling"
+            >
+              {view.infinite_scroll ? "Infinite" : "Manual"}
+            </button>
+            <button
+              onClick={() => loadHead("merge")}
+              disabled={loading}
+              className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30 disabled:opacity-60")}
+              title="Refresh queue"
+            >
+              Refresh
+            </button>
+            <button
+              onClick={handleRunAll}
+              disabled={running}
+              className={cx("h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground", "hover:opacity-95 disabled:opacity-60")}
+              title="Run all rules now"
+            >
+              {running ? "Running…" : "Run rules"}
+            </button>
+          </div>
+        }
+      />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={view.search}
-            onChange={(e) => patch({ search: e.target.value })}
-            placeholder="Search rule, IP, description…"
-            className={cx(
-              "h-9 min-w-[220px] flex-1 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none",
-              "focus:ring-1 focus:ring-primary/40"
-            )}
-          />
+      <DataQueryStateBanner
+        tone={error ? "danger" : "neutral"}
+        message={
+          error
+            ? error
+            : `source realtime+cursor · mode ${view.infinite_scroll ? "infinite" : "manual"} · ${headerRight}`
+        }
+        right={`${selectedRows.length} selected`}
+      />
 
-          <SeverityFilter value={view.severity} onChange={(v) => patch({ severity: v })} />
+      <DataStatsStrip
+        stats={[
+          { label: "Visible", value: filtered.length, hint: `${alerts.length} loaded` },
+          { label: "Critical/High", value: severityBreakdown.critical + severityBreakdown.high },
+          { label: "Medium/Low", value: severityBreakdown.medium + severityBreakdown.low },
+          { label: "Unknown", value: severityBreakdown.unknown },
+          { label: "Severity filter", value: view.severity },
+          { label: "Rule filter", value: view.rule_id || "-" },
+          { label: "Density", value: view.density },
+          { label: "Selected", value: selectedRows.length },
+        ]}
+      />
 
-          <input
-            value={view.rule_id}
-            onChange={(e) => patch({ rule_id: e.target.value })}
-            placeholder="Rule ID (exact, backend)"
-            className={cx(
-              "h-9 w-[220px] rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none",
-              "focus:ring-1 focus:ring-primary/40"
-            )}
-            title="Exact rule_id filter (server-side)"
-          />
-
-          <select
-            value={String(view.page_size)}
-            onChange={(e) => patch({ page_size: Number(e.target.value) })}
-            className="h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
-            title="Page size"
-          >
-            <option value="50">50 / page</option>
-            <option value="100">100 / page</option>
-            <option value="200">200 / page</option>
-          </select>
-
-          <button
-            onClick={() => patch({ density: view.density === "comfortable" ? "compact" : "comfortable" })}
-            className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30")}
-            title="Toggle row density"
-          >
-            {view.density === "compact" ? "Compact" : "Comfort"}
-          </button>
-
-          <button
-            onClick={() => patch({ infinite_scroll: !view.infinite_scroll })}
-            className={cx(
-              "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-              view.infinite_scroll ? "text-foreground" : "text-muted-foreground",
-              "hover:bg-muted/30"
-            )}
-            title="Auto-load older pages when you scroll"
-          >
-            {view.infinite_scroll ? "Infinite" : "Manual"}
-          </button>
-
-          <button
-            onClick={() => loadHead("merge")}
-            disabled={loading}
-            className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30 disabled:opacity-60")}
-            title="Refresh (keeps loaded pages)"
-          >
-            Refresh
-          </button>
-
-          <button
-            onClick={handleRunAll}
-            disabled={running}
-            className={cx("h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground", "hover:opacity-95 disabled:opacity-60")}
-            title="Run all rules now"
-          >
-            {running ? "Running…" : "Run rules"}
-          </button>
-        </div>
-      </div>
-
-      {error ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
+      {selectedRows.length > 0 ? (
+        <DataViewToolbar
+          className="py-2"
+          left={<div className="text-xs text-muted-foreground">{selectedRows.length} row(s) selected</div>}
+          right={
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={openFirstSelected} className="ui-btn-secondary h-8 px-3 text-xs">
+                Open first evidence
+              </button>
+              <button type="button" onClick={openSelectedRuleEditor} className="ui-btn-secondary h-8 px-3 text-xs">
+                Edit selected rule
+              </button>
+              <button type="button" onClick={pivotSelectedToEvents} className="ui-btn-secondary h-8 px-3 text-xs">
+                Pivot to events
+              </button>
+              <button type="button" onClick={clearSelectedRows} className="ui-btn-secondary h-8 px-3 text-xs">
+                Clear selection
+              </button>
+            </div>
+          }
+        />
       ) : null}
 
       <Panel
@@ -844,39 +1018,29 @@ export default function AlertsQueuePage() {
           </div>
         ) : (
           <div className="relative">
-            <AlertsQueueTable rows={filtered} selectedId={selected?.id ?? null} onEdit={openDrawerFor} density={view.density} />
+            <AlertsQueueTable
+              rows={filtered}
+              selectedId={selected?.id ?? null}
+              onEdit={openDrawerFor}
+              density={view.density}
+              selectedRowIds={selectedRowIds}
+              onToggleRow={toggleRowSelection}
+              onToggleAllRows={toggleAllVisibleRows}
+            />
 
-            <div
-              className={cx(
-                "sticky bottom-0 left-0 right-0 border-t border-border/60 bg-background/70 backdrop-blur",
-                "px-4 py-3"
-              )}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-[11px] font-mono text-muted-foreground">
-                  Loaded <span className="text-foreground">{alerts.length}</span> alerts
-                  {filtered.length !== alerts.length ? <span className="opacity-80"> · after search: {filtered.length}</span> : null}
-                </div>
-
-                {hasMore ? (
-                  <button
-                    type="button"
-                    onClick={() => loadMore()}
-                    disabled={loadingMore}
-                    className={cx(
-                      "rounded-md border border-border/60 bg-background/40",
-                      "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                      "hover:bg-muted/15 hover:text-foreground",
-                      "focus:outline-none focus:ring-2 focus:ring-primary/30",
-                      loadingMore && "opacity-60 cursor-not-allowed"
-                    )}
-                  >
-                    {loadingMore ? "Loading…" : "Load older"}
-                  </button>
-                ) : (
-                  <div className="text-[11px] font-mono text-muted-foreground opacity-80">End of queue</div>
-                )}
-              </div>
+            <div className="sticky bottom-0 left-0 right-0 border-t border-border/60 bg-background/70 px-4 py-3 backdrop-blur">
+              <DataPaginationFooter
+                totalCount={filtered.length}
+                pageSize={view.page_size}
+                onPageSizeChange={(next) => patch({ page_size: next })}
+                pageSizeOptions={[50, 100, 200]}
+                hasMore={hasMore}
+                loadingMore={loadingMore}
+                onLoadMore={loadMore}
+                loadMoreLabel="Load older"
+                error={error}
+                onRetry={error ? () => loadHead("merge") : undefined}
+              />
             </div>
 
             <div ref={loadMoreSentinelRef} className="h-6" />
@@ -892,7 +1056,7 @@ export default function AlertsQueuePage() {
         widthClassName="w-[980px]"
       >
         {!selected ? (
-          <EmptyState title="No selection" description="Select an alert using the Edit button." />
+          <EmptyState title="No selection" description="Select an alert using the View action in the queue." />
         ) : (
           <InvestigationShell>
             <InvestigationMetaStrip

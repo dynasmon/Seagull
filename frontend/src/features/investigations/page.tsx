@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Drawer from "@/shared/components/Drawer";
+import { DataPaginationFooter, DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
+import DetectionWorkflowRail from "@/shared/components/DetectionWorkflow";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
 import { Badge } from "@/shared/components/Badge";
+import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
 import { cx } from "@/shared/lib/cx";
+import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
 import { usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import {
@@ -43,6 +47,21 @@ type Filters = {
   linkedCaseId: string;
   search: string;
 };
+
+type InvestigationsQueryState = Filters & {
+  workspace_id: number | null;
+};
+
+const FILTER_DEFAULTS: Filters = {
+  status: "all",
+  severity: "all",
+  priority: "all",
+  assignee: "",
+  agentId: "",
+  linkedCaseId: "",
+  search: "",
+};
+
 const INVESTIGATIONS_RT_BURST_WINDOW_MS = 1000;
 const INVESTIGATIONS_RT_BURST_LIMIT = 80;
 
@@ -126,6 +145,24 @@ function parseCaseId(raw: string): number | undefined {
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return undefined;
   return Math.trunc(n);
+}
+
+function parseStatusFilter(raw: string): Filters["status"] {
+  const value = String(raw || "").trim().toLowerCase();
+  if (value === "open" || value === "contained" || value === "resolved" || value === "closed") return value;
+  return "all";
+}
+
+function parseSeverityFilter(raw: string): Filters["severity"] {
+  const value = String(raw || "").trim().toLowerCase();
+  if (value === "low" || value === "medium" || value === "high" || value === "critical") return value;
+  return "all";
+}
+
+function parsePriorityFilter(raw: string): Filters["priority"] {
+  const value = String(raw || "").trim().toLowerCase();
+  if (value === "p1" || value === "p2" || value === "p3" || value === "p4") return value;
+  return "all";
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -843,14 +880,40 @@ function WorkspaceDrawer({
 }
 
 export default function InvestigationsPage() {
+  const [query, setQuery] = useUrlQueryState<InvestigationsQueryState>({
+    parse: (sp) => ({
+      status: parseStatusFilter(getStringParam(sp, "status", FILTER_DEFAULTS.status)),
+      severity: parseSeverityFilter(getStringParam(sp, "severity", FILTER_DEFAULTS.severity)),
+      priority: parsePriorityFilter(getStringParam(sp, "priority", FILTER_DEFAULTS.priority)),
+      assignee: getStringParam(sp, "assignee", FILTER_DEFAULTS.assignee),
+      agentId: getStringParam(sp, "agent_id", FILTER_DEFAULTS.agentId),
+      linkedCaseId: getStringParam(sp, "linked_case_id", FILTER_DEFAULTS.linkedCaseId),
+      search: getStringParam(sp, "search", FILTER_DEFAULTS.search),
+      workspace_id: getIntParam(sp, "workspace_id", { min: 1, max: Number.MAX_SAFE_INTEGER, fallback: 0 }) || null,
+    }),
+    serialize: (state) => {
+      const sp = new URLSearchParams();
+      setOptionalParam(sp, "status", state.status === FILTER_DEFAULTS.status ? null : state.status);
+      setOptionalParam(sp, "severity", state.severity === FILTER_DEFAULTS.severity ? null : state.severity);
+      setOptionalParam(sp, "priority", state.priority === FILTER_DEFAULTS.priority ? null : state.priority);
+      setOptionalParam(sp, "assignee", state.assignee || null);
+      setOptionalParam(sp, "agent_id", state.agentId || null);
+      setOptionalParam(sp, "linked_case_id", state.linkedCaseId || null);
+      setOptionalParam(sp, "search", state.search || null);
+      setOptionalParam(sp, "workspace_id", state.workspace_id);
+      return sp;
+    },
+    replace: true,
+  });
+
   const [filters, setFilters] = useState<Filters>({
-    status: "all",
-    severity: "all",
-    priority: "all",
-    assignee: "",
-    agentId: "",
-    linkedCaseId: "",
-    search: "",
+    status: query.status || FILTER_DEFAULTS.status,
+    severity: query.severity || FILTER_DEFAULTS.severity,
+    priority: query.priority || FILTER_DEFAULTS.priority,
+    assignee: query.assignee || FILTER_DEFAULTS.assignee,
+    agentId: query.agentId || FILTER_DEFAULTS.agentId,
+    linkedCaseId: query.linkedCaseId || FILTER_DEFAULTS.linkedCaseId,
+    search: query.search || FILTER_DEFAULTS.search,
   });
 
   const [rows, setRows] = useState<InvestigationWorkspace[]>([]);
@@ -870,6 +933,32 @@ export default function InvestigationsPage() {
   const invalidateRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeBurstWindowStartRef = useRef(0);
   const realtimeBurstCountRef = useRef(0);
+
+  useEffect(() => {
+    const next: Filters = {
+      status: query.status || FILTER_DEFAULTS.status,
+      severity: query.severity || FILTER_DEFAULTS.severity,
+      priority: query.priority || FILTER_DEFAULTS.priority,
+      assignee: query.assignee || FILTER_DEFAULTS.assignee,
+      agentId: query.agentId || FILTER_DEFAULTS.agentId,
+      linkedCaseId: query.linkedCaseId || FILTER_DEFAULTS.linkedCaseId,
+      search: query.search || FILTER_DEFAULTS.search,
+    };
+    setFilters((prev) => {
+      if (
+        prev.status === next.status &&
+        prev.severity === next.severity &&
+        prev.priority === next.priority &&
+        prev.assignee === next.assignee &&
+        prev.agentId === next.agentId &&
+        prev.linkedCaseId === next.linkedCaseId &&
+        prev.search === next.search
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [query.agentId, query.assignee, query.linkedCaseId, query.priority, query.search, query.severity, query.status]);
 
   async function fetchFirst() {
     setLoading(true);
@@ -921,6 +1010,20 @@ export default function InvestigationsPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function applyFilters() {
+    setQuery((prev) => ({
+      ...prev,
+      status: filters.status,
+      severity: filters.severity,
+      priority: filters.priority,
+      assignee: filters.assignee.trim(),
+      agentId: filters.agentId.trim(),
+      linkedCaseId: filters.linkedCaseId.trim(),
+      search: filters.search.trim(),
+    }));
+    void fetchFirst();
   }
 
   usePortalRealtimeSubscription("ui.investigations.timeline.append", (event) => {
@@ -976,6 +1079,20 @@ export default function InvestigationsPage() {
   }, []);
 
   useEffect(() => {
+    if (!query.workspace_id) return;
+    setSelectedId(query.workspace_id);
+    setDrawerOpen(true);
+  }, [query.workspace_id]);
+
+  useEffect(() => {
+    setQuery((prev) => {
+      const nextWorkspaceId = drawerOpen && selectedId ? selectedId : null;
+      if ((prev.workspace_id || null) === nextWorkspaceId) return prev;
+      return { ...prev, workspace_id: nextWorkspaceId };
+    });
+  }, [drawerOpen, selectedId, setQuery]);
+
+  useEffect(() => {
     return () => {
       if (!invalidateRefreshTimerRef.current) return;
       window.clearTimeout(invalidateRefreshTimerRef.current);
@@ -1010,30 +1127,68 @@ export default function InvestigationsPage() {
     return `${rows.length} loaded${hasMore ? " · more available" : ""}`;
   }, [rows.length, hasMore]);
 
+  const workspaceStats = useMemo(() => {
+    const open = rows.filter((row) => row.status === "open").length;
+    const criticalHigh = rows.filter((row) => row.severity === "critical" || row.severity === "high").length;
+    const assigned = rows.filter((row) => Boolean((row.assignee || "").trim())).length;
+    const evidence = rows.reduce((acc, row) => acc + (row.bookmarks_count || 0), 0);
+    const notes = rows.reduce((acc, row) => acc + (row.notes_count || 0), 0);
+    return { open, criticalHigh, assigned, evidence, notes };
+  }, [rows]);
+
   return (
     <div className="space-y-5">
       <PageHeader
         title="Investigations"
         breadcrumb={["Detection", "Investigations"]}
         description="Persistent case workspaces with notes and pinned evidence."
-        toolbarRight={
+      />
+
+      <DetectionWorkflowRail compact />
+
+      <DataViewToolbar
+        left={
+          <div className="text-xs text-muted-foreground">
+            Move from alert and chain pivots into long-lived case workspaces with notes, evidence and timeline activity.
+          </div>
+        }
+        right={
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => fetchFirst()}
-              className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:bg-muted/15 hover:text-foreground"
+              className="ui-btn-secondary h-8 px-3 text-xs"
             >
               Refresh
             </button>
             <button
               type="button"
               onClick={() => setCreateOpen((v) => !v)}
-              className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:bg-muted/15 hover:text-foreground"
+              className="ui-btn h-8 px-3 text-xs"
             >
               {createOpen ? "Hide create" : "New workspace"}
             </button>
           </div>
         }
+      />
+
+      <DataQueryStateBanner
+        tone={error ? "danger" : "neutral"}
+        message={error || summary}
+        right={loading ? "loading" : "ready"}
+      />
+
+      <DataStatsStrip
+        stats={[
+          { label: "Loaded workspaces", value: rows.length },
+          { label: "Open", value: workspaceStats.open },
+          { label: "Critical/High", value: workspaceStats.criticalHigh },
+          { label: "Assigned", value: workspaceStats.assigned },
+          { label: "Notes", value: workspaceStats.notes },
+          { label: "Evidence", value: workspaceStats.evidence },
+          { label: "Selected", value: selectedId || "-" },
+          { label: "Drawer", value: drawerOpen ? "open" : "closed" },
+        ]}
       />
 
       <div className="rounded-xl border border-border/60 bg-background/40 p-4 space-y-3">
@@ -1068,8 +1223,19 @@ export default function InvestigationsPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <input value={filters.search} onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))} placeholder="Search title, key, description" className="flex-1 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm" />
-          <button type="button" onClick={() => fetchFirst()} className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:bg-muted/15 hover:text-foreground">Apply</button>
+          <DebouncedSearchInput
+            value={filters.search}
+            onChange={(value) => setFilters((prev) => ({ ...prev, search: value }))}
+            placeholder="Search title, workspace key, description..."
+            className="h-9 flex-1"
+          />
+          <button
+            type="button"
+            onClick={applyFilters}
+            className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:bg-muted/15 hover:text-foreground"
+          >
+            Apply
+          </button>
         </div>
 
         {createOpen ? (
@@ -1122,7 +1288,22 @@ export default function InvestigationsPage() {
                 </thead>
                 <tbody>
                   {rows.map((ws) => (
-                    <tr key={ws.id} className="border-b border-border/40 hover:bg-muted/20">
+                    <tr
+                      key={ws.id}
+                      className={cx("border-b border-border/40 hover:bg-muted/20", selectedId === ws.id && "bg-muted/30")}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        setSelectedId(ws.id);
+                        setDrawerOpen(true);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        setSelectedId(ws.id);
+                        setDrawerOpen(true);
+                      }}
+                    >
                       <td className="px-3 py-2">
                         <div className="font-semibold truncate">{ws.title}</div>
                         <div className="text-[11px] text-muted-foreground font-mono truncate">{ws.workspace_key}</div>
@@ -1137,7 +1318,8 @@ export default function InvestigationsPage() {
                       <td className="px-3 py-2 text-right">
                         <button
                           type="button"
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setSelectedId(ws.id);
                             setDrawerOpen(true);
                           }}
@@ -1153,15 +1335,22 @@ export default function InvestigationsPage() {
             </div>
           ) : null}
 
-          {!loading && hasMore ? (
-            <div className="p-4 flex justify-center">
-              <button
-                type="button"
-                onClick={() => fetchMore()}
-                className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:bg-muted/15 hover:text-foreground"
-              >
-                Load more
-              </button>
+          {rows.length > 0 ? (
+            <div className="p-4">
+              <DataPaginationFooter
+                totalCount={rows.length}
+                pageSize={50}
+                onPageSizeChange={() => {
+                  // fixed backend page size
+                }}
+                pageSizeOptions={[50]}
+                hasMore={hasMore}
+                loadingMore={loading}
+                onLoadMore={fetchMore}
+                loadMoreLabel="Load older workspaces"
+                error={error}
+                onRetry={error ? () => fetchFirst() : undefined}
+              />
             </div>
           ) : null}
         </div>
@@ -1170,7 +1359,10 @@ export default function InvestigationsPage() {
       <WorkspaceDrawer
         workspaceId={selectedId}
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+        onClose={() => {
+          setDrawerOpen(false);
+          setSelectedId(null);
+        }}
         onUpdated={(next) => {
           setRows((prev) => prev.map((x) => (x.id === next.id ? next : x)));
         }}
