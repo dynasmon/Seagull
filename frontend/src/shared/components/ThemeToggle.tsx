@@ -38,7 +38,7 @@ export default function ThemeToggle() {
     <button
       type="button"
       onClick={toggleTheme}
-      className="inline-flex items-center gap-2 rounded-md border border-border bg-panel px-3 py-2 text-sm text-fg hover:bg-panel2"
+      className="ui-btn inline-flex items-center gap-2"
       title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
       aria-label="Toggle theme"
     >

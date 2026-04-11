@@ -20,17 +20,17 @@ export function Card({
   return (
     <section
       className={cx(
-        "border border-border/60 bg-background/70 backdrop-blur-sm",
+        "ui-card-shell overflow-hidden",
         className
       )}
     >
       {hasHeader && (
-        <header className="flex items-center justify-between border-b border-border/60 bg-muted/10 px-4 py-2">
-          <div className="text-xs font-mono font-bold uppercase tracking-widest text-primary/90">
+        <header className="flex items-center justify-between border-b border-border/60 bg-muted/35 px-4 py-2.5">
+          <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             {title}
           </div>
           {right && (
-            <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
+            <div className="text-[11px] text-muted-foreground">
               {right}
             </div>
           )}

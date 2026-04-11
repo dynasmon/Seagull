@@ -23,15 +23,19 @@ export function Table<T>({
   scrollX?: boolean;
 }) {
   return (
-    <div className={`border border-border/60 bg-background/30 overflow-y-auto ${scrollX ? "overflow-x-auto" : "overflow-x-hidden"}`}>
+    <div
+      className={`ui-card-shell overflow-y-auto ${scrollX ? "overflow-x-auto" : "overflow-x-hidden"}`}
+      role="region"
+      aria-label="Data table"
+    >
       <table className={`w-full ${className || "text-sm"}`}>
-        <thead className="bg-muted/10 text-left text-[10px] text-muted-foreground font-mono uppercase tracking-widest">
+        <thead className="sticky top-0 z-[1] bg-muted/60 text-left text-[11px] text-muted-foreground uppercase tracking-[0.08em]">
           <tr>
             {columns.map((c) => (
               <th
                 key={c.key}
                 style={c.width ? { width: c.width } : undefined}
-                className={`px-3 py-2 font-bold ${c.className || ""}`}
+                className={`px-3 py-2.5 font-semibold ${c.className || ""}`}
               >
                 {c.title}
               </th>
@@ -40,9 +44,9 @@ export function Table<T>({
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={rowKey(r, i)} className="border-t border-border/40 hover:bg-primary/5">
+            <tr key={rowKey(r, i)} className="border-t border-border/50 hover:bg-muted/45">
               {columns.map((c) => (
-                <td key={c.key} className={`px-3 py-2 ${c.className || ""}`}>
+                <td key={c.key} className={`px-3 py-2.5 ${c.className || ""}`}>
                   {c.render ? c.render(r) : (r as any)[c.key]}
                 </td>
               ))}

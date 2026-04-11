@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect } from "react";
+import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 
 import { cx } from "@/shared/lib/cx";
@@ -19,6 +19,10 @@ export default function Drawer({
   children: ReactNode;
   widthClassName?: string;
 }) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
 
@@ -37,6 +41,11 @@ export default function Drawer({
     };
   }, [open, onClose]);
 
+  useEffect(() => {
+    if (!open) return;
+    closeButtonRef.current?.focus();
+  }, [open]);
+
   if (!open) return null;
 
   // IMPORTANT: render into document.body so we are not affected by any parent
@@ -46,7 +55,7 @@ export default function Drawer({
   return createPortal(
     <div className="fixed inset-0 z-[9999]">
       <div
-        className="absolute inset-0 bg-black/55 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-slate-950/55 backdrop-blur-[1px]"
         onMouseDown={onClose}
         aria-hidden="true"
       />
@@ -54,33 +63,32 @@ export default function Drawer({
       <section
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
         className={cx(
           "absolute right-0 top-0 h-full max-w-[92vw]",
           widthClassName,
-          "border-l border-border/60 bg-background/92 backdrop-blur-md shadow-2xl",
+          "border-l border-border/70 bg-background/96 backdrop-blur-sm shadow-2xl",
           "flex flex-col overflow-hidden"
         )}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <header className="shrink-0 border-b border-border/60 bg-muted/10 px-5 py-4">
+        <header className="ui-drawer-header shrink-0 px-5 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                 Drawer
               </div>
-              <h2 className="mt-1 text-lg font-semibold truncate">{title}</h2>
-              {description ? <div className="mt-1 text-sm text-muted-foreground">{description}</div> : null}
+              <h2 id={titleId} className="mt-1 truncate text-lg font-semibold">{title}</h2>
+              {description ? <div id={descriptionId} className="mt-1 text-sm text-muted-foreground">{description}</div> : null}
             </div>
 
             <button
+              ref={closeButtonRef}
               type="button"
               onClick={onClose}
               className={cx(
-                "shrink-0 rounded-md border border-border/60 bg-background/40",
-                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground",
-                "focus:outline-none focus:ring-2 focus:ring-primary/30"
+                "ui-btn shrink-0"
               )}
             >
               Close

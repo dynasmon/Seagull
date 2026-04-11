@@ -7,12 +7,13 @@ export default function EventsLayout() {
     <div className="space-y-6">
       <PageHeader
         title="Events"
-        breadcrumb={["Telemetry"]}
-        description="Fleet telemetry views: stream, SSH auth insights, and protocol intelligence derived from network evidence."
+        breadcrumb={["Threat Monitoring"]}
+        description="Operational telemetry modules for stream triage, SSH authentication intelligence, protocol evidence, and DDoS posture."
         tabs={[
           { label: "Event Stream", to: "/events" },
           { label: "SSH Insights", to: "/events/ssh" },
-          { label: "Protocol Intel", to: "/events/network" }
+          { label: "Protocol Intel", to: "/events/network" },
+          { label: "DDoS", to: "/events/ddos" }
         ]}
       />
 
