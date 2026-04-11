@@ -2,54 +2,72 @@
 @tailwind components;
 @tailwind utilities;
 
-/*
-  Design system
-  - Uses RGB triplets so Tailwind can apply alpha via: rgb(var(--token) / <alpha-value>)
-  - Clean cyber (dark-first)
-*/
-
 :root {
-  /* Ice white (cool, slightly bluish) */
-  --background: 244 248 255;
-  --foreground: 15 23 42;
+  color-scheme: light;
 
-  /* Surfaces */
-  --card: 252 254 255;
-  --muted: 236 242 250;
-  --muted-foreground: 86 102 126;
+  --background: 245 248 252;
+  --foreground: 17 24 39;
 
-  /* Lines */
-  --border: 182 195 214;
+  --card: 255 255 255;
+  --muted: 236 241 247;
+  --muted-foreground: 95 110 131;
+  --border: 197 209 224;
 
-  /* Brand */
-  --primary: 2 132 199;
+  --primary: 11 94 178;
   --primary-foreground: 255 255 255;
-}
 
+  --surface-1: 255 255 255;
+  --surface-2: 249 251 254;
+  --surface-3: 241 246 252;
+  --ring: 56 128 212;
+
+  --success: 17 110 84;
+  --warning: 180 106 7;
+  --danger: 176 45 45;
+  --info: 12 103 166;
+
+  --severity-critical: 176 45 45;
+  --severity-high: 188 89 17;
+  --severity-medium: 172 114 0;
+  --severity-low: 16 102 173;
+  --severity-neutral: 96 112 131;
+}
 
 html.dark {
   color-scheme: dark;
 
-  --background: 11 18 32;
-  --foreground: 229 231 235;
+  --background: 11 18 31;
+  --foreground: 228 233 241;
 
-  /*
-    Keep cards readable by using a white-based card token and controlling opacity
-    with Tailwind alpha (e.g., bg-card/30).
-  */
-  --card: 255 255 255;
-  --muted: 255 255 255;
-  --muted-foreground: 148 163 184;
+  --card: 18 30 48;
+  --muted: 36 52 75;
+  --muted-foreground: 156 171 194;
+  --border: 64 83 111;
 
-  --border: 71 85 105;
+  --primary: 70 152 245;
+  --primary-foreground: 10 23 40;
 
-  --primary: 34 211 238;
-  --primary-foreground: 15 23 42;
+  --surface-1: 19 30 48;
+  --surface-2: 25 40 63;
+  --surface-3: 31 49 76;
+  --ring: 111 177 255;
+
+  --success: 82 196 149;
+  --warning: 235 182 83;
+  --danger: 241 104 104;
+  --info: 110 194 245;
+
+  --severity-critical: 241 104 104;
+  --severity-high: 245 154 84;
+  --severity-medium: 235 182 83;
+  --severity-low: 110 194 245;
+  --severity-neutral: 176 190 211;
 }
 
 @layer base {
   html,
-  body {
+  body,
+  #root {
     height: 100%;
   }
 
@@ -57,8 +75,92 @@ html.dark {
     margin: 0;
     background: rgb(var(--background));
     color: rgb(var(--foreground));
-    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
-      Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    font-family: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.4;
+    text-rendering: optimizeLegibility;
+  }
+
+  *:focus-visible {
+    outline: 2px solid rgb(var(--ring) / 0.95);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: rgb(var(--primary) / 0.25);
+  }
+}
+
+@layer components {
+  .ui-surface-1 {
+    @apply border border-border/70 bg-card/90;
+  }
+
+  .ui-surface-2 {
+    @apply border border-border/60 bg-muted/45;
+  }
+
+  .ui-section-shell {
+    @apply rounded-lg border border-border/70 bg-card/90 shadow-[0_1px_0_rgb(var(--border)/0.2)];
+  }
+
+  .ui-toolbar-shell {
+    @apply rounded-lg border border-border/60 bg-muted/35 px-3 py-2;
+  }
+
+  .ui-card-shell {
+    @apply rounded-lg border border-border/70 bg-card/90;
+  }
+
+  .ui-tab-shell {
+    @apply flex flex-wrap items-center gap-2 border-b border-border/70;
+  }
+
+  .ui-tab-item {
+    @apply inline-flex min-h-[2rem] items-center rounded-md px-3 text-sm text-muted-foreground hover:bg-muted/70 hover:text-foreground;
+  }
+
+  .ui-tab-item-active {
+    @apply bg-primary/10 text-foreground shadow-[inset_0_0_0_1px_rgb(var(--primary)/0.35)];
+  }
+
+  .ui-btn {
+    @apply inline-flex h-9 items-center justify-center rounded-md border border-border/70 bg-card/80 px-3 text-sm text-foreground transition-colors hover:bg-muted/70;
+  }
+
+  .ui-btn-secondary {
+    @apply ui-btn bg-muted/40;
+  }
+
+  .ui-btn-ghost {
+    @apply inline-flex h-9 items-center justify-center rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground;
+  }
+
+  .ui-btn-danger {
+    @apply inline-flex h-9 items-center justify-center rounded-md border border-danger/50 bg-danger/10 px-3 text-sm text-danger transition-colors hover:bg-danger/20;
+  }
+
+  .ui-input {
+    @apply h-9 w-full rounded-md border border-border/70 bg-card/85 px-3 text-sm text-foreground placeholder:text-muted-foreground/80;
+  }
+
+  .ui-select {
+    @apply h-9 w-full rounded-md border border-border/70 bg-card/85 px-3 text-sm text-foreground;
+  }
+
+  .ui-chip {
+    @apply inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium;
+  }
+
+  .ui-empty-state {
+    @apply rounded-lg border border-border/70 bg-muted/35 px-5 py-6 text-center;
+  }
+
+  .ui-loading-state {
+    @apply inline-flex items-center gap-2 text-sm text-muted-foreground;
+  }
+
+  .ui-drawer-header {
+    @apply border-b border-border/70 bg-muted/45;
   }
 }
 
@@ -66,31 +168,38 @@ html.dark {
   @keyframes page-fade-slide-in {
     from {
       opacity: 0;
-      transform: translateY(8px) scale(0.995);
-      filter: blur(2px);
+      transform: translateY(4px);
     }
     to {
       opacity: 1;
-      transform: translateY(0) scale(1);
-      filter: blur(0);
+      transform: translateY(0);
     }
   }
 
   .page-transition-enter {
-    animation: page-fade-slide-in 220ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
-    will-change: transform, opacity, filter;
+    animation: page-fade-slide-in 180ms ease-out both;
   }
 
   .scrollbar-hide {
-    -ms-overflow-style: none; /* IE/Edge */
-    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
+
   .scrollbar-hide::-webkit-scrollbar {
-    display: none; /* Chrome/Safari */
+    display: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
   .page-transition-enter {
     animation: none !important;
   }

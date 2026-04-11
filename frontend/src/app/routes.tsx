@@ -10,6 +10,7 @@ const loadEventsLayout = () => import("@/features/events/page");
 const loadEventsStreamPage = () => import("@/features/events/views/stream/page");
 const loadSshInsightsPage = () => import("@/features/events/views/ssh/page");
 const loadProtocolIntelPage = () => import("@/features/events/views/network/page");
+const loadDdosPage = () => import("@/features/events/views/ddos/page");
 
 const loadAlertsLayout = () => import("@/features/alerts/page");
 const loadAlertsQueuePage = () => import("@/features/alerts/views/queue");
@@ -46,6 +47,7 @@ const EventsLayout = lazy(loadEventsLayout);
 const EventsStreamPage = lazy(loadEventsStreamPage);
 const SshInsightsPage = lazy(loadSshInsightsPage);
 const ProtocolIntelPage = lazy(loadProtocolIntelPage);
+const DdosPage = lazy(loadDdosPage);
 
 const AlertsLayout = lazy(loadAlertsLayout);
 const AlertsQueuePage = lazy(loadAlertsQueuePage);
@@ -77,6 +79,7 @@ const routeWarmers: Array<() => Promise<unknown>> = [
   loadOverviewPage,
   loadEventsLayout,
   loadEventsStreamPage,
+  loadDdosPage,
   loadAlertsLayout,
   loadVulnerabilitiesPage,
   loadInventoryPage,
@@ -137,6 +140,7 @@ export function Routes() {
             <Route index element={<EventsStreamPage />} />
             <Route path="ssh" element={<SshInsightsPage />} />
             <Route path="network" element={<ProtocolIntelPage />} />
+            <Route path="ddos" element={<DdosPage />} />
           </Route>
 
           <Route path="/alerts" element={<AlertsLayout />}>

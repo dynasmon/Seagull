@@ -82,6 +82,7 @@ function buildRealtimeAlert(
   const createdAt = typeof payload.created_at === "string" && payload.created_at.trim()
     ? payload.created_at
     : eventTimestamp;
+  const confidence = toSafeInt(payload.confidence);
 
   return {
     id: alertId,
@@ -92,8 +93,7 @@ function buildRealtimeAlert(
     dst_ip: typeof payload.dst_ip === "string" ? payload.dst_ip : null,
     dst_port: toSafeInt(payload.dst_port),
     description: String(payload.description || "Realtime alert"),
-    details: {},
-    confidence: toSafeInt(payload.confidence) ?? undefined,
+    details: confidence === null ? {} : { confidence },
   };
 }
 
@@ -203,12 +203,12 @@ export function applyOverviewRealtimeAlertsDelta(
   if (!snapshot || !payload || typeof payload !== "object") return snapshot;
   const action = String(payload.action || "patch").trim().toLowerCase();
   const alertProjection = buildRealtimeAlertFromDelta(payload);
-  let next = snapshot;
+  let next: OverviewSnapshot | null = snapshot;
 
   if (action === "upsert") {
-    next = applyOverviewRealtimeAlertCreated(snapshot, alertProjection, eventTimestamp);
+    next = applyOverviewRealtimeAlertCreated(next, alertProjection, eventTimestamp);
   } else {
-    next = applyOverviewRealtimeAlertUpdated(snapshot, alertProjection);
+    next = applyOverviewRealtimeAlertUpdated(next, alertProjection);
   }
 
   if (!next) return next;
