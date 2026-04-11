@@ -193,7 +193,7 @@ export default function Sidebar({
 
       <aside
         className={cx(
-          "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-border/70 bg-card/95 shadow-xl backdrop-blur-sm transition-transform lg:static lg:z-auto lg:translate-x-0 lg:shadow-none",
+          "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-border/70 bg-card/95 shadow-xl backdrop-blur-sm transition-transform lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 lg:shadow-none",
           compact ? "w-[16.5rem] lg:w-[4.75rem]" : "w-[16.5rem] lg:w-[16.5rem]",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}

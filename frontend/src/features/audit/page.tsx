@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Navigate, Outlet, useOutletContext } from "react-router-dom";
+import { Navigate, Outlet } from "react-router-dom";
 
 import { useAuth } from "@/features/auth/context";
 import EmptyState from "@/shared/components/EmptyState";
@@ -8,14 +8,6 @@ import PageHeader from "@/shared/components/PageHeader";
 import { getRuntimeConfig } from "./api";
 import RetentionCard from "./components/RetentionCard";
 import { canViewAudit } from "./lib";
-
-type AuditLayoutCtx = {
-  security: Record<string, any>;
-};
-
-export function useAuditLayout() {
-  return useOutletContext<AuditLayoutCtx>();
-}
 
 export default function AuditLayout() {
   const { user } = useAuth();
