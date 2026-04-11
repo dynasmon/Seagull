@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import Drawer from "@/shared/components/Drawer";
+import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Badge } from "@/shared/components/Badge";
@@ -263,6 +264,16 @@ export default function AlertsRulesPage() {
     return `${filtered.length} rules`;
   }, [filtered.length, loading]);
 
+  const ruleStats = useMemo(() => {
+    const enabled = rules.filter((rule) => rule.enabled).length;
+    const overrides = rules.filter((rule) => rule.has_override).length;
+    const criticalHigh = rules.filter((rule) => {
+      const severity = String(rule.severity || "").toLowerCase();
+      return severity === "critical" || severity === "high";
+    }).length;
+    return { enabled, overrides, criticalHigh };
+  }, [rules]);
+
   function toggleDay(d: string) {
     setSchedDays((prev) => ({ ...prev, [d]: !prev[d] }));
   }
@@ -371,44 +382,56 @@ export default function AlertsRulesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Rules</h2>
-          <div className="text-xs text-muted-foreground">
-            Configure thresholds, severity, lookback window, cooldown and schedules. Overrides are stored in the DB — your YAML stays intact.
+      <DataViewToolbar
+        left={
+          <div>
+            <h2 className="text-lg font-semibold">Rules</h2>
+            <div className="text-xs text-muted-foreground">
+              Configure thresholds, lookback windows, cooldowns, schedules and severity with override safety.
+            </div>
           </div>
-        </div>
+        }
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <DebouncedSearchInput
+              value={q}
+              onChange={setQ}
+              placeholder="Search rule, pack, category..."
+              className="h-9 min-w-[240px]"
+            />
+            <button
+              onClick={() => reload()}
+              disabled={loading}
+              className={cx(
+                "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
+                "hover:bg-muted/30 disabled:opacity-60"
+              )}
+              type="button"
+            >
+              Refresh
+            </button>
+          </div>
+        }
+      />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search rule…"
-            className={cx(
-              "h-9 min-w-[220px] flex-1 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none",
-              "focus:ring-1 focus:ring-primary/40"
-            )}
-          />
+      <DataQueryStateBanner
+        tone={error ? "danger" : "neutral"}
+        message={error || `${filtered.length} filtered rules · ${rules.length} total rules`}
+        right={loading ? "loading" : "ready"}
+      />
 
-          <button
-            onClick={() => reload()}
-            disabled={loading}
-            className={cx(
-              "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-              "hover:bg-muted/30 disabled:opacity-60"
-            )}
-            type="button"
-          >
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      {error ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
+      <DataStatsStrip
+        stats={[
+          { label: "Rules", value: rules.length },
+          { label: "Filtered", value: filtered.length },
+          { label: "Enabled", value: ruleStats.enabled },
+          { label: "Overrides", value: ruleStats.overrides },
+          { label: "Critical/High", value: ruleStats.criticalHigh },
+          { label: "Selected", value: selectedId || "-" },
+          { label: "Editor", value: drawerOpen ? "open" : "closed" },
+          { label: "View", value: showEffective ? "effective visible" : "effective hidden" },
+        ]}
+      />
 
       <Panel title="Rule catalog" right={headerRight} scrollY className={cx(panelHeightClass)}>
         {loading ? (

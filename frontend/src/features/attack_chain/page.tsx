@@ -1,11 +1,13 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
+import DetectionWorkflowRail from "@/shared/components/DetectionWorkflow";
 import PageHeader from "@/shared/components/PageHeader";
 import Loading from "@/shared/components/Loading";
 import EmptyState from "@/shared/components/EmptyState";
 import { Badge } from "@/shared/components/Badge";
+import { DataPaginationFooter, DataQueryStateBanner, DataStatsStrip } from "@/shared/components/DataView";
 import { cx } from "@/shared/lib/cx";
 
 import { listAgents } from "@/features/agents/api";
@@ -128,6 +130,7 @@ type AppliedFilters = {
 };
 
 export default function AttackChainPage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [agents, setAgents] = useState<AgentPublic[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
@@ -281,6 +284,10 @@ export default function AttackChainPage() {
     setDeepLinkStepId(typeof stepId === "number" && stepId > 0 ? stepId : null);
   }
 
+  function pivotToInvestigations(caseId: number) {
+    navigate(`/investigations?linked_case_id=${encodeURIComponent(String(caseId))}&status=open`);
+  }
+
   useEffect(() => {
     const caseId = parsePositiveInt(searchParams.get("case_id"));
     const stepId = parsePositiveInt(searchParams.get("step_id"));
@@ -308,6 +315,25 @@ export default function AttackChainPage() {
 
   const density = applied.density;
   const dense = density === "compact";
+  const openCases = useMemo(() => rows.filter((row) => String(row.status).toLowerCase() === "open").length, [rows]);
+  const closedCases = useMemo(() => rows.filter((row) => String(row.status).toLowerCase() === "closed").length, [rows]);
+  const highRiskCases = useMemo(() => rows.filter((row) => Number(row.score) >= 60).length, [rows]);
+  const hottestStage = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      const key = stageLabel(row.max_stage);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    let winner = "-";
+    let winnerCount = 0;
+    for (const [label, count] of counts.entries()) {
+      if (count > winnerCount) {
+        winner = label;
+        winnerCount = count;
+      }
+    }
+    return winner;
+  }, [rows]);
 
   return (
     <div className="w-full max-w-none space-y-6">
@@ -339,6 +365,31 @@ export default function AttackChainPage() {
             ) : null}
           </div>
         }
+      />
+
+      <DetectionWorkflowRail compact />
+
+      {error ? (
+        <DataQueryStateBanner tone="danger" message={error} />
+      ) : (
+        <DataQueryStateBanner
+          tone="neutral"
+          message={`filters ${appliedSummary}`}
+          right={lastRefresh ? `updated ${fmtTs(lastRefresh.toISOString())}` : "pending first refresh"}
+        />
+      )}
+
+      <DataStatsStrip
+        stats={[
+          { label: "Loaded cases", value: rows.length },
+          { label: "Open", value: openCases },
+          { label: "Closed", value: closedCases },
+          { label: "High risk (score >= 60)", value: highRiskCases },
+          { label: "Top stage", value: hottestStage },
+          { label: "Scope", value: applied.agentId || "all agents", hint: applied.status || "all status" },
+          { label: "Timeline", value: applied.since ? "bounded" : "all time" },
+          { label: "Density", value: applied.density },
+        ]}
       />
 
       <div className="w-full grid grid-cols-1 xl:grid-cols-12 gap-4 min-h-[calc(100vh-220px)]">
@@ -499,7 +550,7 @@ export default function AttackChainPage() {
                     <th className="text-left font-medium px-3 py-2 w-[220px]">Stage</th>
                     <th className="text-left font-medium px-3 py-2 w-[260px]">Suspect</th>
                     <th className="text-left font-medium px-3 py-2 w-[220px]">Last seen</th>
-                    <th className="text-right font-medium px-3 py-2 w-[120px]">Actions</th>
+                    <th className="text-right font-medium px-3 py-2 w-[220px]">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -537,22 +588,40 @@ export default function AttackChainPage() {
                           {fmtTs(r.last_seen_at)}
                         </td>
                         <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2")}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openCase(r.id);
-                            }}
-                            className={cx(
-                              "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                              "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                              "hover:bg-muted/15 hover:text-foreground",
-                              "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                            )}
-                            title="Open drawer"
-                          >
-                            View
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openCase(r.id);
+                              }}
+                              className={cx(
+                                "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
+                                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                                "hover:bg-muted/15 hover:text-foreground",
+                                "focus:outline-none focus:ring-2 focus:ring-primary/30"
+                              )}
+                              title="Open attack-chain drawer"
+                            >
+                              View
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                pivotToInvestigations(r.id);
+                              }}
+                              className={cx(
+                                "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
+                                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                                "hover:bg-muted/15 hover:text-foreground",
+                                "focus:outline-none focus:ring-2 focus:ring-primary/30"
+                              )}
+                              title="Pivot case into investigations workspace"
+                            >
+                              Investigate
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -562,19 +631,20 @@ export default function AttackChainPage() {
             </div>
           ) : null}
 
-          {!loading && !error && hasMore ? (
-            <div className="mt-4 flex justify-center">
-              <button
-                type="button"
-                onClick={fetchMore}
-                className={cx(
-                  "rounded-md border border-border/60 bg-background/40",
-                  "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                  "hover:bg-muted/15 hover:text-foreground"
-                )}
-              >
-                Load more
-              </button>
+          {!error && rows.length > 0 ? (
+            <div className="mt-4">
+              <DataPaginationFooter
+                totalCount={rows.length}
+                pageSize={50}
+                onPageSizeChange={() => {
+                  // fixed page size for attack-chain cursor requests
+                }}
+                pageSizeOptions={[50]}
+                hasMore={hasMore}
+                loadingMore={loading}
+                onLoadMore={fetchMore}
+                loadMoreLabel="Load older cases"
+              />
             </div>
           ) : null}
         </Panel>

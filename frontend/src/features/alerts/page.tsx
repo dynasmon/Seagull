@@ -2,6 +2,7 @@
 import { Outlet } from "react-router-dom";
 
 import PageHeader from "@/shared/components/PageHeader";
+import DetectionWorkflowRail from "@/shared/components/DetectionWorkflow";
 
 export default function AlertsLayout() {
   return (
@@ -15,6 +16,8 @@ export default function AlertsLayout() {
           { label: "Rules", to: "/alerts/rules" }
         ]}
       />
+
+      <DetectionWorkflowRail compact />
 
       <Outlet />
     </div>
