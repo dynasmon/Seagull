@@ -1,3 +1,5 @@
+import { memo, useMemo } from "react";
+
 import {
   ResponsiveContainer,
   LineChart,
@@ -127,7 +129,7 @@ function maskTrailingNoDataBuckets(
   return out;
 }
 
-export function SimpleTimeSeries({
+export const SimpleTimeSeries = memo(function SimpleTimeSeries({
   data,
   seriesKeys,
   height = 220,
@@ -141,7 +143,10 @@ export function SimpleTimeSeries({
   allowHorizontalScroll?: boolean;
 }) {
   // Keep full timeline, but stop drawing each line after its last real datapoint.
-  const maskedData = maskTrailingNoDataBuckets(data, seriesKeys);
+  const maskedData = useMemo(
+    () => maskTrailingNoDataBuckets(data, seriesKeys),
+    [data, seriesKeys]
+  );
 
   return (
     <div className={allowHorizontalScroll ? "w-full min-w-0 overflow-x-auto" : "w-full min-w-0 overflow-hidden"}>
@@ -184,4 +189,4 @@ export function SimpleTimeSeries({
       </div>
     </div>
   );
-}
+});
