@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/shared/components/Badge";
 import Drawer from "@/shared/components/Drawer";
@@ -302,7 +302,7 @@ export default function AttackChainDrawer({
 
   const reqSeq = useRef(0);
 
-  function setWorkflowFromWorkspace(ws: InvestigationWorkspace | null, notes: InvestigationNote[]) {
+  const setWorkflowFromWorkspace = useCallback((ws: InvestigationWorkspace | null, notes: InvestigationNote[]) => {
     if (!ws) {
       const empty: InvestigationWorkflow = {
         triage: "untriaged",
@@ -326,9 +326,9 @@ export default function AttackChainDrawer({
     };
     setWf(next);
     setAssigneeDraft(next.assignee);
-  }
+  }, []);
 
-  async function loadWorkspaceState(caseIdValue: number) {
+  const loadWorkspaceState = useCallback(async (caseIdValue: number) => {
     const [linked, allChoices] = await Promise.all([
       listInvestigationWorkspaces({ page_size: 1, linked_attack_chain_case_id: caseIdValue }),
       listInvestigationWorkspaces({ page_size: 100 }),
@@ -345,7 +345,7 @@ export default function AttackChainDrawer({
     const notes = await listInvestigationNotes(ws.id, { limit: 300 });
     setWorkspaceNotes(notes || []);
     setWorkflowFromWorkspace(ws, notes || []);
-  }
+  }, [setWorkflowFromWorkspace]);
 
   useEffect(() => {
     if (!open || !caseId) return;
@@ -377,7 +377,7 @@ export default function AttackChainDrawer({
         if (reqSeq.current !== mySeq) return;
         setLoading(false);
       });
-  }, [open, caseId, initialStepId]);
+  }, [open, caseId, initialStepId, loadWorkspaceState]);
 
   useEffect(() => {
     if (!open || !payload || !focusedStepId) return;

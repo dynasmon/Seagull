@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo } from "react";
 
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
+import { DataLookbackSelect, DebouncedSearchInput } from "@/shared/components/DataView";
 import { cx } from "@/shared/lib/cx";
 
 export type EventsViewConfig = {
@@ -166,16 +167,13 @@ function EventsFiltersImpl(props: Props) {
       {/* Search */}
       <div>
         <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Search</div>
-        <input
+        <DebouncedSearchInput
           value={effectiveCfg.search ?? ""}
-          onChange={(e) => patch({ search: e.target.value })}
+          onChange={(value) => patch({ search: value })}
           disabled={busy}
+          delayMs={350}
           placeholder="ip, user, rule, target, vector..."
-          className={cx(
-            "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-            "placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-primary/30",
-            busy && "opacity-60 cursor-not-allowed"
-          )}
+          className={cx("mt-1 h-9 text-[11px]", busy && "opacity-60 cursor-not-allowed")}
         />
       </div>
 
@@ -185,19 +183,21 @@ function EventsFiltersImpl(props: Props) {
           <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
             Window (min)
           </div>
-          <DraftNumberInput
+          <DataLookbackSelect
             value={Number(effectiveCfg.window_minutes ?? DEFAULTS.window_minutes)}
-            min={1}
-            max={1440}
-            fallback={DEFAULTS.window_minutes}
-            onCommit={(v) => patch({ window_minutes: v })}
+            onChange={(v) => patch({ window_minutes: v })}
+            options={[
+              { label: "15 min", minutes: 15 },
+              { label: "30 min", minutes: 30 },
+              { label: "1 hour", minutes: 60 },
+              { label: "6 hours", minutes: 360 },
+              { label: "24 hours", minutes: 1440 }
+            ]}
             disabled={busy}
             className={cx(
-              "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-              "focus:ring-2 focus:ring-primary/30",
+              "mt-1 h-9 w-full text-[11px] font-mono",
               busy && "opacity-60 cursor-not-allowed"
             )}
-            title="Lookback window (minutes)"
           />
         </div>
 

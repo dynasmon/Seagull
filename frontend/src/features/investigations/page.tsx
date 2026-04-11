@@ -304,7 +304,7 @@ function WorkspaceDrawer({
       .finally(() => setLoading(false));
   }, [open, workspaceId, syncEditForm]);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     if (!workspaceId) return;
     const [ws, ns, bs, feed] = await Promise.all([
       getInvestigationWorkspace(workspaceId),
@@ -318,7 +318,7 @@ function WorkspaceDrawer({
     setBookmarks(bs.items || []);
     setActivity(feed.items || []);
     onUpdated(ws);
-  }
+  }, [onUpdated, syncEditForm, workspaceId]);
 
   const scheduleRealtimeRefresh = useCallback(() => {
     if (realtimeRefreshTimerRef.current) return;

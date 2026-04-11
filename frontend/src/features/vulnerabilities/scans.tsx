@@ -6,6 +6,7 @@ import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
+import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { cx } from "@/shared/lib/cx";
 
 import { useAuth } from "@/features/auth/context";
@@ -101,8 +102,17 @@ export default function VulnerabilityScansPage() {
   const [busyMore, setBusyMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [density, setDensity] = useState<Density>("comfortable");
-  const [pageSize, setPageSize] = useState<number>(50);
+  const scansTablePrefs = useDataTablePreferences({
+    storageKey: "nw_vuln_scans_table_v1",
+    defaultPageSize: 50,
+    minPageSize: 10,
+    maxPageSize: 500,
+    defaultCompact: false,
+  });
+  const density: Density = scansTablePrefs.compact ? "compact" : "comfortable";
+  const setDensity = (next: Density) => scansTablePrefs.setCompact(next === "compact");
+  const pageSize = scansTablePrefs.pageSize;
+  const setPageSize = scansTablePrefs.setPageSize;
 
   const [draft, setDraft] = useState<Filters>({ reporterAgentId: "", status: "all", tool: "" });
   const [filters, setFilters] = useState<Filters>(draft);

@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+
+import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
+import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
+import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
 
 import { getAuditEvents } from "./api";
 import { eventMatchesText, localInputToIso, nextUntilCursor, sortEvents } from "./lib";
@@ -11,69 +14,144 @@ type Options = {
   defaultLimit?: number;
 };
 
-function parseLimit(raw: string | null, def: number): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return def;
-  return Math.max(10, Math.min(500, Math.trunc(n)));
-}
+type AuditQueryState = {
+  limit: number;
+  eventType: string;
+  action: string;
+  outcome: string;
+  resourceType: string;
+  actor: string;
+  from: string;
+  to: string;
+  query: string;
+  origin: string;
+  sort: "desc" | "asc";
+};
 
 export function useAuditQuery(opts?: Options) {
   const fixedEventType = opts?.fixedEventType || "";
   const fixedResourceType = opts?.fixedResourceType || "";
   const defaultLimit = Math.max(10, Math.min(500, opts?.defaultLimit ?? 100));
 
-  const [sp, setSp] = useSearchParams();
+  const tablePrefs = useDataTablePreferences({
+    storageKey: `nw_audit_table_${fixedEventType || "all"}_${fixedResourceType || "all"}_v1`,
+    defaultPageSize: defaultLimit,
+    minPageSize: 10,
+    maxPageSize: 500,
+    defaultSort: { key: "created_at", direction: "desc" },
+  });
+
+  const [state, setState] = useUrlQueryState<AuditQueryState>({
+    parse: (sp) => {
+      const sort = sp.get("sort") === "asc" ? "asc" : "desc";
+      return {
+        limit: getIntParam(sp, "limit", { min: 10, max: 500, fallback: tablePrefs.pageSize }),
+        eventType: fixedEventType || getStringParam(sp, "event_type", ""),
+        action: getStringParam(sp, "action", ""),
+        outcome: getStringParam(sp, "outcome", ""),
+        resourceType: fixedResourceType || getStringParam(sp, "resource_type", ""),
+        actor: getStringParam(sp, "actor", ""),
+        from: getStringParam(sp, "from", ""),
+        to: getStringParam(sp, "to", ""),
+        query: sp.get("q") || "",
+        origin: getStringParam(sp, "origin", ""),
+        sort,
+      };
+    },
+    serialize: (value) => {
+      const sp = new URLSearchParams();
+      setOptionalParam(sp, "limit", value.limit === defaultLimit ? null : value.limit);
+      setOptionalParam(sp, "event_type", fixedEventType || value.eventType || null);
+      setOptionalParam(sp, "action", value.action || null);
+      setOptionalParam(sp, "outcome", value.outcome || null);
+      setOptionalParam(sp, "resource_type", fixedResourceType || value.resourceType || null);
+      setOptionalParam(sp, "actor", value.actor || null);
+      setOptionalParam(sp, "from", value.from || null);
+      setOptionalParam(sp, "to", value.to || null);
+      setOptionalParam(sp, "q", value.query || null);
+      setOptionalParam(sp, "origin", value.origin || null);
+      setOptionalParam(sp, "sort", value.sort === "desc" ? null : value.sort);
+      return sp;
+    },
+    replace: true,
+  });
+
+  useEffect(() => {
+    if (tablePrefs.pageSize !== state.limit) tablePrefs.setPageSize(state.limit);
+  }, [state.limit, tablePrefs]);
+
+  useEffect(() => {
+    if (tablePrefs.sort?.direction === state.sort) return;
+    tablePrefs.setSort({ key: "created_at", direction: state.sort });
+  }, [state.sort, tablePrefs]);
 
   const filters = useMemo<AuditFilters>(() => {
     return {
-      limit: parseLimit(sp.get("limit"), defaultLimit),
-      eventType: fixedEventType || (sp.get("event_type") || ""),
-      action: sp.get("action") || "",
-      outcome: sp.get("outcome") || "",
-      resourceType: fixedResourceType || (sp.get("resource_type") || ""),
-      actor: sp.get("actor") || "",
-      from: sp.get("from") || "",
-      to: sp.get("to") || "",
-      query: sp.get("q") || "",
-      origin: sp.get("origin") || "",
-      sort: (sp.get("sort") === "asc" ? "asc" : "desc"),
+      limit: state.limit,
+      eventType: fixedEventType || state.eventType,
+      action: state.action,
+      outcome: state.outcome,
+      resourceType: fixedResourceType || state.resourceType,
+      actor: state.actor,
+      from: state.from,
+      to: state.to,
+      query: state.query,
+      origin: state.origin,
+      sort: state.sort,
     };
-  }, [defaultLimit, fixedEventType, fixedResourceType, sp]);
+  }, [fixedEventType, fixedResourceType, state]);
 
   function setFilter(name: keyof AuditFilters, value: string | number) {
-    setSp((prev) => {
-      const next = new URLSearchParams(prev);
-      const v = String(value || "").trim();
+    setState((prev) => {
+      const next: AuditQueryState = { ...prev };
 
-      const key =
-        name === "eventType"
-          ? "event_type"
-          : name === "resourceType"
-            ? "resource_type"
-            : name === "actor"
-              ? "actor"
-              : name === "query"
-                ? "q"
-                : name;
+      if (name === "limit") {
+        const limit = Math.max(10, Math.min(500, Math.trunc(Number(value) || defaultLimit)));
+        tablePrefs.setPageSize(limit);
+        next.limit = limit;
+        return next;
+      }
 
-      if (!v) next.delete(key);
-      else next.set(key, v);
+      if (name === "sort") {
+        const sort = value === "asc" ? "asc" : "desc";
+        tablePrefs.setSort({ key: "created_at", direction: sort });
+        next.sort = sort;
+        return next;
+      }
 
+      const stringValue = String(value || "").trim();
+      if (name === "eventType") next.eventType = stringValue;
+      else if (name === "resourceType") next.resourceType = stringValue;
+      else if (name === "actor") next.actor = stringValue;
+      else if (name === "query") next.query = String(value || "");
+      else if (name === "action") next.action = stringValue;
+      else if (name === "outcome") next.outcome = stringValue;
+      else if (name === "from") next.from = stringValue;
+      else if (name === "to") next.to = stringValue;
+      else if (name === "origin") next.origin = stringValue;
+
+      if (fixedEventType) next.eventType = fixedEventType;
+      if (fixedResourceType) next.resourceType = fixedResourceType;
       return next;
     });
   }
 
   function resetFilters() {
-    setSp((prev) => {
-      const next = new URLSearchParams(prev);
-      for (const k of ["limit", "event_type", "action", "outcome", "resource_type", "actor", "from", "to", "q", "origin", "sort"]) {
-        next.delete(k);
-      }
-      if (fixedEventType) next.set("event_type", fixedEventType);
-      if (fixedResourceType) next.set("resource_type", fixedResourceType);
-      next.set("limit", String(defaultLimit));
-      next.set("sort", "desc");
-      return next;
+    tablePrefs.setPageSize(defaultLimit);
+    tablePrefs.setSort({ key: "created_at", direction: "desc" });
+
+    setState({
+      limit: defaultLimit,
+      eventType: fixedEventType,
+      action: "",
+      outcome: "",
+      resourceType: fixedResourceType,
+      actor: "",
+      from: "",
+      to: "",
+      query: "",
+      origin: "",
+      sort: "desc",
     });
   }
 
