@@ -1,10 +1,11 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import AsyncState from "@/shared/components/AsyncState";
 import { Badge } from "@/shared/components/Badge";
+import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import { cx } from "@/shared/lib/cx";
@@ -182,6 +183,7 @@ function FindingsTable(props: {
 }
 
 export default function CorrelationFindingsPage() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -268,6 +270,19 @@ const still = (out.incidents || []).find((x: CorrelationIncident) => x.id === pr
     return `${base} · refreshed ${hh}:${mm}:${ss}`;
   }, [filtered.length, loading, payload?.alerts_scanned, payload?.rules_evaluated, lastRefresh]);
 
+  const severityCounts = useMemo(() => {
+    const counts = { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 };
+    for (const row of filtered) {
+      const key = String(row.severity || "unknown").toLowerCase();
+      if (key === "critical") counts.critical += 1;
+      else if (key === "high") counts.high += 1;
+      else if (key === "medium") counts.medium += 1;
+      else if (key === "low") counts.low += 1;
+      else counts.unknown += 1;
+    }
+    return counts;
+  }, [filtered]);
+
   function openDrawerFor(x: CorrelationIncident) {
     setSelected(x);
     setDrawerOpen(true);
@@ -286,90 +301,116 @@ const still = (out.incidents || []).find((x: CorrelationIncident) => x.id === pr
     }
   }
 
+  function pivotToAlertsQueue() {
+    if (!selected) return;
+    const firstRuleId = selected.sample_alerts[0]?.rule_id;
+    if (!firstRuleId) return;
+    navigate(`/alerts/queue?rule_id=${encodeURIComponent(firstRuleId)}`);
+  }
+
+  function pivotToInvestigations() {
+    if (!selected) return;
+    const search = selected.group_value || selected.correlation_rule_name;
+    navigate(`/investigations${search ? `?search=${encodeURIComponent(search)}` : ""}`);
+  }
+
   const panelHeightClass = "h-[560px] xl:h-[calc(100vh-270px)]";
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Correlation findings</h2>
-          <div className="text-xs text-muted-foreground">
-            Group related alerts into incidents using portal-managed correlation rules.
+      <DataViewToolbar
+        left={
+          <div>
+            <h2 className="text-lg font-semibold">Correlation findings</h2>
+            <div className="text-xs text-muted-foreground">
+              Group related alerts into analyst-ready incidents and pivot into triage or case management.
+            </div>
           </div>
-        </div>
+        }
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <DebouncedSearchInput
+              value={q}
+              onChange={setQ}
+              placeholder="Search rule, group, indicator..."
+              className="h-9 min-w-[220px] max-w-[320px]"
+            />
+            <SeverityFilter value={severity} onChange={setSeverity} />
+            <select
+              value={String(maxAge)}
+              onChange={(e) => setMaxAge(Number(e.target.value))}
+              className="h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+              title="Lookback window"
+            >
+              <option value={60}>Last 60m</option>
+              <option value={360}>Last 6h</option>
+              <option value={1440}>Last 24h</option>
+              <option value={10080}>Last 7d</option>
+            </select>
+            <select
+              value={String(limit)}
+              onChange={(e) => setLimit(Number(e.target.value))}
+              className="h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+              title="Alerts to scan"
+            >
+              <option value={200}>Scan 200</option>
+              <option value={500}>Scan 500</option>
+              <option value={1000}>Scan 1,000</option>
+              <option value={2000}>Scan 2,000</option>
+            </select>
+            <select
+              value={String(sampleLimit)}
+              onChange={(e) => setSampleLimit(Number(e.target.value))}
+              className="h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+              title="Sample size per incident"
+            >
+              <option value={10}>Sample 10</option>
+              <option value={25}>Sample 25</option>
+              <option value={50}>Sample 50</option>
+            </select>
+            <button
+              onClick={() => setDensity((d) => (d === "comfortable" ? "compact" : "comfortable"))}
+              className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30")}
+              title="Toggle row density"
+            >
+              {density === "compact" ? "Compact" : "Comfort"}
+            </button>
+            <button
+              onClick={() => {
+                setRunning(true);
+                run().finally(() => setRunning(false));
+              }}
+              disabled={running}
+              className={cx(
+                "h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground",
+                "hover:opacity-95 disabled:opacity-60"
+              )}
+              title="Run correlations now"
+            >
+              {running ? "Running…" : "Run correlations"}
+            </button>
+          </div>
+        }
+      />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search rule, group, rule_id…"
-            className={cx(
-              "h-9 min-w-[220px] flex-1 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none",
-              "focus:ring-1 focus:ring-primary/40"
-            )}
-          />
+      <DataQueryStateBanner
+        tone={error ? "danger" : "neutral"}
+        message={error || headerRight}
+        right={running ? "execution active" : "execution idle"}
+      />
 
-          <SeverityFilter value={severity} onChange={setSeverity} />
-
-          <select
-            value={String(maxAge)}
-            onChange={(e) => setMaxAge(Number(e.target.value))}
-            className="h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
-            title="Lookback window"
-          >
-            <option value={60}>Last 60m</option>
-            <option value={360}>Last 6h</option>
-            <option value={1440}>Last 24h</option>
-            <option value={10080}>Last 7d</option>
-          </select>
-
-          <select
-            value={String(limit)}
-            onChange={(e) => setLimit(Number(e.target.value))}
-            className="h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
-            title="Alerts to scan"
-          >
-            <option value={200}>Scan 200</option>
-            <option value={500}>Scan 500</option>
-            <option value={1000}>Scan 1,000</option>
-            <option value={2000}>Scan 2,000</option>
-          </select>
-
-          <select
-            value={String(sampleLimit)}
-            onChange={(e) => setSampleLimit(Number(e.target.value))}
-            className="h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
-            title="Sample size per incident"
-          >
-            <option value={10}>Sample 10</option>
-            <option value={25}>Sample 25</option>
-            <option value={50}>Sample 50</option>
-          </select>
-
-          <button
-            onClick={() => setDensity((d) => (d === "comfortable" ? "compact" : "comfortable"))}
-            className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30")}
-            title="Toggle row density"
-          >
-            {density === "compact" ? "Compact" : "Comfort"}
-          </button>
-
-          <button
-            onClick={() => {
-              setRunning(true);
-              run().finally(() => setRunning(false));
-            }}
-            disabled={running}
-            className={cx(
-              "h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground",
-              "hover:opacity-95 disabled:opacity-60"
-            )}
-            title="Run correlations now"
-          >
-            {running ? "Running…" : "Run correlations"}
-          </button>
-        </div>
-      </div>
+      <DataStatsStrip
+        stats={[
+          { label: "Findings", value: filtered.length },
+          { label: "Alerts scanned", value: payload?.alerts_scanned ?? 0 },
+          { label: "Rules evaluated", value: payload?.rules_evaluated ?? 0 },
+          { label: "Critical/High", value: severityCounts.critical + severityCounts.high },
+          { label: "Medium/Low", value: severityCounts.medium + severityCounts.low },
+          { label: "Unknown", value: severityCounts.unknown },
+          { label: "Lookback", value: `${maxAge}m` },
+          { label: "Sample size", value: sampleLimit },
+        ]}
+      />
 
       <Panel title="Findings" right={headerRight} scrollY className={cx(panelHeightClass)}>
         {loading || !!error ? (
@@ -437,6 +478,28 @@ const still = (out.incidents || []).find((x: CorrelationIncident) => x.id === pr
               </div>
 
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={pivotToAlertsQueue}
+                  className={cx(
+                    "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
+                    "hover:bg-muted/30"
+                  )}
+                  title="Pivot sample rule to alerts queue"
+                >
+                  Open in alerts queue
+                </button>
+                <button
+                  type="button"
+                  onClick={pivotToInvestigations}
+                  className={cx(
+                    "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
+                    "hover:bg-muted/30"
+                  )}
+                  title="Open workspace list with this indicator context"
+                >
+                  Pivot to investigations
+                </button>
                 <button
                   type="button"
                   onClick={copyJson}
