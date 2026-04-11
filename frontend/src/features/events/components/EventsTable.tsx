@@ -1,4 +1,7 @@
+import { useMemo } from "react";
+
 import { Badge } from "@/shared/components/Badge";
+import { Table, type Column, type TableSortState } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 
 import type { NetEvent } from "../types";
@@ -26,13 +29,11 @@ function summarizeExtra(e: NetEvent) {
     tokens.push(`${k}=${s}`);
   };
 
-  // Priority keys (keep concise but information-dense)
   push("rule", extra.rule_id);
   push("user", extra.user || extra.username);
   push("action", extra.action);
   push("reason", extra.reason);
 
-  // DDoS-specific signals
   push("uniq_src", extra.unique_src_ips);
   push("pps", extra.pps);
   push("bps", extra.bps);
@@ -40,7 +41,6 @@ function summarizeExtra(e: NetEvent) {
   push("entropy", extra.src_entropy_norm);
   push("conf", extra.confidence);
 
-  // Scan/SSH common fields
   push("port", extra.port || extra.dst_port);
   push("proto", extra.proto);
 
@@ -62,7 +62,17 @@ function agentLabel(agent_id: string, agentNameById?: Record<string, string>) {
   return `${name} (${agent_id})`;
 }
 
-export default function EventsTable(props: {
+export default function EventsTable({
+  rows,
+  selectedId,
+  onSelect,
+  onEdit,
+  compact,
+  showExtra,
+  agentNameById,
+  sort,
+  onSortChange,
+}: {
   rows: NetEvent[];
   selectedId: number | null;
   onSelect?: (ev: NetEvent) => void;
@@ -70,108 +80,119 @@ export default function EventsTable(props: {
   compact?: boolean;
   showExtra?: boolean;
   agentNameById?: Record<string, string>;
+  sort?: TableSortState | null;
+  onSortChange?: (next: TableSortState) => void;
 }) {
-  const dense = Boolean(props.compact);
+  const columns = useMemo<Array<Column<NetEvent>>>(() => {
+    const cols: Array<Column<NetEvent>> = [
+      {
+        key: "timestamp",
+        sortKey: "timestamp",
+        title: "Time",
+        sortable: true,
+        width: 180,
+        className: "font-mono text-[12px] text-muted-foreground",
+        render: (e) => fmtTs(e.timestamp),
+      },
+      {
+        key: "agent_id",
+        title: "Agent",
+        sortKey: "agent_id",
+        sortable: true,
+        width: 240,
+        render: (e) => <div className="font-mono text-[12px]">{agentLabel(e.agent_id, agentNameById)}</div>,
+      },
+      {
+        key: "event_type",
+        title: "Type",
+        sortKey: "event_type",
+        sortable: true,
+        width: 180,
+        render: (e) => (
+          <div className="flex items-center gap-2">
+            <Badge>{e.event_type}</Badge>
+            {!compact && e.schema_version ? (
+              <span className="text-[11px] text-muted-foreground font-mono opacity-80">v{e.schema_version}</span>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        key: "src",
+        title: "Source",
+        sortKey: "src_ip",
+        sortable: true,
+        width: 160,
+        className: "font-mono text-[12px]",
+        render: (e) => srcLabel(e),
+      },
+      {
+        key: "dst",
+        title: "Dest",
+        sortKey: "dst_ip",
+        sortable: true,
+        width: 160,
+        className: "font-mono text-[12px]",
+        render: (e) => (
+          <>
+            {e.dst_ip ? <span>{e.dst_ip}</span> : <span className="text-muted-foreground">-</span>}
+            {typeof e.dst_port === "number" ? <span className="text-muted-foreground">:{e.dst_port}</span> : null}
+          </>
+        ),
+      },
+    ];
+
+    if (showExtra) {
+      cols.push({
+        key: "details",
+        title: "Details",
+        className: "text-[12px] text-muted-foreground",
+        render: (e) => summarizeExtra(e) || <span className="opacity-60">-</span>,
+      });
+    }
+
+    if (onEdit) {
+      cols.push({
+        key: "actions",
+        title: "Actions",
+        align: "right",
+        width: 120,
+        render: (e) => (
+          <button
+            type="button"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              onEdit?.(e);
+            }}
+            className={cx(
+              "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
+              "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+              "hover:bg-muted/15 hover:text-foreground",
+              "focus:outline-none focus:ring-2 focus:ring-primary/30"
+            )}
+            title="Open drawer"
+          >
+            Inspect
+          </button>
+        ),
+      });
+    }
+
+    return cols;
+  }, [agentNameById, compact, onEdit, showExtra]);
 
   return (
-    <div className="w-full overflow-auto">
-      <table className="w-full text-sm">
-        <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
-          <tr className="border-b border-border/60 text-muted-foreground">
-            <th className="text-left font-medium px-3 py-2 w-[180px]">Time</th>
-            <th className="text-left font-medium px-3 py-2 w-[220px]">Agent</th>
-            <th className="text-left font-medium px-3 py-2 w-[180px]">Type</th>
-            <th className="text-left font-medium px-3 py-2 w-[160px]">Source</th>
-            <th className="text-left font-medium px-3 py-2 w-[160px]">Dest</th>
-            {props.showExtra ? (
-              <th className="text-left font-medium px-3 py-2">Details</th>
-            ) : null}
-            {props.onEdit ? <th className="text-right font-medium px-3 py-2 w-[120px]">Actions</th> : null}
-          </tr>
-        </thead>
-
-        <tbody>
-          {props.rows.map((e) => {
-            const selected = props.selectedId !== null && e.id === props.selectedId;
-
-            return (
-              <tr
-                key={e.id}
-                className={cx(
-                  "border-b border-border/40 hover:bg-muted/30",
-                  selected && "bg-muted/40"
-                )}
-                onClick={() => props.onSelect?.(e)}
-              >
-                <td className={cx("px-3 font-mono text-[12px] text-muted-foreground", dense ? "py-1.5" : "py-2")}>
-                  {fmtTs(e.timestamp)}
-                </td>
-
-                <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
-                  <div className="font-mono text-[12px]">
-                    {agentLabel(e.agent_id, props.agentNameById)}
-                  </div>
-                </td>
-
-                <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
-                  <div className="flex items-center gap-2">
-                    <Badge>{e.event_type}</Badge>
-                    {!props.compact && e.schema_version ? (
-                      <span className="text-[11px] text-muted-foreground font-mono opacity-80">
-                        v{e.schema_version}
-                      </span>
-                    ) : null}
-                  </div>
-                </td>
-
-                <td className={cx("px-3 font-mono text-[12px]", dense ? "py-1.5" : "py-2")}>
-                  {srcLabel(e)}
-                </td>
-
-                <td className={cx("px-3 font-mono text-[12px]", dense ? "py-1.5" : "py-2")}>
-                  {e.dst_ip ? (
-                    <span>{e.dst_ip}</span>
-                  ) : (
-                    <span className="text-muted-foreground">-</span>
-                  )}
-                  {typeof e.dst_port === "number" ? (
-                    <span className="text-muted-foreground">:{e.dst_port}</span>
-                  ) : null}
-                </td>
-
-                {props.showExtra ? (
-                  <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
-                    <div className="text-[12px] text-muted-foreground">
-                      {summarizeExtra(e) || <span className="opacity-60">-</span>}
-                    </div>
-                  </td>
-                ) : null}
-
-                {props.onEdit ? (
-                  <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2")}>
-                    <button
-                      type="button"
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        props.onEdit?.(e);
-                      }}
-                      className={cx(
-                        "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                        "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                        "hover:bg-muted/15 hover:text-foreground",
-                        "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      )}
-                      title="Open drawer"
-                    >
-                      Inspect
-                    </button>
-                  </td>
-                ) : null}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <Table
+      columns={columns}
+      rows={rows}
+      rowKey={(e) => String(e.id)}
+      compact={Boolean(compact)}
+      stickyHeader
+      selectedRowKey={selectedId !== null ? String(selectedId) : null}
+      onRowClick={(row) => onSelect?.(row)}
+      sort={sort}
+      onSortChange={onSortChange}
+      className="text-sm"
+    />
   );
 }

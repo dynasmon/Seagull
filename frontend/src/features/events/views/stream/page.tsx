@@ -1,11 +1,21 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 
-import AsyncState from "@/shared/components/AsyncState";
+import {
+  DataPaginationFooter,
+  DataQueryStateBanner,
+  DataStatsStrip,
+  DataTableSkeleton,
+  DataViewToolbar,
+} from "@/shared/components/DataView";
+import EmptyState from "@/shared/components/EmptyState";
+import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
+import { usePersistentState } from "@/shared/hooks/usePersistentState";
+import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
 import { cx } from "@/shared/lib/cx";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt, normalizeFilterText, normalizeSearchText } from "@/shared/lib/filters";
+import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
 
 import { useAgentsCatalog } from "@/app/providers";
 
@@ -18,14 +28,17 @@ import { buildTopCounts } from "../../lib/aggregates";
 import type { NetEvent, QueryProvenanceMeta } from "../../types";
 
 type ViewCfg = {
-  agent_id: string; // empty = all agents
-  event_type: string; // empty = all types
+  agent_id: string;
+  event_type: string;
   search: string;
   window_minutes: number;
   limit: number;
+  event_id: number | null;
+};
+
+type DisplayCfg = {
   auto_refresh: boolean;
   refresh_ms: number;
-  compact_rows: boolean;
   show_extra: boolean;
 };
 
@@ -34,50 +47,28 @@ type EventsStreamPageProps = {
   moduleTitle?: string;
 };
 
-const LS_KEY = "nw_events_view_v1";
-
 const DEFAULTS: ViewCfg = {
   agent_id: "",
   event_type: "",
   search: "",
   window_minutes: 60,
   limit: 200,
-  auto_refresh: false,
-  refresh_ms: 15000,
-  compact_rows: false,
-  show_extra: true
+  event_id: null,
 };
 
-function safeLoadView(): ViewCfg {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return DEFAULTS;
-    const parsed = JSON.parse(raw) as Partial<ViewCfg>;
-    const merged: ViewCfg = {
-      ...DEFAULTS,
-      ...parsed,
-      window_minutes: clampInt(parsed.window_minutes, 1, 1440, DEFAULTS.window_minutes),
-      limit: clampInt(parsed.limit, 10, 500, DEFAULTS.limit),
-      refresh_ms: clampInt(parsed.refresh_ms, 2000, 300000, DEFAULTS.refresh_ms),
-      agent_id: normalizeFilterText(parsed.agent_id),
-      event_type: normalizeFilterText(parsed.event_type),
-      search: normalizeSearchText(parsed.search),
-      auto_refresh: Boolean(parsed.auto_refresh),
-      compact_rows: Boolean(parsed.compact_rows),
-      show_extra: Boolean(parsed.show_extra)
-    };
-    return merged;
-  } catch {
-    return DEFAULTS;
-  }
-}
+const DEFAULT_DISPLAY: DisplayCfg = {
+  auto_refresh: false,
+  refresh_ms: 15000,
+  show_extra: true,
+};
 
-function persistView(v: ViewCfg) {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(v));
-  } catch {
-    // no-op
-  }
+function sanitizeDisplay(raw: unknown): DisplayCfg {
+  const parsed = (raw || {}) as Partial<DisplayCfg>;
+  return {
+    auto_refresh: Boolean(parsed.auto_refresh),
+    refresh_ms: clampInt(parsed.refresh_ms, 2000, 300000, DEFAULT_DISPLAY.refresh_ms),
+    show_extra: typeof parsed.show_extra === "boolean" ? parsed.show_extra : DEFAULT_DISPLAY.show_extra,
+  };
 }
 
 function fmtTimeAgo(ms: number) {
@@ -95,6 +86,61 @@ function fmtSource(meta: QueryProvenanceMeta | null) {
   const fresh = typeof meta.source_freshness_seconds === "number" ? `${meta.source_freshness_seconds}s` : "-";
   const degraded = meta.degraded_reason ? `degraded (${meta.degraded_reason})` : "ok";
   return `source: ${meta.source} · freshness: ${fresh} · ${degraded}`;
+}
+
+function normalizeView(input: ViewCfg, pinnedEventType: string): ViewCfg {
+  const out: ViewCfg = {
+    ...input,
+    agent_id: normalizeFilterText(input.agent_id),
+    event_type: pinnedEventType || normalizeFilterText(input.event_type),
+    search: normalizeSearchText(input.search),
+    window_minutes: clampInt(input.window_minutes, 1, 1440, DEFAULTS.window_minutes),
+    limit: clampInt(input.limit, 10, 500, DEFAULTS.limit),
+    event_id: input.event_id && input.event_id > 0 ? Math.trunc(input.event_id) : null,
+  };
+  if (pinnedEventType) out.event_type = pinnedEventType;
+  return out;
+}
+
+function sortRows(rows: NetEvent[], sortKey: string, direction: "asc" | "desc"): NetEvent[] {
+  const multiplier = direction === "asc" ? 1 : -1;
+  const sorted = rows.slice();
+
+  sorted.sort((a, b) => {
+    let left: string | number = "";
+    let right: string | number = "";
+
+    if (sortKey === "timestamp") {
+      left = Date.parse(a.timestamp || "") || 0;
+      right = Date.parse(b.timestamp || "") || 0;
+    } else if (sortKey === "agent_id") {
+      left = a.agent_id || "";
+      right = b.agent_id || "";
+    } else if (sortKey === "event_type") {
+      left = a.event_type || "";
+      right = b.event_type || "";
+    } else if (sortKey === "src_ip") {
+      left = a.src_ip || "";
+      right = b.src_ip || "";
+    } else if (sortKey === "dst_ip") {
+      left = a.dst_ip || "";
+      right = b.dst_ip || "";
+    } else {
+      left = a.id;
+      right = b.id;
+    }
+
+    if (typeof left === "number" && typeof right === "number") {
+      if (left === right) return (a.id - b.id) * multiplier;
+      return (left - right) * multiplier;
+    }
+
+    const cmp = String(left).localeCompare(String(right));
+    if (cmp === 0) return (a.id - b.id) * multiplier;
+    return cmp * multiplier;
+  });
+
+  return sorted;
 }
 
 function Panel(props: {
@@ -152,24 +198,72 @@ function SmallToggle({
 
 export default function EventsPage({ forcedEventType, moduleTitle }: EventsStreamPageProps = {}) {
   const { agents } = useAgentsCatalog();
-  const [searchParams, setSearchParams] = useSearchParams();
   const pinnedEventType = normalizeFilterText(forcedEventType);
 
-  const [view, setView] = useState<ViewCfg>(() => {
-    const base = safeLoadView();
-    if (!pinnedEventType) return base;
-    return { ...base, event_type: pinnedEventType };
+  const tablePrefs = useDataTablePreferences({
+    storageKey: `nw_events_stream_table_${pinnedEventType || "all"}_v2`,
+    defaultPageSize: DEFAULTS.limit,
+    minPageSize: 10,
+    maxPageSize: 500,
+    defaultCompact: false,
+    defaultSort: { key: "timestamp", direction: "desc" },
   });
-  const viewRef = useRef(view);
-  useEffect(() => {
-    viewRef.current = view;
-    persistView(view);
-  }, [view]);
 
-  const [drawerId, setDrawerId] = useState<number | null>(null);
+  const [display, setDisplay] = usePersistentState<DisplayCfg>(
+    `nw_events_stream_display_${pinnedEventType || "all"}_v2`,
+    DEFAULT_DISPLAY,
+    sanitizeDisplay
+  );
+
+  const parseQuery = useCallback(
+    (sp: URLSearchParams): ViewCfg => {
+      const view = normalizeView(
+        {
+          agent_id: getStringParam(sp, "agent_id", ""),
+          event_type: pinnedEventType || getStringParam(sp, "event_type", ""),
+          search: sp.get("search") ?? "",
+          window_minutes: getIntParam(sp, "window_minutes", { min: 1, max: 1440, fallback: DEFAULTS.window_minutes }),
+          limit: getIntParam(sp, "limit", { min: 10, max: 500, fallback: tablePrefs.pageSize }),
+          event_id: clampInt(sp.get("event_id"), 0, Number.MAX_SAFE_INTEGER, 0) || null,
+        },
+        pinnedEventType
+      );
+      return view;
+    },
+    [pinnedEventType, tablePrefs.pageSize]
+  );
+
+  const serializeQuery = useCallback(
+    (view: ViewCfg): URLSearchParams => {
+      const normalized = normalizeView(view, pinnedEventType);
+      const sp = new URLSearchParams();
+      setOptionalParam(sp, "agent_id", normalized.agent_id || null);
+      setOptionalParam(sp, "event_type", normalized.event_type || null);
+      setOptionalParam(sp, "search", normalized.search || null);
+
+      if (normalized.window_minutes !== DEFAULTS.window_minutes) {
+        setOptionalParam(sp, "window_minutes", normalized.window_minutes);
+      }
+      if (normalized.limit !== DEFAULTS.limit) {
+        setOptionalParam(sp, "limit", normalized.limit);
+      }
+      setOptionalParam(sp, "event_id", normalized.event_id);
+      return sp;
+    },
+    [pinnedEventType]
+  );
+
+  const [view, setView] = useUrlQueryState<ViewCfg>({ parse: parseQuery, serialize: serializeQuery, replace: true });
+
+  useEffect(() => {
+    if (tablePrefs.pageSize === view.limit) return;
+    tablePrefs.setPageSize(view.limit);
+  }, [tablePrefs, view.limit]);
+
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [events, setEvents] = useState<NetEvent[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -177,63 +271,17 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
 
-  // Keep the last known events around for "soft" refresh errors (no flicker).
   const eventsRef = useRef<NetEvent[]>([]);
   useEffect(() => {
     eventsRef.current = events;
   }, [events]);
 
-  const viewSnapshotRef = useRef<ViewCfg>(view);
+  const viewRef = useRef(view);
   useEffect(() => {
-    viewSnapshotRef.current = view;
+    viewRef.current = view;
   }, [view]);
 
   const reqSeq = useRef(0);
-  const didInitFromUrl = useRef(false);
-
-  // One-time: hydrate state from URL.
-  useEffect(() => {
-    if (didInitFromUrl.current) return;
-    didInitFromUrl.current = true;
-
-    const agent_id = (searchParams.get("agent_id") ?? "").trim();
-    const event_type = pinnedEventType || (searchParams.get("event_type") ?? "").trim();
-    const search = searchParams.get("search") ?? "";
-    const window_minutes = clampInt(searchParams.get("window_minutes"), 1, 1440, viewRef.current.window_minutes);
-    const limit = clampInt(searchParams.get("limit"), 10, 500, viewRef.current.limit);
-    const eventId = clampInt(searchParams.get("event_id"), 0, Number.MAX_SAFE_INTEGER, 0);
-
-    setView((prev) => ({
-      ...prev,
-      agent_id,
-      event_type,
-      search,
-      window_minutes,
-      limit
-    }));
-
-    if (eventId > 0) setDrawerId(eventId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinnedEventType, searchParams]);
-
-  // Keep URL in sync with the view (shareable state + deep-link drawer).
-  useEffect(() => {
-    const sp = new URLSearchParams();
-
-    if (view.agent_id) sp.set("agent_id", view.agent_id);
-    if (pinnedEventType) sp.set("event_type", pinnedEventType);
-    else if (view.event_type) sp.set("event_type", view.event_type);
-    if (view.search) sp.set("search", view.search);
-
-    if (view.window_minutes !== DEFAULTS.window_minutes) sp.set("window_minutes", String(view.window_minutes));
-    if (view.limit !== DEFAULTS.limit) sp.set("limit", String(view.limit));
-
-    if (drawerId !== null) sp.set("event_id", String(drawerId));
-
-    if (sp.toString() !== searchParams.toString()) {
-      setSearchParams(sp, { replace: true });
-    }
-  }, [view.agent_id, view.event_type, view.search, view.window_minutes, view.limit, drawerId, searchParams, setSearchParams, pinnedEventType]);
 
   const agentNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -253,19 +301,15 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
     setLoading(true);
     setError(null);
 
-    const agent_id = viewRef.current.agent_id ? viewRef.current.agent_id : undefined;
-    const event_type = viewRef.current.event_type ? viewRef.current.event_type : undefined;
-    const search = (viewRef.current.search || "").trim() || undefined;
-    const since_minutes = viewRef.current.window_minutes;
-    const page_size = viewRef.current.limit;
+    const snapshot = viewRef.current;
 
     try {
       const payload = await huntEvents({
-        page_size,
-        agent_id,
-        event_type,
-        since_minutes,
-        search,
+        page_size: snapshot.limit,
+        agent_id: snapshot.agent_id || undefined,
+        event_type: snapshot.event_type || undefined,
+        since_minutes: snapshot.window_minutes,
+        search: snapshot.search.trim() || undefined,
       });
       if (reqSeq.current !== mySeq) return;
 
@@ -274,8 +318,10 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
       setNextCursor(payload?.next_cursor ?? null);
       setHasMore(Boolean(payload?.has_more));
       setQueryMeta(payload?.meta ?? null);
+      setLoadMoreError(null);
       setLastUpdatedAt(Date.now());
       setSelectedId((prev) => {
+        if (snapshot.event_id) return snapshot.event_id;
         if (prev === null) return rows[0]?.id ?? null;
         return rows.some((e) => e.id === prev) ? prev : rows[0]?.id ?? null;
       });
@@ -299,22 +345,20 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
     const cursor = nextCursor;
     if (!cursor || loadingMore || loading) return;
     setLoadingMore(true);
-    setError(null);
+    setLoadMoreError(null);
 
-    const v = viewSnapshotRef.current;
-    const agent_id = v.agent_id ? v.agent_id : undefined;
-    const event_type = v.event_type ? v.event_type : undefined;
-    const search = (v.search || "").trim() || undefined;
+    const snapshot = viewRef.current;
 
     try {
       const payload = await huntEvents({
-        page_size: v.limit,
+        page_size: snapshot.limit,
         cursor,
-        agent_id,
-        event_type,
-        since_minutes: v.window_minutes,
-        search,
+        agent_id: snapshot.agent_id || undefined,
+        event_type: snapshot.event_type || undefined,
+        since_minutes: snapshot.window_minutes,
+        search: snapshot.search.trim() || undefined,
       });
+
       const incoming = Array.isArray(payload?.items) ? payload.items : [];
       setEvents((prev) => {
         const seen = new Set(prev.map((e) => `${e.timestamp}|${e.id}`));
@@ -331,38 +375,36 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
       setHasMore(Boolean(payload?.has_more));
       setQueryMeta(payload?.meta ?? null);
     } catch (e: any) {
-      setError(getErrorMessage(e, "Failed to load older events"));
+      setLoadMoreError(getErrorMessage(e, "Failed to load older events"));
     } finally {
       setLoadingMore(false);
     }
-  }, [nextCursor, loadingMore, loading]);
+  }, [loading, loadingMore, nextCursor]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => load(), 180);
+    const t = window.setTimeout(() => load(), 120);
     return () => window.clearTimeout(t);
   }, [load, view.agent_id, view.event_type, view.search, view.window_minutes, view.limit]);
 
   useEffect(() => {
-    if (!view.auto_refresh) return;
+    if (!display.auto_refresh) return;
     const t = window.setInterval(() => {
       load();
-    }, view.refresh_ms);
+    }, display.refresh_ms);
     return () => window.clearInterval(t);
-  }, [view.auto_refresh, view.refresh_ms, load]);
+  }, [display.auto_refresh, display.refresh_ms, load]);
 
-  const visible = events;
+  const drawerId = view.event_id;
 
   const drawerEvent = useMemo(() => {
     if (drawerId === null) return null;
     return events.find((e) => e.id === drawerId) || null;
   }, [events, drawerId]);
 
-  // If we opened the page with ?event_id=..., try to highlight it.
   useEffect(() => {
-    if (drawerId === null) return;
-    if (!drawerEvent) return;
+    if (!drawerId || !drawerEvent) return;
     setSelectedId(drawerId);
-  }, [drawerId, drawerEvent]);
+  }, [drawerEvent, drawerId]);
 
   const typeCounts = useMemo(() => {
     const m = new Map<string, number>();
@@ -376,31 +418,33 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
       .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.key.localeCompare(b.key)));
   }, [events]);
 
-  const topSrc = useMemo(() => buildTopCounts(visible.map((e) => e.src_ip ?? null), 10), [visible]);
-  const topDst = useMemo(() => buildTopCounts(visible.map((e) => e.dst_ip ?? null), 10), [visible]);
-  const uniqAgents = useMemo(() => new Set(visible.map((e) => e.agent_id)).size, [visible]);
+  const sortedEvents = useMemo(() => {
+    const sortKey = tablePrefs.sort?.key || "timestamp";
+    const sortDirection = tablePrefs.sort?.direction || "desc";
+    return sortRows(events, sortKey, sortDirection);
+  }, [events, tablePrefs.sort]);
 
-  const patch = useCallback((next: Partial<ViewCfg>) => {
-    setView((prev) => {
-      const merged: ViewCfg = {
-        ...prev,
-        ...next
-      };
-      merged.agent_id = normalizeFilterText(merged.agent_id);
-      merged.event_type = normalizeFilterText(merged.event_type);
-      merged.search = normalizeSearchText(merged.search);
-      merged.window_minutes = clampInt(merged.window_minutes, 1, 1440, DEFAULTS.window_minutes);
-      merged.limit = clampInt(merged.limit, 10, 500, DEFAULTS.limit);
-      merged.refresh_ms = clampInt(merged.refresh_ms, 2000, 300000, DEFAULTS.refresh_ms);
-      if (pinnedEventType) merged.event_type = pinnedEventType;
-      return merged;
-    });
-  }, [pinnedEventType]);
+  const topSrc = useMemo(() => buildTopCounts(sortedEvents.map((e) => e.src_ip ?? null), 10), [sortedEvents]);
+  const topDst = useMemo(() => buildTopCounts(sortedEvents.map((e) => e.dst_ip ?? null), 10), [sortedEvents]);
+  const uniqAgents = useMemo(() => new Set(sortedEvents.map((e) => e.agent_id)).size, [sortedEvents]);
+
+  const patchView = useCallback(
+    (next: Partial<ViewCfg>) => {
+      setView((prev) => normalizeView({ ...prev, ...next }, pinnedEventType));
+    },
+    [pinnedEventType, setView]
+  );
+
+  const patchDisplay = useCallback(
+    (next: Partial<DisplayCfg>) => {
+      setDisplay((prev) => sanitizeDisplay({ ...prev, ...next }));
+    },
+    [setDisplay]
+  );
 
   const isInitialLoading = loading && events.length === 0;
   const isRefreshing = loading && events.length > 0;
 
-  // Keep stable props so the native <select> doesn't get reset mid-selection.
   const filtersValue = useMemo(
     () => ({
       agent_id: view.agent_id || null,
@@ -409,67 +453,60 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
       window_minutes: view.window_minutes,
       limit: view.limit
     }),
-    [view.agent_id, view.event_type, view.search, view.window_minutes, view.limit]
+    [view.agent_id, view.event_type, view.limit, view.search, view.window_minutes]
   );
 
   const onFiltersChange = useCallback(
     (next: { agent_id?: string | null; event_type?: string | null; search?: string | null; window_minutes?: number | null; limit?: number | null }) => {
-      patch({
+      const nextLimit = clampInt(next.limit, 10, 500, tablePrefs.pageSize);
+      tablePrefs.setPageSize(nextLimit);
+      patchView({
         agent_id: (next.agent_id ?? "") || "",
         event_type: pinnedEventType || ((next.event_type ?? "") || ""),
         search: next.search ?? "",
         window_minutes: next.window_minutes ?? DEFAULTS.window_minutes,
-        limit: next.limit ?? DEFAULTS.limit
+        limit: nextLimit,
+        event_id: view.event_id,
       });
     },
-    [patch, pinnedEventType]
+    [patchView, pinnedEventType, tablePrefs, view.event_id]
   );
 
   const headerRight = useMemo(() => {
-    if (isInitialLoading) return "Loading…";
+    if (isInitialLoading) return "Loading...";
     if (error) return "Error";
-    const shown = visible.length;
+    const shown = sortedEvents.length;
     const suffix = ` (${shown})`;
     const ago = lastUpdatedAt ? fmtTimeAgo(Date.now() - lastUpdatedAt) : "";
     const src = queryMeta ? ` · ${queryMeta.source}` : "";
     return `Events${suffix}${src}${ago ? ` · updated ${ago}` : ""}${isRefreshing ? " · refreshing" : ""}`;
-  }, [isInitialLoading, isRefreshing, error, visible.length, lastUpdatedAt, queryMeta]);
+  }, [error, isInitialLoading, isRefreshing, lastUpdatedAt, queryMeta, sortedEvents.length]);
 
   const toolbarRight = (
     <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={() => load()}
-        className={cx(
-          "rounded-md border border-border/60 bg-background/40",
-          "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-          "hover:bg-muted/15 hover:text-foreground",
-          "focus:outline-none focus:ring-2 focus:ring-primary/30"
-        )}
-      >
+      <button type="button" onClick={() => load()} className="ui-btn-secondary h-8 px-2.5 text-xs" title="Refresh now">
         Refresh
       </button>
 
       <button
         type="button"
         onClick={() => {
-          setDrawerId(null);
           setSelectedId(null);
           setEvents([]);
           setNextCursor(null);
           setHasMore(false);
           setQueryMeta(null);
           setError(null);
+          setLoadMoreError(null);
           setLastUpdatedAt(null);
-          setView({ ...DEFAULTS, event_type: pinnedEventType || DEFAULTS.event_type });
+          tablePrefs.setPageSize(DEFAULTS.limit);
+          tablePrefs.setCompact(false);
+          tablePrefs.setSort({ key: "timestamp", direction: "desc" });
+          patchDisplay(DEFAULT_DISPLAY);
+          setView(normalizeView({ ...DEFAULTS, event_type: pinnedEventType || "" }, pinnedEventType));
         }}
-        className={cx(
-          "rounded-md border border-border/60 bg-background/40",
-          "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-          "hover:bg-muted/15 hover:text-foreground",
-          "focus:outline-none focus:ring-2 focus:ring-primary/30"
-        )}
-        title="Reset filters and view options"
+        className="ui-btn-secondary h-8 px-2.5 text-xs"
+        title="Reset filters and table preferences"
       >
         Reset
       </button>
@@ -478,13 +515,21 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm font-semibold tracking-tight">{moduleTitle || "Event Stream"}</div>
-        {toolbarRight}
-      </div>
+      <DataViewToolbar
+        left={<div className="text-sm font-semibold tracking-tight">{moduleTitle || "Event Stream"}</div>}
+        right={toolbarRight}
+      />
+
+      <DataStatsStrip
+        stats={[
+          { label: "Visible events", value: sortedEvents.length },
+          { label: "Agents in scope", value: uniqAgents },
+          { label: "Top source", value: topSrc[0]?.key || "-", hint: topSrc[0] ? `${topSrc[0].count} events` : "No data" },
+          { label: "Top type", value: typeCounts[0]?.key || "-", hint: typeCounts[0] ? `${typeCounts[0].count} events` : "No data" },
+        ]}
+      />
 
       <div className="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-4 min-h-0">
-        {/* Left: filters + explorer */}
         <div className="space-y-4 min-h-0">
           <Panel
             title="Filters"
@@ -497,59 +542,41 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
               lockEventType={pinnedEventType || null}
               onChange={onFiltersChange}
             />
-
-            <div className="mt-4 flex items-center justify-between gap-2">
-              <div className="text-[11px] text-muted-foreground">Filters apply immediately.</div>
-              <button
-                type="button"
-                onClick={() => load()}
-                className={cx(
-                  "rounded-md border border-border/60 bg-background/40",
-                  "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                  "hover:bg-muted/15 hover:text-foreground",
-                  "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                )}
-              >
-                Apply
-              </button>
-            </div>
           </Panel>
 
           <Panel title="Display" right={`${uniqAgents} agents`}>
             <div className="space-y-3">
               <SmallToggle
                 label="Show details column"
-                checked={view.show_extra}
-                onChange={(v) => patch({ show_extra: v })}
-                hint="Adds a compact ‘Details’ column (rule/user/pps/entropy…)."
+                checked={display.show_extra}
+                onChange={(v) => patchDisplay({ show_extra: v })}
+                hint="Adds a compact details column (rule/user/pps/entropy)."
               />
               <SmallToggle
                 label="Compact rows"
-                checked={view.compact_rows}
-                onChange={(v) => patch({ compact_rows: v })}
-                hint="Tighter table spacing for very high event volume."
+                checked={tablePrefs.compact}
+                onChange={(v) => tablePrefs.setCompact(v)}
+                hint="Tighter table spacing for high-volume streams."
               />
               <SmallToggle
                 label="Auto refresh"
-                checked={view.auto_refresh}
-                onChange={(v) => patch({ auto_refresh: v })}
+                checked={display.auto_refresh}
+                onChange={(v) => patchDisplay({ auto_refresh: v })}
                 hint="Polls the backend with your current scope/window."
               />
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
-                    Refresh
-                  </div>
+                  <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Refresh</div>
                   <select
-                    value={String(view.refresh_ms)}
-                    onChange={(e) => patch({ refresh_ms: clampInt(e.target.value, 2000, 300000, DEFAULTS.refresh_ms) })}
+                    value={String(display.refresh_ms)}
+                    onChange={(e) => patchDisplay({ refresh_ms: clampInt(e.target.value, 2000, 300000, DEFAULT_DISPLAY.refresh_ms) })}
                     className={cx(
                       "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
                       "text-[11px] font-mono text-foreground outline-none",
                       "focus:ring-2 focus:ring-primary/30"
                     )}
-                    disabled={!view.auto_refresh}
+                    disabled={!display.auto_refresh}
                     title="Auto-refresh interval"
                   >
                     <option value="5000">5s</option>
@@ -559,16 +586,28 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
                     <option value="60000">60s</option>
                   </select>
                 </div>
+
                 <div>
-                  <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
-                    Showing
-                  </div>
-                  <div className="mt-2 text-[12px] font-mono text-muted-foreground">
-                    {visible.length} events
-                  </div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">
-                    {view.search ? "Server search is active" : "No server search"}
-                  </div>
+                  <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Sort</div>
+                  <select
+                    value={`${tablePrefs.sort?.key || "timestamp"}:${tablePrefs.sort?.direction || "desc"}`}
+                    onChange={(e) => {
+                      const [key, direction] = e.target.value.split(":");
+                      tablePrefs.setSort({ key, direction: direction === "asc" ? "asc" : "desc" });
+                    }}
+                    className={cx(
+                      "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
+                      "text-[11px] font-mono text-foreground outline-none",
+                      "focus:ring-2 focus:ring-primary/30"
+                    )}
+                    title="Sort visible rows"
+                  >
+                    <option value="timestamp:desc">Time (newest first)</option>
+                    <option value="timestamp:asc">Time (oldest first)</option>
+                    <option value="event_type:asc">Type (A-Z)</option>
+                    <option value="agent_id:asc">Agent (A-Z)</option>
+                    <option value="src_ip:asc">Source IP (A-Z)</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -579,8 +618,8 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
               <EventExplorer
                 types={typeCounts}
                 activeType={view.event_type || null}
-                onSelectType={(t) => patch({ event_type: t || "" })}
-                onClearType={() => patch({ event_type: "" })}
+                onSelectType={(t) => patchView({ event_type: t || "" })}
+                onClearType={() => patchView({ event_type: "" })}
               />
             </Panel>
           ) : (
@@ -597,7 +636,7 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
                 <button
                   key={r.key}
                   type="button"
-                  onClick={() => patch({ search: r.key })}
+                  onClick={() => patchView({ search: r.key })}
                   className={cx(
                     "w-full text-left rounded-md border border-border/60 bg-background/40 px-3 py-2",
                     "hover:bg-muted/10 focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -620,7 +659,7 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
                 <button
                   key={r.key}
                   type="button"
-                  onClick={() => patch({ search: r.key })}
+                  onClick={() => patchView({ search: r.key })}
                   className={cx(
                     "w-full text-left rounded-md border border-border/60 bg-background/40 px-3 py-2",
                     "hover:bg-muted/10 focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -638,7 +677,6 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
           </Panel>
         </div>
 
-        {/* Right: stream */}
         <Panel
           title="Event stream"
           right={headerRight}
@@ -648,85 +686,106 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
           style={{ height: "calc(100vh - 260px)" }}
         >
           {queryMeta ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-3 py-2 text-[11px]">
-              <div className={cx("font-mono text-muted-foreground", queryMeta.degraded_reason ? "text-amber-300" : "text-muted-foreground")}>
-                {fmtSource(queryMeta)}
-                {queryMeta.cache_hit ? " · cache" : ""}
-              </div>
-              {queryMeta.query_latency_ms != null ? (
-                <div className="font-mono text-muted-foreground">latency {Math.round(queryMeta.query_latency_ms)}ms</div>
-              ) : null}
+            <div className="border-b border-border/60 px-3 py-2">
+              <DataQueryStateBanner
+                tone={queryMeta.degraded_reason ? "warning" : "neutral"}
+                message={`${fmtSource(queryMeta)}${queryMeta.cache_hit ? " · cache" : ""}`}
+                right={queryMeta.query_latency_ms != null ? `latency ${Math.round(queryMeta.query_latency_ms)}ms` : undefined}
+              />
             </div>
           ) : null}
 
-          {isInitialLoading || (error && events.length === 0) || visible.length === 0 ? (
-            <AsyncState
-              loading={isInitialLoading}
-              error={error && events.length === 0 ? error : null}
-              empty={!isInitialLoading && !error && visible.length === 0}
-              loadingLabel="Loading events..."
-              errorTitle="Events error"
-              emptyTitle="No events"
-              emptyDescription={
-                view.agent_id
-                  ? "No telemetry events matched the current scope/filters."
-                  : "No telemetry events matched the current filters across all agents."
-              }
-              onRetry={() => load()}
-            />
-          ) : (
+          {isInitialLoading ? (
+            <div className="p-3">
+              <DataTableSkeleton rows={10} columns={display.show_extra ? 7 : 6} />
+            </div>
+          ) : null}
+
+          {!isInitialLoading && error && events.length === 0 ? (
+            <div className="p-3 space-y-3">
+              <DataQueryStateBanner tone="danger" message={error} />
+              <EmptyState
+                title="Events unavailable"
+                description={
+                  <button type="button" onClick={() => load()} className="ui-btn">
+                    Retry
+                  </button>
+                }
+              />
+            </div>
+          ) : null}
+
+          {!isInitialLoading && !error && sortedEvents.length === 0 ? (
+            <div className="p-3">
+              <EmptyState
+                title="No events"
+                description={
+                  view.agent_id
+                    ? "No telemetry events matched the current scope/filters."
+                    : "No telemetry events matched the current filters across all agents."
+                }
+              />
+            </div>
+          ) : null}
+
+          {!isInitialLoading && (!error || events.length > 0) && sortedEvents.length > 0 ? (
             <div className="relative">
               <EventsTable
-                rows={visible}
+                rows={sortedEvents}
                 selectedId={selectedId}
-                compact={view.compact_rows}
-                showExtra={view.show_extra}
+                compact={tablePrefs.compact}
+                showExtra={display.show_extra}
                 agentNameById={agentNameById}
-                onSelect={(e) => setSelectedId(e.id)}
+                sort={tablePrefs.sort}
+                onSortChange={(next) => tablePrefs.setSort(next)}
+                onSelect={(e) => {
+                  setSelectedId(e.id);
+                  setView((prev) => ({ ...prev, event_id: e.id }));
+                }}
                 onEdit={(e) => {
                   setSelectedId(e.id);
-                  setDrawerId(e.id);
+                  setView((prev) => ({ ...prev, event_id: e.id }));
                 }}
               />
 
               {isRefreshing ? (
                 <div className="absolute right-3 top-3 rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[11px] font-mono text-muted-foreground backdrop-blur">
                   <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground mr-2 align-[-2px]" />
-                  Refreshing…
+                  Refreshing...
                 </div>
               ) : null}
 
-              {hasMore ? (
-                <div className="flex items-center justify-center border-t border-border/60 px-3 py-3">
-                  <button
-                    type="button"
-                    onClick={loadMore}
-                    disabled={loadingMore}
-                    className={cx(
-                      "rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest",
-                      "text-muted-foreground hover:bg-muted/15 hover:text-foreground",
-                      "focus:outline-none focus:ring-2 focus:ring-primary/30",
-                      loadingMore && "opacity-70 cursor-not-allowed"
-                    )}
-                  >
-                    {loadingMore ? "Loading…" : "Load older"}
-                  </button>
-                </div>
-              ) : null}
+              <div className="px-3 pb-3 pt-2">
+                <DataPaginationFooter
+                  totalCount={sortedEvents.length}
+                  pageSize={view.limit}
+                  onPageSizeChange={(next) => {
+                    const limit = clampInt(next, 10, 500, DEFAULTS.limit);
+                    tablePrefs.setPageSize(limit);
+                    patchView({ limit });
+                  }}
+                  pageSizeOptions={[25, 50, 100, 200, 300, 500]}
+                  hasMore={hasMore}
+                  loadingMore={loadingMore}
+                  onLoadMore={() => loadMore()}
+                  loadMoreLabel="Load older"
+                  error={loadMoreError}
+                  onRetry={loadMoreError ? () => loadMore() : undefined}
+                />
+              </div>
             </div>
-          )}
+          ) : null}
         </Panel>
       </div>
 
-      {/* Drawer */}
       <EventDrawer
         open={drawerId !== null}
         event={drawerEvent}
         agentNameById={agentNameById}
-        onClose={() => setDrawerId(null)}
-        onApplyAgent={(agentId) => patch({ agent_id: agentId })}
-        onApplyType={(type) => patch({ event_type: type })}
-        onApplySearch={(q) => patch({ search: q })}
+        onClose={() => setView((prev) => ({ ...prev, event_id: null }))}
+        onApplyAgent={(agentId) => patchView({ agent_id: agentId, event_id: drawerId })}
+        onApplyType={(type) => patchView({ event_type: type, event_id: drawerId })}
+        onApplySearch={(q) => patchView({ search: q, event_id: drawerId })}
       />
     </div>
   );

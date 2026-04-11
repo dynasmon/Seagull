@@ -47,7 +47,7 @@ export default function Shell({ children }: { children: ReactNode }) {
   }, [location.pathname]);
 
   const shellClassName = useMemo(
-    () => "min-h-screen bg-background text-foreground",
+    () => "h-screen overflow-hidden bg-background text-foreground",
     []
   );
 
@@ -60,14 +60,14 @@ export default function Shell({ children }: { children: ReactNode }) {
         Skip to main content
       </a>
 
-      <div className="flex min-h-screen">
+      <div className="flex h-full min-h-0">
         <Sidebar
           compact={navCompact}
           mobileOpen={mobileNavOpen}
           onCloseMobile={() => setMobileNavOpen(false)}
         />
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-w-0 min-h-0 flex-1 flex-col">
           <TopBar
             compact={navCompact}
             onToggleCompact={() => setNavCompact((prev) => !prev)}

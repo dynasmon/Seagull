@@ -6,6 +6,7 @@ import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
+import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { cx } from "@/shared/lib/cx";
 
 import { useAuth } from "@/features/auth/context";
@@ -154,8 +155,17 @@ export default function VulnerabilitiesPage() {
   const [busyMore, setBusyMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [density, setDensity] = useState<Density>("comfortable");
-  const [pageSize, setPageSize] = useState<number>(50);
+  const findingsTablePrefs = useDataTablePreferences({
+    storageKey: "nw_vuln_findings_table_v1",
+    defaultPageSize: 50,
+    minPageSize: 10,
+    maxPageSize: 500,
+    defaultCompact: false,
+  });
+  const density: Density = findingsTablePrefs.compact ? "compact" : "comfortable";
+  const setDensity = (next: Density) => findingsTablePrefs.setCompact(next === "compact");
+  const pageSize = findingsTablePrefs.pageSize;
+  const setPageSize = findingsTablePrefs.setPageSize;
   const [activeDays, setActiveDays] = useState<number>(30);
 
   const [draft, setDraft] = useState<Filters>({
