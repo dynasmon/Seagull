@@ -199,7 +199,7 @@ export default function AgentEventsWorkbench({
         {ddosMode && (
           <Panel title="DDoS deep dive" right={ddosEvents.length ? `${ddosEvents.length} events` : ""} scrollY style={{ height: streamHeight }}>
             {ddosEvents.length === 0 ? (
-              <EmptyState title="No DDoS events" hint="No dos_attack telemetry matches the current filters/window." />
+              <EmptyState title="No DDoS events" hint="No DDoS-classified telemetry matches the current filters/window." />
             ) : (
               <DdosDeepDive events={ddosEvents} selectedId={selectedEvent?.id ?? null} onSelect={(e) => onSelectEvent(e)} />
             )}

@@ -269,6 +269,7 @@ export function mergeStormStatus(
   incoming: Partial<StormStatus> | null | undefined,
 ): StormStatus | null {
   if (!incoming || typeof incoming !== "object") return current;
+  const raw = incoming as Record<string, unknown>;
 
   const base: StormStatus =
     current ?? {
@@ -294,9 +295,24 @@ export function mergeStormStatus(
       quality_by_event_type: [],
     };
 
+  const incomingPhase = typeof raw.phase === "string" ? raw.phase : undefined;
+  const activeFromProtection =
+    typeof raw.protection_active === "boolean" ? raw.protection_active : undefined;
+
+  let normalizedActive: boolean | undefined =
+    typeof raw.active === "boolean" ? raw.active : undefined;
+  if (normalizedActive === undefined && activeFromProtection !== undefined) {
+    normalizedActive = activeFromProtection;
+  }
+  if (normalizedActive === undefined && incomingPhase) {
+    normalizedActive =
+      incomingPhase === "storm" || incomingPhase === "shedding" || incomingPhase === "draining";
+  }
+
   return {
     ...base,
     ...incoming,
+    ...(normalizedActive === undefined ? {} : { active: normalizedActive }),
     quality_by_event_type:
       incoming.quality_by_event_type ?? base.quality_by_event_type ?? [],
   };

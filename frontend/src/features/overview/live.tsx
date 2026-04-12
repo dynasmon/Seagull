@@ -7,6 +7,8 @@ import { isAbortError } from "@/shared/lib/http";
 
 import { getOverview, getStormStatus } from "./api";
 import {
+  applyOverviewRealtimeAlertCreated,
+  applyOverviewRealtimeAlertUpdated,
   applyOverviewRealtimeAlertsDelta,
   applyOverviewRealtimePatch,
   mergeStormStatus,
@@ -297,10 +299,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     alertsFlushTimerRef.current = window.setTimeout(flushAlertsPending, REALTIME_ALERTS_FLUSH_MS);
   }, [flushAlertsPending]);
 
-  usePortalRealtimeSubscription("ui.overview.kpi.patch", (event) => {
-    if (!consumeBurstBudget(kpiBurstStartRef, kpiBurstCountRef, REALTIME_KPI_BURST_LIMIT)) return;
-
-    const payload = (event.payload || {}) as Record<string, unknown>;
+  const enqueueKpiPatch = useCallback((payload: Record<string, unknown>) => {
     const previous = kpiPendingRef.current || {};
     kpiPendingRef.current = {
       ...previous,
@@ -310,9 +309,31 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
         (typeof payload.events_5m_delta === "number" ? payload.events_5m_delta : 0),
     };
     scheduleKpiFlush();
+  }, [scheduleKpiFlush]);
+
+  const enqueueStormPatch = useCallback((payload: Record<string, unknown>) => {
+    stormPendingRef.current = {
+      ...(stormPendingRef.current || {}),
+      ...payload,
+    };
+    scheduleStormFlush();
+  }, [scheduleStormFlush]);
+
+  usePortalRealtimeSubscription("ui.overview.kpi.patch", (event) => {
+    if (!consumeBurstBudget(kpiBurstStartRef, kpiBurstCountRef, REALTIME_KPI_BURST_LIMIT)) return;
+    enqueueKpiPatch((event.payload || {}) as Record<string, unknown>);
+  });
+
+  usePortalRealtimeSubscription("overview.patch", (event) => {
+    if (!consumeBurstBudget(kpiBurstStartRef, kpiBurstCountRef, REALTIME_KPI_BURST_LIMIT)) return;
+    enqueueKpiPatch((event.payload || {}) as Record<string, unknown>);
   });
 
   usePortalRealtimeSubscription("ui.overview.invalidate", () => {
+    scheduleRefreshFromInvalidate();
+  });
+
+  usePortalRealtimeSubscription("overview.invalidate", () => {
     scheduleRefreshFromInvalidate();
   });
 
@@ -320,13 +341,18 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     scheduleRefreshFromInvalidate();
   });
 
+  usePortalRealtimeSubscription("alerts.invalidate", () => {
+    scheduleRefreshFromInvalidate();
+  });
+
   usePortalRealtimeSubscription("ui.overview.storm.patch", (event) => {
     if (!consumeBurstBudget(stormBurstStartRef, stormBurstCountRef, REALTIME_STORM_BURST_LIMIT)) return;
-    stormPendingRef.current = {
-      ...(stormPendingRef.current || {}),
-      ...((event.payload || {}) as Record<string, unknown>),
-    };
-    scheduleStormFlush();
+    enqueueStormPatch((event.payload || {}) as Record<string, unknown>);
+  });
+
+  usePortalRealtimeSubscription("storm.status", (event) => {
+    if (!consumeBurstBudget(stormBurstStartRef, stormBurstCountRef, REALTIME_STORM_BURST_LIMIT)) return;
+    enqueueStormPatch((event.payload || {}) as Record<string, unknown>);
   });
 
   usePortalRealtimeSubscription("ui.alerts.delta.patch", (event) => {
@@ -341,6 +367,36 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       return;
     }
     scheduleAlertsFlush();
+  });
+
+  usePortalRealtimeSubscription("alert.created", (event) => {
+    if (!consumeBurstBudget(alertsBurstStartRef, alertsBurstCountRef, REALTIME_ALERTS_BURST_LIMIT)) return;
+    setSnapshot((prev) => {
+      const next = applyOverviewRealtimeAlertCreated(prev, event.payload as any, String(event.timestamp || ""));
+      if (!next || next === prev) return next;
+      try {
+        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
+      } catch {
+        // no-op
+      }
+      return next;
+    });
+    setLastUpdatedAt(new Date());
+  });
+
+  usePortalRealtimeSubscription("alert.updated", (event) => {
+    if (!consumeBurstBudget(alertsBurstStartRef, alertsBurstCountRef, REALTIME_ALERTS_BURST_LIMIT)) return;
+    setSnapshot((prev) => {
+      const next = applyOverviewRealtimeAlertUpdated(prev, event.payload as any);
+      if (!next || next === prev) return next;
+      try {
+        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
+      } catch {
+        // no-op
+      }
+      return next;
+    });
+    setLastUpdatedAt(new Date());
   });
 
   useEffect(() => {

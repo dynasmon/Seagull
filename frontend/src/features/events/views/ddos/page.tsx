@@ -11,6 +11,7 @@ import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlP
 
 import { huntEvents } from "../../api";
 import EventDrawer from "../../components/EventDrawer";
+import { isDdosEvent } from "../../lib/ddos";
 import type { NetEvent, QueryProvenanceMeta } from "../../types";
 import EventsStreamPage from "../stream/page";
 
@@ -91,7 +92,6 @@ export default function DdosEventsPage() {
 
     try {
       const payload = await huntEvents({
-        event_type: "dos_attack",
         page_size: query.limit,
         since_minutes: query.since_minutes,
         agent_id: query.agent_id || undefined,
@@ -107,8 +107,9 @@ export default function DdosEventsPage() {
       setLastUpdatedAt(Date.now());
 
       setQuery((prev) => {
-        if (prev.event_id) return prev;
-        return { ...prev, event_id: rows[0]?.id ?? null };
+        if (prev.event_id && rows.some((row) => row.id === prev.event_id && isDdosEvent(row))) return prev;
+        const firstDdos = rows.find((row) => isDdosEvent(row)) || null;
+        return { ...prev, event_id: firstDdos?.id ?? null };
       });
     } catch (e: any) {
       if (reqSeq.current !== mySeq) return;
@@ -132,7 +133,6 @@ export default function DdosEventsPage() {
 
     try {
       const payload = await huntEvents({
-        event_type: "dos_attack",
         page_size: query.limit,
         since_minutes: query.since_minutes,
         agent_id: query.agent_id || undefined,
@@ -169,14 +169,29 @@ export default function DdosEventsPage() {
     return () => window.clearTimeout(timer);
   }, [load, query.panel]);
 
+  const ddosEvents = useMemo(() => {
+    return events.filter((e) => isDdosEvent(e));
+  }, [events]);
+
   const selectedEvent = useMemo(() => {
     if (!query.event_id) return null;
-    return events.find((e) => e.id === query.event_id) || null;
-  }, [events, query.event_id]);
+    return ddosEvents.find((e) => e.id === query.event_id) || null;
+  }, [ddosEvents, query.event_id]);
+
+  useEffect(() => {
+    if (query.panel !== "deep") return;
+    if (!query.event_id) {
+      if (!ddosEvents[0]) return;
+      setQuery((prev) => (prev.event_id === ddosEvents[0].id ? prev : { ...prev, event_id: ddosEvents[0].id }));
+      return;
+    }
+    if (ddosEvents.some((row) => row.id === query.event_id)) return;
+    setQuery((prev) => ({ ...prev, event_id: ddosEvents[0]?.id ?? null }));
+  }, [ddosEvents, query.event_id, query.panel, setQuery]);
 
   const topTarget = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const e of events) {
+    for (const e of ddosEvents) {
       const key = `${e.dst_ip || "-"}:${e.dst_port ?? "-"}/${e.proto || "-"}`;
       counts.set(key, (counts.get(key) || 0) + 1);
     }
@@ -189,11 +204,11 @@ export default function DdosEventsPage() {
       }
     }
     return best;
-  }, [events]);
+  }, [ddosEvents]);
 
   const topAgent = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const e of events) {
+    for (const e of ddosEvents) {
       counts.set(e.agent_id, (counts.get(e.agent_id) || 0) + 1);
     }
     let winner = "-";
@@ -205,7 +220,7 @@ export default function DdosEventsPage() {
       }
     }
     return winner === "-" ? "-" : (agentNameById[winner] || winner);
-  }, [agentNameById, events]);
+  }, [agentNameById, ddosEvents]);
 
   const rightToolbar =
     query.panel === "deep" ? (
@@ -280,7 +295,7 @@ export default function DdosEventsPage() {
           }
         />
 
-        <EventsStreamPage forcedEventType="dos_attack" moduleTitle="DDoS Event Stream" />
+        <EventsStreamPage forcedScope="ddos" moduleTitle="DDoS Event Stream" />
       </div>
     );
   }
@@ -311,7 +326,7 @@ export default function DdosEventsPage() {
 
       <DataStatsStrip
         stats={[
-          { label: "DDoS events", value: events.length },
+          { label: "DDoS events", value: ddosEvents.length },
           { label: "Top target", value: topTarget },
           { label: "Top agent", value: topAgent },
           { label: "Scope", value: query.agent_id || "all agents", hint: `Lookback ${query.since_minutes}m` },
@@ -328,20 +343,20 @@ export default function DdosEventsPage() {
         />
       ) : null}
 
-      {loading && events.length === 0 ? <EmptyState title="Loading DDoS telemetry" description="Fetching deep-dive event window..." /> : null}
-      {error && events.length === 0 ? <EmptyState title="Unable to load DDoS telemetry" description={error} /> : null}
-      {!loading && !error && events.length === 0 ? <EmptyState title="No DDoS detections" description="No dos_attack events in the selected scope." /> : null}
+      {loading && ddosEvents.length === 0 ? <EmptyState title="Loading DDoS telemetry" description="Fetching deep-dive event window..." /> : null}
+      {error && ddosEvents.length === 0 ? <EmptyState title="Unable to load DDoS telemetry" description={error} /> : null}
+      {!loading && !error && ddosEvents.length === 0 ? <EmptyState title="No DDoS detections" description="No DDoS-classified events in the selected scope." /> : null}
 
-      {events.length > 0 ? (
+      {ddosEvents.length > 0 ? (
         <>
           <DdosDeepDive
-            events={events}
+            events={ddosEvents}
             selectedId={query.event_id}
             onSelect={(e) => setQuery((prev) => ({ ...prev, event_id: e.id }))}
           />
 
           <DataPaginationFooter
-            totalCount={events.length}
+            totalCount={ddosEvents.length}
             pageSize={query.limit}
             onPageSizeChange={(next) => setQuery((prev) => ({ ...prev, limit: clampInt(next, 25, 500, prev.limit), event_id: null }))}
             pageSizeOptions={[100, 200, 300, 500]}
@@ -361,11 +376,9 @@ export default function DdosEventsPage() {
         agentNameById={agentNameById}
         onClose={() => setQuery((prev) => ({ ...prev, event_id: null }))}
         onApplyAgent={(agentId) => setQuery((prev) => ({ ...prev, agent_id: agentId }))}
-        onApplyType={() => {
-          // fixed route scope (dos_attack)
-        }}
+        onApplyType={() => undefined}
         onApplySearch={(q) => {
-          navigate(`/events?event_type=dos_attack&search=${encodeURIComponent(q)}`);
+          navigate(`/events/ddos?panel=stream&search=${encodeURIComponent(q)}`);
         }}
       />
     </div>

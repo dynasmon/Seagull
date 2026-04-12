@@ -466,6 +466,20 @@ function OverviewPageView() {
   const degradedSources = [trafficSourceMeta, ddosVolumeSourceMeta, ingestRatesSourceMeta].filter(
     (x) => Boolean(x?.degraded_reason)
   ).length;
+  const stormPhase = String(storm?.phase || "").toLowerCase();
+  const stormEffectiveActive =
+    Boolean(storm?.active) ||
+    stormPhase === "storm" ||
+    stormPhase === "shedding" ||
+    stormPhase === "draining" ||
+    Boolean(snapshot?.meta?.protection_active) ||
+    Number(snapshot?.meta?.backlog_events || 0) > 0 ||
+    Number(snapshot?.meta?.backlog_messages || 0) > 0 ||
+    Number(snapshot?.meta?.ddos_telemetry_dropped_per_sec || 0) > 0;
+  const stormBacklogEvents = storm?.backlog_events ?? Number(snapshot?.meta?.backlog_events || 0);
+  const stormBacklogMessages = storm?.backlog_messages ?? Number(snapshot?.meta?.backlog_messages || 0);
+  const stormDropPercent = storm?.drop_percent ?? 0;
+  const stormPhaseLabel = storm?.phase || (stormEffectiveActive ? "active" : "ok");
 
   if (isLoading && !snapshot) {
     return (
@@ -516,7 +530,7 @@ function OverviewPageView() {
           { label: "Alerts (1h)", value: derived.alerts1h },
           { label: "DDoS detections (5m)", value: derived.ddos5m },
           { label: "DDoS peak PPS", value: fmtCompact(derived.ddosPeakPps) },
-          { label: "Storm phase", value: storm?.phase || (storm?.active ? "active" : "ok") },
+          { label: "Storm phase", value: stormPhaseLabel },
           { label: "Ingest EPS", value: storm?.eps ?? 0 },
         ]}
       />
@@ -565,21 +579,23 @@ function OverviewPageView() {
                   ? "SHEDDING"
                 : storm?.phase === "draining"
                   ? "DRAINING"
-                  : storm?.active
+                  : stormEffectiveActive
                     ? "ACTIVE"
                     : "OK"
             }
             hint={
               storm
                 ? `${storm.reason}${storm.open_alert_id ? ` · alert #${storm.open_alert_id}` : ""}`
-                : "unavailable"
+                : snapshot.meta?.protection_active
+                  ? "ingest protection active"
+                  : "unavailable"
             }
             tone={
               storm?.phase === "storm" || storm?.phase === "shedding"
                 ? "warn"
                 : storm?.phase === "draining"
                   ? "default"
-                  : storm?.active
+                  : stormEffectiveActive
                     ? "warn"
                     : "good"
             }
@@ -596,21 +612,21 @@ function OverviewPageView() {
             label="SAMPLE (hot/warm)"
             value={storm ? `${storm.sample_hot_percent}% / ${storm.sample_warm_percent}%` : "-"}
             hint="hot=Postgres · warm=ES"
-            tone={storm?.active ? "warn" : "default"}
+            tone={stormEffectiveActive ? "warn" : "default"}
           />
 
           <StatTile
             label="DROP %"
-            value={storm ? `${storm.drop_percent}%` : "0%"}
+            value={`${stormDropPercent}%`}
             hint="dropped from raw ingestion"
-            tone={storm && storm.drop_percent > 0 ? "warn" : "good"}
+            tone={stormDropPercent > 0 || snapshot.meta?.ddos_telemetry_dropped_per_sec > 0 ? "warn" : "good"}
           />
 
           <StatTile
             label="BACKLOG (events)"
-            value={storm?.backlog_events ?? 0}
-            hint={storm ? `messages: ${storm.backlog_messages}` : undefined}
-            tone={storm && storm.backlog_events > 50000 ? "warn" : "default"}
+            value={stormBacklogEvents}
+            hint={`messages: ${stormBacklogMessages}`}
+            tone={stormBacklogEvents > 50000 ? "warn" : "default"}
           />
 
           <StatTile
