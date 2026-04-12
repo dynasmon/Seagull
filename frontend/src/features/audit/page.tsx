@@ -47,7 +47,7 @@ export default function AuditLayout() {
       <div className="space-y-4">
         <PageHeader
           title="Audit & Governance"
-          breadcrumb={["Admin"]}
+          breadcrumb={["Governance & Platform"]}
           description="Administrative evidence is restricted to privileged users."
         />
         <div className="h-[50vh]">
@@ -64,7 +64,7 @@ export default function AuditLayout() {
     <div className="space-y-6">
       <PageHeader
         title="Audit & Governance"
-        breadcrumb={["Admin"]}
+        breadcrumb={["Governance & Platform"]}
         description="Investigate administrative actions, authentication evidence and governance timeline."
         tabs={[
           { label: "Admin Actions", to: "/audit/admin-actions" },

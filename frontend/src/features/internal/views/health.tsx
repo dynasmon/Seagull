@@ -5,6 +5,8 @@ import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import InternalRefreshToolbar from "@/features/internal/components/InternalRefreshToolbar";
+import InternalStatTile from "@/features/internal/components/InternalStatTile";
 
 import { getSystemStatus } from "../api";
 import type { SystemStatusResponse } from "../types";
@@ -57,15 +59,6 @@ function StatusPill({ value }: { value: string }) {
   return <span className={cx("rounded border px-2 py-0.5 text-[10px] font-mono uppercase", klass)}>{value}</span>;
 }
 
-function StatTile({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-md border border-border/60 bg-background/60 px-4 py-3">
-      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className="mt-2 text-2xl font-bold font-mono">{value}</div>
-    </div>
-  );
-}
-
 export default function InternalHealthView() {
   const [snapshot, setSnapshot] = useState<SystemStatusResponse | null>(null);
   const [busy, setBusy] = useState(true);
@@ -77,6 +70,7 @@ export default function InternalHealthView() {
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
+    setBusy(true);
     try {
       const data = await getSystemStatus();
       setSnapshot(data);
@@ -154,18 +148,11 @@ export default function InternalHealthView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
-          Last update: {lastUpdatedAt ? lastUpdatedAt.toLocaleString() : "-"}
-        </div>
-        <button
-          type="button"
-          onClick={refresh}
-          className="border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest hover:bg-primary/5"
-        >
-          Refresh now
-        </button>
-      </div>
+      <InternalRefreshToolbar
+        lastUpdatedLabel={lastUpdatedAt ? lastUpdatedAt.toLocaleString() : "-"}
+        onRefresh={refresh}
+        busy={busy}
+      />
 
       {error ? <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
 
@@ -173,11 +160,11 @@ export default function InternalHealthView() {
         <>
           <Card title="Service">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <StatTile label="Environment" value={snapshot.service.environment} />
-              <StatTile label="Version" value={snapshot.service.version} />
-              <StatTile label="Uptime" value={fmtSeconds(snapshot.service.uptime_seconds)} />
-              <StatTile label="Counters" value={snapshot.observability.counters_total} />
-              <StatTile label="Histograms" value={snapshot.observability.histograms_total} />
+              <InternalStatTile label="Environment" value={snapshot.service.environment} />
+              <InternalStatTile label="Version" value={snapshot.service.version} />
+              <InternalStatTile label="Uptime" value={fmtSeconds(snapshot.service.uptime_seconds)} />
+              <InternalStatTile label="Counters" value={snapshot.observability.counters_total} />
+              <InternalStatTile label="Histograms" value={snapshot.observability.histograms_total} />
             </div>
           </Card>
 
@@ -202,23 +189,23 @@ export default function InternalHealthView() {
           <div className="grid gap-6 xl:grid-cols-2">
             <Card title="Fleet Health">
               <div className="grid gap-4 grid-cols-2">
-                <StatTile label="Total agents" value={snapshot.fleet.total_agents} />
-                <StatTile label="Online" value={snapshot.fleet.online_agents} />
-                <StatTile label="Offline" value={snapshot.fleet.offline_agents} />
-                <StatTile label="Revoked" value={snapshot.fleet.revoked_agents} />
-                <StatTile label="Inventory fresh" value={snapshot.fleet.inventory.fresh} />
-                <StatTile label="Inventory stale" value={snapshot.fleet.inventory.stale} />
+                <InternalStatTile label="Total agents" value={snapshot.fleet.total_agents} />
+                <InternalStatTile label="Online" value={snapshot.fleet.online_agents} />
+                <InternalStatTile label="Offline" value={snapshot.fleet.offline_agents} />
+                <InternalStatTile label="Revoked" value={snapshot.fleet.revoked_agents} />
+                <InternalStatTile label="Inventory fresh" value={snapshot.fleet.inventory.fresh} />
+                <InternalStatTile label="Inventory stale" value={snapshot.fleet.inventory.stale} />
               </div>
             </Card>
 
             <Card title="Ingest Status">
               <div className="grid gap-4 grid-cols-2">
-                <StatTile label="Phase" value={snapshot.components.ingest_pressure.storm.phase || "ok"} />
-                <StatTile label="EPS" value={snapshot.components.ingest_pressure.storm.eps} />
-                <StatTile label="Drop %" value={`${snapshot.components.ingest_pressure.storm.drop_percent}%`} />
-                <StatTile label="Backlog events" value={snapshot.components.ingest_pressure.storm.backlog_events} />
-                <StatTile label="Backlog msgs" value={snapshot.components.ingest_pressure.storm.backlog_messages} />
-                <StatTile label="Open alert" value={snapshot.components.ingest_pressure.storm.open_alert_id ?? "-"} />
+                <InternalStatTile label="Phase" value={snapshot.components.ingest_pressure.storm.phase || "ok"} />
+                <InternalStatTile label="EPS" value={snapshot.components.ingest_pressure.storm.eps} />
+                <InternalStatTile label="Drop %" value={`${snapshot.components.ingest_pressure.storm.drop_percent}%`} />
+                <InternalStatTile label="Backlog events" value={snapshot.components.ingest_pressure.storm.backlog_events} />
+                <InternalStatTile label="Backlog msgs" value={snapshot.components.ingest_pressure.storm.backlog_messages} />
+                <InternalStatTile label="Open alert" value={snapshot.components.ingest_pressure.storm.open_alert_id ?? "-"} />
               </div>
             </Card>
           </div>

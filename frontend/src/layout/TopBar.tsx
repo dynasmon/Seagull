@@ -73,7 +73,7 @@ export default function TopBar({
         <button
           type="button"
           onClick={onToggleNavigation}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border/70 bg-card/70 text-foreground hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 lg:hidden"
+          className="ui-btn-secondary inline-flex h-9 w-9 items-center justify-center px-0 lg:hidden"
           aria-label="Open navigation"
           title="Open navigation"
         >
@@ -83,7 +83,7 @@ export default function TopBar({
         <button
           type="button"
           onClick={onToggleCompact}
-          className="hidden h-9 w-9 items-center justify-center rounded-md border border-border/70 bg-card/70 text-foreground hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 lg:inline-flex"
+          className="ui-btn-secondary hidden h-9 w-9 items-center justify-center px-0 lg:inline-flex"
           aria-label={compact ? "Expand sidebar" : "Collapse sidebar"}
           title={compact ? "Expand sidebar" : "Collapse sidebar"}
         >
@@ -109,7 +109,7 @@ export default function TopBar({
           <button
             type="button"
             onClick={toggleTheme}
-            className="inline-flex h-9 items-center justify-center rounded-md border border-border/70 bg-card/70 px-3 text-sm text-foreground hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
+            className="ui-btn-secondary h-9 px-3"
             aria-label="Toggle theme"
           >
             {theme === "dark" ? "Light" : "Dark"}
@@ -118,7 +118,7 @@ export default function TopBar({
           <button
             type="button"
             onClick={logout}
-            className="inline-flex h-9 items-center justify-center rounded-md border border-border/70 bg-card/70 px-3 text-sm text-foreground hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
+            className="ui-btn-secondary h-9 px-3"
             aria-label="Sign out"
           >
             Sign out

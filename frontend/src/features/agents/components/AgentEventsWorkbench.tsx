@@ -8,7 +8,8 @@ import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
 
-import { FieldLabel, Panel, inputClassName } from "./AgentsPageShared";
+import { FieldLabel, Panel } from "./AgentsPageShared";
+import { inputClassName } from "./AgentFormClassNames";
 
 type EventsCfg = {
   event_type: string;

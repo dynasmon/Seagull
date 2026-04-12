@@ -8,7 +8,8 @@ import { Card } from "@/shared/components/Card";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Table } from "@/shared/components/Table";
-import { cx } from "@/shared/lib/cx";
+import InternalRefreshToolbar from "@/features/internal/components/InternalRefreshToolbar";
+import InternalStatTile from "@/features/internal/components/InternalStatTile";
 
 import { getBackendHealth, getMetricsSnapshot } from "../api";
 import type { MetricsSnapshot } from "../types";
@@ -24,23 +25,6 @@ function fmtWhen(d?: Date | null) {
   const mi = String(d.getMinutes()).padStart(2, "0");
   const ss = String(d.getSeconds()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
-}
-
-function StatTile({ label, value, tone = "default" }: { label: string; value: string | number; tone?: "default" | "good" | "warn" }) {
-  return (
-    <div className="rounded-md border border-border/60 bg-background/60 px-4 py-3">
-      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div
-        className={cx(
-          "mt-2 text-2xl font-bold font-mono",
-          tone === "good" && "text-emerald-400",
-          tone === "warn" && "text-amber-400"
-        )}
-      >
-        {value}
-      </div>
-    </div>
-  );
 }
 
 function topCounts(values: string[], limit = 8) {
@@ -71,6 +55,7 @@ export default function InternalDebugView() {
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
+    setBusy(true);
     try {
       const [h, o, s, m, ev] = await Promise.all([
         getBackendHealth(),
@@ -143,28 +128,25 @@ export default function InternalDebugView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
-          Last update: {fmtWhen(lastUpdatedAt)}
-        </div>
-        <button
-          type="button"
-          onClick={refresh}
-          className="border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest hover:bg-primary/5"
-        >
-          Refresh now
-        </button>
-      </div>
+      <InternalRefreshToolbar lastUpdatedLabel={fmtWhen(lastUpdatedAt)} onRefresh={refresh} busy={busy} />
 
       {error ? <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <StatTile label="Backend" value={backendUp ? "UP" : "DOWN"} tone={backendUp ? "good" : "warn"} />
-        <StatTile label="Online agents" value={overview?.kpis.online_agents ?? "-"} tone="good" />
-        <StatTile label="Events / 5m" value={overview?.kpis.events_5m ?? "-"} />
-        <StatTile label="Alerts / 60m" value={overview?.kpis.alerts_60m ?? "-"} tone={(overview?.kpis.alerts_60m || 0) > 0 ? "warn" : "default"} />
-        <StatTile label="Storm phase" value={storm?.phase || "ok"} tone={storm?.active ? "warn" : "good"} />
-        <StatTile label="Backlog events" value={storm?.backlog_events ?? "-"} tone={(storm?.backlog_events || 0) > 0 ? "warn" : "default"} />
+        <InternalStatTile label="Backend" value={backendUp ? "UP" : "DOWN"} tone={backendUp ? "good" : "warn"} />
+        <InternalStatTile label="Online agents" value={overview?.kpis.online_agents ?? "-"} tone="good" />
+        <InternalStatTile label="Events / 5m" value={overview?.kpis.events_5m ?? "-"} />
+        <InternalStatTile
+          label="Alerts / 60m"
+          value={overview?.kpis.alerts_60m ?? "-"}
+          tone={(overview?.kpis.alerts_60m || 0) > 0 ? "warn" : "default"}
+        />
+        <InternalStatTile label="Storm phase" value={storm?.phase || "ok"} tone={storm?.active ? "warn" : "good"} />
+        <InternalStatTile
+          label="Backlog events"
+          value={storm?.backlog_events ?? "-"}
+          tone={(storm?.backlog_events || 0) > 0 ? "warn" : "default"}
+        />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
@@ -226,12 +208,16 @@ export default function InternalDebugView() {
             <EmptyState title="No ingest status" hint="Ingest status endpoint returned no payload." />
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              <StatTile label="EPS" value={storm.eps} tone={storm.active ? "warn" : "default"} />
-              <StatTile label="Drop %" value={`${storm.drop_percent}%`} tone={storm.drop_percent > 0 ? "warn" : "good"} />
-              <StatTile label="Hot sample" value={`${storm.sample_hot_percent}%`} />
-              <StatTile label="Warm sample" value={`${storm.sample_warm_percent}%`} />
-              <StatTile label="Backlog msgs" value={storm.backlog_messages} tone={storm.backlog_messages > 0 ? "warn" : "default"} />
-              <StatTile label="Reason" value={storm.reason || "ok"} tone={storm.active ? "warn" : "good"} />
+              <InternalStatTile label="EPS" value={storm.eps} tone={storm.active ? "warn" : "default"} />
+              <InternalStatTile label="Drop %" value={`${storm.drop_percent}%`} tone={storm.drop_percent > 0 ? "warn" : "good"} />
+              <InternalStatTile label="Hot sample" value={`${storm.sample_hot_percent}%`} />
+              <InternalStatTile label="Warm sample" value={`${storm.sample_warm_percent}%`} />
+              <InternalStatTile
+                label="Backlog msgs"
+                value={storm.backlog_messages}
+                tone={storm.backlog_messages > 0 ? "warn" : "default"}
+              />
+              <InternalStatTile label="Reason" value={storm.reason || "ok"} tone={storm.active ? "warn" : "good"} />
             </div>
           )}
         </Card>
