@@ -7,6 +7,7 @@ import Loading from "@/shared/components/Loading";
 import Drawer from "@/shared/components/Drawer";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import { Table } from "@/shared/components/Table";
+import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import {
   InvestigationActionBar,
   InvestigationActionButton,
@@ -43,6 +44,27 @@ import type {
 } from "./types";
 
 const POLL_MS = 15000;
+type HygieneDomain = "dashboard" | "system" | "software" | "processes" | "network" | "identity" | "services";
+
+const HYGIENE_TABS: Array<{ key: HygieneDomain; label: string }> = [
+  { key: "dashboard", label: "Dashboard" },
+  { key: "system", label: "System" },
+  { key: "software", label: "Software" },
+  { key: "processes", label: "Processes" },
+  { key: "network", label: "Network" },
+  { key: "identity", label: "Identity" },
+  { key: "services", label: "Services" },
+];
+
+const DOMAIN_HINT: Record<HygieneDomain, string> = {
+  dashboard: "Cross-agent hygiene baseline with fleet freshness and drift.",
+  system: "Operating system posture, inventory freshness, and host baselines.",
+  software: "Package manager distributions, package drift, and baseline deltas.",
+  processes: "Process/runtime-oriented signals from inventory warnings and endpoint pivots.",
+  network: "Endpoint network-facing inventory drift and warning pivots.",
+  identity: "Identity and metadata hygiene with fast asset pivot controls.",
+  services: "Service-level hygiene surfaced through warnings and inventory pivots.",
+};
 
 function fmtDateTime(iso?: string | null) {
   if (!iso) return "-";
@@ -225,6 +247,30 @@ function parseWarnings(extra: Record<string, any> | undefined | null): string[] 
   return [JSON.stringify(w)];
 }
 
+function countish(value: any): number | null {
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value && typeof value === "object") return Object.keys(value).length;
+  return null;
+}
+
+function extractExtraDomainMetrics(extra: Record<string, any> | undefined | null): Array<{ key: string; value: string }> {
+  const src = extra || {};
+  const picks: Array<{ label: string; value: any }> = [
+    { label: "processes", value: src.processes ?? src.runtime_processes ?? src.process_list },
+    { label: "network_connections", value: src.network_connections ?? src.connections ?? src.net_connections },
+    { label: "network_interfaces", value: src.network_interfaces ?? src.interfaces ?? src.net_ifaces },
+    { label: "services", value: src.services ?? src.systemd_services ?? src.listening_services },
+    { label: "users", value: src.users ?? src.identities ?? src.accounts },
+    { label: "groups", value: src.groups ?? src.roles },
+  ];
+
+  return picks
+    .map((item) => ({ key: item.label, n: countish(item.value) }))
+    .filter((item) => item.n !== null)
+    .map((item) => ({ key: item.key, value: String(item.n) }));
+}
+
 function normalizeTagsInput(value: string): string[] {
   const raw = value
     .split(",")
@@ -265,6 +311,18 @@ function filterPackages(packages: PackageEntry[], q: string) {
   });
 }
 
+function warningMatchesDomain(text: string, domain: HygieneDomain): boolean {
+  const value = (text || "").toLowerCase();
+  if (!value) return false;
+  if (domain === "dashboard") return true;
+  if (domain === "system") return /(kernel|os|hostname|platform|filesystem|uptime|hardware)/i.test(value);
+  if (domain === "software") return /(package|version|manager|dependency|inventory|hash)/i.test(value);
+  if (domain === "processes") return /(process|pid|runtime|command|exec|thread)/i.test(value);
+  if (domain === "network") return /(network|interface|port|socket|route|dns|ip|tcp|udp)/i.test(value);
+  if (domain === "identity") return /(identity|user|group|host|domain|role|tag|metadata|auth)/i.test(value);
+  return /(service|daemon|listener|unit|systemd|http|ssh|agent)/i.test(value);
+}
+
 export default function InventoryPage() {
   const { agents } = useAgentsCatalog();
   const [sp, setSp] = useSearchParams();
@@ -272,17 +330,32 @@ export default function InventoryPage() {
   const urlAgentId = normAgentId(sp.get("agent_id"));
   const urlSnapshotId = parsePositiveInt(sp.get("snapshot_id"));
   const urlOpenDrawer = String(sp.get("open_drawer") || "").trim() === "1";
+  const urlDomainRaw = String(sp.get("view") || "").trim().toLowerCase();
+  const urlDomain = (HYGIENE_TABS.find((x) => x.key === urlDomainRaw)?.key || "dashboard") as HygieneDomain;
 
   const [agentScope, setAgentScope] = useState<string>(urlAgentId);
+  const [domain, setDomain] = useState<HygieneDomain>(urlDomain);
   const [windowMinutes, setWindowMinutes] = useState<number>(() => {
     const w = Number(sp.get("window_minutes"));
     return Number.isFinite(w) && w >= 30 ? w : 360;
   });
+  const inventoryTablePrefs = useDataTablePreferences({
+    storageKey: "nw_inventory_tables_v2",
+    defaultPageSize: 100,
+    minPageSize: 25,
+    maxPageSize: 200,
+    defaultCompact: false,
+  });
+  const compactRows = inventoryTablePrefs.compact;
 
   // Keep local scope in sync with the URL when user navigates via sidebar.
   useEffect(() => {
     setAgentScope(urlAgentId);
   }, [urlAgentId]);
+
+  useEffect(() => {
+    setDomain(urlDomain);
+  }, [urlDomain]);
 
   const [snapshot, setSnapshot] = useState<InventoryOverviewSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
@@ -341,7 +414,7 @@ export default function InventoryPage() {
     };
   }, [refresh]);
 
-  function pushUrl(nextAgent: string, nextWindow?: number) {
+  function pushUrl(nextAgent: string, nextWindow?: number, nextDomain?: HygieneDomain) {
     const next = new URLSearchParams(sp);
 
     const agent = normAgentId(nextAgent);
@@ -352,6 +425,9 @@ export default function InventoryPage() {
 
     const w = nextWindow ?? windowMinutes;
     if (Number.isFinite(w)) next.set("window_minutes", String(w));
+    const view = nextDomain || domain;
+    if (view === "dashboard") next.delete("view");
+    else next.set("view", view);
 
     setSp(next, { replace: true });
   }
@@ -454,6 +530,18 @@ export default function InventoryPage() {
 
   const toolbarRight = (
     <div className="flex items-center gap-3">
+      <button
+        type="button"
+        onClick={() => inventoryTablePrefs.setCompact(!compactRows)}
+        className={cx(
+          "rounded-md border border-border/60 bg-background/40 px-3 py-2",
+          "text-xs font-mono uppercase tracking-widest",
+          compactRows ? "text-foreground" : "text-muted-foreground",
+          "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+        )}
+      >
+        {compactRows ? "Compact rows" : "Comfortable rows"}
+      </button>
       <div className="hidden md:block text-[11px] font-mono text-muted-foreground">
         {lastUpdatedAt ? `Updated ${fmtDateTime(lastUpdatedAt.toISOString())}` : ""}
       </div>
@@ -490,6 +578,7 @@ export default function InventoryPage() {
       <EmptyState title="NO DATA" hint="No OS distribution available in the current window." />
     ) : (
       <Table
+        compact={compactRows}
         columns={[
           { key: "os", title: "OS", className: "font-mono text-foreground" },
           { key: "agents", title: "AGENTS", className: "text-right font-mono text-muted-foreground w-24" }
@@ -504,6 +593,7 @@ export default function InventoryPage() {
       <EmptyState title="NO DATA" hint="No package manager distribution available in the current window." />
     ) : (
       <Table
+        compact={compactRows}
         columns={[
           { key: "manager", title: "MANAGER", className: "font-mono text-foreground" },
           { key: "agents", title: "AGENTS", className: "text-right font-mono text-muted-foreground w-24" }
@@ -516,6 +606,30 @@ export default function InventoryPage() {
   const warningsRows: InventoryWarningRow[] = snapshot?.recent_warnings || [];
   const changesRows: InventoryChangeRow[] = snapshot?.recent_changes || [];
   const fleetRows: FleetHealthRow[] = snapshot?.fleet_health || [];
+  const domainWarnings = useMemo(
+    () => warningsRows.filter((w) => warningMatchesDomain(w.warning || "", domain)).slice(0, 12),
+    [warningsRows, domain]
+  );
+  const domainPivotRows = useMemo(() => {
+    const rows = [...fleetRows];
+    if (domain === "software") {
+      rows.sort((a, b) => (b.packages_count || 0) - (a.packages_count || 0));
+      return rows.slice(0, 12);
+    }
+    if (domain === "processes" || domain === "services") {
+      rows.sort((a, b) => b.warnings_count - a.warnings_count);
+      return rows.slice(0, 12);
+    }
+    if (domain === "network") {
+      rows.sort((a, b) => {
+        const av = (a.inventory_age_min ?? 999999) + (a.warnings_count || 0) * 30;
+        const bv = (b.inventory_age_min ?? 999999) + (b.warnings_count || 0) * 30;
+        return bv - av;
+      });
+      return rows.slice(0, 12);
+    }
+    return rows.slice(0, 12);
+  }, [fleetRows, domain]);
 
   return (
     <div className="space-y-6">
@@ -524,13 +638,40 @@ export default function InventoryPage() {
         breadcrumb={["Assets"]}
         description={
           <span>
-            Fleet inventory telemetry (OS, package baselines, freshness). Click any agent row to open the inspector drawer.
+            IT hygiene workspace across assets, software, runtime, and service posture. Click any agent row to open the inspector drawer.
           </span>
         }
         toolbarRight={toolbarRight}
       />
 
-      {/* Controls */}
+      <div className="ui-tab-shell px-1 pb-2">
+        {HYGIENE_TABS.map((tab) => {
+          const active = domain === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => {
+                setDomain(tab.key);
+                pushUrl(agentScope, windowMinutes, tab.key);
+              }}
+              className={cx("ui-tab-item", active && "ui-tab-item-active")}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+      <Panel title={`${HYGIENE_TABS.find((x) => x.key === domain)?.label || "Dashboard"} view`} className="min-h-[100px]">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="text-[12px] text-muted-foreground">{DOMAIN_HINT[domain]}</div>
+          <div className="text-[12px] text-muted-foreground">
+            Scope <span className="font-mono text-foreground">{scopeLabel}</span> · window{" "}
+            <span className="font-mono text-foreground">{windowMinutes}m</span>
+          </div>
+        </div>
+      </Panel>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Panel title="Scope" className="lg:col-span-1">
           <div className="space-y-4">
@@ -618,6 +759,99 @@ export default function InventoryPage() {
         </Panel>
       </div>
 
+      {(domain === "processes" || domain === "network" || domain === "identity" || domain === "services") ? (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <Panel title={`${HYGIENE_TABS.find((x) => x.key === domain)?.label || "Domain"} warning pivots`} scrollY className="min-h-[360px]">
+            {domainWarnings.length === 0 ? (
+              <EmptyState title="No domain-specific warnings" hint="Try a wider lookback window or scope all agents." />
+            ) : (
+              <Table
+                compact={compactRows}
+                className="text-xs"
+                columns={[
+                  {
+                    key: "time",
+                    title: "TIME",
+                    className: "w-40 font-mono text-muted-foreground",
+                    render: (r: InventoryWarningRow) => fmtDateTime(r.time),
+                  },
+                  {
+                    key: "agent_id",
+                    title: "AGENT",
+                    className: "w-52 font-mono text-foreground",
+                    render: (r: InventoryWarningRow) => (
+                      <button
+                        type="button"
+                        onClick={() => openDrawer(r.agent_id)}
+                        className="text-left font-mono text-[11px] text-primary/90 underline-offset-4 hover:underline"
+                      >
+                        {r.agent_id}
+                      </button>
+                    )
+                  },
+                  {
+                    key: "warning",
+                    title: "WARNING",
+                    className: "text-muted-foreground",
+                    render: (r: InventoryWarningRow) => <div className="max-w-[540px] truncate" title={r.warning}>{r.warning}</div>,
+                  }
+                ]}
+                rows={domainWarnings}
+                rowKey={(r, i) => `${r.time || "na"}-${r.agent_id}-${i}`}
+              />
+            )}
+          </Panel>
+
+          <Panel title="Asset pivots" right={`${domainPivotRows.length} agents`} scrollY className="min-h-[360px]">
+            {domainPivotRows.length === 0 ? (
+              <EmptyState title="No assets" hint="No assets available for this scope." />
+            ) : (
+              <Table
+                compact={compactRows}
+                className="text-xs"
+                columns={[
+                  {
+                    key: "agent_id",
+                    title: "AGENT",
+                    className: "font-mono text-foreground w-56",
+                    render: (r: FleetHealthRow) => (
+                      <button
+                        type="button"
+                        onClick={() => openDrawer(r.agent_id)}
+                        className="text-left font-mono text-[11px] text-primary/90 underline-offset-4 hover:underline"
+                      >
+                        {r.agent_id}
+                      </button>
+                    )
+                  },
+                  {
+                    key: "inventory_status",
+                    title: "INVENTORY",
+                    className: "w-28",
+                    render: (r: FleetHealthRow) => <StatusBadge status={r.inventory_status} />
+                  },
+                  {
+                    key: "packages_count",
+                    title: "PKGS",
+                    className: "text-right font-mono text-muted-foreground w-20",
+                    render: (r: FleetHealthRow) => (r.packages_count ?? "-")
+                  },
+                  {
+                    key: "warnings_count",
+                    title: "WARN",
+                    className: "text-right font-mono text-muted-foreground w-20",
+                    render: (r: FleetHealthRow) => r.warnings_count
+                  },
+                ]}
+                rows={domainPivotRows}
+                rowKey={(r) => r.agent_id}
+              />
+            )}
+          </Panel>
+        </div>
+      ) : null}
+
+      {(domain === "dashboard" || domain === "system" || domain === "software") ? (
       <Section id="timeseries" title="Activity" defaultOpen>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           <Panel title="Inventory snapshots / minute" right={`${windowMinutes}m window`} className="min-h-[420px]">
@@ -651,7 +885,9 @@ export default function InventoryPage() {
           </Panel>
         </div>
       </Section>
+      ) : null}
 
+      {(domain === "dashboard" || domain === "system" || domain === "software") ? (
       <Section id="distribution" title="Distributions" defaultOpen>
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <Panel title="OS distribution" scrollY className="min-h-[420px]">
@@ -689,7 +925,9 @@ export default function InventoryPage() {
           </Panel>
         </div>
       </Section>
+      ) : null}
 
+      {(domain === "dashboard" || domain === "system" || domain === "network" || domain === "identity" || domain === "services") ? (
       <Section id="fleet" title="Fleet health" defaultOpen>
         <Panel
           title="Fleet health"
@@ -702,6 +940,7 @@ export default function InventoryPage() {
               <EmptyState title="NO AGENTS" hint="No agent inventory data available for the current scope." />
             ) : (
               <Table
+                compact={compactRows}
                 scrollX={false}
                 className="text-xs"
                 columns={[
@@ -766,7 +1005,9 @@ export default function InventoryPage() {
           )}
         </Panel>
       </Section>
+      ) : null}
 
+      {(domain === "dashboard" || domain === "software" || domain === "processes" || domain === "network" || domain === "services") ? (
       <Section id="changes" title="Recent changes & warnings" defaultOpen={false}>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           <Panel title="Recent inventory changes" scrollY className="min-h-[520px]">
@@ -775,6 +1016,7 @@ export default function InventoryPage() {
                 <EmptyState title="NO CHANGES" hint="No inventory baselines/changes in the current window." />
               ) : (
                 <Table
+                  compact={compactRows}
                   scrollX={false}
                   className="text-xs"
                   columns={[
@@ -836,6 +1078,7 @@ export default function InventoryPage() {
                 <EmptyState title="NO WARNINGS" hint="No inventory warnings in the current window." />
               ) : (
                 <Table
+                  compact={compactRows}
                   scrollX={false}
                   className="text-xs"
                   columns={[
@@ -885,6 +1128,7 @@ export default function InventoryPage() {
           </Panel>
         </div>
       </Section>
+      ) : null}
 
       {/* Drawer Inspector */}
       <Drawer
@@ -944,6 +1188,8 @@ export default function InventoryPage() {
                   onClick={() => {
                     const sp = new URLSearchParams();
                     sp.set("agent_id", drawerAgent.agent_id);
+                    sp.set("window_minutes", String(windowMinutes));
+                    if (domain !== "dashboard") sp.set("view", domain);
                     setSp(sp, { replace: false });
                   }}
                 >
@@ -955,11 +1201,11 @@ export default function InventoryPage() {
                 value={drawerTab}
                 onChange={setDrawerTab}
                 tabs={[
-                  { key: "overview", label: "Overview" },
-                  { key: "snapshot", label: "Snapshot" },
-                  { key: "history", label: "History" },
-                  { key: "packages", label: "Packages" },
-                  { key: "configuration", label: "Configuration" },
+                  { key: "overview", label: "Dashboard" },
+                  { key: "snapshot", label: "System" },
+                  { key: "history", label: "Software timeline" },
+                  { key: "packages", label: "Software packages" },
+                  { key: "configuration", label: "Identity & controls" },
                 ]}
               />
 
@@ -984,10 +1230,13 @@ export default function InventoryPage() {
 
                   <div className="mt-4">
                     <InvestigationKeyValueGrid
-                      entries={parseWarnings(drawerLatest?.extra || {}).slice(0, 8).map((w, idx) => ({
-                        key: `warning_${idx + 1}`,
-                        value: w,
-                      }))}
+                      entries={[
+                        ...extractExtraDomainMetrics(drawerLatest?.extra || {}).map((m) => ({ key: m.key, value: m.value })),
+                        ...parseWarnings(drawerLatest?.extra || {}).slice(0, 8).map((w, idx) => ({
+                          key: `warning_${idx + 1}`,
+                          value: w,
+                        })),
+                      ]}
                     />
                   </div>
                 </InvestigationSection>
@@ -1017,6 +1266,35 @@ export default function InventoryPage() {
                       </InvestigationSummaryGrid>
                     </InvestigationSection>
 
+                    <InvestigationSection title="Domain evidence">
+                      {(() => {
+                        const extra = drawerLatest.extra || {};
+                        const entries = [
+                          { key: "processes", value: extra.processes ?? extra.runtime_processes ?? extra.process_list },
+                          { key: "network", value: extra.network_connections ?? extra.connections ?? extra.network_interfaces ?? extra.interfaces },
+                          { key: "services", value: extra.services ?? extra.systemd_services ?? extra.listening_services },
+                          { key: "identity", value: extra.users ?? extra.identities ?? extra.accounts ?? extra.groups },
+                        ].filter((x) => x.value !== undefined);
+
+                        if (entries.length === 0) {
+                          return <EmptyState title="No domain evidence" hint="This snapshot did not include process/network/service/identity extras." />;
+                        }
+
+                        return (
+                          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                            {entries.map((entry) => (
+                              <div key={entry.key} className="rounded-md border border-border/60 bg-background/30 p-3">
+                                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{entry.key}</div>
+                                <pre className="mt-2 max-h-[220px] overflow-auto text-[11px] text-muted-foreground whitespace-pre-wrap break-words">
+                                  {safeJson(entry.value)}
+                                </pre>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </InvestigationSection>
+
                     <InvestigationRawJsonPanel value={drawerLatest} title="Raw snapshot JSON" />
                   </div>
                 )
@@ -1025,7 +1303,7 @@ export default function InventoryPage() {
               {drawerTab === "history" ? (
                 <InvestigationSection title="Recent snapshots" subtitle="Track package hash drift and pin relevant baseline states.">
                   <div className="overflow-hidden rounded-lg border border-border/60">
-                    <table className="w-full text-sm">
+                    <table className={cx("w-full", compactRows ? "text-xs" : "text-sm")}>
                       <thead className="bg-muted/10">
                         <tr className="text-[10px] uppercase tracking-widest font-mono text-muted-foreground">
                           <th className="text-left px-3 py-2">Collected</th>
@@ -1133,6 +1411,7 @@ export default function InventoryPage() {
                         }
                         return (
                           <Table
+                            compact={compactRows}
                             scrollX={false}
                             className="text-xs"
                             columns={[
