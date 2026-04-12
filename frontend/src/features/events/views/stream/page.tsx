@@ -25,6 +25,7 @@ import EventExplorer from "../../components/EventExplorer";
 import EventsFilters from "../../components/EventsFilters";
 import EventsTable from "../../components/EventsTable";
 import { buildTopCounts } from "../../lib/aggregates";
+import { isDdosEvent } from "../../lib/ddos";
 import type { NetEvent, QueryProvenanceMeta } from "../../types";
 
 type ViewCfg = {
@@ -44,6 +45,7 @@ type DisplayCfg = {
 
 type EventsStreamPageProps = {
   forcedEventType?: string;
+  forcedScope?: "ddos";
   moduleTitle?: string;
 };
 
@@ -88,17 +90,17 @@ function fmtSource(meta: QueryProvenanceMeta | null) {
   return `source: ${meta.source} · freshness: ${fresh} · ${degraded}`;
 }
 
-function normalizeView(input: ViewCfg, pinnedEventType: string): ViewCfg {
+function normalizeView(input: ViewCfg, pinnedEventType: string, ddosScope = false): ViewCfg {
   const out: ViewCfg = {
     ...input,
     agent_id: normalizeFilterText(input.agent_id),
-    event_type: pinnedEventType || normalizeFilterText(input.event_type),
+    event_type: ddosScope ? "" : (pinnedEventType || normalizeFilterText(input.event_type)),
     search: normalizeSearchText(input.search),
     window_minutes: clampInt(input.window_minutes, 1, 1440, DEFAULTS.window_minutes),
     limit: clampInt(input.limit, 10, 500, DEFAULTS.limit),
     event_id: input.event_id && input.event_id > 0 ? Math.trunc(input.event_id) : null,
   };
-  if (pinnedEventType) out.event_type = pinnedEventType;
+  if (!ddosScope && pinnedEventType) out.event_type = pinnedEventType;
   return out;
 }
 
@@ -196,9 +198,10 @@ function SmallToggle({
   );
 }
 
-export default function EventsPage({ forcedEventType, moduleTitle }: EventsStreamPageProps = {}) {
+export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }: EventsStreamPageProps = {}) {
   const { agents } = useAgentsCatalog();
-  const pinnedEventType = normalizeFilterText(forcedEventType);
+  const ddosScope = forcedScope === "ddos";
+  const pinnedEventType = ddosScope ? "" : normalizeFilterText(forcedEventType);
 
   const tablePrefs = useDataTablePreferences({
     storageKey: `nw_events_stream_table_${pinnedEventType || "all"}_v2`,
@@ -226,19 +229,20 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
           limit: getIntParam(sp, "limit", { min: 10, max: 500, fallback: tablePrefs.pageSize }),
           event_id: clampInt(sp.get("event_id"), 0, Number.MAX_SAFE_INTEGER, 0) || null,
         },
-        pinnedEventType
+        pinnedEventType,
+        ddosScope
       );
       return view;
     },
-    [pinnedEventType, tablePrefs.pageSize]
+    [ddosScope, pinnedEventType, tablePrefs.pageSize]
   );
 
   const serializeQuery = useCallback(
     (view: ViewCfg): URLSearchParams => {
-      const normalized = normalizeView(view, pinnedEventType);
+      const normalized = normalizeView(view, pinnedEventType, ddosScope);
       const sp = new URLSearchParams();
       setOptionalParam(sp, "agent_id", normalized.agent_id || null);
-      setOptionalParam(sp, "event_type", normalized.event_type || null);
+      setOptionalParam(sp, "event_type", ddosScope ? null : (normalized.event_type || null));
       setOptionalParam(sp, "search", normalized.search || null);
 
       if (normalized.window_minutes !== DEFAULTS.window_minutes) {
@@ -250,7 +254,7 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
       setOptionalParam(sp, "event_id", normalized.event_id);
       return sp;
     },
-    [pinnedEventType]
+    [ddosScope, pinnedEventType]
   );
 
   const [view, setView] = useUrlQueryState<ViewCfg>({ parse: parseQuery, serialize: serializeQuery, replace: true });
@@ -307,7 +311,7 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
       const payload = await huntEvents({
         page_size: snapshot.limit,
         agent_id: snapshot.agent_id || undefined,
-        event_type: snapshot.event_type || undefined,
+        event_type: ddosScope ? undefined : (snapshot.event_type || undefined),
         since_minutes: snapshot.window_minutes,
         search: snapshot.search.trim() || undefined,
       });
@@ -339,7 +343,7 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
       if (reqSeq.current !== mySeq) return;
       setLoading(false);
     }
-  }, []);
+  }, [ddosScope]);
 
   const loadMore = useCallback(async () => {
     const cursor = nextCursor;
@@ -354,7 +358,7 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
         page_size: snapshot.limit,
         cursor,
         agent_id: snapshot.agent_id || undefined,
-        event_type: snapshot.event_type || undefined,
+        event_type: ddosScope ? undefined : (snapshot.event_type || undefined),
         since_minutes: snapshot.window_minutes,
         search: snapshot.search.trim() || undefined,
       });
@@ -379,7 +383,7 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
     } finally {
       setLoadingMore(false);
     }
-  }, [loading, loadingMore, nextCursor]);
+  }, [ddosScope, loading, loadingMore, nextCursor]);
 
   useEffect(() => {
     const t = window.setTimeout(() => load(), 120);
@@ -408,7 +412,8 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
 
   const typeCounts = useMemo(() => {
     const m = new Map<string, number>();
-    for (const e of events) {
+    const scopeRows = ddosScope ? events.filter((row) => isDdosEvent(row)) : events;
+    for (const e of scopeRows) {
       const k = (e.event_type || "").trim();
       if (!k) continue;
       m.set(k, (m.get(k) || 0) + 1);
@@ -416,13 +421,17 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
     return Array.from(m.entries())
       .map(([key, count]) => ({ key, count }))
       .sort((a, b) => (b.count !== a.count ? b.count - a.count : a.key.localeCompare(b.key)));
-  }, [events]);
+  }, [ddosScope, events]);
+
+  const scopedEvents = useMemo(() => {
+    return ddosScope ? events.filter((e) => isDdosEvent(e)) : events;
+  }, [ddosScope, events]);
 
   const sortedEvents = useMemo(() => {
     const sortKey = tablePrefs.sort?.key || "timestamp";
     const sortDirection = tablePrefs.sort?.direction || "desc";
-    return sortRows(events, sortKey, sortDirection);
-  }, [events, tablePrefs.sort]);
+    return sortRows(scopedEvents, sortKey, sortDirection);
+  }, [scopedEvents, tablePrefs.sort]);
 
   const topSrc = useMemo(() => buildTopCounts(sortedEvents.map((e) => e.src_ip ?? null), 10), [sortedEvents]);
   const topDst = useMemo(() => buildTopCounts(sortedEvents.map((e) => e.dst_ip ?? null), 10), [sortedEvents]);
@@ -430,9 +439,9 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
 
   const patchView = useCallback(
     (next: Partial<ViewCfg>) => {
-      setView((prev) => normalizeView({ ...prev, ...next }, pinnedEventType));
+      setView((prev) => normalizeView({ ...prev, ...next }, pinnedEventType, ddosScope));
     },
-    [pinnedEventType, setView]
+    [ddosScope, pinnedEventType, setView]
   );
 
   const patchDisplay = useCallback(
@@ -448,12 +457,12 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
   const filtersValue = useMemo(
     () => ({
       agent_id: view.agent_id || null,
-      event_type: view.event_type || null,
+      event_type: ddosScope ? null : (view.event_type || null),
       search: view.search,
       window_minutes: view.window_minutes,
       limit: view.limit
     }),
-    [view.agent_id, view.event_type, view.limit, view.search, view.window_minutes]
+    [ddosScope, view.agent_id, view.event_type, view.limit, view.search, view.window_minutes]
   );
 
   const onFiltersChange = useCallback(
@@ -462,14 +471,14 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
       tablePrefs.setPageSize(nextLimit);
       patchView({
         agent_id: (next.agent_id ?? "") || "",
-        event_type: pinnedEventType || ((next.event_type ?? "") || ""),
+        event_type: ddosScope ? "" : (pinnedEventType || ((next.event_type ?? "") || "")),
         search: next.search ?? "",
         window_minutes: next.window_minutes ?? DEFAULTS.window_minutes,
         limit: nextLimit,
         event_id: view.event_id,
       });
     },
-    [patchView, pinnedEventType, tablePrefs, view.event_id]
+    [ddosScope, patchView, pinnedEventType, tablePrefs, view.event_id]
   );
 
   const headerRight = useMemo(() => {
@@ -503,7 +512,7 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
           tablePrefs.setCompact(false);
           tablePrefs.setSort({ key: "timestamp", direction: "desc" });
           patchDisplay(DEFAULT_DISPLAY);
-          setView(normalizeView({ ...DEFAULTS, event_type: pinnedEventType || "" }, pinnedEventType));
+          setView(normalizeView({ ...DEFAULTS, event_type: pinnedEventType || "" }, pinnedEventType, ddosScope));
         }}
         className="ui-btn-secondary h-8 px-2.5 text-xs"
         title="Reset filters and table preferences"
@@ -540,6 +549,7 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
               busy={isInitialLoading}
               value={filtersValue}
               lockEventType={pinnedEventType || null}
+              hideEventType={ddosScope}
               onChange={onFiltersChange}
             />
           </Panel>
@@ -613,7 +623,7 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
             </div>
           </Panel>
 
-          {!pinnedEventType ? (
+          {!pinnedEventType && !ddosScope ? (
             <Panel title="Explorer" right={view.event_type ? `Type: ${view.event_type}` : "All types"} scrollY style={{ maxHeight: 360 }}>
               <EventExplorer
                 types={typeCounts}
@@ -623,9 +633,11 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
               />
             </Panel>
           ) : (
-            <Panel title="Explorer" right={`Locked: ${pinnedEventType}`}>
+            <Panel title="Explorer" right={ddosScope ? "Locked: DDoS semantic scope" : `Locked: ${pinnedEventType}`}>
               <div className="text-[12px] text-muted-foreground">
-                Type explorer is locked for this module to preserve the DDoS-focused workflow.
+                {ddosScope
+                  ? "Type explorer is locked for this module to preserve semantic DDoS filtering."
+                  : "Type explorer is locked for this module."}
               </div>
             </Panel>
           )}
@@ -720,7 +732,9 @@ export default function EventsPage({ forcedEventType, moduleTitle }: EventsStrea
               <EmptyState
                 title="No events"
                 description={
-                  view.agent_id
+                  ddosScope
+                    ? "No DDoS-classified events matched the current scope/filters."
+                    : view.agent_id
                     ? "No telemetry events matched the current scope/filters."
                     : "No telemetry events matched the current filters across all agents."
                 }

@@ -68,8 +68,8 @@ export function Table<T>({
   footer?: ReactNode;
 }) {
   const selectedSet = toSelectedSet(selectedRowKeys);
-  const allRowsSelected = rows.length > 0 && rows.every((row, idx) => selectedSet.has(rowKey(row, idx)));
-  const anyRowSelected = rows.some((row, idx) => selectedSet.has(rowKey(row, idx)));
+  const allRowsSelected = rows.length > 0 && rows.every((row, idx) => selectedSet.has(String(rowKey(row, idx))));
+  const anyRowSelected = rows.some((row, idx) => selectedSet.has(String(rowKey(row, idx))));
 
   const cellPadding = compact ? "px-3 py-1.5" : "px-3 py-2.5";
 
@@ -136,45 +136,52 @@ export function Table<T>({
         </thead>
 
         <tbody>
-          {rows.map((r, i) => {
-            const key = rowKey(r, i);
-            const isSelected = (selectedRowKey !== undefined && selectedRowKey !== null && key === selectedRowKey) || selectedSet.has(key);
-            const clickable = Boolean(onRowClick);
+          {(() => {
+            const renderKeyCount = new Map<string, number>();
+            return rows.map((r, i) => {
+              const logicalKey = String(rowKey(r, i));
+              const dupCount = renderKeyCount.get(logicalKey) ?? 0;
+              renderKeyCount.set(logicalKey, dupCount + 1);
+              const renderKey = dupCount === 0 ? logicalKey : `${logicalKey}__dup_${i}`;
+              const key = logicalKey;
+              const isSelected = (selectedRowKey !== undefined && selectedRowKey !== null && key === selectedRowKey) || selectedSet.has(key);
+              const clickable = Boolean(onRowClick);
 
-            return (
-              <tr
-                key={key}
-                className={cx(
-                  "border-t border-border/50",
-                  clickable ? "cursor-pointer hover:bg-muted/45" : "hover:bg-muted/35",
-                  isSelected && "bg-muted/50",
-                  rowClassName?.(r, i)
-                )}
-                onClick={() => onRowClick?.(r, i)}
-              >
-                {selectableRows ? (
-                  <td className={cellPadding} onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={selectedSet.has(key)}
-                      onChange={(e) => onToggleRow?.(r, e.target.checked)}
-                      aria-label={`Select row ${i + 1}`}
-                      className="h-4 w-4"
-                    />
-                  </td>
-                ) : null}
-
-                {columns.map((c) => {
-                  const alignClass = c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left";
-                  return (
-                    <td key={c.key} className={cx(cellPadding, alignClass, c.className || "")}>
-                      {c.render ? c.render(r) : (r as Record<string, unknown>)[c.key] as ReactNode}
+              return (
+                <tr
+                  key={renderKey}
+                  className={cx(
+                    "border-t border-border/50",
+                    clickable ? "cursor-pointer hover:bg-muted/45" : "hover:bg-muted/35",
+                    isSelected && "bg-muted/50",
+                    rowClassName?.(r, i)
+                  )}
+                  onClick={() => onRowClick?.(r, i)}
+                >
+                  {selectableRows ? (
+                    <td className={cellPadding} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedSet.has(key)}
+                        onChange={(e) => onToggleRow?.(r, e.target.checked)}
+                        aria-label={`Select row ${i + 1}`}
+                        className="h-4 w-4"
+                      />
                     </td>
-                  );
-                })}
-              </tr>
-            );
-          })}
+                  ) : null}
+
+                  {columns.map((c) => {
+                    const alignClass = c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left";
+                    return (
+                      <td key={c.key} className={cx(cellPadding, alignClass, c.className || "")}>
+                        {c.render ? c.render(r) : (r as Record<string, unknown>)[c.key] as ReactNode}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            });
+          })()}
         </tbody>
       </table>
 

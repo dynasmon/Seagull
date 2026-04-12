@@ -117,6 +117,7 @@ export type PortalRealtimeEventPayloadMap = {
   };
   "ui.overview.storm.patch": {
     active?: boolean;
+    protection_active?: boolean;
     phase?: "ok" | "storm" | "shedding" | "draining";
     eps?: number;
     ingest_rate_eps?: number;
@@ -226,6 +227,7 @@ export type PortalRealtimeEventPayloadMap = {
   };
   "storm.status": {
     active?: boolean;
+    protection_active?: boolean;
     phase?: "ok" | "storm" | "shedding" | "draining";
     eps?: number;
     ingest_rate_eps?: number;

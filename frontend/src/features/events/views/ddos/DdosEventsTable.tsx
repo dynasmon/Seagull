@@ -35,13 +35,13 @@ export default function DdosEventsTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((e) => {
+          {rows.map((e, idx) => {
             const active = selectedId === e.id;
             const d = extractDdosFields(e.extra);
             const target = `${e.dst_ip || "-"}:${e.dst_port ?? "-"}/${e.proto || "-"}`;
             return (
               <tr
-                key={e.id}
+                key={`${e.id ?? "na"}-${e.timestamp || "na"}-${e.agent_id || "na"}-${idx}`}
                 onClick={() => onSelect(e)}
                 className={cx(
                   "border-b border-border/50 cursor-pointer",

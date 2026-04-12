@@ -1084,13 +1084,23 @@ export default function InvestigationsPage() {
     setDrawerOpen(true);
   }, [query.workspace_id]);
 
-  useEffect(() => {
+  const openWorkspaceDrawer = useCallback((workspaceId: number) => {
+    setSelectedId(workspaceId);
+    setDrawerOpen(true);
     setQuery((prev) => {
-      const nextWorkspaceId = drawerOpen && selectedId ? selectedId : null;
-      if ((prev.workspace_id || null) === nextWorkspaceId) return prev;
-      return { ...prev, workspace_id: nextWorkspaceId };
+      if ((prev.workspace_id || null) === workspaceId) return prev;
+      return { ...prev, workspace_id: workspaceId };
     });
-  }, [drawerOpen, selectedId, setQuery]);
+  }, [setQuery]);
+
+  const closeWorkspaceDrawer = useCallback(() => {
+    setDrawerOpen(false);
+    setSelectedId(null);
+    setQuery((prev) => {
+      if ((prev.workspace_id || null) === null) return prev;
+      return { ...prev, workspace_id: null };
+    });
+  }, [setQuery]);
 
   useEffect(() => {
     return () => {
@@ -1294,14 +1304,12 @@ export default function InvestigationsPage() {
                       role="button"
                       tabIndex={0}
                       onClick={() => {
-                        setSelectedId(ws.id);
-                        setDrawerOpen(true);
+                        openWorkspaceDrawer(ws.id);
                       }}
                       onKeyDown={(event) => {
                         if (event.key !== "Enter" && event.key !== " ") return;
                         event.preventDefault();
-                        setSelectedId(ws.id);
-                        setDrawerOpen(true);
+                        openWorkspaceDrawer(ws.id);
                       }}
                     >
                       <td className="px-3 py-2">
@@ -1320,8 +1328,7 @@ export default function InvestigationsPage() {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSelectedId(ws.id);
-                            setDrawerOpen(true);
+                            openWorkspaceDrawer(ws.id);
                           }}
                           className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:bg-muted/15 hover:text-foreground"
                         >
@@ -1359,10 +1366,7 @@ export default function InvestigationsPage() {
       <WorkspaceDrawer
         workspaceId={selectedId}
         open={drawerOpen}
-        onClose={() => {
-          setDrawerOpen(false);
-          setSelectedId(null);
-        }}
+        onClose={closeWorkspaceDrawer}
         onUpdated={(next) => {
           setRows((prev) => prev.map((x) => (x.id === next.id ? next : x)));
         }}
