@@ -851,7 +851,7 @@ function OverviewPageView() {
                     { key: "src_ip", title: "SRC", className: "font-mono text-muted-foreground w-32", render: (r: Alert) => r.src_ip || "-" }
                   ]}
                   rows={snapshot.recent_alerts}
-                  rowKey={(r) => String(r.id)}
+                  rowKey={(r, i) => `${r.id ?? "na"}-${r.created_at || "na"}-${r.rule_id || "na"}-${i}`}
               />
             )}
           </CyberPanel>
@@ -871,7 +871,7 @@ function OverviewPageView() {
                   { key: "count", title: "EVENTS", className: "text-right font-mono text-primary w-24" }
                 ]}
                 rows={snapshot.top_sources}
-                rowKey={(r) => r.src_ip}
+                rowKey={(r, i) => `${r.src_ip || "na"}-${i}`}
               />
             )}
           </CyberPanel>
@@ -928,7 +928,7 @@ function OverviewPageView() {
                   { key: "dst_port", title: "DST PORT", className: "font-mono text-muted-foreground w-24", render: (r: any) => (r.dst_port ?? "-") }
                 ]}
                 rows={snapshot.raw_events}
-                rowKey={(r: any) => String(r.id)}
+                rowKey={(r: any, i) => `${r.id ?? "na"}-${r.timestamp || "na"}-${r.agent_id || "na"}-${i}`}
             />
           )}
         </CyberPanel>
@@ -1005,7 +1005,7 @@ function OverviewPageView() {
                     { key: "description", title: "DESC", className: "font-mono text-foreground" }
                   ]}
                   rows={snapshot.ddos_alerts}
-                  rowKey={(r) => String(r.id)}
+                  rowKey={(r, i) => `${r.id ?? "na"}-${r.created_at || "na"}-${r.rule_id || "na"}-${i}`}
               />
             )}
           </CyberPanel>

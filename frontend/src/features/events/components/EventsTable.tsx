@@ -62,6 +62,12 @@ function agentLabel(agent_id: string, agentNameById?: Record<string, string>) {
   return `${name} (${agent_id})`;
 }
 
+function eventRowKey(e: NetEvent, idx: number): string {
+  const idNum = Number((e as any).id);
+  const idPart = Number.isFinite(idNum) && idNum > 0 ? `id:${idNum}` : "id:na";
+  return `${idPart}-${e.timestamp || "na"}-${e.agent_id || "na"}-${e.event_type || "na"}-${idx}`;
+}
+
 export default function EventsTable({
   rows,
   selectedId,
@@ -181,14 +187,21 @@ export default function EventsTable({
     return cols;
   }, [agentNameById, compact, onEdit, showExtra]);
 
+  const selectedRowKey = useMemo(() => {
+    if (selectedId === null) return null;
+    const idx = rows.findIndex((e) => Number((e as any).id) === selectedId);
+    if (idx < 0) return null;
+    return eventRowKey(rows[idx], idx);
+  }, [rows, selectedId]);
+
   return (
     <Table
       columns={columns}
       rows={rows}
-      rowKey={(e) => String(e.id)}
+      rowKey={eventRowKey}
       compact={Boolean(compact)}
       stickyHeader
-      selectedRowKey={selectedId !== null ? String(selectedId) : null}
+      selectedRowKey={selectedRowKey}
       onRowClick={(row) => onSelect?.(row)}
       sort={sort}
       onSortChange={onSortChange}

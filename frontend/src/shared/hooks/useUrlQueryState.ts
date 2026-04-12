@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 
 export type UrlQueryUpdater<T> = T | ((prev: T) => T);
@@ -11,6 +11,16 @@ export type UrlQueryStateOptions<T> = {
 
 export function useUrlQueryState<T>({ parse, serialize, replace = true }: UrlQueryStateOptions<T>): [T, (next: UrlQueryUpdater<T>) => void, URLSearchParams] {
   const [searchParams, setSearchParams] = useSearchParams();
+  const parseRef = useRef(parse);
+  const serializeRef = useRef(serialize);
+
+  useEffect(() => {
+    parseRef.current = parse;
+  }, [parse]);
+
+  useEffect(() => {
+    serializeRef.current = serialize;
+  }, [serialize]);
 
   const state = useMemo(() => parse(searchParams), [parse, searchParams]);
 
@@ -18,15 +28,15 @@ export function useUrlQueryState<T>({ parse, serialize, replace = true }: UrlQue
     (next: UrlQueryUpdater<T>) => {
       setSearchParams(
         (prev) => {
-          const prevState = parse(prev);
+          const prevState = parseRef.current(prev);
           const resolved = typeof next === "function" ? (next as (current: T) => T)(prevState) : next;
-          const nextSp = serialize(resolved);
+          const nextSp = serializeRef.current(resolved);
           return nextSp.toString() === prev.toString() ? prev : nextSp;
         },
         { replace }
       );
     },
-    [parse, replace, serialize, setSearchParams]
+    [replace, setSearchParams]
   );
 
   return [state, setState, searchParams];

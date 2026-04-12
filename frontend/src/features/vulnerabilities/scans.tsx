@@ -397,7 +397,7 @@ export default function VulnerabilityScansPage() {
 
       {/* Timeline */}
       <Card
-        title="Timeline"
+        title="Scan inventory table"
         right={<span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{items.length} scans</span>}
         className="rounded-xl"
       >

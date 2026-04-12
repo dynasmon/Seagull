@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ResponsiveContainer,
@@ -142,6 +142,26 @@ export const SimpleTimeSeries = memo(function SimpleTimeSeries({
   minWidth?: number;
   allowHorizontalScroll?: boolean;
 }) {
+  const mountRef = useRef<HTMLDivElement | null>(null);
+  const [canRenderChart, setCanRenderChart] = useState(false);
+
+  useEffect(() => {
+    const el = mountRef.current;
+    if (!el) return;
+
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      setCanRenderChart(rect.width > 1 && rect.height > 1);
+    };
+
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => update());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [height, allowHorizontalScroll, minWidth]);
+
   // Keep full timeline, but stop drawing each line after its last real datapoint.
   const maskedData = useMemo(
     () => maskTrailingNoDataBuckets(data, seriesKeys),
@@ -161,30 +181,32 @@ export const SimpleTimeSeries = memo(function SimpleTimeSeries({
           Recharts can emit width/height <= 0 warnings when containers momentarily measure to 0
           during layout. We keep explicit minWidth/minHeight to avoid negative/zero measurements.
         */}
-        <div style={{ width: "100%", height, minWidth: 1, minHeight: 1 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={maskedData}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-              <XAxis dataKey="t" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Legend />
+        <div ref={mountRef} style={{ width: "100%", height, minWidth: 1, minHeight: 1 }}>
+          {canRenderChart ? (
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1} debounce={80}>
+              <LineChart data={maskedData}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                <XAxis dataKey="t" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Legend />
 
-              {seriesKeys.map((k, idx) => (
-                <Line
-                  key={k}
-                  type="linear"
-                  dataKey={k}
-                  dot={false}
-                  strokeWidth={2}
-                  isAnimationActive={false}
-                  // Do not connect gaps; null values break/stop the line like Grafana.
-                  connectNulls={false}
-                  stroke={pickStroke(k, idx)}
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
+                {seriesKeys.map((k, idx) => (
+                  <Line
+                    key={k}
+                    type="linear"
+                    dataKey={k}
+                    dot={false}
+                    strokeWidth={2}
+                    isAnimationActive={false}
+                    // Do not connect gaps; null values break/stop the line like Grafana.
+                    connectNulls={false}
+                    stroke={pickStroke(k, idx)}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          ) : null}
         </div>
       </div>
     </div>
