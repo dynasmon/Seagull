@@ -7,7 +7,7 @@ import { cx } from "@/shared/lib/cx";
 import { SimpleTimeSeries } from "@/features/overview/components/Charts";
 
 import type { NetEvent } from "../../types";
-import { extractDdosFields, ddosLabel } from "../../lib/ddos";
+import { extractDdosFields, ddosLabel, isDdosEvent } from "../../lib/ddos";
 
 import DdosEventsTable from "./DdosEventsTable";
 
@@ -92,7 +92,7 @@ export default function DdosDeepDive({
   selectedId: number | null;
   onSelect: (e: NetEvent) => void;
 }) {
-  const ddosEvents = useMemo(() => events.filter((e) => e.event_type === "dos_attack"), [events]);
+  const ddosEvents = useMemo(() => events.filter((e) => isDdosEvent(e)), [events]);
 
   const latest = useMemo(() => {
     const copy = [...ddosEvents];
@@ -124,7 +124,7 @@ export default function DdosDeepDive({
   }, [ddosEvents]);
 
   if (ddosEvents.length === 0) {
-    return <EmptyState title="No DDoS detections" hint="This agent has no 'dos_attack' events in the current window." />;
+    return <EmptyState title="No DDoS detections" hint="This scope has no DDoS-classified telemetry in the current window." />;
   }
 
   const latestFields = latest ? extractDdosFields(latest.extra) : null;

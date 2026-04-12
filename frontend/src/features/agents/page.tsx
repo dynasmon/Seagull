@@ -30,6 +30,7 @@ import type { OverviewSnapshot } from "@/features/overview/types";
 
 import { getRecentEvents } from "@/features/events/api";
 import type { NetEvent } from "@/features/events/types";
+import { isDdosEvent, isDdosEventType } from "@/features/events/lib/ddos";
 import AgentActionsPanel from "@/features/agents/components/AgentActionsPanel";
 import AgentAtGlancePanel from "@/features/agents/components/AgentAtGlancePanel";
 import AgentEventsWorkbench from "@/features/agents/components/AgentEventsWorkbench";
@@ -1198,8 +1199,8 @@ export default function AgentsPage() {
     });
   }, [windowedEvents, eventsCfg.event_type, eventsCfg.search]);
 
-  const ddosMode = (eventsCfg.event_type || "").trim() === "dos_attack";
-  const ddosEvents = useMemo(() => filteredEvents.filter((e) => e.event_type === "dos_attack"), [filteredEvents]);
+  const ddosEvents = useMemo(() => filteredEvents.filter((e) => isDdosEvent(e)), [filteredEvents]);
+  const ddosMode = ddosEvents.length > 0 || isDdosEventType((eventsCfg.event_type || "").trim());
 
   // --- RENDER ---
 

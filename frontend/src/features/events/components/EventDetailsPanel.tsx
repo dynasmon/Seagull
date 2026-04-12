@@ -3,7 +3,7 @@ import { cx } from "@/shared/lib/cx";
 
 import type { NetEvent } from "../types";
 import { fmtDateTime } from "../lib/aggregates";
-import { extractDdosFields, ddosLabel, fmtHumanRate } from "../lib/ddos";
+import { extractDdosFields, ddosLabel, fmtHumanRate, isDdosEvent } from "../lib/ddos";
 import { normalizeDetails, safeNumber } from "../lib/normalize";
 
 function Kv({ k, v }: { k: string; v: any }) {
@@ -25,7 +25,7 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
   const src = event.src_ip ? `${event.src_ip}${event.src_port ? `:${event.src_port}` : ""}` : "-";
   const dst = event.dst_ip ? `${event.dst_ip}${event.dst_port ? `:${event.dst_port}` : ""}` : "-";
 
-  const isDdos = event.event_type === "dos_attack";
+  const isDdos = isDdosEvent(event);
   const ddos = isDdos ? extractDdosFields(extra) : null;
   const isProcExec = event.event_type === "proc_exec";
   const isFim = ["fim_change", "persistence_systemd", "persistence_cron", "ssh_key_change"].includes(event.event_type);

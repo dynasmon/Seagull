@@ -110,6 +110,24 @@ describe("overview live realtime helpers", () => {
     expect(merged?.quality_by_event_type?.length).toBe(1);
   });
 
+  it("maps protection_active and phase-only patches into active state", () => {
+    const protectionPatch = {
+      protection_active: true,
+      reason: "runtime protection",
+    } as unknown as Partial<StormStatus>;
+
+    const fromProtection = mergeStormStatus(null, {
+      ...protectionPatch,
+    });
+    expect(fromProtection?.active).toBe(true);
+
+    const fromPhase = mergeStormStatus(null, {
+      phase: "storm",
+      reason: "traffic spike",
+    });
+    expect(fromPhase?.active).toBe(true);
+  });
+
   it("computes delayed invalidation refresh window to avoid refetch storms", () => {
     const delay = nextRealtimeInvalidationDelayMs({
       nowMs: 10_000,
