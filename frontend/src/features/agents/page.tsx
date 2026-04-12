@@ -1,11 +1,9 @@
-import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import EmptyState from "@/shared/components/EmptyState";
 import Drawer from "@/shared/components/Drawer";
-import DraftNumberInput from "@/shared/components/DraftNumberInput";
-import Loading from "@/shared/components/Loading";
+import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import {
   InvestigationActionBar,
   InvestigationActionButton,
@@ -28,15 +26,16 @@ import { useAgentsCatalog } from "@/app/providers";
 import { useAuth } from "@/features/auth/context";
 
 import { getOverview } from "@/features/overview/api";
-import { SimpleTimeSeries } from "@/features/overview/components/Charts";
 import type { OverviewSnapshot } from "@/features/overview/types";
 
 import { getRecentEvents } from "@/features/events/api";
-import EventsTable from "@/features/events/components/EventsTable";
-import EventDetailsPanel from "@/features/events/components/EventDetailsPanel";
 import type { NetEvent } from "@/features/events/types";
-
-import DdosDeepDive from "@/features/events/views/ddos/DdosDeepDive";
+import AgentActionsPanel from "@/features/agents/components/AgentActionsPanel";
+import AgentAtGlancePanel from "@/features/agents/components/AgentAtGlancePanel";
+import AgentEventsWorkbench from "@/features/agents/components/AgentEventsWorkbench";
+import AgentFleetPanel from "@/features/agents/components/AgentFleetPanel";
+import AgentTelemetrySnapshot from "@/features/agents/components/AgentTelemetrySnapshot";
+import { Dot, FieldLabel, Panel, Switch, inputClassName, textAreaClassName } from "@/features/agents/components/AgentsPageShared";
 
 import {
   cancelResponseAction,
@@ -225,147 +224,6 @@ function fmtDuration(startIso?: string | null, endIso?: string | null): string {
   return remMin ? `${hr}h ${remMin}m` : `${hr}h`;
 }
 
-function Dot({ state }: { state: "online" | "offline" | "disabled" }) {
-  const klass =
-    state === "disabled"
-      ? "bg-muted-foreground/60"
-      : state === "online"
-        ? "bg-emerald-400/90"
-        : "bg-amber-400/90";
-  return <span className={cx("h-2.5 w-2.5 rounded-full", klass)} />;
-}
-
-function Switch({
-  checked,
-  onChange,
-  disabled,
-  label
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  disabled?: boolean;
-  label: string;
-}) {
-  return (
-    <div className={cx("flex items-center justify-between gap-3", disabled && "opacity-60")}>
-      <span className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
-        {label}
-      </span>
-
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={cx(
-          "relative inline-flex h-6 w-11 items-center rounded-full border border-border/60",
-          "bg-background/40 transition-colors",
-          "focus:outline-none focus:ring-2 focus:ring-primary/30",
-          "disabled:cursor-not-allowed",
-          checked && "bg-primary/15"
-        )}
-      >
-        <span
-          className={cx(
-            "inline-block h-5 w-5 transform rounded-full bg-foreground/80",
-            "transition-transform",
-            checked ? "translate-x-5" : "translate-x-1"
-          )}
-        />
-      </button>
-    </div>
-  );
-}
-
-function Panel({
-  title,
-  right,
-  children,
-  scrollY = false,
-  className = "",
-  style
-}: {
-  title: string;
-  right?: ReactNode;
-  children: ReactNode;
-  scrollY?: boolean;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  return (
-    <div
-      className={cx(
-        "rounded-lg border border-border/60 bg-background/60 backdrop-blur-sm flex flex-col shadow-sm overflow-hidden min-w-0",
-        className
-      )}
-      style={style}
-    >
-      <div className="flex items-center justify-between border-b border-border/60 bg-muted/10 px-4 py-3 shrink-0">
-        <h3 className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-primary/90">{title}</h3>
-        {right && <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">{right}</div>}
-      </div>
-      <div className={cx("p-4 flex-1 min-h-0 min-w-0", scrollY ? "overflow-y-auto" : "overflow-hidden")}>{children}</div>
-    </div>
-  );
-}
-
-function StatTile({
-  label,
-  value,
-  hint,
-  tone = "default"
-}: {
-  label: string;
-  value: string | number;
-  hint?: string;
-  tone?: "default" | "good" | "warn";
-}) {
-  const raw = String(value);
-  const isLong = raw.length > 18;
-  const isMid = raw.length > 12;
-  const valueSize = isLong ? "text-sm" : isMid ? "text-lg" : "text-3xl";
-
-  const valueClass = tone === "warn" ? "text-red-400" : tone === "good" ? "text-green-400" : "text-foreground";
-
-  return (
-    <div className="rounded-lg border border-border/60 bg-background/50 backdrop-blur-sm px-4 py-4 shadow-sm min-w-0">
-      <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1 font-mono">{label}</div>
-      <div className={cx("font-mono font-bold tracking-tight leading-none truncate", valueSize, valueClass)} title={raw}>
-        {raw}
-      </div>
-      {hint && <div className="text-[10px] text-muted-foreground font-mono opacity-70 mt-2">{hint}</div>}
-    </div>
-  );
-}
-
-function inputClassName(disabled?: boolean) {
-  return cx(
-    "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-sm text-foreground outline-none",
-    "placeholder:text-muted-foreground/60",
-    "focus:ring-2 focus:ring-primary/30",
-    disabled && "opacity-60 cursor-not-allowed"
-  );
-}
-
-function textAreaClassName(disabled?: boolean) {
-  return cx(
-    "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-sm text-foreground outline-none",
-    "placeholder:text-muted-foreground/60",
-    "focus:ring-2 focus:ring-primary/30",
-    "font-mono text-[12px]",
-    disabled && "opacity-60 cursor-not-allowed"
-  );
-}
-
-function FieldLabel({ children }: { children: ReactNode }) {
-  return (
-    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
-      {children}
-    </div>
-  );
-}
-
 function prettyJson(v: any) {
   try {
     return JSON.stringify(v ?? {}, null, 2);
@@ -513,6 +371,14 @@ export default function AgentsPage() {
   const [agentQuery, setAgentQuery] = useState("");
   const [configOpen, setConfigOpen] = useState(false);
   const [responseActionOpen, setResponseActionOpen] = useState(false);
+  const agentTablePrefs = useDataTablePreferences({
+    storageKey: "nw_agents_tables_v2",
+    defaultPageSize: 100,
+    minPageSize: 25,
+    maxPageSize: 200,
+    defaultCompact: true,
+  });
+  const compactRows = agentTablePrefs.compact;
 
   const agentsSorted = useMemo(() => {
     return [...(agents || [])].sort((a, b) => {
@@ -1359,70 +1225,18 @@ export default function AgentsPage() {
 
         <div className="grid gap-6 xl:grid-cols-12 min-w-0">
           <div className="xl:col-span-4 min-w-0">
-            <Panel title="Agents" right={`${agentsFiltered.length}/${agentsSorted.length}`} scrollY style={{ height: H_PANEL_TALL }}>
-              <div className="space-y-3">
-                <input
-                  value={agentQuery}
-                  onChange={(e) => setAgentQuery(e.target.value)}
-                  placeholder="Search agents (name, id, tags)…"
-                  className={inputClassName(false)}
-                />
-
-                <div className="space-y-2">
-                  {agentsFiltered.length === 0 ? (
-                    <EmptyState title="No matches" hint="Try a different search query." />
-                  ) : (
-                    agentsFiltered.map((a) => {
-                      const disabled = Boolean(a.is_revoked);
-                      const online = !disabled && isOnline(a.last_seen_at);
-                      const state = disabled ? "disabled" : online ? "online" : "offline";
-                      return (
-                        <button
-                          key={a.agent_id}
-                          type="button"
-                          onClick={() => selectAgent(a.agent_id)}
-                          className={cx(
-                            "w-full text-left rounded-md border border-border/60 bg-background/20 px-3 py-2",
-                            "hover:bg-muted/10",
-                            "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <Dot state={state} />
-                              <div className="min-w-0">
-                                <div className="text-sm font-mono truncate">{a.display_name || a.agent_id}</div>
-                                <div className="text-[10px] font-mono text-muted-foreground truncate">{a.agent_id}</div>
-                              </div>
-                            </div>
-                            <div className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
-                              {fmtLastSeen(a.last_seen_at)}
-                            </div>
-                          </div>
-                          {a.tags && a.tags.length ? (
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {a.tags.slice(0, 5).map((t) => (
-                                <span
-                                  key={t}
-                                  className="rounded border border-border/60 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground"
-                                >
-                                  {t}
-                                </span>
-                              ))}
-                              {a.tags.length > 5 ? (
-                                <span className="rounded border border-border/60 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
-                                  +{a.tags.length - 5}
-                                </span>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </Panel>
+            <AgentFleetPanel
+              agentsFiltered={agentsFiltered}
+              agentsSorted={agentsSorted}
+              selectedAgentId={selectedAgentId}
+              agentQuery={agentQuery}
+              onAgentQueryChange={setAgentQuery}
+              onSelectAgent={selectAgent}
+              fmtLastSeen={fmtLastSeen}
+              isOnline={isOnline}
+              compact={compactRows}
+              height={H_PANEL_TALL}
+            />
           </div>
 
           <div className="xl:col-span-8 min-w-0">
@@ -1450,6 +1264,17 @@ export default function AgentsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => agentTablePrefs.setCompact(!compactRows)}
+            className={cx(
+              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
+              compactRows ? "text-foreground" : "text-muted-foreground",
+              "hover:bg-primary/5"
+            )}
+          >
+            {compactRows ? "Compact rows" : "Comfortable rows"}
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -1495,164 +1320,40 @@ export default function AgentsPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-12 min-w-0">
-        {/* LEFT COLUMN: AGENTS LIST + QUICK ACTIONS */}
         <div className="xl:col-span-4 space-y-6 min-w-0">
-          <Panel title="Agents" right={`${agentsFiltered.length}/${agentsSorted.length}`} scrollY style={{ height: H_PANEL_TALL }}>
-            <div className="space-y-3">
-              <input
-                value={agentQuery}
-                onChange={(e) => setAgentQuery(e.target.value)}
-                placeholder="Search agents (name, id, tags)…"
-                className={inputClassName(false)}
-              />
-
-              <button
-                type="button"
-                onClick={() => setConfigOpen(true)}
-                className={cx(
-                  "w-full border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                  "hover:bg-primary/5"
-                )}
-              >
-                Configure selected agent
-              </button>
-
-              <div className="space-y-2">
-                {agentsFiltered.length === 0 ? (
-                  <EmptyState title="No matches" hint="Try a different search query." />
-                ) : (
-                  agentsFiltered.map((a) => {
-                    const disabled = Boolean(a.is_revoked);
-                    const online = !disabled && isOnline(a.last_seen_at);
-                    const state = disabled ? "disabled" : online ? "online" : "offline";
-                    const active = a.agent_id === selectedAgentId;
-
-                    return (
-                      <button
-                        key={a.agent_id}
-                        type="button"
-                        onClick={() => selectAgent(a.agent_id)}
-                        className={cx(
-                          "w-full text-left rounded-md border border-border/60 px-3 py-2",
-                          active ? "bg-primary/10" : "bg-background/20",
-                          "hover:bg-muted/10",
-                          "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                        )}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <Dot state={state} />
-                            <div className="min-w-0">
-                              <div className="text-sm font-mono truncate">{a.display_name || a.agent_id}</div>
-                              <div className="text-[10px] font-mono text-muted-foreground truncate">{a.agent_id}</div>
-                            </div>
-                          </div>
-                          <div className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
-                            {fmtLastSeen(a.last_seen_at)}
-                          </div>
-                        </div>
-                        {a.tags && a.tags.length ? (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {a.tags.slice(0, 4).map((t) => (
-                              <span
-                                key={t}
-                                className="rounded border border-border/60 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground"
-                              >
-                                {t}
-                              </span>
-                            ))}
-                            {a.tags.length > 4 ? (
-                              <span className="rounded border border-border/60 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
-                                +{a.tags.length - 4}
-                              </span>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </Panel>
-
-          <Panel title="Actions" right={agent?.is_revoked ? "Disabled" : "Enabled"} style={{ minHeight: 220 }}>
-            {!agent ? (
-              <EmptyState title="Agent not loaded" hint="Try refresh or check API connectivity." />
-            ) : (
-              <div className="flex flex-col gap-4">
-                <div className="space-y-1">
-                  <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
-                    Selected
-                  </div>
-                  <div className="text-sm font-mono truncate">{agent.display_name || agent.agent_id}</div>
-                  <div className="text-[10px] font-mono text-muted-foreground truncate">{agent.agent_id}</div>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setConfigOpen(true)}
-                    className={cx(
-                      "w-full min-w-0 border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-center break-words",
-                      "hover:bg-primary/5"
-                    )}
-                  >
-                    Open configuration
-                  </button>
-
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      onClick={openResponseActionDrawer}
-                      className={cx(
-                        "w-full min-w-0 border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-center break-words",
-                        "hover:bg-primary/5"
-                      )}
-                    >
-                      Queue response action
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={onToggleRevoked}
-                    disabled={toggleBusy}
-                    className={cx(
-                      "w-full min-w-0 border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-center break-words",
-                      "hover:bg-primary/5",
-                      toggleBusy && "opacity-60 cursor-not-allowed"
-                    )}
-                  >
-                    {toggleBusy ? "Working..." : agent.is_revoked ? "Enable agent" : "Disable agent"}
-                  </button>
-                </div>
-
-                {agentError && <div className="text-[11px] text-red-400">{agentError}</div>}
-              </div>
-            )}
-          </Panel>
+          <AgentFleetPanel
+            agentsFiltered={agentsFiltered}
+            agentsSorted={agentsSorted}
+            selectedAgentId={selectedAgentId}
+            agentQuery={agentQuery}
+            onAgentQueryChange={setAgentQuery}
+            onSelectAgent={selectAgent}
+            onOpenConfig={() => setConfigOpen(true)}
+            fmtLastSeen={fmtLastSeen}
+            isOnline={isOnline}
+            compact={compactRows}
+            showConfigButton
+            height={H_PANEL_TALL}
+          />
+          <AgentActionsPanel
+            agent={agent}
+            isAdmin={isAdmin}
+            toggleBusy={toggleBusy}
+            agentError={agentError}
+            onOpenConfig={() => setConfigOpen(true)}
+            onOpenResponseAction={openResponseActionDrawer}
+            onToggleRevoked={onToggleRevoked}
+          />
         </div>
 
-        {/* RIGHT COLUMN: TELEMETRY + EVENTS WORKBENCH */}
         <div className="xl:col-span-8 space-y-6 min-w-0">
-          <Panel
-            title="At a glance"
-            right={topStats.online ? "Online" : selectedAgentRow?.is_revoked ? "Disabled" : ""}
-            style={{ height: 220 }}
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 min-w-0">
-              <StatTile
-                label="Status"
-                value={topStats.status}
-                tone={topStats.online ? "good" : selectedAgentRow?.is_revoked ? "warn" : "default"}
-              />
-              <StatTile label="Last seen" value={topStats.lastSeen} />
-              <StatTile label="Events / 5m" value={eventsRate} />
-              <StatTile label="Alerts / 60m" value={alerts60m} tone={Number(alerts60m) > 0 ? "warn" : "default"} />
-              <StatTile label="Last event age" value={lastEventAge} />
-            </div>
-          </Panel>
+          <AgentAtGlancePanel
+            topStats={topStats}
+            eventsRate={eventsRate}
+            alerts60m={alerts60m}
+            lastEventAge={lastEventAge}
+            disabled={Boolean(selectedAgentRow?.is_revoked)}
+          />
 
           {snapshotError && (
             <div className="border border-border/60 bg-background/40 p-3 text-[11px] text-red-400">
@@ -1660,227 +1361,35 @@ export default function AgentsPage() {
             </div>
           )}
 
-          <div className="grid gap-6 lg:grid-cols-2 min-w-0">
-            <Panel title="Traffic" style={{ height: H_PANEL_MD }}>
-              {!charts.traffic ? (
-                <Loading label="Loading chart..." />
-              ) : (
-                <div className="h-full w-full min-w-0 overflow-hidden">
-                  <SimpleTimeSeries data={charts.traffic.data} seriesKeys={charts.traffic.series} height={Math.max(180, H_PANEL_MD - 120)} allowHorizontalScroll={false} />
-                </div>
-              )}
-            </Panel>
-
-            <Panel title="SSH failures" style={{ height: H_PANEL_MD }}>
-              {!charts.ssh ? (
-                <Loading label="Loading chart..." />
-              ) : (
-                <div className="h-full w-full min-w-0 overflow-hidden">
-                  <SimpleTimeSeries data={charts.ssh.data} seriesKeys={charts.ssh.series} height={Math.max(180, H_PANEL_MD - 120)} allowHorizontalScroll={false} />
-                </div>
-              )}
-            </Panel>
-
-            <Panel title="DDoS" style={{ height: H_PANEL_MD }}>
-              {!charts.ddos ? (
-                <Loading label="Loading chart..." />
-              ) : (
-                <div className="h-full w-full min-w-0 overflow-hidden">
-                  <SimpleTimeSeries data={charts.ddos.data} seriesKeys={charts.ddos.series} height={Math.max(180, H_PANEL_MD - 120)} allowHorizontalScroll={false} />
-                </div>
-              )}
-            </Panel>
-
-            <Panel title="Alert severity" style={{ height: H_PANEL_MD }}>
-              {!charts.sev ? (
-                <Loading label="Loading chart..." />
-              ) : (
-                <div className="h-full w-full min-w-0 overflow-hidden">
-                  <SimpleTimeSeries data={charts.sev.data} seriesKeys={charts.sev.series} height={Math.max(180, H_PANEL_MD - 120)} allowHorizontalScroll={false} />
-                </div>
-              )}
-            </Panel>
-          </div>
-
-
+          <AgentTelemetrySnapshot height={H_PANEL_MD} charts={charts} />
         </div>
       </div>
 
-      {/* EVENTS WORKBENCH (full-width) */}
-      <div className="grid gap-6 xl:grid-cols-12 min-w-0">
-            {/* LEFT: Filters/Explorer/Details (wider) */}
-            <div className="xl:col-span-4 space-y-6 min-h-0 min-w-0">
-              <Panel title="Event filters" scrollY style={{ height: 420 }}>
-                <div className="space-y-3">
-                  <div>
-                    <FieldLabel>Event type</FieldLabel>
-                    <select
-                      className={cx(
-                        "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-                        "focus:ring-2 focus:ring-primary/30"
-                      )}
-                      value={eventsCfg.event_type}
-                      onChange={(e) => setEventsCfg((p) => ({ ...p, event_type: e.target.value }))}
-                    >
-                      <option value="">All types</option>
-                      {availableTypes.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <FieldLabel>Search</FieldLabel>
-                    <input
-                      className={inputClassName(false)}
-                      value={eventsCfg.search}
-                      onChange={(e) => setEventsCfg((p) => ({ ...p, search: e.target.value }))}
-                      placeholder="ip, user, rule, port, vector..."
-                    />
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      Client-side search over event fields + extra JSON.
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <FieldLabel>Window (min)</FieldLabel>
-                      <DraftNumberInput
-                        value={eventsCfg.window_minutes}
-                        min={1}
-                        max={10080}
-                        fallback={DEFAULT_WINDOW_MINUTES}
-                        onCommit={(v) => setEventsCfg((p) => ({ ...p, window_minutes: v }))}
-                        className={inputClassName(false)}
-                        title="Lookback window (minutes)"
-                      />
-                    </div>
-
-                    <div>
-                      <FieldLabel>Limit</FieldLabel>
-                      <DraftNumberInput
-                        value={eventsCfg.limit}
-                        min={50}
-                        max={5000}
-                        fallback={DEFAULT_EVENTS_LIMIT}
-                        onCommit={(v) => setEventsCfg((p) => ({ ...p, limit: v }))}
-                        className={inputClassName(false)}
-                        title="Max events to fetch"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setEventsCfg((p) => ({ ...p, event_type: "", search: "" }))}
-                      className={cx(
-                        "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                        "hover:bg-primary/5"
-                      )}
-                    >
-                      Clear filters
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const cfg = eventsCfgRef.current;
-                        loadSnapshot(selectedAgentId, cfg);
-                        loadEvents(selectedAgentId, cfg);
-                      }}
-                      className={cx(
-                        "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                        "hover:bg-primary/5",
-                        eventsLoading && "opacity-60 cursor-not-allowed"
-                      )}
-                      disabled={eventsLoading}
-                    >
-                      {eventsLoading ? "Loading..." : "Reload events"}
-                    </button>
-                  </div>
-                </div>
-              </Panel>
-
-              <Panel title="Explorer" scrollY style={{ height: 360 }}>
-                <div className="space-y-1">
-                  <button
-                    type="button"
-                    className={cx(
-                      "w-full text-left px-3 py-2 rounded-md border border-border/60 bg-background/30",
-                      "hover:bg-muted/10",
-                      !eventsCfg.event_type && "bg-primary/10"
-                    )}
-                    onClick={() => setEventsCfg((p) => ({ ...p, event_type: "" }))}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-mono">All types</div>
-                      <div className="text-[10px] font-mono text-muted-foreground">{explorerBase.length}</div>
-                    </div>
-                  </button>
-
-                  {topTypes.map((x) => {
-                    const active = eventsCfg.event_type === x.key;
-                    return (
-                      <button
-                        key={x.key}
-                        type="button"
-                        className={cx(
-                          "w-full text-left px-3 py-2 rounded-md border border-border/60 bg-background/20",
-                          "hover:bg-muted/10",
-                          active && "bg-primary/10"
-                        )}
-                        onClick={() => setEventsCfg((p) => ({ ...p, event_type: x.key }))}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-sm font-mono truncate">{x.key}</div>
-                          <div className="text-[10px] font-mono text-muted-foreground">{x.count}</div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </Panel>
-
-              <Panel title="Event details" scrollY style={{ height: H_PANEL_TALL }}>
-                <EventDetailsPanel event={selectedEvent} />
-              </Panel>
-            </div>
-
-            {/* RIGHT: Deep Dive + Stream (wider) */}
-            <div className="xl:col-span-8 space-y-6 min-h-0 min-w-0">
-              {ddosMode && (
-                <Panel
-                  title="DDoS Deep Dive"
-                  right={ddosEvents.length ? `${ddosEvents.length} events` : ""}
-                  scrollY
-                  style={{ height: H_PANEL_TALL }}
-                >
-                  {ddosEvents.length === 0 ? (
-                    <EmptyState title="No DDoS events" hint="No dos_attack telemetry matches the current filters/window." />
-                  ) : (
-                    <DdosDeepDive events={ddosEvents} selectedId={selectedEvent?.id ?? null} onSelect={(e) => setSelectedEvent(e)} />
-                  )}
-                </Panel>
-              )}
-
-              <Panel title="Event stream" right={eventsError ? "Error" : `${filteredEvents.length} events`} scrollY style={{ height: H_PANEL_TALL }}>
-                {eventsError ? (
-                  <EmptyState title="Events error" hint={eventsError} />
-                ) : eventsLoading && filteredEvents.length === 0 ? (
-                  <Loading label="Loading events..." />
-                ) : filteredEvents.length === 0 ? (
-                  <EmptyState title="No events" hint="No events match the current filters/window." />
-                ) : (
-                  <div className="h-full min-w-0">
-                    <EventsTable rows={filteredEvents} selectedId={selectedEvent?.id ?? null} compact showExtra onSelect={(e) => setSelectedEvent(e)} />
-                  </div>
-                )}
-              </Panel>
-            </div>
-      </div>
+      <AgentEventsWorkbench
+        selectedAgentId={selectedAgentId}
+        eventsCfg={eventsCfg}
+        setEventsCfg={setEventsCfg}
+        availableTypes={availableTypes}
+        topTypes={topTypes}
+        explorerBaseCount={explorerBase.length}
+        filteredEvents={filteredEvents}
+        selectedEvent={selectedEvent}
+        onSelectEvent={setSelectedEvent}
+        eventsLoading={eventsLoading}
+        eventsError={eventsError}
+        onReload={() => {
+          const cfg = eventsCfgRef.current;
+          loadSnapshot(selectedAgentId, cfg);
+          loadEvents(selectedAgentId, cfg);
+        }}
+        defaultWindowMinutes={DEFAULT_WINDOW_MINUTES}
+        defaultEventsLimit={DEFAULT_EVENTS_LIMIT}
+        ddosMode={ddosMode}
+        ddosEvents={ddosEvents}
+        panelHeight={H_PANEL_TALL}
+        streamHeight={H_PANEL_TALL}
+        compact={compactRows}
+      />
 
       <Drawer
         open={responseActionOpen}
