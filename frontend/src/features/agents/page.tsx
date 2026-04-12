@@ -35,7 +35,8 @@ import AgentAtGlancePanel from "@/features/agents/components/AgentAtGlancePanel"
 import AgentEventsWorkbench from "@/features/agents/components/AgentEventsWorkbench";
 import AgentFleetPanel from "@/features/agents/components/AgentFleetPanel";
 import AgentTelemetrySnapshot from "@/features/agents/components/AgentTelemetrySnapshot";
-import { Dot, FieldLabel, Panel, Switch, inputClassName, textAreaClassName } from "@/features/agents/components/AgentsPageShared";
+import { Dot, FieldLabel, Panel, Switch } from "@/features/agents/components/AgentsPageShared";
+import { inputClassName, textAreaClassName } from "@/features/agents/components/AgentFormClassNames";
 
 import {
   cancelResponseAction,

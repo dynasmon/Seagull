@@ -6,14 +6,15 @@ import AuditEventsTable from "../components/AuditEventsTable";
 import AuditFiltersBar from "../components/AuditFiltersBar";
 import { fmtDateTime } from "../lib";
 import { useAuditQuery } from "../useAuditQuery";
-import type { AuditEvent, LoginEvidenceEvent } from "../types";
+import type { LoginEvidenceEvent } from "../types";
 import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
 import { Table } from "@/shared/components/Table";
+import { useAuditEventSelection } from "../useAuditEventSelection";
 
 export default function AuditLoginsView() {
   const q = useAuditQuery({ fixedEventType: "auth", defaultLimit: 100 });
-  const [selected, setSelected] = useState<AuditEvent | null>(null);
+  const selection = useAuditEventSelection(q.visibleRows);
 
   const [evidence, setEvidence] = useState<LoginEvidenceEvent[]>([]);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
@@ -82,12 +83,16 @@ export default function AuditLoginsView() {
         loading={q.loading}
         error={q.error}
         emptyTitle="No authentication events found for current filters."
-        onOpen={setSelected}
+        onOpen={selection.openEvent}
         page={q.page}
         hasPrev={q.hasPrev}
         hasMore={q.hasMore}
         onPrev={q.prevPage}
         onNext={q.nextPage}
+        compact={q.compact}
+        setCompact={q.setCompact}
+        sort={{ key: "created_at", direction: q.filters.sort }}
+        onSortChange={(next) => q.setFilter("sort", next.direction)}
       />
 
       <Card title="Login Evidence Feed" right="/api/admin/login-history">
@@ -118,7 +123,7 @@ export default function AuditLoginsView() {
         )}
       </Card>
 
-      <AuditEventDrawer event={selected} onClose={() => setSelected(null)} />
+      <AuditEventDrawer event={selection.selectedEvent} onClose={selection.closeEvent} />
     </div>
   );
 }

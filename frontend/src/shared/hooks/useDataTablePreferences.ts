@@ -2,17 +2,14 @@ import { useCallback, useMemo } from "react";
 
 import { usePersistentState } from "@/shared/hooks/usePersistentState";
 import { clampInt } from "@/shared/lib/filters";
+import {
+  sanitizeDataTableSort,
+  sanitizeDataTableState,
+  type DataTableSortPreference,
+  type PersistedDataTableState,
+} from "@/shared/lib/dataTablePreferences";
 
-export type DataTableSortPreference = {
-  key: string;
-  direction: "asc" | "desc";
-};
-
-type PersistedState = {
-  page_size: number;
-  compact: boolean;
-  sort: DataTableSortPreference | null;
-};
+export type { DataTableSortPreference };
 
 type Options = {
   storageKey: string;
@@ -23,16 +20,6 @@ type Options = {
   defaultSort?: DataTableSortPreference | null;
 };
 
-function sanitizeSort(raw: unknown): DataTableSortPreference | null {
-  if (!raw || typeof raw !== "object") return null;
-  const maybe = raw as { key?: unknown; direction?: unknown };
-  const key = String(maybe.key || "").trim();
-  if (!key) return null;
-  const direction = maybe.direction === "asc" ? "asc" : maybe.direction === "desc" ? "desc" : null;
-  if (!direction) return null;
-  return { key, direction };
-}
-
 export function useDataTablePreferences(opts: Options) {
   const minPageSize = Math.max(1, opts.minPageSize ?? 10);
   const maxPageSize = Math.max(minPageSize, opts.maxPageSize ?? 500);
@@ -41,17 +28,18 @@ export function useDataTablePreferences(opts: Options) {
   const fallbackSort = opts.defaultSort ?? null;
 
   const sanitize = useCallback(
-    (raw: unknown): PersistedState => {
-      const candidate = (raw || {}) as Partial<PersistedState>;
-      const page_size = clampInt(candidate.page_size, minPageSize, maxPageSize, fallbackPageSize);
-      const compact = typeof candidate.compact === "boolean" ? candidate.compact : fallbackCompact;
-      const sort = sanitizeSort(candidate.sort) ?? fallbackSort;
-      return { page_size, compact, sort };
-    },
+    (raw: unknown): PersistedDataTableState =>
+      sanitizeDataTableState(raw, {
+        minPageSize,
+        maxPageSize,
+        fallbackPageSize,
+        fallbackCompact,
+        fallbackSort,
+      }),
     [fallbackCompact, fallbackPageSize, fallbackSort, maxPageSize, minPageSize]
   );
 
-  const [state, setState] = usePersistentState<PersistedState>(opts.storageKey, sanitize({}), sanitize);
+  const [state, setState] = usePersistentState<PersistedDataTableState>(opts.storageKey, sanitize({}), sanitize);
 
   const setPageSize = useCallback(
     (value: number) => {
@@ -72,7 +60,7 @@ export function useDataTablePreferences(opts: Options) {
 
   const setSort = useCallback(
     (next: DataTableSortPreference | null) => {
-      setState((prev) => ({ ...prev, sort: sanitizeSort(next) }));
+      setState((prev) => ({ ...prev, sort: sanitizeDataTableSort(next) }));
     },
     [setState]
   );

@@ -45,6 +45,9 @@ import type {
 
 const POLL_MS = 15000;
 type HygieneDomain = "dashboard" | "system" | "software" | "processes" | "network" | "identity" | "services";
+const EMPTY_WARNING_ROWS: InventoryWarningRow[] = [];
+const EMPTY_CHANGE_ROWS: InventoryChangeRow[] = [];
+const EMPTY_FLEET_ROWS: FleetHealthRow[] = [];
 
 const HYGIENE_TABS: Array<{ key: HygieneDomain; label: string }> = [
   { key: "dashboard", label: "Dashboard" },
@@ -603,9 +606,9 @@ export default function InventoryPage() {
       />
     );
 
-  const warningsRows: InventoryWarningRow[] = snapshot?.recent_warnings || [];
-  const changesRows: InventoryChangeRow[] = snapshot?.recent_changes || [];
-  const fleetRows: FleetHealthRow[] = snapshot?.fleet_health || [];
+  const warningsRows: InventoryWarningRow[] = snapshot?.recent_warnings ?? EMPTY_WARNING_ROWS;
+  const changesRows: InventoryChangeRow[] = snapshot?.recent_changes ?? EMPTY_CHANGE_ROWS;
+  const fleetRows: FleetHealthRow[] = snapshot?.fleet_health ?? EMPTY_FLEET_ROWS;
   const domainWarnings = useMemo(
     () => warningsRows.filter((w) => warningMatchesDomain(w.warning || "", domain)).slice(0, 12),
     [warningsRows, domain]

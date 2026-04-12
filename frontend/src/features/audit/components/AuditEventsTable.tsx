@@ -1,8 +1,12 @@
 import { Badge } from "@/shared/components/Badge";
-import { Table } from "@/shared/components/Table";
+import { Table, type TableSortState } from "@/shared/components/Table";
 
 import { eventSeverity, fmtDateTime, summarizeEvent } from "../lib";
 import type { AuditEvent } from "../types";
+
+function auditRowKey(row: AuditEvent, index: number): string {
+  return `${row.id || "na"}-${row.created_at || "na"}-${row.operation_id || "na"}-${index}`;
+}
 
 export default function AuditEventsTable({
   rows,
@@ -15,6 +19,10 @@ export default function AuditEventsTable({
   hasMore,
   onPrev,
   onNext,
+  compact = false,
+  setCompact,
+  sort = null,
+  onSortChange,
 }: {
   rows: AuditEvent[];
   loading: boolean;
@@ -26,17 +34,40 @@ export default function AuditEventsTable({
   hasMore: boolean;
   onPrev: () => void;
   onNext: () => void;
+  compact?: boolean;
+  setCompact?: (next: boolean) => void;
+  sort?: TableSortState | null;
+  onSortChange?: (next: TableSortState) => void;
 }) {
   return (
-    <div className="rounded-xl border border-border/60 bg-background/60 p-4 space-y-3">
+    <div className="ui-card-shell space-y-3 p-4">
       <div className="flex items-center justify-between">
-        <div className="text-xs text-muted-foreground">Page {page} · {rows.length} rows loaded</div>
+        <div className="text-xs text-muted-foreground font-mono">Page {page} · {rows.length} rows loaded</div>
         <div className="flex items-center gap-2">
+          {setCompact ? (
+            <div className="hidden items-center gap-1 sm:flex">
+              <button
+                type="button"
+                onClick={() => setCompact(false)}
+                className={compact ? "ui-btn-secondary h-8 px-2 text-xs" : "ui-btn h-8 px-2 text-xs"}
+              >
+                Comfortable
+              </button>
+              <button
+                type="button"
+                onClick={() => setCompact(true)}
+                className={compact ? "ui-btn h-8 px-2 text-xs" : "ui-btn-secondary h-8 px-2 text-xs"}
+              >
+                Compact
+              </button>
+            </div>
+          ) : null}
+
           <button
             type="button"
             onClick={onPrev}
             disabled={!hasPrev || loading}
-            className="h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs disabled:opacity-50"
+            className="ui-btn-secondary h-8 px-3 text-xs disabled:opacity-50"
           >
             Previous
           </button>
@@ -44,7 +75,7 @@ export default function AuditEventsTable({
             type="button"
             onClick={onNext}
             disabled={!hasMore || loading}
-            className="h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs disabled:opacity-50"
+            className="ui-btn-secondary h-8 px-3 text-xs disabled:opacity-50"
           >
             Next
           </button>
@@ -60,12 +91,18 @@ export default function AuditEventsTable({
       ) : (
         <Table
           rows={rows}
-          rowKey={(r) => r.id}
+          rowKey={auditRowKey}
+          compact={compact}
+          sort={sort}
+          onSortChange={onSortChange}
+          onRowClick={(row) => onOpen(row)}
           columns={[
             {
               key: "created_at",
               title: "When",
-              className: "whitespace-nowrap text-xs",
+              className: "whitespace-nowrap text-xs font-mono",
+              sortable: true,
+              sortKey: "created_at",
               render: (r) => fmtDateTime(r.created_at),
             },
             {
@@ -94,7 +131,9 @@ export default function AuditEventsTable({
               key: "actor",
               title: "Actor",
               className: "text-xs",
-              render: (r) => r.actor_username || "-",
+              render: (r) => (
+                <div className="font-mono text-[12px]">{r.actor_username || "-"}</div>
+              ),
             },
             {
               key: "summary",
@@ -120,8 +159,11 @@ export default function AuditEventsTable({
               render: (r) => (
                 <button
                   type="button"
-                  onClick={() => onOpen(r)}
-                  className="rounded-md border border-border/60 bg-background/40 px-2 py-1 text-xs hover:bg-muted/30"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpen(r);
+                  }}
+                  className="ui-btn-secondary h-7 px-2 text-xs"
                 >
                   Open
                 </button>

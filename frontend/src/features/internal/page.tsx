@@ -6,9 +6,9 @@ export default function InternalLayout() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Internal UX"
-        breadcrumb={["Admin"]}
-        description="Internal operations for technical diagnostics, agent inspection, and platform status."
+        title="Internal Operations"
+        breadcrumb={["Governance & Platform"]}
+        description="Engineering diagnostics for platform health, agent inspection, and debugging signals."
         tabs={[
           { label: "Debug Dashboards", to: "/internal/debug" },
           { label: "Agent Inspector", to: "/internal/agents" },

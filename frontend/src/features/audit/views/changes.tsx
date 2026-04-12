@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
@@ -8,7 +8,7 @@ import AuditEventsTable from "../components/AuditEventsTable";
 import AuditFiltersBar from "../components/AuditFiltersBar";
 import { isChangeEvent } from "../lib";
 import { useAuditQuery } from "../useAuditQuery";
-import type { AuditEvent } from "../types";
+import { useAuditEventSelection } from "../useAuditEventSelection";
 
 const CHANGE_RESOURCES = [
   { key: "", label: "All governance objects" },
@@ -20,7 +20,6 @@ const CHANGE_RESOURCES = [
 
 export default function AuditChangesView() {
   const q = useAuditQuery({ fixedEventType: "admin_action", defaultLimit: 120 });
-  const [selected, setSelected] = useState<AuditEvent | null>(null);
 
   const changeRows = useMemo(() => {
     return q.visibleRows.filter((r) => {
@@ -29,6 +28,7 @@ export default function AuditChangesView() {
       return a.includes("create") || a.includes("update") || a.includes("patch") || a.includes("delete");
     });
   }, [q.visibleRows]);
+  const selection = useAuditEventSelection(changeRows);
 
   return (
     <div className="space-y-4">
@@ -50,7 +50,7 @@ export default function AuditChangesView() {
                 key={r.label}
                 type="button"
                 onClick={() => q.setFilter("resourceType", r.key)}
-                className={`h-8 rounded-md border px-3 text-xs font-mono ${active ? "border-primary bg-primary/10" : "border-border/60 bg-background/40"}`}
+                className={active ? "ui-btn h-8 border-primary/60 bg-primary/10 px-3 text-xs font-mono" : "ui-btn-secondary h-8 px-3 text-xs font-mono"}
               >
                 {r.label}
               </button>
@@ -72,15 +72,19 @@ export default function AuditChangesView() {
         loading={q.loading}
         error={q.error}
         emptyTitle="No governance changes found for current filters."
-        onOpen={setSelected}
+        onOpen={selection.openEvent}
         page={q.page}
         hasPrev={q.hasPrev}
         hasMore={q.hasMore}
         onPrev={q.prevPage}
         onNext={q.nextPage}
+        compact={q.compact}
+        setCompact={q.setCompact}
+        sort={{ key: "created_at", direction: q.filters.sort }}
+        onSortChange={(next) => q.setFilter("sort", next.direction)}
       />
 
-      <AuditEventDrawer event={selected} onClose={() => setSelected(null)} />
+      <AuditEventDrawer event={selection.selectedEvent} onClose={selection.closeEvent} />
     </div>
   );
 }

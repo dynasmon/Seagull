@@ -244,6 +244,8 @@ export function useAuditQuery(opts?: Options) {
     filters,
     setFilter,
     resetFilters,
+    compact: tablePrefs.compact,
+    setCompact: tablePrefs.setCompact,
     loading,
     error,
     rows,

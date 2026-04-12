@@ -1,14 +1,12 @@
-import { useState } from "react";
-
 import AuditEventDrawer from "../components/AuditEventDrawer";
 import AuditEventsTable from "../components/AuditEventsTable";
 import AuditFiltersBar from "../components/AuditFiltersBar";
 import { useAuditQuery } from "../useAuditQuery";
-import type { AuditEvent } from "../types";
+import { useAuditEventSelection } from "../useAuditEventSelection";
 
 export default function AuditAdminActionsView() {
   const q = useAuditQuery({ fixedEventType: "admin_action", defaultLimit: 100 });
-  const [selected, setSelected] = useState<AuditEvent | null>(null);
+  const selection = useAuditEventSelection(q.visibleRows);
 
   return (
     <div className="space-y-4">
@@ -26,15 +24,19 @@ export default function AuditAdminActionsView() {
         loading={q.loading}
         error={q.error}
         emptyTitle="No administrative actions found for current filters."
-        onOpen={setSelected}
+        onOpen={selection.openEvent}
         page={q.page}
         hasPrev={q.hasPrev}
         hasMore={q.hasMore}
         onPrev={q.prevPage}
         onNext={q.nextPage}
+        compact={q.compact}
+        setCompact={q.setCompact}
+        sort={{ key: "created_at", direction: q.filters.sort }}
+        onSortChange={(next) => q.setFilter("sort", next.direction)}
       />
 
-      <AuditEventDrawer event={selected} onClose={() => setSelected(null)} />
+      <AuditEventDrawer event={selection.selectedEvent} onClose={selection.closeEvent} />
     </div>
   );
 }
