@@ -2,7 +2,8 @@ import type { AgentPublic } from "@/features/agents/types";
 import EmptyState from "@/shared/components/EmptyState";
 import { cx } from "@/shared/lib/cx";
 
-import { Dot, Panel, inputClassName } from "./AgentsPageShared";
+import { Dot, Panel } from "./AgentsPageShared";
+import { inputClassName } from "./AgentFormClassNames";
 
 export default function AgentFleetPanel({
   agentsFiltered,

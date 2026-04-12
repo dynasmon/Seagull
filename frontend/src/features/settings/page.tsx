@@ -1,10 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { Card } from "@/shared/components/Card";
-import PageHeader from "@/shared/components/PageHeader";
 import { useAuth } from "@/features/auth/context";
+import { Badge } from "@/shared/components/Badge";
+import { Card } from "@/shared/components/Card";
+import Loading from "@/shared/components/Loading";
+import PageHeader from "@/shared/components/PageHeader";
+import { Table } from "@/shared/components/Table";
 
-import { changeMyPassword } from "./api";
+import { changeMyPassword, getAdminLoginHistory, getRuntimeConfig, type AdminLoginEvent } from "./api";
 
 function hasUpper(s: string): boolean {
   return /[A-Z]/.test(s);
@@ -26,16 +29,39 @@ function hasNoSpaces(s: string): boolean {
   return !/\s/.test(s);
 }
 
+function fmtDateTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString();
+}
+
+function PasswordRule({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-[12px]">
+      <span className={ok ? "inline-block h-2.5 w-2.5 rounded-full bg-emerald-400" : "inline-block h-2.5 w-2.5 rounded-full bg-muted-foreground/40"} />
+      <span className={ok ? "text-foreground" : "text-muted-foreground"}>{label}</span>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { user, logout } = useAuth();
+  const isAdmin = String(user?.role || "").toLowerCase() === "admin";
 
   const [curPw, setCurPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [newPw2, setNewPw2] = useState("");
-
   const [pwBusy, setPwBusy] = useState(false);
   const [pwError, setPwError] = useState<string | null>(null);
   const [pwOk, setPwOk] = useState<string | null>(null);
+
+  const [loginRows, setLoginRows] = useState<AdminLoginEvent[]>([]);
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [runtimeSecurity, setRuntimeSecurity] = useState<Record<string, any> | null>(null);
+  const [runtimeBusy, setRuntimeBusy] = useState(false);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
   const username = String(user?.username || "").trim().toLowerCase();
 
@@ -69,6 +95,49 @@ export default function SettingsPage() {
     policy.confirmMatch &&
     policy.changed;
 
+  const failedLoginCount = useMemo(() => loginRows.filter((row) => !row.succeeded).length, [loginRows]);
+  const lastSuccessfulLogin = useMemo(() => {
+    const found = loginRows.find((row) => row.succeeded);
+    return found ? fmtDateTime(found.created_at) : "-";
+  }, [loginRows]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    let alive = true;
+
+    async function loadContext() {
+      setLoginBusy(true);
+      setRuntimeBusy(true);
+      setLoginError(null);
+      setRuntimeError(null);
+
+      try {
+        const [history, runtime] = await Promise.all([
+          getAdminLoginHistory(25, true),
+          getRuntimeConfig(),
+        ]);
+        if (!alive) return;
+        setLoginRows(Array.isArray(history) ? history : []);
+        setRuntimeSecurity((runtime?.config?.security || {}) as Record<string, any>);
+      } catch (error: any) {
+        if (!alive) return;
+        setLoginRows([]);
+        setRuntimeSecurity(null);
+        setLoginError(error?.message || "Failed to load login activity");
+        setRuntimeError(error?.message || "Failed to load runtime security policy");
+      } finally {
+        if (!alive) return;
+        setLoginBusy(false);
+        setRuntimeBusy(false);
+      }
+    }
+
+    void loadContext();
+    return () => {
+      alive = false;
+    };
+  }, [isAdmin]);
+
   async function doChangePassword() {
     if (pwBusy) return;
 
@@ -76,7 +145,7 @@ export default function SettingsPage() {
     setPwOk(null);
 
     if (!canSubmit) {
-      setPwError("Password policy is not correct.");
+      setPwError("Password policy is not satisfied.");
       return;
     }
 
@@ -88,36 +157,23 @@ export default function SettingsPage() {
       setNewPw("");
       setNewPw2("");
       await logout();
-    } catch (e: any) {
-      setPwError(e?.message || "Failed to change password");
+    } catch (error: any) {
+      setPwError(error?.message || "Failed to change password");
     } finally {
       setPwBusy(false);
     }
-  }
-
-  function RuleRow({ ok, label }: { ok: boolean; label: string }) {
-    return (
-      <div className="flex items-center gap-2 text-[11px]">
-        <span
-          className={
-            "inline-block h-2.5 w-2.5 rounded-full " + (ok ? "bg-emerald-400" : "bg-muted-foreground/40")
-          }
-        />
-        <span className={ok ? "text-foreground" : "text-muted-foreground"}>{label}</span>
-      </div>
-    );
   }
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        breadcrumb={["Account"]}
-        description="Manage account security settings."
+        breadcrumb={["Governance & Platform"]}
+        description="Manage your account security, password policy, and session activity."
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-        <Card title="Account" className="w-full rounded-xl">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Card title="Account Profile">
           <div className="space-y-2 text-sm">
             <div>
               <span className="text-muted-foreground">Username:</span>{" "}
@@ -127,105 +183,154 @@ export default function SettingsPage() {
               <span className="text-muted-foreground">Role:</span>{" "}
               <span className="font-mono">{user?.role || "-"}</span>
             </div>
-            <div className="text-[11px] text-muted-foreground pt-2">
-              Keep your credentials unique. Password changes revoke active refresh sessions and tokens.
+            <div className="pt-2 text-xs text-muted-foreground">
+              Use a unique passphrase and rotate credentials after high-risk incidents.
             </div>
           </div>
         </Card>
 
-        <Card title="Session" className="w-full rounded-xl">
+        <Card title="Session Controls">
           <div className="space-y-3">
-            <div className="text-[11px] text-muted-foreground">Sign out from the current session.</div>
-            <button
-              type="button"
-              onClick={() => logout()}
-              className="inline-flex h-10 items-center justify-center border border-border/60 bg-background/40 px-4 text-[10px] font-mono uppercase tracking-widest hover:bg-background/60"
-            >
+            <div className="text-xs text-muted-foreground">Sign out from the current browser session.</div>
+            <button type="button" onClick={() => logout()} className="ui-btn-secondary h-10 px-4 text-sm">
               Sign out
             </button>
           </div>
         </Card>
 
-        <div className="lg:col-span-2">
-          <Card title="Change password" right={user ? user.username : "-"} className="w-full rounded-xl">
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-1 md:col-span-2">
-                  <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                    Current password
-                  </label>
-                  <input
-                    value={curPw}
-                    onChange={(e) => setCurPw(e.target.value)}
-                    type="password"
-                    autoComplete="current-password"
-                    className="w-full h-10 px-3 border border-border/60 bg-background/40 text-sm outline-none focus:border-primary/60"
-                    placeholder="••••••••••••"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                    New password
-                  </label>
-                  <input
-                    value={newPw}
-                    onChange={(e) => setNewPw(e.target.value)}
-                    type="password"
-                    autoComplete="new-password"
-                    className="w-full h-10 px-3 border border-border/60 bg-background/40 text-sm outline-none focus:border-primary/60"
-                    placeholder="Min 12 chars"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                    Confirm new password
-                  </label>
-                  <input
-                    value={newPw2}
-                    onChange={(e) => setNewPw2(e.target.value)}
-                    type="password"
-                    autoComplete="new-password"
-                    className="w-full h-10 px-3 border border-border/60 bg-background/40 text-sm outline-none focus:border-primary/60"
-                    placeholder="Repeat new password"
-                  />
-                </div>
+        <Card title="Security Posture" right={isAdmin ? "runtime + activity" : "account scope"}>
+          {runtimeBusy ? (
+            <Loading label="Loading runtime security policy..." />
+          ) : runtimeError && isAdmin ? (
+            <div className="text-xs text-red-400">{runtimeError}</div>
+          ) : (
+            <div className="space-y-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="neutral">Last successful login: {lastSuccessfulLogin}</Badge>
+                <Badge variant={failedLoginCount > 0 ? "medium" : "low"}>Failed attempts: {failedLoginCount}</Badge>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 rounded-lg border border-border/60 bg-background/20 p-3">
-                <RuleRow ok={policy.minLen} label="At least 12 characters" />
-                <RuleRow ok={policy.upper} label="Contains uppercase letter" />
-                <RuleRow ok={policy.lower} label="Contains lowercase letter" />
-                <RuleRow ok={policy.digit} label="Contains digit" />
-                <RuleRow ok={policy.symbol} label="Contains symbol" />
-                <RuleRow ok={policy.noSpaces} label="No spaces" />
-                <RuleRow ok={policy.noUsername} label="Does not include username" />
-                <RuleRow ok={policy.confirmMatch} label="Confirmation matches" />
-              </div>
-
-              {pwError ? (
-                <div className="border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-mono text-red-300">{pwError}</div>
+              {isAdmin ? (
+                <div className="grid grid-cols-2 gap-2 text-[12px]">
+                  <div className="rounded border border-border/60 bg-background/30 px-2 py-1">
+                    <div className="text-muted-foreground">Password min length</div>
+                    <div className="font-mono">{runtimeSecurity?.password_min_length ?? "-"}</div>
+                  </div>
+                  <div className="rounded border border-border/60 bg-background/30 px-2 py-1">
+                    <div className="text-muted-foreground">Session idle timeout</div>
+                    <div className="font-mono">
+                      {runtimeSecurity?.session_idle_timeout_minutes ? `${runtimeSecurity.session_idle_timeout_minutes}m` : "-"}
+                    </div>
+                  </div>
+                </div>
               ) : null}
-
-              {pwOk ? (
-                <div className="border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-mono text-emerald-200">{pwOk}</div>
-              ) : null}
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={doChangePassword}
-                  disabled={pwBusy || !canSubmit}
-                  className="inline-flex h-10 items-center justify-center border border-border/60 bg-background/40 px-4 text-[10px] font-mono uppercase tracking-widest hover:bg-background/60 disabled:opacity-60"
-                >
-                  {pwBusy ? "Updating…" : "Update password"}
-                </button>
-              </div>
             </div>
-          </Card>
-        </div>
+          )}
+        </Card>
       </div>
+
+      <Card title="Change Password" right={user?.username || "-"}>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void doChangePassword();
+          }}
+        >
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label className="space-y-1 md:col-span-2">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Current password</div>
+              <input
+                value={curPw}
+                onChange={(e) => setCurPw(e.target.value)}
+                type="password"
+                autoComplete="current-password"
+                className="ui-input h-10"
+                placeholder="••••••••••••"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">New password</div>
+              <input
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                type="password"
+                autoComplete="new-password"
+                className="ui-input h-10"
+                placeholder="Minimum 12 characters"
+              />
+            </label>
+
+            <label className="space-y-1">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Confirm new password</div>
+              <input
+                value={newPw2}
+                onChange={(e) => setNewPw2(e.target.value)}
+                type="password"
+                autoComplete="new-password"
+                className="ui-input h-10"
+                placeholder="Repeat new password"
+              />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 rounded-lg border border-border/60 bg-background/20 p-3 md:grid-cols-2">
+            <PasswordRule ok={policy.minLen} label="At least 12 characters" />
+            <PasswordRule ok={policy.upper} label="Contains uppercase letter" />
+            <PasswordRule ok={policy.lower} label="Contains lowercase letter" />
+            <PasswordRule ok={policy.digit} label="Contains digit" />
+            <PasswordRule ok={policy.symbol} label="Contains symbol" />
+            <PasswordRule ok={policy.noSpaces} label="No spaces" />
+            <PasswordRule ok={policy.noUsername} label="Does not include username" />
+            <PasswordRule ok={policy.confirmMatch} label="Confirmation matches" />
+          </div>
+
+          {pwError ? (
+            <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-mono text-red-300">{pwError}</div>
+          ) : null}
+
+          {pwOk ? (
+            <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-mono text-emerald-300">{pwOk}</div>
+          ) : null}
+
+          <div className="flex items-center gap-2">
+            <button type="submit" disabled={pwBusy || !canSubmit} className="ui-btn h-10 border-primary/60 bg-primary/90 px-4 text-primary-foreground disabled:opacity-60">
+              {pwBusy ? "Updating..." : "Update password"}
+            </button>
+          </div>
+        </form>
+      </Card>
+
+      {isAdmin ? (
+        <Card title="Recent Sign-in Activity" right="/api/admin/login-history">
+          {loginBusy ? (
+            <Loading label="Loading login activity..." />
+          ) : loginError ? (
+            <div className="text-sm text-red-400">{loginError}</div>
+          ) : loginRows.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No login activity available in current retention window.</div>
+          ) : (
+            <Table
+              rows={loginRows}
+              rowKey={(row, idx) => `${row.created_at}-${row.username}-${idx}`}
+              columns={[
+                { key: "created_at", title: "When", className: "text-xs font-mono", render: (row) => fmtDateTime(row.created_at) },
+                { key: "username", title: "User", className: "text-xs font-mono" },
+                { key: "method", title: "Method", className: "text-xs font-mono" },
+                { key: "ip", title: "Origin IP", className: "text-xs font-mono", render: (row) => row.ip || "-" },
+                {
+                  key: "result",
+                  title: "Result",
+                  className: "text-xs",
+                  render: (row) => <Badge variant={row.succeeded ? "low" : "critical"}>{row.succeeded ? "success" : "failed"}</Badge>,
+                },
+                { key: "user_agent", title: "User agent", className: "text-xs text-muted-foreground", render: (row) => row.user_agent || "-" },
+              ]}
+            />
+          )}
+        </Card>
+      ) : null}
     </div>
   );
 }
+

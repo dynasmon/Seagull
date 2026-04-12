@@ -9,10 +9,13 @@ import type { AgentDetail, AgentPublic } from "@/features/agents/types";
 import { getInventoryHistory, getInventoryLatest } from "@/features/inventory/api";
 import type { InventorySnapshotOut } from "@/features/inventory/types";
 import { Card } from "@/shared/components/Card";
+import { DebouncedSearchInput } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import InternalRefreshToolbar from "@/features/internal/components/InternalRefreshToolbar";
+import InternalStatTile from "@/features/internal/components/InternalStatTile";
 
 const POLL_MS = 8000;
 
@@ -53,15 +56,6 @@ function StatusDot({ status }: { status: "online" | "offline" | "disabled" }) {
         ? "bg-muted-foreground"
         : "bg-amber-400";
   return <span className={cx("inline-block h-2.5 w-2.5 rounded-full", klass)} />;
-}
-
-function StatTile({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-md border border-border/60 bg-background/60 px-4 py-3">
-      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className="mt-2 text-2xl font-bold font-mono">{value}</div>
-    </div>
-  );
 }
 
 export default function InternalAgentsInspectorView() {
@@ -139,11 +133,11 @@ export default function InternalAgentsInspectorView() {
     <div className="space-y-6 min-w-0">
       <Card title="Agents" right={`${filteredAgents.length}/${agents.length}`}>
         <div className="space-y-3">
-          <input
+          <DebouncedSearchInput
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={setQuery}
             placeholder="Search by name, id, tags..."
-            className="w-full border border-border/60 bg-background/40 px-3 py-2 text-sm"
+            className="h-10 text-sm"
           />
 
           <div className="max-h-[240px] overflow-y-auto pr-1">
@@ -198,17 +192,12 @@ export default function InternalAgentsInspectorView() {
               <h2 className="text-lg font-semibold">{agent?.display_name || selectedAgentId}</h2>
               <div className="text-[11px] font-mono text-muted-foreground">{selectedAgentId}</div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
-                Last update: {lastUpdatedAt ? lastUpdatedAt.toLocaleString() : "-"}
-              </div>
-              <button
-                type="button"
-                onClick={refresh}
-                className="border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest hover:bg-primary/5"
-              >
-                Refresh now
-              </button>
+            <div className="min-w-[320px] grow max-w-[540px]">
+              <InternalRefreshToolbar
+                lastUpdatedLabel={lastUpdatedAt ? lastUpdatedAt.toLocaleString() : "-"}
+                onRefresh={refresh}
+                busy={busy}
+              />
             </div>
           </div>
 
@@ -216,10 +205,10 @@ export default function InternalAgentsInspectorView() {
 
           <Card title="Runtime Snapshot">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <StatTile label="Status" value={statusOfAgent(selectedAgentRow)} />
-              <StatTile label="Last seen" value={fmtDateTime(selectedAgentRow?.last_seen_at)} />
-              <StatTile label="Uptime sec" value={agent?.metrics?.uptime_seconds ?? "-"} />
-              <StatTile label="Events sample" value={events.length} />
+              <InternalStatTile label="Status" value={statusOfAgent(selectedAgentRow)} />
+              <InternalStatTile label="Last seen" value={fmtDateTime(selectedAgentRow?.last_seen_at)} />
+              <InternalStatTile label="Uptime sec" value={agent?.metrics?.uptime_seconds ?? "-"} />
+              <InternalStatTile label="Events sample" value={events.length} />
             </div>
           </Card>
 
@@ -249,10 +238,10 @@ export default function InternalAgentsInspectorView() {
                 <EmptyState title="No inventory" hint="No latest inventory snapshot for this agent." />
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <StatTile label="Collected at" value={fmtDateTime(latestInventory.collected_at)} />
-                  <StatTile label="Packages" value={latestInventory.packages_count ?? (latestInventory.packages || []).length} />
-                  <StatTile label="Manager" value={latestInventory.manager || "-"} />
-                  <StatTile label="Schema" value={latestInventory.schema_version || "-"} />
+                  <InternalStatTile label="Collected at" value={fmtDateTime(latestInventory.collected_at)} />
+                  <InternalStatTile label="Packages" value={latestInventory.packages_count ?? (latestInventory.packages || []).length} />
+                  <InternalStatTile label="Manager" value={latestInventory.manager || "-"} />
+                  <InternalStatTile label="Schema" value={latestInventory.schema_version || "-"} />
                 </div>
               )}
             </Card>
@@ -286,7 +275,7 @@ export default function InternalAgentsInspectorView() {
               <div className="max-h-[360px] overflow-y-auto">
                 <Table
                   rows={events}
-                  rowKey={(r) => String(r.id)}
+                  rowKey={(row, idx) => `${row.id || "na"}-${row.timestamp || "na"}-${row.agent_id || "na"}-${idx}`}
                   columns={[
                     { key: "timestamp", title: "Timestamp", className: "font-mono text-xs", render: (r) => fmtDateTime(r.timestamp) },
                     { key: "event_type", title: "Type", className: "font-mono text-xs" },

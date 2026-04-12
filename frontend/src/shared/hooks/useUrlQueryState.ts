@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 
-export type UrlQueryUpdater<T> = T | ((prev: T) => T);
+import { resolveNextUrlSearchParams, type UrlQueryUpdater } from "@/shared/lib/urlQueryState";
+export type { UrlQueryUpdater };
 
 export type UrlQueryStateOptions<T> = {
   parse: (sp: URLSearchParams) => T;
@@ -27,12 +28,7 @@ export function useUrlQueryState<T>({ parse, serialize, replace = true }: UrlQue
   const setState = useCallback(
     (next: UrlQueryUpdater<T>) => {
       setSearchParams(
-        (prev) => {
-          const prevState = parseRef.current(prev);
-          const resolved = typeof next === "function" ? (next as (current: T) => T)(prevState) : next;
-          const nextSp = serializeRef.current(resolved);
-          return nextSp.toString() === prev.toString() ? prev : nextSp;
-        },
+        (prev) => resolveNextUrlSearchParams(prev, next, parseRef.current, serializeRef.current),
         { replace }
       );
     },
