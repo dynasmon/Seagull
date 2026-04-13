@@ -71,6 +71,10 @@ html.dark {
     height: 100%;
   }
 
+  html {
+    scrollbar-gutter: stable;
+  }
+
   body {
     margin: 0;
     background: rgb(var(--background));
@@ -78,6 +82,7 @@ html.dark {
     font-family: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     line-height: 1.4;
     text-rendering: optimizeLegibility;
+    overflow: hidden;
   }
 
   *:focus-visible {

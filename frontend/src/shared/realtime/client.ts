@@ -40,6 +40,7 @@ export type PortalRealtimeClientOptions = {
 const DEFAULT_RECONNECT_BASE_MS = 1000;
 const DEFAULT_RECONNECT_MAX_MS = 15000;
 const DEFAULT_BASE_TOPICS: readonly PortalRealtimeTopic[] = ["agents"];
+const RECENT_EVENT_KEY_LIMIT = 256;
 
 function defaultEventSourceFactory(url: string): EventSourceLike {
   return new EventSource(url) as unknown as EventSourceLike;
@@ -118,6 +119,8 @@ export class PortalRealtimeClient {
   private lastCursor = 0;
   private connectedTopicsCsv = "";
   private topicRebindTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly recentEventKeys = new Set<string>();
+  private recentEventKeyOrder: string[] = [];
 
   constructor(options: PortalRealtimeClientOptions = {}) {
     this.tokenProvider = options.tokenProvider ?? requestRealtimeStreamToken;
@@ -143,7 +146,9 @@ export class PortalRealtimeClient {
     this.clearTopicRebindTimer();
     this.teardownSource();
     this.reconnectAttempt = 0;
+    this.lastCursor = 0;
     this.connectedTopicsCsv = "";
+    this.clearRecentEventKeys();
     this.setStatus("stopped");
   }
 
@@ -229,11 +234,14 @@ export class PortalRealtimeClient {
       params.set("st", streamToken);
       const topicsCsv = requestedTopics.join(",");
       params.set("topics", topicsCsv);
-      if (this.lastCursor > 0) {
-        params.set("cursor", String(this.lastCursor));
+      const resumeCursor = this.lastCursor;
+      if (resumeCursor > 0) {
+        params.set("cursor", String(resumeCursor));
       }
       const url = `/api/realtime/portal?${params.toString()}`;
       const source = this.eventSourceFactory(url);
+      this.lastCursor = 0;
+      this.clearRecentEventKeys();
       this.attachSource(source);
       this.source = source;
       this.connectedTopicsCsv = topicsCsv;
@@ -367,12 +375,44 @@ export class PortalRealtimeClient {
     return delayMs;
   }
 
+  private clearRecentEventKeys(): void {
+    this.recentEventKeys.clear();
+    this.recentEventKeyOrder = [];
+  }
+
+  private rememberEventKey(key: string): boolean {
+    if (!key) return false;
+    if (this.recentEventKeys.has(key)) return true;
+    this.recentEventKeys.add(key);
+    this.recentEventKeyOrder.push(key);
+    if (this.recentEventKeyOrder.length > RECENT_EVENT_KEY_LIMIT) {
+      const stale = this.recentEventKeyOrder.shift();
+      if (stale) this.recentEventKeys.delete(stale);
+    }
+    return false;
+  }
+
+  private buildEventKey(event: PortalRealtimeAnyEvent): string {
+    const cursor = parseCursorValue(event.cursor);
+    if (cursor > 0) {
+      return `cursor:${cursor}:${event.type}`;
+    }
+    return JSON.stringify({
+      type: event.type,
+      topic: event.topic,
+      scope: event.scope,
+      timestamp: event.timestamp,
+      payload: event.payload,
+    });
+  }
+
   private handleIncomingData(eventType: string, data: unknown): void {
     const envelope = decodePortalRealtimeEnvelope(data);
     if (!envelope) return;
     if (eventType !== "message" && envelope.type !== eventType) return;
+    const eventKey = this.buildEventKey(envelope);
+    if (this.rememberEventKey(eventKey)) return;
     const cursor = parseCursorValue(envelope.cursor);
-    if (cursor > 0 && cursor <= this.lastCursor) return;
     if (cursor > this.lastCursor) this.lastCursor = cursor;
     this.dispatch(envelope);
   }

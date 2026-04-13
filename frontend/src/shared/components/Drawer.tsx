@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import { cx } from "@/shared/lib/cx";
 
 const drawerStack: string[] = [];
+let bodyScrollLockDepth = 0;
+let bodyScrollLockSnapshot: { overflow: string; paddingRight: string } | null = null;
 
 function pushDrawer(id: string) {
   drawerStack.push(id);
@@ -18,6 +20,37 @@ function popDrawer(id: string) {
 function isTopMostDrawer(id: string): boolean {
   if (drawerStack.length === 0) return false;
   return drawerStack[drawerStack.length - 1] === id;
+}
+
+function lockBodyScroll() {
+  if (typeof document === "undefined") return;
+  bodyScrollLockDepth += 1;
+  if (bodyScrollLockDepth > 1) return;
+
+  const { body, documentElement } = document;
+  bodyScrollLockSnapshot = {
+    overflow: body.style.overflow,
+    paddingRight: body.style.paddingRight,
+  };
+
+  const scrollbarWidth = Math.max(0, window.innerWidth - documentElement.clientWidth);
+  body.style.overflow = "hidden";
+  if (scrollbarWidth > 0) {
+    body.style.paddingRight = `${scrollbarWidth}px`;
+  }
+}
+
+function unlockBodyScroll() {
+  if (typeof document === "undefined" || bodyScrollLockDepth === 0) return;
+  bodyScrollLockDepth -= 1;
+  if (bodyScrollLockDepth > 0) return;
+
+  const snapshot = bodyScrollLockSnapshot;
+  bodyScrollLockSnapshot = null;
+  if (!snapshot) return;
+
+  document.body.style.overflow = snapshot.overflow;
+  document.body.style.paddingRight = snapshot.paddingRight;
 }
 
 function getFocusable(container: HTMLElement): HTMLElement[] {
@@ -65,9 +98,7 @@ export default function Drawer({
     if (!open) return;
 
     pushDrawer(drawerId);
-
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
     lastFocusedRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -108,9 +139,14 @@ export default function Drawer({
 
     return () => {
       window.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = prevOverflow;
       popDrawer(drawerId);
-      if (lastFocusedRef.current) {
+      unlockBodyScroll();
+      const shouldRestoreFocus = drawerStack.length === 0;
+      if (
+        shouldRestoreFocus &&
+        lastFocusedRef.current &&
+        document.contains(lastFocusedRef.current)
+      ) {
         lastFocusedRef.current.focus();
       }
     };
@@ -118,12 +154,19 @@ export default function Drawer({
 
   useEffect(() => {
     if (!open) return;
-    const target = initialFocusRef?.current;
-    if (target) {
-      target.focus();
-      return;
-    }
-    closeButtonRef.current?.focus();
+    let frame = 0;
+    const focusTarget = () => {
+      const target = initialFocusRef?.current;
+      if (target && document.contains(target)) {
+        target.focus();
+        return;
+      }
+      closeButtonRef.current?.focus();
+    };
+    frame = window.requestAnimationFrame(focusTarget);
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
   }, [initialFocusRef, open]);
 
   if (!open) return null;
@@ -134,7 +177,8 @@ export default function Drawer({
     <div className="fixed inset-0 z-[9999]" data-drawer-id={drawerId}>
       <div
         className="absolute inset-0 bg-slate-950/55 backdrop-blur-[1px]"
-        onMouseDown={() => {
+        onClick={(event) => {
+          if (event.target !== event.currentTarget) return;
           if (!closeOnOverlayClick) return;
           if (!isTopMostDrawer(drawerId)) return;
           onClose();
@@ -148,6 +192,7 @@ export default function Drawer({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
+        tabIndex={-1}
         className={cx(
           "absolute right-0 top-0 h-full max-w-[92vw]",
           widthClassName,
@@ -180,7 +225,7 @@ export default function Drawer({
           </div>
         </header>
 
-        <div className={cx("flex-1 min-h-0 overflow-y-auto p-5", bodyClassName)}>{children}</div>
+        <div className={cx("flex-1 min-h-0 overflow-y-auto overscroll-contain p-5", bodyClassName)}>{children}</div>
 
         {footer ? <footer className="shrink-0 border-t border-border/60 bg-muted/20 px-5 py-3">{footer}</footer> : null}
       </section>

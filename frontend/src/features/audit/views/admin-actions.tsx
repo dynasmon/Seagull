@@ -12,8 +12,7 @@ export default function AuditAdminActionsView() {
     <div className="space-y-4">
       <AuditFiltersBar
         filters={q.filters}
-        setFilter={q.setFilter}
-        onApply={q.reload}
+        onApplyFilters={q.applyFilters}
         onClear={q.resetFilters}
         loading={q.loading}
         hideEventType

@@ -143,23 +143,40 @@ export const SimpleTimeSeries = memo(function SimpleTimeSeries({
   allowHorizontalScroll?: boolean;
 }) {
   const mountRef = useRef<HTMLDivElement | null>(null);
-  const [canRenderChart, setCanRenderChart] = useState(false);
+  const [chartSize, setChartSize] = useState({ width: 0, height: 0 });
+  const canRenderChart = chartSize.width > 1 && chartSize.height > 1;
 
   useEffect(() => {
     const el = mountRef.current;
     if (!el) return;
+    let frame = 0;
 
     const update = () => {
       const rect = el.getBoundingClientRect();
-      setCanRenderChart(rect.width > 1 && rect.height > 1);
+      setChartSize((prev) => {
+        const width = Math.round(rect.width);
+        const heightPx = Math.round(rect.height);
+        if (prev.width === width && prev.height === heightPx) return prev;
+        return { width, height: heightPx };
+      });
     };
 
-    update();
-    if (typeof ResizeObserver === "undefined") return;
+    frame = window.requestAnimationFrame(update);
+    if (typeof ResizeObserver === "undefined") {
+      return () => {
+        window.cancelAnimationFrame(frame);
+      };
+    }
 
-    const observer = new ResizeObserver(() => update());
+    const observer = new ResizeObserver(() => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(update);
+    });
     observer.observe(el);
-    return () => observer.disconnect();
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   }, [height, allowHorizontalScroll, minWidth]);
 
   // Keep full timeline, but stop drawing each line after its last real datapoint.
