@@ -38,7 +38,6 @@ export default function Shell({ children }: { children: ReactNode }) {
     try {
       localStorage.setItem(NAV_COMPACT_KEY, navCompact ? "1" : "0");
     } catch {
-      // no-op
     }
   }, [navCompact]);
 
