@@ -75,115 +75,123 @@ export function Table<T>({
 
   return (
     <div
-      className={cx("ui-card-shell overflow-y-auto", scrollX ? "overflow-x-auto" : "overflow-x-hidden")}
+      className={cx("ui-card-shell min-w-0 overflow-hidden", className)}
       role="region"
       aria-label="Data table"
+      aria-rowcount={rows.length}
     >
-      <table className={cx("w-full", className || "text-sm")}>
-        <thead className={cx(stickyHeader && "sticky top-0 z-[1]", "bg-muted/60 text-left text-[11px] text-muted-foreground uppercase tracking-[0.08em]")}>
-          <tr>
-            {selectableRows ? (
-              <th className="w-10 px-3 py-2.5">
-                <input
-                  type="checkbox"
-                  checked={allRowsSelected}
-                  ref={(el) => {
-                    if (!el) return;
-                    el.indeterminate = !allRowsSelected && anyRowSelected;
-                  }}
-                  onChange={(e) => onToggleAllRows?.(e.target.checked)}
-                  aria-label="Select all rows"
-                  className="h-4 w-4"
-                />
-              </th>
-            ) : null}
-
-            {columns.map((c) => {
-              const key = c.sortKey || c.key;
-              const isSortable = Boolean(c.sortable && onSortChange);
-              const isActiveSort = Boolean(sort && sort.key === key);
-              const alignClass = c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left";
-
-              return (
-                <th
-                  key={c.key}
-                  style={c.width ? { width: c.width } : undefined}
-                  className={cx("font-semibold", cellPadding, alignClass, c.className || "")}
-                  aria-sort={isActiveSort ? (sort?.direction === "asc" ? "ascending" : "descending") : "none"}
-                >
-                  {isSortable ? (
-                    <button
-                      type="button"
-                      onClick={() => onSortChange?.({ key, direction: nextDirection(sort, key) })}
-                      className={cx(
-                        "inline-flex items-center gap-1 rounded-sm px-1 py-0.5",
-                        "hover:bg-muted/70 hover:text-foreground",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
-                      )}
-                    >
-                      <span>{c.title}</span>
-                      <span aria-hidden="true" className={cx("text-[10px]", isActiveSort ? "text-foreground" : "text-muted-foreground/70")}>
-                        {isActiveSort ? (sort?.direction === "asc" ? "▲" : "▼") : "↕"}
-                      </span>
-                    </button>
-                  ) : (
-                    c.title
-                  )}
+      <div className={cx("min-w-0", scrollX ? "overflow-x-auto overflow-y-hidden" : "overflow-x-hidden")}>
+        <table className={cx("min-w-full text-sm", scrollX && "w-max")}>
+          <thead
+            className={cx(
+              stickyHeader && "sticky top-0 z-[2]",
+              "bg-muted/85 text-left text-[11px] uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm"
+            )}
+          >
+            <tr>
+              {selectableRows ? (
+                <th className="w-10 whitespace-nowrap px-3 py-2.5 align-middle">
+                  <input
+                    type="checkbox"
+                    checked={allRowsSelected}
+                    ref={(el) => {
+                      if (!el) return;
+                      el.indeterminate = !allRowsSelected && anyRowSelected;
+                    }}
+                    onChange={(e) => onToggleAllRows?.(e.target.checked)}
+                    aria-label="Select all rows"
+                    className="h-4 w-4"
+                  />
                 </th>
-              );
-            })}
-          </tr>
-        </thead>
+              ) : null}
 
-        <tbody>
-          {(() => {
-            const renderKeyCount = new Map<string, number>();
-            return rows.map((r, i) => {
-              const logicalKey = String(rowKey(r, i));
-              const dupCount = renderKeyCount.get(logicalKey) ?? 0;
-              renderKeyCount.set(logicalKey, dupCount + 1);
-              const renderKey = dupCount === 0 ? logicalKey : `${logicalKey}__dup_${i}`;
-              const key = logicalKey;
-              const isSelected = (selectedRowKey !== undefined && selectedRowKey !== null && key === selectedRowKey) || selectedSet.has(key);
-              const clickable = Boolean(onRowClick);
+              {columns.map((c) => {
+                const key = c.sortKey || c.key;
+                const isSortable = Boolean(c.sortable && onSortChange);
+                const isActiveSort = Boolean(sort && sort.key === key);
+                const alignClass = c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left";
 
-              return (
-                <tr
-                  key={renderKey}
-                  className={cx(
-                    "border-t border-border/50",
-                    clickable ? "cursor-pointer hover:bg-muted/45" : "hover:bg-muted/35",
-                    isSelected && "bg-muted/50",
-                    rowClassName?.(r, i)
-                  )}
-                  onClick={() => onRowClick?.(r, i)}
-                >
-                  {selectableRows ? (
-                    <td className={cellPadding} onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={selectedSet.has(key)}
-                        onChange={(e) => onToggleRow?.(r, e.target.checked)}
-                        aria-label={`Select row ${i + 1}`}
-                        className="h-4 w-4"
-                      />
-                    </td>
-                  ) : null}
+                return (
+                  <th
+                    key={c.key}
+                    style={c.width ? { width: c.width } : undefined}
+                    className={cx("whitespace-nowrap font-semibold align-middle", cellPadding, alignClass, c.className || "")}
+                    aria-sort={isActiveSort ? (sort?.direction === "asc" ? "ascending" : "descending") : "none"}
+                  >
+                    {isSortable ? (
+                      <button
+                        type="button"
+                        onClick={() => onSortChange?.({ key, direction: nextDirection(sort, key) })}
+                        className={cx(
+                          "inline-flex items-center gap-1 rounded-sm px-1 py-0.5",
+                          "hover:bg-muted/70 hover:text-foreground",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+                        )}
+                      >
+                        <span>{c.title}</span>
+                        <span aria-hidden="true" className={cx("text-[10px]", isActiveSort ? "text-foreground" : "text-muted-foreground/70")}>
+                          {isActiveSort ? (sort?.direction === "asc" ? "▲" : "▼") : "↕"}
+                        </span>
+                      </button>
+                    ) : (
+                      c.title
+                    )}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
 
-                  {columns.map((c) => {
-                    const alignClass = c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left";
-                    return (
-                      <td key={c.key} className={cx(cellPadding, alignClass, c.className || "")}>
-                        {c.render ? c.render(r) : (r as Record<string, unknown>)[c.key] as ReactNode}
+          <tbody>
+            {(() => {
+              const renderKeyCount = new Map<string, number>();
+              return rows.map((r, i) => {
+                const logicalKey = String(rowKey(r, i));
+                const dupCount = renderKeyCount.get(logicalKey) ?? 0;
+                renderKeyCount.set(logicalKey, dupCount + 1);
+                const renderKey = dupCount === 0 ? logicalKey : `${logicalKey}__dup_${i}`;
+                const key = logicalKey;
+                const isSelected = (selectedRowKey !== undefined && selectedRowKey !== null && key === selectedRowKey) || selectedSet.has(key);
+                const clickable = Boolean(onRowClick);
+
+                return (
+                  <tr
+                    key={renderKey}
+                    className={cx(
+                      "border-t border-border/50",
+                      clickable ? "cursor-pointer hover:bg-muted/45" : "hover:bg-muted/35",
+                      isSelected && "bg-muted/50",
+                      rowClassName?.(r, i)
+                    )}
+                    onClick={() => onRowClick?.(r, i)}
+                  >
+                    {selectableRows ? (
+                      <td className={cx(cellPadding, "align-top")} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedSet.has(key)}
+                          onChange={(e) => onToggleRow?.(r, e.target.checked)}
+                          aria-label={`Select row ${i + 1}`}
+                          className="h-4 w-4"
+                        />
                       </td>
-                    );
-                  })}
-                </tr>
-              );
-            });
-          })()}
-        </tbody>
-      </table>
+                    ) : null}
+
+                    {columns.map((c) => {
+                      const alignClass = c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left";
+                      return (
+                        <td key={c.key} className={cx(cellPadding, "align-top", alignClass, c.className || "")}>
+                          {c.render ? c.render(r) : (r as Record<string, unknown>)[c.key] as ReactNode}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              });
+            })()}
+          </tbody>
+        </table>
+      </div>
 
       {footer ? <div className="border-t border-border/60 bg-muted/20 px-3 py-2">{footer}</div> : null}
     </div>

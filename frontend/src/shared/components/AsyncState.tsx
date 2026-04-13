@@ -37,7 +37,7 @@ export default function AsyncState({
 
   if (error) {
     return (
-      <div className={cx("space-y-3 p-4", className)}>
+      <div className={cx("space-y-3 p-4", className)} role="alert">
         <EmptyState title={errorTitle} description={error} />
         {onRetry ? (
           <div className="flex justify-end">
