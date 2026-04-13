@@ -71,6 +71,52 @@ function sortByCreatedAtDesc(rows: Alert[]): Alert[] {
   });
 }
 
+function mergeAlertsByRecency(newer: Alert[], older: Alert[], limit: number): Alert[] {
+  const merged = new Map<number, Alert>();
+  for (const row of [...newer, ...older]) {
+    const id = intOrZero(row.id);
+    if (id <= 0 || merged.has(id)) continue;
+    merged.set(id, row);
+  }
+  return sortByCreatedAtDesc(Array.from(merged.values())).slice(0, Math.max(1, limit));
+}
+
+type RawEventRow = OverviewSnapshot["raw_events"][number];
+
+function rawEventTsMs(row: RawEventRow): number {
+  return toSafeTsMs(row.timestamp) ?? 0;
+}
+
+function mergeRawEvents(newer: RawEventRow[], older: RawEventRow[], limit: number): RawEventRow[] {
+  const merged = new Map<string, RawEventRow>();
+  for (const row of [...newer, ...older]) {
+    const key = `${String(row.timestamp || "")}|${intOrZero(row.id)}`;
+    if (!row.timestamp || merged.has(key)) continue;
+    merged.set(key, row);
+  }
+  return Array.from(merged.values())
+    .sort((a, b) => {
+      const tsDiff = rawEventTsMs(b) - rawEventTsMs(a);
+      if (tsDiff !== 0) return tsDiff;
+      return intOrZero(b.id) - intOrZero(a.id);
+    })
+    .slice(0, Math.max(1, limit));
+}
+
+function mergeRecentSshRows(
+  newer: OverviewSnapshot["recent_ssh"],
+  older: OverviewSnapshot["recent_ssh"],
+  limit: number,
+): OverviewSnapshot["recent_ssh"] {
+  const merged = new Map<string, OverviewSnapshot["recent_ssh"][number]>();
+  for (const row of [...newer, ...older]) {
+    const key = `${String(row.ts || "")}|${String(row.src || "")}|${String(row.dst || "")}|${String(row.user || "")}|${String(row.action || "")}`;
+    if (!key || merged.has(key)) continue;
+    merged.set(key, row);
+  }
+  return Array.from(merged.values()).slice(0, Math.max(1, limit));
+}
+
 function buildRealtimeAlert(
   payload: OverviewRealtimeAlertPayload | null | undefined,
   eventTimestamp: string,
@@ -356,6 +402,55 @@ export function applyStormStatusToOverviewSnapshot(
   return {
     ...snapshot,
     meta: nextMeta,
+  };
+}
+
+export function reconcileFetchedOverviewSnapshot(
+  current: OverviewSnapshot | null,
+  incoming: OverviewSnapshot,
+  opts?: {
+    preserveLiveFields?: boolean;
+  },
+): OverviewSnapshot {
+  if (!current) return incoming;
+
+  const preserveLiveFields = Boolean(opts?.preserveLiveFields);
+  const incomingIsLite = Boolean(incoming.meta?.lite);
+  const keepHeavySections = incomingIsLite || preserveLiveFields;
+
+  const next: OverviewSnapshot = keepHeavySections
+    ? {
+        ...incoming,
+        ports: incomingIsLite ? current.ports : incoming.ports,
+        top_sources: incomingIsLite ? current.top_sources : incoming.top_sources,
+        recent_alerts: incomingIsLite ? current.recent_alerts : incoming.recent_alerts,
+        ddos_alerts: incomingIsLite ? current.ddos_alerts : incoming.ddos_alerts,
+        recent_ssh: incomingIsLite ? current.recent_ssh : incoming.recent_ssh,
+        raw_events: incomingIsLite ? current.raw_events : incoming.raw_events,
+      }
+    : incoming;
+
+  if (!preserveLiveFields) return next;
+
+  return {
+    ...next,
+    kpis: {
+      ...next.kpis,
+      events_5m: intOrZero(current.kpis.events_5m),
+      alerts_60m: Math.max(intOrZero(current.kpis.alerts_60m), intOrZero(next.kpis.alerts_60m)),
+      last_event_age_m: current.kpis.last_event_age_m,
+    },
+    meta: {
+      ...next.meta,
+      backlog_events: intOrZero(current.meta.backlog_events),
+      backlog_messages: intOrZero(current.meta.backlog_messages),
+      protection_active: Boolean(current.meta.protection_active),
+      draining: Boolean(current.meta.draining),
+    },
+    recent_alerts: mergeAlertsByRecency(current.recent_alerts, next.recent_alerts, 25),
+    ddos_alerts: mergeAlertsByRecency(current.ddos_alerts, next.ddos_alerts, 15),
+    recent_ssh: mergeRecentSshRows(current.recent_ssh, next.recent_ssh, 20),
+    raw_events: mergeRawEvents(current.raw_events, next.raw_events, 30),
   };
 }
 
