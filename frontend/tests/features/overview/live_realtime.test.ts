@@ -6,6 +6,7 @@ import {
   applyOverviewRealtimeAlertUpdated,
   applyOverviewRealtimePatch,
   mergeStormStatus,
+  reconcileFetchedOverviewSnapshot,
   nextRealtimeInvalidationDelayMs,
 } from "@/features/overview/live_realtime";
 import type { OverviewSnapshot, StormStatus } from "@/features/overview/types";
@@ -213,5 +214,55 @@ describe("overview live realtime helpers", () => {
 
     expect(next?.recent_alerts[0]?.id).toBe(99);
     expect(next?.kpis.alerts_60m).toBe(2);
+  });
+
+  it("preserves fresher live counters and lists when a fetched snapshot is stale", () => {
+    const current = applyOverviewRealtimeAlertCreated(
+      applyOverviewRealtimePatch(makeSnapshot(), {
+        events_5m_delta: 40,
+        backlog_events: 2500,
+        backlog_messages: 25,
+        protection_active: true,
+      })!,
+      {
+        alert_id: 120,
+        created_at: "2026-04-09T18:10:00Z",
+        rule_id: "ddos_tcp_flood_v1",
+        severity: "high",
+        description: "Fresh alert",
+      },
+      "2026-04-09T18:10:00Z",
+    )!;
+
+    const incoming: OverviewSnapshot = {
+      ...makeSnapshot(),
+      meta: {
+        ...makeSnapshot().meta,
+        backlog_events: 0,
+        backlog_messages: 0,
+        protection_active: false,
+        lite: true,
+      },
+      kpis: {
+        ...makeSnapshot().kpis,
+        events_5m: 0,
+        alerts_60m: 0,
+      },
+      recent_alerts: [],
+      ddos_alerts: [],
+      raw_events: [],
+    };
+
+    const reconciled = reconcileFetchedOverviewSnapshot(current, incoming, {
+      preserveLiveFields: true,
+    });
+
+    expect(reconciled.kpis.events_5m).toBe(50);
+    expect(reconciled.kpis.alerts_60m).toBe(2);
+    expect(reconciled.meta.backlog_events).toBe(2500);
+    expect(reconciled.meta.backlog_messages).toBe(25);
+    expect(reconciled.meta.protection_active).toBe(true);
+    expect(reconciled.recent_alerts[0]?.id).toBe(120);
+    expect(reconciled.ddos_alerts[0]?.id).toBe(120);
   });
 });

@@ -13,6 +13,7 @@ import {
   applyOverviewRealtimePatch,
   applyStormStatusToOverviewSnapshot,
   mergeStormStatus,
+  reconcileFetchedOverviewSnapshot,
   nextRealtimeInvalidationDelayMs,
 } from "./live_realtime";
 import type { OverviewSnapshot, StormStatus } from "./types";
@@ -80,6 +81,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
   const fullAbortRef = useRef<AbortController | null>(null);
   const fullPendingRef = useRef(false);
   const lastRefreshAtRef = useRef(0);
+  const lastSnapshotMutationAtRef = useRef(0);
   const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const kpiFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stormFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -96,6 +98,9 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     snapshotRef.current = snapshot;
+    if (snapshot) {
+      lastSnapshotMutationAtRef.current = Date.now();
+    }
   }, [snapshot]);
 
   useEffect(() => {
@@ -104,6 +109,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     const mySeq = ++refreshSeqRef.current;
+    const requestStartedAt = Date.now();
     lastRefreshAtRef.current = Date.now();
 
     fastAbortRef.current?.abort();
@@ -122,16 +128,9 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const prev = snapshotRef.current;
-      const mergedFast: OverviewSnapshot = {
-        ...fast,
-        ports: prev?.ports ?? fast.ports,
-        top_sources: prev?.top_sources ?? fast.top_sources,
-        recent_alerts: prev?.recent_alerts ?? fast.recent_alerts,
-        ddos_alerts: prev?.ddos_alerts ?? fast.ddos_alerts,
-        recent_ssh: prev?.recent_ssh ?? fast.recent_ssh,
-        raw_events: prev?.raw_events ?? fast.raw_events,
-      };
+      const mergedFast = reconcileFetchedOverviewSnapshot(snapshotRef.current, fast, {
+        preserveLiveFields: lastSnapshotMutationAtRef.current > requestStartedAt,
+      });
       setSnapshot(mergedFast);
       setError(null);
       setLastUpdatedAt(new Date());
@@ -146,6 +145,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
         fullPendingRef.current = true;
         const fullController = new AbortController();
         const myFullSeq = ++fullRefreshSeqRef.current;
+        const fullRequestStartedAt = Date.now();
         fullAbortRef.current = fullController;
 
         void getOverview(
@@ -159,12 +159,15 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
             if (Number.isFinite(currentEnd) && Number.isFinite(incomingEnd) && incomingEnd < currentEnd) {
               return;
             }
-            setSnapshot(full);
+            const reconciled = reconcileFetchedOverviewSnapshot(snapshotRef.current, full, {
+              preserveLiveFields: lastSnapshotMutationAtRef.current > fullRequestStartedAt,
+            });
+            setSnapshot(reconciled);
             setError(null);
             setLastUpdatedAt(new Date());
             lastFullAtRef.current = Date.now();
             try {
-              sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(full));
+              sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(reconciled));
             } catch {
               // no-op
             }
@@ -233,6 +236,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     setSnapshot((prev) => {
       const next = applyOverviewRealtimePatch(prev, pending as any);
       if (!next) return next;
+      lastSnapshotMutationAtRef.current = Date.now();
       try {
         sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
       } catch {
@@ -273,6 +277,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     setSnapshot((prev) => {
       const next = applyStormStatusToOverviewSnapshot(prev, pending as Partial<StormStatus>);
       if (!next || next === prev) return next;
+      lastSnapshotMutationAtRef.current = Date.now();
       try {
         sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
       } catch {
@@ -299,6 +304,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
         next = applyOverviewRealtimeAlertsDelta(next, item.payload as any, item.timestamp);
       }
       if (!next || next === prev) return next;
+      lastSnapshotMutationAtRef.current = Date.now();
       try {
         sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
       } catch {
@@ -389,6 +395,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     setSnapshot((prev) => {
       const next = applyOverviewRealtimeAlertCreated(prev, event.payload as any, String(event.timestamp || ""));
       if (!next || next === prev) return next;
+      lastSnapshotMutationAtRef.current = Date.now();
       try {
         sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
       } catch {
@@ -404,6 +411,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     setSnapshot((prev) => {
       const next = applyOverviewRealtimeAlertUpdated(prev, event.payload as any);
       if (!next || next === prev) return next;
+      lastSnapshotMutationAtRef.current = Date.now();
       try {
         sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
       } catch {
@@ -466,6 +474,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
         setSnapshot((prev) => {
           const next = applyStormStatusToOverviewSnapshot(prev, status);
           if (!next || next === prev) return next;
+          lastSnapshotMutationAtRef.current = Date.now();
           try {
             sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
           } catch {
