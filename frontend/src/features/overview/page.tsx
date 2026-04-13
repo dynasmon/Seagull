@@ -474,8 +474,7 @@ function OverviewPageView() {
     stormPhase === "shedding" ||
     stormPhase === "draining" ||
     Boolean(snapshot?.meta?.protection_active) ||
-    Number(snapshot?.meta?.backlog_events || 0) > 0 ||
-    Number(snapshot?.meta?.backlog_messages || 0) > 0 ||
+    Boolean(snapshot?.meta?.draining) ||
     Number(snapshot?.meta?.ddos_telemetry_dropped_per_sec || 0) > 0;
   const stormBacklogEvents = storm?.backlog_events ?? Number(snapshot?.meta?.backlog_events || 0);
   const stormBacklogMessages = storm?.backlog_messages ?? Number(snapshot?.meta?.backlog_messages || 0);

@@ -41,7 +41,9 @@ from app.features.realtime.service import publish_realtime
 
 logger = logging.getLogger("netwatch.api.ingest")
 
-_HOT_PRIORITY_EVENT_TYPES = {"dos_attack"}
+# Keep a narrow set of security-critical signals on the hot/Postgres path even
+# during storm/backpressure so operator-facing triage views do not go blind.
+_HOT_PRIORITY_EVENT_TYPES = {"dos_attack", "ssh_auth"}
 
 
 def _is_hot_priority_event(event_type: str | None) -> bool:
