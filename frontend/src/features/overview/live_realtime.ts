@@ -318,6 +318,47 @@ export function mergeStormStatus(
   };
 }
 
+
+export function applyStormStatusToOverviewSnapshot(
+  snapshot: OverviewSnapshot | null,
+  incoming: Partial<StormStatus> | null | undefined,
+): OverviewSnapshot | null {
+  if (!snapshot || !incoming || typeof incoming !== "object") return snapshot;
+
+  const raw = incoming as Record<string, unknown>;
+  const backlogEvents = toSafeInt(raw.backlog_events);
+  const backlogMessages = toSafeInt(raw.backlog_messages);
+  const incomingPhase = typeof raw.phase === "string" ? raw.phase : undefined;
+  const active =
+    typeof raw.active === "boolean"
+      ? raw.active
+      : typeof raw.protection_active === "boolean"
+        ? raw.protection_active
+        : incomingPhase === "storm" || incomingPhase === "shedding" || incomingPhase === "draining";
+
+  const nextMeta = {
+    ...snapshot.meta,
+    backlog_events: backlogEvents === null ? snapshot.meta.backlog_events : Math.max(0, backlogEvents),
+    backlog_messages: backlogMessages === null ? snapshot.meta.backlog_messages : Math.max(0, backlogMessages),
+    protection_active: typeof active === "boolean" ? active : snapshot.meta.protection_active,
+    draining: incomingPhase === "draining" ? true : incomingPhase === "ok" ? false : snapshot.meta.draining,
+  };
+
+  if (
+    nextMeta.backlog_events === snapshot.meta.backlog_events &&
+    nextMeta.backlog_messages === snapshot.meta.backlog_messages &&
+    nextMeta.protection_active === snapshot.meta.protection_active &&
+    nextMeta.draining === snapshot.meta.draining
+  ) {
+    return snapshot;
+  }
+
+  return {
+    ...snapshot,
+    meta: nextMeta,
+  };
+}
+
 export function nextRealtimeInvalidationDelayMs({
   nowMs,
   lastRefreshAtMs,

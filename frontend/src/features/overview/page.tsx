@@ -373,10 +373,11 @@ function OverviewPageView() {
 
     const totalAgents = snapshot.kpis.total_agents;
     const onlineAgents = snapshot.kpis.online_agents;
-    const events5m = snapshot.kpis.events_5m;
+    const events1h = snapshot.traffic.data.reduce((acc, row) => acc + sumRow(row), 0);
+    const events5mFromChart = snapshot.traffic.data.slice(-5).reduce((acc, row) => acc + sumRow(row), 0);
+    const events5m = snapshot.kpis.events_5m > 0 ? snapshot.kpis.events_5m : events5mFromChart;
     const alerts1h = snapshot.kpis.alerts_60m;
 
-    const events1h = snapshot.traffic.data.reduce((acc, row) => acc + sumRow(row), 0);
 
     const lastEvent = snapshot.raw_events?.[0]?.timestamp ? new Date(snapshot.raw_events[0].timestamp) : null;
     const lastEventTs = lastEvent ? fmtDateTime(lastEvent) : "-";
