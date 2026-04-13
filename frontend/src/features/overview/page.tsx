@@ -783,7 +783,7 @@ function OverviewPageView() {
                       title: "TIME",
                       className: "font-mono text-muted-foreground w-28",
                       render: (r: any) => {
-                        const raw = r.ts || r.time || r.timestamp;
+                        const raw = r.timestamp || r.ts || r.time;
                         if (!raw) return "-";
                         const d = new Date(raw);
                         return Number.isNaN(d.getTime()) ? String(raw) : fmtDateTime(d);
@@ -833,7 +833,9 @@ function OverviewPageView() {
                     }
                   ]}
                   rows={snapshot.recent_ssh as any}
-                  rowKey={(r: any, i) => `${r.ts || r.time || r.timestamp || "row"}-${i}`}
+                  rowKey={(r: any, i) =>
+                    `${r.timestamp || r.ts || r.time || "row"}-${r.id ?? "na"}-${r.agent_id || "na"}-${r.src_ip || r.src || "na"}-${i}`
+                  }
               />
             )}
           </CyberPanel>

@@ -265,4 +265,103 @@ describe("overview live realtime helpers", () => {
     expect(reconciled.recent_alerts[0]?.id).toBe(120);
     expect(reconciled.ddos_alerts[0]?.id).toBe(120);
   });
+
+  it("keeps distinct recent SSH rows that share the same minute label", () => {
+    const current: OverviewSnapshot = {
+      ...makeSnapshot(),
+      recent_ssh: [
+        {
+          id: 10,
+          timestamp: "2026-04-09T18:05:10Z",
+          ts: "18:05",
+          agent_id: "agent-a",
+          src_ip: "203.0.113.10",
+          dst_ip: "10.0.0.2",
+          dst_port: 22,
+          proto: "ssh",
+          username: "root",
+          action: "failed_password",
+        },
+      ],
+    };
+
+    const incoming: OverviewSnapshot = {
+      ...makeSnapshot(),
+      meta: {
+        ...makeSnapshot().meta,
+        lite: true,
+      },
+      recent_ssh: [
+        {
+          id: 11,
+          timestamp: "2026-04-09T18:05:40Z",
+          ts: "18:05",
+          agent_id: "agent-a",
+          src_ip: "203.0.113.10",
+          dst_ip: "10.0.0.2",
+          dst_port: 22,
+          proto: "ssh",
+          username: "root",
+          action: "failed_password",
+        },
+      ],
+    };
+
+    const reconciled = reconcileFetchedOverviewSnapshot(current, incoming, {
+      preserveLiveFields: true,
+    });
+
+    expect(reconciled.recent_ssh).toHaveLength(2);
+    expect(reconciled.recent_ssh[0]?.id).toBe(11);
+    expect(reconciled.recent_ssh[1]?.id).toBe(10);
+  });
+
+  it("refreshes heavy recent SSH data on full snapshots even when live fields are preserved", () => {
+    const current: OverviewSnapshot = {
+      ...makeSnapshot(),
+      recent_ssh: [
+        {
+          id: 10,
+          timestamp: "2026-04-09T18:05:10Z",
+          ts: "18:05",
+          agent_id: "agent-a",
+          src_ip: "203.0.113.10",
+          dst_ip: "10.0.0.2",
+          dst_port: 22,
+          proto: "ssh",
+          username: "root",
+          action: "failed_password",
+        },
+      ],
+    };
+
+    const incoming: OverviewSnapshot = {
+      ...makeSnapshot(),
+      meta: {
+        ...makeSnapshot().meta,
+        lite: false,
+      },
+      recent_ssh: [
+        {
+          id: 20,
+          timestamp: "2026-04-09T18:06:15Z",
+          ts: "18:06",
+          agent_id: "agent-b",
+          src_ip: "203.0.113.11",
+          dst_ip: "10.0.0.3",
+          dst_port: 22,
+          proto: "ssh",
+          username: "admin",
+          action: "invalid_user",
+        },
+      ],
+    };
+
+    const reconciled = reconcileFetchedOverviewSnapshot(current, incoming, {
+      preserveLiveFields: true,
+    });
+
+    expect(reconciled.recent_ssh[0]?.id).toBe(20);
+    expect(reconciled.recent_ssh.some((row) => row.id === 10)).toBe(true);
+  });
 });
