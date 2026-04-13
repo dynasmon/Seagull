@@ -14,6 +14,7 @@ export function useUrlQueryState<T>({ parse, serialize, replace = true }: UrlQue
   const [searchParams, setSearchParams] = useSearchParams();
   const parseRef = useRef(parse);
   const serializeRef = useRef(serialize);
+  const searchKey = searchParams.toString();
 
   useEffect(() => {
     parseRef.current = parse;
@@ -23,7 +24,7 @@ export function useUrlQueryState<T>({ parse, serialize, replace = true }: UrlQue
     serializeRef.current = serialize;
   }, [serialize]);
 
-  const state = useMemo(() => parse(searchParams), [parse, searchParams]);
+  const state = useMemo(() => parse(searchParams), [parse, searchKey, searchParams]);
 
   const setState = useCallback(
     (next: UrlQueryUpdater<T>) => {

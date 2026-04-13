@@ -1,4 +1,5 @@
 import { Badge } from "@/shared/components/Badge";
+import AsyncState from "@/shared/components/AsyncState";
 import { Table, type TableSortState } from "@/shared/components/Table";
 
 import { eventSeverity, fmtDateTime, summarizeEvent } from "../lib";
@@ -82,13 +83,16 @@ export default function AuditEventsTable({
         </div>
       </div>
 
-      {error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</div> : null}
+      <AsyncState
+        loading={loading}
+        error={error}
+        empty={rows.length === 0}
+        loadingLabel="Loading audit events..."
+        emptyTitle={emptyTitle}
+        className="px-0 py-8"
+      />
 
-      {loading ? (
-        <div className="py-8 text-sm text-muted-foreground">Loading audit events...</div>
-      ) : rows.length === 0 ? (
-        <div className="py-8 text-sm text-muted-foreground">{emptyTitle}</div>
-      ) : (
+      {!loading && !error && rows.length > 0 ? (
         <Table
           rows={rows}
           rowKey={auditRowKey}
@@ -171,7 +175,7 @@ export default function AuditEventsTable({
             },
           ]}
         />
-      )}
+      ) : null}
     </div>
   );
 }

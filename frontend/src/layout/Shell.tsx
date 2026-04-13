@@ -70,11 +70,12 @@ export default function Shell({ children }: { children: ReactNode }) {
         <div className="flex min-w-0 min-h-0 flex-1 flex-col">
           <TopBar
             compact={navCompact}
+            navigationOpen={mobileNavOpen}
             onToggleCompact={() => setNavCompact((prev) => !prev)}
             onToggleNavigation={() => setMobileNavOpen((prev) => !prev)}
           />
 
-          <main id="main-content" role="main" className="flex-1 min-h-0 overflow-y-auto">
+          <main id="main-content" role="main" className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
             <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-6 lg:px-8">
               <Suspense fallback={<MainFallback />}>
                 <div key={location.pathname} className="page-transition-enter">

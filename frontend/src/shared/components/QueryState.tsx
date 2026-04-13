@@ -30,25 +30,27 @@ export default function QueryState({
 
   if (error) {
     return (
-      <EmptyState
-        title={errorTitle}
-        description={
-          <div className="space-y-3">
-            <div>{error}</div>
-            {onRetry ? (
-              <div>
-                <button
-                  type="button"
-                  onClick={onRetry}
-                  className="ui-btn"
-                >
-                  Retry
-                </button>
-              </div>
-            ) : null}
-          </div>
-        }
-      />
+      <div role="alert">
+        <EmptyState
+          title={errorTitle}
+          description={
+            <div className="space-y-3">
+              <div>{error}</div>
+              {onRetry ? (
+                <div>
+                  <button
+                    type="button"
+                    onClick={onRetry}
+                    className="ui-btn"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          }
+        />
+      </div>
     );
   }
 

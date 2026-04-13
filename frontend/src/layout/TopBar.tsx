@@ -57,10 +57,12 @@ export default function TopBar({
   onToggleNavigation,
   onToggleCompact,
   compact,
+  navigationOpen,
 }: {
   onToggleNavigation: () => void;
   onToggleCompact: () => void;
   compact: boolean;
+  navigationOpen?: boolean;
 }) {
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
@@ -74,8 +76,10 @@ export default function TopBar({
           type="button"
           onClick={onToggleNavigation}
           className="ui-btn-secondary inline-flex h-9 w-9 items-center justify-center px-0 lg:hidden"
-          aria-label="Open navigation"
-          title="Open navigation"
+          aria-label={navigationOpen ? "Close navigation" : "Open navigation"}
+          aria-controls="primary-navigation"
+          aria-expanded={navigationOpen}
+          title={navigationOpen ? "Close navigation" : "Open navigation"}
         >
           <IconMenu />
         </button>

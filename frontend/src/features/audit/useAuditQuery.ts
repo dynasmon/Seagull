@@ -28,6 +28,27 @@ type AuditQueryState = {
   sort: "desc" | "asc";
 };
 
+function normalizeAuditState(input: AuditFilters, opts: {
+  defaultLimit: number;
+  fixedEventType: string;
+  fixedResourceType: string;
+}): AuditQueryState {
+  const limit = Math.max(10, Math.min(500, Math.trunc(Number(input.limit) || opts.defaultLimit)));
+  return {
+    limit,
+    eventType: opts.fixedEventType || String(input.eventType || "").trim(),
+    action: String(input.action || "").trim(),
+    outcome: String(input.outcome || "").trim(),
+    resourceType: opts.fixedResourceType || String(input.resourceType || "").trim(),
+    actor: String(input.actor || "").trim(),
+    from: String(input.from || "").trim(),
+    to: String(input.to || "").trim(),
+    query: String(input.query || ""),
+    origin: String(input.origin || "").trim(),
+    sort: input.sort === "asc" ? "asc" : "desc",
+  };
+}
+
 export function useAuditQuery(opts?: Options) {
   const fixedEventType = opts?.fixedEventType || "";
   const fixedResourceType = opts?.fixedResourceType || "";
@@ -136,11 +157,19 @@ export function useAuditQuery(opts?: Options) {
     });
   }
 
-  function resetFilters() {
-    tablePrefs.setPageSize(defaultLimit);
-    tablePrefs.setSort({ key: "created_at", direction: "desc" });
+  function applyFilters(nextFilters: AuditFilters) {
+    const normalized = normalizeAuditState(nextFilters, {
+      defaultLimit,
+      fixedEventType,
+      fixedResourceType,
+    });
+    tablePrefs.setPageSize(normalized.limit);
+    tablePrefs.setSort({ key: "created_at", direction: normalized.sort });
+    setState(normalized);
+  }
 
-    setState({
+  function resetFilters() {
+    applyFilters({
       limit: defaultLimit,
       eventType: fixedEventType,
       action: "",
@@ -242,6 +271,7 @@ export function useAuditQuery(opts?: Options) {
 
   return {
     filters,
+    applyFilters,
     setFilter,
     resetFilters,
     compact: tablePrefs.compact,
