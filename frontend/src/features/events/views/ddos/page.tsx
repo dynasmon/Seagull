@@ -9,13 +9,14 @@ import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
 import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
 
-import { huntEvents } from "../../api";
+import { getRecentEvents, huntEvents } from "../../api";
 import EventDrawer from "../../components/EventDrawer";
 import { isDdosEvent } from "../../lib/ddos";
 import type { NetEvent, QueryProvenanceMeta } from "../../types";
 import EventsStreamPage from "../stream/page";
 
 import DdosDeepDive from "./DdosDeepDive";
+import { buildCombinedQueryMeta, DDOS_EVENT_TYPES, mergeEventsByRecency } from "./live_data";
 
 type DdosPanel = "stream" | "deep";
 
@@ -34,6 +35,8 @@ const DEFAULTS: DdosQueryState = {
   limit: 200,
   event_id: null,
 };
+
+const DEEP_DIVE_REFRESH_MS = 5000;
 
 function parsePanel(raw: string | null): DdosPanel {
   return raw === "deep" ? "deep" : "stream";
@@ -91,18 +94,55 @@ export default function DdosEventsPage() {
     setError(null);
 
     try {
-      const payload = await huntEvents({
-        page_size: query.limit,
-        since_minutes: query.since_minutes,
-        agent_id: query.agent_id || undefined,
-      });
+      const liveLimit = Math.min(Math.max(query.limit * 2, query.limit), 1000);
+      const [recentResults, historyResult] = await Promise.all([
+        Promise.allSettled(
+          DDOS_EVENT_TYPES.map((eventType) =>
+            getRecentEvents({
+              limit: liveLimit,
+              since_minutes: query.since_minutes,
+              agent_id: query.agent_id || undefined,
+              event_type: eventType,
+            }),
+          ),
+        ),
+        Promise.allSettled([
+          huntEvents({
+            page_size: query.limit,
+            since_minutes: query.since_minutes,
+            agent_id: query.agent_id || undefined,
+          }),
+        ]),
+      ]);
       if (reqSeq.current !== mySeq) return;
 
-      const rows = Array.isArray(payload?.items) ? payload.items : [];
+      const liveRows = recentResults
+        .filter((result): result is PromiseFulfilledResult<NetEvent[]> => result.status === "fulfilled")
+        .flatMap((result) => (Array.isArray(result.value) ? result.value : []));
+      const historyPayload =
+        historyResult[0]?.status === "fulfilled" && historyResult[0].value ? historyResult[0].value : null;
+      const historyRows = Array.isArray(historyPayload?.items) ? historyPayload.items : [];
+      const rows = mergeEventsByRecency(liveRows, historyRows);
+      const liveSourceActive = liveRows.length > 0 || recentResults.some((result) => result.status === "fulfilled");
+      const historyError =
+        historyResult[0]?.status === "rejected"
+          ? getErrorMessage(historyResult[0].reason, "analytics_fallback_unavailable")
+          : null;
+
+      if (rows.length === 0 && historyError) {
+        throw new Error(historyError);
+      }
+
       setEvents(rows);
-      setNextCursor(payload?.next_cursor ?? null);
-      setHasMore(Boolean(payload?.has_more));
-      setQueryMeta(payload?.meta ?? null);
+      setNextCursor(historyPayload?.next_cursor ?? null);
+      setHasMore(Boolean(historyPayload?.has_more));
+      setQueryMeta(
+        buildCombinedQueryMeta({
+          liveSourceActive,
+          historyMeta: historyPayload?.meta ?? null,
+          degradedReason: historyError,
+        }),
+      );
       setLoadMoreError(null);
       setLastUpdatedAt(Date.now());
 
@@ -154,7 +194,13 @@ export default function DdosEventsPage() {
 
       setNextCursor(payload?.next_cursor ?? null);
       setHasMore(Boolean(payload?.has_more));
-      setQueryMeta(payload?.meta ?? null);
+      setQueryMeta((prev) =>
+        buildCombinedQueryMeta({
+          liveSourceActive: prev?.source === "recent_feed",
+          historyMeta: payload?.meta ?? null,
+          degradedReason: payload?.meta?.degraded_reason ?? null,
+        }) ?? payload?.meta ?? prev,
+      );
       setLastUpdatedAt(Date.now());
     } catch (e: any) {
       setLoadMoreError(getErrorMessage(e, "Failed to load older DDoS events"));
@@ -167,6 +213,14 @@ export default function DdosEventsPage() {
     if (query.panel !== "deep") return;
     const timer = window.setTimeout(() => load(), 120);
     return () => window.clearTimeout(timer);
+  }, [load, query.panel]);
+
+  useEffect(() => {
+    if (query.panel !== "deep") return;
+    const timer = window.setInterval(() => {
+      void load();
+    }, DEEP_DIVE_REFRESH_MS);
+    return () => window.clearInterval(timer);
   }, [load, query.panel]);
 
   const ddosEvents = useMemo(() => {
