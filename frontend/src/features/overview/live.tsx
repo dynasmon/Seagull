@@ -11,6 +11,7 @@ import {
   applyOverviewRealtimeAlertUpdated,
   applyOverviewRealtimeAlertsDelta,
   applyOverviewRealtimePatch,
+  applyStormStatusToOverviewSnapshot,
   mergeStormStatus,
   nextRealtimeInvalidationDelayMs,
 } from "./live_realtime";
@@ -74,6 +75,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
   const stormRef = useRef<StormStatus | null>(storm);
   const lastFullAtRef = useRef(0);
   const refreshSeqRef = useRef(0);
+  const fullRefreshSeqRef = useRef(0);
   const fastAbortRef = useRef<AbortController | null>(null);
   const fullAbortRef = useRef<AbortController | null>(null);
   const fullPendingRef = useRef(false);
@@ -143,6 +145,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       if (needFull && !fullPendingRef.current) {
         fullPendingRef.current = true;
         const fullController = new AbortController();
+        const myFullSeq = ++fullRefreshSeqRef.current;
         fullAbortRef.current = fullController;
 
         void getOverview(
@@ -150,13 +153,15 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
           { signal: fullController.signal, timeoutMs: FULL_REFRESH_TIMEOUT_MS },
         )
           .then((full) => {
-            if (refreshSeqRef.current !== mySeq) return;
+            if (fullRefreshSeqRef.current !== myFullSeq) return;
             const currentEnd = Date.parse(snapshotRef.current?.meta?.window_end || "");
             const incomingEnd = Date.parse(full?.meta?.window_end || "");
             if (Number.isFinite(currentEnd) && Number.isFinite(incomingEnd) && incomingEnd < currentEnd) {
               return;
             }
             setSnapshot(full);
+            setError(null);
+            setLastUpdatedAt(new Date());
             lastFullAtRef.current = Date.now();
             try {
               sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(full));
@@ -265,6 +270,16 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     if (!pending) return;
     stormPendingRef.current = null;
     setStorm((prev) => mergeStormStatus(prev, pending as Partial<StormStatus>));
+    setSnapshot((prev) => {
+      const next = applyStormStatusToOverviewSnapshot(prev, pending as Partial<StormStatus>);
+      if (!next || next === prev) return next;
+      try {
+        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
+      } catch {
+        // no-op
+      }
+      return next;
+    });
     setLastUpdatedAt(new Date());
   }, []);
 
@@ -448,6 +463,16 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
         const status = await getStormStatus({ timeoutMs: FULL_REFRESH_TIMEOUT_MS });
         if (!alive) return;
         setStorm((prev) => mergeStormStatus(prev, status));
+        setSnapshot((prev) => {
+          const next = applyStormStatusToOverviewSnapshot(prev, status);
+          if (!next || next === prev) return next;
+          try {
+            sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
+          } catch {
+            // no-op
+          }
+          return next;
+        });
       } catch {
         if (!alive) return;
         if (!stormRef.current) setStorm(null);
