@@ -110,11 +110,27 @@ function mergeRecentSshRows(
 ): OverviewSnapshot["recent_ssh"] {
   const merged = new Map<string, OverviewSnapshot["recent_ssh"][number]>();
   for (const row of [...newer, ...older]) {
-    const key = `${String(row.ts || "")}|${String(row.src || "")}|${String(row.dst || "")}|${String(row.user || "")}|${String(row.action || "")}`;
+    const key = [
+      String(row.timestamp || row.ts || ""),
+      String(row.id ?? 0),
+      String(row.agent_id || ""),
+      String(row.src_ip || row.src || ""),
+      String(row.dst_ip || row.dst || ""),
+      String(row.username || row.user || ""),
+      String(row.action || ""),
+      String(row.dst_port ?? ""),
+      String(row.proto || ""),
+    ].join("|");
     if (!key || merged.has(key)) continue;
     merged.set(key, row);
   }
-  return Array.from(merged.values()).slice(0, Math.max(1, limit));
+  return Array.from(merged.values())
+    .sort((a, b) => {
+      const tsDiff = (toSafeTsMs(b.timestamp || b.ts) ?? 0) - (toSafeTsMs(a.timestamp || a.ts) ?? 0);
+      if (tsDiff !== 0) return tsDiff;
+      return intOrZero(b.id) - intOrZero(a.id);
+    })
+    .slice(0, Math.max(1, limit));
 }
 
 function buildRealtimeAlert(
@@ -416,7 +432,10 @@ export function reconcileFetchedOverviewSnapshot(
 
   const preserveLiveFields = Boolean(opts?.preserveLiveFields);
   const incomingIsLite = Boolean(incoming.meta?.lite);
-  const keepHeavySections = incomingIsLite || preserveLiveFields;
+  // Only lite snapshots should inherit heavy sections from the current state.
+  // Full snapshots must refresh heavy sections (recent SSH/raw events/alerts),
+  // otherwise frequent realtime KPI patches can freeze those panels forever.
+  const keepHeavySections = incomingIsLite;
 
   const next: OverviewSnapshot = keepHeavySections
     ? {

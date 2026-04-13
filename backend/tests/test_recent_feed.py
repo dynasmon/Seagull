@@ -104,6 +104,8 @@ def test_recent_feed_push_fetch_and_health(monkeypatch) -> None:
     out = recent_feed.fetch_recent_events(limit=10, agent_id="agent-a")
     assert len(out) == 2
     assert out[0]["agent_id"] == "agent-a"
+    assert out[0]["extra"]["action"] == "failed_password"
+
 
     health = recent_feed.recent_feed_health(agent_id="agent-a")
     assert health["last_event_ts"] is not None

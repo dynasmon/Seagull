@@ -114,7 +114,21 @@ export type OverviewSnapshot = {
   top_sources: Array<{ src_ip: string; count: number }>;
   recent_alerts: Alert[];
   ddos_alerts: Alert[];
-  recent_ssh: Array<{ ts: string; src: string; dst: string; user: string; action: string }>;
+  recent_ssh: Array<{
+    id?: number;
+    timestamp: string;
+    ts: string;
+    agent_id: string;
+    src_ip: string;
+    dst_ip: string;
+    dst_port?: number | null;
+    proto?: string | null;
+    username: string;
+    action: string;
+    src?: string;
+    dst?: string;
+    user?: string;
+  }>;
   raw_events: Array<{
     id: number;
     timestamp: string;

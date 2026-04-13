@@ -58,6 +58,8 @@ def _compact_extra(extra: Any) -> Dict[str, Any]:
         "distributed",
         "vector",
         "severity",
+        "action",
+        "username",
         "confidence",
         "window_seconds",
         "packets",

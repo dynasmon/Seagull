@@ -92,6 +92,91 @@ def _fmt_hhmm(dt: datetime) -> str:
     return dt.strftime("%H:%M")
 
 
+def _normalize_recent_ssh_event(
+    *,
+    timestamp: Any,
+    row_id: Any = None,
+    agent_id: Any = None,
+    src_ip: Any = None,
+    dst_ip: Any = None,
+    dst_port: Any = None,
+    proto: Any = None,
+    username: Any = None,
+    action: Any = None,
+) -> Dict[str, Any] | None:
+    ts = _to_utc(timestamp)
+    if ts is None:
+        return None
+
+    normalized_id = 0
+    try:
+        normalized_id = int(row_id or 0)
+    except Exception:
+        normalized_id = 0
+
+    normalized_dst_port: int | None = None
+    try:
+        if dst_port is not None and dst_port != "":
+            normalized_dst_port = int(dst_port)
+    except Exception:
+        normalized_dst_port = None
+
+    normalized_proto = str(proto or "").strip() or "ssh"
+    normalized_agent = str(agent_id or "").strip() or "-"
+    normalized_src = str(src_ip or "").strip() or "-"
+    normalized_dst = str(dst_ip or "").strip() or "-"
+    normalized_user = str(username or "").strip() or "-"
+    normalized_action = str(action or "").strip() or "-"
+
+    return {
+        "id": normalized_id,
+        "timestamp": ts.isoformat(),
+        "ts": _fmt_hhmm(ts),
+        "agent_id": normalized_agent,
+        "src_ip": normalized_src,
+        "dst_ip": normalized_dst,
+        "dst_port": normalized_dst_port,
+        "proto": normalized_proto,
+        "username": normalized_user,
+        "action": normalized_action,
+        # Legacy aliases kept for existing consumers.
+        "src": normalized_src,
+        "dst": normalized_dst,
+        "user": normalized_user,
+    }
+
+
+def _merge_recent_ssh_rows(*rows: List[Dict[str, Any]], limit: int = 20) -> List[Dict[str, Any]]:
+    merged: List[Dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key = (
+            str(row.get("timestamp") or ""),
+            int(row.get("id") or 0),
+            str(row.get("agent_id") or ""),
+            str(row.get("src_ip") or row.get("src") or ""),
+            str(row.get("dst_ip") or row.get("dst") or ""),
+            str(row.get("username") or row.get("user") or ""),
+            str(row.get("action") or ""),
+            int(row.get("dst_port") or 0) if row.get("dst_port") is not None else 0,
+            str(row.get("proto") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(row)
+    merged.sort(
+        key=lambda item: (
+            str(item.get("timestamp") or ""),
+            int(item.get("id") or 0),
+        ),
+        reverse=True,
+    )
+    return merged[: max(1, int(limit))]
+
+
 def _event_type_filter(col):
     return and_(col.is_not(None), ~col.like(r"%\_summary", escape="\\"))
 
@@ -1026,54 +1111,98 @@ def get_overview_payload(
         )
         ddos_alerts = [dict(r) for r in db.execute(ddos_alerts_stmt).mappings().all()]
 
+        recent_ssh_rows: List[Dict[str, Any]] = []
+        ssh_feed_rows = fetch_recent_feed_events(limit=40, agent_id=agent_id, event_type="ssh_auth")
+        for item in ssh_feed_rows:
+            extra = item.get("extra") if isinstance(item, dict) else {}
+            normalized = _normalize_recent_ssh_event(
+                timestamp=item.get("timestamp") if isinstance(item, dict) else None,
+                row_id=item.get("id") if isinstance(item, dict) else None,
+                agent_id=item.get("agent_id") if isinstance(item, dict) else None,
+                src_ip=item.get("src_ip") if isinstance(item, dict) else None,
+                dst_ip=item.get("dst_ip") if isinstance(item, dict) else None,
+                dst_port=item.get("dst_port") if isinstance(item, dict) else None,
+                proto=item.get("proto") if isinstance(item, dict) else None,
+                username=(extra or {}).get("username") if isinstance(extra, dict) else None,
+                action=(extra or {}).get("action") if isinstance(extra, dict) else None,
+            )
+            if normalized is not None:
+                recent_ssh_rows.append(normalized)
+
+        recent_ssh_end_ts = now
         if ch is not None:
-            ssh_params = {"start_ts": start_ts, "end_ts": data_end_ts}
+            ssh_params = {"start_ts": start_ts, "end_ts": recent_ssh_end_ts}
             ssh_where = "timestamp >= {start_ts:DateTime64(3)} AND timestamp <= {end_ts:DateTime64(3)} AND event_type = 'ssh_auth'"
             if agent_id:
                 ssh_where += " AND agent_id = {agent_id:String}"
                 ssh_params["agent_id"] = agent_id
             ssh_stream_rows = _ch_query_dicts(
                 ch,
-                f"SELECT timestamp, src_ip, dst_ip, "
+                f"SELECT pg_event_id, timestamp, agent_id, src_ip, dst_ip, dst_port, proto, "
                 "ifNull(ssh_username, '') AS username, "
                 "ifNull(ssh_action, '') AS action "
                 f"FROM {clickhouse_events_table_ref()} "
                 f"WHERE {ssh_where} "
-                "ORDER BY timestamp DESC "
-                "LIMIT 20",
+                "ORDER BY timestamp DESC, pg_event_id DESC "
+                "LIMIT 40",
                 ssh_params,
             )
             for row in ssh_stream_rows:
-                recent_ssh.append(
-                    {
-                        "ts": _fmt_hhmm(_to_utc(row.get("timestamp")) or now),
-                        "src": str(row.get("src_ip") or "-"),
-                        "dst": str(row.get("dst_ip") or "-"),
-                        "user": str(row.get("username") or "-"),
-                        "action": str(row.get("action") or "-"),
-                    }
+                normalized = _normalize_recent_ssh_event(
+                    timestamp=row.get("timestamp"),
+                    row_id=row.get("pg_event_id"),
+                    agent_id=row.get("agent_id"),
+                    src_ip=row.get("src_ip"),
+                    dst_ip=row.get("dst_ip"),
+                    dst_port=row.get("dst_port"),
+                    proto=row.get("proto"),
+                    username=row.get("username"),
+                    action=row.get("action"),
                 )
+                if normalized is not None:
+                    recent_ssh_rows.append(normalized)
         else:
+            ssh_username_expr = func.coalesce(NetEventModel.ssh_username, NetEventModel.extra["username"].astext)
+            ssh_action_expr = func.coalesce(NetEventModel.ssh_action, NetEventModel.extra["action"].astext)
             ssh_stream_stmt = (
-                select(NetEventModel.timestamp.label("ts"), NetEventModel.id, NetEventModel.src_ip, NetEventModel.dst_ip, NetEventModel.extra)
-                .where(NetEventModel.event_type == "ssh_auth")
+                select(
+                    NetEventModel.timestamp.label("timestamp"),
+                    NetEventModel.id.label("id"),
+                    NetEventModel.agent_id.label("agent_id"),
+                    NetEventModel.src_ip.label("src_ip"),
+                    NetEventModel.dst_ip.label("dst_ip"),
+                    NetEventModel.dst_port.label("dst_port"),
+                    NetEventModel.proto.label("proto"),
+                    ssh_username_expr.label("username"),
+                    ssh_action_expr.label("action"),
+                )
+                .where(
+                    NetEventModel.event_type == "ssh_auth",
+                    NetEventModel.timestamp >= start_ts,
+                    NetEventModel.timestamp <= recent_ssh_end_ts,
+                )
                 .order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
-                .limit(20)
+                .limit(40)
             )
             if agent_id:
                 ssh_stream_stmt = ssh_stream_stmt.where(NetEventModel.agent_id == agent_id)
             ssh_stream_rows = db.execute(ssh_stream_stmt).mappings().all()
             for r in ssh_stream_rows:
-                extra = r.get("extra") or {}
-                recent_ssh.append(
-                    {
-                        "ts": _fmt_hhmm(_to_utc(r.get("ts")) or now),
-                        "src": str(r.get("src_ip") or "-"),
-                        "dst": str(r.get("dst_ip") or "-"),
-                        "user": str((extra or {}).get("username") or "-"),
-                        "action": str((extra or {}).get("action") or "-"),
-                    }
+                normalized = _normalize_recent_ssh_event(
+                    timestamp=r.get("timestamp"),
+                    row_id=r.get("id"),
+                    agent_id=r.get("agent_id"),
+                    src_ip=r.get("src_ip"),
+                    dst_ip=r.get("dst_ip"),
+                    dst_port=r.get("dst_port"),
+                    proto=r.get("proto"),
+                    username=r.get("username"),
+                    action=r.get("action"),
                 )
+                if normalized is not None:
+                    recent_ssh_rows.append(normalized)
+
+        recent_ssh = _merge_recent_ssh_rows(*recent_ssh_rows, limit=20)
 
         raw_events = _recent_feed_events(30, recent_feed)
         if len(raw_events) < 30 and ch is not None:
