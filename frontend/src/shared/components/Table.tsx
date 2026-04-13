@@ -52,7 +52,6 @@ export function Table<T>({
   rows: T[];
   rowKey: (row: T, idx: number) => string;
   className?: string;
-  /** Enable horizontal scrolling when the table content is wider than its container. */
   scrollX?: boolean;
   stickyHeader?: boolean;
   compact?: boolean;
