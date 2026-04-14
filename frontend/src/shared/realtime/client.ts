@@ -1,24 +1,37 @@
-import { requestRealtimeStreamToken, type StreamTokenOut } from "@/shared/realtime/api";
+import {
+  buildPortalRealtimeSseUrl,
+  buildPortalRealtimeWebSocketUrl,
+  requestRealtimeStreamToken,
+  type StreamTokenOut,
+} from "@/shared/realtime/api";
 import {
   PORTAL_REALTIME_EVENT_MODE,
   PORTAL_REALTIME_EVENT_SCOPE,
   PORTAL_REALTIME_EVENT_TOPIC,
-  PORTAL_REALTIME_TOPICS,
   PORTAL_REALTIME_EVENT_TYPES,
+  PORTAL_REALTIME_TOPICS,
   type PortalRealtimeAnyEvent,
   type PortalRealtimeEnvelope,
   type PortalRealtimeEventType,
   type PortalRealtimeTopic,
-  isPortalRealtimeMode,
   isPortalRealtimeEventType,
+  isPortalRealtimeMode,
   isPortalRealtimeTopic,
 } from "@/shared/realtime/types";
 
 export type RealtimeConnectionStatus = "idle" | "connecting" | "open" | "retrying" | "stopped";
+export type RealtimeTransportKind = "sse" | "ws";
 
 export type PortalRealtimeEventListener<K extends PortalRealtimeEventType> = (event: PortalRealtimeEnvelope<K>) => void;
 export type PortalRealtimeAnyListener = (event: PortalRealtimeAnyEvent) => void;
 export type RealtimeStatusListener = (status: RealtimeConnectionStatus) => void;
+export type RealtimeConnectionSnapshot = {
+  status: RealtimeConnectionStatus;
+  transport: RealtimeTransportKind | null;
+  isFallbackTransport: boolean;
+  isVisible: boolean;
+};
+export type RealtimeConnectionListener = (connection: RealtimeConnectionSnapshot) => void;
 
 export type EventSourceLike = {
   addEventListener: (type: string, listener: EventListener) => void;
@@ -29,21 +42,42 @@ export type EventSourceLike = {
   onmessage: ((event: MessageEvent<string>) => void) | null;
 };
 
+export type WebSocketLike = {
+  close: (code?: number, reason?: string) => void;
+  onopen: ((event: Event) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onclose: ((event: CloseEvent) => void) | null;
+  onmessage: ((event: MessageEvent<string>) => void) | null;
+};
+
 export type PortalRealtimeClientOptions = {
   tokenProvider?: () => Promise<StreamTokenOut>;
   eventSourceFactory?: (url: string) => EventSourceLike;
+  webSocketFactory?: (url: string) => WebSocketLike;
   reconnectBaseMs?: number;
   reconnectMaxMs?: number;
   baseTopics?: PortalRealtimeTopic[];
+  hotTopics?: PortalRealtimeTopic[];
+  preferredTransport?: "auto" | RealtimeTransportKind;
 };
 
 const DEFAULT_RECONNECT_BASE_MS = 1000;
 const DEFAULT_RECONNECT_MAX_MS = 15000;
 const DEFAULT_BASE_TOPICS: readonly PortalRealtimeTopic[] = ["agents"];
+const DEFAULT_HOT_TOPICS: readonly PortalRealtimeTopic[] = ["overview", "agents", "events", "inventory"];
 const RECENT_EVENT_KEY_LIMIT = 256;
 
 function defaultEventSourceFactory(url: string): EventSourceLike {
   return new EventSource(url) as unknown as EventSourceLike;
+}
+
+function defaultWebSocketFactory(url: string): WebSocketLike {
+  return new WebSocket(url) as unknown as WebSocketLike;
+}
+
+function readVisibility(): boolean {
+  if (typeof document === "undefined") return true;
+  return document.visibilityState !== "hidden";
 }
 
 function parseCursorValue(value: unknown): number {
@@ -100,18 +134,26 @@ export function decodePortalRealtimeEnvelope(rawData: unknown): PortalRealtimeAn
 export class PortalRealtimeClient {
   private readonly tokenProvider: () => Promise<StreamTokenOut>;
   private readonly eventSourceFactory: (url: string) => EventSourceLike;
+  private readonly webSocketFactory: (url: string) => WebSocketLike;
   private readonly reconnectBaseMs: number;
   private readonly reconnectMaxMs: number;
   private readonly baseTopics: readonly PortalRealtimeTopic[];
+  private readonly hotTopics: readonly PortalRealtimeTopic[];
+  private readonly preferredTransport: "auto" | RealtimeTransportKind;
 
   private source: EventSourceLike | null = null;
+  private socket: WebSocketLike | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connectInFlight: Promise<void> | null = null;
   private reconnectAttempt = 0;
   private running = false;
+  private isVisible = readVisibility();
 
   private statusValue: RealtimeConnectionStatus = "idle";
+  private transportValue: RealtimeTransportKind | null = null;
+  private isFallbackTransportValue = false;
   private readonly statusListeners = new Set<RealtimeStatusListener>();
+  private readonly connectionListeners = new Set<RealtimeConnectionListener>();
 
   private readonly listenersByType = new Map<PortalRealtimeEventType, Set<PortalRealtimeAnyListener>>();
   private readonly anyListeners = new Set<PortalRealtimeAnyListener>();
@@ -121,22 +163,40 @@ export class PortalRealtimeClient {
   private topicRebindTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly recentEventKeys = new Set<string>();
   private recentEventKeyOrder: string[] = [];
+  private connectOrder: RealtimeTransportKind[] = [];
+  private connectTransportIndex = 0;
+  private transportOpened = false;
+  private desiredTransport: RealtimeTransportKind | null = null;
+  private currentStreamToken = "";
 
   constructor(options: PortalRealtimeClientOptions = {}) {
     this.tokenProvider = options.tokenProvider ?? requestRealtimeStreamToken;
     this.eventSourceFactory = options.eventSourceFactory ?? defaultEventSourceFactory;
+    this.webSocketFactory = options.webSocketFactory ?? defaultWebSocketFactory;
     this.reconnectBaseMs = Math.max(1, Math.trunc(options.reconnectBaseMs ?? DEFAULT_RECONNECT_BASE_MS));
     this.reconnectMaxMs = Math.max(this.reconnectBaseMs, Math.trunc(options.reconnectMaxMs ?? DEFAULT_RECONNECT_MAX_MS));
     this.baseTopics = this.normalizeTopics(options.baseTopics ?? Array.from(DEFAULT_BASE_TOPICS));
+    this.hotTopics = this.normalizeTopics(options.hotTopics ?? Array.from(DEFAULT_HOT_TOPICS));
+    this.preferredTransport = options.preferredTransport ?? "auto";
   }
 
   get status(): RealtimeConnectionStatus {
     return this.statusValue;
   }
 
+  get connection(): RealtimeConnectionSnapshot {
+    return {
+      status: this.statusValue,
+      transport: this.transportValue,
+      isFallbackTransport: this.isFallbackTransportValue,
+      isVisible: this.isVisible,
+    };
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.bindVisibilityListener();
     this.ensureConnected();
   }
 
@@ -144,12 +204,17 @@ export class PortalRealtimeClient {
     this.running = false;
     this.clearReconnectTimer();
     this.clearTopicRebindTimer();
-    this.teardownSource();
+    this.teardownTransport();
     this.reconnectAttempt = 0;
-    this.lastCursor = 0;
     this.connectedTopicsCsv = "";
+    this.connectOrder = [];
+    this.connectTransportIndex = 0;
+    this.transportOpened = false;
+    this.desiredTransport = null;
+    this.currentStreamToken = "";
     this.clearRecentEventKeys();
-    this.setStatus("stopped");
+    this.unbindVisibilityListener();
+    this.setConnectionState({ status: "stopped", transport: null, isFallbackTransport: false });
   }
 
   subscribeStatus(listener: RealtimeStatusListener): () => void {
@@ -157,6 +222,14 @@ export class PortalRealtimeClient {
     listener(this.statusValue);
     return () => {
       this.statusListeners.delete(listener);
+    };
+  }
+
+  subscribeConnection(listener: RealtimeConnectionListener): () => void {
+    this.connectionListeners.add(listener);
+    listener(this.connection);
+    return () => {
+      this.connectionListeners.delete(listener);
     };
   }
 
@@ -189,17 +262,67 @@ export class PortalRealtimeClient {
     };
   }
 
-  private setStatus(next: RealtimeConnectionStatus): void {
-    if (this.statusValue === next) return;
-    this.statusValue = next;
-    for (const listener of Array.from(this.statusListeners)) {
-      listener(next);
+  private bindVisibilityListener(): void {
+    if (typeof document === "undefined") return;
+    document.addEventListener("visibilitychange", this.handleVisibilityChange);
+  }
+
+  private unbindVisibilityListener(): void {
+    if (typeof document === "undefined") return;
+    document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+  }
+
+  private readonly handleVisibilityChange = (): void => {
+    const nextVisible = readVisibility();
+    if (nextVisible === this.isVisible) return;
+    this.isVisible = nextVisible;
+    this.emitConnectionState();
+    this.scheduleTopicRebind();
+  };
+
+  private setConnectionState(next: {
+    status?: RealtimeConnectionStatus;
+    transport?: RealtimeTransportKind | null;
+    isFallbackTransport?: boolean;
+  }): void {
+    let changed = false;
+    if (next.status !== undefined && next.status !== this.statusValue) {
+      this.statusValue = next.status;
+      changed = true;
+      for (const listener of Array.from(this.statusListeners)) {
+        listener(this.statusValue);
+      }
+    }
+    if (next.transport !== undefined && next.transport !== this.transportValue) {
+      this.transportValue = next.transport;
+      changed = true;
+    }
+    if (
+      next.isFallbackTransport !== undefined &&
+      next.isFallbackTransport !== this.isFallbackTransportValue
+    ) {
+      this.isFallbackTransportValue = next.isFallbackTransport;
+      changed = true;
+    }
+    if (changed) {
+      this.emitConnectionState();
+    }
+  }
+
+  private emitConnectionState(): void {
+    const snapshot = this.connection;
+    for (const listener of Array.from(this.connectionListeners)) {
+      listener(snapshot);
     }
   }
 
   private ensureConnected(): void {
-    if (!this.running || this.source || this.connectInFlight) return;
-    this.setStatus(this.reconnectAttempt > 0 ? "retrying" : "connecting");
+    if (!this.running || this.activeTransportHandle() || this.connectInFlight) return;
+    this.setConnectionState({
+      status: this.reconnectAttempt > 0 ? "retrying" : "connecting",
+      transport: null,
+      isFallbackTransport: false,
+    });
 
     this.connectInFlight = this.openConnection().finally(() => {
       this.connectInFlight = null;
@@ -225,41 +348,67 @@ export class PortalRealtimeClient {
 
     const requestedTopics = this.computeRequestedTopics();
     if (requestedTopics.length === 0) {
-      this.setStatus("idle");
+      this.setConnectionState({ status: "idle", transport: null, isFallbackTransport: false });
       return;
     }
 
-    try {
-      const params = new URLSearchParams();
-      params.set("st", streamToken);
-      const topicsCsv = requestedTopics.join(",");
-      params.set("topics", topicsCsv);
-      const resumeCursor = this.lastCursor;
-      if (resumeCursor > 0) {
-        params.set("cursor", String(resumeCursor));
-      }
-      const url = `/api/realtime/portal?${params.toString()}`;
-      const source = this.eventSourceFactory(url);
-      this.lastCursor = 0;
-      this.clearRecentEventKeys();
-      this.attachSource(source);
-      this.source = source;
-      this.connectedTopicsCsv = topicsCsv;
-    } catch {
+    this.connectOrder = this.computeTransportOrder(requestedTopics);
+    this.connectTransportIndex = 0;
+    this.transportOpened = false;
+    this.desiredTransport = this.connectOrder[0] ?? null;
+    this.connectedTopicsCsv = requestedTopics.join(",");
+    this.currentStreamToken = streamToken;
+    this.clearRecentEventKeys();
+    this.tryOpenTransport(streamToken, requestedTopics, this.lastCursor);
+  }
+
+  private tryOpenTransport(streamToken: string, topics: PortalRealtimeTopic[], resumeCursor: number): void {
+    const transport = this.connectOrder[this.connectTransportIndex];
+    if (!transport) {
       this.scheduleReconnect();
+      return;
+    }
+
+    this.setConnectionState({
+      transport,
+      isFallbackTransport: this.connectTransportIndex > 0,
+    });
+
+    try {
+      if (transport === "ws") {
+        const socket = this.webSocketFactory(
+          buildPortalRealtimeWebSocketUrl({
+            streamToken,
+            topics,
+            cursor: resumeCursor > 0 ? resumeCursor : null,
+          }),
+        );
+        this.attachSocket(socket, transport);
+        this.socket = socket;
+      } else {
+        const source = this.eventSourceFactory(
+          buildPortalRealtimeSseUrl({
+            streamToken,
+            topics,
+            cursor: resumeCursor > 0 ? resumeCursor : null,
+          }),
+        );
+        this.attachSource(source, transport);
+        this.source = source;
+      }
+    } catch {
+      this.handleTransportFailure(transport);
     }
   }
 
-  private attachSource(source: EventSourceLike): void {
+  private attachSource(source: EventSourceLike, transport: RealtimeTransportKind): void {
     source.onopen = () => {
       if (source !== this.source) return;
-      this.reconnectAttempt = 0;
-      this.setStatus("open");
+      this.handleTransportOpen(transport);
     };
     source.onerror = () => {
       if (source !== this.source) return;
-      this.teardownSource();
-      this.scheduleReconnect();
+      this.handleTransportFailure(transport);
     };
     source.onmessage = (event) => {
       this.handleIncomingData("message", event.data);
@@ -276,28 +425,90 @@ export class PortalRealtimeClient {
     }
   }
 
-  private teardownSource(): void {
-    const source = this.source;
-    if (!source) return;
+  private attachSocket(socket: WebSocketLike, transport: RealtimeTransportKind): void {
+    socket.onopen = () => {
+      if (socket !== this.socket) return;
+      this.handleTransportOpen(transport);
+    };
+    socket.onerror = () => {
+      if (socket !== this.socket) return;
+      this.handleTransportFailure(transport);
+    };
+    socket.onclose = () => {
+      if (socket !== this.socket) return;
+      this.handleTransportFailure(transport);
+    };
+    socket.onmessage = (event) => {
+      this.handleIncomingData("message", event.data);
+    };
+  }
 
-    for (const [eventType, listener] of this.namedSourceListeners.entries()) {
-      source.removeEventListener(eventType, listener);
+  private handleTransportOpen(transport: RealtimeTransportKind): void {
+    if (transport !== this.transportValue) {
+      this.setConnectionState({ transport });
     }
-    this.namedSourceListeners.clear();
+    this.transportOpened = true;
+    this.reconnectAttempt = 0;
+    this.setConnectionState({ status: "open", isFallbackTransport: this.connectTransportIndex > 0 });
+  }
 
-    source.onopen = null;
-    source.onerror = null;
-    source.onmessage = null;
-    source.close();
-    this.source = null;
-    this.connectedTopicsCsv = "";
+  private handleTransportFailure(transport: RealtimeTransportKind): void {
+    if (transport !== this.transportValue) return;
+
+    const canFallback = !this.transportOpened && this.connectTransportIndex + 1 < this.connectOrder.length;
+    this.teardownTransport();
+
+    if (canFallback) {
+      this.connectTransportIndex += 1;
+      const requestedTopics = this.computeRequestedTopics();
+      if (requestedTopics.length === 0) {
+        this.setConnectionState({ status: "idle", transport: null, isFallbackTransport: false });
+        return;
+      }
+      this.tryOpenTransport(this.currentStreamToken, requestedTopics, this.lastCursor);
+      return;
+    }
+
+    this.scheduleReconnect();
+  }
+
+  private teardownTransport(): void {
+    const source = this.source;
+    if (source) {
+      for (const [eventType, listener] of this.namedSourceListeners.entries()) {
+        source.removeEventListener(eventType, listener);
+      }
+      this.namedSourceListeners.clear();
+      source.onopen = null;
+      source.onerror = null;
+      source.onmessage = null;
+      source.close();
+      this.source = null;
+    }
+
+    const socket = this.socket;
+    if (socket) {
+      socket.onopen = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      socket.onmessage = null;
+      socket.close();
+      this.socket = null;
+    }
+
+    this.transportOpened = false;
+    this.setConnectionState({ transport: null, isFallbackTransport: false });
+  }
+
+  private activeTransportHandle(): EventSourceLike | WebSocketLike | null {
+    return this.socket ?? this.source;
   }
 
   private scheduleReconnect(): void {
     if (!this.running) return;
     if (this.reconnectTimer) return;
 
-    this.setStatus("retrying");
+    this.setConnectionState({ status: "retrying", transport: null, isFallbackTransport: false });
     const delayMs = this.nextReconnectDelayMs();
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -330,12 +541,16 @@ export class PortalRealtimeClient {
     if (!this.running) return;
     const nextTopics = this.computeRequestedTopics();
     const nextCsv = nextTopics.join(",");
-    if (nextCsv === this.connectedTopicsCsv) return;
+    const nextDesiredTransport = nextTopics.length > 0 ? this.computeTransportOrder(nextTopics)[0] ?? null : null;
+    if (nextCsv === this.connectedTopicsCsv && nextDesiredTransport === this.desiredTransport) return;
 
     this.clearReconnectTimer();
-    this.teardownSource();
+    this.teardownTransport();
+    this.connectedTopicsCsv = "";
+    this.desiredTransport = null;
+    this.currentStreamToken = "";
     if (nextTopics.length === 0) {
-      this.setStatus("idle");
+      this.setConnectionState({ status: "idle", transport: null, isFallbackTransport: false });
       return;
     }
     this.ensureConnected();
@@ -366,6 +581,15 @@ export class PortalRealtimeClient {
       }
     }
     return Array.from(topics);
+  }
+
+  private computeTransportOrder(topics: readonly PortalRealtimeTopic[]): RealtimeTransportKind[] {
+    if (this.preferredTransport === "sse") return ["sse"];
+    if (this.preferredTransport === "ws") return ["ws", "sse"];
+    if (!this.isVisible) return ["sse"];
+
+    const wantsHotTransport = topics.some((topic) => this.hotTopics.includes(topic));
+    return wantsHotTransport ? ["ws", "sse"] : ["sse"];
   }
 
   private nextReconnectDelayMs(): number {

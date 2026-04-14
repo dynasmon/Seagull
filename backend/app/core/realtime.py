@@ -24,6 +24,13 @@ class PortalRealtimeStreamEntry:
     message: str
 
 
+@dataclass(frozen=True)
+class PortalRealtimeReplayWindow:
+    entries: tuple[PortalRealtimeStreamEntry, ...]
+    earliest_cursor: int
+    latest_cursor: int
+
+
 def _replay_max_events() -> int:
     raw = str(os.getenv("NETWATCH_REALTIME_REPLAY_MAX_EVENTS", "512") or "512").strip()
     try:
@@ -121,6 +128,21 @@ def load_portal_realtime_replay(
             out.append(entry)
     out.sort(key=lambda item: item.cursor)
     return out
+
+
+def load_portal_realtime_replay_window(
+    redis_client: Any,
+    *,
+    max_events: int = 200,
+) -> PortalRealtimeReplayWindow:
+    entries = tuple(load_portal_realtime_replay(redis_client, max_events=max_events))
+    if not entries:
+        return PortalRealtimeReplayWindow(entries=(), earliest_cursor=0, latest_cursor=0)
+    return PortalRealtimeReplayWindow(
+        entries=entries,
+        earliest_cursor=entries[0].cursor,
+        latest_cursor=entries[-1].cursor,
+    )
 
 
 def read_portal_realtime_stream(

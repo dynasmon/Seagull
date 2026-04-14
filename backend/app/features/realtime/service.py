@@ -62,6 +62,17 @@ TOPIC_INVALIDATE_EVENT: dict[str, str] = {
     "inventory": "ui.inventory.invalidate",
     "vulnerabilities": "ui.vulnerabilities.invalidate",
 }
+TOPIC_COALESCED_INVALIDATES: frozenset[str] = frozenset(
+    {
+        "overview",
+        "alerts",
+        "agents",
+        "investigations",
+        "events",
+        "inventory",
+        "vulnerabilities",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -360,6 +371,22 @@ def allow_envelope_for_stream(
     if envelope.topic == "alerts" and not principal.is_admin:
         return False
     return True
+
+
+def coalesce_realtime_envelopes(envelopes: Iterable[RealtimeEnvelope]) -> list[RealtimeEnvelope]:
+    out: list[RealtimeEnvelope] = []
+    invalidate_positions: dict[tuple[str, str, str], int] = {}
+
+    for envelope in envelopes:
+        if envelope.mode == "invalidate" and envelope.topic in TOPIC_COALESCED_INVALIDATES:
+            key = (envelope.topic, envelope.type, envelope.scope)
+            existing_index = invalidate_positions.get(key)
+            if existing_index is not None:
+                out[existing_index] = envelope
+                continue
+            invalidate_positions[key] = len(out)
+        out.append(envelope)
+    return out
 
 
 def format_sse_chunk(

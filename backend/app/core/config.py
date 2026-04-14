@@ -70,6 +70,9 @@ class Settings:
     NETWATCH_REDIS_PASSWORD: str | None = _env_str("NETWATCH_REDIS_PASSWORD", None)
     NETWATCH_REALTIME_STREAM_TOKEN_TTL_SECONDS: int = _env_int("NETWATCH_REALTIME_STREAM_TOKEN_TTL_SECONDS", 30)
     NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS: int = _env_int("NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS", 15)
+    NETWATCH_REALTIME_STREAM_READ_BLOCK_MS: int = _env_int("NETWATCH_REALTIME_STREAM_READ_BLOCK_MS", 1000)
+    NETWATCH_REALTIME_REPLAY_DELIVERY_MAX: int = _env_int("NETWATCH_REALTIME_REPLAY_DELIVERY_MAX", 200)
+    NETWATCH_REALTIME_WS_KEEPALIVE_SECONDS: int = _env_int("NETWATCH_REALTIME_WS_KEEPALIVE_SECONDS", 20)
     NETWATCH_RULES_DIR: str = _env_str("NETWATCH_RULES_DIR", "/app/rules") or "/app/rules"
 
     # Optional full SQLAlchemy DSN (preferred). Example:
@@ -363,6 +366,18 @@ class Settings:
             errors.append("NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS must be >= 5")
         if (self.NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS or 0) > 60:
             errors.append("NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS must be <= 60")
+        if (self.NETWATCH_REALTIME_STREAM_READ_BLOCK_MS or 0) < 100:
+            errors.append("NETWATCH_REALTIME_STREAM_READ_BLOCK_MS must be >= 100")
+        if (self.NETWATCH_REALTIME_STREAM_READ_BLOCK_MS or 0) > 5000:
+            errors.append("NETWATCH_REALTIME_STREAM_READ_BLOCK_MS must be <= 5000")
+        if (self.NETWATCH_REALTIME_REPLAY_DELIVERY_MAX or 0) < 16:
+            errors.append("NETWATCH_REALTIME_REPLAY_DELIVERY_MAX must be >= 16")
+        if (self.NETWATCH_REALTIME_REPLAY_DELIVERY_MAX or 0) > 5000:
+            errors.append("NETWATCH_REALTIME_REPLAY_DELIVERY_MAX must be <= 5000")
+        if (self.NETWATCH_REALTIME_WS_KEEPALIVE_SECONDS or 0) < 5:
+            errors.append("NETWATCH_REALTIME_WS_KEEPALIVE_SECONDS must be >= 5")
+        if (self.NETWATCH_REALTIME_WS_KEEPALIVE_SECONDS or 0) > 60:
+            errors.append("NETWATCH_REALTIME_WS_KEEPALIVE_SECONDS must be <= 60")
         if (self.NETWATCH_AUDIT_RETENTION_DAYS or 0) < 1:
             errors.append("NETWATCH_AUDIT_RETENTION_DAYS must be >= 1")
         if (self.NETWATCH_LOGIN_AUDIT_RETENTION_DAYS or 0) < 1:
@@ -483,6 +498,9 @@ class Settings:
                 "allowed_hosts": list(self.NETWATCH_ALLOWED_HOSTS or []),
                 "realtime_stream_token_ttl_seconds": int(self.NETWATCH_REALTIME_STREAM_TOKEN_TTL_SECONDS),
                 "realtime_sse_keepalive_seconds": int(self.NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS),
+                "realtime_stream_read_block_ms": int(self.NETWATCH_REALTIME_STREAM_READ_BLOCK_MS),
+                "realtime_replay_delivery_max": int(self.NETWATCH_REALTIME_REPLAY_DELIVERY_MAX),
+                "realtime_ws_keepalive_seconds": int(self.NETWATCH_REALTIME_WS_KEEPALIVE_SECONDS),
             },
             "ingest": {
                 "max_batch": self.NETWATCH_INGEST_MAX_BATCH,
