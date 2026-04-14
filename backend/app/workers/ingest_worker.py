@@ -307,7 +307,6 @@ def _ensure_warm_ilm_and_template(es, cfg: WorkerConfig) -> None:
         log_event(logger, "warning", "ingest_ilm_policy_error", error_type=type(e).__name__)
         return
 
-    # Create index template for warm indexes
     try:
         name = f"{cfg.warm_index_prefix}-template"
 
