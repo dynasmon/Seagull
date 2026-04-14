@@ -9,13 +9,17 @@ from app.core.api_db import managed_session
 from app.core.db import get_db
 from app.core.portal_auth import get_current_user
 from app.features.events.schemas import (
+    DdosLiveSnapshotResponse,
     EventHuntResponse,
+    EventStreamSnapshotResponse,
     NetEventDB,
     NetEventRollup1s,
     ProtocolIntelSummaryResponse,
     SshSummaryResponse,
 )
 from app.features.events.service import (
+    get_ddos_live_snapshot,
+    get_event_stream_snapshot,
     get_port_stats,
     get_recent_events_view,
     get_protocol_intel_samples,
@@ -78,6 +82,42 @@ def get_recent_events_endpoint(
             search=search,
             since_minutes=since_minutes,
             window_minutes=window_minutes,
+        )
+
+
+@router.get("/live/stream", response_model=EventStreamSnapshotResponse)
+def get_event_stream_snapshot_endpoint(
+    limit: int = Query(200, ge=10, le=500, description="Maximum number of live rows to return"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
+    event_type: Optional[str] = Query(None, description="Filter by event type"),
+    search: Optional[str] = Query(None, min_length=1, max_length=256, description="Optional server-side search"),
+    since_minutes: int = Query(60, ge=1, le=60 * 24 * 30, description="Recent live window in minutes"),
+    db: Session = Depends(get_db),
+):
+    with managed_session(db) as db_session:
+        return get_event_stream_snapshot(
+            db_session,
+            limit=limit,
+            agent_id=agent_id,
+            event_type=event_type,
+            search=search,
+            since_minutes=since_minutes,
+        )
+
+
+@router.get("/live/ddos", response_model=DdosLiveSnapshotResponse)
+def get_ddos_live_snapshot_endpoint(
+    limit: int = Query(200, ge=25, le=500, description="Maximum number of live DDoS rows to return"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
+    since_minutes: int = Query(60 * 12, ge=1, le=60 * 24 * 30, description="Recent live window in minutes"),
+    db: Session = Depends(get_db),
+):
+    with managed_session(db) as db_session:
+        return get_ddos_live_snapshot(
+            db_session,
+            limit=limit,
+            agent_id=agent_id,
+            since_minutes=since_minutes,
         )
 
 

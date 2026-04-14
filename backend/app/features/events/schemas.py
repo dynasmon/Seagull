@@ -54,6 +54,30 @@ class EventHuntResponse(BaseModel):
     meta: QueryProvenanceMeta
 
 
+class EventStreamSnapshotResponse(BaseModel):
+    generated_at: datetime
+    window_minutes: int
+    agent_id: Optional[str] = None
+    event_type: Optional[str] = None
+    search: Optional[str] = None
+    items: List[NetEventDB] = Field(default_factory=list)
+    next_cursor: Optional[str] = None
+    has_more: bool = False
+    meta: QueryProvenanceMeta
+
+
+class DdosLiveSnapshotResponse(BaseModel):
+    generated_at: datetime
+    since_minutes: int
+    agent_id: Optional[str] = None
+    items: List[NetEventDB] = Field(default_factory=list)
+    next_cursor: Optional[str] = None
+    has_more: bool = False
+    meta: QueryProvenanceMeta
+    live_summary: Dict[str, Any] = Field(default_factory=dict)
+    pressure: Dict[str, Any] = Field(default_factory=dict)
+
+
 class NetEventRollup1s(BaseModel):
     bucket_ts: datetime
     agent_id: str

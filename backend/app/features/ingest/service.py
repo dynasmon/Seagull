@@ -37,7 +37,12 @@ from app.features.events.schemas import NetEvent
 from app.features.events.service import invalidate_live_event_summary_caches
 from app.features.alerts.models import AlertModel
 from app.features.alerts.realtime import publish_alert_created_from_row
-from app.features.realtime.projectors import project_overview_kpi_patch, project_storm_status_patch
+from app.features.realtime.projectors import (
+    project_ddos_live_patch,
+    project_events_stream_append,
+    project_overview_kpi_patch,
+    project_storm_status_patch,
+)
 from app.features.realtime.service import publish_realtime
 
 logger = logging.getLogger("netwatch.api.ingest")
@@ -149,12 +154,74 @@ def _build_events_invalidate_payload(*, agent_id: str, events: List[NetEvent]) -
     }
 
 
-def _publish_events_realtime(*, agent_id: str, events: List[NetEvent]) -> None:
-    if not events:
+def _recent_rows_for_live_stream(rows: List[Dict], *, limit: int) -> List[Dict]:
+    ranked = sorted(
+        [row for row in rows if isinstance(row, dict)],
+        key=lambda row: (str(row.get("timestamp") or ""), str(row.get("agent_id") or ""), str(row.get("event_type") or "")),
+        reverse=True,
+    )
+    return ranked[: max(1, int(limit))]
+
+
+def _ddos_recent_rows(rows: List[Dict], *, limit: int) -> List[Dict]:
+    out: List[Dict] = []
+    for row in rows:
+        event_type = str((row or {}).get("event_type") or "").strip().lower()
+        if event_type not in {"dos_attack", "ddos_telemetry"}:
+            continue
+        out.append(row)
+    out.sort(key=lambda row: str((row or {}).get("timestamp") or ""), reverse=True)
+    return out[: max(1, int(limit))]
+
+
+def _publish_events_realtime(
+    *,
+    agent_id: str,
+    events: List[NetEvent],
+    recent_rows: List[Dict],
+    live_summary: Dict[str, object] | None,
+    pressure: Dict[str, object] | None,
+) -> None:
+    if not events and not recent_rows:
         return
+
     invalidate_live_event_summary_caches(agent_id=agent_id)
     if _realtime_gate_once(key="netwatch:realtime:events:invalidate:2s", ttl_s=2):
         publish_realtime("ui.events.invalidate", _build_events_invalidate_payload(agent_id=agent_id, events=events))
+
+    if recent_rows and _realtime_gate_once(key="netwatch:realtime:events:stream:1s", ttl_s=1):
+        invalidate_payload = _build_events_invalidate_payload(agent_id=agent_id, events=events)
+        stream_rows = _recent_rows_for_live_stream(recent_rows, limit=24)
+        publish_realtime(
+            "ui.events.stream.append",
+            project_events_stream_append(
+                agent_id=agent_id,
+                rows=stream_rows,
+                batch_size=len(recent_rows),
+                coalesced_events=len(stream_rows),
+                high_priority=bool(invalidate_payload.get("high_priority")),
+                domains=[str(value) for value in (invalidate_payload.get("domains") or [])],
+                event_types=[str(value) for value in (invalidate_payload.get("event_types") or [])],
+                requires_reconcile=len(stream_rows) < len(recent_rows),
+            ),
+        )
+
+    ddos_rows = _ddos_recent_rows(recent_rows, limit=18)
+    pressure_payload = pressure or {}
+    ddos_active = bool(ddos_rows) or bool((pressure_payload or {}).get("active")) or bool((live_summary or {}).get("ddos_samples"))
+    if ddos_active and _realtime_gate_once(key="netwatch:realtime:ddos:live:1s", ttl_s=1):
+        publish_realtime(
+            "ui.ddos.live.patch",
+            project_ddos_live_patch(
+                agent_id=agent_id,
+                rows=ddos_rows,
+                batch_size=len(recent_rows),
+                coalesced_events=len(ddos_rows),
+                requires_reconcile=len(ddos_rows) < len(recent_rows),
+                summary=live_summary,
+                pressure=pressure_payload,
+            ),
+        )
 
 
 def _degradation_level(*, bp_mode: str, storm_active: bool, backlog_events: int, received: int) -> str:
@@ -757,7 +824,6 @@ def ingest_events(
 
     # Backpressure decision based on current backlog.
     bp = evaluate_backpressure(received=len(events))
-    _publish_events_realtime(agent_id=agent.agent_id, events=events)
 
     # Only trust client timestamp if it is close enough to server time.
     max_skew_s = max(0, int(settings.NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS or 30))
@@ -1024,6 +1090,20 @@ def ingest_events(
             phase="storm" if storm_active else ("draining" if pressure_active else "ok"),
             reason=storm_reason,
         )
+        _publish_events_realtime(
+            agent_id=agent.agent_id,
+            events=events,
+            recent_rows=recent_feed_rows if pushed_recent > 0 else [],
+            live_summary=live_summary,
+            pressure={
+                "active": bool(active_for_metrics),
+                "protection_active": bool(active_for_metrics),
+                "phase": "storm" if storm_active else ("draining" if pressure_active else "ok"),
+                "reason": storm_reason,
+                "backlog_events": int(bp.backlog_events or 0),
+                "backlog_messages": int(bp.backlog_messages or 0),
+            },
+        )
 
         return {
             "received": len(events),
@@ -1073,6 +1153,20 @@ def ingest_events(
         protection_active=bool(active_for_metrics),
         phase="storm" if storm_active else ("draining" if pressure_active else "ok"),
         reason=storm_reason,
+    )
+    _publish_events_realtime(
+        agent_id=agent.agent_id,
+        events=events,
+        recent_rows=recent_feed_rows if pushed_recent > 0 else [],
+        live_summary=live_summary,
+        pressure={
+            "active": bool(active_for_metrics),
+            "protection_active": bool(active_for_metrics),
+            "phase": "storm" if storm_active else ("draining" if pressure_active else "ok"),
+            "reason": storm_reason,
+            "backlog_events": int(bp.backlog_events or 0),
+            "backlog_messages": int(bp.backlog_messages or 0),
+        },
     )
 
     return {
