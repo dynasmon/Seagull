@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 
 def _to_int(value: Any, *, minimum: int | None = None, maximum: int | None = None) -> int | None:
@@ -45,6 +45,38 @@ def _to_iso(value: Any) -> str | None:
     if not text:
         return None
     return text
+
+
+def _compact_mapping(raw: Any, *, max_items: int, max_key_len: int, max_text_len: int) -> dict[str, Any]:
+    if not isinstance(raw, Mapping):
+        return {}
+
+    out: dict[str, Any] = {}
+    for index, (key, value) in enumerate(raw.items()):
+        if index >= max(1, int(max_items)):
+            break
+        normalized_key = _to_text(key, max_len=max_key_len)
+        if not normalized_key:
+            continue
+        if isinstance(value, str):
+            out[normalized_key] = value[: max(1, int(max_text_len))]
+            continue
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            trimmed: list[Any] = []
+            for item in list(value)[:8]:
+                if isinstance(item, Mapping):
+                    trimmed.append(_compact_mapping(item, max_items=8, max_key_len=max_key_len, max_text_len=max_text_len))
+                elif isinstance(item, str):
+                    trimmed.append(item[: max(1, int(max_text_len))])
+                else:
+                    trimmed.append(item)
+            out[normalized_key] = trimmed
+            continue
+        if isinstance(value, Mapping):
+            out[normalized_key] = _compact_mapping(value, max_items=8, max_key_len=max_key_len, max_text_len=max_text_len)
+            continue
+        out[normalized_key] = value
+    return out
 
 
 def project_overview_kpi_patch(
@@ -290,5 +322,126 @@ def project_investigation_timeline_append(
         patch = project_investigation_workspace_patch(workspace_patch)
         if patch:
             out["workspace_patch"] = patch
+
+    return out
+
+
+def project_compact_event_row(raw: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(raw, Mapping):
+        return {}
+
+    out: dict[str, Any] = {}
+
+    event_id = _to_int(raw.get("id"), minimum=0)
+    if event_id is not None:
+        out["id"] = event_id
+
+    agent_id = _to_text(raw.get("agent_id"), max_len=64)
+    if agent_id is not None:
+        out["agent_id"] = agent_id
+
+    event_type = _to_text(raw.get("event_type"), max_len=64)
+    if event_type is not None:
+        out["event_type"] = event_type
+
+    schema_version = _to_int(raw.get("schema_version"), minimum=1, maximum=16)
+    if schema_version is not None:
+        out["schema_version"] = schema_version
+
+    timestamp = _to_iso(raw.get("timestamp"))
+    if timestamp is not None:
+        out["timestamp"] = timestamp
+
+    for key, max_len in (("src_ip", 64), ("dst_ip", 64), ("proto", 24)):
+        value = _to_text(raw.get(key), max_len=max_len)
+        if value is not None:
+            out[key] = value
+
+    for key in ("src_port", "dst_port", "bytes"):
+        value = _to_int(raw.get(key), minimum=0)
+        if value is not None:
+            out[key] = value
+
+    out["extra"] = _compact_mapping(raw.get("extra"), max_items=24, max_key_len=64, max_text_len=240)
+    return out
+
+
+def project_events_stream_append(
+    *,
+    agent_id: str,
+    rows: Sequence[Mapping[str, Any]],
+    batch_size: int,
+    coalesced_events: int,
+    high_priority: bool,
+    domains: Sequence[str],
+    event_types: Sequence[str],
+    requires_reconcile: bool,
+) -> dict[str, Any]:
+    return {
+        "channel": "events.stream",
+        "agent_id": str(agent_id or "").strip(),
+        "batch_size": int(max(0, int(batch_size or 0))),
+        "coalesced_events": int(max(0, int(coalesced_events or 0))),
+        "truncated_events": int(max(0, int(batch_size or 0)) - int(max(0, int(coalesced_events or 0)))),
+        "high_priority": bool(high_priority),
+        "domains": [str(value) for value in domains if str(value or "").strip()][:8],
+        "event_types": [str(value) for value in event_types if str(value or "").strip()][:12],
+        "requires_reconcile": bool(requires_reconcile),
+        "events": [project_compact_event_row(row) for row in rows if isinstance(row, Mapping)],
+    }
+
+
+def project_ddos_live_patch(
+    *,
+    agent_id: str,
+    rows: Sequence[Mapping[str, Any]],
+    batch_size: int,
+    coalesced_events: int,
+    requires_reconcile: bool,
+    summary: Mapping[str, Any] | None,
+    pressure: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "channel": "ddos.live",
+        "agent_id": str(agent_id or "").strip(),
+        "batch_size": int(max(0, int(batch_size or 0))),
+        "coalesced_events": int(max(0, int(coalesced_events or 0))),
+        "truncated_events": int(max(0, int(batch_size or 0)) - int(max(0, int(coalesced_events or 0)))),
+        "requires_reconcile": bool(requires_reconcile),
+        "events": [project_compact_event_row(row) for row in rows if isinstance(row, Mapping)],
+    }
+
+    if isinstance(summary, Mapping):
+        summary_out: dict[str, Any] = {}
+        for key in (
+            "ddos_packets_estimated",
+            "ddos_samples",
+            "ddos_peak_pps",
+            "ddos_peak_bps",
+            "ddos_peak_syn_ratio",
+            "ddos_peak_flow_rps",
+        ):
+            value = summary.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                summary_out[key] = value
+        if summary_out:
+            out["live_summary"] = summary_out
+
+    if isinstance(pressure, Mapping):
+        pressure_out: dict[str, Any] = {}
+        for key in ("active", "protection_active"):
+            value = _to_bool(pressure.get(key))
+            if value is not None:
+                pressure_out[key] = value
+        for key in ("phase", "reason"):
+            value = _to_text(pressure.get(key), max_len=32)
+            if value is not None:
+                pressure_out[key] = value
+        for key in ("backlog_events", "backlog_messages"):
+            value = _to_int(pressure.get(key), minimum=0)
+            if value is not None:
+                pressure_out[key] = value
+        if pressure_out:
+            out["pressure"] = pressure_out
 
     return out

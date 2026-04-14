@@ -8,16 +8,16 @@ import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
 import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
-import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
+import { useLiveRefresh, usePortalRealtime, usePortalRealtimeSubscription } from "@/shared/realtime";
 
-import { getRecentEvents, huntEvents } from "../../api";
+import { getDdosLiveSnapshot, huntEvents } from "../../api";
 import EventDrawer from "../../components/EventDrawer";
+import { compactRowToEvent, describeLiveSurface, mergeLiveEvents } from "../../live";
 import { isDdosEvent } from "../../lib/ddos";
 import type { NetEvent, QueryProvenanceMeta } from "../../types";
 import EventsStreamPage from "../stream/page";
 
 import DdosDeepDive from "./DdosDeepDive";
-import { buildCombinedQueryMeta, DDOS_EVENT_TYPES, mergeEventsByRecency } from "./live_data";
 
 type DdosPanel = "stream" | "deep";
 
@@ -44,6 +44,7 @@ function parsePanel(raw: string | null): DdosPanel {
 export default function DdosEventsPage() {
   const navigate = useNavigate();
   const { agents } = useAgentsCatalog();
+  const { connection } = usePortalRealtime();
 
   const [query, setQuery] = useUrlQueryState<DdosQueryState>({
     parse: (sp) => ({
@@ -74,6 +75,8 @@ export default function DdosEventsPage() {
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [queryMeta, setQueryMeta] = useState<QueryProvenanceMeta | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [liveSummary, setLiveSummary] = useState<Record<string, any>>({});
+  const [pressure, setPressure] = useState<Record<string, any>>({});
 
   const reqSeq = useRef(0);
   const didBootRef = useRef(false);
@@ -94,55 +97,20 @@ export default function DdosEventsPage() {
     setError(null);
 
     try {
-      const liveLimit = Math.min(Math.max(query.limit * 2, query.limit), 1000);
-      const [recentResults, historyResult] = await Promise.all([
-        Promise.allSettled(
-          DDOS_EVENT_TYPES.map((eventType) =>
-            getRecentEvents({
-              limit: liveLimit,
-              since_minutes: query.since_minutes,
-              agent_id: query.agent_id || undefined,
-              event_type: eventType,
-            }),
-          ),
-        ),
-        Promise.allSettled([
-          huntEvents({
-            page_size: query.limit,
-            since_minutes: query.since_minutes,
-            agent_id: query.agent_id || undefined,
-          }),
-        ]),
-      ]);
+      const payload = await getDdosLiveSnapshot({
+        limit: query.limit,
+        since_minutes: query.since_minutes,
+        agent_id: query.agent_id || undefined,
+      });
       if (reqSeq.current !== mySeq) return;
 
-      const liveRows = recentResults
-        .filter((result): result is PromiseFulfilledResult<NetEvent[]> => result.status === "fulfilled")
-        .flatMap((result) => (Array.isArray(result.value) ? result.value : []));
-      const historyPayload =
-        historyResult[0]?.status === "fulfilled" && historyResult[0].value ? historyResult[0].value : null;
-      const historyRows = Array.isArray(historyPayload?.items) ? historyPayload.items : [];
-      const rows = mergeEventsByRecency(liveRows, historyRows);
-      const liveSourceActive = liveRows.length > 0 || recentResults.some((result) => result.status === "fulfilled");
-      const historyError =
-        historyResult[0]?.status === "rejected"
-          ? getErrorMessage(historyResult[0].reason, "analytics_fallback_unavailable")
-          : null;
-
-      if (rows.length === 0 && historyError) {
-        throw new Error(historyError);
-      }
-
+      const rows = Array.isArray(payload?.items) ? payload.items.filter((row) => isDdosEvent(row)) : [];
       setEvents(rows);
-      setNextCursor(historyPayload?.next_cursor ?? null);
-      setHasMore(Boolean(historyPayload?.has_more));
-      setQueryMeta(
-        buildCombinedQueryMeta({
-          liveSourceActive,
-          historyMeta: historyPayload?.meta ?? null,
-          degradedReason: historyError,
-        }),
-      );
+      setNextCursor(payload?.next_cursor ?? null);
+      setHasMore(Boolean(payload?.has_more));
+      setQueryMeta(payload?.meta ?? null);
+      setLiveSummary(payload?.live_summary ?? {});
+      setPressure(payload?.pressure ?? {});
       setLoadMoreError(null);
       setLastUpdatedAt(Date.now());
 
@@ -157,6 +125,8 @@ export default function DdosEventsPage() {
       setEvents([]);
       setNextCursor(null);
       setHasMore(false);
+      setLiveSummary({});
+      setPressure({});
     } finally {
       if (reqSeq.current !== mySeq) return;
       setLoading(false);
@@ -194,13 +164,7 @@ export default function DdosEventsPage() {
 
       setNextCursor(payload?.next_cursor ?? null);
       setHasMore(Boolean(payload?.has_more));
-      setQueryMeta((prev) =>
-        buildCombinedQueryMeta({
-          liveSourceActive: prev?.source === "recent_feed",
-          historyMeta: payload?.meta ?? null,
-          degradedReason: payload?.meta?.degraded_reason ?? null,
-        }) ?? payload?.meta ?? prev,
-      );
+      setQueryMeta((prev) => payload?.meta ?? prev);
       setLastUpdatedAt(Date.now());
     } catch (e: any) {
       setLoadMoreError(getErrorMessage(e, "Failed to load older DDoS events"));
@@ -226,11 +190,56 @@ export default function DdosEventsPage() {
 
   usePortalRealtimeSubscription("ui.events.invalidate", (event) => {
     if (query.panel !== "deep") return;
+    if (connection.status === "open" && connection.transport === "ws") return;
     const eventAgentId = String(event.payload?.agent_id || "").trim();
     if (query.agent_id && eventAgentId && eventAgentId !== query.agent_id) return;
     const domains = Array.isArray(event.payload?.domains) ? event.payload.domains.map((value) => String(value)) : [];
     if (domains.length > 0 && !domains.includes("ddos")) return;
     live.invalidate();
+  });
+
+  usePortalRealtimeSubscription("ui.ddos.live.patch", (event) => {
+    if (query.panel !== "deep") return;
+    const payloadAgentId = String(event.payload?.agent_id || "").trim();
+    if (query.agent_id && payloadAgentId && payloadAgentId !== query.agent_id) return;
+
+    const incoming = Array.isArray(event.payload?.events)
+      ? event.payload.events.map((row) => compactRowToEvent(row)).filter((row): row is NetEvent => Boolean(row) && isDdosEvent(row))
+      : [];
+
+    if (incoming.length > 0) {
+      setEvents((prev) => mergeLiveEvents(incoming, prev, Math.max(query.limit * 4, 500)));
+      setLastUpdatedAt(Date.now());
+      live.markUpdated();
+    }
+
+    if (event.payload?.live_summary && typeof event.payload.live_summary === "object") {
+      setLiveSummary((prev) => ({ ...prev, ...event.payload.live_summary }));
+    }
+    if (event.payload?.pressure && typeof event.payload.pressure === "object") {
+      setPressure((prev) => ({ ...prev, ...event.payload.pressure }));
+    }
+    if (event.payload?.requires_reconcile) {
+      live.invalidate("invalidate");
+    }
+  });
+
+  usePortalRealtimeSubscription("ui.ddos.live.invalidate", () => {
+    if (query.panel !== "deep") return;
+    live.invalidate("invalidate");
+  });
+
+  usePortalRealtimeSubscription("ui.overview.storm.patch", (event) => {
+    if (query.panel !== "deep") return;
+    setPressure((prev) => ({
+      ...prev,
+      active: Boolean(event.payload?.active),
+      protection_active: Boolean(event.payload?.protection_active ?? event.payload?.active),
+      phase: event.payload?.phase ?? prev.phase,
+      reason: event.payload?.reason ?? prev.reason,
+      backlog_events: event.payload?.backlog_events ?? prev.backlog_events,
+      backlog_messages: event.payload?.backlog_messages ?? prev.backlog_messages,
+    }));
   });
 
   const ddosEvents = useMemo(() => {
@@ -285,6 +294,15 @@ export default function DdosEventsPage() {
     }
     return winner === "-" ? "-" : (agentNameById[winner] || winner);
   }, [agentNameById, ddosEvents]);
+
+  const liveSurface = useMemo(
+    () =>
+      describeLiveSurface(connection, {
+        degraded: Boolean(queryMeta?.degraded_reason) || Boolean(pressure?.active),
+        fallbackPolling: live.state.isFallbackPolling,
+      }),
+    [connection, live.state.isFallbackPolling, pressure?.active, queryMeta?.degraded_reason],
+  );
 
   const rightToolbar =
     query.panel === "deep" ? (
@@ -393,16 +411,19 @@ export default function DdosEventsPage() {
           { label: "DDoS events", value: ddosEvents.length },
           { label: "Top target", value: topTarget },
           { label: "Top agent", value: topAgent },
+          { label: "Peak PPS", value: Number(liveSummary.ddos_peak_pps || 0).toFixed(0) },
+          { label: "Peak BPS", value: Number(liveSummary.ddos_peak_bps || 0).toFixed(0) },
+          { label: "Phase", value: String(pressure.phase || "ok") },
+          { label: "Live status", value: liveSurface.label, hint: `${liveSurface.transport ?? "poll"}${lastUpdatedAt ? ` · ${new Date(lastUpdatedAt).toLocaleTimeString()}` : ""}` },
           { label: "Scope", value: query.agent_id || "all agents", hint: `Lookback ${query.since_minutes}m` },
           { label: "Batch size", value: query.limit },
-          { label: "Updated", value: lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleTimeString() : "-" },
         ]}
       />
 
       {queryMeta ? (
         <DataQueryStateBanner
-          tone={queryMeta.degraded_reason ? "warning" : "neutral"}
-          message={`source ${queryMeta.source}${typeof queryMeta.source_freshness_seconds === "number" ? ` · ${queryMeta.source_freshness_seconds}s` : ""}${queryMeta.cache_hit ? " · cache" : ""}${queryMeta.degraded_reason ? ` · degraded (${queryMeta.degraded_reason})` : ""}`}
+          tone={queryMeta.degraded_reason || liveSurface.tone === "warning" ? "warning" : "neutral"}
+          message={`source ${queryMeta.source}${typeof queryMeta.source_freshness_seconds === "number" ? ` · ${queryMeta.source_freshness_seconds}s` : ""}${queryMeta.cache_hit ? " · cache" : ""}${queryMeta.degraded_reason ? ` · degraded (${queryMeta.degraded_reason})` : ""} · ${liveSurface.label}${connection.transport ? ` (${connection.transport})` : ""}${pressure?.phase ? ` · phase ${pressure.phase}` : ""}`}
           right={queryMeta.query_latency_ms != null ? `${Math.round(queryMeta.query_latency_ms)}ms` : undefined}
         />
       ) : null}

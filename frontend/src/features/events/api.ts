@@ -1,6 +1,6 @@
 import { apiGet } from "@/shared/lib/http";
 import type { ApiGetOptions } from "@/shared/lib/http";
-import type { Agent, EventHuntResponse, NetEvent } from "./types";
+import type { Agent, DdosLiveSnapshotResponse, EventHuntResponse, EventStreamSnapshotResponse, NetEvent } from "./types";
 
 export function getAgents() {
   return apiGet<Agent[]>("/api/agents");
@@ -46,4 +46,34 @@ export function huntEvents(params?: {
   if (params?.search) q.set("search", params.search);
 
   return apiGet<EventHuntResponse>(`/api/events?${q.toString()}`, opts);
+}
+
+export function getEventStreamSnapshot(params?: {
+  limit?: number;
+  agent_id?: string;
+  event_type?: string;
+  since_minutes?: number;
+  search?: string;
+}, opts?: ApiGetOptions) {
+  const q = new URLSearchParams();
+  q.set("limit", String(params?.limit ?? 200));
+  if (params?.agent_id) q.set("agent_id", params.agent_id);
+  if (params?.event_type) q.set("event_type", params.event_type);
+  if (typeof params?.since_minutes === "number") q.set("since_minutes", String(params.since_minutes));
+  if (params?.search) q.set("search", params.search);
+
+  return apiGet<EventStreamSnapshotResponse>(`/api/events/live/stream?${q.toString()}`, opts);
+}
+
+export function getDdosLiveSnapshot(params?: {
+  limit?: number;
+  agent_id?: string;
+  since_minutes?: number;
+}, opts?: ApiGetOptions) {
+  const q = new URLSearchParams();
+  q.set("limit", String(params?.limit ?? 200));
+  if (params?.agent_id) q.set("agent_id", params.agent_id);
+  if (typeof params?.since_minutes === "number") q.set("since_minutes", String(params.since_minutes));
+
+  return apiGet<DdosLiveSnapshotResponse>(`/api/events/live/ddos?${q.toString()}`, opts);
 }

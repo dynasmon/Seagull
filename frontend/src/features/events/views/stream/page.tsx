@@ -16,15 +16,16 @@ import { cx } from "@/shared/lib/cx";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt, normalizeFilterText, normalizeSearchText } from "@/shared/lib/filters";
 import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
-import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
+import { useLiveRefresh, usePortalRealtime, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { useAgentsCatalog } from "@/app/providers";
 
-import { huntEvents } from "../../api";
+import { getEventStreamSnapshot, huntEvents } from "../../api";
 import EventDrawer from "../../components/EventDrawer";
 import EventExplorer from "../../components/EventExplorer";
 import EventsFilters from "../../components/EventsFilters";
 import EventsTable from "../../components/EventsTable";
+import { compactRowToEvent, describeLiveSurface, matchesEventStreamFilters, mergeLiveEvents } from "../../live";
 import { buildTopCounts } from "../../lib/aggregates";
 import { isDdosEvent } from "../../lib/ddos";
 import type { NetEvent, QueryProvenanceMeta } from "../../types";
@@ -201,6 +202,7 @@ function SmallToggle({
 
 export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }: EventsStreamPageProps = {}) {
   const { agents } = useAgentsCatalog();
+  const { connection } = usePortalRealtime();
   const ddosScope = forcedScope === "ddos";
   const pinnedEventType = ddosScope ? "" : normalizeFilterText(forcedEventType);
 
@@ -310,8 +312,8 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
     const snapshot = viewRef.current;
 
     try {
-      const payload = await huntEvents({
-        page_size: snapshot.limit,
+      const payload = await getEventStreamSnapshot({
+        limit: snapshot.limit,
         agent_id: snapshot.agent_id || undefined,
         event_type: ddosScope ? undefined : (snapshot.event_type || undefined),
         since_minutes: snapshot.window_minutes,
@@ -402,11 +404,52 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
   }, [display.auto_refresh, load, view.agent_id, view.event_type, view.search, view.window_minutes, view.limit]);
 
   usePortalRealtimeSubscription("ui.events.invalidate", (event) => {
+    if (connection.status === "open" && connection.transport === "ws" && !view.search.trim()) return;
     const eventAgentId = String(event.payload?.agent_id || "").trim();
     if (view.agent_id && eventAgentId && eventAgentId !== view.agent_id) return;
     const domains = Array.isArray(event.payload?.domains) ? event.payload.domains.map((value) => String(value)) : [];
     if (ddosScope && domains.length > 0 && !domains.includes("ddos")) return;
     live.invalidate();
+  });
+
+  usePortalRealtimeSubscription("ui.events.stream.append", (event) => {
+    if (!display.auto_refresh) return;
+    const payloadAgentId = String(event.payload?.agent_id || "").trim();
+    if (view.agent_id && payloadAgentId && payloadAgentId !== view.agent_id) return;
+
+    const incoming = Array.isArray(event.payload?.events)
+      ? event.payload.events.map((row) => compactRowToEvent(row)).filter((row): row is NetEvent => Boolean(row))
+      : [];
+    if (incoming.length === 0) {
+      if (event.payload?.requires_reconcile) live.invalidate("invalidate");
+      return;
+    }
+
+    const matching = incoming.filter((row) =>
+      matchesEventStreamFilters(
+        row,
+        {
+          agent_id: view.agent_id,
+          event_type: view.event_type,
+          search: view.search,
+          window_minutes: view.window_minutes,
+        },
+        {
+          ddosScope,
+          pinnedEventType,
+        },
+      ),
+    );
+
+    if (matching.length > 0) {
+      setEvents((prev) => mergeLiveEvents(matching, prev));
+      setLastUpdatedAt(Date.now());
+      live.markUpdated();
+    }
+
+    if (event.payload?.requires_reconcile || view.search.trim()) {
+      live.invalidate("invalidate");
+    }
   });
 
   const drawerId = view.event_id;
@@ -533,6 +576,15 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
     </div>
   );
 
+  const liveSurface = useMemo(
+    () =>
+      describeLiveSurface(connection, {
+        degraded: Boolean(queryMeta?.degraded_reason),
+        fallbackPolling: live.state.isFallbackPolling,
+      }),
+    [connection, live.state.isFallbackPolling, queryMeta?.degraded_reason],
+  );
+
   return (
     <div className="space-y-4">
       <DataViewToolbar
@@ -546,6 +598,11 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
           { label: "Agents in scope", value: uniqAgents },
           { label: "Top source", value: topSrc[0]?.key || "-", hint: topSrc[0] ? `${topSrc[0].count} events` : "No data" },
           { label: "Top type", value: typeCounts[0]?.key || "-", hint: typeCounts[0] ? `${typeCounts[0].count} events` : "No data" },
+          {
+            label: "Live status",
+            value: liveSurface.label,
+            hint: `${liveSurface.transport ?? "poll"}${lastUpdatedAt ? ` · ${new Date(lastUpdatedAt).toLocaleTimeString()}` : ""}`,
+          },
         ]}
       />
 
@@ -697,8 +754,8 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
           {queryMeta ? (
             <div className="border-b border-border/60 px-3 py-2">
               <DataQueryStateBanner
-                tone={queryMeta.degraded_reason ? "warning" : "neutral"}
-                message={`${fmtSource(queryMeta)}${queryMeta.cache_hit ? " · cache" : ""}`}
+                tone={queryMeta.degraded_reason || liveSurface.tone === "warning" ? "warning" : "neutral"}
+                message={`${fmtSource(queryMeta)}${queryMeta.cache_hit ? " · cache" : ""} · ${liveSurface.label}${connection.transport ? ` (${connection.transport})` : ""}`}
                 right={queryMeta.query_latency_ms != null ? `latency ${Math.round(queryMeta.query_latency_ms)}ms` : undefined}
               />
             </div>

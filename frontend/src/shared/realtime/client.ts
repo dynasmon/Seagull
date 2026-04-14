@@ -64,7 +64,7 @@ export type PortalRealtimeClientOptions = {
 const DEFAULT_RECONNECT_BASE_MS = 1000;
 const DEFAULT_RECONNECT_MAX_MS = 15000;
 const DEFAULT_BASE_TOPICS: readonly PortalRealtimeTopic[] = ["agents"];
-const DEFAULT_HOT_TOPICS: readonly PortalRealtimeTopic[] = ["overview", "agents", "events", "inventory"];
+const DEFAULT_HOT_TOPICS: readonly PortalRealtimeTopic[] = ["overview", "agents", "events", "ddos", "inventory"];
 const RECENT_EVENT_KEY_LIMIT = 256;
 
 function defaultEventSourceFactory(url: string): EventSourceLike {
