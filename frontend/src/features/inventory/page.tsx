@@ -24,6 +24,7 @@ import {
 } from "@/shared/components/investigation";
 import { cx } from "@/shared/lib/cx";
 import { isAbortError } from "@/shared/lib/http";
+import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
 import { pinInventorySnapshotToWorkspace } from "@/features/investigations/api";
 
@@ -43,7 +44,6 @@ import type {
   PackageEntry
 } from "./types";
 
-const POLL_MS = 15000;
 type HygieneDomain = "dashboard" | "system" | "software" | "processes" | "network" | "identity" | "services";
 const EMPTY_WARNING_ROWS: InventoryWarningRow[] = [];
 const EMPTY_CHANGE_ROWS: InventoryChangeRow[] = [];
@@ -363,7 +363,6 @@ export default function InventoryPage() {
   const [snapshot, setSnapshot] = useState<InventoryOverviewSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const refreshSeqRef = useRef(0);
   const refreshAbortRef = useRef<AbortController | null>(null);
@@ -386,7 +385,6 @@ export default function InventoryPage() {
       if (refreshSeqRef.current !== mySeq) return;
       setSnapshot(data);
       setError(null);
-      setLastUpdatedAt(new Date());
     } catch (e: any) {
       if (isAbortError(e)) return;
       if (refreshSeqRef.current !== mySeq) return;
@@ -401,21 +399,36 @@ export default function InventoryPage() {
     }
   }, [agentScope, windowMinutes]);
 
+  const live = useLiveRefresh({
+    profile: windowMinutes > 24 * 60 ? "expensive-operational" : "operational",
+    refresh,
+  });
+
   useEffect(() => {
-    let alive = true;
-    refresh();
+    live.invalidate("dependency", { immediate: true, supersede: true });
+  }, [agentScope, live.invalidate, windowMinutes]);
 
-    const t = window.setInterval(() => {
-      if (!alive) return;
-      refresh();
-    }, POLL_MS);
+  usePortalRealtimeSubscription("ui.inventory.invalidate", (event) => {
+    const eventAgentId = String(event.payload?.agent_id || "").trim();
+    if (agentScope !== "__all" && eventAgentId && eventAgentId !== agentScope) return;
+    live.invalidate();
+  });
 
+  usePortalRealtimeSubscription("ui.agents.invalidate", () => {
+    live.invalidate();
+  });
+
+  usePortalRealtimeSubscription("ui.agents.presence.patch", (event) => {
+    const eventAgentId = String(event.payload?.agent_id || "").trim();
+    if (agentScope !== "__all" && eventAgentId && eventAgentId !== agentScope) return;
+    live.invalidate();
+  });
+
+  useEffect(() => {
     return () => {
-      alive = false;
       refreshAbortRef.current?.abort();
-      window.clearInterval(t);
     };
-  }, [refresh]);
+  }, []);
 
   function pushUrl(nextAgent: string, nextWindow?: number, nextDomain?: HygieneDomain) {
     const next = new URLSearchParams(sp);
@@ -546,12 +559,12 @@ export default function InventoryPage() {
         {compactRows ? "Compact rows" : "Comfortable rows"}
       </button>
       <div className="hidden md:block text-[11px] font-mono text-muted-foreground">
-        {lastUpdatedAt ? `Updated ${fmtDateTime(lastUpdatedAt.toISOString())}` : ""}
+        {live.state.lastUpdatedAt ? `Updated ${fmtDateTime(live.state.lastUpdatedAt.toISOString())}` : ""}
       </div>
 
       <button
         type="button"
-        onClick={refresh}
+        onClick={live.refreshNow}
         className={cx(
           "rounded-md border border-border/60 bg-background/40 px-3 py-2",
           "text-xs font-mono uppercase tracking-widest text-muted-foreground",
@@ -729,7 +742,7 @@ export default function InventoryPage() {
               <div>
                 <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Auto-refresh</div>
                 <div className="mt-1 rounded-md border border-border/60 bg-background/30 px-3 py-2 text-[11px] font-mono text-muted-foreground">
-                  {Math.round(POLL_MS / 1000)}s
+                  {Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback
                 </div>
               </div>
             </div>

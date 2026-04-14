@@ -19,6 +19,7 @@ import {
 import { cx } from "@/shared/lib/cx";
 import { isAbortError } from "@/shared/lib/http";
 import { getErrorMessage } from "@/shared/lib/errors";
+import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
 import { pinResponseResultToWorkspace } from "@/features/investigations/api";
 
@@ -59,7 +60,6 @@ const H_PANEL_TALL = 860;
 
 const DEFAULT_WINDOW_MINUTES = 60;
 const DEFAULT_EVENTS_LIMIT = 500;
-const DEFAULT_POLL_MS = 5000;
 const RESPONSE_ACTION_TYPES = [
   {
     key: "collect_triage_bundle",
@@ -448,7 +448,6 @@ export default function AgentsPage() {
   const [eventsLoading, setEventsLoading] = useState(false);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [pollMs, setPollMs] = useState(DEFAULT_POLL_MS);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const [eventsCfg, setEventsCfg] = useState<EventsCfg>(() => ({
@@ -504,6 +503,7 @@ export default function AgentsPage() {
   const eventsSeqRef = useRef(0);
   const snapshotAbortRef = useRef<AbortController | null>(null);
   const eventsAbortRef = useRef<AbortController | null>(null);
+  const detailLiveDidBootRef = useRef(false);
 
   const lastUrlId = useRef<string | null>(null);
   const responseUrlHandledRef = useRef<string | null>(null);
@@ -638,6 +638,23 @@ export default function AgentsPage() {
     }
   }, []);
 
+  const refreshSelectedAgent = useCallback(async () => {
+    if (!selectedAgentId) return;
+    const cfg = eventsCfgRef.current;
+    await Promise.all([
+      loadAgent(selectedAgentId),
+      loadSnapshot(selectedAgentId, cfg),
+      loadEvents(selectedAgentId, cfg),
+      refresh(),
+    ]);
+  }, [loadAgent, loadEvents, loadSnapshot, refresh, selectedAgentId]);
+
+  const detailLive = useLiveRefresh({
+    enabled: Boolean(selectedAgentId) && autoRefresh,
+    profile: "hot-operational",
+    refresh: refreshSelectedAgent,
+  });
+
   useEffect(() => {
     if (!selectedAgentId) {
       setAgent(null);
@@ -648,15 +665,13 @@ export default function AgentsPage() {
       setEventsError(null);
       return;
     }
-
     setSelectedEvent(null);
-    loadAgent(selectedAgentId);
-
-    const cfg = eventsCfgRef.current;
-    loadSnapshot(selectedAgentId, cfg);
-    loadEvents(selectedAgentId, cfg);
-    refresh();
-  }, [selectedAgentId, loadAgent, loadSnapshot, loadEvents, refresh]);
+    if (!autoRefresh) {
+      void refreshSelectedAgent();
+      return;
+    }
+    detailLive.invalidate("dependency", { immediate: true, supersede: true });
+  }, [autoRefresh, detailLive.invalidate, refreshSelectedAgent, selectedAgentId]);
 
   useEffect(() => {
     return () => {
@@ -667,29 +682,36 @@ export default function AgentsPage() {
 
   useEffect(() => {
     if (!selectedAgentId) return;
-
-    const t = window.setTimeout(() => {
+    if (!detailLiveDidBootRef.current) {
+      detailLiveDidBootRef.current = true;
+      if (autoRefresh) return;
+    }
+    if (!autoRefresh) {
       const cfg = eventsCfgRef.current;
-      loadSnapshot(selectedAgentId, cfg);
-      loadEvents(selectedAgentId, cfg);
-    }, 300);
+      void Promise.all([loadSnapshot(selectedAgentId, cfg), loadEvents(selectedAgentId, cfg)]);
+      return;
+    }
+    detailLive.invalidate("dependency", { immediate: true, supersede: true });
+  }, [autoRefresh, detailLive.invalidate, eventsCfg.limit, eventsCfg.window_minutes, loadEvents, loadSnapshot, selectedAgentId]);
 
-    return () => window.clearTimeout(t);
-  }, [selectedAgentId, eventsCfg.window_minutes, eventsCfg.limit, loadSnapshot, loadEvents]);
-
-  useEffect(() => {
+  usePortalRealtimeSubscription("ui.agents.invalidate", () => {
     if (!selectedAgentId) return;
-    if (!autoRefresh) return;
+    detailLive.invalidate();
+  });
 
-    const t = window.setInterval(() => {
-      const cfg = eventsCfgRef.current;
-      loadSnapshot(selectedAgentId, cfg);
-      loadEvents(selectedAgentId, cfg);
-      refresh();
-    }, Math.max(2000, pollMs));
+  usePortalRealtimeSubscription("ui.agents.presence.patch", (event) => {
+    if (!selectedAgentId) return;
+    const eventAgentId = String(event.payload?.agent_id || "").trim();
+    if (eventAgentId && eventAgentId !== selectedAgentId) return;
+    detailLive.invalidate();
+  });
 
-    return () => window.clearInterval(t);
-  }, [selectedAgentId, autoRefresh, pollMs, loadSnapshot, loadEvents, refresh]);
+  usePortalRealtimeSubscription("ui.events.invalidate", (event) => {
+    if (!selectedAgentId) return;
+    const eventAgentId = String(event.payload?.agent_id || "").trim();
+    if (eventAgentId && eventAgentId !== selectedAgentId) return;
+    detailLive.invalidate();
+  });
 
   const timingKeys = useMemo(() => pickTimingKeys(configObj), [configObj]);
 
@@ -1092,6 +1114,21 @@ export default function AgentsPage() {
     }
   };
 
+  const responseActionLiveRefresh = useLiveRefresh({
+    enabled:
+      responseActionOpen &&
+      Boolean(responseActionSelectedId) &&
+      ["pending", "delivered", "running"].includes((responseActionLive?.status || "").trim().toLowerCase()),
+    profile: "background-detail",
+    refresh: async () => {
+      if (!responseActionSelectedId) return;
+      await Promise.all([
+        loadResponseActionLive(responseActionSelectedId),
+        loadResponseActionResult(responseActionSelectedId),
+      ]);
+    },
+  });
+
   useEffect(() => {
     if (!responseActionOpen || !isAdmin) return;
     loadResponseActionHistory(responseActionAgentId || "");
@@ -1099,21 +1136,8 @@ export default function AgentsPage() {
 
   useEffect(() => {
     if (!responseActionOpen || !responseActionSelectedId) return;
-    loadResponseActionLive(responseActionSelectedId);
-    loadResponseActionResult(responseActionSelectedId);
-  }, [responseActionOpen, responseActionSelectedId, loadResponseActionLive, loadResponseActionResult]);
-
-  useEffect(() => {
-    if (!responseActionOpen || !responseActionSelectedId) return;
-    const liveStatus = (responseActionLive?.status || "").trim().toLowerCase();
-    if (liveStatus && !["pending", "delivered", "running"].includes(liveStatus)) return;
-
-    const t = window.setInterval(() => {
-      loadResponseActionLive(responseActionSelectedId);
-      loadResponseActionResult(responseActionSelectedId);
-    }, 4000);
-    return () => window.clearInterval(t);
-  }, [responseActionOpen, responseActionSelectedId, responseActionLive?.status, loadResponseActionLive, loadResponseActionResult]);
+    responseActionLiveRefresh.invalidate("dependency", { immediate: true, supersede: true });
+  }, [responseActionLiveRefresh.invalidate, responseActionOpen, responseActionSelectedId]);
 
   const topStats = useMemo(() => {
     const last = selectedAgentRow?.last_seen_at ? new Date(selectedAgentRow.last_seen_at) : null;
@@ -1280,11 +1304,7 @@ export default function AgentsPage() {
           <button
             type="button"
             onClick={() => {
-              const cfg = eventsCfgRef.current;
-              loadAgent(selectedAgentId);
-              loadSnapshot(selectedAgentId, cfg);
-              loadEvents(selectedAgentId, cfg);
-              refresh();
+              void refreshSelectedAgent();
             }}
             className={cx(
               "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
@@ -1298,20 +1318,9 @@ export default function AgentsPage() {
             <Switch checked={autoRefresh} onChange={setAutoRefresh} label="Auto refresh" />
           </div>
 
-          <select
-            className={cx(
-              "border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-              "focus:ring-2 focus:ring-primary/30"
-            )}
-            value={String(pollMs)}
-            onChange={(e) => setPollMs(Number(e.target.value))}
-            disabled={!autoRefresh}
-          >
-            <option value={2000}>2s</option>
-            <option value={5000}>5s</option>
-            <option value={10000}>10s</option>
-            <option value={30000}>30s</option>
-          </select>
+          <div className="border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
+            Shared hot cadence
+          </div>
 
           {lastUpdatedAt && (
             <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">

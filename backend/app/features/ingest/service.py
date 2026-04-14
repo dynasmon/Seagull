@@ -34,6 +34,7 @@ from app.core.clickhouse import (
 from app.core.observability import log_event
 from app.features.ingest import repository
 from app.features.events.schemas import NetEvent
+from app.features.events.service import invalidate_live_event_summary_caches
 from app.features.alerts.models import AlertModel
 from app.features.alerts.realtime import publish_alert_created_from_row
 from app.features.realtime.projectors import project_overview_kpi_patch, project_storm_status_patch
@@ -118,6 +119,42 @@ def _publish_overview_realtime(
             status_payload = None
         if isinstance(status_payload, dict):
             publish_realtime("ui.overview.storm.patch", project_storm_status_patch(status_payload))
+
+
+def _build_events_invalidate_payload(*, agent_id: str, events: List[NetEvent]) -> Dict[str, object]:
+    domains: set[str] = {"stream", "network", "protocol_intel"}
+    event_types: list[str] = []
+    high_priority = False
+
+    for event in events:
+        event_type = str(event.event_type or "").strip().lower()
+        if not event_type:
+            continue
+        if event_type not in event_types:
+            event_types.append(event_type)
+        if event_type == "ssh_auth":
+            domains.add("ssh")
+            high_priority = True
+        if event_type in {"dos_attack", "ddos_telemetry"}:
+            domains.add("ddos")
+            high_priority = True
+    return {
+        "reason": "ingest_batch",
+        "scope": "events",
+        "agent_id": str(agent_id or "").strip(),
+        "batch_size": int(len(events)),
+        "domains": sorted(domains),
+        "event_types": event_types[:8],
+        "high_priority": bool(high_priority),
+    }
+
+
+def _publish_events_realtime(*, agent_id: str, events: List[NetEvent]) -> None:
+    if not events:
+        return
+    invalidate_live_event_summary_caches(agent_id=agent_id)
+    if _realtime_gate_once(key="netwatch:realtime:events:invalidate:2s", ttl_s=2):
+        publish_realtime("ui.events.invalidate", _build_events_invalidate_payload(agent_id=agent_id, events=events))
 
 
 def _degradation_level(*, bp_mode: str, storm_active: bool, backlog_events: int, received: int) -> str:
@@ -720,6 +757,7 @@ def ingest_events(
 
     # Backpressure decision based on current backlog.
     bp = evaluate_backpressure(received=len(events))
+    _publish_events_realtime(agent_id=agent.agent_id, events=events)
 
     # Only trust client timestamp if it is close enough to server time.
     max_skew_s = max(0, int(settings.NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS or 30))

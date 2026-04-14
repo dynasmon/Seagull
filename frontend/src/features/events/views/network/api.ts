@@ -1,9 +1,10 @@
 import { apiGet } from "@/shared/lib/http";
+import type { ApiGetOptions } from "@/shared/lib/http";
 
 import type { NetEvent } from "../../types";
 import type { ProtocolIntelIndicatorKind, ProtocolIntelSummaryResponse } from "./types";
 
-export function getProtocolIntelSummary(params?: { since_minutes?: number; limit?: number; agent_id?: string }) {
+export function getProtocolIntelSummary(params?: { since_minutes?: number; limit?: number; agent_id?: string }, opts?: ApiGetOptions) {
   const q = new URLSearchParams();
   q.set("since_minutes", String(params?.since_minutes ?? 60 * 12));
   q.set("limit", String(params?.limit ?? 25));
@@ -11,7 +12,7 @@ export function getProtocolIntelSummary(params?: { since_minutes?: number; limit
   const agent = (params?.agent_id ?? "").trim();
   if (agent) q.set("agent_id", agent);
 
-  return apiGet<ProtocolIntelSummaryResponse>(`/api/events/network/summary?${q.toString()}`);
+  return apiGet<ProtocolIntelSummaryResponse>(`/api/events/network/summary?${q.toString()}`, opts);
 }
 
 export function getProtocolIntelSamples(params: {

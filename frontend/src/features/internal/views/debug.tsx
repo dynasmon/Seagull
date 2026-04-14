@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { getRecentEvents } from "@/features/events/api";
 import type { NetEvent } from "@/features/events/types";
@@ -7,14 +7,13 @@ import type { OverviewSnapshot, StormStatus } from "@/features/overview/types";
 import { Card } from "@/shared/components/Card";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
+import { useLiveRefresh } from "@/shared/realtime";
 import { Table } from "@/shared/components/Table";
 import InternalRefreshToolbar from "@/features/internal/components/InternalRefreshToolbar";
 import InternalStatTile from "@/features/internal/components/InternalStatTile";
 
 import { getBackendHealth, getMetricsSnapshot } from "../api";
 import type { MetricsSnapshot } from "../types";
-
-const POLL_MS = 10000;
 
 function fmtWhen(d?: Date | null) {
   if (!d) return "-";
@@ -48,7 +47,6 @@ export default function InternalDebugView() {
   const [backendUp, setBackendUp] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const inFlight = useRef(false);
 
@@ -70,7 +68,6 @@ export default function InternalDebugView() {
       setMetrics(m);
       setEvents(ev);
       setError(null);
-      setLastUpdatedAt(new Date());
     } catch (e: any) {
       setError(e?.message || "Failed to load debug dashboard");
     } finally {
@@ -78,19 +75,10 @@ export default function InternalDebugView() {
       inFlight.current = false;
     }
   }, []);
-
-  useEffect(() => {
-    let alive = true;
-    refresh();
-    const t = window.setInterval(() => {
-      if (!alive) return;
-      refresh();
-    }, POLL_MS);
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
-  }, [refresh]);
+  const live = useLiveRefresh({
+    profile: "admin",
+    refresh,
+  });
 
   const eventTypeRows = useMemo(() => topCounts(events.map((e) => e.event_type), 10), [events]);
 
@@ -128,7 +116,7 @@ export default function InternalDebugView() {
 
   return (
     <div className="space-y-6">
-      <InternalRefreshToolbar lastUpdatedLabel={fmtWhen(lastUpdatedAt)} onRefresh={refresh} busy={busy} />
+      <InternalRefreshToolbar lastUpdatedLabel={fmtWhen(live.state.lastUpdatedAt)} onRefresh={live.refreshNow} busy={busy} />
 
       {error ? <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
 

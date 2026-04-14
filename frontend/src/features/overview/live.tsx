@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-import { usePortalRealtime, usePortalRealtimeSubscription } from "@/shared/realtime";
+import { useLiveRefresh, usePortalRealtime, usePortalRealtimeSubscription } from "@/shared/realtime";
 import type { RealtimeConnectionStatus } from "@/shared/realtime";
 import { isAbortError } from "@/shared/lib/http";
 
@@ -14,20 +14,13 @@ import {
   applyStormStatusToOverviewSnapshot,
   mergeStormStatus,
   reconcileFetchedOverviewSnapshot,
-  nextRealtimeInvalidationDelayMs,
 } from "./live_realtime";
 import type { OverviewSnapshot, StormStatus } from "./types";
 
-const FALLBACK_POLL_MS = 5000;
-const REALTIME_BASELINE_POLL_MS = 45000;
 const WINDOW_MINUTES = 60;
 const SNAPSHOT_CACHE_KEY = "nw_overview_snapshot_v1";
 const FULL_REFRESH_MS = 15000;
 const FULL_REFRESH_TIMEOUT_MS = 6000;
-const INVALIDATE_MIN_REFRESH_MS = 2500;
-const INVALIDATE_DEBOUNCE_MS = 300;
-const STORM_FALLBACK_POLL_MS = 3000;
-const STORM_BASELINE_POLL_MS = 15000;
 const REALTIME_KPI_FLUSH_MS = 180;
 const REALTIME_ALERTS_FLUSH_MS = 220;
 const REALTIME_STORM_FLUSH_MS = 220;
@@ -70,7 +63,6 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     }
   });
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const snapshotRef = useRef<OverviewSnapshot | null>(snapshot);
   const stormRef = useRef<StormStatus | null>(storm);
@@ -80,9 +72,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
   const fastAbortRef = useRef<AbortController | null>(null);
   const fullAbortRef = useRef<AbortController | null>(null);
   const fullPendingRef = useRef(false);
-  const lastRefreshAtRef = useRef(0);
   const lastSnapshotMutationAtRef = useRef(0);
-  const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const kpiFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stormFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const alertsFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -110,7 +100,6 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     const mySeq = ++refreshSeqRef.current;
     const requestStartedAt = Date.now();
-    lastRefreshAtRef.current = Date.now();
 
     fastAbortRef.current?.abort();
     const fastController = new AbortController();
@@ -133,7 +122,6 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       });
       setSnapshot(mergedFast);
       setError(null);
-      setLastUpdatedAt(new Date());
       try {
         sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(mergedFast));
       } catch {
@@ -164,7 +152,6 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
             });
             setSnapshot(reconciled);
             setError(null);
-            setLastUpdatedAt(new Date());
             lastFullAtRef.current = Date.now();
             try {
               sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(reconciled));
@@ -196,20 +183,14 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       }
     }
   }, []);
+  const overviewLive = useLiveRefresh({
+    profile: "hot-operational",
+    refresh,
+  });
 
   const scheduleRefreshFromInvalidate = useCallback(() => {
-    if (invalidateTimerRef.current) return;
-    const delayMs = nextRealtimeInvalidationDelayMs({
-      nowMs: Date.now(),
-      lastRefreshAtMs: lastRefreshAtRef.current,
-      minIntervalMs: INVALIDATE_MIN_REFRESH_MS,
-      debounceMs: INVALIDATE_DEBOUNCE_MS,
-    });
-    invalidateTimerRef.current = window.setTimeout(() => {
-      invalidateTimerRef.current = null;
-      void refresh();
-    }, delayMs);
-  }, [refresh]);
+    overviewLive.invalidate();
+  }, [overviewLive.invalidate]);
 
   const consumeBurstBudget = useCallback(
     (startRef: { current: number }, countRef: { current: number }, limit: number): boolean => {
@@ -260,7 +241,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       }
       return mergeStormStatus(prev, patch);
     });
-    setLastUpdatedAt(new Date());
+    overviewLive.markUpdated();
   }, []);
 
   const scheduleKpiFlush = useCallback(() => {
@@ -285,7 +266,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-    setLastUpdatedAt(new Date());
+    overviewLive.markUpdated();
   }, []);
 
   const scheduleStormFlush = useCallback(() => {
@@ -312,7 +293,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-    setLastUpdatedAt(new Date());
+    overviewLive.markUpdated();
   }, []);
 
   const scheduleAlertsFlush = useCallback(() => {
@@ -403,7 +384,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-    setLastUpdatedAt(new Date());
+    overviewLive.markUpdated();
   });
 
   usePortalRealtimeSubscription("alert.updated", (event) => {
@@ -419,57 +400,13 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-    setLastUpdatedAt(new Date());
+    overviewLive.markUpdated();
   });
-
-  useEffect(() => {
-    let alive = true;
-    const intervalMs = realtimeStatus === "open" ? REALTIME_BASELINE_POLL_MS : FALLBACK_POLL_MS;
-
-    void refresh();
-    const timer = window.setInterval(() => {
-      if (!alive) return;
-      void refresh();
-    }, intervalMs);
-
-    return () => {
-      alive = false;
-      fastAbortRef.current?.abort();
-      fullAbortRef.current?.abort();
-      if (invalidateTimerRef.current) {
-        window.clearTimeout(invalidateTimerRef.current);
-        invalidateTimerRef.current = null;
-      }
-      if (kpiFlushTimerRef.current) {
-        window.clearTimeout(kpiFlushTimerRef.current);
-        kpiFlushTimerRef.current = null;
-      }
-      if (stormFlushTimerRef.current) {
-        window.clearTimeout(stormFlushTimerRef.current);
-        stormFlushTimerRef.current = null;
-      }
-      if (alertsFlushTimerRef.current) {
-        window.clearTimeout(alertsFlushTimerRef.current);
-        alertsFlushTimerRef.current = null;
-      }
-      window.clearInterval(timer);
-    };
-  }, [refresh, realtimeStatus]);
-
-  useEffect(() => {
-    if (realtimeStatus === "open") {
-      scheduleRefreshFromInvalidate();
-    }
-  }, [realtimeStatus, scheduleRefreshFromInvalidate]);
-
-  useEffect(() => {
-    let alive = true;
-    const intervalMs = realtimeStatus === "open" ? STORM_BASELINE_POLL_MS : STORM_FALLBACK_POLL_MS;
-
-    const tick = async () => {
+  useLiveRefresh({
+    profile: "hot-operational",
+    refresh: async () => {
       try {
         const status = await getStormStatus({ timeoutMs: FULL_REFRESH_TIMEOUT_MS });
-        if (!alive) return;
         setStorm((prev) => mergeStormStatus(prev, status));
         setSnapshot((prev) => {
           const next = applyStormStatusToOverviewSnapshot(prev, status);
@@ -482,23 +419,31 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
           }
           return next;
         });
+        overviewLive.markUpdated();
       } catch {
-        if (!alive) return;
         if (!stormRef.current) setStorm(null);
       }
-    };
+    },
+  });
 
-    void tick();
-    const timer = window.setInterval(() => {
-      if (!alive) return;
-      void tick();
-    }, intervalMs);
-
+  useEffect(() => {
     return () => {
-      alive = false;
-      window.clearInterval(timer);
+      fastAbortRef.current?.abort();
+      fullAbortRef.current?.abort();
+      if (kpiFlushTimerRef.current) {
+        window.clearTimeout(kpiFlushTimerRef.current);
+        kpiFlushTimerRef.current = null;
+      }
+      if (stormFlushTimerRef.current) {
+        window.clearTimeout(stormFlushTimerRef.current);
+        stormFlushTimerRef.current = null;
+      }
+      if (alertsFlushTimerRef.current) {
+        window.clearTimeout(alertsFlushTimerRef.current);
+        alertsFlushTimerRef.current = null;
+      }
     };
-  }, [realtimeStatus]);
+  }, []);
 
   const value = useMemo<OverviewLiveCtx>(
     () => ({
@@ -507,11 +452,11 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       realtimeStatus,
       isLoading,
       error,
-      lastUpdatedAt,
+      lastUpdatedAt: overviewLive.state.lastUpdatedAt,
       windowMinutes: WINDOW_MINUTES,
       refresh,
     }),
-    [snapshot, storm, realtimeStatus, isLoading, error, lastUpdatedAt, refresh],
+    [error, isLoading, overviewLive.state.lastUpdatedAt, realtimeStatus, refresh, snapshot, storm],
   );
 
   return <OverviewLiveContext.Provider value={value}>{children}</OverviewLiveContext.Provider>;

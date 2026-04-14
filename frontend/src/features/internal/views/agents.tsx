@@ -14,10 +14,9 @@ import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import { useLiveRefresh } from "@/shared/realtime";
 import InternalRefreshToolbar from "@/features/internal/components/InternalRefreshToolbar";
 import InternalStatTile from "@/features/internal/components/InternalStatTile";
-
-const POLL_MS = 8000;
 
 function pretty(v: any) {
   try {
@@ -69,7 +68,6 @@ export default function InternalAgentsInspectorView() {
   const [history, setHistory] = useState<InventorySnapshotOut[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const selectedAgentId = (sp.get("agent_id") || "").trim();
   const inFlight = useRef(false);
@@ -105,7 +103,6 @@ export default function InternalAgentsInspectorView() {
       setLatestInventory(latest);
       setHistory(hist);
       setError(null);
-      setLastUpdatedAt(new Date());
     } catch (e: any) {
       setError(e?.message || "Failed to load technical agent inspection");
     } finally {
@@ -113,21 +110,23 @@ export default function InternalAgentsInspectorView() {
       inFlight.current = false;
     }
   }, [selectedAgentId]);
+  const live = useLiveRefresh({
+    enabled: Boolean(selectedAgentId),
+    profile: "admin",
+    refresh,
+  });
 
   useEffect(() => {
-    if (!selectedAgentId) return;
-    let alive = true;
-    refresh();
-    const t = window.setInterval(() => {
-      if (!alive) return;
-      refresh();
-    }, POLL_MS);
-
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
-  }, [selectedAgentId, refresh]);
+    if (!selectedAgentId) {
+      setAgent(null);
+      setEvents([]);
+      setLatestInventory(null);
+      setHistory([]);
+      setError(null);
+      return;
+    }
+    live.invalidate("dependency", { immediate: true, supersede: true });
+  }, [live.invalidate, selectedAgentId]);
 
   return (
     <div className="space-y-6 min-w-0">
@@ -194,8 +193,8 @@ export default function InternalAgentsInspectorView() {
             </div>
             <div className="min-w-[320px] grow max-w-[540px]">
               <InternalRefreshToolbar
-                lastUpdatedLabel={lastUpdatedAt ? lastUpdatedAt.toLocaleString() : "-"}
-                onRefresh={refresh}
+                lastUpdatedLabel={live.state.lastUpdatedAt ? live.state.lastUpdatedAt.toLocaleString() : "-"}
+                onRefresh={live.refreshNow}
                 busy={busy}
               />
             </div>

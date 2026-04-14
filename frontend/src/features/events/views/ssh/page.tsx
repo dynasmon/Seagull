@@ -10,6 +10,7 @@ import { Table } from "@/shared/components/Table";
 import { Badge } from "@/shared/components/Badge";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
+import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { useAgentsCatalog } from "@/app/providers";
 
@@ -241,6 +242,7 @@ export default function SshInsightsPage() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const reqSeq = useRef(0);
+  const didBootRef = useRef(false);
 
   const refresh = useCallback(async () => {
     const mySeq = ++reqSeq.current;
@@ -272,22 +274,54 @@ export default function SshInsightsPage() {
 
   // Initial load
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (!didBootRef.current) {
+      didBootRef.current = true;
+      if (view.auto_refresh) return;
+    }
+    void refresh();
+  }, [refresh, view.agent_id, view.limit, view.since_minutes, view.auto_refresh]);
 
-  // Auto refresh
-  useEffect(() => {
-    if (!view.auto_refresh) return;
-    let alive = true;
-    const t = window.setInterval(() => {
-      if (!alive) return;
-      refresh();
-    }, view.refresh_ms);
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
-  }, [view.auto_refresh, view.refresh_ms, refresh]);
+  const live = useLiveRefresh({
+    enabled: view.auto_refresh,
+    profile: "operational",
+    refresh: async ({ signal }) => {
+      const mySeq = ++reqSeq.current;
+      const hasData = Boolean(dataRef.current);
+      if (hasData) setRefreshing(true);
+      else setLoading(true);
+      try {
+        const r = await getSshSummary(
+          {
+            agent_id: viewRef.current.agent_id,
+            since_minutes: viewRef.current.since_minutes,
+            limit: viewRef.current.limit
+          },
+          { signal }
+        );
+        if (reqSeq.current !== mySeq) return;
+        setData(r);
+        setError(null);
+        setLastUpdatedAt(Date.now());
+      } catch (e: any) {
+        if (reqSeq.current !== mySeq) return;
+        const msg = getErrorMessage(e, "Failed to load SSH summary");
+        setError(msg);
+        if (dataRef.current) setData(dataRef.current);
+      } finally {
+        if (reqSeq.current !== mySeq) return;
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+  });
+
+  usePortalRealtimeSubscription("ui.events.invalidate", (event) => {
+    const eventAgentId = String(event.payload?.agent_id || "").trim();
+    if (view.agent_id && eventAgentId && eventAgentId !== view.agent_id) return;
+    const domains = Array.isArray(event.payload?.domains) ? event.payload.domains.map((value) => String(value)) : [];
+    if (domains.length > 0 && !domains.includes("ssh")) return;
+    live.invalidate();
+  });
 
   const totals = useMemo(() => {
     const d = data;
@@ -339,7 +373,7 @@ export default function SshInsightsPage() {
       {error ? <Badge variant="high">{error}</Badge> : null}
       <button
         type="button"
-        onClick={refresh}
+        onClick={() => void refresh()}
         className="h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
       >
         Refresh
@@ -365,7 +399,7 @@ export default function SshInsightsPage() {
           { label: "Unique source IPs", value: totals.uniqueIps },
           { label: "Enriched source IPs", value: `${totals.enrichPct}%`, hint: `${totals.enriched}/${totals.uniqueIps}` },
           { label: "Scope", value: view.agent_id || "all agents", hint: `Lookback ${view.since_minutes}m` },
-          { label: "Rows", value: view.limit, hint: view.auto_refresh ? `Auto ${Math.round(view.refresh_ms / 1000)}s` : "Manual refresh" },
+          { label: "Rows", value: view.limit, hint: view.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "Manual refresh" },
         ]}
       />
 
@@ -436,20 +470,15 @@ export default function SshInsightsPage() {
                 label="Auto refresh"
                 checked={view.auto_refresh}
                 onChange={(v) => setView((prev) => ({ ...prev, auto_refresh: v }))}
-                hint={view.auto_refresh ? `Every ${Math.round(view.refresh_ms / 1000)}s` : "Off"}
+                hint={view.auto_refresh ? "Uses the shared operational live cadence." : "Off"}
               />
 
-              <MiniSelect
-                label="Refresh interval"
-                value={String(view.refresh_ms)}
-                onChange={(v) => setView((prev) => ({ ...prev, refresh_ms: clampInt(v, 2000, 300000, prev.refresh_ms) }))}
-              >
-                <option value={5000}>5s</option>
-                <option value={10000}>10s</option>
-                <option value={15000}>15s</option>
-                <option value={30000}>30s</option>
-                <option value={60000}>60s</option>
-              </MiniSelect>
+              <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Refresh cadence</div>
+                <div className="mt-1 text-[12px] font-mono text-muted-foreground">
+                  {view.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "Manual only"}
+                </div>
+              </div>
             </div>
           </Card>
         </div>
