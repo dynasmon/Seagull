@@ -30,6 +30,9 @@ REALTIME_EVENT_POLICIES: dict[str, dict[str, str]] = {
     "ui.agents.presence.patch": {"topic": "agents", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
     "ui.investigations.invalidate": {"topic": "investigations", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
     "ui.investigations.timeline.append": {"topic": "investigations", "mode": "append", "scope": STREAM_TOKEN_SCOPE},
+    "ui.events.invalidate": {"topic": "events", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
+    "ui.inventory.invalidate": {"topic": "inventory", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
+    "ui.vulnerabilities.invalidate": {"topic": "vulnerabilities", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE_ADMIN},
     "overview.invalidate": {"topic": "overview", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
     "overview.patch": {"topic": "overview", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
     "storm.status": {"topic": "overview", "mode": "replace", "scope": STREAM_TOKEN_SCOPE},
@@ -46,12 +49,18 @@ TOPIC_REQUIRED_SCOPE: dict[str, str] = {
     "agents": STREAM_TOKEN_SCOPE,
     "alerts": STREAM_TOKEN_SCOPE_ADMIN,
     "investigations": STREAM_TOKEN_SCOPE,
+    "events": STREAM_TOKEN_SCOPE,
+    "inventory": STREAM_TOKEN_SCOPE,
+    "vulnerabilities": STREAM_TOKEN_SCOPE_ADMIN,
 }
 TOPIC_INVALIDATE_EVENT: dict[str, str] = {
     "overview": "ui.overview.invalidate",
     "agents": "ui.agents.invalidate",
     "alerts": "ui.alerts.invalidate",
     "investigations": "ui.investigations.invalidate",
+    "events": "ui.events.invalidate",
+    "inventory": "ui.inventory.invalidate",
+    "vulnerabilities": "ui.vulnerabilities.invalidate",
 }
 
 

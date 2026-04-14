@@ -5,7 +5,7 @@ import { applyAgentHeartbeatRealtime } from "@/app/agents_realtime";
 import { listAgents } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
 import { AuthProvider, useAuth } from "@/features/auth/context";
-import { PortalRealtimeProvider, usePortalRealtimeSubscription } from "@/shared/realtime";
+import { PortalRealtimeProvider, useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 import { getErrorMessage } from "@/shared/lib/errors";
 
 type Theme = "dark" | "light";
@@ -103,7 +103,6 @@ function AgentsProvider({ children }: { children: ReactNode }) {
 
   const selectedAgentRef = useRef(selectedAgentId);
   const agentsRef = useRef<AgentPublic[]>(agents);
-  const unknownHeartbeatRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     selectedAgentRef.current = selectedAgentId;
   }, [selectedAgentId]);
@@ -129,48 +128,26 @@ function AgentsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const scheduleRealtimeCatalogRefresh = useCallback(() => {
-    if (unknownHeartbeatRefreshTimerRef.current) return;
-    unknownHeartbeatRefreshTimerRef.current = window.setTimeout(() => {
-      unknownHeartbeatRefreshTimerRef.current = null;
-      void refreshAgents();
-    }, 400);
-  }, [refreshAgents]);
+  const live = useLiveRefresh({
+    profile: "operational",
+    refresh: refreshAgents,
+  });
 
   usePortalRealtimeSubscription("ui.agents.presence.patch", (event) => {
     const result = applyAgentHeartbeatRealtime(agentsRef.current, event.payload || {}, event.timestamp);
     if (!result.agentId) return;
     if (!result.updated) {
-      scheduleRealtimeCatalogRefresh();
+      live.invalidate();
       return;
     }
     agentsRef.current = result.agents;
     setAgents(result.agents);
+    live.markUpdated();
   });
 
   usePortalRealtimeSubscription("ui.agents.invalidate", () => {
-    scheduleRealtimeCatalogRefresh();
+    live.invalidate();
   });
-
-  useEffect(() => {
-    let alive = true;
-    refreshAgents();
-
-    // Lightweight refresh to keep the sidebar dropdown up-to-date.
-    const t = window.setInterval(() => {
-      if (!alive) return;
-      refreshAgents();
-    }, 15000);
-
-    return () => {
-      alive = false;
-      if (unknownHeartbeatRefreshTimerRef.current) {
-        window.clearTimeout(unknownHeartbeatRefreshTimerRef.current);
-        unknownHeartbeatRefreshTimerRef.current = null;
-      }
-      window.clearInterval(t);
-    };
-  }, [refreshAgents]);
 
   const agentsValue = useMemo<AgentsCtx>(
     () => ({
@@ -179,9 +156,9 @@ function AgentsProvider({ children }: { children: ReactNode }) {
       error: agentsError,
       selectedAgentId,
       setSelectedAgentId,
-      refresh: refreshAgents
+      refresh: live.refreshNow
     }),
-    [agents, agentsLoading, agentsError, selectedAgentId, refreshAgents]
+    [agents, agentsLoading, agentsError, live.refreshNow, selectedAgentId]
   );
 
   return (

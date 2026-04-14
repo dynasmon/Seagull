@@ -21,6 +21,7 @@ from app.features.inventory.repository import (
     list_snapshot_history_page,
 )
 from app.features.inventory.schemas import InventorySnapshotIn, PackageEntry
+from app.features.realtime.service import publish_realtime
 from app.shared.schemas import CursorPage
 
 
@@ -78,6 +79,30 @@ def _cache_set_json(key: str, payload: dict[str, Any], ttl_s: int) -> None:
         return
 
 
+def _cache_delete_prefixes(*prefixes: str) -> None:
+    r = get_redis()
+    if r is None:
+        return
+    for prefix in prefixes:
+        raw_prefix = str(prefix or "").strip()
+        if not raw_prefix:
+            continue
+        try:
+            cursor: int | str = 0
+            while True:
+                cursor, keys = r.scan(cursor=cursor, match=f"{raw_prefix}*", count=200)
+                if keys:
+                    r.delete(*keys)
+                if str(cursor) == "0":
+                    break
+        except Exception:
+            return
+
+
+def invalidate_inventory_overview_cache(*, agent_id: str | None = None) -> None:
+    _cache_delete_prefixes("netwatch:inventory:overview:v2:")
+
+
 def ingest_inventory(db: Session, *, payload: InventorySnapshotIn, agent_id: str) -> dict[str, Any]:
     now = _utc_now()
 
@@ -111,6 +136,19 @@ def ingest_inventory(db: Session, *, payload: InventorySnapshotIn, agent_id: str
         manager=payload.manager,
         extra=extra,
     )
+    invalidate_inventory_overview_cache(agent_id=agent_id)
+    try:
+        publish_realtime(
+            "ui.inventory.invalidate",
+            {
+                "reason": "inventory_snapshot_ingested",
+                "scope": "inventory",
+                "agent_id": str(agent_id or "").strip(),
+                "snapshot_id": int(row_id),
+            },
+        )
+    except Exception:
+        pass
     return {"id": row_id, "stored": True}
 
 

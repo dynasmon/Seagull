@@ -3,6 +3,9 @@ export const PORTAL_REALTIME_TOPICS = [
   "alerts",
   "agents",
   "investigations",
+  "events",
+  "inventory",
+  "vulnerabilities",
 ] as const;
 
 export type PortalRealtimeTopic = (typeof PORTAL_REALTIME_TOPICS)[number];
@@ -26,6 +29,9 @@ export const PORTAL_REALTIME_EVENT_TYPES = [
   "ui.agents.presence.patch",
   "ui.investigations.invalidate",
   "ui.investigations.timeline.append",
+  "ui.events.invalidate",
+  "ui.inventory.invalidate",
+  "ui.vulnerabilities.invalidate",
   "overview.invalidate",
   "overview.patch",
   "storm.status",
@@ -48,6 +54,9 @@ export const PORTAL_REALTIME_EVENT_TOPIC: Record<PortalRealtimeEventType, Portal
   "ui.agents.presence.patch": "agents",
   "ui.investigations.invalidate": "investigations",
   "ui.investigations.timeline.append": "investigations",
+  "ui.events.invalidate": "events",
+  "ui.inventory.invalidate": "inventory",
+  "ui.vulnerabilities.invalidate": "vulnerabilities",
   "overview.invalidate": "overview",
   "overview.patch": "overview",
   "storm.status": "overview",
@@ -68,6 +77,9 @@ export const PORTAL_REALTIME_EVENT_MODE: Record<PortalRealtimeEventType, PortalR
   "ui.agents.presence.patch": "patch",
   "ui.investigations.invalidate": "invalidate",
   "ui.investigations.timeline.append": "append",
+  "ui.events.invalidate": "invalidate",
+  "ui.inventory.invalidate": "invalidate",
+  "ui.vulnerabilities.invalidate": "invalidate",
   "overview.invalidate": "invalidate",
   "overview.patch": "patch",
   "storm.status": "replace",
@@ -88,6 +100,9 @@ export const PORTAL_REALTIME_EVENT_SCOPE: Record<PortalRealtimeEventType, string
   "ui.agents.presence.patch": "portal:realtime",
   "ui.investigations.invalidate": "portal:realtime",
   "ui.investigations.timeline.append": "portal:realtime",
+  "ui.events.invalidate": "portal:realtime",
+  "ui.inventory.invalidate": "portal:realtime",
+  "ui.vulnerabilities.invalidate": "portal:admin",
   "overview.invalidate": "portal:realtime",
   "overview.patch": "portal:realtime",
   "storm.status": "portal:realtime",
@@ -208,6 +223,34 @@ export type PortalRealtimeEventPayloadMap = {
       bookmarks_count?: number;
       evidence_type_counts?: Record<string, number>;
     };
+  };
+  "ui.events.invalidate": {
+    reason?: string;
+    scope?: string;
+    agent_id?: string;
+    batch_size?: number;
+    domains?: string[];
+    event_types?: string[];
+    high_priority?: boolean;
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
+  };
+  "ui.inventory.invalidate": {
+    reason?: string;
+    scope?: string;
+    agent_id?: string;
+    snapshot_id?: number;
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
+  };
+  "ui.vulnerabilities.invalidate": {
+    reason?: string;
+    scope?: string;
+    agent_id?: string;
+    scan_uuid?: string;
+    status?: string;
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
   };
   "overview.invalidate": {
     reason?: string;

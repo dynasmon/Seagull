@@ -127,6 +127,43 @@ def _cache_set_json(key: str, payload: Dict[str, Any], ttl_s: int) -> None:
         return
 
 
+def _cache_delete_prefixes(*prefixes: str) -> None:
+    r = get_redis()
+    if r is None:
+        return
+    for prefix in prefixes:
+        raw_prefix = str(prefix or "").strip()
+        if not raw_prefix:
+            continue
+        try:
+            cursor: int | str = 0
+            while True:
+                cursor, keys = r.scan(cursor=cursor, match=f"{raw_prefix}*", count=200)
+                if keys:
+                    r.delete(*keys)
+                if str(cursor) == "0":
+                    break
+        except Exception:
+            return
+
+
+def invalidate_live_event_summary_caches(*, agent_id: str | None = None) -> None:
+    prefixes = [
+        "netwatch:events:ssh_summary:v3:",
+        "netwatch:events:network_summary:v4:",
+    ]
+    if agent_id:
+        safe_agent_id = str(agent_id).strip()
+        if safe_agent_id:
+            prefixes.extend(
+                [
+                    f"netwatch:events:ssh_summary:v3:sm=",
+                    f"netwatch:events:network_summary:v4:",
+                ]
+            )
+    _cache_delete_prefixes(*prefixes)
+
+
 def _feed_row_to_event(row: Dict[str, Any]) -> NetEventDB | None:
     payload = dict(row or {})
     payload["extra"] = _strip_large_extra(payload.get("extra") or {})

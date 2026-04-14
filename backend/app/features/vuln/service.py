@@ -13,6 +13,7 @@ from app.core.agent_auth import AgentPrincipal
 from app.core.config import settings
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.features.vuln.models import VulnScanModel
+from app.features.realtime.service import publish_realtime
 from app.features.vuln.repository import (
     add_agent,
     add_vuln_scan,
@@ -239,6 +240,20 @@ def ingest_findings(db: Session, *, payload: VulnIngestBatch, agent: AgentPrinci
     bulk_upsert_findings(db, rows=rows, auto_reopen=auto_reopen, now=now)
     commit(db)
 
+    try:
+        publish_realtime(
+            "ui.vulnerabilities.invalidate",
+            {
+                "reason": "findings_ingested",
+                "scope": "vulnerabilities",
+                "agent_id": str(agent.agent_id or "").strip(),
+                "scan_uuid": scan_uuid,
+                "status": str(payload.scan.status) if payload.scan is not None and payload.scan.status else None,
+            },
+        )
+    except Exception:
+        pass
+
     return VulnIngestResult(
         scan_id=scan_id,
         scan_uuid=scan_uuid,
@@ -290,6 +305,20 @@ def trigger_manual_scan(db: Session, *, body: VulnManualScanIn) -> VulnManualSca
     add_vuln_scan(db, qscan)
     add_agent(db, row)
     commit(db)
+
+    try:
+        publish_realtime(
+            "ui.vulnerabilities.invalidate",
+            {
+                "reason": "manual_scan_queued",
+                "scope": "vulnerabilities",
+                "agent_id": str(body.agent_id or "").strip(),
+                "scan_uuid": token,
+                "status": "queued",
+            },
+        )
+    except Exception:
+        pass
 
     return VulnManualScanOut(
         agent_id=body.agent_id,
@@ -378,6 +407,18 @@ def patch_finding(db: Session, *, finding_id: int, patch: VulnFindingPatchIn):
     )
     commit(db)
     refresh(db, row)
+    try:
+        publish_realtime(
+            "ui.vulnerabilities.invalidate",
+            {
+                "reason": "finding_updated",
+                "scope": "vulnerabilities",
+                "agent_id": str(row.asset_agent_id or row.reporter_agent_id or "").strip() or None,
+                "status": str(row.status or "").strip() or None,
+            },
+        )
+    except Exception:
+        pass
     return row
 
 
