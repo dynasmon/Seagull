@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import {
   createPortalRealtimeClient,
+  type RealtimeConnectionSnapshot,
   type PortalRealtimeAnyListener,
   type PortalRealtimeClient,
   type PortalRealtimeEventListener,
@@ -12,6 +13,7 @@ import type { PortalRealtimeAnyEvent, PortalRealtimeEventType } from "@/shared/r
 
 type PortalRealtimeContextValue = {
   status: RealtimeConnectionStatus;
+  connection: RealtimeConnectionSnapshot;
   subscribe: <K extends PortalRealtimeEventType>(
     eventType: K,
     listener: PortalRealtimeEventListener<K>,
@@ -29,10 +31,18 @@ export function PortalRealtimeProvider({ children, enabled = true }: { children:
   const client = clientRef.current;
 
   const [status, setStatus] = useState<RealtimeConnectionStatus>(client.status);
+  const [connection, setConnection] = useState<RealtimeConnectionSnapshot>(client.connection);
 
   useEffect(() => {
     const unsubscribe = client.subscribeStatus((nextStatus) => {
       setStatus(nextStatus);
+    });
+    return unsubscribe;
+  }, [client]);
+
+  useEffect(() => {
+    const unsubscribe = client.subscribeConnection((nextConnection) => {
+      setConnection(nextConnection);
     });
     return unsubscribe;
   }, [client]);
@@ -61,10 +71,11 @@ export function PortalRealtimeProvider({ children, enabled = true }: { children:
   const value = useMemo<PortalRealtimeContextValue>(
     () => ({
       status,
+      connection,
       subscribe,
       subscribeAll,
     }),
-    [status, subscribe, subscribeAll],
+    [connection, status, subscribe, subscribeAll],
   );
 
   return <PortalRealtimeContext.Provider value={value}>{children}</PortalRealtimeContext.Provider>;

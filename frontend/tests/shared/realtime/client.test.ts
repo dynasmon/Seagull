@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { PortalRealtimeClient } from "@/shared/realtime/client";
-import type { EventSourceLike } from "@/shared/realtime/client";
+import type { EventSourceLike, WebSocketLike } from "@/shared/realtime/client";
 import type { StreamTokenOut } from "@/shared/realtime/api";
 
 type MessageLikeEvent = MessageEvent<string> & { data: string };
@@ -56,6 +56,37 @@ class FakeEventSource implements EventSourceLike {
   }
 }
 
+class FakeWebSocket implements WebSocketLike {
+  public onopen: ((event: Event) => void) | null = null;
+  public onerror: ((event: Event) => void) | null = null;
+  public onclose: ((event: CloseEvent) => void) | null = null;
+  public onmessage: ((event: MessageEvent<string>) => void) | null = null;
+
+  public closed = false;
+
+  constructor(public readonly url: string) {}
+
+  close(): void {
+    this.closed = true;
+  }
+
+  emitOpen(): void {
+    this.onopen?.({} as Event);
+  }
+
+  emitError(): void {
+    this.onerror?.({} as Event);
+  }
+
+  emitClose(): void {
+    this.onclose?.({} as CloseEvent);
+  }
+
+  emitMessage(rawData: string): void {
+    this.onmessage?.({ data: rawData } as MessageLikeEvent);
+  }
+}
+
 function waitForTick(ms = 0): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -72,6 +103,7 @@ describe("PortalRealtimeClient", () => {
     const sources: FakeEventSource[] = [];
     const client = new PortalRealtimeClient({
       tokenProvider,
+      preferredTransport: "sse",
       eventSourceFactory: (url) => {
         const source = new FakeEventSource(url);
         sources.push(source);
@@ -97,6 +129,7 @@ describe("PortalRealtimeClient", () => {
     const sources: FakeEventSource[] = [];
     const client = new PortalRealtimeClient({
       tokenProvider,
+      preferredTransport: "sse",
       eventSourceFactory: (url) => {
         const source = new FakeEventSource(url);
         sources.push(source);
@@ -140,6 +173,7 @@ describe("PortalRealtimeClient", () => {
     const sources: FakeEventSource[] = [];
     const client = new PortalRealtimeClient({
       tokenProvider,
+      preferredTransport: "sse",
       eventSourceFactory: (url) => {
         const source = new FakeEventSource(url);
         sources.push(source);
@@ -171,6 +205,7 @@ describe("PortalRealtimeClient", () => {
     const sources: FakeEventSource[] = [];
     const client = new PortalRealtimeClient({
       tokenProvider,
+      preferredTransport: "sse",
       eventSourceFactory: (url) => {
         const source = new FakeEventSource(url);
         sources.push(source);
@@ -219,6 +254,7 @@ describe("PortalRealtimeClient", () => {
 
     const client = new PortalRealtimeClient({
       tokenProvider,
+      preferredTransport: "sse",
       eventSourceFactory,
       reconnectBaseMs: 1,
       reconnectMaxMs: 1,
@@ -239,6 +275,7 @@ describe("PortalRealtimeClient", () => {
     const sources: FakeEventSource[] = [];
     const client = new PortalRealtimeClient({
       tokenProvider,
+      preferredTransport: "sse",
       eventSourceFactory: (url) => {
         const source = new FakeEventSource(url);
         sources.push(source);
@@ -269,11 +306,99 @@ describe("PortalRealtimeClient", () => {
     client.stop();
   });
 
+  it("falls back from websocket to sse before open", async () => {
+    const tokenProvider = vi.fn(async () => tokenOut("token-hybrid"));
+    const sockets: FakeWebSocket[] = [];
+    const sources: FakeEventSource[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      eventSourceFactory: (url) => {
+        const source = new FakeEventSource(url);
+        sources.push(source);
+        return source;
+      },
+      reconnectBaseMs: 1,
+      reconnectMaxMs: 1,
+    });
+
+    client.start();
+    await waitForTick(2);
+
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0]?.url).toContain("/api/realtime/portal/ws?");
+
+    sockets[0]?.emitError();
+    await waitForTick(2);
+
+    expect(sources).toHaveLength(1);
+    expect(sources[0]?.url).toContain(`/api/realtime/portal?st=${encodeURIComponent("token-hybrid")}`);
+
+    sources[0]?.emitOpen();
+    expect(client.connection.transport).toBe("sse");
+    expect(client.connection.isFallbackTransport).toBe(true);
+
+    client.stop();
+  });
+
+  it("dispatches websocket messages and reuses cursor on reconnect", async () => {
+    const tokenProvider = vi
+      .fn<() => Promise<StreamTokenOut>>()
+      .mockResolvedValueOnce(tokenOut("token-ws-a"))
+      .mockResolvedValueOnce(tokenOut("token-ws-b"));
+    const sockets: FakeWebSocket[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      reconnectBaseMs: 1,
+      reconnectMaxMs: 1,
+    });
+
+    const listener = vi.fn();
+    client.subscribe("overview.patch", listener);
+
+    client.start();
+    await waitForTick(2);
+    sockets[0]?.emitOpen();
+    sockets[0]?.emitMessage(
+      JSON.stringify({
+        version: 2,
+        topic: "overview",
+        type: "overview.patch",
+        cursor: "11",
+        timestamp: "2026-04-09T12:00:00Z",
+        scope: "portal:realtime",
+        mode: "patch",
+        payload: { events_5m_delta: 3 },
+      }),
+    );
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(client.connection.transport).toBe("ws");
+
+    sockets[0]?.emitClose();
+    await waitForTick(6);
+
+    expect(sockets).toHaveLength(2);
+    expect(sockets[1]?.url).toContain("cursor=11");
+
+    client.stop();
+  });
+
   it("cleans up listeners and source resources on stop", async () => {
     const tokenProvider = vi.fn(async () => tokenOut("token-cleanup"));
     const sources: FakeEventSource[] = [];
     const client = new PortalRealtimeClient({
       tokenProvider,
+      preferredTransport: "sse",
       eventSourceFactory: (url) => {
         const source = new FakeEventSource(url);
         sources.push(source);
