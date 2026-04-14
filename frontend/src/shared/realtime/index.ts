@@ -1,4 +1,10 @@
-export { requestRealtimeStreamToken, type StreamTokenOut } from "@/shared/realtime/api";
+export {
+  buildPortalRealtimeSseUrl,
+  buildPortalRealtimeWebSocketUrl,
+  requestRealtimeStreamToken,
+  type PortalRealtimeStreamRequest,
+  type StreamTokenOut,
+} from "@/shared/realtime/api";
 export {
   PortalRealtimeClient,
   createPortalRealtimeClient,
@@ -7,7 +13,11 @@ export {
   type PortalRealtimeAnyListener,
   type PortalRealtimeClientOptions,
   type PortalRealtimeEventListener,
+  type RealtimeConnectionListener,
+  type RealtimeConnectionSnapshot,
   type RealtimeConnectionStatus,
+  type RealtimeTransportKind,
+  type WebSocketLike,
 } from "@/shared/realtime/client";
 export {
   PortalRealtimeProvider,

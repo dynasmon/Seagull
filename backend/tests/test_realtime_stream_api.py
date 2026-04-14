@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -344,3 +345,30 @@ def test_stream_events_filters_admin_topic_for_non_admin() -> None:
 
     full = "".join(chunks)
     assert "alert.created" not in full
+
+
+def test_websocket_endpoint_replays_events_with_same_envelope_schema() -> None:
+    replay_rows = [
+        _make_stream_row(
+            stream_id="1700000000000-0",
+            cursor=4,
+            envelope_json=(
+                '{"version":2,"topic":"overview","type":"overview.patch","cursor":"4",'
+                '"timestamp":"2026-04-09T12:00:00Z","scope":"portal:realtime","mode":"patch",'
+                '"payload":{"events_5m_delta":2}}'
+            ),
+        )
+    ]
+    original_get_redis = realtime_api.get_redis
+    realtime_api.get_redis = lambda decode_responses=True: _FakeRedis(replay_rows=replay_rows, live_batches=[])
+    try:
+        with TestClient(app) as client:
+            with client.websocket_connect(f"/realtime/portal/ws?st={_stream_token_with_claims()}&topics=overview&cursor=3") as ws:
+                message = ws.receive_text()
+                body = json.loads(message)
+                assert body["type"] == "overview.patch"
+                assert body["cursor"] == "4"
+                assert body["topic"] == "overview"
+                assert body["payload"]["events_5m_delta"] == 2
+    finally:
+        realtime_api.get_redis = original_get_redis
