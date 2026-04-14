@@ -16,6 +16,19 @@ export {
   usePortalRealtimeSubscription,
 } from "@/shared/realtime/context";
 export {
+  DEFAULT_LIVE_REFRESH_PROFILE,
+  LIVE_REFRESH_POLICY,
+  resolveLiveRefreshProfile,
+  type LiveRefreshCadenceProfile,
+  type LiveRefreshProfileName,
+} from "@/shared/realtime/cadence";
+export {
+  useLiveRefresh,
+  type LiveRefreshContext,
+  type LiveRefreshReason,
+  type LiveRefreshState,
+} from "@/shared/realtime/useLiveRefresh";
+export {
   PORTAL_REALTIME_EVENT_TYPES,
   PORTAL_REALTIME_EVENT_MODE,
   PORTAL_REALTIME_EVENT_SCOPE,

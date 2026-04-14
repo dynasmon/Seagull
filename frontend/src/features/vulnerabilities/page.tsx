@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
@@ -8,6 +8,7 @@ import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { cx } from "@/shared/lib/cx";
+import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { useAuth } from "@/features/auth/context";
 import { listAgents } from "@/features/agents/api";
@@ -326,9 +327,6 @@ export default function VulnerabilitiesPage() {
 
   useEffect(() => {
     if (!isAdmin) return;
-    loadSummary();
-    loadPosture();
-    loadPage({ reset: true, cursor: null });
     listAgents()
       .then((rows) => {
         const pick = (rows || []).filter((a) => !a.is_revoked);
@@ -339,12 +337,8 @@ export default function VulnerabilitiesPage() {
           pick[0]?.agent_id ||
           "";
         setScanTargetAgent(preferred);
-        if (preferred) {
-          getVulnScansPage({ page_size: 8, reporter_agent_id: preferred }).then((x) => setRecentScans(x.items || []));
-        }
       })
       .catch(() => setAgents([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
   async function runManualScan() {
@@ -355,8 +349,7 @@ export default function VulnerabilitiesPage() {
     try {
       const out = await triggerVulnScanNow(scanTargetAgent);
       setScanMsg(`Scan queued (${out.status}) for ${out.agent_id} at ${fmtWhen(out.queued_at)} · id ${out.scan_uuid}`);
-      loadPage({ reset: true, cursor: null });
-      loadRecentScans(scanTargetAgent);
+      void Promise.all([live.refreshNow(), scansLive.refreshNow()]);
     } catch (e: any) {
       setScanErr(e?.message || "Failed to trigger manual scan");
     } finally {
@@ -380,33 +373,57 @@ export default function VulnerabilitiesPage() {
     }
   }
 
-  useEffect(() => {
-    if (!isAdmin || !scanTargetAgent) return;
-    loadRecentScans(scanTargetAgent);
-  }, [isAdmin, scanTargetAgent]);
+  const refreshDashboard = useCallback(async () => {
+    await Promise.all([
+      loadSummary({ includeSuppressed: filters.includeSuppressed }),
+      loadPosture({ includeSuppressed: filters.includeSuppressed }),
+    ]);
+    await loadPage({ reset: true, cursor: null });
+  }, [activeDays, filters, pageSize]);
+
+  const live = useLiveRefresh({
+    enabled: isAdmin,
+    profile: "admin",
+    refresh: refreshDashboard,
+  });
+
+  const scansLive = useLiveRefresh({
+    enabled: isAdmin && Boolean(scanTargetAgent),
+    profile: "admin",
+    refresh: async () => {
+      await loadRecentScans(scanTargetAgent);
+    },
+  });
 
   useEffect(() => {
     if (!isAdmin || !scanTargetAgent) return;
-    const t = window.setInterval(() => {
-      loadRecentScans(scanTargetAgent);
-    }, 10000);
-    return () => window.clearInterval(t);
-  }, [isAdmin, scanTargetAgent]);
+    scansLive.invalidate("dependency", { immediate: true, supersede: true });
+  }, [isAdmin, scanTargetAgent, scansLive.invalidate]);
 
   useEffect(() => {
     if (!isAdmin) return;
-    loadSummary();
-    loadPosture();
-    loadPage({ reset: true, cursor: null });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, pageSize]);
+    live.invalidate("dependency", { immediate: true, supersede: true });
+  }, [activeDays, filters, isAdmin, live.invalidate, pageSize]);
 
-  useEffect(() => {
+  usePortalRealtimeSubscription("ui.vulnerabilities.invalidate", (event) => {
     if (!isAdmin) return;
-    loadSummary();
-    loadPosture();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDays]);
+    const eventAgentId = String(event.payload?.agent_id || "").trim();
+    const reporterAgentId = String(filters.reporterAgentId || "").trim();
+    const assetAgentId = String(filters.assetAgentId || "").trim();
+    const hasScopedAgentFilter = Boolean(reporterAgentId || assetAgentId);
+    if (
+      hasScopedAgentFilter &&
+      eventAgentId &&
+      reporterAgentId !== eventAgentId &&
+      assetAgentId !== eventAgentId
+    ) {
+      return;
+    }
+    live.invalidate();
+    if (!scanTargetAgent || !eventAgentId || scanTargetAgent === eventAgentId) {
+      scansLive.invalidate();
+    }
+  });
 
   const severityBlocks = useMemo(() => {
     const m = summary?.by_severity || {};
@@ -529,9 +546,7 @@ export default function VulnerabilitiesPage() {
             <button
               type="button"
               onClick={() => {
-                loadSummary();
-                loadPosture();
-                loadPage({ reset: true, cursor: null });
+                void Promise.all([live.refreshNow(), scansLive.refreshNow()]);
               }}
               className={cx(
                 "inline-flex items-center rounded-md border border-border/60 bg-background/40",
@@ -654,7 +669,9 @@ export default function VulnerabilitiesPage() {
               </button>
               <button
                 type="button"
-                onClick={() => loadRecentScans(scanTargetAgent)}
+                onClick={() => {
+                  void scansLive.refreshNow();
+                }}
                 disabled={recentScansBusy || !scanTargetAgent}
                 className={cx(
                   "inline-flex h-10 items-center rounded-md border border-border/60 bg-background/40",

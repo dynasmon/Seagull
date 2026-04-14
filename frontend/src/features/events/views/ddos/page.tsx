@@ -8,6 +8,7 @@ import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
 import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
+import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { getRecentEvents, huntEvents } from "../../api";
 import EventDrawer from "../../components/EventDrawer";
@@ -35,8 +36,6 @@ const DEFAULTS: DdosQueryState = {
   limit: 200,
   event_id: null,
 };
-
-const DEEP_DIVE_REFRESH_MS = 5000;
 
 function parsePanel(raw: string | null): DdosPanel {
   return raw === "deep" ? "deep" : "stream";
@@ -77,6 +76,7 @@ export default function DdosEventsPage() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
 
   const reqSeq = useRef(0);
+  const didBootRef = useRef(false);
 
   const agentNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -209,19 +209,29 @@ export default function DdosEventsPage() {
     }
   }, [loading, loadingMore, nextCursor, query.agent_id, query.limit, query.panel, query.since_minutes]);
 
-  useEffect(() => {
-    if (query.panel !== "deep") return;
-    const timer = window.setTimeout(() => load(), 120);
-    return () => window.clearTimeout(timer);
-  }, [load, query.panel]);
+  const live = useLiveRefresh({
+    enabled: query.panel === "deep",
+    profile: "hot-operational",
+    refresh: load,
+  });
 
   useEffect(() => {
     if (query.panel !== "deep") return;
-    const timer = window.setInterval(() => {
-      void load();
-    }, DEEP_DIVE_REFRESH_MS);
-    return () => window.clearInterval(timer);
-  }, [load, query.panel]);
+    if (!didBootRef.current) {
+      didBootRef.current = true;
+      return;
+    }
+    void load();
+  }, [load, query.agent_id, query.limit, query.panel, query.since_minutes]);
+
+  usePortalRealtimeSubscription("ui.events.invalidate", (event) => {
+    if (query.panel !== "deep") return;
+    const eventAgentId = String(event.payload?.agent_id || "").trim();
+    if (query.agent_id && eventAgentId && eventAgentId !== query.agent_id) return;
+    const domains = Array.isArray(event.payload?.domains) ? event.payload.domains.map((value) => String(value)) : [];
+    if (domains.length > 0 && !domains.includes("ddos")) return;
+    live.invalidate();
+  });
 
   const ddosEvents = useMemo(() => {
     return events.filter((e) => isDdosEvent(e));
@@ -319,7 +329,7 @@ export default function DdosEventsPage() {
           <option value={500}>500</option>
         </select>
 
-        <button type="button" onClick={() => load()} className="ui-btn-secondary h-8 px-3 text-xs">
+        <button type="button" onClick={() => void load()} className="ui-btn-secondary h-8 px-3 text-xs">
           Refresh
         </button>
       </div>

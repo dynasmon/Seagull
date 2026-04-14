@@ -1,17 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { Card } from "@/shared/components/Card";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import { useLiveRefresh } from "@/shared/realtime";
 import InternalRefreshToolbar from "@/features/internal/components/InternalRefreshToolbar";
 import InternalStatTile from "@/features/internal/components/InternalStatTile";
 
 import { getSystemStatus } from "../api";
 import type { SystemStatusResponse } from "../types";
-
-const POLL_MS = 12000;
 
 type LatencyBand = "normal" | "attention" | "abnormal";
 
@@ -63,7 +62,6 @@ export default function InternalHealthView() {
   const [snapshot, setSnapshot] = useState<SystemStatusResponse | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const inFlight = useRef(false);
 
@@ -75,7 +73,6 @@ export default function InternalHealthView() {
       const data = await getSystemStatus();
       setSnapshot(data);
       setError(null);
-      setLastUpdatedAt(new Date());
     } catch (e: any) {
       setError(e?.message || "Failed to load system status");
     } finally {
@@ -83,19 +80,10 @@ export default function InternalHealthView() {
       inFlight.current = false;
     }
   }, []);
-
-  useEffect(() => {
-    let alive = true;
-    refresh();
-    const t = window.setInterval(() => {
-      if (!alive) return;
-      refresh();
-    }, POLL_MS);
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
-  }, [refresh]);
+  const live = useLiveRefresh({
+    profile: "admin",
+    refresh,
+  });
 
   if (busy && !snapshot) {
     return <Loading label="Loading health/status..." />;
@@ -149,8 +137,8 @@ export default function InternalHealthView() {
   return (
     <div className="space-y-6">
       <InternalRefreshToolbar
-        lastUpdatedLabel={lastUpdatedAt ? lastUpdatedAt.toLocaleString() : "-"}
-        onRefresh={refresh}
+        lastUpdatedLabel={live.state.lastUpdatedAt ? live.state.lastUpdatedAt.toLocaleString() : "-"}
+        onRefresh={live.refreshNow}
         busy={busy}
       />
 

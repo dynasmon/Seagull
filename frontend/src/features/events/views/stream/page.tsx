@@ -16,6 +16,7 @@ import { cx } from "@/shared/lib/cx";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt, normalizeFilterText, normalizeSearchText } from "@/shared/lib/filters";
 import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
+import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { useAgentsCatalog } from "@/app/providers";
 
@@ -59,7 +60,7 @@ const DEFAULTS: ViewCfg = {
 };
 
 const DEFAULT_DISPLAY: DisplayCfg = {
-  auto_refresh: false,
+  auto_refresh: true,
   refresh_ms: 15000,
   show_extra: true,
 };
@@ -286,6 +287,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
   }, [view]);
 
   const reqSeq = useRef(0);
+  const didBootRef = useRef(false);
 
   const agentNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -385,18 +387,27 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
     }
   }, [ddosScope, loading, loadingMore, nextCursor]);
 
-  useEffect(() => {
-    const t = window.setTimeout(() => load(), 120);
-    return () => window.clearTimeout(t);
-  }, [load, view.agent_id, view.event_type, view.search, view.window_minutes, view.limit]);
+  const live = useLiveRefresh({
+    enabled: display.auto_refresh,
+    profile: ddosScope ? "hot-operational" : "operational",
+    refresh: load,
+  });
 
   useEffect(() => {
-    if (!display.auto_refresh) return;
-    const t = window.setInterval(() => {
-      load();
-    }, display.refresh_ms);
-    return () => window.clearInterval(t);
-  }, [display.auto_refresh, display.refresh_ms, load]);
+    if (!didBootRef.current) {
+      didBootRef.current = true;
+      if (display.auto_refresh) return;
+    }
+    void load();
+  }, [display.auto_refresh, load, view.agent_id, view.event_type, view.search, view.window_minutes, view.limit]);
+
+  usePortalRealtimeSubscription("ui.events.invalidate", (event) => {
+    const eventAgentId = String(event.payload?.agent_id || "").trim();
+    if (view.agent_id && eventAgentId && eventAgentId !== view.agent_id) return;
+    const domains = Array.isArray(event.payload?.domains) ? event.payload.domains.map((value) => String(value)) : [];
+    if (ddosScope && domains.length > 0 && !domains.includes("ddos")) return;
+    live.invalidate();
+  });
 
   const drawerId = view.event_id;
 
@@ -493,7 +504,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
 
   const toolbarRight = (
     <div className="flex items-center gap-2">
-      <button type="button" onClick={() => load()} className="ui-btn-secondary h-8 px-2.5 text-xs" title="Refresh now">
+      <button type="button" onClick={() => void load()} className="ui-btn-secondary h-8 px-2.5 text-xs" title="Refresh now">
         Refresh
       </button>
 
@@ -572,29 +583,15 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
                 label="Auto refresh"
                 checked={display.auto_refresh}
                 onChange={(v) => patchDisplay({ auto_refresh: v })}
-                hint="Polls the backend with your current scope/window."
+                hint={display.auto_refresh ? "Uses the shared operational live cadence." : "Manual refresh only."}
               />
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Refresh</div>
-                  <select
-                    value={String(display.refresh_ms)}
-                    onChange={(e) => patchDisplay({ refresh_ms: clampInt(e.target.value, 2000, 300000, DEFAULT_DISPLAY.refresh_ms) })}
-                    className={cx(
-                      "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
-                      "text-[11px] font-mono text-foreground outline-none",
-                      "focus:ring-2 focus:ring-primary/30"
-                    )}
-                    disabled={!display.auto_refresh}
-                    title="Auto-refresh interval"
-                  >
-                    <option value="5000">5s</option>
-                    <option value="10000">10s</option>
-                    <option value="15000">15s</option>
-                    <option value="30000">30s</option>
-                    <option value="60000">60s</option>
-                  </select>
+                  <div className="mt-1 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-[11px] font-mono text-muted-foreground">
+                    {display.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "Manual only"}
+                  </div>
                 </div>
 
                 <div>

@@ -12,6 +12,7 @@ import { Table, type Column } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
+import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { fmtDateTime } from "../../lib/aggregates";
 import { getProtocolIntelSummary } from "./api";
@@ -220,6 +221,7 @@ export default function ProtocolIntelPage() {
   }, [agentOptions, view.agent_id]);
 
   const reqSeq = useRef(0);
+  const didBootRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ProtocolIntelSummaryResponse | null>(null);
@@ -323,20 +325,67 @@ export default function ProtocolIntelPage() {
     }
   }, []);
 
-  // Debounced auto-load when the scope changes.
   useEffect(() => {
-    const t = window.setTimeout(() => load(), 220);
-    return () => window.clearTimeout(t);
-  }, [view.agent_id, view.since_minutes, view.top_n, load]);
+    if (!didBootRef.current) {
+      didBootRef.current = true;
+      if (view.auto_refresh) return;
+    }
+    void load();
+  }, [load, view.agent_id, view.auto_refresh, view.since_minutes, view.top_n]);
 
-  // Auto refresh timer.
-  useEffect(() => {
-    if (!view.auto_refresh) return;
-    const id = window.setInterval(() => {
-      load();
-    }, view.refresh_ms);
-    return () => window.clearInterval(id);
-  }, [view.auto_refresh, view.refresh_ms, load]);
+  const live = useLiveRefresh({
+    enabled: view.auto_refresh,
+    profile: view.since_minutes > 12 * 60 ? "expensive-operational" : "operational",
+    refresh: async ({ signal }) => {
+      const mySeq = ++reqSeq.current;
+      setLoading(true);
+      setError(null);
+
+      const agent_id = viewRef.current.agent_id ? viewRef.current.agent_id : undefined;
+      const since_minutes = viewRef.current.since_minutes;
+      const limit = viewRef.current.top_n;
+
+      try {
+        let res = await getProtocolIntelSummary({ agent_id, since_minutes, limit }, { signal });
+        let fallbackMinutes: number | null = null;
+
+        if ((res?.total_events ?? 0) <= 0 && since_minutes < MAX_FALLBACK_SINCE_MINUTES) {
+          const widened = clampInt(
+            Math.max(since_minutes * 6, since_minutes + 60),
+            since_minutes + 1,
+            MAX_FALLBACK_SINCE_MINUTES,
+            MAX_FALLBACK_SINCE_MINUTES
+          );
+          const fallbackRes = await getProtocolIntelSummary({ agent_id, since_minutes: widened, limit }, { signal });
+          if ((fallbackRes?.total_events ?? 0) > 0) {
+            res = fallbackRes;
+            fallbackMinutes = widened;
+          }
+        }
+
+        if (reqSeq.current !== mySeq) return;
+        setData(res);
+        setFallbackSinceMinutes(fallbackMinutes);
+        setLastOkAt(new Date());
+      } catch (e: any) {
+        if (reqSeq.current !== mySeq) return;
+        const msg = getErrorMessage(e, "Failed to load summary");
+        setError(msg);
+        setFallbackSinceMinutes(null);
+      } finally {
+        if (reqSeq.current !== mySeq) return;
+        setLoading(false);
+      }
+    },
+  });
+
+  usePortalRealtimeSubscription("ui.events.invalidate", (event) => {
+    const eventAgentId = String(event.payload?.agent_id || "").trim();
+    if (view.agent_id && eventAgentId && eventAgentId !== view.agent_id) return;
+    const domains = Array.isArray(event.payload?.domains) ? event.payload.domains.map((value) => String(value)) : [];
+    if (domains.length > 0 && !domains.includes("network") && !domains.includes("protocol_intel")) return;
+    live.invalidate();
+  });
 
   const coverage = useMemo(() => {
     const total = data?.total_events ?? 0;
@@ -407,7 +456,7 @@ export default function ProtocolIntelPage() {
 
       <button
         type="button"
-        onClick={() => load()}
+        onClick={() => void load()}
         className={cx(
           "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
           "px-3 py-2 text-xs font-medium text-muted-foreground",
@@ -436,13 +485,13 @@ export default function ProtocolIntelPage() {
           { label: "TLS/DTLS/QUIC", value: data ? data.tls_events : "-" },
           { label: "Generated at", value: generatedAt },
           { label: "Scope", value: view.agent_id || "all agents", hint: `Lookback ${view.since_minutes}m` },
-          { label: "Top-N", value: view.top_n, hint: view.auto_refresh ? `Auto ${Math.round(view.refresh_ms / 1000)}s` : "Manual refresh" },
+          { label: "Top-N", value: view.top_n, hint: view.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "Manual refresh" },
         ]}
       />
 
       <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-5">
         <div className="space-y-5">
-          <Section title="Scope" right={view.auto_refresh ? `auto every ${Math.round(view.refresh_ms / 1000)}s` : "manual"}>
+          <Section title="Scope" right={view.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "manual"}>
             <div className="space-y-3">
               <div className="grid grid-cols-1 gap-3">
                 <div>
@@ -504,21 +553,11 @@ export default function ProtocolIntelPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <div className="text-xs text-muted-foreground">Refresh (ms)</div>
-                    <input
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      type="text"
-                      value={draft.refresh_ms}
-                      onChange={(e) => {
-                        const raw = digitsOnly(e.target.value).slice(0, 6);
-                        setDraft((s) => ({ ...s, refresh_ms: raw }));
-                      }}
-                      placeholder={String(view.refresh_ms)}
-                      className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
-                      disabled={!draft.auto_refresh}
-                    />
-                    <div className="mt-1 text-[11px] text-muted-foreground">10000–120000</div>
+                    <div className="text-xs text-muted-foreground">Refresh cadence</div>
+                    <div className="mt-2 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm text-muted-foreground">
+                      {draft.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "Manual only"}
+                    </div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">Cadence is controlled centrally by the live-refresh policy.</div>
                   </div>
 
                   <div className="flex items-end">
