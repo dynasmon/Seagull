@@ -4,6 +4,7 @@ export const PORTAL_REALTIME_TOPICS = [
   "agents",
   "investigations",
   "events",
+  "ddos",
   "inventory",
   "vulnerabilities",
 ] as const;
@@ -30,6 +31,9 @@ export const PORTAL_REALTIME_EVENT_TYPES = [
   "ui.investigations.invalidate",
   "ui.investigations.timeline.append",
   "ui.events.invalidate",
+  "ui.events.stream.append",
+  "ui.ddos.live.invalidate",
+  "ui.ddos.live.patch",
   "ui.inventory.invalidate",
   "ui.vulnerabilities.invalidate",
   "overview.invalidate",
@@ -55,6 +59,9 @@ export const PORTAL_REALTIME_EVENT_TOPIC: Record<PortalRealtimeEventType, Portal
   "ui.investigations.invalidate": "investigations",
   "ui.investigations.timeline.append": "investigations",
   "ui.events.invalidate": "events",
+  "ui.events.stream.append": "events",
+  "ui.ddos.live.invalidate": "ddos",
+  "ui.ddos.live.patch": "ddos",
   "ui.inventory.invalidate": "inventory",
   "ui.vulnerabilities.invalidate": "vulnerabilities",
   "overview.invalidate": "overview",
@@ -78,6 +85,9 @@ export const PORTAL_REALTIME_EVENT_MODE: Record<PortalRealtimeEventType, PortalR
   "ui.investigations.invalidate": "invalidate",
   "ui.investigations.timeline.append": "append",
   "ui.events.invalidate": "invalidate",
+  "ui.events.stream.append": "append",
+  "ui.ddos.live.invalidate": "invalidate",
+  "ui.ddos.live.patch": "patch",
   "ui.inventory.invalidate": "invalidate",
   "ui.vulnerabilities.invalidate": "invalidate",
   "overview.invalidate": "invalidate",
@@ -101,6 +111,9 @@ export const PORTAL_REALTIME_EVENT_SCOPE: Record<PortalRealtimeEventType, string
   "ui.investigations.invalidate": "portal:realtime",
   "ui.investigations.timeline.append": "portal:realtime",
   "ui.events.invalidate": "portal:realtime",
+  "ui.events.stream.append": "portal:realtime",
+  "ui.ddos.live.invalidate": "portal:realtime",
+  "ui.ddos.live.patch": "portal:realtime",
   "ui.inventory.invalidate": "portal:realtime",
   "ui.vulnerabilities.invalidate": "portal:admin",
   "overview.invalidate": "portal:realtime",
@@ -234,6 +247,76 @@ export type PortalRealtimeEventPayloadMap = {
     high_priority?: boolean;
     resume_from_cursor?: string;
     resume_to_cursor?: string;
+  };
+  "ui.events.stream.append": {
+    channel?: "events.stream";
+    agent_id?: string;
+    batch_size?: number;
+    coalesced_events?: number;
+    truncated_events?: number;
+    high_priority?: boolean;
+    domains?: string[];
+    event_types?: string[];
+    requires_reconcile?: boolean;
+    events?: Array<{
+      id?: number;
+      agent_id?: string;
+      event_type?: string;
+      schema_version?: number;
+      timestamp?: string;
+      src_ip?: string | null;
+      dst_ip?: string | null;
+      src_port?: number | null;
+      dst_port?: number | null;
+      proto?: string | null;
+      bytes?: number | null;
+      extra?: Record<string, unknown>;
+    }>;
+  };
+  "ui.ddos.live.invalidate": {
+    reason?: string;
+    scope?: string;
+    agent_id?: string;
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
+  };
+  "ui.ddos.live.patch": {
+    channel?: "ddos.live";
+    agent_id?: string;
+    batch_size?: number;
+    coalesced_events?: number;
+    truncated_events?: number;
+    requires_reconcile?: boolean;
+    events?: Array<{
+      id?: number;
+      agent_id?: string;
+      event_type?: string;
+      schema_version?: number;
+      timestamp?: string;
+      src_ip?: string | null;
+      dst_ip?: string | null;
+      src_port?: number | null;
+      dst_port?: number | null;
+      proto?: string | null;
+      bytes?: number | null;
+      extra?: Record<string, unknown>;
+    }>;
+    live_summary?: {
+      ddos_packets_estimated?: number;
+      ddos_samples?: number;
+      ddos_peak_pps?: number;
+      ddos_peak_bps?: number;
+      ddos_peak_syn_ratio?: number;
+      ddos_peak_flow_rps?: number;
+    };
+    pressure?: {
+      active?: boolean;
+      protection_active?: boolean;
+      phase?: "ok" | "storm" | "shedding" | "draining";
+      reason?: string;
+      backlog_events?: number;
+      backlog_messages?: number;
+    };
   };
   "ui.inventory.invalidate": {
     reason?: string;

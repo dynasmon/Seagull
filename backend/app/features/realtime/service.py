@@ -31,6 +31,9 @@ REALTIME_EVENT_POLICIES: dict[str, dict[str, str]] = {
     "ui.investigations.invalidate": {"topic": "investigations", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
     "ui.investigations.timeline.append": {"topic": "investigations", "mode": "append", "scope": STREAM_TOKEN_SCOPE},
     "ui.events.invalidate": {"topic": "events", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
+    "ui.events.stream.append": {"topic": "events", "mode": "append", "scope": STREAM_TOKEN_SCOPE},
+    "ui.ddos.live.invalidate": {"topic": "ddos", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
+    "ui.ddos.live.patch": {"topic": "ddos", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
     "ui.inventory.invalidate": {"topic": "inventory", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
     "ui.vulnerabilities.invalidate": {"topic": "vulnerabilities", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE_ADMIN},
     "overview.invalidate": {"topic": "overview", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
@@ -50,6 +53,7 @@ TOPIC_REQUIRED_SCOPE: dict[str, str] = {
     "alerts": STREAM_TOKEN_SCOPE_ADMIN,
     "investigations": STREAM_TOKEN_SCOPE,
     "events": STREAM_TOKEN_SCOPE,
+    "ddos": STREAM_TOKEN_SCOPE,
     "inventory": STREAM_TOKEN_SCOPE,
     "vulnerabilities": STREAM_TOKEN_SCOPE_ADMIN,
 }
@@ -59,6 +63,7 @@ TOPIC_INVALIDATE_EVENT: dict[str, str] = {
     "alerts": "ui.alerts.invalidate",
     "investigations": "ui.investigations.invalidate",
     "events": "ui.events.invalidate",
+    "ddos": "ui.ddos.live.invalidate",
     "inventory": "ui.inventory.invalidate",
     "vulnerabilities": "ui.vulnerabilities.invalidate",
 }
@@ -69,6 +74,7 @@ TOPIC_COALESCED_INVALIDATES: frozenset[str] = frozenset(
         "agents",
         "investigations",
         "events",
+        "ddos",
         "inventory",
         "vulnerabilities",
     }

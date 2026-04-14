@@ -49,6 +49,30 @@ export type EventHuntResponse = {
   meta: QueryProvenanceMeta;
 };
 
+export type EventStreamSnapshotResponse = {
+  generated_at: string;
+  window_minutes: number;
+  agent_id?: string | null;
+  event_type?: string | null;
+  search?: string | null;
+  items: NetEvent[];
+  next_cursor: string | null;
+  has_more: boolean;
+  meta: QueryProvenanceMeta;
+};
+
+export type DdosLiveSnapshotResponse = {
+  generated_at: string;
+  since_minutes: number;
+  agent_id?: string | null;
+  items: NetEvent[];
+  next_cursor: string | null;
+  has_more: boolean;
+  meta: QueryProvenanceMeta;
+  live_summary: Record<string, any>;
+  pressure: Record<string, any>;
+};
+
 export type EventsViewConfig = {
   agent_id: string; // empty = all
   event_type: string; // empty = all
