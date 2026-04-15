@@ -35,6 +35,7 @@ from app.features.agents.schemas import (
     AgentUpdateIn,
 )
 from app.features.response.models import ResponseActionModel, ResponseActionResultModel
+from app.features.response.realtime import publish_response_action_lifecycle
 from app.features.response.schemas import AgentResponseActionResultIn
 
 _TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,31}$")
@@ -392,6 +393,7 @@ def list_pending_actions(
     now = datetime.utcnow()
     rows = repository.list_pending_actions_for_agent(db, agent_id=agent.agent_id, limit=100, for_update=True)
     out: List[ResponseActionModel] = []
+    lifecycle_events: list[tuple[ResponseActionModel, str]] = []
     for row in rows:
         expires_at = _to_utc_naive(row.expires_at)
         if expires_at is not None and expires_at <= now:
@@ -399,6 +401,7 @@ def list_pending_actions(
             row.finished_at = row.finished_at or now
             row.last_error = row.last_error or "action expired before execution"
             repository.save_response_action(db, row)
+            lifecycle_events.append((row, "expired"))
             continue
         before_status = str(row.status or "").strip().lower()
         if before_status == "pending":
@@ -430,8 +433,12 @@ def list_pending_actions(
                 },
                 context={"reported_by_agent_id": agent.agent_id, "requested_by": row.requested_by},
             )
+            lifecycle_events.append((row, "delivered"))
         out.append(row)
     repository.commit(db)
+    for row, lifecycle_event in lifecycle_events:
+        repository.refresh(db, row)
+        publish_response_action_lifecycle(action=row, lifecycle_event=lifecycle_event)
     return out
 
 
@@ -513,6 +520,14 @@ def report_action_result(
             context={"result_status": payload.status, "reported_by_agent_id": agent.agent_id},
         )
     repository.commit(db)
+    repository.refresh(db, row_action)
+    repository.refresh(db, latest)
+    lifecycle_event = {
+        "running": "started" if before_action_status != "running" else "heartbeat",
+        "success": "completed",
+        "failed": "failed",
+    }.get(str(payload.status or "").strip().lower(), "heartbeat")
+    publish_response_action_lifecycle(action=row_action, lifecycle_event=lifecycle_event, result=latest)
     return {"status": row_action.status}
 
 

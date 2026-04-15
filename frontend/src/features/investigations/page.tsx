@@ -141,6 +141,25 @@ function normalizeActivityType(value: unknown): InvestigationActivityEntry["acti
   return "workspace_action";
 }
 
+function applyWorkspacePatch(
+  workspace: InvestigationWorkspace,
+  patch: Record<string, any> | null | undefined,
+): InvestigationWorkspace {
+  return {
+    ...workspace,
+    updated_at: patch?.updated_at ? String(patch.updated_at) : workspace.updated_at,
+    status: patch?.status ? (patch.status as InvestigationWorkspaceStatus) : workspace.status,
+    severity: patch?.severity ? (patch.severity as InvestigationWorkspaceSeverity) : workspace.severity,
+    priority: patch?.priority ? (patch.priority as InvestigationWorkspacePriority) : workspace.priority,
+    triage_state: patch?.triage_state ? (patch.triage_state as InvestigationWorkspaceTriage) : workspace.triage_state,
+    assignee: patch?.assignee === undefined ? workspace.assignee : (patch.assignee ?? null),
+    updated_by: patch?.updated_by ? String(patch.updated_by) : workspace.updated_by,
+    notes_count: typeof patch?.notes_count === "number" ? patch.notes_count : workspace.notes_count,
+    bookmarks_count: typeof patch?.bookmarks_count === "number" ? patch.bookmarks_count : workspace.bookmarks_count,
+    evidence_type_counts: patch?.evidence_type_counts || workspace.evidence_type_counts,
+  };
+}
+
 function parseCaseId(raw: string): number | undefined {
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return undefined;
@@ -421,21 +440,18 @@ function WorkspaceDrawer({
     if (patchId === activeWorkspaceId) {
       setWorkspace((prev) => {
         if (!prev) return prev;
-        return {
-          ...prev,
-          updated_at: patch?.updated_at ? String(patch.updated_at) : prev.updated_at,
-          status: patch?.status ? (patch.status as InvestigationWorkspaceStatus) : prev.status,
-          severity: patch?.severity ? (patch.severity as InvestigationWorkspaceSeverity) : prev.severity,
-          priority: patch?.priority ? (patch.priority as InvestigationWorkspacePriority) : prev.priority,
-          triage_state: patch?.triage_state ? (patch.triage_state as InvestigationWorkspaceTriage) : prev.triage_state,
-          assignee: patch?.assignee === undefined ? prev.assignee : (patch.assignee ?? null),
-          updated_by: patch?.updated_by ? String(patch.updated_by) : prev.updated_by,
-          notes_count: typeof patch?.notes_count === "number" ? patch.notes_count : prev.notes_count,
-          bookmarks_count: typeof patch?.bookmarks_count === "number" ? patch.bookmarks_count : prev.bookmarks_count,
-          evidence_type_counts: patch?.evidence_type_counts || prev.evidence_type_counts,
-        };
+        return applyWorkspacePatch(prev, patch);
       });
     }
+  });
+
+  usePortalRealtimeSubscription("ui.investigations.workspace.patch", (event) => {
+    const activeWorkspaceId = workspaceId ? Number(workspaceId) : 0;
+    if (activeWorkspaceId <= 0) return;
+    const patch = event.payload?.workspace_patch;
+    const patchId = Number(patch?.id ?? event.payload?.workspace_id ?? 0);
+    if (patchId !== activeWorkspaceId) return;
+    setWorkspace((prev) => (prev ? applyWorkspacePatch(prev, patch as Record<string, any>) : prev));
   });
 
   usePortalRealtimeSubscription("ui.investigations.invalidate", (event) => {
@@ -1045,24 +1061,14 @@ export default function InvestigationsPage() {
     const patch = event.payload?.workspace_patch;
     const patchId = Number(patch?.id ?? 0);
     if (patchId <= 0) return;
-    setRows((prev) =>
-      prev.map((row) => {
-        if (row.id !== patchId) return row;
-        return {
-          ...row,
-          updated_at: patch?.updated_at ? String(patch.updated_at) : row.updated_at,
-          status: patch?.status ? (patch.status as InvestigationWorkspaceStatus) : row.status,
-          severity: patch?.severity ? (patch.severity as InvestigationWorkspaceSeverity) : row.severity,
-          priority: patch?.priority ? (patch.priority as InvestigationWorkspacePriority) : row.priority,
-          triage_state: patch?.triage_state ? (patch.triage_state as InvestigationWorkspaceTriage) : row.triage_state,
-          assignee: patch?.assignee === undefined ? row.assignee : (patch.assignee ?? null),
-          updated_by: patch?.updated_by ? String(patch.updated_by) : row.updated_by,
-          notes_count: typeof patch?.notes_count === "number" ? patch.notes_count : row.notes_count,
-          bookmarks_count: typeof patch?.bookmarks_count === "number" ? patch.bookmarks_count : row.bookmarks_count,
-          evidence_type_counts: patch?.evidence_type_counts || row.evidence_type_counts,
-        };
-      }),
-    );
+    setRows((prev) => prev.map((row) => (row.id === patchId ? applyWorkspacePatch(row, patch as Record<string, any>) : row)));
+  });
+
+  usePortalRealtimeSubscription("ui.investigations.workspace.patch", (event) => {
+    const patch = event.payload?.workspace_patch;
+    const patchId = Number(patch?.id ?? event.payload?.workspace_id ?? 0);
+    if (patchId <= 0) return;
+    setRows((prev) => prev.map((row) => (row.id === patchId ? applyWorkspacePatch(row, patch as Record<string, any>) : row)));
   });
 
   usePortalRealtimeSubscription("ui.investigations.invalidate", () => {
