@@ -9,6 +9,7 @@ os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
 
 from app.features.agents import service as agents_service
 from app.features.alerts import realtime as alerts_realtime
+from app.features.response import realtime as response_realtime
 
 
 def test_build_alert_realtime_payload_from_row_contract() -> None:
@@ -108,3 +109,76 @@ def test_publish_agent_heartbeat_realtime_uses_event(monkeypatch) -> None:
     assert emitted and emitted[0][0] == "ui.agents.presence.patch"
     assert emitted[0][1]["agent_id"] == "agent-core-1"
     assert emitted[0][1]["status"] == "ok"
+
+
+def test_publish_response_action_lifecycle_uses_admin_workflow_event(monkeypatch) -> None:
+    emitted: list[tuple[str, dict]] = []
+    monkeypatch.setattr(response_realtime, "publish_realtime", lambda event_type, payload: emitted.append((event_type, payload)))
+
+    action = SimpleNamespace(
+        id=401,
+        action_type="collect_triage_bundle",
+        agent_id="agent-core-1",
+        status="running",
+        requested_by="alice",
+        requested_at=datetime(2026, 4, 9, 18, 0, 0),
+        delivered_at=datetime(2026, 4, 9, 18, 0, 5),
+        started_at=datetime(2026, 4, 9, 18, 0, 10),
+        finished_at=None,
+        cancelled_at=None,
+        cancelled_by=None,
+        last_error=None,
+        created_at=datetime(2026, 4, 9, 18, 0, 0),
+        updated_at=datetime(2026, 4, 9, 18, 0, 30),
+        expires_at=None,
+    )
+    result = SimpleNamespace(
+        id=902,
+        response_action_id=401,
+        agent_id="agent-core-1",
+        status="running",
+        result_payload={"progress": {"percent": 55, "stage": "collecting", "message": "halfway"}},
+        error=None,
+        started_at=datetime(2026, 4, 9, 18, 0, 10),
+        finished_at=None,
+        created_at=datetime(2026, 4, 9, 18, 0, 11),
+        updated_at=datetime(2026, 4, 9, 18, 0, 30),
+    )
+
+    response_realtime.publish_response_action_lifecycle(action=action, lifecycle_event="heartbeat", result=result)
+
+    assert emitted == [
+        (
+            "ui.response_actions.lifecycle.patch",
+            {
+                "action_id": 401,
+                "agent_id": "agent-core-1",
+                "lifecycle_event": "heartbeat",
+                "workflow": {
+                    "id": 401,
+                    "action_type": "collect_triage_bundle",
+                    "agent_id": "agent-core-1",
+                    "status": "running",
+                    "requested_by": "alice",
+                    "requested_at": "2026-04-09T18:00:00+00:00",
+                    "delivered_at": "2026-04-09T18:00:05+00:00",
+                    "started_at": "2026-04-09T18:00:10+00:00",
+                    "created_at": "2026-04-09T18:00:00+00:00",
+                    "updated_at": "2026-04-09T18:00:30+00:00",
+                },
+                "result": {
+                    "id": 902,
+                    "response_action_id": 401,
+                    "agent_id": "agent-core-1",
+                    "status": "running",
+                    "started_at": "2026-04-09T18:00:10+00:00",
+                    "created_at": "2026-04-09T18:00:11+00:00",
+                    "updated_at": "2026-04-09T18:00:30+00:00",
+                    "has_payload": True,
+                    "payload_keys": ["progress"],
+                    "progress": {"percent": 55, "stage": "collecting", "message": "halfway"},
+                },
+                "requires_reconcile": False,
+            },
+        )
+    ]

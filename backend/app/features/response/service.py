@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import audit_actor, write_audit_event
 from app.features.response import repository
 from app.features.response.models import ResponseActionModel, ResponseActionResultModel
+from app.features.response.realtime import publish_response_action_lifecycle
 from app.features.response.schemas import ResponseActionCreateIn
 
 _ACTION_TYPE_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,31}$")
@@ -275,6 +276,7 @@ def create_response_action(
     )
     repository.commit(db)
     repository.refresh(db, row)
+    publish_response_action_lifecycle(action=row, lifecycle_event="queued")
     return row
 
 
@@ -375,6 +377,7 @@ def cancel_response_action(
     )
     repository.commit(db)
     repository.refresh(db, row)
+    publish_response_action_lifecycle(action=row, lifecycle_event="cancelled")
     return row
 
 
@@ -413,4 +416,13 @@ def update_response_action_status(
     repository.save_action(db, row)
     repository.commit(db)
     repository.refresh(db, row)
+    lifecycle_event = {
+        "delivered": "delivered",
+        "running": "started",
+        "success": "completed",
+        "failed": "failed",
+        "expired": "expired",
+        "cancelled": "cancelled",
+    }.get(after, "heartbeat")
+    publish_response_action_lifecycle(action=row, lifecycle_event=lifecycle_event)
     return row

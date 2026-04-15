@@ -280,6 +280,7 @@ def _publish_investigation_timeline_append(
     context: dict[str, Any] | None = None,
 ) -> None:
     try:
+        workspace_patch = _workspace_realtime_patch(workspace)
         row = SimpleNamespace(
             id=f"rt:{uuid.uuid4().hex}",
             action=str(action or ""),
@@ -296,9 +297,17 @@ def _publish_investigation_timeline_append(
         payload = project_investigation_timeline_append(
             workspace_id=int(workspace.id),
             activity=activity,
-            workspace_patch=_workspace_realtime_patch(workspace),
+            workspace_patch=workspace_patch,
         )
         publish_realtime("ui.investigations.timeline.append", payload)
+        if workspace_patch:
+            publish_realtime(
+                "ui.investigations.workspace.patch",
+                {
+                    "workspace_id": int(workspace.id),
+                    "workspace_patch": workspace_patch,
+                },
+            )
     except Exception:
         return
 
