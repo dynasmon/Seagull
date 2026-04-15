@@ -216,7 +216,7 @@ describe("overview live realtime helpers", () => {
     expect(next?.kpis.alerts_60m).toBe(2);
   });
 
-  it("preserves fresher live counters and lists when a fetched snapshot is stale", () => {
+  it("preserves live lists and backlog fields without carrying stale 5m event counters across fetches", () => {
     const current = applyOverviewRealtimeAlertCreated(
       applyOverviewRealtimePatch(makeSnapshot(), {
         events_5m_delta: 40,
@@ -257,8 +257,9 @@ describe("overview live realtime helpers", () => {
       preserveLiveFields: true,
     });
 
-    expect(reconciled.kpis.events_5m).toBe(50);
+    expect(reconciled.kpis.events_5m).toBe(0);
     expect(reconciled.kpis.alerts_60m).toBe(2);
+    expect(reconciled.kpis.last_event_age_m).toBe(2);
     expect(reconciled.meta.backlog_events).toBe(2500);
     expect(reconciled.meta.backlog_messages).toBe(25);
     expect(reconciled.meta.protection_active).toBe(true);
