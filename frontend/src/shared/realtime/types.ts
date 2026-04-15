@@ -3,6 +3,7 @@ export const PORTAL_REALTIME_TOPICS = [
   "alerts",
   "agents",
   "investigations",
+  "workflows",
   "events",
   "ddos",
   "inventory",
@@ -29,7 +30,10 @@ export const PORTAL_REALTIME_EVENT_TYPES = [
   "ui.agents.invalidate",
   "ui.agents.presence.patch",
   "ui.investigations.invalidate",
+  "ui.investigations.workspace.patch",
   "ui.investigations.timeline.append",
+  "ui.workflows.invalidate",
+  "ui.response_actions.lifecycle.patch",
   "ui.events.invalidate",
   "ui.events.stream.append",
   "ui.ddos.live.invalidate",
@@ -57,7 +61,10 @@ export const PORTAL_REALTIME_EVENT_TOPIC: Record<PortalRealtimeEventType, Portal
   "ui.agents.invalidate": "agents",
   "ui.agents.presence.patch": "agents",
   "ui.investigations.invalidate": "investigations",
+  "ui.investigations.workspace.patch": "investigations",
   "ui.investigations.timeline.append": "investigations",
+  "ui.workflows.invalidate": "workflows",
+  "ui.response_actions.lifecycle.patch": "workflows",
   "ui.events.invalidate": "events",
   "ui.events.stream.append": "events",
   "ui.ddos.live.invalidate": "ddos",
@@ -83,7 +90,10 @@ export const PORTAL_REALTIME_EVENT_MODE: Record<PortalRealtimeEventType, PortalR
   "ui.agents.invalidate": "invalidate",
   "ui.agents.presence.patch": "patch",
   "ui.investigations.invalidate": "invalidate",
+  "ui.investigations.workspace.patch": "patch",
   "ui.investigations.timeline.append": "append",
+  "ui.workflows.invalidate": "invalidate",
+  "ui.response_actions.lifecycle.patch": "patch",
   "ui.events.invalidate": "invalidate",
   "ui.events.stream.append": "append",
   "ui.ddos.live.invalidate": "invalidate",
@@ -109,7 +119,10 @@ export const PORTAL_REALTIME_EVENT_SCOPE: Record<PortalRealtimeEventType, string
   "ui.agents.invalidate": "portal:realtime",
   "ui.agents.presence.patch": "portal:realtime",
   "ui.investigations.invalidate": "portal:realtime",
+  "ui.investigations.workspace.patch": "portal:realtime",
   "ui.investigations.timeline.append": "portal:realtime",
+  "ui.workflows.invalidate": "portal:realtime",
+  "ui.response_actions.lifecycle.patch": "portal:admin",
   "ui.events.invalidate": "portal:realtime",
   "ui.events.stream.append": "portal:realtime",
   "ui.ddos.live.invalidate": "portal:realtime",
@@ -209,6 +222,22 @@ export type PortalRealtimeEventPayloadMap = {
     resume_from_cursor?: string;
     resume_to_cursor?: string;
   };
+  "ui.investigations.workspace.patch": {
+    workspace_id?: number;
+    workspace_patch?: {
+      id?: number;
+      updated_at?: string;
+      status?: string;
+      severity?: string;
+      priority?: string;
+      triage_state?: string;
+      assignee?: string | null;
+      updated_by?: string;
+      notes_count?: number;
+      bookmarks_count?: number;
+      evidence_type_counts?: Record<string, number>;
+    };
+  };
   "ui.investigations.timeline.append": {
     workspace_id?: number;
     activity?: {
@@ -236,6 +265,63 @@ export type PortalRealtimeEventPayloadMap = {
       bookmarks_count?: number;
       evidence_type_counts?: Record<string, number>;
     };
+  };
+  "ui.workflows.invalidate": {
+    reason?: string;
+    scope?: string;
+    agent_id?: string;
+    action_id?: number;
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
+  };
+  "ui.response_actions.lifecycle.patch": {
+    action_id?: number;
+    agent_id?: string;
+    lifecycle_event?:
+      | "queued"
+      | "delivered"
+      | "started"
+      | "heartbeat"
+      | "completed"
+      | "failed"
+      | "cancelled"
+      | "expired";
+    workflow?: {
+      id?: number;
+      action_type?: string;
+      agent_id?: string;
+      status?: string;
+      requested_by?: string;
+      requested_at?: string;
+      delivered_at?: string;
+      started_at?: string;
+      finished_at?: string;
+      cancelled_at?: string;
+      cancelled_by?: string;
+      last_error?: string;
+      created_at?: string;
+      updated_at?: string;
+      expires_at?: string;
+    };
+    result?: {
+      id?: number;
+      response_action_id?: number;
+      agent_id?: string;
+      status?: string;
+      error?: string;
+      started_at?: string;
+      finished_at?: string;
+      created_at?: string;
+      updated_at?: string;
+      has_payload?: boolean;
+      payload_keys?: string[];
+      progress?: {
+        percent?: number;
+        stage?: string;
+        message?: string;
+      };
+    };
+    requires_reconcile?: boolean;
   };
   "ui.events.invalidate": {
     reason?: string;

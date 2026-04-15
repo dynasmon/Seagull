@@ -291,6 +291,40 @@ def test_create_update_close_reopen_workspace_and_audit(fake_repo: _FakeInvestig
     assert "workspace.reopen" in actions
 
 
+def test_create_workspace_publishes_timeline_and_workspace_patch(
+    fake_repo: _FakeInvestigationsRepo,
+    actor: PortalPrincipal,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(service, "publish_realtime", lambda event_type, payload: emitted.append((event_type, payload)))
+
+    out = service.create_workspace(
+        db=object(),
+        payload=InvestigationWorkspaceCreateIn(title="Realtime workspace"),
+        request=None,
+        user=actor,
+        audit_writer=lambda _db, **_kwargs: None,
+    )
+
+    assert out.id == 1
+    assert [event_type for event_type, _payload in emitted] == [
+        "ui.investigations.timeline.append",
+        "ui.investigations.workspace.patch",
+    ]
+    assert emitted[0][1]["workspace_id"] == out.id
+    assert emitted[1][1]["workspace_id"] == out.id
+    assert emitted[1][1]["workspace_patch"]["id"] == out.id
+    assert emitted[1][1]["workspace_patch"]["status"] == "open"
+    assert emitted[1][1]["workspace_patch"]["severity"] == "medium"
+    assert emitted[1][1]["workspace_patch"]["priority"] == "p3"
+    assert emitted[1][1]["workspace_patch"]["triage_state"] == "untriaged"
+    assert emitted[1][1]["workspace_patch"]["updated_by"] == "analyst"
+    assert emitted[1][1]["workspace_patch"]["notes_count"] == 0
+    assert emitted[1][1]["workspace_patch"]["bookmarks_count"] == 0
+    assert emitted[1][1]["workspace_patch"]["evidence_type_counts"] == {}
+
+
 def test_notes_create_and_update(fake_repo: _FakeInvestigationsRepo, actor: PortalPrincipal) -> None:
     audits: list[dict[str, Any]] = []
 

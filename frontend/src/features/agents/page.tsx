@@ -263,6 +263,81 @@ function normalizePositiveFloat(v: any, fallback: number, min = 0) {
   return Math.max(min, n);
 }
 
+function mergeResponseActionPatch(
+  current: ResponseActionOut | null | undefined,
+  patch: Record<string, any> | null | undefined,
+  actionIdFallback?: number | null,
+): ResponseActionOut | null {
+  const actionId = Number(patch?.id ?? actionIdFallback ?? current?.id ?? 0);
+  if (!Number.isFinite(actionId) || actionId <= 0) return current ?? null;
+
+  const actionType = String(patch?.action_type ?? current?.action_type ?? "").trim();
+  const agentId = String(patch?.agent_id ?? current?.agent_id ?? "").trim();
+  const status = String(patch?.status ?? current?.status ?? "").trim();
+  const requestedBy = String(patch?.requested_by ?? current?.requested_by ?? "").trim();
+  const requestedAt = String(patch?.requested_at ?? current?.requested_at ?? "").trim();
+  const createdAt = String(patch?.created_at ?? current?.created_at ?? "").trim();
+  const updatedAt = String(patch?.updated_at ?? current?.updated_at ?? "").trim();
+  if (!actionType || !agentId || !status || !requestedBy || !requestedAt || !createdAt || !updatedAt) {
+    return current ?? null;
+  }
+
+  return {
+    id: actionId,
+    action_type: actionType,
+    agent_id: agentId,
+    status,
+    payload: current?.payload || {},
+    requested_by: requestedBy,
+    requested_at: requestedAt,
+    delivered_at: patch?.delivered_at ?? current?.delivered_at ?? null,
+    started_at: patch?.started_at ?? current?.started_at ?? null,
+    finished_at: patch?.finished_at ?? current?.finished_at ?? null,
+    cancelled_at: patch?.cancelled_at ?? current?.cancelled_at ?? null,
+    cancelled_by: patch?.cancelled_by ?? current?.cancelled_by ?? null,
+    last_error: patch?.last_error ?? current?.last_error ?? null,
+    created_at: createdAt,
+    updated_at: updatedAt,
+    expires_at: patch?.expires_at ?? current?.expires_at ?? null,
+  };
+}
+
+function upsertResponseAction(rows: ResponseActionOut[], next: ResponseActionOut): ResponseActionOut[] {
+  const remaining = rows.filter((row) => row.id !== next.id);
+  return [next, ...remaining].slice(0, 25);
+}
+
+function mergeResponseActionResultSummary(
+  current: ResponseActionResultOut | null | undefined,
+  patch: Record<string, any> | null | undefined,
+  actionIdFallback?: number | null,
+): ResponseActionResultOut | null {
+  const actionId = Number(patch?.response_action_id ?? actionIdFallback ?? current?.response_action_id ?? 0);
+  if (!Number.isFinite(actionId) || actionId <= 0) return current ?? null;
+
+  const resultId = Number(patch?.id ?? current?.id ?? 0);
+  const status = String(patch?.status ?? current?.status ?? "").trim();
+  const agentId = String(patch?.agent_id ?? current?.agent_id ?? "").trim();
+  const createdAt = String(patch?.created_at ?? current?.created_at ?? "").trim();
+  const updatedAt = String(patch?.updated_at ?? current?.updated_at ?? "").trim();
+  if (!Number.isFinite(resultId) || resultId <= 0 || !status || !agentId || !createdAt || !updatedAt) {
+    return current ?? null;
+  }
+
+  return {
+    id: resultId,
+    response_action_id: actionId,
+    agent_id: agentId,
+    status,
+    result_payload: current?.result_payload || {},
+    error: patch?.error ?? current?.error ?? null,
+    started_at: patch?.started_at ?? current?.started_at ?? null,
+    finished_at: patch?.finished_at ?? current?.finished_at ?? null,
+    created_at: createdAt,
+    updated_at: updatedAt,
+  };
+}
+
 function parsePositiveInt(v: string | null): number | null {
   const raw = String(v || "").trim();
   if (!raw) return null;
@@ -713,6 +788,88 @@ export default function AgentsPage() {
     detailLive.invalidate();
   });
 
+  usePortalRealtimeSubscription("ui.response_actions.lifecycle.patch", (event) => {
+    if (!responseActionOpen || !isAdmin) return;
+
+    const eventAgentId = String(event.payload?.agent_id ?? event.payload?.workflow?.agent_id ?? "").trim();
+    const eventActionId = Number(event.payload?.action_id ?? event.payload?.workflow?.id ?? event.payload?.result?.response_action_id ?? 0);
+    const activeAgentId = (responseActionAgentId || selectedAgentId || "").trim();
+    const selectedActionId = responseActionSelectedId || responseActionLive?.id || responseActionCreated?.id || 0;
+    const matchesAgent = !activeAgentId || !eventAgentId || eventAgentId === activeAgentId;
+    const matchesAction = selectedActionId > 0 && eventActionId > 0 && eventActionId === selectedActionId;
+    if (!matchesAgent && !matchesAction) return;
+
+    const workflowPatch = (event.payload?.workflow || null) as Record<string, any> | null;
+    const resultPatch = (event.payload?.result || null) as Record<string, any> | null;
+    if (workflowPatch) {
+      setResponseActionHistory((prev) => {
+        const existing = prev.find((row) => row.id === eventActionId) || null;
+        const merged = mergeResponseActionPatch(existing, workflowPatch, eventActionId);
+        if (!merged) return prev;
+        return upsertResponseAction(prev, merged);
+      });
+      setResponseActionLive((prev) => {
+        if (prev && prev.id !== eventActionId) return prev;
+        if (!prev && !matchesAction) return prev;
+        return mergeResponseActionPatch(prev, workflowPatch, eventActionId) ?? prev;
+      });
+      setResponseActionCreated((prev) => {
+        if (!prev || prev.id !== eventActionId) return prev;
+        return mergeResponseActionPatch(prev, workflowPatch, eventActionId) ?? prev;
+      });
+      setResponseActionLiveError(null);
+      setResponseActionHistoryError(null);
+      setResponseActionLiveLoading(false);
+      if (!responseActionSelectedId && eventActionId > 0 && matchesAgent) {
+        setResponseActionSelectedId(eventActionId);
+      }
+    }
+
+    if (resultPatch && matchesAction) {
+      setResponseActionResult((prev) => mergeResponseActionResultSummary(prev, resultPatch, eventActionId));
+      setResponseActionResultError(null);
+      setResponseActionResultLoading(false);
+    }
+
+    const lifecycleEvent = String(event.payload?.lifecycle_event || "").trim().toLowerCase();
+    const requiresReconcile = Boolean(event.payload?.requires_reconcile);
+    const shouldHydrateSelectedResult =
+      matchesAction &&
+      (lifecycleEvent === "completed" ||
+        lifecycleEvent === "failed" ||
+        lifecycleEvent === "cancelled" ||
+        lifecycleEvent === "expired");
+
+    if (shouldHydrateSelectedResult && eventActionId > 0) {
+      void loadResponseActionResult(eventActionId);
+    }
+
+    if (requiresReconcile && eventActionId > 0) {
+      if (matchesAction) {
+        responseActionLiveRefresh.invalidate("invalidate", { immediate: true, supersede: false });
+      } else if (matchesAgent && activeAgentId) {
+        void loadResponseActionHistory(activeAgentId);
+      }
+    }
+  });
+
+  usePortalRealtimeSubscription("ui.workflows.invalidate", (event) => {
+    if (!responseActionOpen || !isAdmin) return;
+
+    const eventAgentId = String(event.payload?.agent_id || "").trim();
+    const eventActionId = Number(event.payload?.action_id ?? 0);
+    const activeAgentId = (responseActionAgentId || selectedAgentId || "").trim();
+    if (eventAgentId && activeAgentId && eventAgentId !== activeAgentId) return;
+    if (eventActionId > 0 && responseActionSelectedId && eventActionId !== responseActionSelectedId) return;
+
+    if (activeAgentId) {
+      void loadResponseActionHistory(activeAgentId);
+    }
+    if (responseActionSelectedId) {
+      responseActionLiveRefresh.invalidate("invalidate", { immediate: true, supersede: false });
+    }
+  });
+
   const timingKeys = useMemo(() => pickTimingKeys(configObj), [configObj]);
 
   const dirty = useMemo(() => {
@@ -1118,7 +1275,7 @@ export default function AgentsPage() {
     enabled:
       responseActionOpen &&
       Boolean(responseActionSelectedId) &&
-      ["pending", "delivered", "running"].includes((responseActionLive?.status || "").trim().toLowerCase()),
+      ["pending", "delivered", "running"].includes((responseActionLiveView?.status || "").trim().toLowerCase()),
     profile: "background-detail",
     refresh: async () => {
       if (!responseActionSelectedId) return;

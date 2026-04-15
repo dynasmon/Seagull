@@ -326,6 +326,129 @@ def project_investigation_timeline_append(
     return out
 
 
+def project_response_action_compact(action: Mapping[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if not isinstance(action, Mapping):
+        return out
+
+    action_id = _to_int(action.get("id"), minimum=1)
+    if action_id is None:
+        return out
+    out["id"] = action_id
+
+    for key, max_len in (
+        ("action_type", 64),
+        ("agent_id", 64),
+        ("status", 24),
+        ("requested_by", 64),
+        ("cancelled_by", 64),
+        ("last_error", 240),
+    ):
+        text = _to_text(action.get(key), max_len=max_len)
+        if text is not None:
+            out[key] = text
+
+    for key in (
+        "requested_at",
+        "delivered_at",
+        "started_at",
+        "finished_at",
+        "cancelled_at",
+        "created_at",
+        "updated_at",
+        "expires_at",
+    ):
+        iso_value = _to_iso(action.get(key))
+        if iso_value is not None:
+            out[key] = iso_value
+
+    return out
+
+
+def project_response_action_result_summary(result: Mapping[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    if not isinstance(result, Mapping):
+        return out
+
+    result_id = _to_int(result.get("id"), minimum=1)
+    if result_id is not None:
+        out["id"] = result_id
+
+    response_action_id = _to_int(result.get("response_action_id"), minimum=1)
+    if response_action_id is not None:
+        out["response_action_id"] = response_action_id
+
+    for key, max_len in (("agent_id", 64), ("status", 24), ("error", 240)):
+        text = _to_text(result.get(key), max_len=max_len)
+        if text is not None:
+            out[key] = text
+
+    for key in ("started_at", "finished_at", "created_at", "updated_at"):
+        iso_value = _to_iso(result.get(key))
+        if iso_value is not None:
+            out[key] = iso_value
+
+    payload = result.get("result_payload")
+    if isinstance(payload, Mapping):
+        keys: list[str] = []
+        for raw_key in list(payload.keys())[:12]:
+            key = _to_text(raw_key, max_len=64)
+            if key is not None:
+                keys.append(key)
+        out["has_payload"] = bool(keys)
+        out["payload_keys"] = keys
+
+        progress_raw = payload.get("progress") if isinstance(payload.get("progress"), Mapping) else payload
+        progress_percent = _to_int(
+            progress_raw.get("percent") if isinstance(progress_raw, Mapping) else None,
+            minimum=0,
+            maximum=100,
+        )
+        progress_stage = _to_text(progress_raw.get("stage") if isinstance(progress_raw, Mapping) else None, max_len=64)
+        progress_message = _to_text(
+            progress_raw.get("message") if isinstance(progress_raw, Mapping) else None,
+            max_len=160,
+        )
+        if progress_percent is not None or progress_stage is not None or progress_message is not None:
+            progress: dict[str, Any] = {}
+            if progress_percent is not None:
+                progress["percent"] = progress_percent
+            if progress_stage is not None:
+                progress["stage"] = progress_stage
+            if progress_message is not None:
+                progress["message"] = progress_message
+            out["progress"] = progress
+
+    return out
+
+
+def project_response_action_lifecycle_patch(
+    *,
+    lifecycle_event: str,
+    workflow: Mapping[str, Any],
+    result: Mapping[str, Any] | None = None,
+    requires_reconcile: bool = False,
+) -> dict[str, Any]:
+    workflow_out = project_response_action_compact(workflow)
+    if not workflow_out:
+        return {}
+
+    out: dict[str, Any] = {
+        "action_id": int(workflow_out["id"]),
+        "agent_id": str(workflow_out.get("agent_id") or ""),
+        "lifecycle_event": str(lifecycle_event or "heartbeat").strip().lower() or "heartbeat",
+        "workflow": workflow_out,
+        "requires_reconcile": bool(requires_reconcile),
+    }
+
+    if isinstance(result, Mapping):
+        result_out = project_response_action_result_summary(result)
+        if result_out:
+            out["result"] = result_out
+
+    return out
+
+
 def project_compact_event_row(raw: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(raw, Mapping):
         return {}
