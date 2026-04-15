@@ -27,6 +27,12 @@ const getCache = new Map<string, { expiresAt: number; value: any }>();
 const getInFlight = new Map<string, Promise<any>>();
 
 const DEFAULT_API_TIMEOUT_MS = 15000;
+const PUBLIC_AUTH_PATHS = new Set([
+  "/api/auth/login",
+  "/api/auth/refresh",
+  "/api/auth/features",
+  "/api/auth/otp/login",
+]);
 
 export type ApiRequestInit = RequestInit & {
   timeoutMs?: number;
@@ -58,6 +64,16 @@ function isAbortErrorLike(error: unknown): boolean {
 
 export function isAbortError(error: unknown): boolean {
   return isAbortErrorLike(error);
+}
+
+function stripQuery(path: string): string {
+  const value = String(path || "");
+  const queryIdx = value.indexOf("?");
+  return queryIdx >= 0 ? value.slice(0, queryIdx) : value;
+}
+
+function isPublicAuthEndpoint(path: string): boolean {
+  return PUBLIC_AUTH_PATHS.has(stripQuery(path));
 }
 
 async function fetchWithPolicy(path: string, init?: ApiRequestInit): Promise<Response> {
@@ -201,6 +217,7 @@ function invalidateGetCache(prefix?: string) {
 
 export async function apiFetch<T>(path: string, init?: ApiRequestInit): Promise<T> {
   const isAuthEndpoint = path.startsWith("/api/auth/");
+  const isPublicAuth = isAuthEndpoint && isPublicAuthEndpoint(path);
 
   const doFetch = async (): Promise<Response> => {
     const headers: Record<string, string> = {
@@ -213,7 +230,7 @@ export async function apiFetch<T>(path: string, init?: ApiRequestInit): Promise<
     }
 
     // Attach bearer for protected endpoints
-    if (!isAuthEndpoint && accessToken) {
+    if ((!isAuthEndpoint || !isPublicAuth) && accessToken) {
       headers["Authorization"] = `Bearer ${accessToken}`;
     }
 
@@ -227,7 +244,7 @@ export async function apiFetch<T>(path: string, init?: ApiRequestInit): Promise<
   };
 
   let res = await doFetch();
-  if (res.status === 401 && !isAuthEndpoint) {
+  if (res.status === 401 && !isPublicAuth) {
     // Attempt one refresh + retry.
     const newTok = await refreshAccessToken();
     if (newTok) {
