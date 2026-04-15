@@ -55,6 +55,12 @@ payload = {
     "schema_version": schema_version,
     "project_name": project_name,
     "keys": {key: values.get(key, "") for key in keys},
+    "file_keys": {
+        "NETWATCH_REDIS_PASSWORD_FILE": {
+            "path": values.get("NETWATCH_REDIS_PASSWORD_FILE", ""),
+            "sha256": file_sha(values.get("NETWATCH_REDIS_PASSWORD_FILE", "")),
+        },
+    },
 }
 print(sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest())
 PY

@@ -121,30 +121,19 @@ services:
   redis:
     image: redis:7-alpine
     container_name: netwatch-redis
-    command: >
-      sh -ec '
-      REDIS_PASSWORD="$${NETWATCH_REDIS_PASSWORD:-}";
-      if [ -z "$$REDIS_PASSWORD" ] && [ -n "$${NETWATCH_REDIS_PASSWORD_FILE:-}" ]; then
-        REDIS_PASSWORD="$$(cat "$${NETWATCH_REDIS_PASSWORD_FILE}")";
-      fi;
-      if [ -n "$$REDIS_PASSWORD" ]; then
-        exec redis-server --appendonly yes --appendfsync everysec --save "" --requirepass "$$REDIS_PASSWORD";
-      fi;
-      exec redis-server --appendonly yes --appendfsync everysec --save "";
-      '
+    command: ["/bin/sh", "/etc/netwatch/redis/start.sh"]
     environment:
       NETWATCH_REDIS_PASSWORD: ${NETWATCH_REDIS_PASSWORD:-}
       NETWATCH_REDIS_PASSWORD_FILE: ${NETWATCH_REDIS_PASSWORD_FILE:-}
+      NETWATCH_REDIS_CONFIG_FILE: /etc/netwatch/redis/redis.dev.conf
+      NETWATCH_REDIS_STRICT_PASSWORD: "false"
     volumes:
+      - ./infra/redis:/etc/netwatch/redis:ro
       - redis-data:/data
     networks:
       - netwatch
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "REDIS_PASSWORD=\"$${NETWATCH_REDIS_PASSWORD:-}\"; if [ -z \"$$REDIS_PASSWORD\" ] && [ -n \"$${NETWATCH_REDIS_PASSWORD_FILE:-}\" ]; then REDIS_PASSWORD=\"$$(cat \"$${NETWATCH_REDIS_PASSWORD_FILE}\")\"; fi; if [ -n \"$$REDIS_PASSWORD\" ]; then redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG; else redis-cli ping | grep -q PONG; fi",
-        ]
+      test: ["CMD", "/bin/sh", "/etc/netwatch/redis/healthcheck.sh"]
       interval: 5s
       timeout: 3s
       retries: 30

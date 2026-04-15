@@ -1,4 +1,10 @@
 services:
+  redis:
+    environment:
+      NETWATCH_REDIS_CONFIG_FILE: /etc/netwatch/redis/${NETWATCH_REDIS_DEV_CONFIG:-redis.dev.conf}
+      NETWATCH_REDIS_STRICT_PASSWORD: "false"
+    stop_grace_period: ${NETWATCH_REDIS_STOP_GRACE_PERIOD:-10s}
+
   caddy:
     image: caddy:2.10-alpine
     depends_on:

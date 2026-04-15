@@ -11,25 +11,38 @@ ENV_EXAMPLE := .env.example
 PROD_CORE_SERVICES := postgres redis elasticsearch clickhouse netwatch-backend netwatch-ingest-pipeline netwatch-intelligence-worker netwatch-maintenance-worker netwatch-portal caddy
 PROD_AGENT_SERVICES := netwatch-agent-core netwatch-agent-sensor
 SYSTEMD_AGENT ?= 0
+DEV_REDIS_PERSIST ?= 0
 SYSTEMD_AGENT_ENABLED := $(filter 1 true TRUE yes YES y Y,$(SYSTEMD_AGENT))
+DEV_REDIS_PERSIST_ENABLED := $(filter 1 true TRUE yes YES y Y,$(DEV_REDIS_PERSIST))
 DEV_DOCKER_AGENT_SCALE_ARGS :=
 DEV_DOCKER_AGENT_SERVICES := netwatch-agent-core netwatch-agent-sensor
+DEV_COMPOSE_FILES := $(COMPOSE_DEV)
+DEV_TLS_COMPOSE_FILES := $(COMPOSE_DEV_TLS)
+DEV_REDIS_ENV :=
 
 ifneq ($(SYSTEMD_AGENT_ENABLED),)
 DEV_DOCKER_AGENT_SCALE_ARGS := --scale netwatch-agent-core=0 --scale netwatch-agent-sensor=0
 DEV_DOCKER_AGENT_SERVICES :=
 endif
 
+ifneq ($(DEV_REDIS_PERSIST_ENABLED),)
+DEV_REDIS_ENV := NETWATCH_REDIS_DEV_CONFIG=redis.dev.persist.conf NETWATCH_REDIS_STOP_GRACE_PERIOD=30s
+endif
+
 PYTHON ?= python3
 PIP ?= pip3
 
-.PHONY: help bootstrap bootstrap-tools agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-tls prod up up-extra up-observability prod-observability down restart restart-quick systemd-agent-install systemd-agent-restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check ci
+.PHONY: help bootstrap bootstrap-tools agent-tokens-bootstrap prod-agent-tokens-bootstrap admin-reset dev-preflight env-init prod-setup prod-prepare prod-fresh prod-state-clear dev dev-persist dev-tls prod up up-extra up-observability prod-observability down restart restart-persist restart-quick systemd-agent-install systemd-agent-restart ps logs build build-dev build-prod pull clean nuke psql db-upgrade db-current lint test test-detections deps-check redis-repair-aof ci
 
 help:
 	@echo "Targets:"
 	@echo "  make dev           - bootstrap and start development stack"
-	@echo "  make dev-preflight - validate local prerequisites for make dev"
+	@echo "  make dev-persist   - start development stack with persistent Redis"
 	@echo "  make dev-tls       - start development stack with stricter HTTPS cookie/proxy settings"
+	@echo "  make restart       - restart development stack"
+	@echo "  make restart-persist - restart development stack with persistent Redis"
+	@echo "  * use SYSTEMD_AGENT=1 for host-managed agents"
+	@echo "  * use DEV_REDIS_PERSIST=1 to keep Redis state in dev"
 	@echo "  make env-init      - interactive wizard for critical production .env values"
 	@echo "  make prod-setup    - run env wizard, validate prod config, then stop"
 	@echo "  make prod          - bootstrap and start production-style stack (auto-heals first-run drift)"
@@ -39,10 +52,9 @@ help:
 	@echo "  make up-extra      - start development stack with profile 'extra'"
 	@echo "  make up-observability - start optional Grafana/Kibana profile in development"
 	@echo "  make prod-observability - start optional Grafana/Kibana profile in production"
+	@echo "  make redis-repair-aof - back up and repair persistent Redis AOF state"
 	@echo "  make down          - stop stack (dev profile by default)"
-	@echo "  make restart       - restart development stack"
 	@echo "  make restart-quick - recreate development containers without rebuild"
-	@echo "  * set SYSTEMD_AGENT=1 to keep docker agent-core/sensor stopped (systemd mode)"
 	@echo "  make systemd-agent-install - install/update the host systemd netwatch-agent deployment"
 	@echo "  make systemd-agent-restart - restart only host systemd netwatch-agent service"
 	@echo "  make ps            - list services (dev profile by default)"
@@ -51,6 +63,7 @@ help:
 	@echo "  make build-prod    - build prod images"
 	@echo "  make db-upgrade    - run alembic upgrade head in backend container"
 	@echo "  make db-current    - show current alembic revision in backend container"
+	@echo "  make dev-preflight - validate local prerequisites for make dev"
 	@echo "  make lint          - lint backend, frontend and agent"
 	@echo "  make test          - run minimal automated tests"
 	@echo "  make test-detections - run detection content validation suite"
@@ -90,21 +103,24 @@ prod-prepare: bootstrap
 
 # Single-command bootstrap for development.
 dev: dev-preflight
-	$(DC) $(COMPOSE_DEV) up -d --build --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) up -d --build --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
 ifneq ($(SYSTEMD_AGENT_ENABLED),)
 	@echo "[dev] SYSTEMD_AGENT=$(SYSTEMD_AGENT) -> skipping docker agent bootstrap/recreate"
 else
 	@$(MAKE) agent-tokens-bootstrap
-	$(DC) $(COMPOSE_DEV) up -d --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SERVICES)
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) up -d --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SERVICES)
 endif
 
+dev-persist: DEV_REDIS_PERSIST=1
+dev-persist: dev
+
 dev-tls: dev-preflight
-	$(DC) $(COMPOSE_DEV_TLS) up -d --build --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
+	$(DEV_REDIS_ENV) $(DC) $(DEV_TLS_COMPOSE_FILES) up -d --build --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
 ifneq ($(SYSTEMD_AGENT_ENABLED),)
 	@echo "[dev-tls] SYSTEMD_AGENT=$(SYSTEMD_AGENT) -> skipping docker agent bootstrap/recreate"
 else
 	@$(MAKE) agent-tokens-bootstrap
-	$(DC) $(COMPOSE_DEV_TLS) up -d --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SERVICES)
+	$(DEV_REDIS_ENV) $(DC) $(DEV_TLS_COMPOSE_FILES) up -d --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SERVICES)
 endif
 
 # Single-command bootstrap for production-like runs.
@@ -145,30 +161,33 @@ prod-state-clear:
 up: dev
 
 up-extra: dev-preflight
-	$(DC) $(COMPOSE_DEV) --profile extra up -d --build --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) --profile extra up -d --build --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
 ifneq ($(SYSTEMD_AGENT_ENABLED),)
 	@echo "[up-extra] SYSTEMD_AGENT=$(SYSTEMD_AGENT) -> skipping docker agent bootstrap/recreate for core/sensor"
-	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate --remove-orphans netwatch-agent-lateral
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) --profile extra up -d --force-recreate --remove-orphans netwatch-agent-lateral
 else
 	@$(MAKE) agent-tokens-bootstrap
-	$(DC) $(COMPOSE_DEV) --profile extra up -d --force-recreate --remove-orphans netwatch-agent-core netwatch-agent-sensor netwatch-agent-lateral
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) --profile extra up -d --force-recreate --remove-orphans netwatch-agent-core netwatch-agent-sensor netwatch-agent-lateral
 endif
 
 up-observability: dev-preflight
-	$(DC) $(COMPOSE_DEV) --profile observability up -d --build grafana kibana
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) --profile observability up -d --build grafana kibana
 
 prod-observability: bootstrap bootstrap-tools prod-prepare
 	$(DC) $(COMPOSE_PROD) --profile observability up -d --build grafana kibana
 
 down:
-	$(DC) $(COMPOSE_DEV) down --remove-orphans
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) down --remove-orphans
 
 restart: dev-preflight
-	$(DC) $(COMPOSE_DEV) down --remove-orphans
-	$(DC) $(COMPOSE_DEV) up -d --build --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) down --remove-orphans
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) up -d --build --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
+
+restart-persist: DEV_REDIS_PERSIST=1
+restart-persist: restart
 
 restart-quick: dev-preflight
-	$(DC) $(COMPOSE_DEV) up -d --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) up -d --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
 
 systemd-agent-install:
 	sudo env AUTO_START_IF_READY=1 bash deploy/systemd/install-agent.sh
@@ -178,19 +197,19 @@ systemd-agent-restart:
 	sudo systemctl status netwatch-agent --no-pager
 
 ps:
-	$(DC) $(COMPOSE_DEV) ps
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) ps
 
 logs:
 	@if [ -z "$(SVC)" ]; then \
-		$(DC) $(COMPOSE_DEV) logs -f; \
+		$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) logs -f; \
 	else \
-		$(DC) $(COMPOSE_DEV) logs -f $(SVC); \
+		$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) logs -f $(SVC); \
 	fi
 
 build: build-dev
 
 build-dev:
-	$(DC) $(COMPOSE_DEV) build
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) build
 
 build-prod:
 	$(DC) $(COMPOSE_PROD) build
@@ -199,19 +218,19 @@ pull:
 	$(DC) $(COMPOSE_BASE) pull
 
 clean:
-	$(DC) $(COMPOSE_DEV) down --remove-orphans
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) down --remove-orphans
 
 nuke:
-	$(DC) $(COMPOSE_DEV) down -v --remove-orphans
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) down -v --remove-orphans
 
 psql:
-	$(DC) $(COMPOSE_DEV) exec postgres psql -U $$POSTGRES_USER -d $$POSTGRES_DB
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) exec postgres psql -U $$POSTGRES_USER -d $$POSTGRES_DB
 
 db-upgrade:
-	$(DC) $(COMPOSE_DEV) run --rm --build netwatch-backend python -m alembic upgrade head
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) run --rm --build netwatch-backend python -m alembic upgrade head
 
 db-current:
-	$(DC) $(COMPOSE_DEV) run --rm --build netwatch-backend python -m alembic current
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) run --rm --build netwatch-backend python -m alembic current
 
 lint:
 	cd backend && $(PYTHON) -m ruff check app tests
@@ -232,5 +251,8 @@ deps-check:
 	cd frontend && npm audit --audit-level=high
 	cd agent && go install golang.org/x/vuln/cmd/govulncheck@latest
 	cd agent && govulncheck ./...
+
+redis-repair-aof:
+	@sh ./scripts/redis/repair-aof.sh
 
 ci: lint test build-prod
