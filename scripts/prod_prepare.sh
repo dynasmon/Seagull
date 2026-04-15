@@ -146,6 +146,33 @@ require_env_secret() {
   exit 1
 }
 
+require_env_secret_or_file() {
+  key="$1"
+  file_key="$2"
+  min_len="$3"
+  bytes="$4"
+  file_path="$(read_env_value "$file_key")"
+
+  if [ -n "$file_path" ]; then
+    if [ ! -r "$file_path" ]; then
+      echo "[prod-prepare] ${file_key} points to a missing or unreadable file: ${file_path}" >&2
+      exit 1
+    fi
+    file_value="$(tr -d '\r\n' < "$file_path")"
+    if [ -z "$file_value" ] || [ "${#file_value}" -lt "$min_len" ]; then
+      echo "[prod-prepare] secret from ${file_key} is too short (min ${min_len} chars)" >&2
+      exit 1
+    fi
+    if looks_insecure_secret "$file_value"; then
+      echo "[prod-prepare] insecure placeholder detected in ${file_key}" >&2
+      exit 1
+    fi
+    return 0
+  fi
+
+  require_env_secret "$key" "$min_len" "$bytes"
+}
+
 reject_env_pair_conflict() {
   left="$1"
   right="$2"
@@ -158,7 +185,7 @@ reject_env_pair_conflict() {
 }
 
 require_env_secret "POSTGRES_PASSWORD" 12 36
-require_env_secret "NETWATCH_REDIS_PASSWORD" 12 36
+require_env_secret_or_file "NETWATCH_REDIS_PASSWORD" "NETWATCH_REDIS_PASSWORD_FILE" 12 36
 require_env_secret "NETWATCH_ES_PASSWORD" 12 36
 require_env_secret "NETWATCH_JWT_SECRET" 32 48
 require_env_secret "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD" 12 36
