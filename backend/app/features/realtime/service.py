@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -9,9 +10,12 @@ from typing import Any, Dict, Iterable, Optional
 from jose import jwt
 
 from app.core.config import settings
+from app.core.observability import incr_counter, log_event
 from app.core.portal_auth import PortalPrincipal
 from app.core.realtime import portal_realtime_topics, publish_portal_realtime_message
 from app.features.realtime.schemas import RealtimeEnvelope
+
+logger = logging.getLogger("netwatch.api.realtime.service")
 
 
 STREAM_TOKEN_TYPE = "stream_bootstrap"
@@ -301,7 +305,22 @@ def publish_realtime(
     mode: str | None = None,
 ) -> bool:
     envelope = build_realtime_envelope(event_type=event_type, payload=payload, topic=topic, scope=scope, mode=mode)
-    return publish_portal_realtime_message(envelope.as_json(), topic=envelope.topic)
+    ok = publish_portal_realtime_message(envelope.as_json(), topic=envelope.topic)
+    incr_counter(
+        "realtime_publish_total",
+        topic=envelope.topic,
+        event_type=envelope.type,
+        outcome="published" if ok else "dropped",
+    )
+    if not ok:
+        log_event(
+            logger,
+            "warning",
+            "realtime_publish_dropped",
+            topic=envelope.topic,
+            event_type=envelope.type,
+        )
+    return ok
 
 
 def _cursor_to_int(cursor: str | None) -> int:
@@ -388,6 +407,7 @@ def allow_envelope_for_stream(
 def coalesce_realtime_envelopes(envelopes: Iterable[RealtimeEnvelope]) -> list[RealtimeEnvelope]:
     out: list[RealtimeEnvelope] = []
     invalidate_positions: dict[tuple[str, str, str], int] = {}
+    coalesced_total = 0
 
     for envelope in envelopes:
         if envelope.mode == "invalidate" and envelope.topic in TOPIC_COALESCED_INVALIDATES:
@@ -395,9 +415,12 @@ def coalesce_realtime_envelopes(envelopes: Iterable[RealtimeEnvelope]) -> list[R
             existing_index = invalidate_positions.get(key)
             if existing_index is not None:
                 out[existing_index] = envelope
+                coalesced_total += 1
                 continue
             invalidate_positions[key] = len(out)
         out.append(envelope)
+    if coalesced_total > 0:
+        incr_counter("realtime_delivery_coalesced_total", value=float(coalesced_total), kind="invalidate")
     return out
 
 

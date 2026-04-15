@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import {
   createPortalRealtimeClient,
   type RealtimeConnectionSnapshot,
+  type RealtimeDiagnosticsSnapshot,
   type PortalRealtimeAnyListener,
   type PortalRealtimeClient,
   type PortalRealtimeEventListener,
@@ -14,11 +15,13 @@ import type { PortalRealtimeAnyEvent, PortalRealtimeEventType } from "@/shared/r
 type PortalRealtimeContextValue = {
   status: RealtimeConnectionStatus;
   connection: RealtimeConnectionSnapshot;
+  diagnostics: RealtimeDiagnosticsSnapshot;
   subscribe: <K extends PortalRealtimeEventType>(
     eventType: K,
     listener: PortalRealtimeEventListener<K>,
   ) => () => void;
   subscribeAll: (listener: PortalRealtimeAnyListener) => () => void;
+  noteFallbackPollingActivation: () => void;
 };
 
 const PortalRealtimeContext = createContext<PortalRealtimeContextValue | null>(null);
@@ -32,6 +35,7 @@ export function PortalRealtimeProvider({ children, enabled = true }: { children:
 
   const [status, setStatus] = useState<RealtimeConnectionStatus>(client.status);
   const [connection, setConnection] = useState<RealtimeConnectionSnapshot>(client.connection);
+  const [diagnostics, setDiagnostics] = useState<RealtimeDiagnosticsSnapshot>(client.diagnostics);
 
   useEffect(() => {
     const unsubscribe = client.subscribeStatus((nextStatus) => {
@@ -43,6 +47,13 @@ export function PortalRealtimeProvider({ children, enabled = true }: { children:
   useEffect(() => {
     const unsubscribe = client.subscribeConnection((nextConnection) => {
       setConnection(nextConnection);
+    });
+    return unsubscribe;
+  }, [client]);
+
+  useEffect(() => {
+    const unsubscribe = client.subscribeDiagnostics((nextDiagnostics) => {
+      setDiagnostics(nextDiagnostics);
     });
     return unsubscribe;
   }, [client]);
@@ -68,14 +79,21 @@ export function PortalRealtimeProvider({ children, enabled = true }: { children:
     [client],
   );
 
+  const noteFallbackPollingActivation = useCallback<PortalRealtimeContextValue["noteFallbackPollingActivation"]>(
+    () => client.noteFallbackPollingActivation(),
+    [client],
+  );
+
   const value = useMemo<PortalRealtimeContextValue>(
     () => ({
       status,
       connection,
+      diagnostics,
       subscribe,
       subscribeAll,
+      noteFallbackPollingActivation,
     }),
-    [connection, status, subscribe, subscribeAll],
+    [connection, diagnostics, noteFallbackPollingActivation, status, subscribe, subscribeAll],
   );
 
   return <PortalRealtimeContext.Provider value={value}>{children}</PortalRealtimeContext.Provider>;

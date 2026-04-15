@@ -19,6 +19,8 @@
 	handle @portal_sse {
 		reverse_proxy netwatch-backend:8000 {
 			flush_interval -1
+			header_down Cache-Control "no-cache, no-transform"
+			header_down X-Accel-Buffering "no"
 		}
 	}
 

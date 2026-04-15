@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Awaitable, Callable
@@ -10,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from app.core.config import settings
+from app.core.observability import incr_counter, log_event
 from app.core.portal_auth import PortalPrincipal, get_current_user
 from app.core.realtime import (
     PORTAL_REALTIME_REPLAY_MAX_EVENTS,
@@ -35,6 +37,7 @@ from app.features.realtime.service import (
     topic_invalidate_event,
 )
 
+logger = logging.getLogger("netwatch.api.realtime")
 
 router = APIRouter(
     prefix="/realtime",
@@ -102,6 +105,52 @@ def _build_invalidate_envelope(
     )
 
 
+def _record_stream_attempt(*, transport: str, outcome: str, topics: list[str] | None = None, detail: str | None = None) -> None:
+    incr_counter("realtime_stream_connections_total", transport=transport, outcome=outcome)
+    if outcome != "accepted":
+        log_event(
+            logger,
+            "warning",
+            "realtime_stream_rejected",
+            transport=transport,
+            outcome=outcome,
+            topics=",".join(topics or ()),
+            detail=detail or "",
+        )
+
+
+def _record_stream_open(*, transport: str, topics: list[str], replay_after_cursor: int) -> None:
+    incr_counter("realtime_stream_connections_total", transport=transport, outcome="opened")
+    if replay_after_cursor > 0:
+        incr_counter("realtime_stream_reconnect_total", transport=transport)
+    log_event(
+        logger,
+        "info",
+        "realtime_stream_opened",
+        transport=transport,
+        topics=",".join(topics),
+        replay_after_cursor=max(0, int(replay_after_cursor or 0)),
+    )
+
+
+def _record_stream_close(*, transport: str, reason: str) -> None:
+    incr_counter("realtime_stream_disconnect_total", transport=transport, reason=reason)
+    log_event(logger, "info", "realtime_stream_closed", transport=transport, reason=reason)
+
+
+def _record_replay_failure(*, reason: str, topics: list[str], replay_after_cursor: int, resume_to_cursor: int) -> None:
+    incr_counter("realtime_cursor_gap_total", reason=reason)
+    log_event(
+        logger,
+        "warning",
+        "realtime_replay_reconcile_required",
+        reason=reason,
+        topics=",".join(topics),
+        replay_after_cursor=max(0, int(replay_after_cursor or 0)),
+        resume_to_cursor=max(0, int(resume_to_cursor or 0)),
+    )
+
+
 def _filter_delivery_batch(
     *,
     entries: list[PortalRealtimeStreamEntry],
@@ -156,6 +205,12 @@ async def _iter_stream_batches(
         last_stream_id = replay_window.entries[-1].stream_id
         if replay_after_cursor > 0 and replay_window.latest_cursor > replay_after_cursor:
             if replay_after_cursor < (replay_window.earliest_cursor - 1):
+                _record_replay_failure(
+                    reason="cursor_gap",
+                    topics=topics,
+                    replay_after_cursor=replay_after_cursor,
+                    resume_to_cursor=replay_window.latest_cursor,
+                )
                 last_cursor = max(last_cursor, replay_window.latest_cursor)
                 yield [
                     _build_invalidate_envelope(
@@ -169,11 +224,17 @@ async def _iter_stream_batches(
             else:
                 pending = [entry for entry in replay_window.entries if entry.cursor > replay_after_cursor]
                 if len(pending) > replay_cap:
+                    _record_replay_failure(
+                        reason="replay_overflow",
+                        topics=topics,
+                        replay_after_cursor=replay_after_cursor,
+                        resume_to_cursor=replay_window.latest_cursor,
+                    )
                     last_cursor = max(last_cursor, replay_window.latest_cursor)
                     yield [
                         _build_invalidate_envelope(
                             topic=topic,
-                            reason="cursor_lag",
+                            reason="replay_overflow",
                             resume_from_cursor=replay_after_cursor,
                             resume_to_cursor=replay_window.latest_cursor,
                         )
@@ -227,23 +288,49 @@ async def _websocket_is_disconnected(websocket: WebSocket) -> bool:
     )
 
 
-def _resolve_stream_session(*, stream_token: str, topics: str | None) -> tuple[StreamPrincipal, list[str], object]:
+def _resolve_stream_session(*, stream_token: str, topics: str | None, transport: str) -> tuple[StreamPrincipal, list[str], object]:
     try:
         principal = decode_stream_token(stream_token)
     except ValueError as exc:
+        _record_stream_attempt(transport=transport, outcome="invalid_token", detail="invalid stream token")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid stream token") from exc
 
     requested_topics = parse_requested_topics(topics)
     if not requested_topics:
         requested_topics = list(available_realtime_topics())
     resolved_topics = resolve_stream_topics(principal=principal, requested_topics=requested_topics)
+    rejected_topics = [topic for topic in requested_topics if topic not in resolved_topics]
+    if rejected_topics:
+        incr_counter("realtime_unauthorized_topic_total", transport=transport)
+        log_event(
+            logger,
+            "warning",
+            "realtime_unauthorized_topics",
+            transport=transport,
+            username=principal.username,
+            requested_topics=",".join(requested_topics),
+            rejected_topics=",".join(rejected_topics),
+        )
     if not resolved_topics:
+        _record_stream_attempt(
+            transport=transport,
+            outcome="unauthorized_topic",
+            topics=requested_topics,
+            detail="no realtime topics allowed",
+        )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No realtime topics allowed")
 
     redis_client = get_redis(decode_responses=True)
     if redis_client is None:
+        _record_stream_attempt(
+            transport=transport,
+            outcome="redis_unavailable",
+            topics=resolved_topics,
+            detail="redis unavailable",
+        )
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Realtime unavailable")
 
+    _record_stream_attempt(transport=transport, outcome="accepted", topics=resolved_topics)
     return principal, resolved_topics, redis_client
 
 
@@ -254,29 +341,40 @@ async def _stream_events(
     redis_client: object,
     topics: list[str],
     replay_after_cursor: int,
+    transport: str,
 ) -> AsyncGenerator[str, None]:
     keepalive_seconds = _sse_keepalive_seconds()
     last_keepalive = time.monotonic()
 
+    _record_stream_open(transport=transport, topics=topics, replay_after_cursor=replay_after_cursor)
     yield format_sse_chunk(comment="stream-open")
 
-    async for batch in _iter_stream_batches(
-        disconnect_check=lambda: _request_is_disconnected(request),
-        principal=principal,
-        redis_client=redis_client,
-        topics=topics,
-        replay_after_cursor=replay_after_cursor,
-    ):
-        if batch:
-            for envelope in batch:
-                yield format_sse_chunk(event=envelope.type, sse_id=envelope.cursor, data=envelope.as_json())
-            last_keepalive = time.monotonic()
-            continue
+    try:
+        async for batch in _iter_stream_batches(
+            disconnect_check=lambda: _request_is_disconnected(request),
+            principal=principal,
+            redis_client=redis_client,
+            topics=topics,
+            replay_after_cursor=replay_after_cursor,
+        ):
+            if batch:
+                for envelope in batch:
+                    yield format_sse_chunk(event=envelope.type, sse_id=envelope.cursor, data=envelope.as_json())
+                last_keepalive = time.monotonic()
+                continue
 
-        now = time.monotonic()
-        if now - last_keepalive >= float(keepalive_seconds):
-            last_keepalive = now
-            yield format_sse_chunk(comment="keepalive")
+            now = time.monotonic()
+            if now - last_keepalive >= float(keepalive_seconds):
+                last_keepalive = now
+                yield format_sse_chunk(comment="keepalive")
+    except asyncio.CancelledError:
+        _record_stream_close(transport=transport, reason="cancelled")
+        raise
+    except Exception as exc:
+        _record_stream_close(transport=transport, reason=type(exc).__name__)
+        raise
+    else:
+        _record_stream_close(transport=transport, reason="client_disconnect")
 
 
 @router.get("/portal")
@@ -286,7 +384,7 @@ async def portal_stream_endpoint(
     topics: str | None = Query(None, min_length=1, max_length=256, description="CSV of requested realtime topics"),
     cursor: str | None = Query(None, min_length=1, max_length=64, description="Last processed cursor for replay"),
 ):
-    principal, resolved_topics, redis_client = _resolve_stream_session(stream_token=st, topics=topics)
+    principal, resolved_topics, redis_client = _resolve_stream_session(stream_token=st, topics=topics, transport="sse")
 
     headers = {
         "Cache-Control": "no-cache, no-transform",
@@ -301,6 +399,7 @@ async def portal_stream_endpoint(
             redis_client=redis_client,
             topics=resolved_topics,
             replay_after_cursor=cursor_to_int(cursor),
+            transport="sse",
         ),
         media_type="text/event-stream",
         headers=headers,
@@ -314,12 +413,14 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
     cursor = websocket.query_params.get("cursor")
 
     try:
-        principal, resolved_topics, redis_client = _resolve_stream_session(stream_token=stream_token, topics=topics)
+        principal, resolved_topics, redis_client = _resolve_stream_session(stream_token=stream_token, topics=topics, transport="ws")
     except HTTPException as exc:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=str(exc.detail))
+        close_code = status.WS_1008_POLICY_VIOLATION if exc.status_code in {401, 403} else 1013
+        await websocket.close(code=close_code, reason=str(exc.detail))
         return
 
     await websocket.accept()
+    _record_stream_open(transport="ws", topics=resolved_topics, replay_after_cursor=cursor_to_int(cursor))
 
     keepalive_seconds = _ws_keepalive_seconds()
     last_keepalive = time.monotonic()
@@ -349,6 +450,13 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
                     }
                 )
     except WebSocketDisconnect:
+        _record_stream_close(transport="ws", reason="client_disconnect")
         return
     except RuntimeError:
+        _record_stream_close(transport="ws", reason="runtime_error")
         return
+    except Exception as exc:
+        _record_stream_close(transport="ws", reason=type(exc).__name__)
+        raise
+    else:
+        _record_stream_close(transport="ws", reason="client_disconnect")

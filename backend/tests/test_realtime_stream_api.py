@@ -61,7 +61,10 @@ class _FakeRedis:
 
     def xrevrange(self, _key: str, max: str, min: str, count: int):
         _ = (min, max)
-        rows = list(self._replay_rows[-max(1, int(count)) :])
+        limit = int(count)
+        if limit < 1:
+            limit = 1
+        rows = list(self._replay_rows[-limit:])
         rows.reverse()
         return rows
 
@@ -118,6 +121,7 @@ def _collect_stream_chunks(
             redis_client=redis_client,
             topics=topics,
             replay_after_cursor=replay_after_cursor,
+            transport="sse",
         ):
             out.append(chunk)
             if len(out) >= max_chunks:
@@ -298,6 +302,40 @@ def test_stream_events_emits_invalidate_on_cursor_gap() -> None:
     assert "cursor_gap" in full
 
 
+def test_stream_events_emits_invalidate_on_replay_overflow(monkeypatch) -> None:
+    monkeypatch.setattr(realtime_api, "_replay_delivery_max", lambda: 1)
+    chunks = _collect_stream_chunks(
+        replay_rows=[
+            _make_stream_row(
+                stream_id="1700000001000-0",
+                cursor=7,
+                envelope_json=(
+                    '{"version":2,"topic":"overview","type":"overview.patch","cursor":"7",'
+                    '"timestamp":"2026-04-09T12:00:00Z","scope":"portal:realtime","mode":"patch","payload":{}}'
+                ),
+            ),
+            _make_stream_row(
+                stream_id="1700000001001-0",
+                cursor=8,
+                envelope_json=(
+                    '{"version":2,"topic":"overview","type":"overview.patch","cursor":"8",'
+                    '"timestamp":"2026-04-09T12:00:01Z","scope":"portal:realtime","mode":"patch","payload":{}}'
+                ),
+            ),
+        ],
+        live_batches=[],
+        principal=_admin_principal(),
+        topics=["overview"],
+        replay_after_cursor=6,
+        max_disconnect_checks=2,
+        max_chunks=4,
+    )
+
+    full = "".join(chunks)
+    assert "event: ui.overview.invalidate" in full
+    assert "replay_overflow" in full
+
+
 def test_stream_events_drops_malformed_payload_without_raw_echo() -> None:
     chunks = _collect_stream_chunks(
         replay_rows=[],
@@ -364,8 +402,14 @@ def test_websocket_endpoint_replays_events_with_same_envelope_schema() -> None:
     try:
         with TestClient(app) as client:
             with client.websocket_connect(f"/realtime/portal/ws?st={_stream_token_with_claims()}&topics=overview&cursor=3") as ws:
-                message = ws.receive_text()
-                body = json.loads(message)
+                body = None
+                for _ in range(3):
+                    message = ws.receive_text()
+                    payload = json.loads(message)
+                    if "type" in payload:
+                        body = payload
+                        break
+                assert body is not None
                 assert body["type"] == "overview.patch"
                 assert body["cursor"] == "4"
                 assert body["topic"] == "overview"
