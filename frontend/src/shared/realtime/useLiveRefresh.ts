@@ -60,7 +60,7 @@ function readVisibility(): boolean {
 
 export function useLiveRefresh(options: UseLiveRefreshOptions) {
   const { enabled = true, onError } = options;
-  const { status: realtimeStatus } = usePortalRealtime();
+  const { status: realtimeStatus, noteFallbackPollingActivation } = usePortalRealtime();
   const profile = useMemo(() => resolveLiveRefreshProfile(options.profile), [options.profile]);
 
   const [isVisible, setIsVisible] = useState<boolean>(() => readVisibility());
@@ -86,6 +86,7 @@ export function useLiveRefresh(options: UseLiveRefreshOptions) {
   const prevRealtimeStatusRef = useRef(realtimeStatus);
   const prevVisibleRef = useRef(isVisible);
   const mountReasonRef = useRef<LiveRefreshReason>("mount");
+  const prevFallbackPollingRef = useRef(enabled && realtimeStatus !== "open");
 
   useEffect(() => {
     refreshRef.current = options.refresh;
@@ -304,6 +305,14 @@ export function useLiveRefresh(options: UseLiveRefreshOptions) {
     }
     prevVisibleRef.current = isVisible;
   }, [enabled, invalidate, isVisible, profile.immediateRefreshOnVisible]);
+
+  useEffect(() => {
+    const isFallbackPolling = enabled && realtimeStatus !== "open";
+    if (isFallbackPolling && !prevFallbackPollingRef.current) {
+      noteFallbackPollingActivation();
+    }
+    prevFallbackPollingRef.current = isFallbackPolling;
+  }, [enabled, noteFallbackPollingActivation, realtimeStatus]);
 
   useEffect(() => {
     return () => {

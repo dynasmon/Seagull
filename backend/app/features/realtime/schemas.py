@@ -73,6 +73,19 @@ class RealtimeEnvelope(BaseModel):
             if v.tzinfo is None:
                 return v.replace(tzinfo=timezone.utc)
             return v.astimezone(timezone.utc)
+        if isinstance(v, str):
+            raw = v.strip()
+            if not raw:
+                return datetime.now(timezone.utc)
+            if raw.endswith("Z"):
+                raw = f"{raw[:-1]}+00:00"
+            try:
+                parsed = datetime.fromisoformat(raw)
+            except ValueError as exc:
+                raise ValueError("timestamp must be a valid ISO datetime") from exc
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
         raise ValueError("timestamp must be a datetime")
 
     def as_dict(self) -> Dict[str, Any]:

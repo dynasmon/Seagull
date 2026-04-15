@@ -5,7 +5,8 @@ import { applyAgentHeartbeatRealtime } from "@/app/agents_realtime";
 import { listAgents } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
 import { AuthProvider, useAuth } from "@/features/auth/context";
-import { PortalRealtimeProvider, useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
+import { PortalRealtimeProvider, useLiveRefresh, usePortalRealtime, usePortalRealtimeSubscription } from "@/shared/realtime";
+import StatusBanner from "@/shared/components/StatusBanner";
 import { getErrorMessage } from "@/shared/lib/errors";
 
 type Theme = "dark" | "light";
@@ -163,8 +164,35 @@ function AgentsProvider({ children }: { children: ReactNode }) {
 
   return (
     <AgentsContext.Provider value={agentsValue}>
+      <RealtimeStatusNotice />
       {children}
     </AgentsContext.Provider>
+  );
+}
+
+function RealtimeStatusNotice() {
+  const { connection, diagnostics } = usePortalRealtime();
+
+  if (connection.status === "open" && !connection.isFallbackTransport) return null;
+  if (connection.status === "stopped" || connection.status === "idle") return null;
+
+  const transportLabel = connection.transport ? connection.transport.toUpperCase() : "none";
+  const lastFailure = diagnostics.lastFailureKind
+    ? `${diagnostics.lastFailureKind}${diagnostics.lastFailureMessage ? `: ${diagnostics.lastFailureMessage}` : ""}`
+    : "realtime reconnect in progress";
+
+  if (connection.status === "retrying" || connection.status === "connecting") {
+    return (
+      <StatusBanner tone="warning">
+        Realtime is reconnecting. Transport: {transportLabel}. Next retry in about {Math.round(diagnostics.lastReconnectDelayMs)} ms. Last signal: {lastFailure}.
+      </StatusBanner>
+    );
+  }
+
+  return (
+    <StatusBanner tone="info">
+      Realtime is running in degraded mode over {transportLabel}. Fallback transport or polling is active to keep the UI reconciled. Last signal: {lastFailure}.
+    </StatusBanner>
   );
 }
 

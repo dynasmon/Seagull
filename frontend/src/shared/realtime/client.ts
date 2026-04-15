@@ -4,6 +4,7 @@ import {
   requestRealtimeStreamToken,
   type StreamTokenOut,
 } from "@/shared/realtime/api";
+import type { HttpError } from "@/shared/lib/http";
 import {
   PORTAL_REALTIME_EVENT_MODE,
   PORTAL_REALTIME_EVENT_SCOPE,
@@ -32,6 +33,26 @@ export type RealtimeConnectionSnapshot = {
   isVisible: boolean;
 };
 export type RealtimeConnectionListener = (connection: RealtimeConnectionSnapshot) => void;
+export type RealtimeDiagnosticsSnapshot = {
+  reconnectCount: number;
+  fallbackTransportCount: number;
+  fallbackPollingActivations: number;
+  tokenFailureCount: number;
+  invalidTokenCount: number;
+  unauthorizedTopicCount: number;
+  redisUnavailableCount: number;
+  cursorGapCount: number;
+  replayOverflowCount: number;
+  malformedEnvelopeCount: number;
+  duplicateEventCount: number;
+  lastFailureKind: string | null;
+  lastFailureMessage: string | null;
+  lastFailureAt: string | null;
+  lastTransport: RealtimeTransportKind | null;
+  lastCloseCode: number | null;
+  lastReconnectDelayMs: number;
+};
+export type RealtimeDiagnosticsListener = (snapshot: RealtimeDiagnosticsSnapshot) => void;
 
 export type EventSourceLike = {
   addEventListener: (type: string, listener: EventListener) => void;
@@ -66,6 +87,25 @@ const DEFAULT_RECONNECT_MAX_MS = 15000;
 const DEFAULT_BASE_TOPICS: readonly PortalRealtimeTopic[] = ["agents"];
 const DEFAULT_HOT_TOPICS: readonly PortalRealtimeTopic[] = ["investigations", "workflows", "events", "ddos"];
 const RECENT_EVENT_KEY_LIMIT = 256;
+const DEFAULT_DIAGNOSTICS: RealtimeDiagnosticsSnapshot = {
+  reconnectCount: 0,
+  fallbackTransportCount: 0,
+  fallbackPollingActivations: 0,
+  tokenFailureCount: 0,
+  invalidTokenCount: 0,
+  unauthorizedTopicCount: 0,
+  redisUnavailableCount: 0,
+  cursorGapCount: 0,
+  replayOverflowCount: 0,
+  malformedEnvelopeCount: 0,
+  duplicateEventCount: 0,
+  lastFailureKind: null,
+  lastFailureMessage: null,
+  lastFailureAt: null,
+  lastTransport: null,
+  lastCloseCode: null,
+  lastReconnectDelayMs: 0,
+};
 
 function defaultEventSourceFactory(url: string): EventSourceLike {
   return new EventSource(url) as unknown as EventSourceLike;
@@ -86,6 +126,33 @@ function parseCursorValue(value: unknown): number {
   const out = Number(text);
   if (!Number.isFinite(out) || out < 0) return 0;
   return Math.trunc(out);
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function classifyHttpFailure(error: unknown): { kind: string; message: string } {
+  const status = Number((error as Partial<HttpError> | null)?.status ?? 0);
+  const message = error instanceof Error ? error.message : String(error ?? "Realtime bootstrap failed");
+  if (status === 401) return { kind: "invalid_token", message };
+  if (status === 403) return { kind: "unauthorized_topic", message };
+  if (status === 503) return { kind: "redis_unavailable", message };
+  return { kind: "token_failure", message };
+}
+
+function classifySocketClose(code: number, reason: string): { kind: string; message: string } {
+  const normalizedReason = String(reason || "").trim().toLowerCase();
+  if (code === 1008 && normalizedReason.includes("invalid")) {
+    return { kind: "invalid_token", message: reason || "Invalid realtime token" };
+  }
+  if (code === 1008 && normalizedReason.includes("topic")) {
+    return { kind: "unauthorized_topic", message: reason || "Unauthorized realtime topic" };
+  }
+  if (code === 1013 || normalizedReason.includes("unavailable")) {
+    return { kind: "redis_unavailable", message: reason || "Realtime unavailable" };
+  }
+  return { kind: "transport_close", message: reason || `Socket closed (${code || 0})` };
 }
 
 export function decodePortalRealtimeEnvelope(rawData: unknown): PortalRealtimeAnyEvent | null {
@@ -154,6 +221,8 @@ export class PortalRealtimeClient {
   private isFallbackTransportValue = false;
   private readonly statusListeners = new Set<RealtimeStatusListener>();
   private readonly connectionListeners = new Set<RealtimeConnectionListener>();
+  private diagnosticsValue: RealtimeDiagnosticsSnapshot = { ...DEFAULT_DIAGNOSTICS };
+  private readonly diagnosticsListeners = new Set<RealtimeDiagnosticsListener>();
 
   private readonly listenersByType = new Map<PortalRealtimeEventType, Set<PortalRealtimeAnyListener>>();
   private readonly anyListeners = new Set<PortalRealtimeAnyListener>();
@@ -191,6 +260,10 @@ export class PortalRealtimeClient {
       isFallbackTransport: this.isFallbackTransportValue,
       isVisible: this.isVisible,
     };
+  }
+
+  get diagnostics(): RealtimeDiagnosticsSnapshot {
+    return this.diagnosticsValue;
   }
 
   start(): void {
@@ -231,6 +304,21 @@ export class PortalRealtimeClient {
     return () => {
       this.connectionListeners.delete(listener);
     };
+  }
+
+  subscribeDiagnostics(listener: RealtimeDiagnosticsListener): () => void {
+    this.diagnosticsListeners.add(listener);
+    listener(this.diagnostics);
+    return () => {
+      this.diagnosticsListeners.delete(listener);
+    };
+  }
+
+  noteFallbackPollingActivation(): void {
+    this.updateDiagnostics((current) => ({
+      ...current,
+      fallbackPollingActivations: current.fallbackPollingActivations + 1,
+    }));
   }
 
   subscribe<K extends PortalRealtimeEventType>(eventType: K, listener: PortalRealtimeEventListener<K>): () => void {
@@ -316,6 +404,47 @@ export class PortalRealtimeClient {
     }
   }
 
+  private emitDiagnostics(): void {
+    const snapshot = this.diagnostics;
+    for (const listener of Array.from(this.diagnosticsListeners)) {
+      listener(snapshot);
+    }
+  }
+
+  private updateDiagnostics(
+    updater: (current: RealtimeDiagnosticsSnapshot) => RealtimeDiagnosticsSnapshot,
+  ): void {
+    this.diagnosticsValue = updater(this.diagnosticsValue);
+    this.emitDiagnostics();
+  }
+
+  private recordFailure(
+    kind: string,
+    message: string,
+    opts: {
+      transport?: RealtimeTransportKind | null;
+      closeCode?: number | null;
+    } = {},
+  ): void {
+    this.updateDiagnostics((current) => {
+      const next: RealtimeDiagnosticsSnapshot = {
+        ...current,
+        lastFailureKind: kind,
+        lastFailureMessage: message,
+        lastFailureAt: nowIso(),
+        lastTransport: opts.transport ?? current.lastTransport ?? null,
+        lastCloseCode: opts.closeCode ?? current.lastCloseCode ?? null,
+      };
+      if (kind === "token_failure") next.tokenFailureCount += 1;
+      if (kind === "invalid_token") next.invalidTokenCount += 1;
+      if (kind === "unauthorized_topic") next.unauthorizedTopicCount += 1;
+      if (kind === "redis_unavailable") next.redisUnavailableCount += 1;
+      if (kind === "cursor_gap") next.cursorGapCount += 1;
+      if (kind === "replay_overflow") next.replayOverflowCount += 1;
+      return next;
+    });
+  }
+
   private ensureConnected(): void {
     if (!this.running || this.activeTransportHandle() || this.connectInFlight) return;
     this.setConnectionState({
@@ -333,7 +462,9 @@ export class PortalRealtimeClient {
     let tokenOut: StreamTokenOut;
     try {
       tokenOut = await this.tokenProvider();
-    } catch {
+    } catch (error) {
+      const failure = classifyHttpFailure(error);
+      this.recordFailure(failure.kind, failure.message, { transport: this.transportValue });
       this.scheduleReconnect();
       return;
     }
@@ -342,6 +473,9 @@ export class PortalRealtimeClient {
 
     const streamToken = String(tokenOut?.stream_token || "").trim();
     if (!streamToken) {
+      this.recordFailure("token_failure", "Realtime token endpoint returned an empty token", {
+        transport: this.transportValue,
+      });
       this.scheduleReconnect();
       return;
     }
@@ -373,6 +507,12 @@ export class PortalRealtimeClient {
       transport,
       isFallbackTransport: this.connectTransportIndex > 0,
     });
+    if (this.connectTransportIndex > 0) {
+      this.updateDiagnostics((current) => ({
+        ...current,
+        fallbackTransportCount: current.fallbackTransportCount + 1,
+      }));
+    }
 
     try {
       if (transport === "ws") {
@@ -396,8 +536,10 @@ export class PortalRealtimeClient {
         this.attachSource(source, transport);
         this.source = source;
       }
-    } catch {
-      this.handleTransportFailure(transport);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Realtime transport bootstrap failed";
+      this.recordFailure("transport_open_failed", message, { transport });
+      this.handleTransportFailure(transport, { kind: "transport_open_failed", message });
     }
   }
 
@@ -408,7 +550,7 @@ export class PortalRealtimeClient {
     };
     source.onerror = () => {
       if (source !== this.source) return;
-      this.handleTransportFailure(transport);
+      this.handleTransportFailure(transport, { kind: "transport_error", message: "SSE connection failed" });
     };
     source.onmessage = (event) => {
       this.handleIncomingData("message", event.data);
@@ -432,11 +574,16 @@ export class PortalRealtimeClient {
     };
     socket.onerror = () => {
       if (socket !== this.socket) return;
-      this.handleTransportFailure(transport);
+      this.handleTransportFailure(transport, { kind: "transport_error", message: "WebSocket transport error" });
     };
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (socket !== this.socket) return;
-      this.handleTransportFailure(transport);
+      const failure = classifySocketClose(event.code, event.reason);
+      this.handleTransportFailure(transport, {
+        kind: failure.kind,
+        message: failure.message,
+        closeCode: event.code,
+      });
     };
     socket.onmessage = (event) => {
       this.handleIncomingData("message", event.data);
@@ -452,8 +599,17 @@ export class PortalRealtimeClient {
     this.setConnectionState({ status: "open", isFallbackTransport: this.connectTransportIndex > 0 });
   }
 
-  private handleTransportFailure(transport: RealtimeTransportKind): void {
+  private handleTransportFailure(
+    transport: RealtimeTransportKind,
+    meta: { kind?: string; message?: string; closeCode?: number } = {},
+  ): void {
     if (transport !== this.transportValue) return;
+    if (meta.kind) {
+      this.recordFailure(meta.kind, meta.message || "Realtime transport failure", {
+        transport,
+        closeCode: meta.closeCode ?? null,
+      });
+    }
 
     const canFallback = !this.transportOpened && this.connectTransportIndex + 1 < this.connectOrder.length;
     this.teardownTransport();
@@ -510,6 +666,11 @@ export class PortalRealtimeClient {
 
     this.setConnectionState({ status: "retrying", transport: null, isFallbackTransport: false });
     const delayMs = this.nextReconnectDelayMs();
+    this.updateDiagnostics((current) => ({
+      ...current,
+      reconnectCount: current.reconnectCount + 1,
+      lastReconnectDelayMs: delayMs,
+    }));
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.ensureConnected();
@@ -594,7 +755,9 @@ export class PortalRealtimeClient {
 
   private nextReconnectDelayMs(): number {
     const exponent = Math.min(this.reconnectAttempt, 5);
-    const delayMs = Math.min(this.reconnectMaxMs, this.reconnectBaseMs * 2 ** exponent);
+    const baseDelayMs = Math.min(this.reconnectMaxMs, this.reconnectBaseMs * 2 ** exponent);
+    const jitteredDelayMs = Math.round(baseDelayMs * (0.85 + Math.random() * 0.3));
+    const delayMs = Math.max(this.reconnectBaseMs, Math.min(this.reconnectMaxMs, jitteredDelayMs));
     this.reconnectAttempt += 1;
     return delayMs;
   }
@@ -632,12 +795,30 @@ export class PortalRealtimeClient {
 
   private handleIncomingData(eventType: string, data: unknown): void {
     const envelope = decodePortalRealtimeEnvelope(data);
-    if (!envelope) return;
+    if (!envelope) {
+      this.updateDiagnostics((current) => ({
+        ...current,
+        malformedEnvelopeCount: current.malformedEnvelopeCount + 1,
+      }));
+      return;
+    }
     if (eventType !== "message" && envelope.type !== eventType) return;
     const eventKey = this.buildEventKey(envelope);
-    if (this.rememberEventKey(eventKey)) return;
+    if (this.rememberEventKey(eventKey)) {
+      this.updateDiagnostics((current) => ({
+        ...current,
+        duplicateEventCount: current.duplicateEventCount + 1,
+      }));
+      return;
+    }
     const cursor = parseCursorValue(envelope.cursor);
     if (cursor > this.lastCursor) this.lastCursor = cursor;
+    const reason = String((envelope.payload as Record<string, unknown> | null)?.reason ?? "").trim().toLowerCase();
+    if (reason === "cursor_gap" || reason === "replay_overflow") {
+      this.recordFailure(reason, `Realtime requested reconciliation: ${reason}`, {
+        transport: this.transportValue,
+      });
+    }
     this.dispatch(envelope);
   }
 

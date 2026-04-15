@@ -9,6 +9,7 @@ os.environ.setdefault("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
 
 from app.core import realtime as core_realtime
+from app.core.observability import snapshot_metrics
 from app.features.realtime import service
 
 
@@ -70,6 +71,9 @@ def test_publish_portal_realtime_message_writes_stream_entry(monkeypatch) -> Non
     assert envelope["cursor"] == "1"
     assert envelope["topic"] == "overview"
 
+    metrics = snapshot_metrics()
+    assert any(item["name"] == "realtime_publish_topic_total" and item["labels"].get("topic") == "overview" for item in metrics["counters"])
+
 
 def test_publish_realtime_rejects_non_json_payload() -> None:
     with pytest.raises(ValueError, match="JSON-serializable"):
@@ -79,3 +83,23 @@ def test_publish_realtime_rejects_non_json_payload() -> None:
 def test_publish_realtime_rejects_non_object_payload() -> None:
     with pytest.raises(ValueError, match="payload must be an object"):
         service.publish_realtime("overview.updated", ["bad"])  # type: ignore[arg-type]
+
+
+def test_coalesce_realtime_envelopes_records_counter() -> None:
+    first = service.build_realtime_envelope(
+        event_type="ui.overview.invalidate",
+        payload={"reason": "cursor_gap"},
+        cursor="10",
+    )
+    second = service.build_realtime_envelope(
+        event_type="ui.overview.invalidate",
+        payload={"reason": "replay_overflow"},
+        cursor="11",
+    )
+
+    out = service.coalesce_realtime_envelopes([first, second])
+    assert len(out) == 1
+    assert out[0].payload["reason"] == "replay_overflow"
+
+    metrics = snapshot_metrics()
+    assert any(item["name"] == "realtime_delivery_coalesced_total" for item in metrics["counters"])
