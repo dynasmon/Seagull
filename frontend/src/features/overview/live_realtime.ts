@@ -455,9 +455,7 @@ export function reconcileFetchedOverviewSnapshot(
     ...next,
     kpis: {
       ...next.kpis,
-      events_5m: intOrZero(current.kpis.events_5m),
       alerts_60m: Math.max(intOrZero(current.kpis.alerts_60m), intOrZero(next.kpis.alerts_60m)),
-      last_event_age_m: current.kpis.last_event_age_m,
     },
     meta: {
       ...next.meta,
