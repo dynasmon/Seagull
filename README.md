@@ -379,6 +379,32 @@ or with raw compose:
 docker compose -f docker-compose.yml -f compose.dev.yml --profile observability up -d grafana kibana
 ```
 
+### Redis modes
+
+- Dev default: `redis.dev.conf`
+  - Ephemeral.
+  - Writes to `/tmp/redis`, so old Redis state does not poison normal restart loops.
+  - Normal usage stays simple: `make dev` or `make SYSTEMD_AGENT=1 restart`.
+- Dev persistent: `redis.dev.persist.conf`
+  - Uses the same dev compose files and shared `redis-data` volume.
+  - Use only when testing persistence or restart recovery.
+  - Shortcuts: `make dev-persist`, `make restart-persist`, or `make SYSTEMD_AGENT=1 DEV_REDIS_PERSIST=1 restart`.
+- Prod: `redis.prod.conf`
+  - Uses `redis-data`.
+  - Fails fast if `NETWATCH_REDIS_PASSWORD` or `NETWATCH_REDIS_PASSWORD_FILE` is missing.
+
+Persistent Redis recovery is explicit and manual:
+
+```bash
+make redis-repair-aof
+```
+
+The repair command:
+
+- requires the Redis container to be stopped first
+- creates a timestamped backup inside the Redis volume before modifying files
+- runs `redis-check-aof --fix` against the detected manifest or legacy AOF file
+
 ### 5. Open the Portal
 
 - Recommended (dev TLS edge): `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}`
