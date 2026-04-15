@@ -7,7 +7,7 @@ import type { OverviewSnapshot, StormStatus } from "@/features/overview/types";
 import { Card } from "@/shared/components/Card";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
-import { useLiveRefresh } from "@/shared/realtime";
+import { useLiveRefresh, usePortalRealtime } from "@/shared/realtime";
 import { Table } from "@/shared/components/Table";
 import InternalRefreshToolbar from "@/features/internal/components/InternalRefreshToolbar";
 import InternalStatTile from "@/features/internal/components/InternalStatTile";
@@ -40,6 +40,7 @@ function topCounts(values: string[], limit = 8) {
 }
 
 export default function InternalDebugView() {
+  const { connection, diagnostics } = usePortalRealtime();
   const [overview, setOverview] = useState<OverviewSnapshot | null>(null);
   const [storm, setStorm] = useState<StormStatus | null>(null);
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
@@ -122,6 +123,11 @@ export default function InternalDebugView() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <InternalStatTile label="Backend" value={backendUp ? "UP" : "DOWN"} tone={backendUp ? "good" : "warn"} />
+        <InternalStatTile
+          label="Realtime"
+          value={`${connection.status}${connection.transport ? `/${connection.transport}` : ""}`}
+          tone={connection.status === "open" && !connection.isFallbackTransport ? "good" : "warn"}
+        />
         <InternalStatTile label="Online agents" value={overview?.kpis.online_agents ?? "-"} tone="good" />
         <InternalStatTile label="Events / 5m" value={overview?.kpis.events_5m ?? "-"} />
         <InternalStatTile
@@ -176,6 +182,20 @@ export default function InternalDebugView() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
+        <Card title="Realtime Diagnostics" right={connection.isFallbackTransport ? "degraded" : (connection.transport || connection.status)}>
+          <div className="grid grid-cols-2 gap-3">
+            <InternalStatTile label="Reconnects" value={diagnostics.reconnectCount} tone={diagnostics.reconnectCount > 0 ? "warn" : "default"} />
+            <InternalStatTile label="Fallback polls" value={diagnostics.fallbackPollingActivations} tone={diagnostics.fallbackPollingActivations > 0 ? "warn" : "default"} />
+            <InternalStatTile label="Fallback transport" value={diagnostics.fallbackTransportCount} tone={diagnostics.fallbackTransportCount > 0 ? "warn" : "default"} />
+            <InternalStatTile label="Cursor gaps" value={diagnostics.cursorGapCount} tone={diagnostics.cursorGapCount > 0 ? "warn" : "good"} />
+            <InternalStatTile label="Replay overflow" value={diagnostics.replayOverflowCount} tone={diagnostics.replayOverflowCount > 0 ? "warn" : "good"} />
+            <InternalStatTile label="Malformed envelopes" value={diagnostics.malformedEnvelopeCount} tone={diagnostics.malformedEnvelopeCount > 0 ? "warn" : "good"} />
+          </div>
+          <div className="mt-3 text-xs text-muted-foreground">
+            Last failure: {diagnostics.lastFailureKind || "-"} {diagnostics.lastFailureMessage ? `(${diagnostics.lastFailureMessage})` : ""}
+          </div>
+        </Card>
+
         <Card title="Event Type Distribution" right={`Sample ${events.length}`}>
           {eventTypeRows.length === 0 ? (
             <EmptyState title="No events" hint="No recent events returned." />

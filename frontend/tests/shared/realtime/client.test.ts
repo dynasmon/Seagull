@@ -78,8 +78,8 @@ class FakeWebSocket implements WebSocketLike {
     this.onerror?.({} as Event);
   }
 
-  emitClose(): void {
-    this.onclose?.({} as CloseEvent);
+  emitClose(code = 1000, reason = ""): void {
+    this.onclose?.({ code, reason } as CloseEvent);
   }
 
   emitMessage(rawData: string): void {
@@ -384,11 +384,54 @@ describe("PortalRealtimeClient", () => {
     expect(listener).toHaveBeenCalledTimes(1);
     expect(client.connection.transport).toBe("ws");
 
-    sockets[0]?.emitClose();
+    sockets[0]?.emitClose(1006, "transport dropped");
     await waitForTick(6);
 
     expect(sockets).toHaveLength(2);
     expect(sockets[1]?.url).toContain("cursor=11");
+
+    client.stop();
+  });
+
+  it("records diagnostics for replay recovery and explicit websocket auth failures", async () => {
+    const tokenProvider = vi
+      .fn<() => Promise<StreamTokenOut>>()
+      .mockResolvedValueOnce(tokenOut("token-auth-a"))
+      .mockResolvedValueOnce(tokenOut("token-auth-b"));
+    const sockets: FakeWebSocket[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      reconnectBaseMs: 1,
+      reconnectMaxMs: 1,
+    });
+
+    client.subscribe("ui.events.invalidate", vi.fn());
+    client.start();
+    await waitForTick(2);
+    sockets[0]?.emitOpen();
+    sockets[0]?.emitMessage(
+      JSON.stringify({
+        version: 2,
+        topic: "events",
+        type: "ui.events.invalidate",
+        cursor: "17",
+        timestamp: "2026-04-09T12:00:00Z",
+        scope: "portal:realtime",
+        mode: "invalidate",
+        payload: { reason: "replay_overflow" },
+      }),
+    );
+    sockets[0]?.emitClose(1008, "Invalid stream token");
+    await waitForTick(6);
+
+    expect(client.diagnostics.replayOverflowCount).toBe(1);
+    expect(client.diagnostics.invalidTokenCount).toBeGreaterThanOrEqual(1);
+    expect(client.diagnostics.reconnectCount).toBeGreaterThanOrEqual(1);
 
     client.stop();
   });

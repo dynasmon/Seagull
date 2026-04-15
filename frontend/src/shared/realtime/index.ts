@@ -15,6 +15,8 @@ export {
   type PortalRealtimeEventListener,
   type RealtimeConnectionListener,
   type RealtimeConnectionSnapshot,
+  type RealtimeDiagnosticsListener,
+  type RealtimeDiagnosticsSnapshot,
   type RealtimeConnectionStatus,
   type RealtimeTransportKind,
   type WebSocketLike,

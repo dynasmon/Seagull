@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.observability import log_event
+from app.core.observability import incr_counter, log_event
 from app.core.redis_client import get_redis
 
 
@@ -194,6 +194,7 @@ def publish_portal_realtime_message(message: str, *, topic: str | None = None) -
 
     redis_client = get_redis(decode_responses=True)
     if redis_client is None:
+        incr_counter("realtime_publish_dropped_total", reason="redis_unavailable")
         return False
 
     payload = _parse_message_json(message)
@@ -215,8 +216,10 @@ def publish_portal_realtime_message(message: str, *, topic: str | None = None) -
             maxlen=PORTAL_REALTIME_REPLAY_MAX_EVENTS,
             approximate=True,
         )
+        incr_counter("realtime_publish_topic_total", topic=event_topic)
         return True
     except Exception as exc:
+        incr_counter("realtime_publish_dropped_total", reason=type(exc).__name__)
         log_event(
             logger,
             "warning",

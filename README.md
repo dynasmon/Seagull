@@ -553,6 +553,14 @@ API runtime observability:
 - `X-Request-Id`, `X-Trace-Id`, `X-Response-Time-Ms` response headers
 - clearer error payloads with `request_id`
 - in-memory debugging metrics at `GET /metrics`
+- realtime counters in `GET /metrics` for stream opens/reconnects/disconnects, publish/drop paths, topic publishes, coalescing, cursor gaps, and replay overflow recovery
+
+Hybrid realtime operations:
+
+- portal realtime stays on the existing `/api/realtime/portal` (SSE) and `/api/realtime/portal/ws` (WebSocket) routes in both dev and prod
+- Caddy dev and prod force non-buffered SSE delivery with `flush_interval -1`, `Cache-Control: no-cache, no-transform`, and `X-Accel-Buffering: no`
+- websocket failures, invalid tokens, unauthorized topics, Redis unavailability, cursor gaps, and replay overflow now emit explicit logs/counters instead of silently degrading
+- the frontend keeps bounded reconnect backoff and falls back to reconciliation/polling when live delivery is degraded; the internal debug view exposes the client-side fallback/reconnect counters
 
 Tracing (local/simple):
 
