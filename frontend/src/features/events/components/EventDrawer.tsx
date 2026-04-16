@@ -20,6 +20,7 @@ import { pinEventToWorkspace } from "@/features/investigations/api";
 
 import type { NetEvent } from "../types";
 import { fmtDateTime } from "../lib/aggregates";
+import { formatProtocolLabel, getEventProtocolIntel } from "../lib/protocol";
 import EventDetailsPanel from "./EventDetailsPanel";
 
 function fmtAddr(ip?: string | null, port?: number | null) {
@@ -83,6 +84,8 @@ export default function EventDrawer({
     if (!event) return "-";
     return `${fmtAddr(event.src_ip, event.src_port)} → ${fmtAddr(event.dst_ip, event.dst_port)}`;
   }, [event]);
+
+  const protocol = useMemo(() => (event ? getEventProtocolIntel(event) : null), [event]);
 
   return (
     <Drawer
@@ -176,13 +179,61 @@ export default function EventDrawer({
           />
 
           {tab === "summary" ? (
-            <InvestigationSection title="High-value facts" subtitle="Start with network path, protocol, and event identity.">
+            <InvestigationSection
+              title="High-value facts"
+              subtitle="Start with network path, transport protocol, and app-layer classification."
+            >
               <InvestigationSummaryGrid>
                 <InvestigationFactCard label="Event ID" value={`#${event.id}`} mono />
                 <InvestigationFactCard label="Agent" value={agentLabel} mono />
                 <InvestigationFactCard label="Type" value={<Badge variant="info">{event.event_type}</Badge>} />
                 <InvestigationFactCard label="Network path" value={netSummary} mono />
-                <InvestigationFactCard label="Protocol" value={event.proto || "-"} mono />
+                <InvestigationFactCard
+                  label="Application protocol"
+                  value={
+                    protocol?.appProto ? (
+                      <Badge variant="info">{formatProtocolLabel(protocol.appProto)}</Badge>
+                    ) : (
+                      "-"
+                    )
+                  }
+                  hint={
+                    protocol?.appProtoReason
+                      ? `${protocol.appProtoReason}${protocol.appProtoConfBand ? ` · ${protocol.appProtoConfBand}` : ""}`
+                      : protocol?.hint || undefined
+                  }
+                />
+                <InvestigationFactCard
+                  label="Transport protocol"
+                  value={protocol?.transportProto ? formatProtocolLabel(protocol.transportProto) : "-"}
+                  mono
+                />
+                {protocol?.hint ? <InvestigationFactCard label="Context" value={protocol.hint} mono /> : null}
+                {protocol?.appProto === "http" && protocol.httpHost ? (
+                  <InvestigationFactCard label="HTTP host" value={protocol.httpHost} mono />
+                ) : null}
+                {protocol?.appProto === "http" && protocol.httpMethod ? (
+                  <InvestigationFactCard label="HTTP method" value={protocol.httpMethod} mono />
+                ) : null}
+                {protocol?.appProto === "dns" && protocol.dnsQname ? (
+                  <InvestigationFactCard label="DNS qname" value={protocol.dnsQname} mono />
+                ) : null}
+                {(protocol?.appProto === "tls" || protocol?.appProto === "quic" || protocol?.appProto === "dtls") &&
+                protocol.tlsSni ? (
+                  <InvestigationFactCard label="TLS SNI" value={protocol.tlsSni} mono />
+                ) : null}
+                {(protocol?.appProto === "tls" || protocol?.appProto === "quic" || protocol?.appProto === "dtls") &&
+                protocol.tlsAlpnFirst ? (
+                  <InvestigationFactCard label="ALPN" value={protocol.tlsAlpnFirst} mono />
+                ) : null}
+                {(protocol?.appProto === "tls" || protocol?.appProto === "quic" || protocol?.appProto === "dtls") &&
+                protocol.ja3 ? (
+                  <InvestigationFactCard label="JA3" value={protocol.ja3} mono />
+                ) : null}
+                {(protocol?.appProto === "tls" || protocol?.appProto === "quic" || protocol?.appProto === "dtls") &&
+                protocol.ja4 ? (
+                  <InvestigationFactCard label="JA4" value={protocol.ja4} mono />
+                ) : null}
                 <InvestigationFactCard
                   label="Bytes"
                   value={typeof event.bytes === "number" ? String(event.bytes) : "-"}
