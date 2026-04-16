@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE="${NETWATCH_AGENT_ENV_FILE:-/etc/netwatch/agent.env}"
+ENV_FILE="${SEAGULL_AGENT_ENV_FILE:-/etc/seagull/agent.env}"
 
 trim() {
   local s="$1"
@@ -27,15 +27,15 @@ main() {
   fi
 
   local source_file target_file
-  source_file="$(trim "$(read_env_value NETWATCH_TLS_CA_SOURCE_FILE "${ENV_FILE}")")"
-  target_file="$(trim "$(read_env_value NETWATCH_TLS_CA_FILE "${ENV_FILE}")")"
+  source_file="$(trim "$(read_env_value SEAGULL_TLS_CA_SOURCE_FILE "${ENV_FILE}")")"
+  target_file="$(trim "$(read_env_value SEAGULL_TLS_CA_FILE "${ENV_FILE}")")"
 
   if [[ -z "${target_file}" ]]; then
-    target_file="/etc/netwatch/pki/root_ca.crt"
+    target_file="/etc/seagull/pki/root_ca.crt"
   fi
 
   if [[ -z "${source_file}" ]]; then
-    log "NETWATCH_TLS_CA_SOURCE_FILE is empty; keeping existing CA target ${target_file}"
+    log "SEAGULL_TLS_CA_SOURCE_FILE is empty; keeping existing CA target ${target_file}"
     return 0
   fi
 

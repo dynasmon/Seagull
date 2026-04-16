@@ -2,11 +2,11 @@
 set -eu
 
 resolve_secret() {
-  value="${NETWATCH_REDIS_PASSWORD:-}"
-  file_path="${NETWATCH_REDIS_PASSWORD_FILE:-}"
+  value="${SEAGULL_REDIS_PASSWORD:-}"
+  file_path="${SEAGULL_REDIS_PASSWORD_FILE:-}"
 
   if [ -n "$value" ] && [ -n "$file_path" ]; then
-    echo "[redis-healthcheck] NETWATCH_REDIS_PASSWORD and NETWATCH_REDIS_PASSWORD_FILE cannot both be set" >&2
+    echo "[redis-healthcheck] SEAGULL_REDIS_PASSWORD and SEAGULL_REDIS_PASSWORD_FILE cannot both be set" >&2
     exit 1
   fi
 

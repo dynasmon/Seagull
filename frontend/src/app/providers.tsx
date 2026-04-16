@@ -40,13 +40,13 @@ function applyThemeToDom(theme: Theme) {
 
 export function AppProviders({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
-    const saved = (localStorage.getItem("netwatch_theme") || "").toLowerCase();
+    const saved = (localStorage.getItem("seagull_theme") || "").toLowerCase();
     return saved === "light" ? "light" : "dark";
   });
 
   const setTheme = useCallback((t: Theme) => {
     setThemeState(t);
-    localStorage.setItem("netwatch_theme", t);
+    localStorage.setItem("seagull_theme", t);
     applyThemeToDom(t);
   }, []);
 

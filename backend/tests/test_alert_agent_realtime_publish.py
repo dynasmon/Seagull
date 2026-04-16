@@ -4,8 +4,8 @@ import os
 from datetime import datetime
 from types import SimpleNamespace
 
-os.environ.setdefault("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "true")
-os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
+os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
+os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.features.agents import service as agents_service
 from app.features.alerts import realtime as alerts_realtime

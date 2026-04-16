@@ -12,11 +12,11 @@ from app.core.observability import log_event, setup_logging
 
 
 setup_logging("worker-audit-retention")
-logger = logging.getLogger("netwatch.worker.audit_retention")
+logger = logging.getLogger("seagull.worker.audit_retention")
 
 
 def _interval_seconds() -> float:
-    v = float(settings.NETWATCH_AUDIT_RETENTION_EVERY_SECONDS or 3600.0)
+    v = float(settings.SEAGULL_AUDIT_RETENTION_EVERY_SECONDS or 3600.0)
     return max(30.0, v)
 
 

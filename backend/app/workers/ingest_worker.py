@@ -37,7 +37,7 @@ from app.core.db import engine
 from app.core.config import settings
 from app.core.redis_client import get_redis
 from app.core.db_lifecycle import ensure_database_ready
-from app.core.env_secrets import env_value
+from app.core.env_secrets import env_value, getenv_compat
 from app.core.ingest_control import (
     record_sink_runtime_metric,
     record_worker_progress,
@@ -50,7 +50,7 @@ from app.core.observability import incr_counter, log_event, observe_hist, setup_
 from app.features.events.worker_runtime import NetEventModel, NetEventRollup1sModel, write_clickhouse_events
 
 setup_logging("worker-ingest")
-logger = logging.getLogger("netwatch.worker.ingest")
+logger = logging.getLogger("seagull.worker.ingest")
 
 
 @dataclass(frozen=True)
@@ -86,7 +86,7 @@ def _env_str(name: str, default: str) -> str:
 
 
 def _env_int(name: str, default: int) -> int:
-    v = os.getenv(name)
+    v = getenv_compat(name)
     if v is None:
         return default
     v = v.strip()
@@ -99,7 +99,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_float(name: str, default: float) -> float:
-    v = os.getenv(name)
+    v = getenv_compat(name)
     if v is None:
         return default
     v = v.strip()
@@ -112,7 +112,7 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _env_bool(name: str, default: bool) -> bool:
-    v = os.getenv(name)
+    v = getenv_compat(name)
     if v is None:
         return default
     s = v.strip().lower()
@@ -124,32 +124,32 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def load_config() -> WorkerConfig:
-    qk = _env_str("NETWATCH_INGEST_QUEUE_KEY", "netwatch:ingest:queue")
+    qk = _env_str("SEAGULL_INGEST_QUEUE_KEY", "seagull:ingest:queue")
     return WorkerConfig(
         queue_key=qk,
-        processing_key=_env_str("NETWATCH_INGEST_PROCESSING_KEY", f"{qk}:processing"),
-        batch_messages=max(1, _env_int("NETWATCH_INGEST_WORKER_BATCH_MESSAGES", 50)),
-        idle_sleep_seconds=max(0.1, _env_float("NETWATCH_INGEST_WORKER_IDLE_SLEEP_SECONDS", 0.25)),
-        values_page_size=max(100, _env_int("NETWATCH_INGEST_VALUES_PAGE_SIZE", 1000)),
-        rollup_page_size=max(100, _env_int("NETWATCH_INGEST_ROLLUP_PAGE_SIZE", 500)),
-        warm_enabled=_env_bool("NETWATCH_INGEST_WARM_ENABLED", True),
-        es_url=_env_str("NETWATCH_ES_URL", "http://elasticsearch:9200"),
-        es_index_prefix=_env_str("NETWATCH_ES_INDEX_PREFIX", "netwatch-events"),
-        warm_index_prefix=_env_str("NETWATCH_INGEST_WARM_INDEX_PREFIX", _env_str("NETWATCH_ES_INDEX_PREFIX", "netwatch-events") + "-warm"),
-        warm_ilm_enabled=_env_bool("NETWATCH_INGEST_WARM_ILM_ENABLED", True),
-        warm_ilm_policy=_env_str("NETWATCH_INGEST_WARM_ILM_POLICY", "netwatch-warm-delete-30d"),
-        warm_ilm_delete_after_days=max(1, _env_int("NETWATCH_INGEST_WARM_ILM_DELETE_AFTER_DAYS", 30)),
-        es_request_timeout_seconds=max(5, _env_int("NETWATCH_ES_REQUEST_TIMEOUT_SECONDS", 30)),
-        es_username=env_value("NETWATCH_ES_USERNAME", None),
-        es_password=env_value("NETWATCH_ES_PASSWORD", None),
-        es_verify_certs=_env_bool("NETWATCH_ES_VERIFY_CERTS", True),
-        es_ca_certs=env_value("NETWATCH_ES_CA_CERTS", None),
-        clickhouse_enabled=_env_bool("NETWATCH_CLICKHOUSE_ENABLED", True),
-        clickhouse_required=_env_bool("NETWATCH_CLICKHOUSE_REQUIRED", True),
-        clickhouse_reconnect_seconds=max(1.0, _env_float("NETWATCH_CLICKHOUSE_RECONNECT_SECONDS", 5.0)),
-        clickhouse_sink_queue_max_batches=max(1, _env_int("NETWATCH_INGEST_CLICKHOUSE_SINK_QUEUE_MAX_BATCHES", 128)),
-        warm_sink_queue_max_batches=max(1, _env_int("NETWATCH_INGEST_WARM_SINK_QUEUE_MAX_BATCHES", 128)),
-        sink_max_batch_retries=max(0, _env_int("NETWATCH_INGEST_SINK_MAX_BATCH_RETRIES", 1)),
+        processing_key=_env_str("SEAGULL_INGEST_PROCESSING_KEY", f"{qk}:processing"),
+        batch_messages=max(1, _env_int("SEAGULL_INGEST_WORKER_BATCH_MESSAGES", 50)),
+        idle_sleep_seconds=max(0.1, _env_float("SEAGULL_INGEST_WORKER_IDLE_SLEEP_SECONDS", 0.25)),
+        values_page_size=max(100, _env_int("SEAGULL_INGEST_VALUES_PAGE_SIZE", 1000)),
+        rollup_page_size=max(100, _env_int("SEAGULL_INGEST_ROLLUP_PAGE_SIZE", 500)),
+        warm_enabled=_env_bool("SEAGULL_INGEST_WARM_ENABLED", True),
+        es_url=_env_str("SEAGULL_ES_URL", "http://elasticsearch:9200"),
+        es_index_prefix=_env_str("SEAGULL_ES_INDEX_PREFIX", "seagull-events"),
+        warm_index_prefix=_env_str("SEAGULL_INGEST_WARM_INDEX_PREFIX", _env_str("SEAGULL_ES_INDEX_PREFIX", "seagull-events") + "-warm"),
+        warm_ilm_enabled=_env_bool("SEAGULL_INGEST_WARM_ILM_ENABLED", True),
+        warm_ilm_policy=_env_str("SEAGULL_INGEST_WARM_ILM_POLICY", "seagull-warm-delete-30d"),
+        warm_ilm_delete_after_days=max(1, _env_int("SEAGULL_INGEST_WARM_ILM_DELETE_AFTER_DAYS", 30)),
+        es_request_timeout_seconds=max(5, _env_int("SEAGULL_ES_REQUEST_TIMEOUT_SECONDS", 30)),
+        es_username=env_value("SEAGULL_ES_USERNAME", None),
+        es_password=env_value("SEAGULL_ES_PASSWORD", None),
+        es_verify_certs=_env_bool("SEAGULL_ES_VERIFY_CERTS", True),
+        es_ca_certs=env_value("SEAGULL_ES_CA_CERTS", None),
+        clickhouse_enabled=_env_bool("SEAGULL_CLICKHOUSE_ENABLED", True),
+        clickhouse_required=_env_bool("SEAGULL_CLICKHOUSE_REQUIRED", True),
+        clickhouse_reconnect_seconds=max(1.0, _env_float("SEAGULL_CLICKHOUSE_RECONNECT_SECONDS", 5.0)),
+        clickhouse_sink_queue_max_batches=max(1, _env_int("SEAGULL_INGEST_CLICKHOUSE_SINK_QUEUE_MAX_BATCHES", 128)),
+        warm_sink_queue_max_batches=max(1, _env_int("SEAGULL_INGEST_WARM_SINK_QUEUE_MAX_BATCHES", 128)),
+        sink_max_batch_retries=max(0, _env_int("SEAGULL_INGEST_SINK_MAX_BATCH_RETRIES", 1)),
     )
 
 
@@ -382,7 +382,7 @@ def _ensure_warm_ilm_and_template(es, cfg: WorkerConfig) -> None:
             },
             "priority": 190,
             "_meta": {
-                "project": "dynasmon-netwatch",
+                "project": "dynasmon-seagull",
                 "component": "ingest_worker",
                 "tier": "warm",
             },
@@ -415,7 +415,7 @@ def _requeue_processing_with_retry_cap(r, cfg: WorkerConfig) -> None:
     permanently in draining/shedding without useful backlog convergence.
     """
 
-    max_retries = max(1, _env_int("NETWATCH_INGEST_WORKER_MAX_MESSAGE_RETRIES", 4))
+    max_retries = max(1, _env_int("SEAGULL_INGEST_WORKER_MAX_MESSAGE_RETRIES", 4))
 
     try:
         while True:
@@ -460,7 +460,7 @@ def _decr_backlog_events(r, received: int) -> None:
     """
 
     try:
-        key = _env_str("NETWATCH_INGEST_BACKLOG_EVENTS_KEY", "netwatch:ingest:backlog_events")
+        key = _env_str("SEAGULL_INGEST_BACKLOG_EVENTS_KEY", "seagull:ingest:backlog_events")
         new_v = r.decrby(key, int(received))
         try:
             vv = int(new_v)
@@ -477,8 +477,8 @@ def _record_clickhouse_progress(r, *, rows: int) -> None:
     if r is None or rows <= 0:
         return
     ts_s = int(time.time())
-    rows_key = f"netwatch:ingest:clickhouse:rows:{ts_s}"
-    batches_key = f"netwatch:ingest:clickhouse:batches:{ts_s}"
+    rows_key = f"seagull:ingest:clickhouse:rows:{ts_s}"
+    batches_key = f"seagull:ingest:clickhouse:batches:{ts_s}"
     try:
         pipe = r.pipeline()
         pipe.incrby(rows_key, int(rows))
@@ -495,11 +495,11 @@ def _set_clickhouse_state(r, *, state: str, error_type: str = "") -> None:
         return
     try:
         pipe = r.pipeline()
-        pipe.setex("netwatch:ingest:clickhouse:state", 120, str(state or "unknown"))
+        pipe.setex("seagull:ingest:clickhouse:state", 120, str(state or "unknown"))
         if error_type:
-            pipe.setex("netwatch:ingest:clickhouse:error_type", 120, str(error_type)[:64])
+            pipe.setex("seagull:ingest:clickhouse:error_type", 120, str(error_type)[:64])
         else:
-            pipe.delete("netwatch:ingest:clickhouse:error_type")
+            pipe.delete("seagull:ingest:clickhouse:error_type")
         pipe.execute()
     except Exception:
         return

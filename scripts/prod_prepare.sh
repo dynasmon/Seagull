@@ -5,7 +5,7 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 ENV_FILE="${ENV_FILE:-.env}"
-AUTO_FIX_ENV="${NETWATCH_PROD_AUTO_FIX_ENV:-true}"
+AUTO_FIX_ENV="${SEAGULL_PROD_AUTO_FIX_ENV:-true}"
 
 if [ -f "$ENV_FILE" ]; then
   if grep -Eq '^(<<<<<<<|=======|>>>>>>>)' "$ENV_FILE"; then
@@ -111,7 +111,7 @@ looks_insecure_secret() {
     return 0
   fi
   case "$value" in
-    admin|password|changeme|change_me|change_me_please|secret|netwatch|netwatch123|deprecated)
+    admin|password|changeme|change_me|change_me_please|secret|seagull|seagull123|deprecated)
       return 0
       ;;
     *change_me*)
@@ -185,17 +185,17 @@ reject_env_pair_conflict() {
 }
 
 require_env_secret "POSTGRES_PASSWORD" 12 36
-require_env_secret_or_file "NETWATCH_REDIS_PASSWORD" "NETWATCH_REDIS_PASSWORD_FILE" 12 36
-require_env_secret "NETWATCH_ES_PASSWORD" 12 36
-require_env_secret "NETWATCH_JWT_SECRET" 32 48
-require_env_secret "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD" 12 36
-require_env_secret "NETWATCH_AUDIT_HASH_PEPPER" 32 48
+require_env_secret_or_file "SEAGULL_REDIS_PASSWORD" "SEAGULL_REDIS_PASSWORD_FILE" 12 36
+require_env_secret "SEAGULL_ES_PASSWORD" 12 36
+require_env_secret "SEAGULL_JWT_SECRET" 32 48
+require_env_secret "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD" 12 36
+require_env_secret "SEAGULL_AUDIT_HASH_PEPPER" 32 48
 
 reject_env_pair_conflict "POSTGRES_PASSWORD" "POSTGRES_PASSWORD_FILE"
-reject_env_pair_conflict "NETWATCH_REDIS_PASSWORD" "NETWATCH_REDIS_PASSWORD_FILE"
-reject_env_pair_conflict "NETWATCH_ES_PASSWORD" "NETWATCH_ES_PASSWORD_FILE"
-reject_env_pair_conflict "NETWATCH_JWT_SECRET" "NETWATCH_JWT_SECRET_FILE"
-reject_env_pair_conflict "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD" "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE"
+reject_env_pair_conflict "SEAGULL_REDIS_PASSWORD" "SEAGULL_REDIS_PASSWORD_FILE"
+reject_env_pair_conflict "SEAGULL_ES_PASSWORD" "SEAGULL_ES_PASSWORD_FILE"
+reject_env_pair_conflict "SEAGULL_JWT_SECRET" "SEAGULL_JWT_SECRET_FILE"
+reject_env_pair_conflict "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD" "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE"
 
 if command -v docker >/dev/null 2>&1; then
   if docker compose -f docker-compose.yml -f compose.prod.yml config >/dev/null; then

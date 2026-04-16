@@ -35,10 +35,10 @@ def _get_redis() -> Optional[redis.Redis]:
 
     try:
         _redis_client = redis.Redis(
-            host=settings.NETWATCH_REDIS_HOST,
-            port=settings.NETWATCH_REDIS_PORT,
-            username=settings.NETWATCH_REDIS_USERNAME or None,
-            password=settings.NETWATCH_REDIS_PASSWORD or None,
+            host=settings.SEAGULL_REDIS_HOST,
+            port=settings.SEAGULL_REDIS_PORT,
+            username=settings.SEAGULL_REDIS_USERNAME or None,
+            password=settings.SEAGULL_REDIS_PASSWORD or None,
             decode_responses=True,
             socket_connect_timeout=0.5,
             socket_timeout=0.5,
@@ -83,12 +83,12 @@ def evaluate_storm(agent_id: str, batch_size: int) -> StormDecision:
     """
 
     # Safe defaults (tune via env without code changes).
-    eps_limit = _env_int("NETWATCH_INGEST_STORM_EVENTS_PER_SECOND", 8000)
-    min_batch = _env_int("NETWATCH_INGEST_STORM_MIN_BATCH", 2500)
-    ttl_s = _env_int("NETWATCH_INGEST_STORM_TTL_SECONDS", 20)
+    eps_limit = _env_int("SEAGULL_INGEST_STORM_EVENTS_PER_SECOND", 8000)
+    min_batch = _env_int("SEAGULL_INGEST_STORM_MIN_BATCH", 2500)
+    ttl_s = _env_int("SEAGULL_INGEST_STORM_TTL_SECONDS", 20)
 
     # In storm mode we sample raw events to reduce write amplification.
-    sample_pct = _env_int("NETWATCH_INGEST_STORM_SAMPLE_PERCENT", 2)
+    sample_pct = _env_int("SEAGULL_INGEST_STORM_SAMPLE_PERCENT", 2)
     sample_pct = max(0, min(sample_pct, 100))
 
     # If Redis is unavailable, we can still trigger storm on oversized batches.

@@ -20,7 +20,7 @@ from app.features.alerts.models import AlertModel
 from app.features.alerts.realtime import publish_alert_created_payload, publish_alert_updated_payload
 from app.features.events.models import IngestStats1sModel
 
-logger = logging.getLogger("netwatch.ingest.control")
+logger = logging.getLogger("seagull.ingest.control")
 
 
 def _env_int(name: str, default: int) -> int:
@@ -58,84 +58,84 @@ def _env_bool(name: str, default: bool) -> bool:
 # Redis keys
 
 def queue_key() -> str:
-    return _env_str("NETWATCH_INGEST_QUEUE_KEY", "netwatch:ingest:queue")
+    return _env_str("SEAGULL_INGEST_QUEUE_KEY", "seagull:ingest:queue")
 
 
 def processing_key() -> str:
     qk = queue_key()
-    return _env_str("NETWATCH_INGEST_PROCESSING_KEY", f"{qk}:processing")
+    return _env_str("SEAGULL_INGEST_PROCESSING_KEY", f"{qk}:processing")
 
 
 def backlog_events_key() -> str:
-    return _env_str("NETWATCH_INGEST_BACKLOG_EVENTS_KEY", "netwatch:ingest:backlog_events")
+    return _env_str("SEAGULL_INGEST_BACKLOG_EVENTS_KEY", "seagull:ingest:backlog_events")
 
 
 def _eps_key(ts_s: int) -> str:
-    return f"netwatch:ingest:eps:{ts_s}"
+    return f"seagull:ingest:eps:{ts_s}"
 
 
 def _stats_key(ts_s: int) -> str:
-    return f"netwatch:ingest:stats:{ts_s}"
+    return f"seagull:ingest:stats:{ts_s}"
 
 
 def _flush_lock_key(ts_s: int) -> str:
-    return f"netwatch:ingest:flush:{ts_s}"
+    return f"seagull:ingest:flush:{ts_s}"
 
 
 def storm_active_key() -> str:
-    return _env_str("NETWATCH_INGEST_STORM_ACTIVE_KEY", "netwatch:ingest:storm_active")
+    return _env_str("SEAGULL_INGEST_STORM_ACTIVE_KEY", "seagull:ingest:storm_active")
 
 
 def storm_session_key() -> str:
-    return _env_str("NETWATCH_INGEST_STORM_SESSION_KEY", "netwatch:ingest:storm_session")
+    return _env_str("SEAGULL_INGEST_STORM_SESSION_KEY", "seagull:ingest:storm_session")
 
 
 def storm_since_key() -> str:
-    return _env_str("NETWATCH_INGEST_STORM_SINCE_KEY", "netwatch:ingest:storm_since")
+    return _env_str("SEAGULL_INGEST_STORM_SINCE_KEY", "seagull:ingest:storm_since")
 
 
 def storm_alert_id_key() -> str:
-    return _env_str("NETWATCH_INGEST_STORM_ALERT_ID_KEY", "netwatch:ingest:storm_alert_id")
+    return _env_str("SEAGULL_INGEST_STORM_ALERT_ID_KEY", "seagull:ingest:storm_alert_id")
 
 
 def _events_per_msg_avg_key() -> str:
-    return "netwatch:ingest:events_per_msg_avg"
+    return "seagull:ingest:events_per_msg_avg"
 
 
 def _worker_eps_key(ts_s: int) -> str:
-    return f"netwatch:ingest:worker:eps:{ts_s}"
+    return f"seagull:ingest:worker:eps:{ts_s}"
 
 
 def _worker_msgs_key(ts_s: int) -> str:
-    return f"netwatch:ingest:worker:msgs:{ts_s}"
+    return f"seagull:ingest:worker:msgs:{ts_s}"
 
 
 def _worker_hb_key(worker_id: str) -> str:
-    return f"netwatch:ingest:worker:hb:{worker_id}"
+    return f"seagull:ingest:worker:hb:{worker_id}"
 
 
 def _pressure_state_key() -> str:
-    return "netwatch:ingest:pressure_state"
+    return "seagull:ingest:pressure_state"
 
 
 def _quality_key(ts_s: int) -> str:
-    return f"netwatch:ingest:quality:{ts_s}"
+    return f"seagull:ingest:quality:{ts_s}"
 
 
 def _overview_live_key(ts_s: int) -> str:
-    return f"netwatch:overview:live:1s:{ts_s}"
+    return f"seagull:overview:live:1s:{ts_s}"
 
 
 def _overview_live_dropped_key(ts_s: int) -> str:
-    return f"netwatch:overview:live:dropped:{ts_s}"
+    return f"seagull:overview:live:dropped:{ts_s}"
 
 
 def _sink_counter_key(*, sink: str, metric: str, ts_s: int) -> str:
-    return f"netwatch:ingest:sink:{sink}:{metric}:{ts_s}"
+    return f"seagull:ingest:sink:{sink}:{metric}:{ts_s}"
 
 
 def _sink_depth_key(*, sink: str) -> str:
-    return f"netwatch:ingest:sink:{sink}:queue_depth"
+    return f"seagull:ingest:sink:{sink}:queue_depth"
 
 
 def _safe_text(value: Any) -> str:
@@ -232,15 +232,15 @@ def evaluate_backpressure(*, received: int) -> BackpressureDecision:
     """Decide how to handle ingestion based on Redis backlog.
 
     - soft limit: switch to rollup_only (default)
-    - hard limit: reject 429 or rollup_only depending on NETWATCH_INGEST_BACKPRESSURE_MODE
+    - hard limit: reject 429 or rollup_only depending on SEAGULL_INGEST_BACKPRESSURE_MODE
     """
 
-    soft = max(1, _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000))
-    hard = max(soft + 1, _env_int("NETWATCH_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS", 200_000))
-    soft_exit = max(0, _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_EXIT_BACKLOG_EVENTS", int(soft * 0.6)))
-    hard_exit = max(soft + 1, _env_int("NETWATCH_INGEST_BACKPRESSURE_HARD_EXIT_BACKLOG_EVENTS", int(hard * 0.75)))
-    force_normal_max_msgs = max(0, _env_int("NETWATCH_INGEST_BACKPRESSURE_FORCE_NORMAL_MAX_MESSAGES", 4))
-    mode = _env_str("NETWATCH_INGEST_BACKPRESSURE_MODE", "rollup_only").lower().strip()
+    soft = max(1, _env_int("SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000))
+    hard = max(soft + 1, _env_int("SEAGULL_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS", 200_000))
+    soft_exit = max(0, _env_int("SEAGULL_INGEST_BACKPRESSURE_SOFT_EXIT_BACKLOG_EVENTS", int(soft * 0.6)))
+    hard_exit = max(soft + 1, _env_int("SEAGULL_INGEST_BACKPRESSURE_HARD_EXIT_BACKLOG_EVENTS", int(hard * 0.75)))
+    force_normal_max_msgs = max(0, _env_int("SEAGULL_INGEST_BACKPRESSURE_FORCE_NORMAL_MAX_MESSAGES", 4))
+    mode = _env_str("SEAGULL_INGEST_BACKPRESSURE_MODE", "rollup_only").lower().strip()
     mode = mode if mode in {"rollup_only", "reject_429"} else "rollup_only"
 
     msgs, ev = get_backlog()
@@ -251,7 +251,7 @@ def evaluate_backpressure(*, received: int) -> BackpressureDecision:
     prev_bp = ""
     if r is not None:
         try:
-            prev_bp = str(r.get("netwatch:ingest:bp_mode") or "").strip().lower()
+            prev_bp = str(r.get("seagull:ingest:bp_mode") or "").strip().lower()
         except Exception:
             prev_bp = ""
 
@@ -280,7 +280,7 @@ def evaluate_backpressure(*, received: int) -> BackpressureDecision:
 
     if r is not None:
         try:
-            r.setex("netwatch:ingest:bp_mode", 30, selected)
+            r.setex("seagull:ingest:bp_mode", 30, selected)
         except Exception:
             pass
 
@@ -458,8 +458,8 @@ def record_overview_live_telemetry(
 
     ts_s = int((bucket_ts or datetime.now(timezone.utc)).timestamp())
     key = _overview_live_key(ts_s)
-    retention_s = max(60, _env_int("NETWATCH_OVERVIEW_LIVE_RETENTION_SECONDS", 1800))
-    max_event_types = max(4, _env_int("NETWATCH_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 16))
+    retention_s = max(60, _env_int("SEAGULL_OVERVIEW_LIVE_RETENTION_SECONDS", 1800))
+    max_event_types = max(4, _env_int("SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 16))
 
     try:
         pipe = r.pipeline()
@@ -526,7 +526,7 @@ def record_overview_live_drop(*, dropped_events: int, bucket_ts: Optional[dateti
     try:
         pipe = r.pipeline()
         pipe.incrby(key, max(0, int(dropped_events)))
-        pipe.expire(key, max(60, _env_int("NETWATCH_OVERVIEW_LIVE_RETENTION_SECONDS", 1800)))
+        pipe.expire(key, max(60, _env_int("SEAGULL_OVERVIEW_LIVE_RETENTION_SECONDS", 1800)))
         pipe.execute()
     except Exception:
         return
@@ -546,7 +546,7 @@ def read_overview_live_window(*, now_s: Optional[int] = None, seconds: int = 900
         }
 
     end_s = max(1, int(now_s or time.time()))
-    max_seconds = max(30, _env_int("NETWATCH_OVERVIEW_LIVE_READ_MAX_SECONDS", 900))
+    max_seconds = max(30, _env_int("SEAGULL_OVERVIEW_LIVE_READ_MAX_SECONDS", 900))
     span = max(1, min(int(seconds), int(max_seconds)))
     start_s = max(1, end_s - span + 1)
 
@@ -688,7 +688,7 @@ def record_worker_progress(*, processed_events: int, processed_messages: int) ->
         pipe.incrby(_worker_msgs_key(ts_s), msgs)
         pipe.expire(_worker_msgs_key(ts_s), 10)
         pipe.hincrby(_overview_live_key(ts_s), "processed_events", ev)
-        pipe.expire(_overview_live_key(ts_s), max(60, _env_int("NETWATCH_OVERVIEW_LIVE_RETENTION_SECONDS", 1800)))
+        pipe.expire(_overview_live_key(ts_s), max(60, _env_int("SEAGULL_OVERVIEW_LIVE_RETENTION_SECONDS", 1800)))
         pipe.execute()
         if msgs > 0:
             _update_events_per_msg_avg(r, ev / float(msgs))
@@ -715,7 +715,7 @@ def count_active_workers() -> int:
     try:
         # This is a tiny keyspace (ingest workers), so SCAN is cheap.
         n = 0
-        for _ in r.scan_iter(match="netwatch:ingest:worker:hb:*", count=64):
+        for _ in r.scan_iter(match="seagull:ingest:worker:hb:*", count=64):
             n += 1
         return max(0, int(n))
     except Exception:
@@ -812,14 +812,14 @@ def mark_storm_active(*, reason: str, sample_hot: int, sample_warm: int) -> None
     if r is None:
         return
 
-    ttl_s = _env_int("NETWATCH_INGEST_STORM_TTL_SECONDS", 20)
+    ttl_s = _env_int("SEAGULL_INGEST_STORM_TTL_SECONDS", 20)
 
     try:
         pipe = r.pipeline()
         pipe.setex(storm_active_key(), ttl_s, "1")
-        pipe.setex("netwatch:ingest:storm_reason", ttl_s, (reason or "storm")[:64])
-        pipe.setex("netwatch:ingest:storm_sample_hot", ttl_s, str(int(sample_hot)))
-        pipe.setex("netwatch:ingest:storm_sample_warm", ttl_s, str(int(sample_warm)))
+        pipe.setex("seagull:ingest:storm_reason", ttl_s, (reason or "storm")[:64])
+        pipe.setex("seagull:ingest:storm_sample_hot", ttl_s, str(int(sample_hot)))
+        pipe.setex("seagull:ingest:storm_sample_warm", ttl_s, str(int(sample_warm)))
         pipe.execute()
     except Exception:
         return
@@ -854,7 +854,7 @@ def storm_maybe_open_alert(*, reason: str, sample_hot: int, sample_warm: int) ->
         return
 
     # Small lock to avoid stampeding Postgres under heavy load.
-    lock_key = "netwatch:ingest:storm_alert_open_lock"
+    lock_key = "seagull:ingest:storm_alert_open_lock"
     try:
         if not r.set(lock_key, "1", nx=True, ex=5):
             return
@@ -916,7 +916,7 @@ def storm_maybe_open_alert(*, reason: str, sample_hot: int, sample_warm: int) ->
             alert_id = int(row[0]) if row else 0
 
         if alert_id:
-            r.setex(storm_alert_id_key(), _env_int("NETWATCH_INGEST_STORM_ALERT_TTL_SECONDS", 3600), str(alert_id))
+            r.setex(storm_alert_id_key(), _env_int("SEAGULL_INGEST_STORM_ALERT_TTL_SECONDS", 3600), str(alert_id))
             publish_alert_created_payload(
                 {
                     "alert_id": int(alert_id),
@@ -1051,12 +1051,12 @@ def decide_pressure_phase(
     rejected: int,
     stalled_seconds: int,
 ) -> Tuple[str, str]:
-    storm_entry = max(1, _env_int("NETWATCH_INGEST_STORM_EVENTS_PER_SECOND", 8000))
-    storm_exit = max(1, _env_int("NETWATCH_INGEST_STORM_EXIT_EVENTS_PER_SECOND", int(storm_entry * 0.65)))
-    soft_entry = max(1, _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000))
-    soft_exit = max(0, _env_int("NETWATCH_INGEST_BACKPRESSURE_DRAIN_EXIT_BACKLOG_EVENTS", int(soft_entry * 0.55)))
-    hard_backlog = max(soft_entry + 1, _env_int("NETWATCH_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS", 200_000))
-    drain_stall_timeout = max(30, _env_int("NETWATCH_INGEST_DRAIN_STALL_TIMEOUT_SECONDS", 300))
+    storm_entry = max(1, _env_int("SEAGULL_INGEST_STORM_EVENTS_PER_SECOND", 8000))
+    storm_exit = max(1, _env_int("SEAGULL_INGEST_STORM_EXIT_EVENTS_PER_SECOND", int(storm_entry * 0.65)))
+    soft_entry = max(1, _env_int("SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000))
+    soft_exit = max(0, _env_int("SEAGULL_INGEST_BACKPRESSURE_DRAIN_EXIT_BACKLOG_EVENTS", int(soft_entry * 0.55)))
+    hard_backlog = max(soft_entry + 1, _env_int("SEAGULL_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS", 200_000))
+    drain_stall_timeout = max(30, _env_int("SEAGULL_INGEST_DRAIN_STALL_TIMEOUT_SECONDS", 300))
 
     eps_i = max(0, int(eps))
     proc_i = max(0, int(processed_eps))
@@ -1143,7 +1143,7 @@ def _clear_ui_runtime_caches(r) -> int:
     if r is None:
         return 0
     deleted = 0
-    for pattern in ("netwatch:overview:v2:*", "netwatch:overview:live:*", "netwatch:events:*", "netwatch:inventory:overview:*"):
+    for pattern in ("seagull:overview:v2:*", "seagull:overview:live:*", "seagull:events:*", "seagull:inventory:overview:*"):
         try:
             batch = []
             for k in r.scan_iter(match=pattern, count=256):
@@ -1163,8 +1163,8 @@ def get_storm_status() -> Dict[str, Any]:
 
     r = get_redis()
     now_s = int(time.time())
-    storm_th = max(1, _env_int("NETWATCH_INGEST_STORM_EVENTS_PER_SECOND", 8000))
-    soft = max(1, _env_int("NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000))
+    storm_th = max(1, _env_int("SEAGULL_INGEST_STORM_EVENTS_PER_SECOND", 8000))
+    soft = max(1, _env_int("SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000))
 
     if r is None:
         # Redis is unavailable: fall back to the latest persisted ingest_stats_1s row.
@@ -1322,19 +1322,19 @@ def get_storm_status() -> Dict[str, Any]:
     except Exception:
         processed_messages = 0
     try:
-        clickhouse_rows = _as_int(r.get(f"netwatch:ingest:clickhouse:rows:{ts_s}"), 0)
+        clickhouse_rows = _as_int(r.get(f"seagull:ingest:clickhouse:rows:{ts_s}"), 0)
     except Exception:
         clickhouse_rows = 0
     try:
-        clickhouse_batches = _as_int(r.get(f"netwatch:ingest:clickhouse:batches:{ts_s}"), 0)
+        clickhouse_batches = _as_int(r.get(f"seagull:ingest:clickhouse:batches:{ts_s}"), 0)
     except Exception:
         clickhouse_batches = 0
     try:
-        clickhouse_state = str(r.get("netwatch:ingest:clickhouse:state") or "unknown")
+        clickhouse_state = str(r.get("seagull:ingest:clickhouse:state") or "unknown")
     except Exception:
         clickhouse_state = "unknown"
     try:
-        clickhouse_error_type = r.get("netwatch:ingest:clickhouse:error_type")
+        clickhouse_error_type = r.get("seagull:ingest:clickhouse:error_type")
     except Exception:
         clickhouse_error_type = None
     try:
@@ -1368,7 +1368,7 @@ def get_storm_status() -> Dict[str, Any]:
 
     workers_active = count_active_workers()
     recent = recent_feed_health()
-    quality_rows = _read_ingest_quality_window(now_s=now_s, seconds=max(5, _env_int("NETWATCH_INGEST_QUALITY_WINDOW_SECONDS", 15)))
+    quality_rows = _read_ingest_quality_window(now_s=now_s, seconds=max(5, _env_int("SEAGULL_INGEST_QUALITY_WINDOW_SECONDS", 15)))
 
     drop_pct = 0
     if received > 0:
@@ -1404,7 +1404,7 @@ def get_storm_status() -> Dict[str, Any]:
     if progressed:
         last_progress_ts = now_s
 
-    drain_idle_timeout = max(60, _env_int("NETWATCH_INGEST_DRAIN_IDLE_TIMEOUT_SECONDS", 180))
+    drain_idle_timeout = max(60, _env_int("SEAGULL_INGEST_DRAIN_IDLE_TIMEOUT_SECONDS", 180))
     if (
         phase == "draining"
         and (now_s - last_progress_ts) >= drain_idle_timeout
@@ -1432,9 +1432,9 @@ def get_storm_status() -> Dict[str, Any]:
             pipe = r.pipeline()
             pipe.delete(
                 storm_active_key(),
-                "netwatch:ingest:storm_reason",
-                "netwatch:ingest:storm_sample_hot",
-                "netwatch:ingest:storm_sample_warm",
+                "seagull:ingest:storm_reason",
+                "seagull:ingest:storm_sample_hot",
+                "seagull:ingest:storm_sample_warm",
             )
             pipe.execute()
         except Exception:
@@ -1443,8 +1443,8 @@ def get_storm_status() -> Dict[str, Any]:
         _clear_ui_runtime_caches(r)
 
     try:
-        sample_hot = _as_int(r.get("netwatch:ingest:storm_sample_hot"), 100)
-        sample_warm = _as_int(r.get("netwatch:ingest:storm_sample_warm"), 0)
+        sample_hot = _as_int(r.get("seagull:ingest:storm_sample_hot"), 100)
+        sample_warm = _as_int(r.get("seagull:ingest:storm_sample_warm"), 0)
     except Exception:
         sample_hot, sample_warm = 100, 0
 
@@ -1526,14 +1526,14 @@ def recover_runtime_state(*, clear_backlog_counters: bool = False, clear_ui_cach
 
     keys = [
         storm_active_key(),
-        "netwatch:ingest:storm_reason",
-        "netwatch:ingest:storm_sample_hot",
-        "netwatch:ingest:storm_sample_warm",
+        "seagull:ingest:storm_reason",
+        "seagull:ingest:storm_sample_hot",
+        "seagull:ingest:storm_sample_warm",
         storm_session_key(),
         storm_since_key(),
         storm_alert_id_key(),
         _pressure_state_key(),
-        "netwatch:ingest:bp_mode",
+        "seagull:ingest:bp_mode",
     ]
 
     if clear_backlog_counters:

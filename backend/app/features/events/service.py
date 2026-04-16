@@ -48,7 +48,7 @@ from app.features.events.schemas import (
 )
 from app.shared.schemas import CursorPage
 
-logger = logging.getLogger("netwatch.api.events")
+logger = logging.getLogger("seagull.api.events")
 
 
 def _coerce_utc_iso(value: str | None) -> datetime | None:
@@ -152,16 +152,16 @@ def _cache_delete_prefixes(*prefixes: str) -> None:
 
 def invalidate_live_event_summary_caches(*, agent_id: str | None = None) -> None:
     prefixes = [
-        "netwatch:events:ssh_summary:v3:",
-        "netwatch:events:network_summary:v4:",
+        "seagull:events:ssh_summary:v3:",
+        "seagull:events:network_summary:v4:",
     ]
     if agent_id:
         safe_agent_id = str(agent_id).strip()
         if safe_agent_id:
             prefixes.extend(
                 [
-                    f"netwatch:events:ssh_summary:v3:sm=",
-                    f"netwatch:events:network_summary:v4:",
+                    f"seagull:events:ssh_summary:v3:sm=",
+                    f"seagull:events:network_summary:v4:",
                 ]
             )
     _cache_delete_prefixes(*prefixes)
@@ -354,7 +354,7 @@ def _pg_rollup_l4_snapshot(
 
 
 def _es_index_pattern() -> str:
-    prefix = (getattr(settings, "NETWATCH_ES_INDEX_PREFIX", "netwatch-events") or "netwatch-events").strip()
+    prefix = (getattr(settings, "SEAGULL_ES_INDEX_PREFIX", "seagull-events") or "seagull-events").strip()
     return f"{prefix}-*"
 
 
@@ -549,7 +549,7 @@ def _pg_has_newer_event(
         if pg_ts.tzinfo is None:
             pg_ts = pg_ts.replace(tzinfo=timezone.utc)
         ref = latest_ts if latest_ts.tzinfo else latest_ts.replace(tzinfo=timezone.utc)
-        threshold = int(margin_s or getattr(settings, "NETWATCH_EVENTS_ES_STALE_MARGIN_SECONDS", 15) or 15)
+        threshold = int(margin_s or getattr(settings, "SEAGULL_EVENTS_ES_STALE_MARGIN_SECONDS", 15) or 15)
         return (pg_ts - ref).total_seconds() > float(max(1, threshold))
     except Exception:
         return False
@@ -654,7 +654,7 @@ def _select_hunt_chain(*, has_search: bool, window_minutes: int | None) -> list[
     if has_search:
         return ["elasticsearch", "postgres"]
 
-    ch_min_minutes = max(15, int(getattr(settings, "NETWATCH_EVENTS_HUNT_CLICKHOUSE_MINUTES", 240) or 240))
+    ch_min_minutes = max(15, int(getattr(settings, "SEAGULL_EVENTS_HUNT_CLICKHOUSE_MINUTES", 240) or 240))
     chain: list[str]
     if window_minutes is not None and int(window_minutes) >= int(ch_min_minutes):
         chain = ["clickhouse", "postgres"]
@@ -1536,7 +1536,7 @@ def get_ssh_summary(
     started = time.perf_counter()
     query_end = _now_utc()
     since_ts = query_end - timedelta(minutes=int(since_minutes))
-    cache_key = f"netwatch:events:ssh_summary:v3:sm={int(since_minutes)}:l={int(limit)}:a={agent_id or '*'}"
+    cache_key = f"seagull:events:ssh_summary:v3:sm={int(since_minutes)}:l={int(limit)}:a={agent_id or '*'}"
     cached = _cache_get_json(cache_key)
     if cached is not None:
         out_cached = dict(cached)
@@ -1703,7 +1703,7 @@ def get_ssh_summary(
                     query_window_end=query_end,
                 ),
             )
-            _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+            _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
             observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/ssh/summary", source="clickhouse")
             return payload
         except Exception as e:
@@ -2040,7 +2040,7 @@ def get_ssh_summary(
                     query_window_end=query_end,
                 ),
             )
-            _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+            _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
             observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/ssh/summary", source="elasticsearch")
             return payload
         except Exception as e:
@@ -2276,7 +2276,7 @@ def get_ssh_summary(
             query_window_end=query_end,
         ),
     )
-    _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+    _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
     observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/ssh/summary", source="postgres")
     return payload
 
@@ -2300,7 +2300,7 @@ def get_protocol_intel_summary(
     query_end = _now_utc()
     since_ts = query_end - timedelta(minutes=int(since_minutes))
     cache_key = (
-        "netwatch:events:network_summary:v4:"
+        "seagull:events:network_summary:v4:"
         f"sb={search_backend_mode()}:sm={int(since_minutes)}:l={int(limit)}:a={agent_id or '*'}"
     )
     cached = _cache_get_json(cache_key)
@@ -2495,7 +2495,7 @@ def get_protocol_intel_summary(
                     query_window_end=query_end,
                 ),
             )
-            _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+            _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
             observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/network/summary", source="clickhouse")
             return payload
         except Exception as e:
@@ -2690,7 +2690,7 @@ def get_protocol_intel_summary(
                     query_window_end=query_end,
                 ),
             )
-            _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+            _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
             observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/network/summary", source="elasticsearch")
             return payload
         except Exception as e:
@@ -2866,7 +2866,7 @@ def get_protocol_intel_summary(
             query_window_end=query_end,
         ),
     )
-    _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+    _cache_set_json(cache_key, payload.dict(), int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
     observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/events/network/summary", source="postgres")
     return payload
 

@@ -14,12 +14,12 @@ Important:
   automatically start producing richer metadata.
 
 Environment:
-- NETWATCH_PROTO_INTEL_EVERY_SECONDS (default 1.0)
-- NETWATCH_PROTO_INTEL_IDLE_SLEEP_SECONDS (default 2.0)
-- NETWATCH_PROTO_INTEL_MAX_ROWS (default 5000)
-- NETWATCH_PROTO_INTEL_BATCH_SIZE (default 500)
-- NETWATCH_PROTO_INTEL_PAYLOAD_MAX_BYTES (default 4096)
-- NETWATCH_PROTO_INTEL_PORT_HINTS (optional custom port->protocol hints)
+- SEAGULL_PROTO_INTEL_EVERY_SECONDS (default 1.0)
+- SEAGULL_PROTO_INTEL_IDLE_SLEEP_SECONDS (default 2.0)
+- SEAGULL_PROTO_INTEL_MAX_ROWS (default 5000)
+- SEAGULL_PROTO_INTEL_BATCH_SIZE (default 500)
+- SEAGULL_PROTO_INTEL_PAYLOAD_MAX_BYTES (default 4096)
+- SEAGULL_PROTO_INTEL_PORT_HINTS (optional custom port->protocol hints)
 
 Marker:
 - proto_intel_at (RFC3339 UTC)
@@ -37,19 +37,20 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
 from app.core.db_lifecycle import ensure_database_ready
+from app.core.env_secrets import getenv_compat
 from app.core.observability import log_event, setup_logging
 from app.features.events import proto_intel_repository
 from app.shared.protocol_intel import analyze_event
 
 
 setup_logging("worker-proto-intel")
-logger = logging.getLogger("netwatch.worker.proto_intel")
+logger = logging.getLogger("seagull.worker.proto_intel")
 
 OFFSET_PROTO_INTEL = "proto_intel_v1"
 
 
 def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
+    raw = getenv_compat(name)
     if raw is None:
         return default
     raw = raw.strip()
@@ -62,7 +63,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_float(name: str, default: float) -> float:
-    raw = os.getenv(name)
+    raw = getenv_compat(name)
     if raw is None:
         return default
     raw = raw.strip()
@@ -107,11 +108,11 @@ def _patch_event(event_id: int, patch: Dict[str, Any]) -> None:
 
 def main() -> None:
     settings.validate_for_service("worker-proto-intel")
-    every_s = _env_float("NETWATCH_PROTO_INTEL_EVERY_SECONDS", 1.0)
-    idle_sleep_s = _env_float("NETWATCH_PROTO_INTEL_IDLE_SLEEP_SECONDS", 2.0)
-    max_rows = _env_int("NETWATCH_PROTO_INTEL_MAX_ROWS", 5000)
-    batch_size = _env_int("NETWATCH_PROTO_INTEL_BATCH_SIZE", 500)
-    payload_max = _env_int("NETWATCH_PROTO_INTEL_PAYLOAD_MAX_BYTES", 4096)
+    every_s = _env_float("SEAGULL_PROTO_INTEL_EVERY_SECONDS", 1.0)
+    idle_sleep_s = _env_float("SEAGULL_PROTO_INTEL_IDLE_SLEEP_SECONDS", 2.0)
+    max_rows = _env_int("SEAGULL_PROTO_INTEL_MAX_ROWS", 5000)
+    batch_size = _env_int("SEAGULL_PROTO_INTEL_BATCH_SIZE", 500)
+    payload_max = _env_int("SEAGULL_PROTO_INTEL_PAYLOAD_MAX_BYTES", 4096)
 
     backoff = 1.0
 

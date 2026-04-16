@@ -8,8 +8,8 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 from jose import jwt
 
-os.environ.setdefault("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "true")
-os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
+os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
+os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.core.config import settings
 from app.core.portal_auth import PortalPrincipal, get_current_user
@@ -27,13 +27,13 @@ def _expired_stream_token() -> str:
         "role": "admin",
         "purpose": realtime_service.STREAM_TOKEN_PURPOSE,
         "scope": realtime_service.STREAM_TOKEN_SCOPE,
-        "iss": settings.NETWATCH_JWT_ISSUER,
-        "aud": f"{settings.NETWATCH_JWT_AUDIENCE}{realtime_service.STREAM_TOKEN_AUDIENCE_SUFFIX}",
+        "iss": settings.SEAGULL_JWT_ISSUER,
+        "aud": f"{settings.SEAGULL_JWT_AUDIENCE}{realtime_service.STREAM_TOKEN_AUDIENCE_SUFFIX}",
         "iat": int((now - timedelta(minutes=2)).timestamp()),
         "exp": int((now - timedelta(minutes=1)).timestamp()),
         "jti": "expired-jti",
     }
-    return jwt.encode(payload, settings.NETWATCH_JWT_SECRET, algorithm="HS256")
+    return jwt.encode(payload, settings.SEAGULL_JWT_SECRET, algorithm="HS256")
 
 
 def _stream_token_with_claims(*, typ: str | None = None, purpose: str | None = None, scope: str | None = None) -> str:
@@ -45,13 +45,13 @@ def _stream_token_with_claims(*, typ: str | None = None, purpose: str | None = N
         "role": "admin",
         "purpose": purpose if purpose is not None else realtime_service.STREAM_TOKEN_PURPOSE,
         "scope": scope if scope is not None else realtime_service.STREAM_TOKEN_SCOPE,
-        "iss": settings.NETWATCH_JWT_ISSUER,
-        "aud": f"{settings.NETWATCH_JWT_AUDIENCE}{realtime_service.STREAM_TOKEN_AUDIENCE_SUFFIX}",
+        "iss": settings.SEAGULL_JWT_ISSUER,
+        "aud": f"{settings.SEAGULL_JWT_AUDIENCE}{realtime_service.STREAM_TOKEN_AUDIENCE_SUFFIX}",
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=5)).timestamp()),
         "jti": "claims-jti",
     }
-    return jwt.encode(payload, settings.NETWATCH_JWT_SECRET, algorithm="HS256")
+    return jwt.encode(payload, settings.SEAGULL_JWT_SECRET, algorithm="HS256")
 
 
 class _FakeRedis:

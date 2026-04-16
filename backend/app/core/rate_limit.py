@@ -14,7 +14,7 @@ from app.core.config import settings
 
 _redis_client: Optional[redis.Redis] = None
 _redis_unavailable_until: float = 0.0
-_logger = logging.getLogger("netwatch.api.auth.ratelimit")
+_logger = logging.getLogger("seagull.api.auth.ratelimit")
 _local_lock = Lock()
 _local_state: dict[str, tuple[int, float]] = {}
 
@@ -30,10 +30,10 @@ def _get_redis() -> Optional[redis.Redis]:
         return None
     try:
         _redis_client = redis.Redis(
-            host=settings.NETWATCH_REDIS_HOST,
-            port=settings.NETWATCH_REDIS_PORT,
-            username=settings.NETWATCH_REDIS_USERNAME or None,
-            password=settings.NETWATCH_REDIS_PASSWORD or None,
+            host=settings.SEAGULL_REDIS_HOST,
+            port=settings.SEAGULL_REDIS_PORT,
+            username=settings.SEAGULL_REDIS_USERNAME or None,
+            password=settings.SEAGULL_REDIS_PASSWORD or None,
             decode_responses=True,
             socket_connect_timeout=0.2,
             socket_timeout=0.2,

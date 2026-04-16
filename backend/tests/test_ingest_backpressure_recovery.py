@@ -5,9 +5,9 @@ from app.core.config import settings
 
 
 def _set_thresholds() -> None:
-    settings.NETWATCH_INGEST_STORM_EVENTS_PER_SECOND = 1000
-    settings.NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS = 5000
-    settings.NETWATCH_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS = 20000
+    settings.SEAGULL_INGEST_STORM_EVENTS_PER_SECOND = 1000
+    settings.SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS = 5000
+    settings.SEAGULL_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS = 20000
 
 
 def test_pressure_state_progression_burst_to_recovery() -> None:
@@ -93,7 +93,7 @@ def test_backlog_counter_self_heals_when_stale(monkeypatch) -> None:
     fake.lens[ic.queue_key()] = 0
     fake.lens[ic.processing_key()] = 0
     fake.store[ic.backlog_events_key()] = "1008581"
-    fake.store["netwatch:ingest:events_per_msg_avg"] = "12.0"
+    fake.store["seagull:ingest:events_per_msg_avg"] = "12.0"
     monkeypatch.setattr(ic, "get_redis", lambda: fake)
 
     msgs, ev = ic.get_backlog()
@@ -112,8 +112,8 @@ def test_backpressure_recovers_when_queue_is_small(monkeypatch) -> None:
     fake.lens[ic.queue_key()] = 2
     fake.lens[ic.processing_key()] = 0
     fake.store[ic.backlog_events_key()] = "3200"
-    fake.store["netwatch:ingest:bp_mode"] = "rollup_only"
-    fake.store["netwatch:ingest:events_per_msg_avg"] = "8.0"
+    fake.store["seagull:ingest:bp_mode"] = "rollup_only"
+    fake.store["seagull:ingest:events_per_msg_avg"] = "8.0"
     monkeypatch.setattr(ic, "get_redis", lambda: fake)
 
     d = ic.evaluate_backpressure(received=5)

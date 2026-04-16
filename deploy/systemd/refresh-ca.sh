@@ -3,11 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
-INSTALL_ENV_PATH="/etc/netwatch/agent.env"
-DEFAULT_CA_DEST="/etc/netwatch/pki/root_ca.crt"
+INSTALL_ENV_PATH="/etc/seagull/agent.env"
+DEFAULT_CA_DEST="/etc/seagull/pki/root_ca.crt"
 PROJECT_ENV_PATH="${REPO_ROOT}/.env"
 PROJECT_ENV_EXAMPLE_PATH="${REPO_ROOT}/.env.example"
-SERVICE_NAME="netwatch-agent"
+SERVICE_NAME="seagull-agent"
 
 require_root() {
   if [[ "${EUID}" -ne 0 ]]; then
@@ -34,9 +34,9 @@ read_env_value() {
 
 resolve_source() {
   local src
-  src="$(trim "$(read_env_value NETWATCH_AGENT_SERVER_CA_FILE "${PROJECT_ENV_PATH}")")"
+  src="$(trim "$(read_env_value SEAGULL_AGENT_SERVER_CA_FILE "${PROJECT_ENV_PATH}")")"
   if [[ -z "${src}" ]]; then
-    src="$(trim "$(read_env_value NETWATCH_AGENT_SERVER_CA_FILE "${PROJECT_ENV_EXAMPLE_PATH}")")"
+    src="$(trim "$(read_env_value SEAGULL_AGENT_SERVER_CA_FILE "${PROJECT_ENV_EXAMPLE_PATH}")")"
   fi
   if [[ -z "${src}" ]]; then
     src="./secrets/tls/tls.crt"
@@ -49,7 +49,7 @@ resolve_source() {
 
 resolve_dest() {
   local dst
-  dst="$(trim "$(read_env_value NETWATCH_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
+  dst="$(trim "$(read_env_value SEAGULL_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
   if [[ -z "${dst}" ]]; then
     dst="${DEFAULT_CA_DEST}"
   fi

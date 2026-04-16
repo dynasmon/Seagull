@@ -30,17 +30,17 @@ def _build_clickhouse_client() -> Any:
     import clickhouse_connect
 
     kwargs = {
-        "host": (settings.NETWATCH_CLICKHOUSE_HOST or "clickhouse"),
-        "port": int(settings.NETWATCH_CLICKHOUSE_PORT or 8123),
-        "username": (settings.NETWATCH_CLICKHOUSE_USERNAME or "default"),
-        "password": (settings.NETWATCH_CLICKHOUSE_PASSWORD or ""),
-        "secure": bool(settings.NETWATCH_CLICKHOUSE_SECURE),
-        "verify": bool(settings.NETWATCH_CLICKHOUSE_VERIFY),
-        "connect_timeout": float(settings.NETWATCH_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS or 2.0),
-        "send_receive_timeout": float(settings.NETWATCH_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS or 5.0),
+        "host": (settings.SEAGULL_CLICKHOUSE_HOST or "clickhouse"),
+        "port": int(settings.SEAGULL_CLICKHOUSE_PORT or 8123),
+        "username": (settings.SEAGULL_CLICKHOUSE_USERNAME or "default"),
+        "password": (settings.SEAGULL_CLICKHOUSE_PASSWORD or ""),
+        "secure": bool(settings.SEAGULL_CLICKHOUSE_SECURE),
+        "verify": bool(settings.SEAGULL_CLICKHOUSE_VERIFY),
+        "connect_timeout": float(settings.SEAGULL_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS or 2.0),
+        "send_receive_timeout": float(settings.SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS or 5.0),
     }
 
-    preferred_db = (settings.NETWATCH_CLICKHOUSE_DATABASE or "default").strip() or "default"
+    preferred_db = (settings.SEAGULL_CLICKHOUSE_DATABASE or "default").strip() or "default"
     db_candidates = [preferred_db]
     if preferred_db != "default":
         db_candidates.append("default")
@@ -76,7 +76,7 @@ def reset_clickhouse_client() -> None:
 
 
 def clickhouse_is_enabled() -> bool:
-    return bool(getattr(settings, "NETWATCH_CLICKHOUSE_ENABLED", False))
+    return bool(getattr(settings, "SEAGULL_CLICKHOUSE_ENABLED", False))
 
 
 def clickhouse_is_available() -> bool:
@@ -84,7 +84,7 @@ def clickhouse_is_available() -> bool:
 
     if not clickhouse_is_enabled():
         return False
-    ttl = int(getattr(settings, "NETWATCH_CLICKHOUSE_PING_TTL_SECONDS", 2) or 2)
+    ttl = int(getattr(settings, "SEAGULL_CLICKHOUSE_PING_TTL_SECONDS", 2) or 2)
     now = time.time()
     if (now - _last_ping_at) < max(1, ttl):
         return _last_ping_ok
@@ -99,13 +99,13 @@ def clickhouse_is_available() -> bool:
 
 
 def clickhouse_events_table_ref() -> str:
-    db = _safe_ident(getattr(settings, "NETWATCH_CLICKHOUSE_DATABASE", "netwatch"), fallback="netwatch")
-    table = _safe_ident(getattr(settings, "NETWATCH_CLICKHOUSE_EVENTS_TABLE", "net_events_raw"), fallback="net_events_raw")
+    db = _safe_ident(getattr(settings, "SEAGULL_CLICKHOUSE_DATABASE", "seagull"), fallback="seagull")
+    table = _safe_ident(getattr(settings, "SEAGULL_CLICKHOUSE_EVENTS_TABLE", "net_events_raw"), fallback="net_events_raw")
     return f"{db}.{table}"
 
 
 def clickhouse_events_1m_table_ref() -> str:
-    db = _safe_ident(getattr(settings, "NETWATCH_CLICKHOUSE_DATABASE", "netwatch"), fallback="netwatch")
+    db = _safe_ident(getattr(settings, "SEAGULL_CLICKHOUSE_DATABASE", "seagull"), fallback="seagull")
     return f"{db}.net_events_1m"
 
 
@@ -116,11 +116,11 @@ def ensure_clickhouse_events_schema() -> bool:
         return False
 
     client = get_clickhouse_client()
-    db = _safe_ident(getattr(settings, "NETWATCH_CLICKHOUSE_DATABASE", "netwatch"), fallback="netwatch")
-    table = _safe_ident(getattr(settings, "NETWATCH_CLICKHOUSE_EVENTS_TABLE", "net_events_raw"), fallback="net_events_raw")
+    db = _safe_ident(getattr(settings, "SEAGULL_CLICKHOUSE_DATABASE", "seagull"), fallback="seagull")
+    table = _safe_ident(getattr(settings, "SEAGULL_CLICKHOUSE_EVENTS_TABLE", "net_events_raw"), fallback="net_events_raw")
     agg_table = "net_events_1m"
     agg_mv = "mv_net_events_1m"
-    retention_days = max(1, int(getattr(settings, "NETWATCH_CLICKHOUSE_EVENTS_RETENTION_DAYS", 30) or 30))
+    retention_days = max(1, int(getattr(settings, "SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS", 30) or 30))
 
     client.command(f"CREATE DATABASE IF NOT EXISTS {db}")
     client.command(

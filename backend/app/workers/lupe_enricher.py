@@ -39,6 +39,7 @@ from sqlalchemy.exc import OperationalError
 from app.core.config import settings
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
+from app.core.env_secrets import getenv_compat
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import NetEventModel
 from app.shared.enrichment.models import IpEnrichmentCacheModel
@@ -47,7 +48,7 @@ from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offs
 
 OFFSET_LUPE = "lupe_enricher_ssh_v1"
 setup_logging("worker-lupe")
-logger = logging.getLogger("netwatch.worker.lupe")
+logger = logging.getLogger("seagull.worker.lupe")
 
 # Only enrich these actions (accepted, failed_password, invalid_user). This matches the Lupe intent.
 SSH_ACTIONS: tuple[str, ...] = ("accepted", "failed_password", "invalid_user")
@@ -67,7 +68,7 @@ _GEOIP_ASN_PATH: Optional[str] = None
 
 def _env_raw(*names: str) -> Optional[str]:
     for name in names:
-        raw = os.getenv(name)
+        raw = getenv_compat(name)
         if raw is None:
             continue
         value = raw.strip()
@@ -157,29 +158,29 @@ def _provider_config() -> dict[str, str]:
         "requested": _normalize_provider_name(
             _env_str(
                 GEOIP_PROVIDER_AUTO,
-                "NETWATCH_IP_INTEL_PROVIDER",
-                "NETWATCH_LUPE_PROVIDER",
+                "SEAGULL_IP_INTEL_PROVIDER",
+                "SEAGULL_LUPE_PROVIDER",
             )
         ),
         "fallback": _normalize_provider_name(
             _env_str(
                 GEOIP_PROVIDER_NONE,
-                "NETWATCH_IP_INTEL_FALLBACK_PROVIDER",
-                "NETWATCH_LUPE_FALLBACK_PROVIDER",
+                "SEAGULL_IP_INTEL_FALLBACK_PROVIDER",
+                "SEAGULL_LUPE_FALLBACK_PROVIDER",
             )
         ),
-        "ipinfo_token": _env_str("", "NETWATCH_IPINFO_TOKEN"),
+        "ipinfo_token": _env_str("", "SEAGULL_IPINFO_TOKEN"),
         "city_db_path": _env_str(
             "/app/data/geoip/GeoLite2-City.mmdb",
-            "NETWATCH_IP_INTEL_MAXMIND_CITY_DB_PATH",
-            "NETWATCH_GEOIP_CITY_DB_PATH",
-            "NETWATCH_LUPE_MAXMIND_CITY_DB_PATH",
+            "SEAGULL_IP_INTEL_MAXMIND_CITY_DB_PATH",
+            "SEAGULL_GEOIP_CITY_DB_PATH",
+            "SEAGULL_LUPE_MAXMIND_CITY_DB_PATH",
         ),
         "asn_db_path": _env_str(
             "/app/data/geoip/GeoLite2-ASN.mmdb",
-            "NETWATCH_IP_INTEL_MAXMIND_ASN_DB_PATH",
-            "NETWATCH_GEOIP_ASN_DB_PATH",
-            "NETWATCH_LUPE_MAXMIND_ASN_DB_PATH",
+            "SEAGULL_IP_INTEL_MAXMIND_ASN_DB_PATH",
+            "SEAGULL_GEOIP_ASN_DB_PATH",
+            "SEAGULL_LUPE_MAXMIND_ASN_DB_PATH",
         ),
     }
 
@@ -364,7 +365,7 @@ def _upsert_cache(ip: str, rec: dict, ttl_days: int) -> None:
 
 def _fetch_ipinfo(ip: str, token: str, timeout_s: float) -> dict:
     url = f"https://ipinfo.io/{ip}/json?token={token}"
-    req = Request(url, headers={"User-Agent": "netwatch-lupe/1.0"})
+    req = Request(url, headers={"User-Agent": "seagull-lupe/1.0"})
     with urlopen(req, timeout=timeout_s) as resp:
         raw = resp.read().decode("utf-8", errors="replace")
     return json.loads(raw)
@@ -519,14 +520,14 @@ def _patch_event(event_id: int, patch: dict) -> None:
 def main() -> None:
     settings.validate_for_service("worker-ip-intel")
 
-    every_s = _env_float(1.0, "NETWATCH_IP_INTEL_EVERY_SECONDS", "NETWATCH_LUPE_EVERY_SECONDS")
-    idle_sleep_s = _env_float(2.0, "NETWATCH_IP_INTEL_IDLE_SLEEP_SECONDS", "NETWATCH_LUPE_IDLE_SLEEP_SECONDS")
-    max_rows = _env_int(2000, "NETWATCH_IP_INTEL_MAX_ROWS", "NETWATCH_LUPE_MAX_ROWS")
-    batch_size = _env_int(200, "NETWATCH_IP_INTEL_BATCH_SIZE", "NETWATCH_LUPE_BATCH_SIZE")
-    timeout_s = _env_float(8.0, "NETWATCH_IP_INTEL_HTTP_TIMEOUT_SECONDS", "NETWATCH_LUPE_HTTP_TIMEOUT_SECONDS")
-    cache_ttl_days = _env_int(7, "NETWATCH_IP_INTEL_CACHE_TTL_DAYS", "NETWATCH_LUPE_CACHE_TTL_DAYS")
+    every_s = _env_float(1.0, "SEAGULL_IP_INTEL_EVERY_SECONDS", "SEAGULL_LUPE_EVERY_SECONDS")
+    idle_sleep_s = _env_float(2.0, "SEAGULL_IP_INTEL_IDLE_SLEEP_SECONDS", "SEAGULL_LUPE_IDLE_SLEEP_SECONDS")
+    max_rows = _env_int(2000, "SEAGULL_IP_INTEL_MAX_ROWS", "SEAGULL_LUPE_MAX_ROWS")
+    batch_size = _env_int(200, "SEAGULL_IP_INTEL_BATCH_SIZE", "SEAGULL_LUPE_BATCH_SIZE")
+    timeout_s = _env_float(8.0, "SEAGULL_IP_INTEL_HTTP_TIMEOUT_SECONDS", "SEAGULL_LUPE_HTTP_TIMEOUT_SECONDS")
+    cache_ttl_days = _env_int(7, "SEAGULL_IP_INTEL_CACHE_TTL_DAYS", "SEAGULL_LUPE_CACHE_TTL_DAYS")
     skip_private = (
-        _env_str("true", "NETWATCH_IP_INTEL_SKIP_PRIVATE", "NETWATCH_LUPE_SKIP_PRIVATE").strip().lower() != "false"
+        _env_str("true", "SEAGULL_IP_INTEL_SKIP_PRIVATE", "SEAGULL_LUPE_SKIP_PRIVATE").strip().lower() != "false"
     )
 
     backoff = 1.0

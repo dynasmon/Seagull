@@ -1,13 +1,13 @@
-# Dynasmon NetWatch
+# Dynasmon Seagull
 
-Dynasmon NetWatch is a threat hunting platform designed as a lightweight, opinionated mini‑SIEM. It started as a network telemetry pipeline and is evolving toward an “XDR‑foundation” architecture inspired by Wazuh endpoint management.
+Dynasmon Seagull is a threat hunting platform designed as a lightweight, opinionated mini‑SIEM. It started as a network telemetry pipeline and is evolving toward an “XDR‑foundation” architecture inspired by Wazuh endpoint management.
 
-At this stage, NetWatch provides an end‑to‑end pipeline:
+At this stage, Seagull provides an end‑to‑end pipeline:
 
 - Multiple Go agents that capture and ship telemetry (proc/authlog + PCAP‑based collectors + endpoint syscollector)
 - A FastAPI backend that ingests and persists events into PostgreSQL
 - A rules engine executed by the grouped intelligence worker container
-- A **NetWatch Portal** (React) with authentication and an operator‑friendly UI
+- A **Seagull Portal** (React) with authentication and an operator‑friendly UI
 - Optional search indexing into Elasticsearch (Postgres → ES) for fast hunting
 - Grouped background worker services for ingest, intelligence, and maintenance domains
 
@@ -15,33 +15,33 @@ At this stage, NetWatch provides an end‑to‑end pipeline:
 
 These items used to be “future work” and are now part of the project:
 
-- **NetWatch Portal (React)** with login, RBAC (admin vs. user), and a consistent “SOC console” UI.
+- **Seagull Portal (React)** with login, RBAC (admin vs. user), and a consistent “SOC console” UI.
 - **Cursor (keyset) pagination** for heavy timelines:
   - Events: `GET /events`
   - Alerts (admin‑only): `GET /alerts`
   - Inventory history paging: `GET /inventory/{agent_id}/history/page`
-- **Lupe SSH Insights** (`GET /events/ssh/summary`) + optional `ip-intel` worker process (inside `netwatch-intelligence-worker`) that adds Geo/ASN metadata, using my personal tool: https://github.com/dynasmon/lupe.
+- **Lupe SSH Insights** (`GET /events/ssh/summary`) + optional `ip-intel` worker process (inside `seagull-intelligence-worker`) that adds Geo/ASN metadata, using my personal tool: https://github.com/dynasmon/lupe.
 - **Correlation Rules / Incidents** (admin‑only): CRUD correlation rules + run correlation to produce incident‑like findings.
-- **1-minute rollup worker logic** (now hosted in `netwatch-ingest-pipeline`) that pre‑aggregates data to reduce dashboard query cost.
+- **1-minute rollup worker logic** (now hosted in `seagull-ingest-pipeline`) that pre‑aggregates data to reduce dashboard query cost.
 - **Redis is now actively used** for portal rate‑limiting (best‑effort fail‑open) instead of being “reserved”.
 - **Administrative audit/governance**:
   - append-only admin audit timeline (`admin_audit_events`)
   - login/auth evidence with persistence and queryability
   - audit coverage for users, allowlists, rule governance, agent admin actions, and platform settings
-  - dedicated retention worker logic (now hosted in `netwatch-maintenance-worker`)
+  - dedicated retention worker logic (now hosted in `seagull-maintenance-worker`)
 
 ---
 
 ## High‑Level Architecture
 
-Dynasmon NetWatch is composed of multiple services, orchestrated with Docker Compose:
+Dynasmon Seagull is composed of multiple services, orchestrated with Docker Compose:
 
 Backend modular-monolith boundaries and contribution guardrails are documented in
 `backend/docs/architecture.md`.
 
-- **netwatch-agent-*** (Go)
+- **seagull-agent-*** (Go)
   - Runs close to the network (host or segment).
-  - Supports multiple telemetry sources (selected via `NETWATCH_SOURCES`), including:
+  - Supports multiple telemetry sources (selected via `SEAGULL_SOURCES`), including:
     - `proc` (flows from `/proc/net/tcp*`)
     - `authlog` (SSH/auth log parsing)
     - `scan` (PCAP‑based scan detection)
@@ -50,14 +50,14 @@ Backend modular-monolith boundaries and contribution guardrails are documented i
     - `syscollector` (OS + package inventory snapshots)
   - Sends batched events to the backend over HTTPS with rotating agent credentials (bound to agent_id).
 
-- **netwatch-backend** (FastAPI)
+- **seagull-backend** (FastAPI)
   - Ingestion API (agent‑auth): `POST /ingest/events`
   - Control plane (agent‑auth): `/agents/enroll`, `/agents/heartbeat`, `/agents/config`
   - Portal APIs (user/admin): `/events`, `/inventory`, `/overview`, `/auth/*`, `/account/*`, `/admin/*`
   - Normalizes and persists to PostgreSQL.
   - Adds baseline hardening headers + GZip for JSON.
 
-- **netwatch-portal** (React + Vite)
+- **seagull-portal** (React + Vite)
   - Operator UI: Overview, Agents, Events (with pagination), SSH Insights, Inventory, Alerts, Correlations, Settings.
   - Uses portal auth (`/auth/login`, `/auth/refresh`, `/auth/me`) and does not rely on localStorage roles.
 
@@ -66,15 +66,15 @@ Backend modular-monolith boundaries and contribution guardrails are documented i
   - Routes `/` -> portal, `/api/*` -> backend, `/agent/*` -> backend.
   - Adds HSTS + security headers and forwards `X-Forwarded-*` headers to upstream services.
 
-- **netwatch-ingest-pipeline**
+- **seagull-ingest-pipeline**
   - Runs ingest queue draining, Elasticsearch indexing, and 1-minute rollups in one supervised group.
   - Child modules: `app.workers.ingest_worker`, `app.workers.es_indexer`, `app.workers.rollup_1m`.
 
-- **netwatch-intelligence-worker**
+- **seagull-intelligence-worker**
   - Runs rule evaluation and enrichment/correlation workers in one supervised group.
   - Child modules: `app.workers.runner`, `app.workers.ip_intel`, `app.workers.proto_intel`, `app.workers.attack_chain`.
 
-- **netwatch-maintenance-worker**
+- **seagull-maintenance-worker**
   - Runs administrative maintenance loops.
   - Child modules: `app.workers.audit_retention` and (in production when enabled) the bootstrap token rotator.
 
@@ -92,8 +92,8 @@ Backend modular-monolith boundaries and contribution guardrails are documented i
   - Reads Postgres for rollups/events/alerts and Elasticsearch for indexed hunting (optional).
 
 - **Elasticsearch (optional)**
-  - Stores indexed events for fast hunting and flexible aggregations (index pattern `netwatch-events-*`).
-  - Fed asynchronously by the `es-indexer` child inside `netwatch-ingest-pipeline` (Postgres → Elasticsearch).
+  - Stores indexed events for fast hunting and flexible aggregations (index pattern `seagull-events-*`).
+  - Fed asynchronously by the `es-indexer` child inside `seagull-ingest-pipeline` (Postgres → Elasticsearch).
 
 Worker group manager entrypoints:
 
@@ -144,8 +144,8 @@ Worker group manager entrypoints:
 ### 1. Clone the repository
 
 ```bash
-git clone https://gitlab.com/nathanmblima/dynasmon-netwatch.git
-cd dynasmon-netwatch
+git clone https://gitlab.com/nathanmblima/dynasmon-seagull.git
+cd dynasmon-seagull
 ```
 
 ### 2. Configure environment variables
@@ -163,11 +163,11 @@ Create runtime secret files (recommended for prod and supported in dev):
 ```bash
 mkdir -p secrets
 openssl rand -hex 24 > secrets/postgres_password.txt
-openssl rand -hex 32 > secrets/netwatch_jwt_secret.txt
-openssl rand -hex 24 > secrets/netwatch_bootstrap_admin_password.txt
-openssl rand -hex 24 > secrets/netwatch_redis_password.txt
-openssl rand -hex 24 > secrets/netwatch_es_password.txt
-openssl rand -hex 32 > secrets/netwatch_audit_hash_pepper.txt
+openssl rand -hex 32 > secrets/seagull_jwt_secret.txt
+openssl rand -hex 24 > secrets/seagull_bootstrap_admin_password.txt
+openssl rand -hex 24 > secrets/seagull_redis_password.txt
+openssl rand -hex 24 > secrets/seagull_es_password.txt
+openssl rand -hex 32 > secrets/seagull_audit_hash_pepper.txt
 openssl rand -hex 24 > secrets/grafana_admin_password.txt  # optional, only if observability profile is enabled
 ```
 
@@ -175,22 +175,22 @@ The backend now supports both `VAR` and `VAR_FILE` for secrets. Compose prod mou
 
 Minimum required for secure bootstrap:
 
-- `NETWATCH_JWT_SECRET` or `NETWATCH_JWT_SECRET_FILE`
-- `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD` or `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE`
-- In dev, `NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START=true` can resync the bootstrap admin password on startup.
+- `SEAGULL_JWT_SECRET` or `SEAGULL_JWT_SECRET_FILE`
+- `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD` or `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE`
+- In dev, `SEAGULL_BOOTSTRAP_ADMIN_RESET_ON_START=true` can resync the bootstrap admin password on startup.
 
 Recommended hardening:
 
 - Use short-lived bootstrap tokens per agent for enrollment.
-- When behind HTTPS, set `NETWATCH_COOKIE_SECURE=true` and consider `NETWATCH_COOKIE_SAMESITE=strict`.
+- When behind HTTPS, set `SEAGULL_COOKIE_SECURE=true` and consider `SEAGULL_COOKIE_SAMESITE=strict`.
 - Configure Caddy edge domain/email for automatic HTTPS:
-  - `NETWATCH_CADDY_DOMAIN`
-  - `NETWATCH_CADDY_EMAIL`
+  - `SEAGULL_CADDY_DOMAIN`
+  - `SEAGULL_CADDY_EMAIL`
 - Configure audit integrity and retention:
-  - `NETWATCH_AUDIT_HASH_PEPPER` / `NETWATCH_AUDIT_HASH_PEPPER_FILE`
-  - `NETWATCH_AUDIT_RETENTION_DAYS`
-  - `NETWATCH_LOGIN_AUDIT_RETENTION_DAYS`
-  - `NETWATCH_GOVERNANCE_RETENTION_DAYS`
+  - `SEAGULL_AUDIT_HASH_PEPPER` / `SEAGULL_AUDIT_HASH_PEPPER_FILE`
+  - `SEAGULL_AUDIT_RETENTION_DAYS`
+  - `SEAGULL_LOGIN_AUDIT_RETENTION_DAYS`
+  - `SEAGULL_GOVERNANCE_RETENTION_DAYS`
 
 For local lab/dev TLS (self-signed), keep your dev certs under `secrets/tls/`:
 
@@ -212,7 +212,7 @@ If you enable SSH enrichment (Lupe / IP Intelligence), the preferred setup is lo
 
 Optional fallback:
 
-- `NETWATCH_IPINFO_TOKEN` (used only when the local MMDB files are missing and fallback is enabled)
+- `SEAGULL_IPINFO_TOKEN` (used only when the local MMDB files are missing and fallback is enabled)
 
 ### 3. Bootstrap and start (single command)
 
@@ -239,8 +239,8 @@ make nuke
 make dev
 ```
 
-If you run the host agent with `systemd` (`netwatch-agent.service`) and do not want Docker to start
-`netwatch-agent-core`/`netwatch-agent-sensor`, run:
+If you run the host agent with `systemd` (`seagull-agent.service`) and do not want Docker to start
+`seagull-agent-core`/`seagull-agent-sensor`, run:
 
 ```bash
 make dev SYSTEMD_AGENT=1
@@ -255,22 +255,22 @@ make restart-quick SYSTEMD_AGENT=1
 
 ### 3.1 Native Linux `systemd` agent deployment
 
-If you want to run the NetWatch agent natively on a Linux host (without containerized agent services), use the deployment scripts under `deploy/systemd/`.
+If you want to run the Seagull agent natively on a Linux host (without containerized agent services), use the deployment scripts under `deploy/systemd/`.
 
-This path is compatible with the existing Docker workflow. When the host `systemd` agent is enabled, use `SYSTEMD_AGENT=1` in the compose/make commands shown above so Docker does not start `netwatch-agent-core`/`netwatch-agent-sensor`.
+This path is compatible with the existing Docker workflow. When the host `systemd` agent is enabled, use `SYSTEMD_AGENT=1` in the compose/make commands shown above so Docker does not start `seagull-agent-core`/`seagull-agent-sensor`.
 
 #### Installed paths
 
 | Purpose | Path |
 |---|---|
-| Agent binary | `/usr/local/bin/netwatch-agent` |
-| Service unit | `/etc/systemd/system/netwatch-agent.service` |
-| Environment config | `/etc/netwatch/agent.env` |
-| CA file | `/etc/netwatch/pki/root_ca.crt` |
-| CA sync helper | `/usr/local/lib/netwatch/netwatch-agent-sync-ca.sh` |
-| CA sync timer | `netwatch-agent-ca-sync.timer` |
-| State files | `/var/lib/netwatch` |
-| Runtime logs | `journalctl -u netwatch-agent` and `/var/log/netwatch` |
+| Agent binary | `/usr/local/bin/seagull-agent` |
+| Service unit | `/etc/systemd/system/seagull-agent.service` |
+| Environment config | `/etc/seagull/agent.env` |
+| CA file | `/etc/seagull/pki/root_ca.crt` |
+| CA sync helper | `/usr/local/lib/seagull/seagull-agent-sync-ca.sh` |
+| CA sync timer | `seagull-agent-ca-sync.timer` |
+| State files | `/var/lib/seagull` |
+| Runtime logs | `journalctl -u seagull-agent` and `/var/log/seagull` |
 
 #### Install
 
@@ -288,7 +288,7 @@ Install modes:
   ```
 - Install from an existing binary:
   ```bash
-  BUILD_FROM_SOURCE=0 SOURCE_BINARY=/path/to/netwatch-agent bash deploy/systemd/install-agent.sh
+  BUILD_FROM_SOURCE=0 SOURCE_BINARY=/path/to/seagull-agent bash deploy/systemd/install-agent.sh
   ```
 - Install and auto-start only when runtime prerequisites are met:
   ```bash
@@ -297,41 +297,41 @@ Install modes:
 
 Installer behavior (idempotent and hardening-oriented):
 
-- Reuses existing user/directories, preserves existing `/etc/netwatch/agent.env`, reloads systemd, enables the service.
-- Migrates legacy `NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE=/etc/netwatch/bootstrap.token` to `/var/lib/netwatch/bootstrap.token`.
-- Moves inline `NETWATCH_AGENT_BOOTSTRAP_TOKEN` content to file-based token storage and clears inline value.
-- Normalizes bootstrap token file ownership/permissions to `netwatch:netwatch` and `0600`.
-- Clears stale `NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE` when credential-based enroll is already complete and token file was consumed.
+- Reuses existing user/directories, preserves existing `/etc/seagull/agent.env`, reloads systemd, enables the service.
+- Migrates legacy `SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE=/etc/seagull/bootstrap.token` to `/var/lib/seagull/bootstrap.token`.
+- Moves inline `SEAGULL_AGENT_BOOTSTRAP_TOKEN` content to file-based token storage and clears inline value.
+- Normalizes bootstrap token file ownership/permissions to `seagull:seagull` and `0600`.
+- Clears stale `SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE` when credential-based enroll is already complete and token file was consumed.
 - Removes stale systemd drop-ins that override bootstrap token env vars (unless `PRESERVE_BOOTSTRAP_DROPINS=1`).
 - Deduplicates managed keys in `agent.env` and applies sane host defaults for authlog and DDoS tuning.
-- If `NETWATCH_TLS_CA_FILE` is missing, can auto-seed from local dev CA (`AUTO_INSTALL_DEV_CA=1`, default).
-- Auto-discovers the local CA source, writes `NETWATCH_TLS_CA_SOURCE_FILE`, and installs CA sync timer to keep trust aligned.
+- If `SEAGULL_TLS_CA_FILE` is missing, can auto-seed from local dev CA (`AUTO_INSTALL_DEV_CA=1`, default).
+- Auto-discovers the local CA source, writes `SEAGULL_TLS_CA_SOURCE_FILE`, and installs CA sync timer to keep trust aligned.
 
 #### Configure
 
-Edit `/etc/netwatch/agent.env` and set at least:
+Edit `/etc/seagull/agent.env` and set at least:
 
-- `NETWATCH_AGENT_ID`
-- `NETWATCH_API_URL`
+- `SEAGULL_AGENT_ID`
+- `SEAGULL_API_URL`
 - One bootstrap source:
-  - `NETWATCH_AGENT_BOOTSTRAP_TOKEN`, or
-  - `NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE`
-- `NETWATCH_TLS_CA_FILE` (default: `/etc/netwatch/pki/root_ca.crt`)
-- `NETWATCH_TLS_CA_SOURCE_FILE` (typically your repo `secrets/tls/ca.crt`)
+  - `SEAGULL_AGENT_BOOTSTRAP_TOKEN`, or
+  - `SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE`
+- `SEAGULL_TLS_CA_FILE` (default: `/etc/seagull/pki/root_ca.crt`)
+- `SEAGULL_TLS_CA_SOURCE_FILE` (typically your repo `secrets/tls/ca.crt`)
 
 Optional backend mTLS:
 
-- `NETWATCH_TLS_CERT_FILE`
-- `NETWATCH_TLS_KEY_FILE`
+- `SEAGULL_TLS_CERT_FILE`
+- `SEAGULL_TLS_KEY_FILE`
 
-If one of `NETWATCH_TLS_CERT_FILE` / `NETWATCH_TLS_KEY_FILE` is set, the other must also be set.
+If one of `SEAGULL_TLS_CERT_FILE` / `SEAGULL_TLS_KEY_FILE` is set, the other must also be set.
 
 #### Start and inspect
 
 ```bash
-systemctl start netwatch-agent
-systemctl status netwatch-agent --no-pager
-journalctl -u netwatch-agent -f
+systemctl start seagull-agent
+systemctl status seagull-agent --no-pager
+journalctl -u seagull-agent -f
 ```
 
 #### Current limitations
@@ -355,8 +355,8 @@ On first run, `make prod` now auto-generates secure missing/placeholder secrets 
 
 The dev stack runs through HTTPS edge; agents use header-based rotating credentials.
 It serves:
-- HTTP redirect: `http://localhost:${NETWATCH_EDGE_HTTP_PORT:-8081}`
-- HTTPS: `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}`
+- HTTP redirect: `http://localhost:${SEAGULL_EDGE_HTTP_PORT:-8081}`
+- HTTPS: `https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}`
 
 ### 4. Start optional profiles
 
@@ -364,7 +364,7 @@ It serves:
 make up-extra
 ```
 
-`make up-extra` starts the `extra` profile (for additional agent collectors such as `netwatch-agent-lateral`).
+`make up-extra` starts the `extra` profile (for additional agent collectors such as `seagull-agent-lateral`).
 
 To start optional observability tooling (Grafana + Kibana), use:
 
@@ -391,7 +391,7 @@ docker compose -f docker-compose.yml -f compose.dev.yml --profile observability 
   - Shortcuts: `make dev-persist`, `make restart-persist`, or `make SYSTEMD_AGENT=1 DEV_REDIS_PERSIST=1 restart`.
 - Prod: `redis.prod.conf`
   - Uses `redis-data`.
-  - Fails fast if `NETWATCH_REDIS_PASSWORD` or `NETWATCH_REDIS_PASSWORD_FILE` is missing.
+  - Fails fast if `SEAGULL_REDIS_PASSWORD` or `SEAGULL_REDIS_PASSWORD_FILE` is missing.
 
 Persistent Redis recovery is explicit and manual:
 
@@ -407,12 +407,12 @@ The repair command:
 
 ### 5. Open the Portal
 
-- Recommended (dev TLS edge): `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}`
-- Direct Vite port (fallback): `http://localhost:${NETWATCH_PORTAL_PORT:-8080}`
-- Prod compose: `https://<NETWATCH_CADDY_DOMAIN>` (for local runs, use `https://127.0.0.1:${NETWATCH_EDGE_HTTPS_PORT:-8443}`)
+- Recommended (dev TLS edge): `https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}`
+- Direct Vite port (fallback): `http://localhost:${SEAGULL_PORTAL_PORT:-8080}`
+- Prod compose: `https://<SEAGULL_CADDY_DOMAIN>` (for local runs, use `https://127.0.0.1:${SEAGULL_EDGE_HTTPS_PORT:-8443}`)
 - Login with:
-  - Username: `NETWATCH_BOOTSTRAP_ADMIN_USERNAME` (default: `admin`)
-  - Password: `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD`
+  - Username: `SEAGULL_BOOTSTRAP_ADMIN_USERNAME` (default: `admin`)
+  - Password: `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD`
 
 The admin account is bootstrapped on an empty database at backend startup.
 After logging in, change your password via **Settings** (or `POST /account/change-password`).
@@ -423,7 +423,7 @@ In `dev` direct backend usage (`compose.dev.yml` / `http://localhost:8000`), hos
 ### 6. Verify the Backend
 
 ```bash
-curl -k https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/api/health
+curl -k https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}/api/health
 ```
 
 Expected:
@@ -435,7 +435,7 @@ Expected:
 Readiness endpoint:
 
 ```bash
-curl -k https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/api/health/ready
+curl -k https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}/api/health/ready
 ```
 
 - `/health` and `/health/live` mean process liveness.
@@ -447,8 +447,8 @@ curl -k https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/api/health/ready
   - Credentials: `GF_SECURITY_ADMIN_USER` + value from `GF_SECURITY_ADMIN_PASSWORD` or `GF_SECURITY_ADMIN_PASSWORD_FILE`
   - Datasources + dashboards are **auto‑provisioned** from `infra/grafana/provisioning`.
 
-- Kibana (optional, behind TLS edge): `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/kibana/` (start with `--profile observability`)
-- Elasticsearch HTTP API (if intentionally exposed via edge): `https://localhost:${NETWATCH_EDGE_HTTPS_PORT:-8443}/elasticsearch/`
+- Kibana (optional, behind TLS edge): `https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}/kibana/` (start with `--profile observability`)
+- Elasticsearch HTTP API (if intentionally exposed via edge): `https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}/elasticsearch/`
 
 ### 8. Developer quality pipeline
 
@@ -473,7 +473,7 @@ The project now uses Alembic for schema versioning.
 
 Lifecycle flow:
 
-- **Initial bootstrap (dev)**: `compose.dev.yml` sets `NETWATCH_DB_AUTO_UPGRADE=true`, so services apply `alembic upgrade head` automatically.
+- **Initial bootstrap (dev)**: `compose.dev.yml` sets `SEAGULL_DB_AUTO_UPGRADE=true`, so services apply `alembic upgrade head` automatically.
 - **Upgrade before prod deploy**: run migrations explicitly, then start services.
 
 Useful commands:
@@ -481,7 +481,7 @@ Useful commands:
 - `make db-upgrade` -> run `alembic upgrade head` via backend container
 - `make db-current` -> show current revision
 
-For production-like runs (`compose.prod.yml`), `NETWATCH_DB_AUTO_UPGRADE=false` by default.
+For production-like runs (`compose.prod.yml`), `SEAGULL_DB_AUTO_UPGRADE=false` by default.
 
 ### 10. Administrative Audit and Governance
 
@@ -514,7 +514,7 @@ Frontend audit/governance console:
 
 Retention enforcement:
 
-- worker group: `netwatch-maintenance-worker` (child: `audit-retention`)
+- worker group: `seagull-maintenance-worker` (child: `audit-retention`)
 - same retention mechanism in dev/prod; only windows/volume change by config
 - defaults:
   - dev: 30 days
@@ -522,22 +522,22 @@ Retention enforcement:
 
 Config knobs:
 
-- `NETWATCH_AUDIT_RETENTION_ENABLED`
-- `NETWATCH_AUDIT_RETENTION_DAYS`
-- `NETWATCH_LOGIN_AUDIT_RETENTION_DAYS`
-- `NETWATCH_GOVERNANCE_RETENTION_DAYS`
-- `NETWATCH_AUDIT_RETENTION_EVERY_SECONDS`
-- `NETWATCH_AUDIT_RETENTION_DELETE_BATCH`
+- `SEAGULL_AUDIT_RETENTION_ENABLED`
+- `SEAGULL_AUDIT_RETENTION_DAYS`
+- `SEAGULL_LOGIN_AUDIT_RETENTION_DAYS`
+- `SEAGULL_GOVERNANCE_RETENTION_DAYS`
+- `SEAGULL_AUDIT_RETENTION_EVERY_SECONDS`
+- `SEAGULL_AUDIT_RETENTION_DELETE_BATCH`
 
 Troubleshooting (Postgres auth failed):
 
-- If you see `password authentication failed for user "netwatch"` after changing `POSTGRES_PASSWORD`, your existing `postgres-data` volume still has the old password.
+- If you see `password authentication failed for user "seagull"` after changing `POSTGRES_PASSWORD`, your existing `postgres-data` volume still has the old password.
 - Option 1 (keep data): set `.env` `POSTGRES_PASSWORD` back to the password used when that volume was first created.
 - Option 2 (reset disposable local state): run `make nuke` and then `make dev`.
 
 Other common first-run issues:
 
-- `Bootstrap admin password rejected`: your `NETWATCH_BOOTSTRAP_ADMIN_PASSWORD` does not meet policy (12+ chars, upper/lower/digit/symbol, cannot include username).
+- `Bootstrap admin password rejected`: your `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD` does not meet policy (12+ chars, upper/lower/digit/symbol, cannot include username).
 - Portal loads but UI fails behind TLS edge: check `infra/caddy/Caddyfile.dev` (dev CSP/HMR policy) and restart with `make restart`.
 - Optional workers degraded while API is available: this is expected when optional services (for example Elasticsearch/ClickHouse) are unavailable and not required.
 
@@ -579,23 +579,23 @@ If you do not want to run PCAP‑based collectors, disable those services (or do
 
 ## DoS/DDoS (Reducing False Positives)
 
-The `netwatch-agent-ddos` collector supports hard thresholds to avoid emitting low‑signal detections.
+The `seagull-agent-ddos` collector supports hard thresholds to avoid emitting low‑signal detections.
 
 Key environment variables:
 
-- `NETWATCH_DDOS_MIN_PACKETS`  
+- `SEAGULL_DDOS_MIN_PACKETS`  
   Minimum packet count in the evaluation window required to emit a detection.
 
-- `NETWATCH_DDOS_MIN_REQUESTS`  
+- `SEAGULL_DDOS_MIN_REQUESTS`  
   Minimum L7 “request‑like” count (e.g., HTTP indicators / TLS handshakes) in the evaluation window required to emit L7 detections.
 
-- `NETWATCH_DDOS_MIN_CONFIDENCE`  
+- `SEAGULL_DDOS_MIN_CONFIDENCE`  
   Minimum confidence score required to emit a `dos_attack` event.
 
 Noise control for lab environments:
 
-- `NETWATCH_PROC_DROP_LIKELY_OUTBOUND=true`
-- `NETWATCH_EPHEMERAL_PORT_MIN=49152`
+- `SEAGULL_PROC_DROP_LIKELY_OUTBOUND=true`
+- `SEAGULL_EPHEMERAL_PORT_MIN=49152`
 
 These settings help drop traffic likely related to outbound connections where the local host is using ephemeral destination ports.
 
@@ -603,11 +603,11 @@ These settings help drop traffic likely related to outbound connections where th
 
 ## SSH Insights (Lupe)
 
-NetWatch includes an SSH Insights endpoint:
+Seagull includes an SSH Insights endpoint:
 
 - `GET /events/ssh/summary`
 
-When enrichment is enabled (via the `ip-intel` child inside `netwatch-intelligence-worker`), SSH auth events can be enriched with:
+When enrichment is enabled (via the `ip-intel` child inside `seagull-intelligence-worker`), SSH auth events can be enriched with:
 
 - Country/region/city (Geo)
 - ASN and ASN org
@@ -659,7 +659,7 @@ Planned enhancements (not yet implemented):
 
 ## Security Considerations
 
-Even in a lab environment, NetWatch touches sensitive areas:
+Even in a lab environment, Seagull touches sensitive areas:
 
 - Packet capture and low‑level hooks can expose network metadata.
 - Logs and events may contain IPs, hostnames, and user identifiers.
@@ -674,9 +674,9 @@ Use this project responsibly:
 Portal security notes:
 
 - Use strong runtime secrets (prefer `*_FILE` + Docker secrets in prod).
-- Use a strong `NETWATCH_JWT_SECRET` and rotate it if leaked.
-- Set `NETWATCH_AUDIT_HASH_PEPPER` (or `_FILE`) to strengthen audit-chain integrity hashes.
-- Run behind HTTPS and set `NETWATCH_COOKIE_SECURE=true`.
+- Use a strong `SEAGULL_JWT_SECRET` and rotate it if leaked.
+- Set `SEAGULL_AUDIT_HASH_PEPPER` (or `_FILE`) to strengthen audit-chain integrity hashes.
+- Run behind HTTPS and set `SEAGULL_COOKIE_SECURE=true`.
 - Keep bootstrap tokens short-lived and one-time; avoid long-lived shared enroll secrets.
 
 ### Agent Identity Lifecycle
@@ -686,8 +686,8 @@ Control-plane path for agents remains `https://<edge>/agent/*`.
 1. Create a short-lived bootstrap token per agent:
    - `POST /api/agents/{agent_id}/bootstrap-tokens`
 2. Start/restart the agent with:
-   - `NETWATCH_AGENT_BOOTSTRAP_TOKEN` (or `_FILE`) for first enroll
-   - `NETWATCH_AGENT_ID`
+   - `SEAGULL_AGENT_BOOTSTRAP_TOKEN` (or `_FILE`) for first enroll
+   - `SEAGULL_AGENT_ID`
 3. Agent enrolls with bootstrap token (`POST /agent/agents/enroll`) and receives a rotating credential.
 4. Agent uses `X-Agent-ID` + `X-Agent-Credential` for `/agent/*` requests.
 5. Backend stores only salted credential hashes and binds credentials to `agent_id`.
@@ -709,15 +709,15 @@ Catalog layout:
 
 Pack activation by environment (same loader/motor, different activation only):
 
-- `NETWATCH_RULES_ENV`: logical environment label used by rule filters (`dev`, `homolog`, `prod`, `lab`).
-- `NETWATCH_RULES_ENABLED_PACKS`: CSV allowlist of packs to load (e.g. `core,network`).
-- `NETWATCH_RULES_DISABLED_PACKS`: optional CSV denylist.
-- `NETWATCH_RULES_INCLUDE_EXPERIMENTAL`: enables/disables rules with `maturity: experimental`.
+- `SEAGULL_RULES_ENV`: logical environment label used by rule filters (`dev`, `homolog`, `prod`, `lab`).
+- `SEAGULL_RULES_ENABLED_PACKS`: CSV allowlist of packs to load (e.g. `core,network`).
+- `SEAGULL_RULES_DISABLED_PACKS`: optional CSV denylist.
+- `SEAGULL_RULES_INCLUDE_EXPERIMENTAL`: enables/disables rules with `maturity: experimental`.
 
 Recommended defaults:
 
-- Dev/Lab: `NETWATCH_RULES_ENABLED_PACKS=core,network,lab` and `NETWATCH_RULES_INCLUDE_EXPERIMENTAL=true`.
-- Prod: `NETWATCH_RULES_ENABLED_PACKS=core,network` and `NETWATCH_RULES_INCLUDE_EXPERIMENTAL=false`.
+- Dev/Lab: `SEAGULL_RULES_ENABLED_PACKS=core,network,lab` and `SEAGULL_RULES_INCLUDE_EXPERIMENTAL=true`.
+- Prod: `SEAGULL_RULES_ENABLED_PACKS=core,network` and `SEAGULL_RULES_INCLUDE_EXPERIMENTAL=false`.
 
 False-positive reduction controls:
 
@@ -740,13 +740,13 @@ Validation suite:
 
 ## Performance: Rollups (Grafana/Postgres CPU reduction)
 
-NetWatch includes an optional rollup worker that pre‑aggregates `net_events` into 1‑minute buckets.
+Seagull includes an optional rollup worker that pre‑aggregates `net_events` into 1‑minute buckets.
 This significantly reduces CPU usage caused by Grafana dashboards that run COUNT/GROUP BY queries over large windows.
 
-- Worker group: `netwatch-ingest-pipeline` (child: `rollup-1m`)
+- Worker group: `seagull-ingest-pipeline` (child: `rollup-1m`)
 - Tables: `event_rollups_1m`, `ssh_fail_rollups_1m`
 - Offsets: `search_index_offsets` (`rollup_events_1m`, `rollup_ssh_fail_1m`)
 
 Tune via `.env`:
 
-- `NETWATCH_ROLLUP_EVERY_SECONDS`, `NETWATCH_ROLLUP_MAX_ROWS`
+- `SEAGULL_ROLLUP_EVERY_SECONDS`, `SEAGULL_ROLLUP_MAX_ROWS`

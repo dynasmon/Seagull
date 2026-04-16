@@ -100,7 +100,7 @@ def _cache_delete_prefixes(*prefixes: str) -> None:
 
 
 def invalidate_inventory_overview_cache(*, agent_id: str | None = None) -> None:
-    _cache_delete_prefixes("netwatch:inventory:overview:v2:")
+    _cache_delete_prefixes("seagull:inventory:overview:v2:")
 
 
 def ingest_inventory(db: Session, *, payload: InventorySnapshotIn, agent_id: str) -> dict[str, Any]:
@@ -196,7 +196,7 @@ def get_inventory_overview(
     end_1m = _floor_dt(now, 1)
     end_10m = _floor_dt(now, 10)
 
-    cache_key = f"netwatch:inventory:overview:v2:w={int(window_minutes)}:a={a or '*'}"
+    cache_key = f"seagull:inventory:overview:v2:w={int(window_minutes)}:a={a or '*'}"
     cached = _cache_get_json(cache_key)
     if cached is not None:
         incr_counter("api_cache_hit_total", route="/inventory/overview")
@@ -216,6 +216,6 @@ def get_inventory_overview(
     )
     payload.update({"window_minutes": window_minutes, "agent_id": agent_id or "__all"})
 
-    _cache_set_json(cache_key, payload, int(getattr(settings, "NETWATCH_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
+    _cache_set_json(cache_key, payload, int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15))
     observe_hist("api_route_latency_seconds", time.perf_counter() - started, route="/inventory/overview")
     return payload

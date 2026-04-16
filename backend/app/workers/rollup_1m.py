@@ -13,13 +13,14 @@ from sqlalchemy.exc import OperationalError
 from app.core.config import settings
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
+from app.core.env_secrets import getenv_compat
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import EventRollup1mModel, NetEventModel, SshFailRollup1mModel
 from app.shared.indexing.offset_store import ensure_offsets, get_offset, set_offset
 
 
 setup_logging("worker-rollup")
-logger = logging.getLogger("netwatch.worker.rollup")
+logger = logging.getLogger("seagull.worker.rollup")
 
 OFFSET_EVENTS = "rollup_events_1m"
 OFFSET_SSH_FAIL = "rollup_ssh_fail_1m"
@@ -33,7 +34,7 @@ SSH_FAIL_ACTIONS: tuple[str, ...] = (
 
 
 def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
+    raw = getenv_compat(name)
     if raw is None:
         return default
     raw = raw.strip()
@@ -46,7 +47,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_float(name: str, default: float) -> float:
-    raw = os.getenv(name)
+    raw = getenv_compat(name)
     if raw is None:
         return default
     raw = raw.strip()
@@ -166,9 +167,9 @@ def _rollup_ssh_fail(last_id: int, max_id: int) -> None:
 
 def main() -> None:
     settings.validate_for_service("worker-rollup")
-    every_s = _env_float("NETWATCH_ROLLUP_EVERY_SECONDS", 1.0)
-    idle_sleep_s = _env_float("NETWATCH_ROLLUP_IDLE_SLEEP_SECONDS", 2.0)
-    max_rows = _env_int("NETWATCH_ROLLUP_MAX_ROWS", 5000)
+    every_s = _env_float("SEAGULL_ROLLUP_EVERY_SECONDS", 1.0)
+    idle_sleep_s = _env_float("SEAGULL_ROLLUP_IDLE_SLEEP_SECONDS", 2.0)
+    max_rows = _env_int("SEAGULL_ROLLUP_MAX_ROWS", 5000)
 
     backoff = 1.0
 

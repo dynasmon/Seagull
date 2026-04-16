@@ -63,12 +63,12 @@ def is_schema_current() -> bool:
 
 def ensure_database_ready() -> None:
     try:
-        if settings.NETWATCH_DB_AUTO_UPGRADE:
+        if settings.SEAGULL_DB_AUTO_UPGRADE:
             run_migrations()
         elif not is_schema_current():
             raise RuntimeError(
                 "Database schema is not at Alembic head. "
-                "Run 'alembic upgrade head' (in backend/) or set NETWATCH_DB_AUTO_UPGRADE=true."
+                "Run 'alembic upgrade head' (in backend/) or set SEAGULL_DB_AUTO_UPGRADE=true."
             )
 
         # Runtime-safe post-migration bootstrap (indexes/checks/seeds).
@@ -85,13 +85,13 @@ def _runtime_db_error(exc: Exception) -> Exception:
     msg_lower = msg.lower()
 
     if "password authentication failed for user" in msg_lower:
-        user = settings.DB_USER or settings.DB_NAME or "netwatch"
+        user = settings.DB_USER or settings.DB_NAME or "seagull"
         return RuntimeError(
             "PostgreSQL authentication failed during startup "
             f"(user={user!r}). This usually means credentials in .env no longer "
             "match the existing postgres-data volume.\n"
             "Fix options:\n"
-            "1) Keep data: restore POSTGRES_PASSWORD/NETWATCH_DB_PASSWORD to the "
+            "1) Keep data: restore POSTGRES_PASSWORD/SEAGULL_DB_PASSWORD to the "
             "password used when the volume was first initialized.\n"
             "2) Reset disposable local state: run 'make nuke' then 'make dev'."
         )
@@ -99,7 +99,7 @@ def _runtime_db_error(exc: Exception) -> Exception:
     if "database" in msg_lower and "does not exist" in msg_lower:
         return RuntimeError(
             "PostgreSQL is reachable, but the configured database does not exist. "
-            "Verify POSTGRES_DB/NETWATCH_DB_NAME and re-run 'make dev'."
+            "Verify POSTGRES_DB/SEAGULL_DB_NAME and re-run 'make dev'."
         )
 
     return exc

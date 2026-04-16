@@ -4,8 +4,8 @@ from app.workers import ingest_worker
 
 
 def test_ingest_worker_clickhouse_defaults_enabled(monkeypatch) -> None:
-    monkeypatch.delenv("NETWATCH_CLICKHOUSE_ENABLED", raising=False)
-    monkeypatch.delenv("NETWATCH_CLICKHOUSE_REQUIRED", raising=False)
+    monkeypatch.delenv("SEAGULL_CLICKHOUSE_ENABLED", raising=False)
+    monkeypatch.delenv("SEAGULL_CLICKHOUSE_REQUIRED", raising=False)
     cfg = ingest_worker.load_config()
     assert cfg.clickhouse_enabled is True
     assert cfg.clickhouse_required is True
@@ -14,17 +14,17 @@ def test_ingest_worker_clickhouse_defaults_enabled(monkeypatch) -> None:
 
 
 def test_ingest_worker_clickhouse_env_can_disable(monkeypatch) -> None:
-    monkeypatch.setenv("NETWATCH_CLICKHOUSE_ENABLED", "false")
-    monkeypatch.setenv("NETWATCH_CLICKHOUSE_REQUIRED", "false")
+    monkeypatch.setenv("SEAGULL_CLICKHOUSE_ENABLED", "false")
+    monkeypatch.setenv("SEAGULL_CLICKHOUSE_REQUIRED", "false")
     cfg = ingest_worker.load_config()
     assert cfg.clickhouse_enabled is False
     assert cfg.clickhouse_required is False
 
 
 def test_ingest_worker_sink_queue_env(monkeypatch) -> None:
-    monkeypatch.setenv("NETWATCH_INGEST_CLICKHOUSE_SINK_QUEUE_MAX_BATCHES", "7")
-    monkeypatch.setenv("NETWATCH_INGEST_WARM_SINK_QUEUE_MAX_BATCHES", "9")
-    monkeypatch.setenv("NETWATCH_INGEST_SINK_MAX_BATCH_RETRIES", "3")
+    monkeypatch.setenv("SEAGULL_INGEST_CLICKHOUSE_SINK_QUEUE_MAX_BATCHES", "7")
+    monkeypatch.setenv("SEAGULL_INGEST_WARM_SINK_QUEUE_MAX_BATCHES", "9")
+    monkeypatch.setenv("SEAGULL_INGEST_SINK_MAX_BATCH_RETRIES", "3")
 
     cfg = ingest_worker.load_config()
     assert cfg.clickhouse_sink_queue_max_batches == 7

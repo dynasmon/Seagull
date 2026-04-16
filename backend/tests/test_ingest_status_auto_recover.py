@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 import time
 
-os.environ.setdefault("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "true")
-os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
+os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
+os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.core import ingest_control as ic
 
@@ -32,12 +32,12 @@ class _FakeRedis:
         now_s = int(time.time())
         self.data = {
             ic.storm_active_key(): "1",
-            "netwatch:ingest:storm_reason": "soft_backlog",
-            "netwatch:ingest:storm_sample_hot": "5",
-            "netwatch:ingest:storm_sample_warm": "2",
-            "netwatch:overview:v2:w=60|a=*|lite=1": "cached",
-            "netwatch:events:ssh_summary:v3:x": "cached",
-            "netwatch:inventory:overview:v2:x": "cached",
+            "seagull:ingest:storm_reason": "soft_backlog",
+            "seagull:ingest:storm_sample_hot": "5",
+            "seagull:ingest:storm_sample_warm": "2",
+            "seagull:overview:v2:w=60|a=*|lite=1": "cached",
+            "seagull:events:ssh_summary:v3:x": "cached",
+            "seagull:inventory:overview:v2:x": "cached",
             ic.backlog_events_key(): "999999",
             ic._worker_eps_key(now_s - 1): "0",  # noqa: SLF001
             ic._worker_msgs_key(now_s - 1): "0",  # noqa: SLF001
@@ -113,7 +113,7 @@ def test_get_storm_status_auto_recovers_and_clears_runtime_cache(monkeypatch) ->
 
     assert out["phase"] == "ok"
     assert ic.storm_active_key() not in fake.data
-    assert "netwatch:ingest:storm_reason" not in fake.data
-    assert "netwatch:overview:v2:w=60|a=*|lite=1" not in fake.data
-    assert "netwatch:events:ssh_summary:v3:x" not in fake.data
-    assert "netwatch:inventory:overview:v2:x" not in fake.data
+    assert "seagull:ingest:storm_reason" not in fake.data
+    assert "seagull:overview:v2:w=60|a=*|lite=1" not in fake.data
+    assert "seagull:events:ssh_summary:v3:x" not in fake.data
+    assert "seagull:inventory:overview:v2:x" not in fake.data

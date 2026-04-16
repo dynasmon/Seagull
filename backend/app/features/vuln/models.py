@@ -49,7 +49,7 @@ class VulnFindingModel(Base):
     #   Examples: "agent:<agent_id>", "ip:10.0.0.5", "url:https://example.com".
     asset_key = Column(String(256), index=True, nullable=False)
 
-    # If the asset maps to an enrolled NetWatch agent, store its id.
+    # If the asset maps to an enrolled Seagull agent, store its id.
     asset_agent_id = Column(String(64), index=True, nullable=True)
 
     # Which agent produced the finding (can differ from asset_agent_id).

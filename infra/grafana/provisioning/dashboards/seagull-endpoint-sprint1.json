@@ -24,7 +24,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -83,7 +83,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -142,7 +142,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -201,7 +201,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -264,7 +264,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -356,7 +356,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -448,7 +448,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -504,7 +504,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -560,7 +560,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -630,7 +630,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -700,7 +700,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -756,7 +756,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -831,7 +831,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -889,7 +889,7 @@
   "refresh": "10s",
   "schemaVersion": 42,
   "tags": [
-    "netwatch",
+    "seagull",
     "xdr",
     "endpoint",
     "inventory"
@@ -904,7 +904,7 @@
         },
         "datasource": {
           "type": "postgres",
-          "uid": "netwatch-postgres"
+          "uid": "seagull-postgres"
         },
         "includeAll": true,
         "label": "Agent",
@@ -934,7 +934,7 @@
     ]
   },
   "timezone": "utc",
-  "title": "Dynasmon NetWatch - Endpoint (Sprint 1)",
-  "uid": "netwatch-endpoint-sprint1",
+  "title": "Dynasmon Seagull - Endpoint (Sprint 1)",
+  "uid": "seagull-endpoint-sprint1",
   "version": 1
 }

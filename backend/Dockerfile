@@ -5,8 +5,8 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-RUN addgroup --system --gid 10001 netwatch \
-    && adduser --system --uid 10001 --ingroup netwatch netwatch
+RUN addgroup --system --gid 10001 seagull \
+    && adduser --system --uid 10001 --ingroup seagull seagull
 
 COPY requirements.lock requirements-dev.txt requirements.txt alembic.ini ./
 COPY alembic ./alembic

@@ -1,9 +1,9 @@
 apiVersion: 1
 
 providers:
-  - name: "NetWatch Dashboards"
+  - name: "Seagull Dashboards"
     orgId: 1
-    folder: "NetWatch"
+    folder: "Seagull"
     type: file
     disableDeletion: false
     editable: true

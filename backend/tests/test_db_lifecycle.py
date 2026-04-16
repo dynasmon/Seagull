@@ -9,7 +9,7 @@ def test_runtime_db_error_for_password_auth_failure() -> None:
     exc = OperationalError(
         "SELECT 1",
         {},
-        Exception('password authentication failed for user "netwatch"'),
+        Exception('password authentication failed for user "seagull"'),
     )
 
     out = db_lifecycle._runtime_db_error(exc)

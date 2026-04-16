@@ -4,8 +4,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-os.environ.setdefault("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "true")
-os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
+os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
+os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from tests.detection_rule_harness import evaluate_rule, load_rule_index
 from app.workers.rules_engine import _is_tuning_allowlisted, _resolve_tuning_eval

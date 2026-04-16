@@ -115,7 +115,7 @@ def _stable_json(data: Dict[str, Any]) -> str:
 
 
 def _sign_payload(payload: Dict[str, Any], prev_hash: str | None) -> str:
-    secret = (settings.NETWATCH_AUDIT_HASH_PEPPER or settings.token_pepper() or settings.NETWATCH_JWT_SECRET or "").strip()
+    secret = (settings.SEAGULL_AUDIT_HASH_PEPPER or settings.token_pepper() or settings.SEAGULL_JWT_SECRET or "").strip()
     msg = _stable_json({"payload": payload, "prev_event_hash": prev_hash or ""}).encode("utf-8")
     if secret:
         return hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()
