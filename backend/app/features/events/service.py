@@ -50,6 +50,20 @@ from app.shared.schemas import CursorPage
 
 logger = logging.getLogger("seagull.api.events")
 
+_PROTO_EXTRA_NORMALIZERS: dict[str, tuple[bool, bool, str | None]] = {
+    "app_proto": (False, False, None),
+    "app_proto_reason": (False, False, None),
+    "app_proto_conf_band": (False, False, None),
+    "dns_qname": (True, False, None),
+    "http_host": (True, False, None),
+    "http_method": (False, True, None),
+    "tls_sni": (True, False, None),
+    "tls_alpn_first": (True, False, None),
+    "ja3": (False, False, None),
+    "ja4": (False, False, None),
+    "ja4_ptype": (False, False, "t"),
+}
+
 
 def _coerce_utc_iso(value: str | None) -> datetime | None:
     if not value:
@@ -238,6 +252,25 @@ def _strip_large_extra(extra: Any) -> Dict[str, Any]:
     return out
 
 
+def _merge_protocol_fields_into_extra(extra: Dict[str, Any], row: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(extra or {})
+    for key, (lower, upper, default) in _PROTO_EXTRA_NORMALIZERS.items():
+        if out.get(key) not in (None, ""):
+            continue
+        raw = row.get(key, default)
+        if raw is None:
+            continue
+        value = str(raw).strip()
+        if not value:
+            continue
+        if lower:
+            value = value.lower()
+        elif upper:
+            value = value.upper()
+        out[key] = value
+    return out
+
+
 def _row_to_event_safe(row: Dict[str, Any]) -> NetEventDB | None:
     if not isinstance(row, dict):
         return None
@@ -261,6 +294,7 @@ def _row_to_event_safe(row: Dict[str, Any]) -> NetEventDB | None:
             extra = _strip_large_extra(parsed)
         except Exception:
             extra = {}
+    extra = _merge_protocol_fields_into_extra(extra, row)
 
     try:
         return NetEventDB(
@@ -468,6 +502,7 @@ def _ch_row_to_event(row: Dict[str, Any]) -> NetEventDB | None:
                 extra = payload
         except Exception:
             extra = {}
+    extra = _merge_protocol_fields_into_extra(extra, row)
 
     try:
         return NetEventDB(
@@ -584,6 +619,54 @@ def _pg_has_protocol_metadata(db: Session, *, since: datetime, agent_id: str | N
         return False
 
 
+def _pg_protocol_field_expr(kind: str):
+    field_exprs = {
+        "app_proto": func.coalesce(NetEventModel.app_proto, NetEventModel.extra["app_proto"].astext),
+        "app_proto_reason": func.coalesce(NetEventModel.app_proto_reason, NetEventModel.extra["app_proto_reason"].astext),
+        "app_proto_conf_band": func.coalesce(NetEventModel.app_proto_conf_band, NetEventModel.extra["app_proto_conf_band"].astext),
+        "dns_qname": func.coalesce(NetEventModel.dns_qname, NetEventModel.extra["dns_qname"].astext),
+        "http_host": func.coalesce(NetEventModel.http_host, NetEventModel.extra["http_host"].astext),
+        "http_method": func.coalesce(NetEventModel.http_method, NetEventModel.extra["http_method"].astext),
+        "tls_sni": func.coalesce(NetEventModel.tls_sni, NetEventModel.extra["tls_sni"].astext),
+        "tls_alpn_first": func.coalesce(NetEventModel.tls_alpn_first, NetEventModel.extra["tls_alpn_first"].astext),
+        "ja3": func.coalesce(NetEventModel.ja3, NetEventModel.extra["ja3"].astext),
+        "ja4": func.coalesce(NetEventModel.ja4, NetEventModel.extra["ja4"].astext),
+        "ja4_ptype": func.coalesce(NetEventModel.ja4_ptype, NetEventModel.extra["ja4_ptype"].astext, "t"),
+    }
+    return field_exprs.get(kind)
+
+
+def _pg_has_protocol_field(db: Session, *, kind: str, since: datetime, agent_id: str | None = None) -> bool:
+    expr = _pg_protocol_field_expr(kind)
+    if expr is None:
+        return False
+    try:
+        stmt = select(func.count()).where(
+            NetEventModel.timestamp >= since,
+            func.nullif(expr, "").is_not(None),
+        )
+        if agent_id:
+            stmt = stmt.where(NetEventModel.agent_id == agent_id)
+        return int(repository.run(db, stmt).scalar() or 0) > 0
+    except Exception:
+        return False
+
+
+def _missing_protocol_summary_field(
+    db: Session,
+    *,
+    since: datetime,
+    agent_id: str | None,
+    field_presence: dict[str, bool],
+) -> str | None:
+    for kind, present in field_presence.items():
+        if present:
+            continue
+        if _pg_has_protocol_field(db, kind=kind, since=since, agent_id=agent_id):
+            return kind
+    return None
+
+
 def _hit_to_event(hit: Dict[str, Any]) -> NetEventDB:
     src = hit.get("_source") or {}
 
@@ -604,6 +687,7 @@ def _hit_to_event(hit: Dict[str, Any]) -> NetEventDB:
     extra = src.get("extra") or {}
     if not isinstance(extra, dict):
         extra = {}
+    extra = _merge_protocol_fields_into_extra(extra, src)
 
     return NetEventDB(
         id=row_id,
@@ -2374,6 +2458,14 @@ def get_protocol_intel_summary(
                 ch, source_sql=dedup_source_sql, params=params,
                 key_expr="toString(d.src_port)", limit=int(limit),
             )
+            missing_field = _missing_protocol_summary_field(
+                db,
+                since=since_ts,
+                agent_id=agent_id,
+                field_presence={"app_proto": bool(app_protocols)},
+            )
+            if missing_field:
+                raise LookupError(f"clickhouse_proto_metadata_stale:{missing_field}")
             if not app_protocols and ch_total_events > 0:
                 guess_sql = (
                     "SELECT "
@@ -2459,6 +2551,25 @@ def get_protocol_intel_summary(
                 ch, source_sql=dedup_source_sql, params=params,
                 key_expr="ifNull(d.ja3, '')", limit=int(limit),
             )
+            missing_field = _missing_protocol_summary_field(
+                db,
+                since=since_ts,
+                agent_id=agent_id,
+                field_presence={
+                    "app_proto_reason": bool(app_proto_reasons),
+                    "app_proto_conf_band": bool(app_proto_conf_bands),
+                    "dns_qname": bool(top_dns_queries),
+                    "http_host": bool(top_http_hosts),
+                    "http_method": bool(http_methods),
+                    "tls_sni": bool(top_tls_sni),
+                    "tls_alpn_first": bool(top_alpn),
+                    "ja3": bool(top_ja3),
+                    "ja4": bool(top_ja4),
+                    "ja4_ptype": bool(ja4_ptypes),
+                },
+            )
+            if missing_field:
+                raise LookupError(f"clickhouse_proto_metadata_partial:{missing_field}")
 
             payload = ProtocolIntelSummaryResponse(
                 generated_at=datetime.now(timezone.utc),
@@ -2623,6 +2734,14 @@ def get_protocol_intel_summary(
             transport_protocols = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("transport_protocols") if b.get("key") is not None]
             top_dst_ports = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("top_dst_ports") if b.get("key") is not None]
             top_src_ports = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("top_src_ports") if b.get("key") is not None]
+            missing_field = _missing_protocol_summary_field(
+                db,
+                since=since_ts,
+                agent_id=agent_id,
+                field_presence={"app_proto": bool(app_protocols)},
+            )
+            if missing_field:
+                raise LookupError(f"es_proto_metadata_stale:{missing_field}")
             if not app_protocols and total_events > 0:
                 app_protocols = _guess_app_protocols_from_port_counts(top_dst_ports)
                 if not app_protocols:
@@ -2654,6 +2773,25 @@ def get_protocol_intel_summary(
                 top_ja4.append(ProtoJa4Stat(ja4=str(k), ptype=ptype, count=int(b.get("doc_count", 0) or 0)))
 
             top_ja3 = [ProtoCount(key=str(b.get("key")), count=int(b.get("doc_count", 0) or 0)) for b in _buckets("top_ja3") if b.get("key") is not None]
+            missing_field = _missing_protocol_summary_field(
+                db,
+                since=since_ts,
+                agent_id=agent_id,
+                field_presence={
+                    "app_proto_reason": bool(app_proto_reasons),
+                    "app_proto_conf_band": bool(app_proto_conf_bands),
+                    "dns_qname": bool(top_dns_queries),
+                    "http_host": bool(top_http_hosts),
+                    "http_method": bool(http_methods),
+                    "tls_sni": bool(top_tls_sni),
+                    "tls_alpn_first": bool(top_alpn),
+                    "ja3": bool(top_ja3),
+                    "ja4": bool(top_ja4),
+                    "ja4_ptype": bool(ja4_ptypes),
+                },
+            )
+            if missing_field:
+                raise LookupError(f"es_proto_metadata_partial:{missing_field}")
 
             payload = ProtocolIntelSummaryResponse(
                 generated_at=datetime.now(timezone.utc),

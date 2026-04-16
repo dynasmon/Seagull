@@ -160,6 +160,12 @@ def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
     app_proto = _as_str(extra.get("app_proto"))
     if app_proto:
         doc["app_proto"] = app_proto
+    app_proto_reason = _as_str(extra.get("app_proto_reason"))
+    if app_proto_reason:
+        doc["app_proto_reason"] = app_proto_reason
+    app_proto_conf_band = _as_str(extra.get("app_proto_conf_band"))
+    if app_proto_conf_band:
+        doc["app_proto_conf_band"] = app_proto_conf_band
 
     dns_qname = _as_str(extra.get("dns_qname"))
     if dns_qname:
