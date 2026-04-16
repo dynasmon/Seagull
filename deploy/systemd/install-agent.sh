@@ -177,6 +177,23 @@ ensure_env_value() {
   fi
 }
 
+ensure_sources_default_includes_l7() {
+  local file="$1"
+  local legacy_default="authlog,proc,scan,ddos,syscollector,vuln"
+  local phase1_default="authlog,proc,scan,ddos,l7,syscollector,vuln"
+  local current
+
+  if ! env_key_exists SEAGULL_SOURCES "${file}"; then
+    set_env_value SEAGULL_SOURCES "${phase1_default}" "${file}"
+    return
+  fi
+
+  current="$(trim "$(read_env_value SEAGULL_SOURCES "${file}")")"
+  if [[ -z "${current}" || "${current}" == "${legacy_default}" ]]; then
+    set_env_value SEAGULL_SOURCES "${phase1_default}" "${file}"
+  fi
+}
+
 resolve_repo_env_file() {
   if [[ -f "${REPO_ROOT}/.env" ]]; then
     printf '%s' "${REPO_ROOT}/.env"
@@ -297,6 +314,7 @@ normalize_agent_runtime_defaults() {
     return
   fi
 
+  normalize_env_key SEAGULL_SOURCES "${INSTALL_ENV_PATH}"
   normalize_env_key SEAGULL_AUTHLOG_DEDUP_TTL "${INSTALL_ENV_PATH}"
   normalize_env_key SEAGULL_AUTHLOG_INCLUDE_ACCEPTED "${INSTALL_ENV_PATH}"
   normalize_env_key SEAGULL_DDOS_SUSTAIN_WINDOWS "${INSTALL_ENV_PATH}"
@@ -304,7 +322,13 @@ normalize_agent_runtime_defaults() {
   normalize_env_key SEAGULL_DDOS_MAX_BATCH "${INSTALL_ENV_PATH}"
   normalize_env_key SEAGULL_DDOS_BACKPRESSURE_HIGH_WATERMARK "${INSTALL_ENV_PATH}"
   normalize_env_key SEAGULL_DDOS_BACKPRESSURE_SAMPLE_EVERY "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_L7_PCAP_IFACE "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_L7_DEDUP_TTL "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_L7_MAX_BATCH "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_L7_MAX_PAYLOAD_BYTES "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_L7_INCLUDE_PAYLOAD "${INSTALL_ENV_PATH}"
 
+  ensure_sources_default_includes_l7 "${INSTALL_ENV_PATH}"
   ensure_env_value SEAGULL_AUTHLOG_DEDUP_TTL "1s" "${INSTALL_ENV_PATH}"
   ensure_env_value SEAGULL_AUTHLOG_INCLUDE_ACCEPTED "true" "${INSTALL_ENV_PATH}"
   ensure_env_value SEAGULL_DDOS_SUSTAIN_WINDOWS "1" "${INSTALL_ENV_PATH}"
@@ -312,6 +336,11 @@ normalize_agent_runtime_defaults() {
   ensure_env_value SEAGULL_DDOS_MAX_BATCH "200" "${INSTALL_ENV_PATH}"
   ensure_env_value SEAGULL_DDOS_BACKPRESSURE_HIGH_WATERMARK "160" "${INSTALL_ENV_PATH}"
   ensure_env_value SEAGULL_DDOS_BACKPRESSURE_SAMPLE_EVERY "4" "${INSTALL_ENV_PATH}"
+  ensure_env_value SEAGULL_L7_PCAP_IFACE "any" "${INSTALL_ENV_PATH}"
+  ensure_env_value SEAGULL_L7_DEDUP_TTL "20s" "${INSTALL_ENV_PATH}"
+  ensure_env_value SEAGULL_L7_MAX_BATCH "400" "${INSTALL_ENV_PATH}"
+  ensure_env_value SEAGULL_L7_MAX_PAYLOAD_BYTES "512" "${INSTALL_ENV_PATH}"
+  ensure_env_value SEAGULL_L7_INCLUDE_PAYLOAD "false" "${INSTALL_ENV_PATH}"
 }
 
 normalize_bootstrap_token_settings() {
