@@ -4,6 +4,7 @@ import { Badge } from "@/shared/components/Badge";
 import { Table, type Column, type TableSortState } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 
+import { formatProtocolLabel, getEventProtocolIntel } from "../lib/protocol";
 import type { NetEvent } from "../types";
 
 function fmtTs(ts: string) {
@@ -20,6 +21,7 @@ function fmtTs(ts: string) {
 
 function summarizeExtra(e: NetEvent) {
   const extra = (e.extra || {}) as Record<string, any>;
+  const protocol = getEventProtocolIntel(e);
 
   const tokens: string[] = [];
 
@@ -33,6 +35,8 @@ function summarizeExtra(e: NetEvent) {
   push("user", extra.user || extra.username);
   push("action", extra.action);
   push("reason", extra.reason);
+  push("app", protocol.appProto);
+  push("hint", protocol.hint);
 
   push("uniq_src", extra.unique_src_ips);
   push("pps", extra.pps);
@@ -122,6 +126,39 @@ export default function EventsTable({
             ) : null}
           </div>
         ),
+      },
+      {
+        key: "protocol",
+        title: "Protocol",
+        width: 220,
+        render: (e) => {
+          const protocol = getEventProtocolIntel(e);
+          const appLabel = formatProtocolLabel(protocol.appProto);
+          const transportLabel = formatProtocolLabel(protocol.transportProto);
+          const hasApp = appLabel !== "-";
+
+          return (
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                {hasApp ? <Badge variant="info">{appLabel}</Badge> : null}
+                {transportLabel !== "-" ? (
+                  hasApp ? (
+                    <span className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+                      over {transportLabel}
+                    </span>
+                  ) : (
+                    <Badge>{transportLabel}</Badge>
+                  )
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">-</span>
+                )}
+              </div>
+              {protocol.hint ? (
+                <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">{protocol.hint}</div>
+              ) : null}
+            </div>
+          );
+        },
       },
       {
         key: "src",
