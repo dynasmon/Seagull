@@ -217,10 +217,10 @@ def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     # Protocol intel and enrichments (optional)
-    for k in ["app_proto", "dns_qname", "http_host", "tls_sni", "ja4", "ja4_ptype", "ja3"]:
+    for k in ["app_proto", "app_proto_reason", "app_proto_conf_band", "dns_qname", "http_host", "tls_sni", "tls_alpn_first", "ja4", "ja4_ptype", "ja3"]:
         vv = _as_str(extra.get(k))
         if vv:
-            doc[k] = vv.lower() if k in {"dns_qname", "http_host", "tls_sni"} else vv
+            doc[k] = vv.lower() if k in {"dns_qname", "http_host", "tls_sni", "tls_alpn_first"} else vv
 
     dns_risk = _as_int(extra.get("dns_risk"))
     if dns_risk is not None:
