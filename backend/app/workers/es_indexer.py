@@ -31,7 +31,7 @@ from app.features.events.worker_runtime import NetEventModel
 from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
 
 setup_logging("worker-es-indexer")
-logger = logging.getLogger("netwatch.worker.es_indexer")
+logger = logging.getLogger("seagull.worker.es_indexer")
 
 
 @dataclass(frozen=True)
@@ -86,20 +86,20 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 def load_config() -> ESConfig:
     return ESConfig(
-        url=_env_str("NETWATCH_ES_URL", "http://elasticsearch:9200") or "http://elasticsearch:9200",
-        index_prefix=_env_str("NETWATCH_ES_INDEX_PREFIX", "netwatch-events") or "netwatch-events",
-        batch_size=max(1, _env_int("NETWATCH_ES_BATCH_SIZE", 500)),
-        every_seconds=max(0.1, _env_float("NETWATCH_ES_EVERY_SECONDS", 1.0)),
-        idle_sleep_seconds=max(0.25, _env_float("NETWATCH_ES_IDLE_SLEEP_SECONDS", 2.0)),
-        request_timeout_seconds=max(5, _env_int("NETWATCH_ES_REQUEST_TIMEOUT_SECONDS", 30)),
-        bootstrap=_env_bool("NETWATCH_ES_BOOTSTRAP", False),
-        ilm_enabled=_env_bool("NETWATCH_ES_ILM_ENABLED", True),
-        ilm_delete_after_days=max(1, _env_int("NETWATCH_ES_ILM_DELETE_AFTER_DAYS", 30)),
-        ilm_policy_name=_env_str("NETWATCH_ES_ILM_POLICY_NAME", "") or "",
-        username=_env_str("NETWATCH_ES_USERNAME", None),
-        password=_env_str("NETWATCH_ES_PASSWORD", None),
-        verify_certs=_env_bool("NETWATCH_ES_VERIFY_CERTS", True),
-        ca_certs=_env_str("NETWATCH_ES_CA_CERTS", None),
+        url=_env_str("SEAGULL_ES_URL", "http://elasticsearch:9200") or "http://elasticsearch:9200",
+        index_prefix=_env_str("SEAGULL_ES_INDEX_PREFIX", "seagull-events") or "seagull-events",
+        batch_size=max(1, _env_int("SEAGULL_ES_BATCH_SIZE", 500)),
+        every_seconds=max(0.1, _env_float("SEAGULL_ES_EVERY_SECONDS", 1.0)),
+        idle_sleep_seconds=max(0.25, _env_float("SEAGULL_ES_IDLE_SLEEP_SECONDS", 2.0)),
+        request_timeout_seconds=max(5, _env_int("SEAGULL_ES_REQUEST_TIMEOUT_SECONDS", 30)),
+        bootstrap=_env_bool("SEAGULL_ES_BOOTSTRAP", False),
+        ilm_enabled=_env_bool("SEAGULL_ES_ILM_ENABLED", True),
+        ilm_delete_after_days=max(1, _env_int("SEAGULL_ES_ILM_DELETE_AFTER_DAYS", 30)),
+        ilm_policy_name=_env_str("SEAGULL_ES_ILM_POLICY_NAME", "") or "",
+        username=_env_str("SEAGULL_ES_USERNAME", None),
+        password=_env_str("SEAGULL_ES_PASSWORD", None),
+        verify_certs=_env_bool("SEAGULL_ES_VERIFY_CERTS", True),
+        ca_certs=_env_str("SEAGULL_ES_CA_CERTS", None),
     )
 
 
@@ -281,7 +281,7 @@ def _build_es_client(cfg: ESConfig):
 def _ensure_index_template(es, cfg: ESConfig) -> None:
     """Create a composable index template for predictable mappings.
 
-    This is optional (controlled by NETWATCH_ES_BOOTSTRAP).
+    This is optional (controlled by SEAGULL_ES_BOOTSTRAP).
     """
 
     name = f"{cfg.index_prefix}-template"
@@ -354,7 +354,7 @@ def _ensure_index_template(es, cfg: ESConfig) -> None:
         },
         "priority": 200,
         "_meta": {
-            "project": "dynasmon-netwatch",
+            "project": "dynasmon-seagull",
             "component": "es_indexer",
         },
     }

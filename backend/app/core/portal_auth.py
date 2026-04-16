@@ -100,36 +100,36 @@ def require_admin(user: PortalPrincipal = Depends(get_current_user)) -> PortalPr
 
 
 def _cookie_kwargs() -> dict:
-    same_site = (settings.NETWATCH_COOKIE_SAMESITE or "lax").lower()
+    same_site = (settings.SEAGULL_COOKIE_SAMESITE or "lax").lower()
     if same_site not in {"lax", "strict", "none"}:
         same_site = "lax"
 
     kw = {
         "httponly": True,
-        "secure": bool(settings.NETWATCH_COOKIE_SECURE),
+        "secure": bool(settings.SEAGULL_COOKIE_SECURE),
         "samesite": same_site,
         # Keep refresh cookie valid for both direct backend routes (/auth/*)
         # and reverse-proxied routes (/api/auth/*), avoiding session drops on reload.
         "path": "/",
     }
-    if settings.NETWATCH_COOKIE_DOMAIN:
-        kw["domain"] = settings.NETWATCH_COOKIE_DOMAIN
+    if settings.SEAGULL_COOKIE_DOMAIN:
+        kw["domain"] = settings.SEAGULL_COOKIE_DOMAIN
     return kw
 
 
 def _csrf_cookie_kwargs() -> dict:
-    same_site = (settings.NETWATCH_COOKIE_SAMESITE or "lax").lower()
+    same_site = (settings.SEAGULL_COOKIE_SAMESITE or "lax").lower()
     if same_site not in {"lax", "strict", "none"}:
         same_site = "lax"
 
     kw = {
         "httponly": False,
-        "secure": bool(settings.NETWATCH_COOKIE_SECURE),
+        "secure": bool(settings.SEAGULL_COOKIE_SECURE),
         "samesite": same_site,
         "path": "/",
     }
-    if settings.NETWATCH_COOKIE_DOMAIN:
-        kw["domain"] = settings.NETWATCH_COOKIE_DOMAIN
+    if settings.SEAGULL_COOKIE_DOMAIN:
+        kw["domain"] = settings.SEAGULL_COOKIE_DOMAIN
     return kw
 
 
@@ -196,7 +196,7 @@ def issue_login_tokens(
     token_version = int(getattr(user, "token_version", 1) or 1)
     access = make_access_token(
         sub=str(user.id),
-        ttl_seconds=settings.NETWATCH_ACCESS_TOKEN_TTL_SECONDS,
+        ttl_seconds=settings.SEAGULL_ACCESS_TOKEN_TTL_SECONDS,
         extra={"tv": token_version},
     )
 
@@ -206,7 +206,7 @@ def issue_login_tokens(
     owns_db = db is None
     db2 = db or SessionLocal()
     try:
-        sess = _make_session(user_id=user.id, refresh_token=refresh, ttl_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS, request=request)
+        sess = _make_session(user_id=user.id, refresh_token=refresh, ttl_seconds=settings.SEAGULL_REFRESH_TOKEN_TTL_SECONDS, request=request)
         db2.add(sess)
         if owns_db:
             db2.commit()
@@ -214,13 +214,13 @@ def issue_login_tokens(
         if owns_db:
             db2.close()
 
-    _set_refresh_cookie(response, refresh, max_age_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS)
-    _set_csrf_cookie(response, csrf, max_age_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS)
+    _set_refresh_cookie(response, refresh, max_age_seconds=settings.SEAGULL_REFRESH_TOKEN_TTL_SECONDS)
+    _set_csrf_cookie(response, csrf, max_age_seconds=settings.SEAGULL_REFRESH_TOKEN_TTL_SECONDS)
 
     return {
         "access_token": access,
         "token_type": "bearer",
-        "expires_in": settings.NETWATCH_ACCESS_TOKEN_TTL_SECONDS,
+        "expires_in": settings.SEAGULL_ACCESS_TOKEN_TTL_SECONDS,
         "user": {"id": user.id, "username": user.username, "role": user.role},
     }
 
@@ -275,7 +275,7 @@ def refresh_access_token(request: Request, response: Response) -> dict:
         new_sess = _make_session(
             user_id=user.id,
             refresh_token=new_refresh,
-            ttl_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS,
+            ttl_seconds=settings.SEAGULL_REFRESH_TOKEN_TTL_SECONDS,
             request=request,
             family_id=sess.family_id,
         )
@@ -290,19 +290,19 @@ def refresh_access_token(request: Request, response: Response) -> dict:
         db.commit()
 
         csrf = new_csrf_token()
-        _set_refresh_cookie(response, new_refresh, max_age_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS)
-        _set_csrf_cookie(response, csrf, max_age_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS)
+        _set_refresh_cookie(response, new_refresh, max_age_seconds=settings.SEAGULL_REFRESH_TOKEN_TTL_SECONDS)
+        _set_csrf_cookie(response, csrf, max_age_seconds=settings.SEAGULL_REFRESH_TOKEN_TTL_SECONDS)
 
         token_version = int(getattr(user, "token_version", 1) or 1)
         access = make_access_token(
             sub=str(user.id),
-            ttl_seconds=settings.NETWATCH_ACCESS_TOKEN_TTL_SECONDS,
+            ttl_seconds=settings.SEAGULL_ACCESS_TOKEN_TTL_SECONDS,
             extra={"tv": token_version},
         )
         return {
             "access_token": access,
             "token_type": "bearer",
-            "expires_in": settings.NETWATCH_ACCESS_TOKEN_TTL_SECONDS,
+            "expires_in": settings.SEAGULL_ACCESS_TOKEN_TTL_SECONDS,
             "user": {"id": user.id, "username": user.username, "role": user.role},
         }
     finally:

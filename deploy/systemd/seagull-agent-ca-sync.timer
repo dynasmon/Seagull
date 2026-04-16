@@ -1,11 +1,11 @@
 [Unit]
-Description=Periodically synchronize NetWatch agent CA bundle
+Description=Periodically synchronize Seagull agent CA bundle
 
 [Timer]
 OnBootSec=10s
 OnUnitActiveSec=30s
 Persistent=true
-Unit=netwatch-agent-ca-sync.service
+Unit=seagull-agent-ca-sync.service
 
 [Install]
 WantedBy=timers.target

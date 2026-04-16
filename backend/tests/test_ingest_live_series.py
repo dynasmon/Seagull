@@ -120,7 +120,7 @@ def test_record_and_read_live_overview_window(monkeypatch) -> None:
 def test_live_overview_caps_event_type_cardinality(monkeypatch) -> None:
     fake = _FakeRedis()
     monkeypatch.setattr(ic, "get_redis", lambda: fake)
-    monkeypatch.setattr(ic.settings, "NETWATCH_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 2, raising=False)
+    monkeypatch.setattr(ic.settings, "SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 2, raising=False)
 
     ts = datetime(2026, 4, 5, 12, 1, 0, tzinfo=timezone.utc)
     ic.record_overview_live_telemetry(

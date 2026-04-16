@@ -28,10 +28,10 @@ def get_redis(*, decode_responses: bool = True) -> Optional[redis.Redis]:
 
     try:
         r = redis.Redis(
-            host=getattr(settings, "NETWATCH_REDIS_HOST", "redis"),
-            port=int(getattr(settings, "NETWATCH_REDIS_PORT", 6379)),
-            username=getattr(settings, "NETWATCH_REDIS_USERNAME", None) or None,
-            password=getattr(settings, "NETWATCH_REDIS_PASSWORD", None) or None,
+            host=getattr(settings, "SEAGULL_REDIS_HOST", "redis"),
+            port=int(getattr(settings, "SEAGULL_REDIS_PORT", 6379)),
+            username=getattr(settings, "SEAGULL_REDIS_USERNAME", None) or None,
+            password=getattr(settings, "SEAGULL_REDIS_PASSWORD", None) or None,
             decode_responses=bool(decode_responses),
             socket_connect_timeout=0.2,
             socket_timeout=0.2,

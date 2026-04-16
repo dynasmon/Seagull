@@ -25,7 +25,7 @@ def _norm_set(values: Any) -> set[str]:
 def _rules_dir_path(rules_dir: str | Path | None = None) -> Path:
     if rules_dir is not None:
         return Path(rules_dir).resolve()
-    return Path(getattr(settings, "NETWATCH_RULES_DIR", "/app/rules") or "/app/rules").resolve()
+    return Path(getattr(settings, "SEAGULL_RULES_DIR", "/app/rules") or "/app/rules").resolve()
 
 
 def _deep_merge(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
@@ -117,7 +117,7 @@ def _normalize_rule(
         return None
 
     env_name = str(
-        getattr(settings, "NETWATCH_RULES_ENV", getattr(settings, "NETWATCH_ENV", "dev")) or "dev"
+        getattr(settings, "SEAGULL_RULES_ENV", getattr(settings, "SEAGULL_ENV", "dev")) or "dev"
     ).strip().lower()
     r = _apply_env_overrides(dict(raw_rule), env_name)
     r["pack"] = str(r.get("pack") or file_meta.get("pack") or "").strip() or None
@@ -198,10 +198,10 @@ def load_rules(
     if not base.exists():
         return out
 
-    env_name = str(getattr(settings, "NETWATCH_RULES_ENV", getattr(settings, "NETWATCH_ENV", "dev")) or "dev").strip().lower()
-    enabled_packs = _norm_set(getattr(settings, "NETWATCH_RULES_ENABLED_PACKS", []))
-    disabled_packs = _norm_set(getattr(settings, "NETWATCH_RULES_DISABLED_PACKS", []))
-    include_experimental = bool(getattr(settings, "NETWATCH_RULES_INCLUDE_EXPERIMENTAL", True))
+    env_name = str(getattr(settings, "SEAGULL_RULES_ENV", getattr(settings, "SEAGULL_ENV", "dev")) or "dev").strip().lower()
+    enabled_packs = _norm_set(getattr(settings, "SEAGULL_RULES_ENABLED_PACKS", []))
+    disabled_packs = _norm_set(getattr(settings, "SEAGULL_RULES_DISABLED_PACKS", []))
+    include_experimental = bool(getattr(settings, "SEAGULL_RULES_INCLUDE_EXPERIMENTAL", True))
 
     for path in _discover_rule_files(base):
         for rule in _iter_rules_from_file(path, base):

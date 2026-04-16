@@ -102,13 +102,13 @@ def _parse_int_set(raw: str) -> set[int]:
 
 @lru_cache(maxsize=1)
 def _env_port_hints() -> dict[int, tuple[str, int]]:
-    """Parse NETWATCH_PROTO_INTEL_PORT_HINTS into a port map.
+    """Parse SEAGULL_PROTO_INTEL_PORT_HINTS into a port map.
 
     Format:
     - "proto:80,8080;dns:53;postgresql=5432"
     """
 
-    raw = (settings.NETWATCH_PROTO_INTEL_PORT_HINTS or "").strip()
+    raw = (settings.SEAGULL_PROTO_INTEL_PORT_HINTS or "").strip()
     if not raw:
         return {}
 

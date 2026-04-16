@@ -52,27 +52,27 @@ write_token_file() {
   chmod 600 "$out_file"
 }
 
-EDGE_PORT="$(read_env NETWATCH_EDGE_HTTPS_PORT 443)"
-BACKEND_PORT="$(read_env NETWATCH_BACKEND_PORT 8000)"
-ADMIN_USER="$(read_env NETWATCH_BOOTSTRAP_ADMIN_USERNAME admin)"
-ADMIN_PASS="$(read_env NETWATCH_BOOTSTRAP_ADMIN_PASSWORD "")"
-TTL_SECONDS="$(read_env NETWATCH_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS 900)"
+EDGE_PORT="$(read_env SEAGULL_EDGE_HTTPS_PORT 443)"
+BACKEND_PORT="$(read_env SEAGULL_BACKEND_PORT 8000)"
+ADMIN_USER="$(read_env SEAGULL_BOOTSTRAP_ADMIN_USERNAME admin)"
+ADMIN_PASS="$(read_env SEAGULL_BOOTSTRAP_ADMIN_PASSWORD "")"
+TTL_SECONDS="$(read_env SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS 900)"
 
 if [[ -z "$ADMIN_PASS" ]]; then
-  echo "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD is empty in .env" >&2
+  echo "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD is empty in .env" >&2
   exit 1
 fi
 
-EDGE_HOST_OVERRIDE="${NETWATCH_MINT_TOKENS_EDGE_HOST:-}"
-CADDY_DOMAIN="$(read_env NETWATCH_CADDY_DOMAIN "")"
+EDGE_HOST_OVERRIDE="${SEAGULL_MINT_TOKENS_EDGE_HOST:-}"
+CADDY_DOMAIN="$(read_env SEAGULL_CADDY_DOMAIN "")"
 EDGE_HOST="${EDGE_HOST_OVERRIDE:-$CADDY_DOMAIN}"
 if [[ -z "$EDGE_HOST" ]]; then
   EDGE_HOST="127.0.0.1"
 fi
-EDGE_BASE="${NETWATCH_MINT_TOKENS_EDGE_BASE:-https://${EDGE_HOST}:${EDGE_PORT}}"
-BACKEND_BASE="${NETWATCH_MINT_TOKENS_BACKEND_BASE:-http://127.0.0.1:${BACKEND_PORT}}"
-LOGIN_TIMEOUT_SECONDS="${NETWATCH_MINT_TOKENS_LOGIN_TIMEOUT_SECONDS:-180}"
-LOGIN_RETRY_SECONDS="${NETWATCH_MINT_TOKENS_LOGIN_RETRY_SECONDS:-2}"
+EDGE_BASE="${SEAGULL_MINT_TOKENS_EDGE_BASE:-https://${EDGE_HOST}:${EDGE_PORT}}"
+BACKEND_BASE="${SEAGULL_MINT_TOKENS_BACKEND_BASE:-http://127.0.0.1:${BACKEND_PORT}}"
+LOGIN_TIMEOUT_SECONDS="${SEAGULL_MINT_TOKENS_LOGIN_TIMEOUT_SECONDS:-180}"
+LOGIN_RETRY_SECONDS="${SEAGULL_MINT_TOKENS_LOGIN_RETRY_SECONDS:-2}"
 
 ACCESS_TOKEN=""
 API_BASE=""
@@ -154,13 +154,13 @@ declare -a AGENT_MAP=(
   "AGENT_VULN_ID:AGENT_VULN_BOOTSTRAP_TOKEN"
 )
 
-OUTPUT_DIR="${NETWATCH_MINT_TOKENS_OUTPUT_DIR:-}"
+OUTPUT_DIR="${SEAGULL_MINT_TOKENS_OUTPUT_DIR:-}"
 WRITE_ENV="true"
 if [[ -n "$OUTPUT_DIR" ]]; then
   WRITE_ENV="false"
 fi
 
-if [[ "$WRITE_ENV" == "true" && "${NETWATCH_MINT_TOKENS_BACKUP_ENV:-false}" == "true" ]]; then
+if [[ "$WRITE_ENV" == "true" && "${SEAGULL_MINT_TOKENS_BACKUP_ENV:-false}" == "true" ]]; then
   cp "$ENV_FILE" "${ENV_FILE}.bak.$(date +%Y%m%d%H%M%S)"
 fi
 
@@ -173,7 +173,7 @@ for pair in "${AGENT_MAP[@]}"; do
     continue
   fi
 
-  payload="$(python3 - "${TTL_SECONDS}" "${agent_id}" "${NETWATCH_MINT_TOKENS_MAX_USES:-1}" <<'PY'
+  payload="$(python3 - "${TTL_SECONDS}" "${agent_id}" "${SEAGULL_MINT_TOKENS_MAX_USES:-1}" <<'PY'
 import json
 import sys
 
@@ -228,4 +228,4 @@ if [[ -n "$OUTPUT_DIR" ]]; then
 else
   echo "Updated .env with AGENT_*_BOOTSTRAP_TOKEN values."
 fi
-echo "Next: docker compose -f docker-compose.yml -f compose.prod.yml up -d --force-recreate netwatch-agent-core netwatch-agent-sensor netwatch-agent-lateral --profile legacy-agents netwatch-agent-proc netwatch-agent-scan netwatch-agent-ddos netwatch-agent-vuln"
+echo "Next: docker compose -f docker-compose.yml -f compose.prod.yml up -d --force-recreate seagull-agent-core seagull-agent-sensor seagull-agent-lateral --profile legacy-agents seagull-agent-proc seagull-agent-scan seagull-agent-ddos seagull-agent-vuln"

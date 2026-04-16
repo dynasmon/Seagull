@@ -230,7 +230,7 @@ def admin_system_status(db: Session) -> dict:
     return {
         "service": {
             "name": "backend-api",
-            "environment": settings.NETWATCH_ENV,
+            "environment": settings.SEAGULL_ENV,
             "version": "0.1.0",
             "now_utc": now.isoformat(),
             "uptime_seconds": int(max(time.monotonic() - _STARTED_AT_MONO, 0)),
@@ -243,7 +243,7 @@ def admin_system_status(db: Session) -> dict:
                 "status": es_status,
                 "latency_ms": es_latency_ms,
                 "mode": es_mode,
-                "url": settings.NETWATCH_ES_URL,
+                "url": settings.SEAGULL_ES_URL,
                 "available": bool(es_ok),
                 "error": es_error,
             },

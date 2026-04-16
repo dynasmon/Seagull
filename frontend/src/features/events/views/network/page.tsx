@@ -651,14 +651,14 @@ export default function ProtocolIntelPage() {
               <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
                 <div>
                   This view is powered by the <span className="font-mono">proto-intel</span> worker process inside{" "}
-                  <span className="font-mono">netwatch-intelligence-worker</span>. If tables stay empty:
+                  <span className="font-mono">seagull-intelligence-worker</span>. If tables stay empty:
                 </div>
                 <ul className="list-disc pl-5 space-y-1">
                   <li>
                     Confirm the worker group is running: <span className="font-mono">docker ps | grep intelligence-worker</span>
                   </li>
                   <li>
-                    Check logs for parsing errors: <span className="font-mono">docker logs -f netwatch-intelligence-worker</span>
+                    Check logs for parsing errors: <span className="font-mono">docker logs -f seagull-intelligence-worker</span>
                   </li>
                   <li>Generate traffic: DNS lookups, HTTP requests, and TLS handshakes.</li>
                   <li>

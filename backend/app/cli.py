@@ -12,12 +12,12 @@ from app.features.auth.models import PortalUserModel
 
 
 def admin_reset() -> int:
-    username = canonicalize_username(settings.NETWATCH_BOOTSTRAP_ADMIN_USERNAME or "admin") or "admin"
-    password = (settings.NETWATCH_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
+    username = canonicalize_username(settings.SEAGULL_BOOTSTRAP_ADMIN_USERNAME or "admin") or "admin"
+    password = (settings.SEAGULL_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
 
     msg = validate_password_policy(password, username=username)
     if msg:
-        print(f"error: NETWATCH_BOOTSTRAP_ADMIN_PASSWORD rejected: {msg}")
+        print(f"error: SEAGULL_BOOTSTRAP_ADMIN_PASSWORD rejected: {msg}")
         return 2
 
     db = SessionLocal()

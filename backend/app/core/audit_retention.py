@@ -28,15 +28,15 @@ def _delete_with_limit(session: Session, model: Any, dt_field: Any, cutoff: date
 
 
 def purge_admin_evidence(session: Session) -> dict[str, int]:
-    if not bool(settings.NETWATCH_AUDIT_RETENTION_ENABLED):
+    if not bool(settings.SEAGULL_AUDIT_RETENTION_ENABLED):
         return {"admin_audit_events": 0, "portal_login_events": 0, "rule_tuning_history": 0, "rule_suppression_history": 0}
 
     now = datetime.utcnow()
-    batch = max(100, int(settings.NETWATCH_AUDIT_RETENTION_DELETE_BATCH or 5000))
+    batch = max(100, int(settings.SEAGULL_AUDIT_RETENTION_DELETE_BATCH or 5000))
 
-    audit_cutoff = now - timedelta(days=max(1, int(settings.NETWATCH_AUDIT_RETENTION_DAYS or 180)))
-    login_cutoff = now - timedelta(days=max(1, int(settings.NETWATCH_LOGIN_AUDIT_RETENTION_DAYS or settings.NETWATCH_AUDIT_RETENTION_DAYS or 180)))
-    governance_cutoff = now - timedelta(days=max(1, int(settings.NETWATCH_GOVERNANCE_RETENTION_DAYS or settings.NETWATCH_AUDIT_RETENTION_DAYS or 180)))
+    audit_cutoff = now - timedelta(days=max(1, int(settings.SEAGULL_AUDIT_RETENTION_DAYS or 180)))
+    login_cutoff = now - timedelta(days=max(1, int(settings.SEAGULL_LOGIN_AUDIT_RETENTION_DAYS or settings.SEAGULL_AUDIT_RETENTION_DAYS or 180)))
+    governance_cutoff = now - timedelta(days=max(1, int(settings.SEAGULL_GOVERNANCE_RETENTION_DAYS or settings.SEAGULL_AUDIT_RETENTION_DAYS or 180)))
 
     deleted_admin = _delete_with_limit(
         session,

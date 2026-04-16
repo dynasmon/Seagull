@@ -45,7 +45,7 @@ from app.features.realtime.projectors import (
 )
 from app.features.realtime.service import publish_realtime
 
-logger = logging.getLogger("netwatch.api.ingest")
+logger = logging.getLogger("seagull.api.ingest")
 
 # Keep a narrow set of security-critical signals on the hot/Postgres path even
 # during storm/backpressure so operator-facing triage views do not go blind.
@@ -104,10 +104,10 @@ def _publish_overview_realtime(
         reason=reason,
     )
 
-    if _realtime_gate_once(key="netwatch:realtime:overview:patch:1s", ttl_s=1):
+    if _realtime_gate_once(key="seagull:realtime:overview:patch:1s", ttl_s=1):
         publish_realtime("ui.overview.kpi.patch", patch_payload)
 
-    if _realtime_gate_once(key="netwatch:realtime:overview:invalidate:2s", ttl_s=2):
+    if _realtime_gate_once(key="seagull:realtime:overview:invalidate:2s", ttl_s=2):
         publish_realtime(
             "ui.overview.invalidate",
             {
@@ -117,7 +117,7 @@ def _publish_overview_realtime(
             },
         )
 
-    if _realtime_gate_once(key="netwatch:realtime:storm:status:1s", ttl_s=1):
+    if _realtime_gate_once(key="seagull:realtime:storm:status:1s", ttl_s=1):
         try:
             status_payload = get_storm_status()
         except Exception:
@@ -186,10 +186,10 @@ def _publish_events_realtime(
         return
 
     invalidate_live_event_summary_caches(agent_id=agent_id)
-    if _realtime_gate_once(key="netwatch:realtime:events:invalidate:2s", ttl_s=2):
+    if _realtime_gate_once(key="seagull:realtime:events:invalidate:2s", ttl_s=2):
         publish_realtime("ui.events.invalidate", _build_events_invalidate_payload(agent_id=agent_id, events=events))
 
-    if recent_rows and _realtime_gate_once(key="netwatch:realtime:events:stream:1s", ttl_s=1):
+    if recent_rows and _realtime_gate_once(key="seagull:realtime:events:stream:1s", ttl_s=1):
         invalidate_payload = _build_events_invalidate_payload(agent_id=agent_id, events=events)
         stream_rows = _recent_rows_for_live_stream(recent_rows, limit=24)
         publish_realtime(
@@ -209,7 +209,7 @@ def _publish_events_realtime(
     ddos_rows = _ddos_recent_rows(recent_rows, limit=18)
     pressure_payload = pressure or {}
     ddos_active = bool(ddos_rows) or bool((pressure_payload or {}).get("active")) or bool((live_summary or {}).get("ddos_samples"))
-    if ddos_active and _realtime_gate_once(key="netwatch:realtime:ddos:live:1s", ttl_s=1):
+    if ddos_active and _realtime_gate_once(key="seagull:realtime:ddos:live:1s", ttl_s=1):
         publish_realtime(
             "ui.ddos.live.patch",
             project_ddos_live_patch(
@@ -225,9 +225,9 @@ def _publish_events_realtime(
 
 
 def _degradation_level(*, bp_mode: str, storm_active: bool, backlog_events: int, received: int) -> str:
-    soft = max(1, int(settings.NETWATCH_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS or 50000))
-    hard = max(soft + 1, int(settings.NETWATCH_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS or 200000))
-    storm_batch = max(1, int(settings.NETWATCH_INGEST_STORM_MIN_BATCH or 2500))
+    soft = max(1, int(settings.SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS or 50000))
+    hard = max(soft + 1, int(settings.SEAGULL_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS or 200000))
+    storm_batch = max(1, int(settings.SEAGULL_INGEST_STORM_MIN_BATCH or 2500))
 
     if bp_mode == "reject_429" or backlog_events >= hard:
         return "critical"
@@ -239,29 +239,29 @@ def _degradation_level(*, bp_mode: str, storm_active: bool, backlog_events: int,
 
 
 def _target_sample_policy(*, level: str, storm_active: bool) -> tuple[int, int, int, int]:
-    warm_pct = max(0, int(settings.NETWATCH_INGEST_WARM_SAMPLE_PERCENT or 0))
+    warm_pct = max(0, int(settings.SEAGULL_INGEST_WARM_SAMPLE_PERCENT or 0))
     if level == "critical":
         return (
-            max(1, int(settings.NETWATCH_INGEST_CRITICAL_HOT_SAMPLE_PERCENT or 1)),
-            max(1, int(settings.NETWATCH_INGEST_CRITICAL_CLICKHOUSE_SAMPLE_PERCENT or 10)),
-            max(0, int(settings.NETWATCH_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT or 2)),
-            max(1, int(settings.NETWATCH_INGEST_RECENT_FEED_MIN_BATCH or 24)),
+            max(1, int(settings.SEAGULL_INGEST_CRITICAL_HOT_SAMPLE_PERCENT or 1)),
+            max(1, int(settings.SEAGULL_INGEST_CRITICAL_CLICKHOUSE_SAMPLE_PERCENT or 10)),
+            max(0, int(settings.SEAGULL_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT or 2)),
+            max(1, int(settings.SEAGULL_INGEST_RECENT_FEED_MIN_BATCH or 24)),
         )
     if level == "degraded":
         return (
-            max(int(settings.NETWATCH_INGEST_STORM_HOT_SAMPLE_PERCENT or 2), int(settings.NETWATCH_INGEST_DEGRADED_HOT_SAMPLE_PERCENT or 5)),
-            max(1, int(settings.NETWATCH_INGEST_DEGRADED_CLICKHOUSE_SAMPLE_PERCENT or 25)),
-            max(0, int(settings.NETWATCH_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT or 2)),
-            max(1, int(settings.NETWATCH_INGEST_RECENT_FEED_MIN_BATCH or 24)),
+            max(int(settings.SEAGULL_INGEST_STORM_HOT_SAMPLE_PERCENT or 2), int(settings.SEAGULL_INGEST_DEGRADED_HOT_SAMPLE_PERCENT or 5)),
+            max(1, int(settings.SEAGULL_INGEST_DEGRADED_CLICKHOUSE_SAMPLE_PERCENT or 25)),
+            max(0, int(settings.SEAGULL_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT or 2)),
+            max(1, int(settings.SEAGULL_INGEST_RECENT_FEED_MIN_BATCH or 24)),
         )
     if level == "elevated":
         return (
-            max(1, int(settings.NETWATCH_INGEST_ELEVATED_HOT_SAMPLE_PERCENT or 50)),
-            max(1, int(settings.NETWATCH_INGEST_CLICKHOUSE_SAMPLE_PERCENT or 100)),
+            max(1, int(settings.SEAGULL_INGEST_ELEVATED_HOT_SAMPLE_PERCENT or 50)),
+            max(1, int(settings.SEAGULL_INGEST_CLICKHOUSE_SAMPLE_PERCENT or 100)),
             warm_pct,
-            max(8, int(settings.NETWATCH_INGEST_RECENT_FEED_MIN_BATCH or 24) // 2),
+            max(8, int(settings.SEAGULL_INGEST_RECENT_FEED_MIN_BATCH or 24) // 2),
         )
-    return (100, max(1, int(settings.NETWATCH_INGEST_CLICKHOUSE_SAMPLE_PERCENT or 100)), warm_pct, 12 if storm_active else 8)
+    return (100, max(1, int(settings.SEAGULL_INGEST_CLICKHOUSE_SAMPLE_PERCENT or 100)), warm_pct, 12 if storm_active else 8)
 
 
 def _minimum_indexes(total: int, min_count: int) -> Set[int]:
@@ -796,7 +796,7 @@ def ingest_events(
     if not events:
         return {"received": 0, "enqueued": 0}
 
-    max_batch = max(1, int(settings.NETWATCH_INGEST_MAX_BATCH or 10000))
+    max_batch = max(1, int(settings.SEAGULL_INGEST_MAX_BATCH or 10000))
     if len(events) > max_batch:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -826,7 +826,7 @@ def ingest_events(
     bp = evaluate_backpressure(received=len(events))
 
     # Only trust client timestamp if it is close enough to server time.
-    max_skew_s = max(0, int(settings.NETWATCH_MAX_EVENT_CLOCK_SKEW_SECONDS or 30))
+    max_skew_s = max(0, int(settings.SEAGULL_MAX_EVENT_CLOCK_SKEW_SECONDS or 30))
 
     now = datetime.now(timezone.utc)
     try:
@@ -895,7 +895,7 @@ def ingest_events(
         received=len(events),
     )
 
-    rollup_always = bool(settings.NETWATCH_INGEST_ROLLUP_ALWAYS)
+    rollup_always = bool(settings.SEAGULL_INGEST_ROLLUP_ALWAYS)
     do_rollup = rollup_always or active_for_metrics
 
     hot_pct, analytics_pct, warm_pct, recent_min_batch = _target_sample_policy(level=level, storm_active=storm_active)
@@ -905,7 +905,7 @@ def ingest_events(
 
     # Normalize to deterministic sample.
     # We only send warm events when ES is enabled AND the event was NOT kept hot.
-    warm_enabled = warm_pct > 0 and bool(settings.NETWATCH_INGEST_WARM_ENABLED)
+    warm_enabled = warm_pct > 0 and bool(settings.SEAGULL_INGEST_WARM_ENABLED)
 
     # Build rollups + sampled event payloads.
     all_rows: List[List] = []
@@ -993,12 +993,12 @@ def ingest_events(
     hot_selected = _ensure_minimum(
         hot_selected,
         len(all_rows),
-        int(settings.NETWATCH_INGEST_MIN_HOT_EVENTS_PER_BATCH or 1) if all_rows else 0,
+        int(settings.SEAGULL_INGEST_MIN_HOT_EVENTS_PER_BATCH or 1) if all_rows else 0,
     )
     analytics_selected = _ensure_minimum(
         analytics_selected,
         len(all_rows),
-        int(settings.NETWATCH_INGEST_MIN_CLICKHOUSE_EVENTS_PER_BATCH or 32) if all_rows else 0,
+        int(settings.SEAGULL_INGEST_MIN_CLICKHOUSE_EVENTS_PER_BATCH or 32) if all_rows else 0,
     )
     recent_selected = _ensure_minimum(set(analytics_selected), len(all_rows), int(recent_min_batch or 0))
 

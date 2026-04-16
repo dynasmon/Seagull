@@ -85,33 +85,33 @@ class ApiEndpoint:
 
 class BootstrapRotator:
     def __init__(self) -> None:
-        self.admin_username = env_str("NETWATCH_BOOTSTRAP_ADMIN_USERNAME", "admin")
-        self.admin_password = env_str("NETWATCH_BOOTSTRAP_ADMIN_PASSWORD")
-        self.ca_file = env_str("NETWATCH_BOOTSTRAP_ROTATOR_CA_FILE", "")
-        self.edge_base = env_str("NETWATCH_BOOTSTRAP_ROTATOR_EDGE_BASE", "").rstrip("/")
-        self.backend_base = env_str("NETWATCH_BOOTSTRAP_ROTATOR_BACKEND_BASE", "http://netwatch-backend:8000").rstrip("/")
+        self.admin_username = env_str("SEAGULL_BOOTSTRAP_ADMIN_USERNAME", "admin")
+        self.admin_password = env_str("SEAGULL_BOOTSTRAP_ADMIN_PASSWORD")
+        self.ca_file = env_str("SEAGULL_BOOTSTRAP_ROTATOR_CA_FILE", "")
+        self.edge_base = env_str("SEAGULL_BOOTSTRAP_ROTATOR_EDGE_BASE", "").rstrip("/")
+        self.backend_base = env_str("SEAGULL_BOOTSTRAP_ROTATOR_BACKEND_BASE", "http://seagull-backend:8000").rstrip("/")
         self.agent_ids = parse_agent_ids(
             env_str(
-                "NETWATCH_BOOTSTRAP_ROTATOR_AGENT_IDS",
+                "SEAGULL_BOOTSTRAP_ROTATOR_AGENT_IDS",
                 "agent-core-1,agent-sensor-1,agent-lateral-1,agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1",
             )
         )
         self.token_ttl_seconds = env_int(
-            "NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS", 86400, minimum=60, maximum=86400
+            "SEAGULL_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS", 86400, minimum=60, maximum=86400
         )
         self.token_max_uses = env_int(
-            "NETWATCH_BOOTSTRAP_ROTATOR_TOKEN_MAX_USES", 5, minimum=1, maximum=100
+            "SEAGULL_BOOTSTRAP_ROTATOR_TOKEN_MAX_USES", 5, minimum=1, maximum=100
         )
-        self.every_seconds = env_int("NETWATCH_BOOTSTRAP_ROTATOR_EVERY_SECONDS", 900, minimum=60)
+        self.every_seconds = env_int("SEAGULL_BOOTSTRAP_ROTATOR_EVERY_SECONDS", 900, minimum=60)
         self.refresh_before_seconds = env_int(
-            "NETWATCH_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS", 21600, minimum=60
+            "SEAGULL_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS", 21600, minimum=60
         )
-        self.output_dir = Path(env_str("NETWATCH_BOOTSTRAP_ROTATOR_OUTPUT_DIR", "/etc/netwatch/bootstrap"))
+        self.output_dir = Path(env_str("SEAGULL_BOOTSTRAP_ROTATOR_OUTPUT_DIR", "/etc/seagull/bootstrap"))
         self.state_dir = Path(
-            env_str("NETWATCH_BOOTSTRAP_ROTATOR_STATE_DIR", "/var/lib/netwatch/bootstrap-rotator")
+            env_str("SEAGULL_BOOTSTRAP_ROTATOR_STATE_DIR", "/var/lib/seagull/bootstrap-rotator")
         )
         self.timeout_seconds = env_int(
-            "NETWATCH_BOOTSTRAP_ROTATOR_HTTP_TIMEOUT_SECONDS", 15, minimum=3
+            "SEAGULL_BOOTSTRAP_ROTATOR_HTTP_TIMEOUT_SECONDS", 15, minimum=3
         )
         self.success_marker = self.state_dir / "last_success_at"
         self.metadata_path = self.state_dir / "state.json"
@@ -182,7 +182,7 @@ class BootstrapRotator:
 
     def _login(self) -> tuple[ApiEndpoint, str]:
         if not self.admin_password:
-            raise RuntimeError("NETWATCH_BOOTSTRAP_ADMIN_PASSWORD is empty")
+            raise RuntimeError("SEAGULL_BOOTSTRAP_ADMIN_PASSWORD is empty")
         payload = {"username": self.admin_username, "password": self.admin_password}
         last_error = "no login endpoints attempted"
         for endpoint in self.endpoints:

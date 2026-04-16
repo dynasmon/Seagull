@@ -160,32 +160,32 @@ def test_load_rules_pack_and_maturity_filters(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    old_env = settings.NETWATCH_RULES_ENV
-    old_enabled = list(settings.NETWATCH_RULES_ENABLED_PACKS)
-    old_disabled = list(settings.NETWATCH_RULES_DISABLED_PACKS)
-    old_experimental = settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL
+    old_env = settings.SEAGULL_RULES_ENV
+    old_enabled = list(settings.SEAGULL_RULES_ENABLED_PACKS)
+    old_disabled = list(settings.SEAGULL_RULES_DISABLED_PACKS)
+    old_experimental = settings.SEAGULL_RULES_INCLUDE_EXPERIMENTAL
 
     try:
-        settings.NETWATCH_RULES_ENV = "dev"
-        settings.NETWATCH_RULES_ENABLED_PACKS = ["lab"]
-        settings.NETWATCH_RULES_DISABLED_PACKS = []
-        settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL = False
+        settings.SEAGULL_RULES_ENV = "dev"
+        settings.SEAGULL_RULES_ENABLED_PACKS = ["lab"]
+        settings.SEAGULL_RULES_DISABLED_PACKS = []
+        settings.SEAGULL_RULES_INCLUDE_EXPERIMENTAL = False
         r0 = load_rules(include_disabled=True, with_source=True, rules_dir=tmp_path)
         assert r0 == []
 
-        settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL = True
+        settings.SEAGULL_RULES_INCLUDE_EXPERIMENTAL = True
         r1 = load_rules(include_disabled=True, with_source=True, rules_dir=tmp_path)
         assert len(r1) == 1
         assert r1[0]["id"] == "exp_rule_v1"
 
-        settings.NETWATCH_RULES_ENV = "prod"
+        settings.SEAGULL_RULES_ENV = "prod"
         r2 = load_rules(include_disabled=True, with_source=True, rules_dir=tmp_path)
         assert r2 == []
     finally:
-        settings.NETWATCH_RULES_ENV = old_env
-        settings.NETWATCH_RULES_ENABLED_PACKS = old_enabled
-        settings.NETWATCH_RULES_DISABLED_PACKS = old_disabled
-        settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL = old_experimental
+        settings.SEAGULL_RULES_ENV = old_env
+        settings.SEAGULL_RULES_ENABLED_PACKS = old_enabled
+        settings.SEAGULL_RULES_DISABLED_PACKS = old_disabled
+        settings.SEAGULL_RULES_INCLUDE_EXPERIMENTAL = old_experimental
 
 
 def test_load_rules_applies_env_overrides(tmp_path) -> None:
@@ -218,26 +218,26 @@ def test_load_rules_applies_env_overrides(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    old_env = settings.NETWATCH_RULES_ENV
-    old_enabled = list(settings.NETWATCH_RULES_ENABLED_PACKS)
-    old_disabled = list(settings.NETWATCH_RULES_DISABLED_PACKS)
-    old_experimental = settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL
+    old_env = settings.SEAGULL_RULES_ENV
+    old_enabled = list(settings.SEAGULL_RULES_ENABLED_PACKS)
+    old_disabled = list(settings.SEAGULL_RULES_DISABLED_PACKS)
+    old_experimental = settings.SEAGULL_RULES_INCLUDE_EXPERIMENTAL
     try:
-        settings.NETWATCH_RULES_ENABLED_PACKS = ["network"]
-        settings.NETWATCH_RULES_DISABLED_PACKS = []
-        settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL = True
+        settings.SEAGULL_RULES_ENABLED_PACKS = ["network"]
+        settings.SEAGULL_RULES_DISABLED_PACKS = []
+        settings.SEAGULL_RULES_INCLUDE_EXPERIMENTAL = True
 
-        settings.NETWATCH_RULES_ENV = "dev"
+        settings.SEAGULL_RULES_ENV = "dev"
         r_dev = load_rules(include_disabled=True, with_source=True, rules_dir=tmp_path)
         assert len(r_dev) == 1
         assert int(r_dev[0]["condition"]["value"]) == 3
 
-        settings.NETWATCH_RULES_ENV = "prod"
+        settings.SEAGULL_RULES_ENV = "prod"
         r_prod = load_rules(include_disabled=True, with_source=True, rules_dir=tmp_path)
         assert len(r_prod) == 1
         assert int(r_prod[0]["condition"]["value"]) == 15
     finally:
-        settings.NETWATCH_RULES_ENV = old_env
-        settings.NETWATCH_RULES_ENABLED_PACKS = old_enabled
-        settings.NETWATCH_RULES_DISABLED_PACKS = old_disabled
-        settings.NETWATCH_RULES_INCLUDE_EXPERIMENTAL = old_experimental
+        settings.SEAGULL_RULES_ENV = old_env
+        settings.SEAGULL_RULES_ENABLED_PACKS = old_enabled
+        settings.SEAGULL_RULES_DISABLED_PACKS = old_disabled
+        settings.SEAGULL_RULES_INCLUDE_EXPERIMENTAL = old_experimental

@@ -11,22 +11,22 @@ from app.core.redis_client import get_redis
 
 def _feed_key(agent_id: str | None = None) -> str:
     if agent_id:
-        return f"netwatch:recent_feed:v1:agent:{agent_id}"
-    return "netwatch:recent_feed:v1:global"
+        return f"seagull:recent_feed:v1:agent:{agent_id}"
+    return "seagull:recent_feed:v1:global"
 
 
 def _feed_last_ts_key(agent_id: str | None = None) -> str:
     if agent_id:
-        return f"netwatch:recent_feed:v1:last_ts:agent:{agent_id}"
-    return "netwatch:recent_feed:v1:last_ts:global"
+        return f"seagull:recent_feed:v1:last_ts:agent:{agent_id}"
+    return "seagull:recent_feed:v1:last_ts:global"
 
 
 def _feed_rate_key(ts_s: int) -> str:
-    return f"netwatch:recent_feed:v1:rows:{int(ts_s)}"
+    return f"seagull:recent_feed:v1:rows:{int(ts_s)}"
 
 
 def _feed_drop_key(ts_s: int) -> str:
-    return f"netwatch:recent_feed:v1:dropped:{int(ts_s)}"
+    return f"seagull:recent_feed:v1:dropped:{int(ts_s)}"
 
 
 def _to_ts(dt: Any) -> Optional[datetime]:
@@ -119,10 +119,10 @@ def push_recent_events(rows: List[Dict[str, Any]]) -> int:
     if r is None or not rows:
         return 0
 
-    max_global = max(100, int(getattr(settings, "NETWATCH_INGEST_RECENT_FEED_MAX_EVENTS", 5000) or 5000))
-    max_agent = max(50, int(getattr(settings, "NETWATCH_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS", 1000) or 1000))
-    lookback_s = max(60, int(getattr(settings, "NETWATCH_INGEST_RECENT_FEED_LOOKBACK_SECONDS", 900) or 900))
-    max_push = max(1, int(getattr(settings, "NETWATCH_INGEST_RECENT_FEED_MAX_PUSH_PER_CALL", 512) or 512))
+    max_global = max(100, int(getattr(settings, "SEAGULL_INGEST_RECENT_FEED_MAX_EVENTS", 5000) or 5000))
+    max_agent = max(50, int(getattr(settings, "SEAGULL_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS", 1000) or 1000))
+    lookback_s = max(60, int(getattr(settings, "SEAGULL_INGEST_RECENT_FEED_LOOKBACK_SECONDS", 900) or 900))
+    max_push = max(1, int(getattr(settings, "SEAGULL_INGEST_RECENT_FEED_MAX_PUSH_PER_CALL", 512) or 512))
     original_n = len(rows)
     rows = list(rows[:max_push])
 
@@ -199,7 +199,7 @@ def fetch_recent_events(*, limit: int, agent_id: str | None = None, event_type: 
         return []
 
     cutoff = datetime.now(timezone.utc) - timedelta(
-        seconds=max(60, int(getattr(settings, "NETWATCH_INGEST_RECENT_FEED_LOOKBACK_SECONDS", 900) or 900))
+        seconds=max(60, int(getattr(settings, "SEAGULL_INGEST_RECENT_FEED_LOOKBACK_SECONDS", 900) or 900))
     )
     out: List[Dict[str, Any]] = []
     seen: set[int] = set()
@@ -231,9 +231,9 @@ def fetch_event_by_id(*, event_id: int, agent_id: str | None = None) -> Dict[str
         return None
 
     scan_n = (
-        max(50, int(getattr(settings, "NETWATCH_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS", 1000) or 1000))
+        max(50, int(getattr(settings, "SEAGULL_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS", 1000) or 1000))
         if agent_id
-        else max(100, int(getattr(settings, "NETWATCH_INGEST_RECENT_FEED_MAX_EVENTS", 5000) or 5000))
+        else max(100, int(getattr(settings, "SEAGULL_INGEST_RECENT_FEED_MAX_EVENTS", 5000) or 5000))
     )
     scan_n = min(scan_n, 10000)
 

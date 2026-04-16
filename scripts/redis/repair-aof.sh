@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(basename "$ROOT_DIR" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-*//; s/-*$//')}"
 VOLUME_NAME="${1:-${REDIS_VOLUME_NAME:-${PROJECT_NAME}_redis-data}}"
 REDIS_IMAGE="${REDIS_IMAGE:-redis:7-alpine}"
-REDIS_CONTAINER_NAME="${REDIS_CONTAINER_NAME:-netwatch-redis}"
+REDIS_CONTAINER_NAME="${REDIS_CONTAINER_NAME:-seagull-redis}"
 TIMESTAMP="$(date -u +"%Y%m%dT%H%M%SZ")"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -66,7 +66,7 @@ fi
 BACKUP_DIR="$(
   docker run --rm -v "${VOLUME_NAME}:/data" "$REDIS_IMAGE" sh -eu -c '
     timestamp="$1"
-    backup_dir="/data/netwatch-repair-backups/${timestamp}"
+    backup_dir="/data/seagull-repair-backups/${timestamp}"
     mkdir -p "$backup_dir"
     for path in /data/appendonlydir /data/appendonly.aof /data/appendonly.aof.manifest /data/dump.rdb; do
       [ -e "$path" ] || continue

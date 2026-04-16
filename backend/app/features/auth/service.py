@@ -42,11 +42,11 @@ def _make_token_payload(*, user: PortalUserModel) -> dict:
     return {
         "access_token": make_access_token(
             sub=str(user.id),
-            ttl_seconds=settings.NETWATCH_ACCESS_TOKEN_TTL_SECONDS,
+            ttl_seconds=settings.SEAGULL_ACCESS_TOKEN_TTL_SECONDS,
             extra={"tv": token_version},
         ),
         "token_type": "bearer",
-        "expires_in": settings.NETWATCH_ACCESS_TOKEN_TTL_SECONDS,
+        "expires_in": settings.SEAGULL_ACCESS_TOKEN_TTL_SECONDS,
         "user": {"id": user.id, "username": user.username, "role": user.role},
     }
 
@@ -68,13 +68,13 @@ def _create_refresh_session(
         user_id=user_id,
         token_hash_value=token_hash(raw_refresh),
         created_at=now,
-        expires_at=now + timedelta(seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS),
+        expires_at=now + timedelta(seconds=settings.SEAGULL_REFRESH_TOKEN_TTL_SECONDS),
         family_id=(family_id or str(uuid.uuid4())),
         last_ip=ip,
         last_user_agent=ua,
     )
-    _set_refresh_cookie(response, raw_refresh, max_age_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS)
-    _set_csrf_cookie(response, csrf, max_age_seconds=settings.NETWATCH_REFRESH_TOKEN_TTL_SECONDS)
+    _set_refresh_cookie(response, raw_refresh, max_age_seconds=settings.SEAGULL_REFRESH_TOKEN_TTL_SECONDS)
+    _set_csrf_cookie(response, csrf, max_age_seconds=settings.SEAGULL_REFRESH_TOKEN_TTL_SECONDS)
     return refresh_row
 
 
@@ -325,11 +325,11 @@ def me(*, user: PortalPrincipal) -> dict:
 
 
 def auth_features() -> dict:
-    return {"otp_enabled": bool(settings.NETWATCH_AUTH_OTP_ENABLED)}
+    return {"otp_enabled": bool(settings.SEAGULL_AUTH_OTP_ENABLED)}
 
 
 def otp_login(db: Session, *, body: OtpLoginIn, request: Request, response: Response) -> dict:
-    if not settings.NETWATCH_AUTH_OTP_ENABLED:
+    if not settings.SEAGULL_AUTH_OTP_ENABLED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     guard_otp_rate_limit(request)
 
@@ -396,7 +396,7 @@ def otp_create(
     request: Request,
     admin: PortalPrincipal,
 ) -> dict:
-    if not settings.NETWATCH_AUTH_OTP_ENABLED:
+    if not settings.SEAGULL_AUTH_OTP_ENABLED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
     if body.username:
@@ -410,7 +410,7 @@ def otp_create(
 
     token = new_one_time_token()
     now = datetime.utcnow()
-    expires_in = int(settings.NETWATCH_OTP_TOKEN_TTL_SECONDS)
+    expires_in = int(settings.SEAGULL_OTP_TOKEN_TTL_SECONDS)
     row = repository.create_one_time_token(
         db,
         user_id=target_user.id,

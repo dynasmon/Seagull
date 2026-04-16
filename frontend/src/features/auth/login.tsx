@@ -74,7 +74,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="border border-border/60 bg-card/10 backdrop-blur-md">
           <div className="border-b border-border/60 bg-muted/10 px-5 py-4">
-            <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">NetWatch Portal</div>
+            <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Seagull Portal</div>
             <div className="text-lg font-semibold mt-1">Sign in</div>
           </div>
 

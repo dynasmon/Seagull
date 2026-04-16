@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException
 
-os.environ.setdefault("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "true")
-os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
+os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
+os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.features.events import service
 from app.features.events.schemas import NetEventDB
@@ -35,7 +35,7 @@ def test_select_hunt_chain_prefers_elasticsearch_for_search() -> None:
 
 
 def test_select_hunt_chain_prefers_clickhouse_for_wide_window(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(service.settings, "NETWATCH_EVENTS_HUNT_CLICKHOUSE_MINUTES", 90, raising=False)
+    monkeypatch.setattr(service.settings, "SEAGULL_EVENTS_HUNT_CLICKHOUSE_MINUTES", 90, raising=False)
     monkeypatch.setattr(service, "search_backend_mode", lambda: "auto")
     assert service._select_hunt_chain(has_search=False, window_minutes=120) == ["clickhouse", "postgres", "elasticsearch"]
 
@@ -90,7 +90,7 @@ def test_hunt_events_uses_elasticsearch_for_search_when_available(monkeypatch: p
 
 def test_hunt_events_falls_back_from_clickhouse_to_postgres(monkeypatch: pytest.MonkeyPatch) -> None:
     sample = _evt(902)
-    monkeypatch.setattr(service.settings, "NETWATCH_EVENTS_HUNT_CLICKHOUSE_MINUTES", 30, raising=False)
+    monkeypatch.setattr(service.settings, "SEAGULL_EVENTS_HUNT_CLICKHOUSE_MINUTES", 30, raising=False)
     monkeypatch.setattr(service, "_ch_client_or_none", lambda: None)
     monkeypatch.setattr(service, "_pg_hunt_query", lambda *_args, **_kwargs: ([sample], None, False))
 
@@ -110,7 +110,7 @@ def test_hunt_events_falls_back_from_clickhouse_to_postgres(monkeypatch: pytest.
 
 def test_hunt_events_falls_back_to_elasticsearch_after_pg_and_clickhouse_fail(monkeypatch: pytest.MonkeyPatch) -> None:
     sample = _evt(903)
-    monkeypatch.setattr(service.settings, "NETWATCH_EVENTS_HUNT_CLICKHOUSE_MINUTES", 30, raising=False)
+    monkeypatch.setattr(service.settings, "SEAGULL_EVENTS_HUNT_CLICKHOUSE_MINUTES", 30, raising=False)
     monkeypatch.setattr(service, "search_backend_mode", lambda: "auto")
     monkeypatch.setattr(service, "_ch_client_or_none", lambda: object())
     monkeypatch.setattr(

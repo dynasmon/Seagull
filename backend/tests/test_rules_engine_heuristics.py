@@ -4,8 +4,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-os.environ.setdefault("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "true")
-os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
+os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
+os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.core.config import settings
 from app.workers.rules_engine import _build_beacon_candidates, _build_egress_anomaly_candidates, _build_exfil_candidates
@@ -58,12 +58,12 @@ def test_build_beacon_candidates_detects_periodic_low_jitter() -> None:
     now = datetime.now(timezone.utc)
     rows = [_row(now - timedelta(seconds=(7 - i) * 60), bytes_sent=640) for i in range(8)]
 
-    old_max_rows = settings.NETWATCH_HEUR_MAX_ROWS
+    old_max_rows = settings.SEAGULL_HEUR_MAX_ROWS
     try:
-        settings.NETWATCH_HEUR_MAX_ROWS = 1000
+        settings.SEAGULL_HEUR_MAX_ROWS = 1000
         out = _build_beacon_candidates(_FakeDB(rows), now)
     finally:
-        settings.NETWATCH_HEUR_MAX_ROWS = old_max_rows
+        settings.SEAGULL_HEUR_MAX_ROWS = old_max_rows
 
     assert out
     cand = out[0]
@@ -90,32 +90,32 @@ def test_build_exfil_candidates_detects_burst_to_rare_destination() -> None:
     rows = baseline + recent
 
     old_vals = (
-        settings.NETWATCH_HEUR_MAX_ROWS,
-        settings.NETWATCH_HEUR_EXFIL_BASELINE_SECONDS,
-        settings.NETWATCH_HEUR_EXFIL_WINDOW_SECONDS,
-        settings.NETWATCH_HEUR_EXFIL_MIN_EVENTS,
-        settings.NETWATCH_HEUR_EXFIL_MIN_BYTES,
-        settings.NETWATCH_HEUR_EXFIL_SPIKE_FACTOR,
-        settings.NETWATCH_HEUR_EXFIL_RARE_BASELINE_EVENTS,
+        settings.SEAGULL_HEUR_MAX_ROWS,
+        settings.SEAGULL_HEUR_EXFIL_BASELINE_SECONDS,
+        settings.SEAGULL_HEUR_EXFIL_WINDOW_SECONDS,
+        settings.SEAGULL_HEUR_EXFIL_MIN_EVENTS,
+        settings.SEAGULL_HEUR_EXFIL_MIN_BYTES,
+        settings.SEAGULL_HEUR_EXFIL_SPIKE_FACTOR,
+        settings.SEAGULL_HEUR_EXFIL_RARE_BASELINE_EVENTS,
     )
     try:
-        settings.NETWATCH_HEUR_MAX_ROWS = 1000
-        settings.NETWATCH_HEUR_EXFIL_BASELINE_SECONDS = 7200
-        settings.NETWATCH_HEUR_EXFIL_WINDOW_SECONDS = 300
-        settings.NETWATCH_HEUR_EXFIL_MIN_EVENTS = 4
-        settings.NETWATCH_HEUR_EXFIL_MIN_BYTES = 1024
-        settings.NETWATCH_HEUR_EXFIL_SPIKE_FACTOR = 2.0
-        settings.NETWATCH_HEUR_EXFIL_RARE_BASELINE_EVENTS = 5
+        settings.SEAGULL_HEUR_MAX_ROWS = 1000
+        settings.SEAGULL_HEUR_EXFIL_BASELINE_SECONDS = 7200
+        settings.SEAGULL_HEUR_EXFIL_WINDOW_SECONDS = 300
+        settings.SEAGULL_HEUR_EXFIL_MIN_EVENTS = 4
+        settings.SEAGULL_HEUR_EXFIL_MIN_BYTES = 1024
+        settings.SEAGULL_HEUR_EXFIL_SPIKE_FACTOR = 2.0
+        settings.SEAGULL_HEUR_EXFIL_RARE_BASELINE_EVENTS = 5
         out = _build_exfil_candidates(_FakeDB(rows), now)
     finally:
         (
-            settings.NETWATCH_HEUR_MAX_ROWS,
-            settings.NETWATCH_HEUR_EXFIL_BASELINE_SECONDS,
-            settings.NETWATCH_HEUR_EXFIL_WINDOW_SECONDS,
-            settings.NETWATCH_HEUR_EXFIL_MIN_EVENTS,
-            settings.NETWATCH_HEUR_EXFIL_MIN_BYTES,
-            settings.NETWATCH_HEUR_EXFIL_SPIKE_FACTOR,
-            settings.NETWATCH_HEUR_EXFIL_RARE_BASELINE_EVENTS,
+            settings.SEAGULL_HEUR_MAX_ROWS,
+            settings.SEAGULL_HEUR_EXFIL_BASELINE_SECONDS,
+            settings.SEAGULL_HEUR_EXFIL_WINDOW_SECONDS,
+            settings.SEAGULL_HEUR_EXFIL_MIN_EVENTS,
+            settings.SEAGULL_HEUR_EXFIL_MIN_BYTES,
+            settings.SEAGULL_HEUR_EXFIL_SPIKE_FACTOR,
+            settings.SEAGULL_HEUR_EXFIL_RARE_BASELINE_EVENTS,
         ) = old_vals
 
     assert out
@@ -163,35 +163,35 @@ def test_build_egress_anomaly_candidates_with_exec_correlation() -> None:
     ]
 
     old_vals = (
-        settings.NETWATCH_HEUR_MAX_ROWS,
-        settings.NETWATCH_HEUR_EGRESS_BASELINE_SECONDS,
-        settings.NETWATCH_HEUR_EGRESS_WINDOW_SECONDS,
-        settings.NETWATCH_HEUR_EGRESS_MIN_EVENTS,
-        settings.NETWATCH_HEUR_EGRESS_MIN_BYTES,
-        settings.NETWATCH_HEUR_EGRESS_SPIKE_FACTOR,
-        settings.NETWATCH_HEUR_EGRESS_RARE_BASELINE_EVENTS,
-        settings.NETWATCH_HEUR_EGRESS_CORRELATION_SECONDS,
+        settings.SEAGULL_HEUR_MAX_ROWS,
+        settings.SEAGULL_HEUR_EGRESS_BASELINE_SECONDS,
+        settings.SEAGULL_HEUR_EGRESS_WINDOW_SECONDS,
+        settings.SEAGULL_HEUR_EGRESS_MIN_EVENTS,
+        settings.SEAGULL_HEUR_EGRESS_MIN_BYTES,
+        settings.SEAGULL_HEUR_EGRESS_SPIKE_FACTOR,
+        settings.SEAGULL_HEUR_EGRESS_RARE_BASELINE_EVENTS,
+        settings.SEAGULL_HEUR_EGRESS_CORRELATION_SECONDS,
     )
     try:
-        settings.NETWATCH_HEUR_MAX_ROWS = 1000
-        settings.NETWATCH_HEUR_EGRESS_BASELINE_SECONDS = 7200
-        settings.NETWATCH_HEUR_EGRESS_WINDOW_SECONDS = 300
-        settings.NETWATCH_HEUR_EGRESS_MIN_EVENTS = 4
-        settings.NETWATCH_HEUR_EGRESS_MIN_BYTES = 1024
-        settings.NETWATCH_HEUR_EGRESS_SPIKE_FACTOR = 1.5
-        settings.NETWATCH_HEUR_EGRESS_RARE_BASELINE_EVENTS = 2
-        settings.NETWATCH_HEUR_EGRESS_CORRELATION_SECONDS = 1200
+        settings.SEAGULL_HEUR_MAX_ROWS = 1000
+        settings.SEAGULL_HEUR_EGRESS_BASELINE_SECONDS = 7200
+        settings.SEAGULL_HEUR_EGRESS_WINDOW_SECONDS = 300
+        settings.SEAGULL_HEUR_EGRESS_MIN_EVENTS = 4
+        settings.SEAGULL_HEUR_EGRESS_MIN_BYTES = 1024
+        settings.SEAGULL_HEUR_EGRESS_SPIKE_FACTOR = 1.5
+        settings.SEAGULL_HEUR_EGRESS_RARE_BASELINE_EVENTS = 2
+        settings.SEAGULL_HEUR_EGRESS_CORRELATION_SECONDS = 1200
         out = _build_egress_anomaly_candidates(_FakeDBSeq([flow_rows, suspicious_rows]), now)
     finally:
         (
-            settings.NETWATCH_HEUR_MAX_ROWS,
-            settings.NETWATCH_HEUR_EGRESS_BASELINE_SECONDS,
-            settings.NETWATCH_HEUR_EGRESS_WINDOW_SECONDS,
-            settings.NETWATCH_HEUR_EGRESS_MIN_EVENTS,
-            settings.NETWATCH_HEUR_EGRESS_MIN_BYTES,
-            settings.NETWATCH_HEUR_EGRESS_SPIKE_FACTOR,
-            settings.NETWATCH_HEUR_EGRESS_RARE_BASELINE_EVENTS,
-            settings.NETWATCH_HEUR_EGRESS_CORRELATION_SECONDS,
+            settings.SEAGULL_HEUR_MAX_ROWS,
+            settings.SEAGULL_HEUR_EGRESS_BASELINE_SECONDS,
+            settings.SEAGULL_HEUR_EGRESS_WINDOW_SECONDS,
+            settings.SEAGULL_HEUR_EGRESS_MIN_EVENTS,
+            settings.SEAGULL_HEUR_EGRESS_MIN_BYTES,
+            settings.SEAGULL_HEUR_EGRESS_SPIKE_FACTOR,
+            settings.SEAGULL_HEUR_EGRESS_RARE_BASELINE_EVENTS,
+            settings.SEAGULL_HEUR_EGRESS_CORRELATION_SECONDS,
         ) = old_vals
 
     assert out

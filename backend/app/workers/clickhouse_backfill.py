@@ -17,16 +17,17 @@ from app.core.clickhouse import clickhouse_events_table_ref, ensure_clickhouse_e
 from app.core.config import settings
 from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
+from app.core.env_secrets import getenv_compat
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import NetEventModel, write_clickhouse_events
 
 
 setup_logging("worker-clickhouse-backfill")
-logger = logging.getLogger("netwatch.worker.clickhouse_backfill")
+logger = logging.getLogger("seagull.worker.clickhouse_backfill")
 
 
 def _env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
+    raw = getenv_compat(name)
     if raw is None:
         return default
     try:
@@ -36,7 +37,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_float(name: str, default: float) -> float:
-    raw = os.getenv(name)
+    raw = getenv_compat(name)
     if raw is None:
         return default
     try:
@@ -46,7 +47,7 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _env_str(name: str, default: str = "") -> str:
-    raw = os.getenv(name)
+    raw = getenv_compat(name)
     if raw is None:
         return default
     return raw.strip() or default
@@ -54,11 +55,11 @@ def _env_str(name: str, default: str = "") -> str:
 
 def _parse_backfill_config() -> Dict[str, Any]:
     return {
-        "from_id": max(0, _env_int("NETWATCH_CLICKHOUSE_BACKFILL_FROM_ID", 0)),
-        "batch_size": max(100, _env_int("NETWATCH_CLICKHOUSE_BACKFILL_BATCH_SIZE", 2000)),
-        "max_rows": max(0, _env_int("NETWATCH_CLICKHOUSE_BACKFILL_MAX_ROWS", 0)),
-        "sleep_seconds": max(0.0, _env_float("NETWATCH_CLICKHOUSE_BACKFILL_SLEEP_SECONDS", 0.0)),
-        "agent_id": _env_str("NETWATCH_CLICKHOUSE_BACKFILL_AGENT_ID", "") or None,
+        "from_id": max(0, _env_int("SEAGULL_CLICKHOUSE_BACKFILL_FROM_ID", 0)),
+        "batch_size": max(100, _env_int("SEAGULL_CLICKHOUSE_BACKFILL_BATCH_SIZE", 2000)),
+        "max_rows": max(0, _env_int("SEAGULL_CLICKHOUSE_BACKFILL_MAX_ROWS", 0)),
+        "sleep_seconds": max(0.0, _env_float("SEAGULL_CLICKHOUSE_BACKFILL_SLEEP_SECONDS", 0.0)),
+        "agent_id": _env_str("SEAGULL_CLICKHOUSE_BACKFILL_AGENT_ID", "") or None,
     }
 
 
@@ -214,7 +215,7 @@ def run_backfill(
 def main() -> None:
     ensure_database_ready()
 
-    if not bool(getattr(settings, "NETWATCH_CLICKHOUSE_ENABLED", False)):
+    if not bool(getattr(settings, "SEAGULL_CLICKHOUSE_ENABLED", False)):
         log_event(logger, "error", "clickhouse_backfill_disabled")
         return
 

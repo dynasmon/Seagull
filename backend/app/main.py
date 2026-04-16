@@ -50,29 +50,29 @@ from app.core.model_registry import load_all_models
 
 
 setup_logging("backend-api")
-logger = logging.getLogger("netwatch.api")
+logger = logging.getLogger("seagull.api")
 
 app = FastAPI(
-    title="NetWatch Backend",
+    title="Seagull Backend",
     version="0.1.0",
     description="Mini-SIEM for network / Threat Hunting",
 )
 
-if settings.NETWATCH_TRUST_PROXY_HEADERS:
+if settings.SEAGULL_TRUST_PROXY_HEADERS:
     app.add_middleware(
         ProxyHeadersMiddleware,
-        trusted_hosts=settings.NETWATCH_TRUSTED_PROXY_CIDRS,
+        trusted_hosts=settings.SEAGULL_TRUSTED_PROXY_CIDRS,
     )
 
 # ... add basic compression for JSON payloads (lowers bandwidth for dashboards)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
-if settings.NETWATCH_ALLOWED_HOSTS and settings.NETWATCH_ALLOWED_HOSTS != ["*"]:
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.NETWATCH_ALLOWED_HOSTS)
+if settings.SEAGULL_ALLOWED_HOSTS and settings.SEAGULL_ALLOWED_HOSTS != ["*"]:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.SEAGULL_ALLOWED_HOSTS)
 
 
 @app.middleware("http")
 async def request_size_guard(request: Request, call_next):
-    max_body_bytes = max(1024, int(settings.NETWATCH_MAX_REQUEST_BODY_BYTES or 0))
+    max_body_bytes = max(1024, int(settings.SEAGULL_MAX_REQUEST_BODY_BYTES or 0))
     content_length = request.headers.get("content-length")
     if content_length:
         try:
@@ -150,7 +150,7 @@ async def security_headers(request: Request, call_next):
     # CSP intentionally minimal (portal is same-origin via reverse-proxy)
     # If you serve the portal from a different origin, tighten this.
     res.headers.setdefault("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; base-uri 'self'")
-    if settings.NETWATCH_ENABLE_HSTS or settings.NETWATCH_COOKIE_SECURE:
+    if settings.SEAGULL_ENABLE_HSTS or settings.SEAGULL_COOKIE_SECURE:
         # Only effective on HTTPS; safe to emit when TLS is terminated before app.
         res.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     if request.url.path.startswith("/auth/"):
@@ -194,7 +194,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         error=str(exc),
     )
     body = {"detail": "Internal server error", "request_id": rid}
-    if (settings.NETWATCH_ENV or "").lower() == "dev":
+    if (settings.SEAGULL_ENV or "").lower() == "dev":
         body["error_type"] = type(exc).__name__
         body["error"] = str(exc)[:300]
     res = JSONResponse(status_code=500, content=body)
@@ -207,7 +207,7 @@ def on_startup():
     try:
         settings.validate_for_service("backend-api")
 
-        if settings.NETWATCH_SKIP_STARTUP_BOOTSTRAP:
+        if settings.SEAGULL_SKIP_STARTUP_BOOTSTRAP:
             return
 
         # Ensure all models are loaded before bootstrap hooks.
@@ -230,7 +230,7 @@ def on_startup():
             ensure_database_ready()
             bootstrap_portal_admin()
             bootstrap_correlation_rules()
-        log_event(logger, "info", "startup_complete", env=settings.NETWATCH_ENV)
+        log_event(logger, "info", "startup_complete", env=settings.SEAGULL_ENV)
     except Exception as exc:
         logger.exception("startup_failed: %s", exc)
         raise
@@ -310,7 +310,7 @@ async def health_ready(response: Response):
     }
 
     ch_enabled = bool(clickhouse_is_enabled())
-    ch_required = bool(getattr(settings, "NETWATCH_CLICKHOUSE_REQUIRED", False))
+    ch_required = bool(getattr(settings, "SEAGULL_CLICKHOUSE_REQUIRED", False))
     ch_latency_ms = None
     ch_error = None
     if ch_required and not ch_enabled:
@@ -339,7 +339,7 @@ async def health_ready(response: Response):
     return {
         "status": "ok" if ready else "degraded",
         "service": "backend-api",
-        "environment": settings.NETWATCH_ENV,
+        "environment": settings.SEAGULL_ENV,
         "components": components,
     }
 

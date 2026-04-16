@@ -15,7 +15,7 @@ from app.core.portal_auth import PortalPrincipal
 from app.core.realtime import portal_realtime_topics, publish_portal_realtime_message
 from app.features.realtime.schemas import RealtimeEnvelope
 
-logger = logging.getLogger("netwatch.api.realtime.service")
+logger = logging.getLogger("seagull.api.realtime.service")
 
 
 STREAM_TOKEN_TYPE = "stream_bootstrap"
@@ -114,7 +114,7 @@ class StreamPrincipal:
 
 
 def _stream_ttl_seconds() -> int:
-    configured = int(getattr(settings, "NETWATCH_REALTIME_STREAM_TOKEN_TTL_SECONDS", 30) or 30)
+    configured = int(getattr(settings, "SEAGULL_REALTIME_STREAM_TOKEN_TTL_SECONDS", 30) or 30)
     if configured < 5:
         return 5
     if configured > 300:
@@ -123,13 +123,13 @@ def _stream_ttl_seconds() -> int:
 
 
 def _stream_jwt_audience() -> str:
-    return f"{settings.NETWATCH_JWT_AUDIENCE}{STREAM_TOKEN_AUDIENCE_SUFFIX}"
+    return f"{settings.SEAGULL_JWT_AUDIENCE}{STREAM_TOKEN_AUDIENCE_SUFFIX}"
 
 
 def _stream_jwt_secret() -> str:
-    secret = (settings.NETWATCH_JWT_SECRET or "").strip()
+    secret = (settings.SEAGULL_JWT_SECRET or "").strip()
     if not secret or len(secret) < 32:
-        raise RuntimeError("NETWATCH_JWT_SECRET is missing/too short")
+        raise RuntimeError("SEAGULL_JWT_SECRET is missing/too short")
     return secret
 
 
@@ -215,7 +215,7 @@ def issue_stream_token(*, user: PortalPrincipal) -> tuple[str, int]:
         "purpose": STREAM_TOKEN_PURPOSE,
         "scope": STREAM_TOKEN_SCOPE,
         "scopes": _normalize_scopes(scopes),
-        "iss": settings.NETWATCH_JWT_ISSUER,
+        "iss": settings.SEAGULL_JWT_ISSUER,
         "aud": _stream_jwt_audience(),
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=ttl_seconds)).timestamp()),
@@ -236,7 +236,7 @@ def decode_stream_token(stream_token: str) -> StreamPrincipal:
             _stream_jwt_secret(),
             algorithms=["HS256"],
             audience=_stream_jwt_audience(),
-            issuer=settings.NETWATCH_JWT_ISSUER,
+            issuer=settings.SEAGULL_JWT_ISSUER,
             options={"require_iat": True, "require_exp": True, "require_sub": True, "require_jti": True},
         )
     except Exception as exc:

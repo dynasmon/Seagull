@@ -37,7 +37,7 @@ from app.features.realtime.service import (
     topic_invalidate_event,
 )
 
-logger = logging.getLogger("netwatch.api.realtime")
+logger = logging.getLogger("seagull.api.realtime")
 
 router = APIRouter(
     prefix="/realtime",
@@ -46,7 +46,7 @@ router = APIRouter(
 
 
 def _sse_keepalive_seconds() -> int:
-    configured = int(getattr(settings, "NETWATCH_REALTIME_SSE_KEEPALIVE_SECONDS", 15) or 15)
+    configured = int(getattr(settings, "SEAGULL_REALTIME_SSE_KEEPALIVE_SECONDS", 15) or 15)
     if configured < 5:
         return 5
     if configured > 60:
@@ -55,7 +55,7 @@ def _sse_keepalive_seconds() -> int:
 
 
 def _ws_keepalive_seconds() -> int:
-    configured = int(getattr(settings, "NETWATCH_REALTIME_WS_KEEPALIVE_SECONDS", 20) or 20)
+    configured = int(getattr(settings, "SEAGULL_REALTIME_WS_KEEPALIVE_SECONDS", 20) or 20)
     if configured < 5:
         return 5
     if configured > 60:
@@ -64,7 +64,7 @@ def _ws_keepalive_seconds() -> int:
 
 
 def _stream_read_block_ms() -> int:
-    configured = int(getattr(settings, "NETWATCH_REALTIME_STREAM_READ_BLOCK_MS", 1000) or 1000)
+    configured = int(getattr(settings, "SEAGULL_REALTIME_STREAM_READ_BLOCK_MS", 1000) or 1000)
     if configured < 100:
         return 100
     if configured > 5000:
@@ -73,7 +73,7 @@ def _stream_read_block_ms() -> int:
 
 
 def _replay_delivery_max() -> int:
-    configured = int(getattr(settings, "NETWATCH_REALTIME_REPLAY_DELIVERY_MAX", 200) or 200)
+    configured = int(getattr(settings, "SEAGULL_REALTIME_REPLAY_DELIVERY_MAX", 200) or 200)
     return max(16, min(configured, PORTAL_REALTIME_REPLAY_MAX_EVENTS))
 
 

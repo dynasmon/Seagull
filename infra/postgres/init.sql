@@ -1,4 +1,4 @@
--- NetWatch Postgres init script
+-- Seagull Postgres init script
 --
 -- This file is executed only on *fresh* database initialization.
 -- Keep it idempotent and safe even if application tables are not created yet.

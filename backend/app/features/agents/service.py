@@ -157,8 +157,8 @@ def _issue_agent_credential(
     issued_from_bootstrap_token_id: int | None,
     replaces_credential_id: int | None,
 ) -> tuple[str, AgentCredentialModel]:
-    ttl_seconds = max(300, int(settings.NETWATCH_AGENT_CREDENTIAL_TTL_SECONDS or 0))
-    max_uses = max(1, int(settings.NETWATCH_AGENT_CREDENTIAL_MAX_USES or 0))
+    ttl_seconds = max(300, int(settings.SEAGULL_AGENT_CREDENTIAL_TTL_SECONDS or 0))
+    max_uses = max(1, int(settings.SEAGULL_AGENT_CREDENTIAL_MAX_USES or 0))
     expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
     credential, salt, credential_hash = generate_agent_credential(agent_id)
     row = AgentCredentialModel(
@@ -185,15 +185,15 @@ def create_bootstrap_token(
     admin: PortalPrincipal,
     audit_writer=write_audit_event,
 ) -> AgentBootstrapTokenOut:
-    ttl_seconds = int(payload.ttl_seconds or settings.NETWATCH_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS)
-    max_uses = int(payload.max_uses or settings.NETWATCH_AGENT_BOOTSTRAP_TOKEN_MAX_USES)
+    ttl_seconds = int(payload.ttl_seconds or settings.SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS)
+    max_uses = int(payload.max_uses or settings.SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES)
     expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
     token, salt, token_hash = generate_bootstrap_token(agent_id)
 
     row = repository.get_agent_by_agent_id(db, agent_id)
     if not row:
         default_cfg = settings.default_agent_config()
-        if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.NETWATCH_MAX_AGENT_CONFIG_BYTES:
+        if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.SEAGULL_MAX_AGENT_CONFIG_BYTES:
             default_cfg = {}
         row = AgentModel(
             agent_id=agent_id,
@@ -259,7 +259,7 @@ def enroll(
     meta = {"hostname": payload.hostname, "os": payload.os, "version": payload.version}
     if not agent:
         default_cfg = settings.default_agent_config()
-        if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.NETWATCH_MAX_AGENT_CONFIG_BYTES:
+        if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.SEAGULL_MAX_AGENT_CONFIG_BYTES:
             default_cfg = {}
         agent = AgentModel(
             agent_id=payload.agent_id,
@@ -336,7 +336,7 @@ def set_config(
     audit_writer=write_audit_event,
 ) -> None:
     cfg: Dict[str, Any] = dict(payload.config or {})
-    _safe_json_size(cfg, settings.NETWATCH_MAX_AGENT_CONFIG_BYTES, "config")
+    _safe_json_size(cfg, settings.SEAGULL_MAX_AGENT_CONFIG_BYTES, "config")
     row = repository.get_agent_by_agent_id(db, agent_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")

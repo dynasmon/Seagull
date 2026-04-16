@@ -97,7 +97,7 @@ def _fingerprint(
 
 
 def _truncate_evidence(evidence: Dict[str, Any]) -> Dict[str, Any]:
-    max_bytes = int(settings.NETWATCH_VULN_MAX_EVIDENCE_BYTES or 32768)
+    max_bytes = int(settings.SEAGULL_VULN_MAX_EVIDENCE_BYTES or 32768)
     if max_bytes < 1024:
         max_bytes = 1024
 
@@ -149,7 +149,7 @@ def _normalize_cfg_map(v: Any) -> Dict[str, Any]:
 
 
 def ingest_findings(db: Session, *, payload: VulnIngestBatch, agent: AgentPrincipal) -> VulnIngestResult:
-    max_findings = max(1, _env_int("NETWATCH_VULN_MAX_FINDINGS_PER_INGEST", 2000))
+    max_findings = max(1, _env_int("SEAGULL_VULN_MAX_FINDINGS_PER_INGEST", 2000))
     if len(payload.findings) > max_findings:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -159,7 +159,7 @@ def ingest_findings(db: Session, *, payload: VulnIngestBatch, agent: AgentPrinci
     scan_uuid: Optional[str] = None
     scan_id: Optional[int] = None
     now = _utc_now()
-    auto_reopen = _env_bool("NETWATCH_VULN_AUTO_REOPEN", True)
+    auto_reopen = _env_bool("SEAGULL_VULN_AUTO_REOPEN", True)
 
     if payload.scan is not None:
         scan_uuid = (payload.scan.scan_uuid or "").strip() or str(uuid.uuid4())

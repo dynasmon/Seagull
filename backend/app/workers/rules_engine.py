@@ -152,12 +152,12 @@ def _netevent_exists_recent(
 
 
 def _build_beacon_candidates(db: Session, now: datetime) -> List[Dict[str, Any]]:
-    win_s = max(300, int(settings.NETWATCH_HEUR_BEACON_WINDOW_SECONDS or 3600))
-    min_events = max(4, int(settings.NETWATCH_HEUR_BEACON_MIN_EVENTS or 7))
-    min_interval = max(2.0, float(settings.NETWATCH_HEUR_BEACON_MIN_INTERVAL_SECONDS or 8))
-    max_interval = max(min_interval, float(settings.NETWATCH_HEUR_BEACON_MAX_INTERVAL_SECONDS or 900))
-    max_jitter = max(0.01, min(1.0, float(settings.NETWATCH_HEUR_BEACON_MAX_JITTER or 0.22)))
-    max_rows = max(1000, int(settings.NETWATCH_HEUR_MAX_ROWS or 50000))
+    win_s = max(300, int(settings.SEAGULL_HEUR_BEACON_WINDOW_SECONDS or 3600))
+    min_events = max(4, int(settings.SEAGULL_HEUR_BEACON_MIN_EVENTS or 7))
+    min_interval = max(2.0, float(settings.SEAGULL_HEUR_BEACON_MIN_INTERVAL_SECONDS or 8))
+    max_interval = max(min_interval, float(settings.SEAGULL_HEUR_BEACON_MAX_INTERVAL_SECONDS or 900))
+    max_jitter = max(0.01, min(1.0, float(settings.SEAGULL_HEUR_BEACON_MAX_JITTER or 0.22)))
+    max_rows = max(1000, int(settings.SEAGULL_HEUR_MAX_ROWS or 50000))
 
     since = now - timedelta(seconds=win_s)
     rows = db.execute(
@@ -260,13 +260,13 @@ def _build_beacon_candidates(db: Session, now: datetime) -> List[Dict[str, Any]]
 
 
 def _build_exfil_candidates(db: Session, now: datetime) -> List[Dict[str, Any]]:
-    baseline_s = max(3600, int(settings.NETWATCH_HEUR_EXFIL_BASELINE_SECONDS or 86400))
-    recent_s = max(120, int(settings.NETWATCH_HEUR_EXFIL_WINDOW_SECONDS or 600))
-    min_events = max(4, int(settings.NETWATCH_HEUR_EXFIL_MIN_EVENTS or 8))
-    min_recent_bytes = max(1024 * 1024, int(settings.NETWATCH_HEUR_EXFIL_MIN_BYTES or 8 * 1024 * 1024))
-    spike_factor = max(1.0, float(settings.NETWATCH_HEUR_EXFIL_SPIKE_FACTOR or 3.0))
-    rare_baseline_events = max(1, int(settings.NETWATCH_HEUR_EXFIL_RARE_BASELINE_EVENTS or 5))
-    max_rows = max(1000, int(settings.NETWATCH_HEUR_MAX_ROWS or 50000))
+    baseline_s = max(3600, int(settings.SEAGULL_HEUR_EXFIL_BASELINE_SECONDS or 86400))
+    recent_s = max(120, int(settings.SEAGULL_HEUR_EXFIL_WINDOW_SECONDS or 600))
+    min_events = max(4, int(settings.SEAGULL_HEUR_EXFIL_MIN_EVENTS or 8))
+    min_recent_bytes = max(1024 * 1024, int(settings.SEAGULL_HEUR_EXFIL_MIN_BYTES or 8 * 1024 * 1024))
+    spike_factor = max(1.0, float(settings.SEAGULL_HEUR_EXFIL_SPIKE_FACTOR or 3.0))
+    rare_baseline_events = max(1, int(settings.SEAGULL_HEUR_EXFIL_RARE_BASELINE_EVENTS or 5))
+    max_rows = max(1000, int(settings.SEAGULL_HEUR_MAX_ROWS or 50000))
 
     since = now - timedelta(seconds=baseline_s)
     recent_since = now - timedelta(seconds=recent_s)
@@ -439,14 +439,14 @@ def _suspicious_activity_by_agent(
 
 
 def _build_egress_anomaly_candidates(db: Session, now: datetime) -> List[Dict[str, Any]]:
-    baseline_s = max(1800, int(settings.NETWATCH_HEUR_EGRESS_BASELINE_SECONDS or 21600))
-    recent_s = max(120, int(settings.NETWATCH_HEUR_EGRESS_WINDOW_SECONDS or 900))
-    min_events = max(3, int(settings.NETWATCH_HEUR_EGRESS_MIN_EVENTS or 5))
-    min_recent_bytes = max(256 * 1024, int(settings.NETWATCH_HEUR_EGRESS_MIN_BYTES or 2 * 1024 * 1024))
-    spike_factor = max(1.0, float(settings.NETWATCH_HEUR_EGRESS_SPIKE_FACTOR or 2.5))
-    rare_baseline_events = max(1, int(settings.NETWATCH_HEUR_EGRESS_RARE_BASELINE_EVENTS or 3))
-    correlation_s = max(120, int(settings.NETWATCH_HEUR_EGRESS_CORRELATION_SECONDS or 900))
-    max_rows = max(1000, int(settings.NETWATCH_HEUR_MAX_ROWS or 50000))
+    baseline_s = max(1800, int(settings.SEAGULL_HEUR_EGRESS_BASELINE_SECONDS or 21600))
+    recent_s = max(120, int(settings.SEAGULL_HEUR_EGRESS_WINDOW_SECONDS or 900))
+    min_events = max(3, int(settings.SEAGULL_HEUR_EGRESS_MIN_EVENTS or 5))
+    min_recent_bytes = max(256 * 1024, int(settings.SEAGULL_HEUR_EGRESS_MIN_BYTES or 2 * 1024 * 1024))
+    spike_factor = max(1.0, float(settings.SEAGULL_HEUR_EGRESS_SPIKE_FACTOR or 2.5))
+    rare_baseline_events = max(1, int(settings.SEAGULL_HEUR_EGRESS_RARE_BASELINE_EVENTS or 3))
+    correlation_s = max(120, int(settings.SEAGULL_HEUR_EGRESS_CORRELATION_SECONDS or 900))
+    max_rows = max(1000, int(settings.SEAGULL_HEUR_MAX_ROWS or 50000))
 
     since = now - timedelta(seconds=baseline_s)
     recent_since = now - timedelta(seconds=recent_s)
@@ -587,9 +587,9 @@ def _build_egress_anomaly_candidates(db: Session, now: datetime) -> List[Dict[st
 def _emit_heuristic_signals(db: Session, now: datetime) -> Tuple[List[NetEventModel], List[AlertModel]]:
     derived_events: List[NetEventModel] = []
     derived_alerts: List[AlertModel] = []
-    beacon_cd = max(120, int(settings.NETWATCH_HEUR_BEACON_COOLDOWN_SECONDS or 900))
-    exfil_cd = max(120, int(settings.NETWATCH_HEUR_EXFIL_COOLDOWN_SECONDS or 1200))
-    egress_cd = max(120, int(settings.NETWATCH_HEUR_EGRESS_COOLDOWN_SECONDS or 1200))
+    beacon_cd = max(120, int(settings.SEAGULL_HEUR_BEACON_COOLDOWN_SECONDS or 900))
+    exfil_cd = max(120, int(settings.SEAGULL_HEUR_EXFIL_COOLDOWN_SECONDS or 1200))
+    egress_cd = max(120, int(settings.SEAGULL_HEUR_EGRESS_COOLDOWN_SECONDS or 1200))
 
     for cand in _build_beacon_candidates(db, now):
         fp = f"beacon:{cand['agent_id']}:{cand['dst_ip']}:{cand.get('dst_port') or 0}:{cand['proto']}:{cand.get('host') or '-'}"
@@ -1732,7 +1732,7 @@ def _load_agent_context(db: Session) -> Dict[str, Dict[str, Any]]:
             str(meta.get("host_role") or meta.get("role") or meta.get("agent_role") or "").strip().lower()
         )
         agent_env = (
-            str(meta.get("environment") or meta.get("env") or meta.get("deployment_env") or settings.NETWATCH_ENV or "")
+            str(meta.get("environment") or meta.get("env") or meta.get("deployment_env") or settings.SEAGULL_ENV or "")
             .strip()
             .lower()
         )
@@ -1786,7 +1786,7 @@ def _build_rule_context(
         out["environment"] = meta.get("agent_environment")
         out["agent_tags"] = meta.get("agent_tags") or []
     else:
-        out["environment"] = str(settings.NETWATCH_ENV or "").strip().lower()
+        out["environment"] = str(settings.SEAGULL_ENV or "").strip().lower()
 
     return out
 

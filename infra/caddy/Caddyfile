@@ -2,7 +2,7 @@
 	admin off
 }
 
-{$NETWATCH_CADDY_DOMAIN} {
+{$SEAGULL_CADDY_DOMAIN} {
 	encode zstd gzip
 
 	header {
@@ -17,7 +17,7 @@
 
 	@portal_sse path /api/realtime/portal
 	handle @portal_sse {
-		reverse_proxy netwatch-backend:8000 {
+		reverse_proxy seagull-backend:8000 {
 			flush_interval -1
 			header_down Cache-Control "no-cache, no-transform"
 			header_down X-Accel-Buffering "no"
@@ -26,21 +26,21 @@
 
 	@portal_ws path /api/realtime/portal/ws
 	handle @portal_ws {
-		reverse_proxy netwatch-backend:8000
+		reverse_proxy seagull-backend:8000
 	}
 
 	handle_path /api/* {
-		reverse_proxy netwatch-backend:8000 {
+		reverse_proxy seagull-backend:8000 {
 			# Keep portal auth cookies scoped to the proxied /api/auth path.
 			header_down Set-Cookie "(?i)Path=/auth(;|$)" "Path=/api/auth$1"
 		}
 	}
 
 	handle_path /agent/* {
-		reverse_proxy netwatch-backend:8000
+		reverse_proxy seagull-backend:8000
 	}
 
 	handle {
-		reverse_proxy netwatch-portal:8080
+		reverse_proxy seagull-portal:8080
 	}
 }
