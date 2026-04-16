@@ -198,7 +198,8 @@ def analyze_event(
         dst_port=dst_port,
         extra=extra,
     )
-    if guess and not patch.get("app_proto"):
+    weak_port_guess = str(reason).startswith("port_") and guess in {"http", "tls", "quic"}
+    if guess and not patch.get("app_proto") and not weak_port_guess:
         patch["app_proto"] = guess
         patch["app_proto_confidence"] = confidence
         patch["app_proto_conf_band"] = confidence_band(confidence)
@@ -211,15 +212,31 @@ def analyze_event(
         if (patch.get("app_proto") == "dns") or (dst_port == 53 or src_port == 53):
             dns = parse_dns_message(payload)
             patch.update(dns)
+            if dns and dns.get("dns_qname") and not patch.get("app_proto"):
+                patch["app_proto"] = "dns"
+                patch["app_proto_confidence"] = 98
+                patch["app_proto_conf_band"] = confidence_band(98)
+                patch["app_proto_reason"] = "parsed_dns"
 
         if (patch.get("app_proto") == "http") or (dst_port in (80, 8080, 8000, 8888) or src_port in (80, 8080, 8000, 8888)):
             http = parse_http_message(payload)
             patch.update(http)
+            if http and any(http.get(k) for k in ("http_method", "http_host", "http_status")):
+                patch["app_proto"] = "http"
+                patch["app_proto_confidence"] = 98
+                patch["app_proto_conf_band"] = confidence_band(98)
+                patch["app_proto_reason"] = "parsed_http"
 
         # TLS over TCP, DTLS, and QUIC (QUIC requires external extraction; we only consume TLS ClientHello bytes).
         if patch.get("app_proto") in ("tls", "quic", "dtls") or (dst_port in (443, 8443, 9443) or src_port in (443, 8443, 9443)):
             tls = parse_tls_client_hello(payload, extra=extra)
             patch.update(tls)
+            if tls and any(tls.get(k) for k in ("tls_sni", "tls_alpn_first", "ja3", "ja4", "tls_version")):
+                if patch.get("app_proto") not in {"quic", "dtls"}:
+                    patch["app_proto"] = "tls"
+                patch["app_proto_confidence"] = 98
+                patch["app_proto_conf_band"] = confidence_band(98)
+                patch["app_proto_reason"] = "parsed_tls"
 
     # Marker to make the worker idempotent.
     if patch:
