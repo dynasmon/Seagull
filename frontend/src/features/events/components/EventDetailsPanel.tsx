@@ -5,6 +5,7 @@ import type { NetEvent } from "../types";
 import { fmtDateTime } from "../lib/aggregates";
 import { extractDdosFields, ddosLabel, fmtHumanRate, isDdosEvent } from "../lib/ddos";
 import { normalizeDetails, safeNumber } from "../lib/normalize";
+import { formatProtocolLabel, getEventProtocolIntel } from "../lib/protocol";
 
 function Kv({ k, v }: { k: string; v: any }) {
   const val = v === undefined || v === null || v === "" ? "-" : String(v);
@@ -30,12 +31,8 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
   const isProcExec = event.event_type === "proc_exec";
   const isFim = ["fim_change", "persistence_systemd", "persistence_cron", "ssh_key_change"].includes(event.event_type);
   const isHeuristic = ["beacon_suspect", "exfil_suspect", "c2_suspect", "egress_anomaly"].includes(event.event_type);
-  const isL7 = event.event_type === "l7_flow";
+  const protocol = getEventProtocolIntel(event);
 
-  const l7 = extra.l7 && typeof extra.l7 === "object" ? extra.l7 : {};
-  const l7Dns = l7.dns && typeof l7.dns === "object" ? l7.dns : {};
-  const l7Http = l7.http && typeof l7.http === "object" ? l7.http : {};
-  const l7Tls = l7.tls && typeof l7.tls === "object" ? l7.tls : {};
   const reasons = Array.isArray(extra.reasons) ? extra.reasons.map((x) => String(x)).filter(Boolean).join("; ") : "";
   const procPatterns = Array.isArray(extra.exec_patterns) ? extra.exec_patterns.map((x) => String(x)).filter(Boolean).join(", ") : "";
 
@@ -49,7 +46,15 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
               <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{event.event_type}</div>
               <div className="mt-1 text-sm">
                 <span className="font-mono">{src}</span> → <span className="font-mono">{dst}</span>
-                {event.proto ? <span className="text-muted-foreground"> ({event.proto})</span> : null}
+                {protocol.appProto ? (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    ({formatProtocolLabel(protocol.appProto)}
+                    {protocol.transportProto ? ` over ${formatProtocolLabel(protocol.transportProto)}` : ""})
+                  </span>
+                ) : protocol.transportProto ? (
+                  <span className="text-muted-foreground"> ({formatProtocolLabel(protocol.transportProto)})</span>
+                ) : null}
               </div>
               <div className="mt-2 text-[11px] text-muted-foreground font-mono">
                 ts={fmtDateTime(new Date(event.timestamp))} · agent={event.agent_id} · schema={event.schema_version} · id={event.id}
@@ -149,27 +154,31 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
         </div>
       )}
 
-      {isL7 && (
+      {protocol.hasProtocolIntel && (
         <div className="space-y-2">
-          <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">L7 evidence</div>
+          <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Protocol intel</div>
           <div className="border border-border/60 bg-background/40 p-3 space-y-2">
-            <Kv k="l7_protocol" v={extra.l7_protocol || l7.protocol} />
-            <Kv k="flow_direction" v={extra.flow_direction} />
-            <Kv k="dns_qname" v={l7Dns.qname || extra.dns_qname} />
-            <Kv k="dns_qtype" v={l7Dns.qtype || extra.dns_qtype} />
-            <Kv k="dns_rcode" v={l7Dns.rcode || extra.dns_rcode} />
-            <Kv k="dns_answers" v={Array.isArray(l7Dns.answers) ? l7Dns.answers.join(", ") : extra.dns_answers} />
-            <Kv k="http_method" v={l7Http.method || extra.http_method} />
-            <Kv k="http_host" v={l7Http.host || extra.http_host} />
-            <Kv k="http_path" v={l7Http.path || extra.http_path} />
-            <Kv k="http_status" v={l7Http.status || extra.http_status} />
-            <Kv k="http_user_agent" v={l7Http.user_agent || extra.http_user_agent} />
-            <Kv k="tls_sni" v={l7Tls.sni || extra.tls_sni} />
-            <Kv k="tls_alpn_first" v={l7Tls.alpn || extra.tls_alpn_first} />
-            <Kv k="tls_version" v={l7Tls.version || l7Tls.record_version || extra.tls_version} />
-            <Kv k="ja3" v={extra.ja3} />
-            <Kv k="ja4" v={extra.ja4} />
-            <Kv k="ja4_ptype" v={extra.ja4_ptype} />
+            <Kv k="transport_proto" v={formatProtocolLabel(protocol.transportProto)} />
+            <Kv k="app_proto" v={formatProtocolLabel(protocol.appProto)} />
+            <Kv k="app_proto_reason" v={protocol.appProtoReason} />
+            <Kv k="app_proto_conf_band" v={protocol.appProtoConfBand} />
+            <Kv k="l7_protocol" v={formatProtocolLabel(protocol.l7Protocol)} />
+            <Kv k="flow_direction" v={protocol.flowDirection} />
+            <Kv k="dns_qname" v={protocol.dnsQname} />
+            <Kv k="dns_qtype" v={protocol.dnsQtype} />
+            <Kv k="dns_rcode" v={protocol.dnsRcode} />
+            <Kv k="dns_answers" v={protocol.dnsAnswers} />
+            <Kv k="http_method" v={protocol.httpMethod} />
+            <Kv k="http_host" v={protocol.httpHost} />
+            <Kv k="http_path" v={protocol.httpPath} />
+            <Kv k="http_status" v={protocol.httpStatus} />
+            <Kv k="http_user_agent" v={protocol.httpUserAgent} />
+            <Kv k="tls_sni" v={protocol.tlsSni} />
+            <Kv k="tls_alpn_first" v={protocol.tlsAlpnFirst} />
+            <Kv k="tls_version" v={protocol.tlsVersion} />
+            <Kv k="ja3" v={protocol.ja3} />
+            <Kv k="ja4" v={protocol.ja4} />
+            <Kv k="ja4_ptype" v={protocol.ja4Ptype} />
           </div>
         </div>
       )}
