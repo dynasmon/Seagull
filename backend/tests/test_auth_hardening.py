@@ -91,15 +91,15 @@ def db_factory(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture(autouse=True)
 def auth_settings(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(settings, "NETWATCH_JWT_SECRET", "s" * 48)
-    monkeypatch.setattr(settings, "NETWATCH_JWT_ISSUER", "netwatch-backend")
-    monkeypatch.setattr(settings, "NETWATCH_JWT_AUDIENCE", "netwatch-portal")
-    monkeypatch.setattr(settings, "NETWATCH_ACCESS_TOKEN_TTL_SECONDS", 600)
-    monkeypatch.setattr(settings, "NETWATCH_REFRESH_TOKEN_TTL_SECONDS", 3600)
-    monkeypatch.setattr(settings, "NETWATCH_COOKIE_SECURE", False)
-    monkeypatch.setattr(settings, "NETWATCH_COOKIE_SAMESITE", "lax")
-    monkeypatch.setattr(settings, "NETWATCH_COOKIE_DOMAIN", None)
-    monkeypatch.setattr(settings, "NETWATCH_AUTH_OTP_ENABLED", False)
+    monkeypatch.setattr(settings, "SEAGULL_JWT_SECRET", "s" * 48)
+    monkeypatch.setattr(settings, "SEAGULL_JWT_ISSUER", "seagull-backend")
+    monkeypatch.setattr(settings, "SEAGULL_JWT_AUDIENCE", "seagull-portal")
+    monkeypatch.setattr(settings, "SEAGULL_ACCESS_TOKEN_TTL_SECONDS", 600)
+    monkeypatch.setattr(settings, "SEAGULL_REFRESH_TOKEN_TTL_SECONDS", 3600)
+    monkeypatch.setattr(settings, "SEAGULL_COOKIE_SECURE", False)
+    monkeypatch.setattr(settings, "SEAGULL_COOKIE_SAMESITE", "lax")
+    monkeypatch.setattr(settings, "SEAGULL_COOKIE_DOMAIN", None)
+    monkeypatch.setattr(settings, "SEAGULL_AUTH_OTP_ENABLED", False)
 
 
 def _seed_user(Session, *, username: str, password: str) -> PortalUserModel:
@@ -131,8 +131,8 @@ def test_login_valid_credentials_and_strong_claims(db_factory, monkeypatch: pyte
     payload = decode_token(out["access_token"])
 
     assert out["user"]["id"] == user.id
-    assert payload["iss"] == "netwatch-backend"
-    assert payload["aud"] == "netwatch-portal"
+    assert payload["iss"] == "seagull-backend"
+    assert payload["aud"] == "seagull-portal"
     assert payload["typ"] == "access"
     assert "jti" in payload
     assert "iat" in payload
@@ -298,10 +298,10 @@ def test_password_policy_applied_across_flows(db_factory, monkeypatch: pytest.Mo
         )
     assert change_exc.value.status_code == 400
 
-    monkeypatch.setattr(settings, "NETWATCH_BOOTSTRAP_ADMIN_USERNAME", "admin")
-    monkeypatch.setattr(settings, "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD", weak)
-    monkeypatch.setattr(settings, "NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START", False)
-    monkeypatch.setattr(settings, "NETWATCH_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START", False)
+    monkeypatch.setattr(settings, "SEAGULL_BOOTSTRAP_ADMIN_USERNAME", "admin")
+    monkeypatch.setattr(settings, "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD", weak)
+    monkeypatch.setattr(settings, "SEAGULL_BOOTSTRAP_ADMIN_SYNC_ON_START", False)
+    monkeypatch.setattr(settings, "SEAGULL_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START", False)
     # Empty DB for bootstrap policy check.
     Session = db_factory
     db = Session()

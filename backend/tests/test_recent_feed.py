@@ -116,9 +116,9 @@ def test_recent_feed_push_fetch_and_health(monkeypatch) -> None:
 def test_recent_feed_push_is_capped_per_call(monkeypatch) -> None:
     fake = _FakeRedis()
     monkeypatch.setattr(recent_feed, "get_redis", lambda: fake)
-    monkeypatch.setattr(recent_feed.settings, "NETWATCH_INGEST_RECENT_FEED_MAX_PUSH_PER_CALL", 100, raising=False)
-    monkeypatch.setattr(recent_feed.settings, "NETWATCH_INGEST_RECENT_FEED_MAX_EVENTS", 5000, raising=False)
-    monkeypatch.setattr(recent_feed.settings, "NETWATCH_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS", 2000, raising=False)
+    monkeypatch.setattr(recent_feed.settings, "SEAGULL_INGEST_RECENT_FEED_MAX_PUSH_PER_CALL", 100, raising=False)
+    monkeypatch.setattr(recent_feed.settings, "SEAGULL_INGEST_RECENT_FEED_MAX_EVENTS", 5000, raising=False)
+    monkeypatch.setattr(recent_feed.settings, "SEAGULL_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS", 2000, raising=False)
 
     now = datetime.now(timezone.utc)
     rows = []
@@ -137,7 +137,7 @@ def test_recent_feed_push_is_capped_per_call(monkeypatch) -> None:
     pushed = recent_feed.push_recent_events(rows)
     assert pushed == 100
 
-    global_key = "netwatch:recent_feed:v1:global"
-    agent_key = "netwatch:recent_feed:v1:agent:agent-load"
+    global_key = "seagull:recent_feed:v1:global"
+    agent_key = "seagull:recent_feed:v1:agent:agent-load"
     assert len(fake.lists.get(global_key, [])) == 100
     assert len(fake.lists.get(agent_key, [])) == 100

@@ -8,25 +8,25 @@ COMPOSE_PROD := $(COMPOSE_BASE) -f compose.prod.yml
 
 ENV_FILE := .env
 ENV_EXAMPLE := .env.example
-PROD_CORE_SERVICES := postgres redis elasticsearch clickhouse netwatch-backend netwatch-ingest-pipeline netwatch-intelligence-worker netwatch-maintenance-worker netwatch-portal caddy
-PROD_AGENT_SERVICES := netwatch-agent-core netwatch-agent-sensor
+PROD_CORE_SERVICES := postgres redis elasticsearch clickhouse seagull-backend seagull-ingest-pipeline seagull-intelligence-worker seagull-maintenance-worker seagull-portal caddy
+PROD_AGENT_SERVICES := seagull-agent-core seagull-agent-sensor
 SYSTEMD_AGENT ?= 0
 DEV_REDIS_PERSIST ?= 0
 SYSTEMD_AGENT_ENABLED := $(filter 1 true TRUE yes YES y Y,$(SYSTEMD_AGENT))
 DEV_REDIS_PERSIST_ENABLED := $(filter 1 true TRUE yes YES y Y,$(DEV_REDIS_PERSIST))
 DEV_DOCKER_AGENT_SCALE_ARGS :=
-DEV_DOCKER_AGENT_SERVICES := netwatch-agent-core netwatch-agent-sensor
+DEV_DOCKER_AGENT_SERVICES := seagull-agent-core seagull-agent-sensor
 DEV_COMPOSE_FILES := $(COMPOSE_DEV)
 DEV_TLS_COMPOSE_FILES := $(COMPOSE_DEV_TLS)
 DEV_REDIS_ENV :=
 
 ifneq ($(SYSTEMD_AGENT_ENABLED),)
-DEV_DOCKER_AGENT_SCALE_ARGS := --scale netwatch-agent-core=0 --scale netwatch-agent-sensor=0
+DEV_DOCKER_AGENT_SCALE_ARGS := --scale seagull-agent-core=0 --scale seagull-agent-sensor=0
 DEV_DOCKER_AGENT_SERVICES :=
 endif
 
 ifneq ($(DEV_REDIS_PERSIST_ENABLED),)
-DEV_REDIS_ENV := NETWATCH_REDIS_DEV_CONFIG=redis.dev.persist.conf NETWATCH_REDIS_STOP_GRACE_PERIOD=30s
+DEV_REDIS_ENV := SEAGULL_REDIS_DEV_CONFIG=redis.dev.persist.conf SEAGULL_REDIS_STOP_GRACE_PERIOD=30s
 endif
 
 PYTHON ?= python3
@@ -55,8 +55,8 @@ help:
 	@echo "  make redis-repair-aof - back up and repair persistent Redis AOF state"
 	@echo "  make down          - stop stack (dev profile by default)"
 	@echo "  make restart-quick - recreate development containers without rebuild"
-	@echo "  make systemd-agent-install - install/update the host systemd netwatch-agent deployment"
-	@echo "  make systemd-agent-restart - restart only host systemd netwatch-agent service"
+	@echo "  make systemd-agent-install - install/update the host systemd seagull-agent deployment"
+	@echo "  make systemd-agent-restart - restart only host systemd seagull-agent service"
 	@echo "  make ps            - list services (dev profile by default)"
 	@echo "  make logs          - follow logs (set SVC=service)"
 	@echo "  make build-dev     - build dev images"
@@ -87,10 +87,10 @@ agent-tokens-bootstrap:
 	@./scripts/mint_agent_bootstrap_tokens.sh
 
 prod-agent-tokens-bootstrap:
-	@NETWATCH_MINT_TOKENS_OUTPUT_DIR=./secrets/bootstrap ./scripts/mint_agent_bootstrap_tokens.sh
+	@SEAGULL_MINT_TOKENS_OUTPUT_DIR=./secrets/bootstrap ./scripts/mint_agent_bootstrap_tokens.sh
 
 admin-reset: bootstrap bootstrap-tools
-	$(DC) $(COMPOSE_PROD) run --rm --build -T netwatch-backend python -m app.cli admin-reset
+	$(DC) $(COMPOSE_PROD) run --rm --build -T seagull-backend python -m app.cli admin-reset
 
 env-init: bootstrap
 	@./scripts/env_wizard.sh
@@ -164,10 +164,10 @@ up-extra: dev-preflight
 	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) --profile extra up -d --build --force-recreate --remove-orphans $(DEV_DOCKER_AGENT_SCALE_ARGS)
 ifneq ($(SYSTEMD_AGENT_ENABLED),)
 	@echo "[up-extra] SYSTEMD_AGENT=$(SYSTEMD_AGENT) -> skipping docker agent bootstrap/recreate for core/sensor"
-	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) --profile extra up -d --force-recreate --remove-orphans netwatch-agent-lateral
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) --profile extra up -d --force-recreate --remove-orphans seagull-agent-lateral
 else
 	@$(MAKE) agent-tokens-bootstrap
-	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) --profile extra up -d --force-recreate --remove-orphans netwatch-agent-core netwatch-agent-sensor netwatch-agent-lateral
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) --profile extra up -d --force-recreate --remove-orphans seagull-agent-core seagull-agent-sensor seagull-agent-lateral
 endif
 
 up-observability: dev-preflight
@@ -193,8 +193,8 @@ systemd-agent-install:
 	sudo env AUTO_START_IF_READY=1 bash deploy/systemd/install-agent.sh
 
 systemd-agent-restart:
-	sudo systemctl restart netwatch-agent
-	sudo systemctl status netwatch-agent --no-pager
+	sudo systemctl restart seagull-agent
+	sudo systemctl status seagull-agent --no-pager
 
 ps:
 	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) ps
@@ -227,10 +227,10 @@ psql:
 	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) exec postgres psql -U $$POSTGRES_USER -d $$POSTGRES_DB
 
 db-upgrade:
-	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) run --rm --build netwatch-backend python -m alembic upgrade head
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) run --rm --build seagull-backend python -m alembic upgrade head
 
 db-current:
-	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) run --rm --build netwatch-backend python -m alembic current
+	$(DEV_REDIS_ENV) $(DC) $(DEV_COMPOSE_FILES) run --rm --build seagull-backend python -m alembic current
 
 lint:
 	cd backend && $(PYTHON) -m ruff check app tests

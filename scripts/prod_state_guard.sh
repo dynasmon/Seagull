@@ -28,12 +28,12 @@ keys = [
     "POSTGRES_DB",
     "POSTGRES_USER",
     "POSTGRES_PASSWORD",
-    "NETWATCH_REDIS_PASSWORD",
-    "NETWATCH_ES_USERNAME",
-    "NETWATCH_ES_PASSWORD",
-    "NETWATCH_JWT_SECRET",
-    "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD",
-    "NETWATCH_AUDIT_HASH_PEPPER",
+    "SEAGULL_REDIS_PASSWORD",
+    "SEAGULL_ES_USERNAME",
+    "SEAGULL_ES_PASSWORD",
+    "SEAGULL_JWT_SECRET",
+    "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD",
+    "SEAGULL_AUDIT_HASH_PEPPER",
     "AGENT_CORE_ID",
     "AGENT_SENSOR_ID",
     "AGENT_LATERAL_ID",
@@ -56,9 +56,9 @@ payload = {
     "project_name": project_name,
     "keys": {key: values.get(key, "") for key in keys},
     "file_keys": {
-        "NETWATCH_REDIS_PASSWORD_FILE": {
-            "path": values.get("NETWATCH_REDIS_PASSWORD_FILE", ""),
-            "sha256": file_sha(values.get("NETWATCH_REDIS_PASSWORD_FILE", "")),
+        "SEAGULL_REDIS_PASSWORD_FILE": {
+            "path": values.get("SEAGULL_REDIS_PASSWORD_FILE", ""),
+            "sha256": file_sha(values.get("SEAGULL_REDIS_PASSWORD_FILE", "")),
         },
     },
 }

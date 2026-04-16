@@ -13,7 +13,7 @@ describe("shell navigation metadata", () => {
 
   it("falls back to default metadata for unknown routes", () => {
     const meta = resolveRouteMeta("/does-not-exist");
-    expect(meta.title).toBe("NetWatch");
+    expect(meta.title).toBe("Seagull");
   });
 
   it("keeps governance and assets nav groups available in shell", () => {

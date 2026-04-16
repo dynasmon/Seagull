@@ -30,11 +30,11 @@ resolve_secret() {
   printf '%s' "$value"
 }
 
-CONFIG_FILE="${NETWATCH_REDIS_CONFIG_FILE:-}"
-STRICT_PASSWORD="${NETWATCH_REDIS_STRICT_PASSWORD:-false}"
+CONFIG_FILE="${SEAGULL_REDIS_CONFIG_FILE:-}"
+STRICT_PASSWORD="${SEAGULL_REDIS_STRICT_PASSWORD:-false}"
 
 if [ -z "$CONFIG_FILE" ]; then
-  echo "[redis-start] NETWATCH_REDIS_CONFIG_FILE is required" >&2
+  echo "[redis-start] SEAGULL_REDIS_CONFIG_FILE is required" >&2
   exit 1
 fi
 
@@ -45,7 +45,7 @@ fi
 
 mkdir -p /data /tmp/redis
 
-REDIS_PASSWORD="$(resolve_secret NETWATCH_REDIS_PASSWORD NETWATCH_REDIS_PASSWORD_FILE "$STRICT_PASSWORD")"
+REDIS_PASSWORD="$(resolve_secret SEAGULL_REDIS_PASSWORD SEAGULL_REDIS_PASSWORD_FILE "$STRICT_PASSWORD")"
 
 set -- redis-server "$CONFIG_FILE"
 if [ -n "$REDIS_PASSWORD" ]; then

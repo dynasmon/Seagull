@@ -17,7 +17,7 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://netwatch-backend:8000',
+        target: 'http://seagull-backend:8000',
         changeOrigin: true,
         cookiePathRewrite: {
           "/auth": "/api/auth",

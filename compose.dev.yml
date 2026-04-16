@@ -1,24 +1,24 @@
 services:
   redis:
     environment:
-      NETWATCH_REDIS_CONFIG_FILE: /etc/netwatch/redis/${NETWATCH_REDIS_DEV_CONFIG:-redis.dev.conf}
-      NETWATCH_REDIS_STRICT_PASSWORD: "false"
-    stop_grace_period: ${NETWATCH_REDIS_STOP_GRACE_PERIOD:-10s}
+      SEAGULL_REDIS_CONFIG_FILE: /etc/seagull/redis/${SEAGULL_REDIS_DEV_CONFIG:-${NETWATCH_REDIS_DEV_CONFIG:-redis.dev.conf}}
+      SEAGULL_REDIS_STRICT_PASSWORD: "false"
+    stop_grace_period: ${SEAGULL_REDIS_STOP_GRACE_PERIOD:-${NETWATCH_REDIS_STOP_GRACE_PERIOD:-10s}}
 
   caddy:
     image: caddy:2.10-alpine
     depends_on:
-      netwatch-portal:
+      seagull-portal:
         condition: service_healthy
-      netwatch-backend:
+      seagull-backend:
         condition: service_healthy
     ports:
-      - "${NETWATCH_EDGE_HTTP_PORT:-8081}:8081"
-      - "${NETWATCH_EDGE_HTTPS_PORT:-8443}:8443"
+      - "${SEAGULL_EDGE_HTTP_PORT:-${NETWATCH_EDGE_HTTP_PORT:-8081}}:8081"
+      - "${SEAGULL_EDGE_HTTPS_PORT:-${NETWATCH_EDGE_HTTPS_PORT:-8443}}:8443"
     volumes:
       - ./infra/caddy/Caddyfile.dev:/etc/caddy/Caddyfile:ro
-      - ${NETWATCH_TLS_CERT_FILE:-./secrets/tls/tls.crt}:/etc/netwatch/tls/tls.crt:ro
-      - ${NETWATCH_TLS_KEY_FILE:-./secrets/tls/tls.key}:/etc/netwatch/tls/tls.key:ro
+      - ${SEAGULL_TLS_CERT_FILE:-${NETWATCH_TLS_CERT_FILE:-./secrets/tls/tls.crt}}:/etc/seagull/tls/tls.crt:ro
+      - ${SEAGULL_TLS_KEY_FILE:-${NETWATCH_TLS_KEY_FILE:-./secrets/tls/tls.key}}:/etc/seagull/tls/tls.key:ro
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -28,7 +28,7 @@ services:
     mem_limit: 128m
     cpus: "0.25"
     networks:
-      - netwatch
+      - seagull
     healthcheck:
       test:
         [
@@ -41,20 +41,20 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  netwatch-backend:
+  seagull-backend:
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "true"
-      NETWATCH_SEARCH_BACKEND: auto
-      NETWATCH_CLICKHOUSE_REQUIRED: "false"
-      NETWATCH_RULES_ENV: dev
-      NETWATCH_RULES_ENABLED_PACKS: ${NETWATCH_RULES_ENABLED_PACKS:-core,network,lab}
-      NETWATCH_RULES_INCLUDE_EXPERIMENTAL: ${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-true}
+      SEAGULL_ENV: dev
+      SEAGULL_DB_AUTO_UPGRADE: "true"
+      SEAGULL_SEARCH_BACKEND: auto
+      SEAGULL_CLICKHOUSE_REQUIRED: "false"
+      SEAGULL_RULES_ENV: dev
+      SEAGULL_RULES_ENABLED_PACKS: ${SEAGULL_RULES_ENABLED_PACKS:-${NETWATCH_RULES_ENABLED_PACKS:-core,network,lab}}
+      SEAGULL_RULES_INCLUDE_EXPERIMENTAL: ${SEAGULL_RULES_INCLUDE_EXPERIMENTAL:-${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-true}}
     healthcheck:
       test:
         [
@@ -66,38 +66,38 @@ services:
       retries: 20
       start_period: 25s
 
-  netwatch-ingest-pipeline:
+  seagull-ingest-pipeline:
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "true"
-      NETWATCH_CLICKHOUSE_REQUIRED: "false"
+      SEAGULL_ENV: dev
+      SEAGULL_DB_AUTO_UPGRADE: "true"
+      SEAGULL_CLICKHOUSE_REQUIRED: "false"
 
-  netwatch-intelligence-worker:
+  seagull-intelligence-worker:
     environment:
-      NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "true"
-      NETWATCH_RULES_ENV: dev
-      NETWATCH_RULES_ENABLED_PACKS: ${NETWATCH_RULES_ENABLED_PACKS:-core,network,lab}
-      NETWATCH_RULES_INCLUDE_EXPERIMENTAL: ${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-true}
+      SEAGULL_ENV: dev
+      SEAGULL_DB_AUTO_UPGRADE: "true"
+      SEAGULL_RULES_ENV: dev
+      SEAGULL_RULES_ENABLED_PACKS: ${SEAGULL_RULES_ENABLED_PACKS:-${NETWATCH_RULES_ENABLED_PACKS:-core,network,lab}}
+      SEAGULL_RULES_INCLUDE_EXPERIMENTAL: ${SEAGULL_RULES_INCLUDE_EXPERIMENTAL:-${NETWATCH_RULES_INCLUDE_EXPERIMENTAL:-true}}
 
-  netwatch-maintenance-worker:
+  seagull-maintenance-worker:
     environment:
-      NETWATCH_ENV: dev
-      NETWATCH_DB_AUTO_UPGRADE: "true"
+      SEAGULL_ENV: dev
+      SEAGULL_DB_AUTO_UPGRADE: "true"
 
-  netwatch-portal:
+  seagull-portal:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
     ports:
-      - "${NETWATCH_PORTAL_PORT:-8080}:5173"
+      - "${SEAGULL_PORTAL_PORT:-${NETWATCH_PORTAL_PORT:-8080}}:5173"
     environment:
-      NETWATCH_API_BASE: http://netwatch-backend:8000
+      SEAGULL_API_BASE: http://seagull-backend:8000
       CHOKIDAR_USEPOLLING: "true"
     volumes:
       - ./frontend/src:/app/src
@@ -116,30 +116,30 @@ services:
       retries: 20
       start_period: 20s
 
-  netwatch-agent-core:
+  seagull-agent-core:
     environment:
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/server-ca.crt
+      SEAGULL_TLS_CA_FILE: /etc/seagull/server-ca.crt
 
-  netwatch-agent-sensor:
+  seagull-agent-sensor:
     environment:
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/server-ca.crt
+      SEAGULL_TLS_CA_FILE: /etc/seagull/server-ca.crt
 
-  netwatch-agent-lateral:
+  seagull-agent-lateral:
     environment:
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/server-ca.crt
+      SEAGULL_TLS_CA_FILE: /etc/seagull/server-ca.crt
 
-  netwatch-agent-proc:
+  seagull-agent-proc:
     environment:
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/server-ca.crt
+      SEAGULL_TLS_CA_FILE: /etc/seagull/server-ca.crt
 
-  netwatch-agent-scan:
+  seagull-agent-scan:
     environment:
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/server-ca.crt
+      SEAGULL_TLS_CA_FILE: /etc/seagull/server-ca.crt
 
-  netwatch-agent-ddos:
+  seagull-agent-ddos:
     environment:
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/server-ca.crt
+      SEAGULL_TLS_CA_FILE: /etc/seagull/server-ca.crt
 
-  netwatch-agent-vuln:
+  seagull-agent-vuln:
     environment:
-      NETWATCH_TLS_CA_FILE: /etc/netwatch/server-ca.crt
+      SEAGULL_TLS_CA_FILE: /etc/seagull/server-ca.crt

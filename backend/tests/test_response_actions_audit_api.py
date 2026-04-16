@@ -5,8 +5,8 @@ from datetime import datetime
 
 from fastapi.testclient import TestClient
 
-os.environ.setdefault("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "true")
-os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
+os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
+os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.core.portal_auth import PortalPrincipal, require_admin
 from app.features.response import api as response_api

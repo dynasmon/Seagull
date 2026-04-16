@@ -3,7 +3,7 @@
 }
 
 :8443 {
-	tls /etc/netwatch/tls/tls.crt /etc/netwatch/tls/tls.key
+	tls /etc/seagull/tls/tls.crt /etc/seagull/tls/tls.key
 	encode zstd gzip
 
 	header {
@@ -19,7 +19,7 @@
 
 	@portal_sse path /api/realtime/portal
 	handle @portal_sse {
-		reverse_proxy netwatch-backend:8000 {
+		reverse_proxy seagull-backend:8000 {
 			flush_interval -1
 			header_down Cache-Control "no-cache, no-transform"
 			header_down X-Accel-Buffering "no"
@@ -28,20 +28,20 @@
 
 	@portal_ws path /api/realtime/portal/ws
 	handle @portal_ws {
-		reverse_proxy netwatch-backend:8000
+		reverse_proxy seagull-backend:8000
 	}
 
 	handle_path /api/* {
-		reverse_proxy netwatch-backend:8000 {
+		reverse_proxy seagull-backend:8000 {
 			header_down Set-Cookie "(?i)Path=/auth(;|$)" "Path=/api/auth$1"
 		}
 	}
 
 	handle_path /agent/* {
-		reverse_proxy netwatch-backend:8000
+		reverse_proxy seagull-backend:8000
 	}
 
 	handle {
-		reverse_proxy netwatch-portal:5173
+		reverse_proxy seagull-portal:5173
 	}
 }

@@ -9,11 +9,11 @@ from app.features.alerts.rule_runtime import run_all_rules
 
 
 setup_logging("worker-rules")
-logger = logging.getLogger("netwatch.worker.rules")
+logger = logging.getLogger("seagull.worker.rules")
 
 
 def _get_interval_seconds() -> float:
-    v = float(settings.NETWATCH_RULES_EVERY_SECONDS or 5.0)
+    v = float(settings.SEAGULL_RULES_EVERY_SECONDS or 5.0)
     if v < 0.25:
         return 0.25
     return v

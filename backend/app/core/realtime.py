@@ -8,9 +8,10 @@ from typing import Any
 
 from app.core.observability import incr_counter, log_event
 from app.core.redis_client import get_redis
+from app.core.env_secrets import getenv_compat
 
 
-logger = logging.getLogger("netwatch.api.realtime")
+logger = logging.getLogger("seagull.api.realtime")
 
 PORTAL_REALTIME_TOPICS = (
     "overview",
@@ -23,8 +24,8 @@ PORTAL_REALTIME_TOPICS = (
     "inventory",
     "vulnerabilities",
 )
-PORTAL_REALTIME_STREAM_KEY = "netwatch:portal:realtime:v3:stream"
-PORTAL_REALTIME_CURSOR_KEY = "netwatch:portal:realtime:v3:cursor"
+PORTAL_REALTIME_STREAM_KEY = "seagull:portal:realtime:v3:stream"
+PORTAL_REALTIME_CURSOR_KEY = "seagull:portal:realtime:v3:cursor"
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,7 @@ class PortalRealtimeReplayWindow:
 
 
 def _replay_max_events() -> int:
-    raw = str(os.getenv("NETWATCH_REALTIME_REPLAY_MAX_EVENTS", "512") or "512").strip()
+    raw = str(getenv_compat("SEAGULL_REALTIME_REPLAY_MAX_EVENTS", "512") or "512").strip()
     try:
         parsed = int(raw, 10)
     except Exception:

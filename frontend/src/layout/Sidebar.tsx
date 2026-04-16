@@ -209,7 +209,7 @@ export default function Sidebar({
             </div>
             {!condensed ? (
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-foreground">NetWatch</div>
+                <div className="truncate text-sm font-semibold text-foreground">Seagull</div>
                 <div className="truncate text-[11px] text-muted-foreground">Security Operations</div>
               </div>
             ) : null}

@@ -106,7 +106,7 @@ secret_status() {
   fi
 
   case "$value" in
-    change_me*|CHANGE_ME*|changeme*|netwatch123|example*|password*|secret*)
+    change_me*|CHANGE_ME*|changeme*|seagull123|example*|password*|secret*)
       printf 'placeholder'
       return 0
       ;;
@@ -271,7 +271,7 @@ choose_secret() {
   esac
 }
 
-default_domain="$(env_read 'NETWATCH_AGENT_TLS_SERVER_NAME')"
+default_domain="$(env_read 'SEAGULL_AGENT_TLS_SERVER_NAME')"
 case "$default_domain" in
   ''|localhost|127.0.0.1)
     default_domain="$(python3 - "$ENV_FILE" <<'PY'
@@ -280,7 +280,7 @@ import sys
 
 value = ""
 for line in Path(sys.argv[1]).read_text().splitlines():
-    if line.startswith("NETWATCH_ALLOWED_HOSTS_PROD="):
+    if line.startswith("SEAGULL_ALLOWED_HOSTS_PROD="):
         value = line.split("=", 1)[1]
         break
 
@@ -296,50 +296,50 @@ esac
 [ -n "$default_domain" ] || default_domain=""
 
 tty_printf "\n"
-tty_println "NetWatch production environment wizard"
+tty_println "Seagull production environment wizard"
 tty_println "This updates critical values inside $ENV_FILE."
 tty_printf "\n"
 
 public_domain="$(prompt_line 'Primary public hostname for the portal/edge (no scheme, no port)' "$default_domain")"
 extra_hosts="$(prompt_optional_line 'Additional hostnames or IPs for Allowed Hosts / SANs (comma-separated, optional)' '')"
 
-admin_user_default="$(env_read 'NETWATCH_BOOTSTRAP_ADMIN_USERNAME')"
+admin_user_default="$(env_read 'SEAGULL_BOOTSTRAP_ADMIN_USERNAME')"
 [ -n "$admin_user_default" ] || admin_user_default="admin"
 admin_user="$(prompt_line 'Bootstrap admin username' "$admin_user_default")"
 
 postgres_password="$(choose_secret 'POSTGRES_PASSWORD' 12 24 'PostgreSQL password')"
-redis_password="$(choose_secret 'NETWATCH_REDIS_PASSWORD' 12 24 'Redis password')"
-es_password="$(choose_secret 'NETWATCH_ES_PASSWORD' 12 24 'Elasticsearch password')"
-jwt_secret="$(choose_secret 'NETWATCH_JWT_SECRET' 32 48 'JWT secret')"
-bootstrap_admin_password="$(choose_secret 'NETWATCH_BOOTSTRAP_ADMIN_PASSWORD' 12 24 'bootstrap admin password')"
+redis_password="$(choose_secret 'SEAGULL_REDIS_PASSWORD' 12 24 'Redis password')"
+es_password="$(choose_secret 'SEAGULL_ES_PASSWORD' 12 24 'Elasticsearch password')"
+jwt_secret="$(choose_secret 'SEAGULL_JWT_SECRET' 32 48 'JWT secret')"
+bootstrap_admin_password="$(choose_secret 'SEAGULL_BOOTSTRAP_ADMIN_PASSWORD' 12 24 'bootstrap admin password')"
 grafana_admin_password_default="$(env_read 'GF_SECURITY_ADMIN_PASSWORD')"
 grafana_admin_password="$(prompt_optional_line 'Grafana admin password (optional; used only with observability profile)' "$grafana_admin_password_default")"
 
 allowed_hosts="$(normalize_csv "$public_domain,$extra_hosts,localhost,127.0.0.1")"
 agent_tls_server_name="$public_domain"
 
-env_upsert 'NETWATCH_BOOTSTRAP_ADMIN_USERNAME' "$admin_user"
+env_upsert 'SEAGULL_BOOTSTRAP_ADMIN_USERNAME' "$admin_user"
 env_upsert 'POSTGRES_PASSWORD' "$postgres_password"
-env_upsert 'NETWATCH_REDIS_PASSWORD' "$redis_password"
-env_upsert 'NETWATCH_ES_PASSWORD' "$es_password"
-env_upsert 'NETWATCH_JWT_SECRET' "$jwt_secret"
-env_upsert 'NETWATCH_BOOTSTRAP_ADMIN_PASSWORD' "$bootstrap_admin_password"
+env_upsert 'SEAGULL_REDIS_PASSWORD' "$redis_password"
+env_upsert 'SEAGULL_ES_PASSWORD' "$es_password"
+env_upsert 'SEAGULL_JWT_SECRET' "$jwt_secret"
+env_upsert 'SEAGULL_BOOTSTRAP_ADMIN_PASSWORD' "$bootstrap_admin_password"
 env_upsert 'GF_SECURITY_ADMIN_PASSWORD' "$grafana_admin_password"
-env_upsert 'NETWATCH_ALLOWED_HOSTS_PROD' "$allowed_hosts"
-env_upsert 'NETWATCH_AGENT_TLS_SERVER_NAME' "$agent_tls_server_name"
-env_upsert 'NETWATCH_CADDY_DOMAIN' "$public_domain"
+env_upsert 'SEAGULL_ALLOWED_HOSTS_PROD' "$allowed_hosts"
+env_upsert 'SEAGULL_AGENT_TLS_SERVER_NAME' "$agent_tls_server_name"
+env_upsert 'SEAGULL_CADDY_DOMAIN' "$public_domain"
 
 tty_printf "\n"
 tty_println "[env-wizard] updated keys:"
-tty_println "  NETWATCH_BOOTSTRAP_ADMIN_USERNAME=$admin_user"
-tty_println "  NETWATCH_ALLOWED_HOSTS_PROD=$allowed_hosts"
-tty_println "  NETWATCH_AGENT_TLS_SERVER_NAME=$agent_tls_server_name"
-tty_println "  NETWATCH_CADDY_DOMAIN=$public_domain"
+tty_println "  SEAGULL_BOOTSTRAP_ADMIN_USERNAME=$admin_user"
+tty_println "  SEAGULL_ALLOWED_HOSTS_PROD=$allowed_hosts"
+tty_println "  SEAGULL_AGENT_TLS_SERVER_NAME=$agent_tls_server_name"
+tty_println "  SEAGULL_CADDY_DOMAIN=$public_domain"
 tty_println "  POSTGRES_PASSWORD=<hidden>"
-tty_println "  NETWATCH_REDIS_PASSWORD=<hidden>"
-tty_println "  NETWATCH_ES_PASSWORD=<hidden>"
-tty_println "  NETWATCH_JWT_SECRET=<hidden>"
-tty_println "  NETWATCH_BOOTSTRAP_ADMIN_PASSWORD=<hidden>"
+tty_println "  SEAGULL_REDIS_PASSWORD=<hidden>"
+tty_println "  SEAGULL_ES_PASSWORD=<hidden>"
+tty_println "  SEAGULL_JWT_SECRET=<hidden>"
+tty_println "  SEAGULL_BOOTSTRAP_ADMIN_PASSWORD=<hidden>"
 if [ -n "$grafana_admin_password" ]; then
   tty_println "  GF_SECURITY_ADMIN_PASSWORD=<hidden> (optional observability profile)"
 else

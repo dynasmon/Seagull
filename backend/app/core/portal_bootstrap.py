@@ -13,14 +13,14 @@ from app.features.auth.models import PortalUserModel
 
 
 def _is_prod() -> bool:
-    return settings.NETWATCH_ENV in {"prod", "production"}
+    return settings.SEAGULL_ENV in {"prod", "production"}
 
 
 def assert_portal_secrets() -> None:
-    secret = (settings.NETWATCH_JWT_SECRET or "").strip()
+    secret = (settings.SEAGULL_JWT_SECRET or "").strip()
     if len(secret) < 32:
         raise RuntimeError(
-            "NETWATCH_JWT_SECRET is required and must be at least 32 characters."
+            "SEAGULL_JWT_SECRET is required and must be at least 32 characters."
         )
 
 
@@ -28,15 +28,15 @@ def bootstrap_portal_admin() -> None:
     """Create the first admin user on a fresh DB.
 
     For security, we do not auto-generate default credentials.
-    Set NETWATCH_BOOTSTRAP_ADMIN_PASSWORD on the first run.
+    Set SEAGULL_BOOTSTRAP_ADMIN_PASSWORD on the first run.
     """
 
     assert_portal_secrets()
 
     db = SessionLocal()
     try:
-        username = canonicalize_username(settings.NETWATCH_BOOTSTRAP_ADMIN_USERNAME or "admin") or "admin"
-        password = (settings.NETWATCH_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
+        username = canonicalize_username(settings.SEAGULL_BOOTSTRAP_ADMIN_USERNAME or "admin") or "admin"
+        password = (settings.SEAGULL_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
         existing = db.query(PortalUserModel).count()
 
         # Existing admin user path: startup password sync is disabled by default.
@@ -46,8 +46,8 @@ def bootstrap_portal_admin() -> None:
             should_sync = bool(
                 password
                 and (
-                    settings.NETWATCH_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START
-                    and (settings.NETWATCH_BOOTSTRAP_ADMIN_RESET_ON_START or settings.NETWATCH_BOOTSTRAP_ADMIN_SYNC_ON_START)
+                    settings.SEAGULL_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START
+                    and (settings.SEAGULL_BOOTSTRAP_ADMIN_RESET_ON_START or settings.SEAGULL_BOOTSTRAP_ADMIN_SYNC_ON_START)
                 )
             )
             if should_sync and not verify_password(password, current.password_hash):
@@ -81,7 +81,7 @@ def bootstrap_portal_admin() -> None:
 
         if not password:
             raise RuntimeError(
-                "No portal users found. Set NETWATCH_BOOTSTRAP_ADMIN_PASSWORD to bootstrap the admin user."
+                "No portal users found. Set SEAGULL_BOOTSTRAP_ADMIN_PASSWORD to bootstrap the admin user."
             )
 
         msg = validate_password_policy(password, username=username)

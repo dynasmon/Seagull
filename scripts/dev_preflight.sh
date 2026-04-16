@@ -210,21 +210,21 @@ docker info >/dev/null 2>&1 || {
 
 "$ROOT_DIR/scripts/bootstrap_env.sh" "$ROOT_DIR/.env" "$ROOT_DIR/.env.example" >/dev/null
 
-tls_cert_file="$(read_env_or_default NETWATCH_TLS_CERT_FILE ./secrets/tls/tls.crt)"
-tls_key_file="$(read_env_or_default NETWATCH_TLS_KEY_FILE ./secrets/tls/tls.key)"
-agent_ca_file="$(read_env_or_default NETWATCH_AGENT_SERVER_CA_FILE ./secrets/tls/ca.crt)"
-agent_tls_server_name="$(read_env_or_default NETWATCH_AGENT_TLS_SERVER_NAME localhost)"
-force_regen="$(read_env_or_default NETWATCH_FORCE_REGENERATE_CERTS false)"
-jwt_secret="$(read_env_or_default NETWATCH_JWT_SECRET "")"
-jwt_secret_file="$(read_env_or_default NETWATCH_JWT_SECRET_FILE "")"
-bootstrap_admin_username="$(read_env_or_default NETWATCH_BOOTSTRAP_ADMIN_USERNAME admin)"
-bootstrap_admin_password="$(read_env_or_default NETWATCH_BOOTSTRAP_ADMIN_PASSWORD "")"
-bootstrap_admin_password_file="$(read_env_or_default NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE "")"
+tls_cert_file="$(read_env_or_default SEAGULL_TLS_CERT_FILE ./secrets/tls/tls.crt)"
+tls_key_file="$(read_env_or_default SEAGULL_TLS_KEY_FILE ./secrets/tls/tls.key)"
+agent_ca_file="$(read_env_or_default SEAGULL_AGENT_SERVER_CA_FILE ./secrets/tls/ca.crt)"
+agent_tls_server_name="$(read_env_or_default SEAGULL_AGENT_TLS_SERVER_NAME localhost)"
+force_regen="$(read_env_or_default SEAGULL_FORCE_REGENERATE_CERTS false)"
+jwt_secret="$(read_env_or_default SEAGULL_JWT_SECRET "")"
+jwt_secret_file="$(read_env_or_default SEAGULL_JWT_SECRET_FILE "")"
+bootstrap_admin_username="$(read_env_or_default SEAGULL_BOOTSTRAP_ADMIN_USERNAME admin)"
+bootstrap_admin_password="$(read_env_or_default SEAGULL_BOOTSTRAP_ADMIN_PASSWORD "")"
+bootstrap_admin_password_file="$(read_env_or_default SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE "")"
 
 if [[ -z "$jwt_secret" && -n "$jwt_secret_file" ]]; then
   abs_jwt_secret_file="$(as_abs_path "$jwt_secret_file")"
   if [[ ! -f "$abs_jwt_secret_file" ]]; then
-    echo "[preflight] NETWATCH_JWT_SECRET_FILE points to a missing file: ${abs_jwt_secret_file}" >&2
+    echo "[preflight] SEAGULL_JWT_SECRET_FILE points to a missing file: ${abs_jwt_secret_file}" >&2
     exit 1
   fi
   jwt_secret="$(tr -d '\n' < "$abs_jwt_secret_file")"
@@ -233,21 +233,21 @@ fi
 if [[ -z "$bootstrap_admin_password" && -n "$bootstrap_admin_password_file" ]]; then
   abs_bootstrap_admin_password_file="$(as_abs_path "$bootstrap_admin_password_file")"
   if [[ ! -f "$abs_bootstrap_admin_password_file" ]]; then
-    echo "[preflight] NETWATCH_BOOTSTRAP_ADMIN_PASSWORD_FILE points to a missing file: ${abs_bootstrap_admin_password_file}" >&2
+    echo "[preflight] SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE points to a missing file: ${abs_bootstrap_admin_password_file}" >&2
     exit 1
   fi
   bootstrap_admin_password="$(tr -d '\n' < "$abs_bootstrap_admin_password_file")"
 fi
 
 if [[ ${#jwt_secret} -lt 32 ]]; then
-  echo "[preflight] NETWATCH_JWT_SECRET must be at least 32 characters" >&2
+  echo "[preflight] SEAGULL_JWT_SECRET must be at least 32 characters" >&2
   exit 1
 fi
 if [[ -z "$bootstrap_admin_password" ]]; then
-  echo "[preflight] NETWATCH_BOOTSTRAP_ADMIN_PASSWORD must be set" >&2
+  echo "[preflight] SEAGULL_BOOTSTRAP_ADMIN_PASSWORD must be set" >&2
   exit 1
 fi
-require_password_policy "NETWATCH_BOOTSTRAP_ADMIN_PASSWORD" "$bootstrap_admin_username" "$bootstrap_admin_password"
+require_password_policy "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD" "$bootstrap_admin_username" "$bootstrap_admin_password"
 
 abs_tls_cert_file="$(as_abs_path "$tls_cert_file")"
 abs_tls_key_file="$(as_abs_path "$tls_key_file")"
@@ -268,9 +268,9 @@ if [[ ! -f "$abs_agent_ca_file" && -f "$abs_tls_cert_file" ]]; then
   echo "[preflight] seeded agent CA file from TLS certificate: $agent_ca_file"
 fi
 
-require_file_mount_source NETWATCH_TLS_CERT_FILE "$tls_cert_file"
-require_file_mount_source NETWATCH_TLS_KEY_FILE "$tls_key_file"
-require_file_mount_source NETWATCH_AGENT_SERVER_CA_FILE "$agent_ca_file"
+require_file_mount_source SEAGULL_TLS_CERT_FILE "$tls_cert_file"
+require_file_mount_source SEAGULL_TLS_KEY_FILE "$tls_key_file"
+require_file_mount_source SEAGULL_AGENT_SERVER_CA_FILE "$agent_ca_file"
 
 ensure_readable_mode "$abs_tls_cert_file"
 ensure_readable_mode "$abs_tls_key_file"
@@ -279,9 +279,9 @@ if ! cert_has_required_san "$tls_cert_file" "$agent_tls_server_name"; then
   generate_dev_tls_cert "$tls_cert_file" "$tls_key_file" "$agent_tls_server_name"
 fi
 
-require_world_or_group_readable NETWATCH_TLS_CERT_FILE "$tls_cert_file"
-require_world_or_group_readable NETWATCH_TLS_KEY_FILE "$tls_key_file"
-require_world_or_group_readable NETWATCH_AGENT_SERVER_CA_FILE "$agent_ca_file"
+require_world_or_group_readable SEAGULL_TLS_CERT_FILE "$tls_cert_file"
+require_world_or_group_readable SEAGULL_TLS_KEY_FILE "$tls_key_file"
+require_world_or_group_readable SEAGULL_AGENT_SERVER_CA_FILE "$agent_ca_file"
 
 docker compose -f docker-compose.yml -f compose.dev.yml config -q >/dev/null
 

@@ -8,8 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-os.environ.setdefault("NETWATCH_SKIP_STARTUP_BOOTSTRAP", "true")
-os.environ.setdefault("NETWATCH_JWT_SECRET", "x" * 40)
+os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
+os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.core.clickhouse import (
     clickhouse_events_table_ref,
@@ -53,8 +53,8 @@ def _mk_hot_row(agent_id: str, *, event_type: str = "dns", extra: dict | None = 
 
 @pytest.fixture(scope="module", autouse=True)
 def _integration_guard():
-    if not _flag_enabled("NETWATCH_RUN_HYBRID_INTEGRATION"):
-        pytest.skip("Set NETWATCH_RUN_HYBRID_INTEGRATION=true to run hybrid integration tests.")
+    if not _flag_enabled("SEAGULL_RUN_HYBRID_INTEGRATION"):
+        pytest.skip("Set SEAGULL_RUN_HYBRID_INTEGRATION=true to run hybrid integration tests.")
 
     try:
         with engine.connect() as conn:
@@ -63,7 +63,7 @@ def _integration_guard():
         pytest.skip(f"Postgres unavailable for integration tests: {type(exc).__name__}")
 
     if not clickhouse_is_enabled():
-        pytest.skip("ClickHouse integration tests require NETWATCH_CLICKHOUSE_ENABLED=true.")
+        pytest.skip("ClickHouse integration tests require SEAGULL_CLICKHOUSE_ENABLED=true.")
 
     if not clickhouse_is_available():
         pytest.skip("ClickHouse unavailable for integration tests.")
@@ -134,11 +134,11 @@ def test_dual_write_pg_and_clickhouse_available() -> None:
 
 
 def test_pg_insert_when_clickhouse_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "NETWATCH_CLICKHOUSE_ENABLED", True, raising=False)
-    monkeypatch.setattr(settings, "NETWATCH_CLICKHOUSE_HOST", "127.0.0.1", raising=False)
-    monkeypatch.setattr(settings, "NETWATCH_CLICKHOUSE_PORT", 1, raising=False)
-    monkeypatch.setattr(settings, "NETWATCH_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS", 0.2, raising=False)
-    monkeypatch.setattr(settings, "NETWATCH_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS", 0.2, raising=False)
+    monkeypatch.setattr(settings, "SEAGULL_CLICKHOUSE_ENABLED", True, raising=False)
+    monkeypatch.setattr(settings, "SEAGULL_CLICKHOUSE_HOST", "127.0.0.1", raising=False)
+    monkeypatch.setattr(settings, "SEAGULL_CLICKHOUSE_PORT", 1, raising=False)
+    monkeypatch.setattr(settings, "SEAGULL_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS", 0.2, raising=False)
+    monkeypatch.setattr(settings, "SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS", 0.2, raising=False)
     reset_clickhouse_client()
 
     assert _try_bootstrap_clickhouse() is None
@@ -173,7 +173,7 @@ def test_network_summary_falls_back_when_clickhouse_window_empty(api_client: Tes
     with engine.begin() as conn:
         _insert_hot_rows_with_pg_ids(conn, [row])
 
-    monkeypatch.setattr(settings, "NETWATCH_SEARCH_BACKEND", "postgres", raising=False)
+    monkeypatch.setattr(settings, "SEAGULL_SEARCH_BACKEND", "postgres", raising=False)
     r = api_client.get("/events/network/summary", params={"since_minutes": 120, "limit": 20, "agent_id": agent})
     assert r.status_code == 200
     data = r.json()

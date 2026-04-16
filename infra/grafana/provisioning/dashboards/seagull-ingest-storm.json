@@ -37,7 +37,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -107,7 +107,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -169,7 +169,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -232,7 +232,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -294,7 +294,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -344,7 +344,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "fieldConfig": {
         "defaults": {
@@ -392,7 +392,7 @@
     {
       "datasource": {
         "type": "postgres",
-        "uid": "netwatch-postgres"
+        "uid": "seagull-postgres"
       },
       "gridPos": {
         "h": 9,
@@ -420,7 +420,7 @@
   "schemaVersion": 39,
   "style": "dark",
   "tags": [
-    "netwatch",
+    "seagull",
     "ingest"
   ],
   "templating": {
@@ -432,7 +432,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "NetWatch Ingest Storm",
-  "uid": "netwatch-ingest-storm",
+  "title": "Seagull Ingest Storm",
+  "uid": "seagull-ingest-storm",
   "version": 1
 }

@@ -14,11 +14,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Deque, Dict, List, Sequence
 
+from app.core.env_secrets import getenv_compat
 from app.core.observability import log_event, setup_logging
 
 
 def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
+    raw = getenv_compat(name)
     if raw is None:
         return default
     s = raw.strip().lower()
@@ -30,7 +31,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def _env_float(name: str, default: float) -> float:
-    raw = os.getenv(name)
+    raw = getenv_compat(name)
     if raw is None:
         return default
     try:
@@ -44,7 +45,7 @@ def _utc_now_iso() -> str:
 
 
 def _state_file_for_group(group: str) -> Path:
-    root = os.getenv("NETWATCH_WORKER_GROUP_STATE_DIR", "/tmp/netwatch-worker-groups").strip() or "/tmp/netwatch-worker-groups"
+    root = (getenv_compat("SEAGULL_WORKER_GROUP_STATE_DIR", "/tmp/seagull-worker-groups") or "/tmp/seagull-worker-groups").strip()
     safe_group = "".join(ch for ch in group.lower() if ch.isalnum() or ch in {"-", "_"}).strip("._-")
     if not safe_group:
         safe_group = "unknown"
@@ -107,7 +108,7 @@ GROUPS: dict[str, tuple[ChildSpec, ...]] = {
         ChildSpec(
             name="bootstrap-rotator",
             argv=(sys.executable, "/scripts/agent_bootstrap_token_rotator.py"),
-            enabled_env="NETWATCH_MAINTENANCE_ENABLE_BOOTSTRAP_ROTATOR",
+            enabled_env="SEAGULL_MAINTENANCE_ENABLE_BOOTSTRAP_ROTATOR",
             required_paths=("/scripts/agent_bootstrap_token_rotator.py",),
         ),
     ),
@@ -119,18 +120,18 @@ class WorkerGroupManager:
         if group not in GROUPS:
             raise RuntimeError(f"unknown worker group: {group}")
         self.group = group
-        self.logger = logging.getLogger("netwatch.worker.manager")
+        self.logger = logging.getLogger("seagull.worker.manager")
         self.state_file = _state_file_for_group(group)
         self.stop_requested = False
         self.exit_code = 0
 
-        self.restart_window_seconds = max(10.0, _env_float("NETWATCH_WORKER_GROUP_RESTART_WINDOW_SECONDS", 300.0))
-        self.quick_fail_seconds = max(1.0, _env_float("NETWATCH_WORKER_GROUP_QUICK_FAIL_SECONDS", 15.0))
-        self.max_quick_failures = max(1, int(_env_float("NETWATCH_WORKER_GROUP_MAX_QUICK_FAILURES", 5)))
-        self.restart_backoff_initial = max(0.5, _env_float("NETWATCH_WORKER_GROUP_RESTART_BACKOFF_INITIAL_SECONDS", 1.0))
-        self.restart_backoff_max = max(2.0, _env_float("NETWATCH_WORKER_GROUP_RESTART_BACKOFF_MAX_SECONDS", 30.0))
-        self.state_flush_seconds = max(0.5, _env_float("NETWATCH_WORKER_GROUP_STATE_FLUSH_SECONDS", 2.0))
-        self.stop_timeout_seconds = max(1.0, _env_float("NETWATCH_WORKER_GROUP_STOP_TIMEOUT_SECONDS", 20.0))
+        self.restart_window_seconds = max(10.0, _env_float("SEAGULL_WORKER_GROUP_RESTART_WINDOW_SECONDS", 300.0))
+        self.quick_fail_seconds = max(1.0, _env_float("SEAGULL_WORKER_GROUP_QUICK_FAIL_SECONDS", 15.0))
+        self.max_quick_failures = max(1, int(_env_float("SEAGULL_WORKER_GROUP_MAX_QUICK_FAILURES", 5)))
+        self.restart_backoff_initial = max(0.5, _env_float("SEAGULL_WORKER_GROUP_RESTART_BACKOFF_INITIAL_SECONDS", 1.0))
+        self.restart_backoff_max = max(2.0, _env_float("SEAGULL_WORKER_GROUP_RESTART_BACKOFF_MAX_SECONDS", 30.0))
+        self.state_flush_seconds = max(0.5, _env_float("SEAGULL_WORKER_GROUP_STATE_FLUSH_SECONDS", 2.0))
+        self.stop_timeout_seconds = max(1.0, _env_float("SEAGULL_WORKER_GROUP_STOP_TIMEOUT_SECONDS", 20.0))
 
         self.children: Dict[str, ChildRuntime] = {}
         for spec in GROUPS[group]:
@@ -212,7 +213,7 @@ class WorkerGroupManager:
         cmd = child.spec.command()
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
-        env["NETWATCH_WORKER_PROCESS"] = child.spec.name
+        env["SEAGULL_WORKER_PROCESS"] = child.spec.name
 
         try:
             proc = subprocess.Popen(cmd, env=env)
@@ -451,7 +452,7 @@ class WorkerGroupManager:
 
 def _run_healthcheck(group: str) -> int:
     state_file = _state_file_for_group(group)
-    stale_after = max(5.0, _env_float("NETWATCH_WORKER_GROUP_HEALTH_STALE_SECONDS", 30.0))
+    stale_after = max(5.0, _env_float("SEAGULL_WORKER_GROUP_HEALTH_STALE_SECONDS", 30.0))
 
     try:
         payload = json.loads(state_file.read_text(encoding="utf-8"))

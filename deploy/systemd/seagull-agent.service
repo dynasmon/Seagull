@@ -1,23 +1,23 @@
 [Unit]
-Description=NetWatch Agent
+Description=Seagull Agent
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=netwatch
-Group=netwatch
+User=seagull
+Group=seagull
 
-EnvironmentFile=/etc/netwatch/agent.env
-ExecStart=/usr/local/bin/netwatch-agent
+EnvironmentFile=/etc/seagull/agent.env
+ExecStart=/usr/local/bin/seagull-agent
 
 Restart=always
 RestartSec=5
 TimeoutStopSec=20
 
-StateDirectory=netwatch
-LogsDirectory=netwatch
-RuntimeDirectory=netwatch
+StateDirectory=seagull
+LogsDirectory=seagull
+RuntimeDirectory=seagull
 
 NoNewPrivileges=true
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
@@ -28,8 +28,8 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 
-ReadWritePaths=/var/lib/netwatch /var/log/netwatch /run/netwatch
-ReadOnlyPaths=/etc/netwatch -/var/log/auth.log
+ReadWritePaths=/var/lib/seagull /var/log/seagull /run/seagull
+ReadOnlyPaths=/etc/seagull -/var/log/auth.log
 
 [Install]
 WantedBy=multi-user.target

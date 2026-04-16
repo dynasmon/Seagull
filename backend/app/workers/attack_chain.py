@@ -48,7 +48,7 @@ from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offs
 OFFSET_NAME = "attack_chain_v1"
 
 setup_logging("worker-attack-chain")
-logger = logging.getLogger("netwatch.worker.attack_chain")
+logger = logging.getLogger("seagull.worker.attack_chain")
 
 
 _allowlist_cache: dict[str, Any] = {"loaded_at": 0.0, "rules": []}
@@ -104,7 +104,7 @@ def _is_recent(ts: Optional[datetime], now: datetime, window_seconds: int) -> bo
 def _ensure_bootstrap() -> None:
     """Ensure the minimal tables this worker depends on exist.
 
-    In Docker Compose, workers may start before the API service. Existing NetWatch
+    In Docker Compose, workers may start before the API service. Existing Seagull
     workers follow the same pattern to avoid noisy startup failures.
     """
 

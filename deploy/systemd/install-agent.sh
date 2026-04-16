@@ -4,37 +4,37 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 
-SERVICE_NAME="netwatch-agent"
+SERVICE_NAME="seagull-agent"
 SERVICE_FILE="${SCRIPT_DIR}/${SERVICE_NAME}.service"
 ENV_EXAMPLE="${SCRIPT_DIR}/${SERVICE_NAME}.env.example"
 
-INSTALL_BIN_PATH="/usr/local/bin/netwatch-agent"
+INSTALL_BIN_PATH="/usr/local/bin/seagull-agent"
 INSTALL_SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
-INSTALL_ENV_PATH="/etc/netwatch/agent.env"
-INSTALL_CONFIG_DIR="/etc/netwatch"
-INSTALL_PKI_DIR="/etc/netwatch/pki"
-INSTALL_STATE_DIR="/var/lib/netwatch"
-INSTALL_LOG_DIR="/var/log/netwatch"
-INSTALL_LIBEXEC_DIR="/usr/local/lib/netwatch"
+INSTALL_ENV_PATH="/etc/seagull/agent.env"
+INSTALL_CONFIG_DIR="/etc/seagull"
+INSTALL_PKI_DIR="/etc/seagull/pki"
+INSTALL_STATE_DIR="/var/lib/seagull"
+INSTALL_LOG_DIR="/var/log/seagull"
+INSTALL_LIBEXEC_DIR="/usr/local/lib/seagull"
 
 BUILD_FROM_SOURCE="${BUILD_FROM_SOURCE:-1}"
 SOURCE_BINARY="${SOURCE_BINARY:-}"
-BUILD_OUTPUT="${REPO_ROOT}/agent/bin/netwatch-agent"
+BUILD_OUTPUT="${REPO_ROOT}/agent/bin/seagull-agent"
 
-DEFAULT_CA_FILE="/etc/netwatch/pki/root_ca.crt"
+DEFAULT_CA_FILE="/etc/seagull/pki/root_ca.crt"
 DEFAULT_CA_SOURCE_FILE=""
-DEFAULT_BOOTSTRAP_TOKEN_FILE="/var/lib/netwatch/bootstrap.token"
-LEGACY_BOOTSTRAP_TOKEN_FILE="/etc/netwatch/bootstrap.token"
+DEFAULT_BOOTSTRAP_TOKEN_FILE="/var/lib/seagull/bootstrap.token"
+LEGACY_BOOTSTRAP_TOKEN_FILE="/etc/seagull/bootstrap.token"
 
 # If CA file is missing, optionally seed it from local dev cert.
 AUTO_INSTALL_DEV_CA="${AUTO_INSTALL_DEV_CA:-1}"
 DEV_CA_SOURCE="${DEV_CA_SOURCE:-${REPO_ROOT}/secrets/dev-tls/tls.crt}"
-CA_SYNC_SCRIPT_SOURCE="${SCRIPT_DIR}/netwatch-agent-sync-ca.sh"
-CA_SYNC_SCRIPT_TARGET="${INSTALL_LIBEXEC_DIR}/netwatch-agent-sync-ca.sh"
-CA_SYNC_SERVICE_SOURCE="${SCRIPT_DIR}/netwatch-agent-ca-sync.service"
-CA_SYNC_SERVICE_TARGET="/etc/systemd/system/netwatch-agent-ca-sync.service"
-CA_SYNC_TIMER_SOURCE="${SCRIPT_DIR}/netwatch-agent-ca-sync.timer"
-CA_SYNC_TIMER_TARGET="/etc/systemd/system/netwatch-agent-ca-sync.timer"
+CA_SYNC_SCRIPT_SOURCE="${SCRIPT_DIR}/seagull-agent-sync-ca.sh"
+CA_SYNC_SCRIPT_TARGET="${INSTALL_LIBEXEC_DIR}/seagull-agent-sync-ca.sh"
+CA_SYNC_SERVICE_SOURCE="${SCRIPT_DIR}/seagull-agent-ca-sync.service"
+CA_SYNC_SERVICE_TARGET="/etc/systemd/system/seagull-agent-ca-sync.service"
+CA_SYNC_TIMER_SOURCE="${SCRIPT_DIR}/seagull-agent-ca-sync.timer"
+CA_SYNC_TIMER_TARGET="/etc/systemd/system/seagull-agent-ca-sync.timer"
 
 # Remove stale drop-ins that override bootstrap token env vars.
 PRESERVE_BOOTSTRAP_DROPINS="${PRESERVE_BOOTSTRAP_DROPINS:-0}"
@@ -56,12 +56,12 @@ ensure_prerequisites() {
 }
 
 ensure_service_user() {
-  if ! id -u netwatch >/dev/null 2>&1; then
-    useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin netwatch
-    echo "[install] created user: netwatch"
+  if ! id -u seagull >/dev/null 2>&1; then
+    useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin seagull
+    echo "[install] created user: seagull"
   fi
   if getent group adm >/dev/null 2>&1; then
-    usermod -a -G adm netwatch || true
+    usermod -a -G adm seagull || true
   fi
 }
 
@@ -72,15 +72,15 @@ create_directories() {
   install -d -m 0755 "${INSTALL_LOG_DIR}"
   install -d -m 0755 "${INSTALL_LIBEXEC_DIR}"
 
-  chown netwatch:netwatch "${INSTALL_STATE_DIR}"
-  chown netwatch:netwatch "${INSTALL_LOG_DIR}"
+  chown seagull:seagull "${INSTALL_STATE_DIR}"
+  chown seagull:seagull "${INSTALL_LOG_DIR}"
 }
 
 build_binary_if_needed() {
   if [[ "${BUILD_FROM_SOURCE}" == "1" ]]; then
     if ! command -v go >/dev/null 2>&1; then
       echo "[install] go is not installed but BUILD_FROM_SOURCE=1"
-      echo "[install] set BUILD_FROM_SOURCE=0 and provide SOURCE_BINARY=/path/to/netwatch-agent"
+      echo "[install] set BUILD_FROM_SOURCE=0 and provide SOURCE_BINARY=/path/to/seagull-agent"
       exit 1
     fi
 
@@ -95,7 +95,7 @@ build_binary_if_needed() {
   fi
 
   if [[ -z "${SOURCE_BINARY}" ]]; then
-    echo "[install] BUILD_FROM_SOURCE=0 requires SOURCE_BINARY=/path/to/netwatch-agent"
+    echo "[install] BUILD_FROM_SOURCE=0 requires SOURCE_BINARY=/path/to/seagull-agent"
     exit 1
   fi
 }
@@ -213,13 +213,13 @@ discover_repo_env_value() {
 
 discover_ca_source_file() {
   local configured repo_value candidate
-  configured="$(trim "$(read_env_value NETWATCH_TLS_CA_SOURCE_FILE "${INSTALL_ENV_PATH}")")"
+  configured="$(trim "$(read_env_value SEAGULL_TLS_CA_SOURCE_FILE "${INSTALL_ENV_PATH}")")"
   if [[ -n "${configured}" ]]; then
     printf '%s' "${configured}"
     return
   fi
 
-  repo_value="$(discover_repo_env_value NETWATCH_AGENT_SERVER_CA_FILE)"
+  repo_value="$(discover_repo_env_value SEAGULL_AGENT_SERVER_CA_FILE)"
   if [[ -n "${repo_value}" ]]; then
     candidate="$(resolve_repo_path "${repo_value}")"
     if [[ -f "${candidate}" ]]; then
@@ -252,10 +252,10 @@ discover_api_host() {
     printf ''
     return
   fi
-  NETWATCH_DISCOVER_API_URL="${api_url}" python3 - <<'EOF_PY'
+  SEAGULL_DISCOVER_API_URL="${api_url}" python3 - <<'EOF_PY'
 from urllib.parse import urlparse
 import os
-url = os.environ.get('NETWATCH_DISCOVER_API_URL', '').strip()
+url = os.environ.get('SEAGULL_DISCOVER_API_URL', '').strip()
 if not url:
     raise SystemExit(0)
 parsed = urlparse(url)
@@ -265,19 +265,19 @@ EOF_PY
 
 discover_tls_server_name() {
   local configured repo_value api_url api_host
-  configured="$(trim "$(read_env_value NETWATCH_TLS_SERVER_NAME "${INSTALL_ENV_PATH}")")"
+  configured="$(trim "$(read_env_value SEAGULL_TLS_SERVER_NAME "${INSTALL_ENV_PATH}")")"
   if [[ -n "${configured}" ]]; then
     printf '%s' "${configured}"
     return
   fi
 
-  repo_value="$(discover_repo_env_value NETWATCH_AGENT_TLS_SERVER_NAME)"
+  repo_value="$(discover_repo_env_value SEAGULL_AGENT_TLS_SERVER_NAME)"
   if [[ -n "${repo_value}" ]]; then
     printf '%s' "${repo_value}"
     return
   fi
 
-  api_url="$(trim "$(read_env_value NETWATCH_API_URL "${INSTALL_ENV_PATH}")")"
+  api_url="$(trim "$(read_env_value SEAGULL_API_URL "${INSTALL_ENV_PATH}")")"
   api_host="$(discover_api_host "${api_url}")"
   if [[ "${api_host}" == "127.0.0.1" || "${api_host}" == "::1" || "${api_host}" == "localhost" ]]; then
     printf 'localhost'
@@ -297,21 +297,21 @@ normalize_agent_runtime_defaults() {
     return
   fi
 
-  normalize_env_key NETWATCH_AUTHLOG_DEDUP_TTL "${INSTALL_ENV_PATH}"
-  normalize_env_key NETWATCH_AUTHLOG_INCLUDE_ACCEPTED "${INSTALL_ENV_PATH}"
-  normalize_env_key NETWATCH_DDOS_SUSTAIN_WINDOWS "${INSTALL_ENV_PATH}"
-  normalize_env_key NETWATCH_DDOS_COOLDOWN "${INSTALL_ENV_PATH}"
-  normalize_env_key NETWATCH_DDOS_MAX_BATCH "${INSTALL_ENV_PATH}"
-  normalize_env_key NETWATCH_DDOS_BACKPRESSURE_HIGH_WATERMARK "${INSTALL_ENV_PATH}"
-  normalize_env_key NETWATCH_DDOS_BACKPRESSURE_SAMPLE_EVERY "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_AUTHLOG_DEDUP_TTL "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_AUTHLOG_INCLUDE_ACCEPTED "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_DDOS_SUSTAIN_WINDOWS "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_DDOS_COOLDOWN "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_DDOS_MAX_BATCH "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_DDOS_BACKPRESSURE_HIGH_WATERMARK "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_DDOS_BACKPRESSURE_SAMPLE_EVERY "${INSTALL_ENV_PATH}"
 
-  ensure_env_value NETWATCH_AUTHLOG_DEDUP_TTL "1s" "${INSTALL_ENV_PATH}"
-  ensure_env_value NETWATCH_AUTHLOG_INCLUDE_ACCEPTED "true" "${INSTALL_ENV_PATH}"
-  ensure_env_value NETWATCH_DDOS_SUSTAIN_WINDOWS "1" "${INSTALL_ENV_PATH}"
-  ensure_env_value NETWATCH_DDOS_COOLDOWN "10s" "${INSTALL_ENV_PATH}"
-  ensure_env_value NETWATCH_DDOS_MAX_BATCH "200" "${INSTALL_ENV_PATH}"
-  ensure_env_value NETWATCH_DDOS_BACKPRESSURE_HIGH_WATERMARK "160" "${INSTALL_ENV_PATH}"
-  ensure_env_value NETWATCH_DDOS_BACKPRESSURE_SAMPLE_EVERY "4" "${INSTALL_ENV_PATH}"
+  ensure_env_value SEAGULL_AUTHLOG_DEDUP_TTL "1s" "${INSTALL_ENV_PATH}"
+  ensure_env_value SEAGULL_AUTHLOG_INCLUDE_ACCEPTED "true" "${INSTALL_ENV_PATH}"
+  ensure_env_value SEAGULL_DDOS_SUSTAIN_WINDOWS "1" "${INSTALL_ENV_PATH}"
+  ensure_env_value SEAGULL_DDOS_COOLDOWN "10s" "${INSTALL_ENV_PATH}"
+  ensure_env_value SEAGULL_DDOS_MAX_BATCH "200" "${INSTALL_ENV_PATH}"
+  ensure_env_value SEAGULL_DDOS_BACKPRESSURE_HIGH_WATERMARK "160" "${INSTALL_ENV_PATH}"
+  ensure_env_value SEAGULL_DDOS_BACKPRESSURE_SAMPLE_EVERY "4" "${INSTALL_ENV_PATH}"
 }
 
 normalize_bootstrap_token_settings() {
@@ -319,46 +319,46 @@ normalize_bootstrap_token_settings() {
     return
   fi
 
-  normalize_env_key NETWATCH_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}"
-  normalize_env_key NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}"
-  normalize_env_key NETWATCH_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}"
 
   local credential_file token_inline token_file credential_present
-  credential_file="$(trim "$(read_env_value NETWATCH_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}")")"
+  credential_file="$(trim "$(read_env_value SEAGULL_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}")")"
   if [[ -z "${credential_file}" ]]; then
     credential_file="${INSTALL_STATE_DIR}/agent.credential"
-    set_env_value NETWATCH_AGENT_CREDENTIAL_FILE "${credential_file}" "${INSTALL_ENV_PATH}"
+    set_env_value SEAGULL_AGENT_CREDENTIAL_FILE "${credential_file}" "${INSTALL_ENV_PATH}"
   fi
   credential_present="0"
   if [[ -s "${credential_file}" ]]; then
     credential_present="1"
   fi
 
-  token_inline="$(trim "$(read_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
-  token_file="$(trim "$(read_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}")")"
+  token_inline="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
+  token_file="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}")")"
 
   if [[ "${token_file}" == "${LEGACY_BOOTSTRAP_TOKEN_FILE}" ]]; then
     token_file="${DEFAULT_BOOTSTRAP_TOKEN_FILE}"
-    set_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${token_file}" "${INSTALL_ENV_PATH}"
-    echo "[install] migrated NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE to ${token_file}"
+    set_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${token_file}" "${INSTALL_ENV_PATH}"
+    echo "[install] migrated SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE to ${token_file}"
   fi
 
   if [[ -n "${token_inline}" ]]; then
     if [[ -z "${token_file}" ]]; then
       token_file="${DEFAULT_BOOTSTRAP_TOKEN_FILE}"
-      set_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${token_file}" "${INSTALL_ENV_PATH}"
-      echo "[install] set NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE=${token_file}"
+      set_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${token_file}" "${INSTALL_ENV_PATH}"
+      echo "[install] set SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE=${token_file}"
     fi
     install -d -m 0755 "$(dirname -- "${token_file}")"
     printf '%s' "${token_inline}" > "${token_file}"
-    chown netwatch:netwatch "${token_file}" || true
+    chown seagull:seagull "${token_file}" || true
     chmod 0600 "${token_file}" || true
-    set_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN "" "${INSTALL_ENV_PATH}"
-    echo "[install] moved NETWATCH_AGENT_BOOTSTRAP_TOKEN into ${token_file}"
+    set_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN "" "${INSTALL_ENV_PATH}"
+    echo "[install] moved SEAGULL_AGENT_BOOTSTRAP_TOKEN into ${token_file}"
   fi
 
   if [[ "${token_file}" == "${DEFAULT_BOOTSTRAP_TOKEN_FILE}" && -f "${LEGACY_BOOTSTRAP_TOKEN_FILE}" && ! -f "${DEFAULT_BOOTSTRAP_TOKEN_FILE}" ]]; then
-    install -o netwatch -g netwatch -m 0600 "${LEGACY_BOOTSTRAP_TOKEN_FILE}" "${DEFAULT_BOOTSTRAP_TOKEN_FILE}"
+    install -o seagull -g seagull -m 0600 "${LEGACY_BOOTSTRAP_TOKEN_FILE}" "${DEFAULT_BOOTSTRAP_TOKEN_FILE}"
     echo "[install] copied legacy bootstrap token to ${DEFAULT_BOOTSTRAP_TOKEN_FILE}"
   fi
 
@@ -367,23 +367,23 @@ normalize_bootstrap_token_settings() {
     token_clean="$(tr -d '\r\n' < "${token_file}")"
     token_clean="$(trim "${token_clean}")"
     printf '%s' "${token_clean}" > "${token_file}"
-    chown netwatch:netwatch "${token_file}" || true
+    chown seagull:seagull "${token_file}" || true
     chmod 0600 "${token_file}" || true
     echo "[install] ensured bootstrap token permissions: ${token_file}"
   elif [[ -n "${token_file}" && "${credential_present}" == "1" ]]; then
     # Keep restart-safe behavior by clearing stale file path when credential already exists.
-    set_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "" "${INSTALL_ENV_PATH}"
+    set_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "" "${INSTALL_ENV_PATH}"
     token_file=""
-    echo "[install] cleared stale NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE (credential already present)"
+    echo "[install] cleared stale SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE (credential already present)"
   elif [[ -z "${token_file}" && -f "${DEFAULT_BOOTSTRAP_TOKEN_FILE}" ]]; then
-    set_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${DEFAULT_BOOTSTRAP_TOKEN_FILE}" "${INSTALL_ENV_PATH}"
+    set_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${DEFAULT_BOOTSTRAP_TOKEN_FILE}" "${INSTALL_ENV_PATH}"
     token_file="${DEFAULT_BOOTSTRAP_TOKEN_FILE}"
-    chown netwatch:netwatch "${token_file}" || true
+    chown seagull:seagull "${token_file}" || true
     chmod 0600 "${token_file}" || true
     echo "[install] using bootstrap token file ${token_file}"
   elif [[ -z "${token_file}" && "${credential_present}" == "0" ]]; then
     echo "[install] warning: bootstrap token not configured in ${INSTALL_ENV_PATH}"
-    echo "[install] set NETWATCH_AGENT_BOOTSTRAP_TOKEN or NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE before first enroll"
+    echo "[install] set SEAGULL_AGENT_BOOTSTRAP_TOKEN or SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE before first enroll"
   fi
 }
 
@@ -393,24 +393,24 @@ normalize_tls_ca_settings() {
   fi
 
   local ca_file ca_source_file tls_server_name
-  normalize_env_key NETWATCH_TLS_CA_FILE "${INSTALL_ENV_PATH}"
-  normalize_env_key NETWATCH_TLS_CA_SOURCE_FILE "${INSTALL_ENV_PATH}"
-  normalize_env_key NETWATCH_TLS_SERVER_NAME "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_TLS_CA_FILE "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_TLS_CA_SOURCE_FILE "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_TLS_SERVER_NAME "${INSTALL_ENV_PATH}"
 
-  ca_file="$(trim "$(read_env_value NETWATCH_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
+  ca_file="$(trim "$(read_env_value SEAGULL_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
   if [[ -z "${ca_file}" ]]; then
     ca_file="${DEFAULT_CA_FILE}"
-    set_env_value NETWATCH_TLS_CA_FILE "${ca_file}" "${INSTALL_ENV_PATH}"
+    set_env_value SEAGULL_TLS_CA_FILE "${ca_file}" "${INSTALL_ENV_PATH}"
   fi
 
   ca_source_file="$(discover_ca_source_file)"
   if [[ -n "${ca_source_file}" ]]; then
-    set_env_value NETWATCH_TLS_CA_SOURCE_FILE "${ca_source_file}" "${INSTALL_ENV_PATH}"
+    set_env_value SEAGULL_TLS_CA_SOURCE_FILE "${ca_source_file}" "${INSTALL_ENV_PATH}"
   fi
 
   tls_server_name="$(discover_tls_server_name)"
   if [[ -n "${tls_server_name}" ]]; then
-    set_env_value NETWATCH_TLS_SERVER_NAME "${tls_server_name}" "${INSTALL_ENV_PATH}"
+    set_env_value SEAGULL_TLS_SERVER_NAME "${tls_server_name}" "${INSTALL_ENV_PATH}"
   fi
 
   install -d -m 0755 "$(dirname -- "${ca_file}")"
@@ -448,7 +448,7 @@ sanitize_service_dropins() {
   fi
 
   local conflicts
-  conflicts="$(grep -lER 'NETWATCH_AGENT_BOOTSTRAP_TOKEN(_FILE)?=' "${dropin_dir}" --include '*.conf' 2>/dev/null || true)"
+  conflicts="$(grep -lER 'SEAGULL_AGENT_BOOTSTRAP_TOKEN(_FILE)?=' "${dropin_dir}" --include '*.conf' 2>/dev/null || true)"
   if [[ -z "${conflicts}" ]]; then
     return
   fi
@@ -472,11 +472,11 @@ install_service_file() {
 
 validate_runtime_readiness() {
   local ca_file token_file token_inline credential_file credential_inline
-  ca_file="$(trim "$(read_env_value NETWATCH_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
-  token_file="$(trim "$(read_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}")")"
-  token_inline="$(trim "$(read_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
-  credential_file="$(trim "$(read_env_value NETWATCH_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}")")"
-  credential_inline="$(trim "$(read_env_value NETWATCH_AGENT_CREDENTIAL "${INSTALL_ENV_PATH}")")"
+  ca_file="$(trim "$(read_env_value SEAGULL_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
+  token_file="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}")")"
+  token_inline="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
+  credential_file="$(trim "$(read_env_value SEAGULL_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}")")"
+  credential_inline="$(trim "$(read_env_value SEAGULL_AGENT_CREDENTIAL "${INSTALL_ENV_PATH}")")"
 
   local has_credential="0"
   if [[ -n "${credential_inline}" || ( -n "${credential_file}" && -s "${credential_file}" ) ]]; then
@@ -484,18 +484,18 @@ validate_runtime_readiness() {
   fi
 
   if [[ "${has_credential}" == "0" && -z "${token_inline}" && ( -z "${token_file}" || ! -f "${token_file}" ) ]]; then
-    echo "[install] warning: no bootstrap token available (set NETWATCH_AGENT_BOOTSTRAP_TOKEN or NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE)"
+    echo "[install] warning: no bootstrap token available (set SEAGULL_AGENT_BOOTSTRAP_TOKEN or SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE)"
   fi
 
   if [[ "${has_credential}" == "1" && -n "${token_file}" && ! -f "${token_file}" ]]; then
-    echo "[install] info: NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE points to a missing file but credential is already present"
+    echo "[install] info: SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE points to a missing file but credential is already present"
     echo "[install] info: this install will clear stale token-file paths automatically"
   fi
 
   if [[ -n "${token_file}" && -f "${token_file}" ]]; then
     if command -v runuser >/dev/null 2>&1; then
-      if ! runuser -u netwatch -- test -r "${token_file}"; then
-        echo "[install] warning: token file is not readable by netwatch: ${token_file}"
+      if ! runuser -u seagull -- test -r "${token_file}"; then
+        echo "[install] warning: token file is not readable by seagull: ${token_file}"
       fi
     fi
   fi
@@ -512,11 +512,11 @@ is_runtime_ready() {
   fi
 
   local ca_file token_file token_inline credential_file credential_inline
-  ca_file="$(trim "$(read_env_value NETWATCH_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
-  token_file="$(trim "$(read_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}")")"
-  token_inline="$(trim "$(read_env_value NETWATCH_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
-  credential_file="$(trim "$(read_env_value NETWATCH_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}")")"
-  credential_inline="$(trim "$(read_env_value NETWATCH_AGENT_CREDENTIAL "${INSTALL_ENV_PATH}")")"
+  ca_file="$(trim "$(read_env_value SEAGULL_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
+  token_file="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}")")"
+  token_inline="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
+  credential_file="$(trim "$(read_env_value SEAGULL_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}")")"
+  credential_inline="$(trim "$(read_env_value SEAGULL_AGENT_CREDENTIAL "${INSTALL_ENV_PATH}")")"
 
   local has_credential="0"
   local has_bootstrap="0"
@@ -529,7 +529,7 @@ is_runtime_ready() {
     has_bootstrap="1"
   elif [[ -n "${token_file}" && -f "${token_file}" ]]; then
     if command -v runuser >/dev/null 2>&1; then
-      if runuser -u netwatch -- test -r "${token_file}"; then
+      if runuser -u seagull -- test -r "${token_file}"; then
         has_bootstrap="1"
       fi
     elif [[ -r "${token_file}" ]]; then
@@ -551,9 +551,9 @@ is_runtime_ready() {
 enable_service() {
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
-  systemctl enable netwatch-agent-ca-sync.timer
+  systemctl enable seagull-agent-ca-sync.timer
   systemctl reset-failed "${SERVICE_NAME}" || true
-  systemctl reset-failed netwatch-agent-ca-sync.service || true
+  systemctl reset-failed seagull-agent-ca-sync.service || true
 }
 
 auto_start_if_ready() {
@@ -564,7 +564,7 @@ auto_start_if_ready() {
 
   if ! is_runtime_ready; then
     echo "[install] auto-start skipped: runtime prerequisites not met"
-    echo "[install] requirements: NETWATCH_TLS_CA_FILE exists and credential or bootstrap token is configured"
+    echo "[install] requirements: SEAGULL_TLS_CA_FILE exists and credential or bootstrap token is configured"
     return
   fi
 
@@ -593,8 +593,8 @@ main() {
   install_service_file
   validate_runtime_readiness
   enable_service
-  systemctl start netwatch-agent-ca-sync.service || true
-  systemctl start netwatch-agent-ca-sync.timer || true
+  systemctl start seagull-agent-ca-sync.service || true
+  systemctl start seagull-agent-ca-sync.timer || true
   auto_start_if_ready
 
   echo

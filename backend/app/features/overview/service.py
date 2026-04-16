@@ -17,11 +17,11 @@ _overview_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 
 def _overview_cache_get(key: str) -> Optional[Dict[str, Any]]:
-    ttl_s = max(0, _env_int("NETWATCH_OVERVIEW_CACHE_TTL_SECONDS", 3))
+    ttl_s = max(0, _env_int("SEAGULL_OVERVIEW_CACHE_TTL_SECONDS", 3))
     if ttl_s <= 0:
         return None
 
-    redis_key = f"netwatch:overview:v2:{key}"
+    redis_key = f"seagull:overview:v2:{key}"
     r = get_redis()
     if r is not None:
         try:
@@ -46,10 +46,10 @@ def _overview_cache_get(key: str) -> Optional[Dict[str, Any]]:
 
 
 def _overview_cache_set(key: str, payload: Dict[str, Any]) -> None:
-    ttl_s = max(0, _env_int("NETWATCH_OVERVIEW_CACHE_TTL_SECONDS", 3))
+    ttl_s = max(0, _env_int("SEAGULL_OVERVIEW_CACHE_TTL_SECONDS", 3))
     if ttl_s <= 0:
         return
-    redis_key = f"netwatch:overview:v2:{key}"
+    redis_key = f"seagull:overview:v2:{key}"
     r = get_redis()
     if r is not None:
         try:
@@ -57,7 +57,7 @@ def _overview_cache_set(key: str, payload: Dict[str, Any]) -> None:
         except Exception:
             pass
     now = time.time()
-    max_entries = max(16, _env_int("NETWATCH_OVERVIEW_CACHE_MAX_ENTRIES", 128))
+    max_entries = max(16, _env_int("SEAGULL_OVERVIEW_CACHE_MAX_ENTRIES", 128))
     with _overview_cache_lock:
         _overview_cache[key] = (now + float(ttl_s), payload)
         if len(_overview_cache) > max_entries:

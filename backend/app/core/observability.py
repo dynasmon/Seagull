@@ -11,10 +11,11 @@ from collections import defaultdict
 from typing import Any, Dict, Tuple
 
 from app.core.config import settings
+from app.core.env_secrets import getenv_compat
 
-_REQUEST_ID = contextvars.ContextVar("netwatch_request_id", default="")
-_TRACE_ID = contextvars.ContextVar("netwatch_trace_id", default="")
-_SERVICE = contextvars.ContextVar("netwatch_service", default="netwatch")
+_REQUEST_ID = contextvars.ContextVar("seagull_request_id", default="")
+_TRACE_ID = contextvars.ContextVar("seagull_trace_id", default="")
+_SERVICE = contextvars.ContextVar("seagull_service", default="seagull")
 
 _METRIC_LOCK = threading.Lock()
 _COUNTERS: dict[Tuple[str, Tuple[Tuple[str, str], ...]], float] = defaultdict(float)
@@ -51,7 +52,7 @@ class JsonFormatter(logging.Formatter):
         if event:
             payload["event"] = event
 
-        worker_process = (os.getenv("NETWATCH_WORKER_PROCESS", "") or "").strip()
+        worker_process = (getenv_compat("SEAGULL_WORKER_PROCESS", "") or "").strip()
         if worker_process:
             payload["worker_process"] = worker_process
 
@@ -74,7 +75,7 @@ def setup_logging(service: str) -> None:
     if _LOGGING_READY:
         return
 
-    level_name = (settings.NETWATCH_LOG_LEVEL or "INFO").upper()
+    level_name = (settings.SEAGULL_LOG_LEVEL or "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
 
     root = logging.getLogger()

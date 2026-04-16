@@ -364,7 +364,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
 ];
 
 const DEFAULT_ROUTE_META: RouteMeta = {
-  title: "NetWatch",
+  title: "Seagull",
   subtitle: "Security operations portal",
   breadcrumbs: [{ label: "Overview", to: "/overview" }],
 };

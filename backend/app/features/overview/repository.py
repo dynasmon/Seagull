@@ -26,7 +26,7 @@ from app.core.observability import incr_counter, log_event, observe_hist
 from app.features.agents.models import AgentModel
 from app.features.alerts.models import AlertModel
 from app.features.events.models import EventRollup1mModel, IngestStats1sModel, NetEventModel, NetEventRollup1sModel, SshFailRollup1mModel
-logger = logging.getLogger("netwatch.api.overview")
+logger = logging.getLogger("seagull.api.overview")
 
 
 def _env_int(name: str, default: int) -> int:
@@ -234,9 +234,9 @@ def _best_effort_ingest_backlog() -> Tuple[int, int]:
     if r is None:
         return (0, 0)
     try:
-        backlog_key = _env_str("NETWATCH_INGEST_BACKLOG_EVENTS_KEY", "netwatch:ingest:backlog_events")
-        qk = _env_str("NETWATCH_INGEST_QUEUE_KEY", "netwatch:ingest:queue")
-        pk = _env_str("NETWATCH_INGEST_PROCESSING_KEY", f"{qk}:processing")
+        backlog_key = _env_str("SEAGULL_INGEST_BACKLOG_EVENTS_KEY", "seagull:ingest:backlog_events")
+        qk = _env_str("SEAGULL_INGEST_QUEUE_KEY", "seagull:ingest:queue")
+        pk = _env_str("SEAGULL_INGEST_PROCESSING_KEY", f"{qk}:processing")
 
         ev = int(r.get(backlog_key) or 0)
         msgs = int(r.llen(qk) or 0) + int(r.llen(pk) or 0)
@@ -296,7 +296,7 @@ def _storm_key_active() -> bool:
     if r is None:
         return False
     try:
-        k = _env_str("NETWATCH_INGEST_STORM_ACTIVE_KEY", "netwatch:ingest:storm_active")
+        k = _env_str("SEAGULL_INGEST_STORM_ACTIVE_KEY", "seagull:ingest:storm_active")
         return bool(r.get(k))
     except Exception:
         return False
@@ -304,8 +304,8 @@ def _storm_key_active() -> bool:
 
 def _warm_index_prefix() -> str:
     return _env_str(
-        "NETWATCH_INGEST_WARM_INDEX_PREFIX",
-        _env_str("NETWATCH_ES_INDEX_PREFIX", "netwatch-events") + "-warm",
+        "SEAGULL_INGEST_WARM_INDEX_PREFIX",
+        _env_str("SEAGULL_ES_INDEX_PREFIX", "seagull-events") + "-warm",
     )
 
 
@@ -469,10 +469,10 @@ def get_overview_payload(
     started = time.perf_counter()
     now = _utc_now()
     backlog_ev, backlog_msgs = _best_effort_ingest_backlog()
-    pressure_window_s = max(30, _env_int("NETWATCH_OVERVIEW_PRESSURE_LOOKBACK_SECONDS", 120))
-    rollup_fresh_s = max(10, _env_int("NETWATCH_OVERVIEW_INGEST_ROLLUP_FRESH_SECONDS", 120))
-    draining_ev_threshold = max(0, _env_int("NETWATCH_OVERVIEW_DRAINING_BACKLOG_EVENTS_THRESHOLD", 25_000))
-    draining_msg_threshold = max(0, _env_int("NETWATCH_OVERVIEW_DRAINING_BACKLOG_MESSAGES_THRESHOLD", 5))
+    pressure_window_s = max(30, _env_int("SEAGULL_OVERVIEW_PRESSURE_LOOKBACK_SECONDS", 120))
+    rollup_fresh_s = max(10, _env_int("SEAGULL_OVERVIEW_INGEST_ROLLUP_FRESH_SECONDS", 120))
+    draining_ev_threshold = max(0, _env_int("SEAGULL_OVERVIEW_DRAINING_BACKLOG_EVENTS_THRESHOLD", 25_000))
+    draining_msg_threshold = max(0, _env_int("SEAGULL_OVERVIEW_DRAINING_BACKLOG_MESSAGES_THRESHOLD", 5))
 
     protection_active = _storm_key_active()
 
@@ -521,8 +521,8 @@ def get_overview_payload(
             if drift_s > float(max(20, rollup_fresh_s)):
                 rollup_stuck = True
 
-    live_window_s = max(60, _env_int("NETWATCH_OVERVIEW_LIVE_WINDOW_SECONDS", 900))
-    live_fresh_s = max(5, _env_int("NETWATCH_OVERVIEW_LIVE_FRESH_SECONDS", 15))
+    live_window_s = max(60, _env_int("SEAGULL_OVERVIEW_LIVE_WINDOW_SECONDS", 900))
+    live_fresh_s = max(5, _env_int("SEAGULL_OVERVIEW_LIVE_FRESH_SECONDS", 15))
     live_payload = read_overview_live_window(seconds=min(window_minutes * 60, live_window_s))
     live_rows = list(live_payload.get("rows") or [])
     live_last_ts = _to_utc(live_payload.get("last_data_ts"))
@@ -609,7 +609,7 @@ def get_overview_payload(
         )
         ch_latest_ts = _to_utc((ch_latest_rows or [{}])[0].get("last_ts"))
         pg_latest_ts = _pg_latest_event_ts(db, agent_id=agent_id)
-        stale_margin_s = int(getattr(settings, "NETWATCH_EVENTS_ES_STALE_MARGIN_SECONDS", 15) or 15)
+        stale_margin_s = int(getattr(settings, "SEAGULL_EVENTS_ES_STALE_MARGIN_SECONDS", 15) or 15)
         if pg_latest_ts is not None and (
             ch_latest_ts is None or (pg_latest_ts - ch_latest_ts).total_seconds() > float(max(1, stale_margin_s))
         ):

@@ -52,7 +52,7 @@ _RE_SUSPICIOUS_LOG_TAMPER = re.compile(
 )
 
 _RE_DISABLE_SECURITY = re.compile(
-    r"\b(systemctl\s+(stop|disable)\s+(auditd|rsyslog|systemd-journald|netwatch|iptables|ufw)|setenforce\s+0)\b",
+    r"\b(systemctl\s+(stop|disable)\s+(auditd|rsyslog|systemd-journald|seagull|iptables|ufw)|setenforce\s+0)\b",
     re.IGNORECASE,
 )
 
