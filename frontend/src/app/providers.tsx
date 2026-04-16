@@ -175,6 +175,9 @@ function RealtimeStatusNotice() {
 
   if (connection.status === "open" && !connection.isFallbackTransport) return null;
   if (connection.status === "stopped" || connection.status === "idle") return null;
+  if ((connection.status === "retrying" || connection.status === "connecting") && !diagnostics.lastFailureKind) {
+    return null;
+  }
 
   const transportLabel = connection.transport ? connection.transport.toUpperCase() : "none";
   const lastFailure = diagnostics.lastFailureKind
