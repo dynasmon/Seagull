@@ -157,10 +157,10 @@ function Panel(props: {
   bodyClassName?: string;
 }) {
   return (
-    <div className={cx("rounded-xl border border-border/60 bg-background/70 backdrop-blur-md flex flex-col min-h-0", props.className)}>
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-muted/10">
-        <div className="text-sm font-semibold tracking-tight truncate">{props.title}</div>
-        {props.right ? <div className="text-xs text-muted-foreground truncate">{props.right}</div> : null}
+    <div className={cx("rounded-xl border border-border/60 bg-background/70 backdrop-blur-md flex flex-col min-h-0 min-w-0", props.className)}>
+      <div className="flex min-w-0 items-center justify-between gap-3 px-4 py-3 border-b border-border/60 bg-muted/10">
+        <div className="min-w-0 text-sm font-semibold tracking-tight truncate">{props.title}</div>
+        {props.right ? <div className="min-w-0 shrink text-xs text-muted-foreground truncate text-right">{props.right}</div> : null}
       </div>
 
       <div
@@ -586,7 +586,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0">
       <DataViewToolbar
         left={<div className="text-sm font-semibold tracking-tight">{moduleTitle || "Event Stream"}</div>}
         right={toolbarRight}
@@ -746,9 +746,9 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
         <Panel
           title="Event stream"
           right={headerRight}
-          className="min-h-[620px]"
+          className="min-w-0 min-h-[620px]"
           scrollY
-          bodyClassName="p-0"
+          bodyClassName="min-w-0 p-0"
           style={{ height: "calc(100vh - 260px)" }}
         >
           {queryMeta ? (
@@ -797,7 +797,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
           ) : null}
 
           {!isInitialLoading && (!error || events.length > 0) && sortedEvents.length > 0 ? (
-            <div className="relative">
+            <div className="relative min-w-0">
               <EventsTable
                 rows={sortedEvents}
                 selectedId={selectedId}
