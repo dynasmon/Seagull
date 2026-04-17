@@ -162,7 +162,6 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
             <Kv k="app_proto" v={formatProtocolLabel(protocol.appProto)} />
             <Kv k="app_proto_reason" v={protocol.appProtoReason} />
             <Kv k="app_proto_conf_band" v={protocol.appProtoConfBand} />
-            <Kv k="l7_protocol" v={formatProtocolLabel(protocol.l7Protocol)} />
             <Kv k="flow_direction" v={protocol.flowDirection} />
             <Kv k="dns_qname" v={protocol.dnsQname} />
             <Kv k="dns_qtype" v={protocol.dnsQtype} />

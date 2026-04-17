@@ -6,7 +6,6 @@ export type EventProtocolIntel = {
   appProto: string;
   appProtoReason: string;
   appProtoConfBand: string;
-  l7Protocol: string;
   flowDirection: string;
   dnsQname: string;
   dnsQtype: string;
@@ -109,11 +108,12 @@ export function getEventProtocolIntel(event: NetEvent): EventProtocolIntel {
 
   const intelBase = {
     transportProto: pickString(row.proto, extra.proto).toLowerCase(),
+    // l7_protocol is a legacy field name; app_proto is canonical.
     appProto: pickString(row.app_proto, extra.app_proto, row.l7_protocol, extra.l7_protocol, l7.protocol).toLowerCase(),
     appProtoReason: pickString(row.app_proto_reason, extra.app_proto_reason),
     appProtoConfBand: pickString(row.app_proto_conf_band, extra.app_proto_conf_band),
-    l7Protocol: pickString(row.l7_protocol, extra.l7_protocol, l7.protocol).toLowerCase(),
-    flowDirection: pickString(row.flow_direction, extra.flow_direction).toLowerCase(),
+    // http_direction is the backend field name for HTTP request vs response.
+    flowDirection: pickString(row.flow_direction, extra.flow_direction, extra.http_direction).toLowerCase(),
     dnsQname: pickString(row.dns_qname, extra.dns_qname, l7Dns.qname).toLowerCase(),
     dnsQtype: pickString(row.dns_qtype, extra.dns_qtype, l7Dns.qtype).toUpperCase(),
     dnsRcode: pickString(row.dns_rcode, extra.dns_rcode, l7Dns.rcode).toUpperCase(),
@@ -136,7 +136,6 @@ export function getEventProtocolIntel(event: NetEvent): EventProtocolIntel {
     intelBase.appProto ||
       intelBase.appProtoReason ||
       intelBase.appProtoConfBand ||
-      intelBase.l7Protocol ||
       intelBase.flowDirection ||
       intelBase.dnsQname ||
       intelBase.httpMethod ||

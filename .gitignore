@@ -22,7 +22,6 @@ agent/bin/
 agent/dist/
 *.test
 coverage.out
-
 secrets/**
 !secrets/README.md
 
@@ -30,7 +29,6 @@ secrets/**
 .idea/
 .vscode/
 *.log
-# Local GeoIP databases
 backend/data/geoip/*.mmdb
 backend/data/geoip/*.tar.gz
 backend/data/geoip/*.zip

@@ -182,4 +182,121 @@ describe("event protocol intel rendering", () => {
     expect(markup).toContain("ja4");
     expect(markup).toContain("t13d1516h2_8daaf6152771_e5627efa2ab1");
   });
+
+  it("does not render a separate l7_protocol row — app_proto is canonical", () => {
+    const markup = renderToStaticMarkup(
+      <EventDetailsPanel
+        event={makeEvent({
+          proto: "tcp",
+          extra: { app_proto: "tls", tls_sni: "example.com" },
+        })}
+      />
+    );
+
+    const occurrences = (markup.match(/l7_protocol/g) || []).length;
+    expect(occurrences).toBe(0);
+    expect(markup).toContain("app_proto");
+  });
+
+  it("extracts DTLS protocol intel with ja4 ptype d", () => {
+    const event = makeEvent({
+      proto: "udp",
+      extra: {
+        app_proto: "dtls",
+        app_proto_reason: "parsed_tls",
+        tls_sni: "sensor.example.com",
+        ja4: "d13d0310h2_55b375c5d22e_abcdef123456",
+        ja4_ptype: "d",
+      },
+    });
+
+    const intel = getEventProtocolIntel(event);
+    expect(intel.appProto).toBe("dtls");
+    expect(intel.transportProto).toBe("udp");
+    expect(intel.ja4Ptype).toBe("d");
+    expect(intel.tlsSni).toBe("sensor.example.com");
+    // DTLS must not produce HTTP fields
+    expect(intel.httpHost).toBe("");
+    expect(intel.httpMethod).toBe("");
+    expect(intel.hasProtocolIntel).toBe(true);
+  });
+
+  it("picks up flow direction from http_direction in extra", () => {
+    const event = makeEvent({
+      proto: "tcp",
+      extra: {
+        app_proto: "http",
+        http_method: "POST",
+        http_host: "api.internal",
+        http_direction: "request",
+      },
+    });
+
+    const intel = getEventProtocolIntel(event);
+    expect(intel.flowDirection).toBe("request");
+  });
+
+  it("picks up legacy l7_protocol from extra as app_proto fallback", () => {
+    const event = makeEvent({
+      proto: "udp",
+      extra: { l7_protocol: "dns", dns_qname: "ns1.example.com" },
+    });
+
+    const intel = getEventProtocolIntel(event);
+    expect(intel.appProto).toBe("dns");
+    expect(intel.dnsQname).toBe("ns1.example.com");
+  });
+
+  it("returns hasProtocolIntel=false for events with no protocol fields", () => {
+    const event = makeEvent({ proto: undefined as any, extra: {} });
+    const intel = getEventProtocolIntel(event);
+    expect(intel.hasProtocolIntel).toBe(false);
+    expect(intel.appProto).toBe("");
+    expect(intel.transportProto).toBe("");
+  });
+
+  it("does not mislabel encrypted TLS traffic as HTTP", () => {
+    const event = makeEvent({
+      proto: "tcp",
+      extra: {
+        app_proto: "tls",
+        tls_sni: "secure.example.com",
+        tls_alpn_first: "h2",
+        ja4_ptype: "t",
+      },
+    });
+
+    const intel = getEventProtocolIntel(event);
+    expect(intel.appProto).toBe("tls");
+    expect(intel.httpHost).toBe("");
+    expect(intel.httpMethod).toBe("");
+
+    const markup = renderToStaticMarkup(
+      <EventsTable rows={[event]} selectedId={null} />
+    );
+    expect(markup).toContain("TLS");
+    expect(markup).not.toMatch(/\bHTTP\b/);
+  });
+
+  it("renders QUIC over UDP correctly in the events table", () => {
+    const markup = renderToStaticMarkup(
+      <EventsTable
+        rows={[
+          makeEvent({
+            proto: "udp",
+            extra: {
+              app_proto: "quic",
+              tls_sni: "edge.example.net",
+              ja4_ptype: "q",
+            },
+          }),
+        ]}
+        selectedId={null}
+      />
+    );
+
+    expect(markup).toContain("QUIC");
+    expect(markup).toContain("over UDP");
+    expect(markup).not.toMatch(/\bHTTP\b/);
+  });
 });
