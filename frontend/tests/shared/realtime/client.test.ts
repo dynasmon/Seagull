@@ -306,12 +306,43 @@ describe("PortalRealtimeClient", () => {
     client.stop();
   });
 
+  it("ignores legacy websocket keepalive payloads without counting them as malformed", async () => {
+    const tokenProvider = vi.fn(async () => tokenOut("token-keepalive"));
+    const sockets: FakeWebSocket[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      preferredTransport: "ws",
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      reconnectBaseMs: 1,
+      reconnectMaxMs: 1,
+    });
+
+    client.start();
+    await waitForTick(2);
+    sockets[0]?.emitOpen();
+    sockets[0]?.emitMessage(
+      JSON.stringify({
+        kind: "keepalive",
+        transport: "ws",
+        timestamp: "2026-04-09T12:00:00Z",
+      }),
+    );
+
+    expect(client.diagnostics.malformedEnvelopeCount).toBe(0);
+    client.stop();
+  });
+
   it("falls back from websocket to sse before open", async () => {
     const tokenProvider = vi.fn(async () => tokenOut("token-hybrid"));
     const sockets: FakeWebSocket[] = [];
     const sources: FakeEventSource[] = [];
     const client = new PortalRealtimeClient({
       tokenProvider,
+      preferredTransport: "ws",
       webSocketFactory: (url) => {
         const socket = new FakeWebSocket(url);
         sockets.push(socket);
@@ -345,6 +376,41 @@ describe("PortalRealtimeClient", () => {
     client.stop();
   });
 
+  it("does not fall back to sse on explicit websocket auth closes before open", async () => {
+    const tokenProvider = vi.fn(async () => tokenOut("token-auth-close"));
+    const sockets: FakeWebSocket[] = [];
+    const sources: FakeEventSource[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      eventSourceFactory: (url) => {
+        const source = new FakeEventSource(url);
+        sources.push(source);
+        return source;
+      },
+      reconnectBaseMs: 50,
+      reconnectMaxMs: 50,
+    });
+
+    client.subscribe("ui.events.invalidate", vi.fn());
+    client.start();
+    await waitForTick(2);
+
+    expect(sockets).toHaveLength(1);
+
+    sockets[0]?.emitClose(1008, "Invalid stream token");
+    await waitForTick(10);
+
+    expect(sources).toHaveLength(0);
+    expect(client.diagnostics.invalidTokenCount).toBeGreaterThanOrEqual(1);
+
+    client.stop();
+  });
+
   it("dispatches websocket messages and reuses cursor on reconnect", async () => {
     const tokenProvider = vi
       .fn<() => Promise<StreamTokenOut>>()
@@ -353,6 +419,7 @@ describe("PortalRealtimeClient", () => {
     const sockets: FakeWebSocket[] = [];
     const client = new PortalRealtimeClient({
       tokenProvider,
+      preferredTransport: "ws",
       webSocketFactory: (url) => {
         const socket = new FakeWebSocket(url);
         sockets.push(socket);

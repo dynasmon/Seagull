@@ -439,7 +439,5 @@ def format_sse_chunk(
     if event:
         lines.append(f"event: {str(event)}")
     if data is not None:
-        chunks = str(data).splitlines() or [""]
-        for chunk in chunks:
-            lines.append(f"data: {chunk}")
+        lines.append(f"data: {str(data).replace(chr(13), '').replace(chr(10), '')}")
     return "\n".join(lines) + "\n\n"

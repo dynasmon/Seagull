@@ -155,6 +155,26 @@ function classifySocketClose(code: number, reason: string): { kind: string; mess
   return { kind: "transport_close", message: reason || `Socket closed (${code || 0})` };
 }
 
+function isLegacyWebSocketKeepalive(rawData: unknown): boolean {
+  if (typeof rawData !== "string") return false;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawData);
+  } catch {
+    return false;
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+
+  const obj = parsed as Record<string, unknown>;
+  return obj.kind === "keepalive" && obj.transport === "ws";
+}
+
+function isSemanticTransportFailure(kind: string | undefined): boolean {
+  return kind === "invalid_token" || kind === "unauthorized_topic" || kind === "redis_unavailable";
+}
+
 export function decodePortalRealtimeEnvelope(rawData: unknown): PortalRealtimeAnyEvent | null {
   if (typeof rawData !== "string") return null;
 
@@ -611,7 +631,10 @@ export class PortalRealtimeClient {
       });
     }
 
-    const canFallback = !this.transportOpened && this.connectTransportIndex + 1 < this.connectOrder.length;
+    const canFallback =
+      !this.transportOpened &&
+      this.connectTransportIndex + 1 < this.connectOrder.length &&
+      !isSemanticTransportFailure(meta.kind);
     this.teardownTransport();
 
     if (canFallback) {
@@ -796,6 +819,7 @@ export class PortalRealtimeClient {
   private handleIncomingData(eventType: string, data: unknown): void {
     const envelope = decodePortalRealtimeEnvelope(data);
     if (!envelope) {
+      if (isLegacyWebSocketKeepalive(data)) return;
       this.updateDiagnostics((current) => ({
         ...current,
         malformedEnvelopeCount: current.malformedEnvelopeCount + 1,

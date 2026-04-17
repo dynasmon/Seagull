@@ -4,7 +4,9 @@ import asyncio
 import json
 import os
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from jose import jwt
 
@@ -201,9 +203,35 @@ def test_sse_endpoint_rejects_wrong_purpose_claim() -> None:
         assert r.status_code == 401
 
 
-def test_sse_chunk_format_supports_named_event_and_multiline_data() -> None:
+def test_sse_replay_cursor_prefers_last_event_id_header() -> None:
+    request = SimpleNamespace(headers={"last-event-id": "9"})
+
+    assert realtime_api._resolve_sse_replay_after_cursor(request=request, cursor="5") == 9
+    assert realtime_api._resolve_sse_replay_after_cursor(request=request, cursor="12") == 12
+
+
+def test_resolve_stream_session_rejects_explicitly_invalid_topics() -> None:
+    original_get_redis = realtime_api.get_redis
+    realtime_api.get_redis = lambda decode_responses=True: object()
+    try:
+        try:
+            realtime_api._resolve_stream_session(
+                stream_token=_stream_token_with_claims(),
+                topics="bogus",
+                transport="sse",
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 403
+            assert exc.detail == "No realtime topics allowed"
+        else:
+            raise AssertionError("expected invalid topics to be rejected")
+    finally:
+        realtime_api.get_redis = original_get_redis
+
+
+def test_sse_chunk_format_normalizes_data_to_single_line_json() -> None:
     chunk = realtime_service.format_sse_chunk(event="overview.patch", sse_id="9", data='{"a":1}\n{"b":2}')
-    assert chunk == "id: 9\nevent: overview.patch\ndata: {\"a\":1}\ndata: {\"b\":2}\n\n"
+    assert chunk == "id: 9\nevent: overview.patch\ndata: {\"a\":1}{\"b\":2}\n\n"
 
 
 def test_stream_events_emits_named_event_from_stream() -> None:
