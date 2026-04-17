@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
 from typing import AsyncGenerator, Awaitable, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, status
@@ -24,7 +23,6 @@ from app.features.realtime.schemas import RealtimeEnvelope, StreamTokenOut
 from app.features.realtime.service import (
     StreamPrincipal,
     allow_envelope_for_stream,
-    available_realtime_topics,
     build_realtime_envelope,
     coalesce_realtime_envelopes,
     cursor_to_int,
@@ -288,6 +286,12 @@ async def _websocket_is_disconnected(websocket: WebSocket) -> bool:
     )
 
 
+def _resolve_sse_replay_after_cursor(*, request: Request, cursor: str | None) -> int:
+    query_cursor = cursor_to_int(cursor)
+    header_cursor = cursor_to_int(request.headers.get("last-event-id"))
+    return max(query_cursor, header_cursor)
+
+
 def _resolve_stream_session(*, stream_token: str, topics: str | None, transport: str) -> tuple[StreamPrincipal, list[str], object]:
     try:
         principal = decode_stream_token(stream_token)
@@ -296,8 +300,6 @@ def _resolve_stream_session(*, stream_token: str, topics: str | None, transport:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid stream token") from exc
 
     requested_topics = parse_requested_topics(topics)
-    if not requested_topics:
-        requested_topics = list(available_realtime_topics())
     resolved_topics = resolve_stream_topics(principal=principal, requested_topics=requested_topics)
     rejected_topics = [topic for topic in requested_topics if topic not in resolved_topics]
     if rejected_topics:
@@ -398,7 +400,7 @@ async def portal_stream_endpoint(
             principal=principal,
             redis_client=redis_client,
             topics=resolved_topics,
-            replay_after_cursor=cursor_to_int(cursor),
+            replay_after_cursor=_resolve_sse_replay_after_cursor(request=request, cursor=cursor),
             transport="sse",
         ),
         media_type="text/event-stream",
@@ -412,6 +414,8 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
     topics = websocket.query_params.get("topics")
     cursor = websocket.query_params.get("cursor")
 
+    await websocket.accept()
+
     try:
         principal, resolved_topics, redis_client = _resolve_stream_session(stream_token=stream_token, topics=topics, transport="ws")
     except HTTPException as exc:
@@ -419,7 +423,6 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
         await websocket.close(code=close_code, reason=str(exc.detail))
         return
 
-    await websocket.accept()
     _record_stream_open(transport="ws", topics=resolved_topics, replay_after_cursor=cursor_to_int(cursor))
 
     keepalive_seconds = _ws_keepalive_seconds()
@@ -442,13 +445,6 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
             now = time.monotonic()
             if now - last_keepalive >= float(keepalive_seconds):
                 last_keepalive = now
-                await websocket.send_json(
-                    {
-                        "kind": "keepalive",
-                        "transport": "ws",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    }
-                )
     except WebSocketDisconnect:
         _record_stream_close(transport="ws", reason="client_disconnect")
         return

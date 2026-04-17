@@ -22,7 +22,6 @@ agent/bin/
 agent/dist/
 *.test
 coverage.out
-.codex
 secrets/**
 !secrets/README.md
 
