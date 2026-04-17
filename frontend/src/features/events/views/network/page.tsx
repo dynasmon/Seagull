@@ -650,20 +650,26 @@ export default function ProtocolIntelPage() {
             ) : (
               <div className="space-y-2 text-sm text-muted-foreground leading-relaxed">
                 <div>
-                  This view is powered by the <span className="font-mono">proto-intel</span> worker process inside{" "}
-                  <span className="font-mono">seagull-intelligence-worker</span>. If tables stay empty:
+                  This view is powered by the <span className="font-mono">proto-intel</span> worker inside{" "}
+                  <span className="font-mono">seagull-intelligence-worker</span>. L7 collection is{" "}
+                  <span className="text-foreground font-medium">enabled by default</span>. If tables stay empty:
                 </div>
                 <ul className="list-disc pl-5 space-y-1">
                   <li>
-                    Confirm the worker group is running: <span className="font-mono">docker ps | grep intelligence-worker</span>
+                    Confirm the worker is running: <span className="font-mono">docker ps | grep intelligence-worker</span>
                   </li>
                   <li>
-                    Check logs for parsing errors: <span className="font-mono">docker logs -f seagull-intelligence-worker</span>
+                    Check for parsing errors: <span className="font-mono">docker logs -f seagull-intelligence-worker</span>
                   </li>
-                  <li>Generate traffic: DNS lookups, HTTP requests, and TLS handshakes.</li>
+                  <li>Generate traffic: DNS lookups, plaintext HTTP requests, and TLS handshakes.</li>
                   <li>
-                    If you haven’t implemented L7 evidence in the Go agent yet, you will mostly see{" "}
-                    <span className="font-mono">app_proto</span> guesses (ports).
+                    Without payload evidence, the worker falls back to port-based guesses (confidence 70–90).
+                    With agent L7 evidence, classifications score 99.
+                  </li>
+                  <li>
+                    Encrypted HTTPS traffic shows as <span className="font-mono">tls</span> or{" "}
+                    <span className="font-mono">quic</span>, not <span className="font-mono">http</span>. This is correct —
+                    only plaintext payloads are labelled HTTP.
                   </li>
                 </ul>
               </div>
@@ -704,18 +710,31 @@ export default function ProtocolIntelPage() {
           ) : null}
 
           {!hasBlockingState && shouldWarnNoCoverage ? (
-            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-200">
-              No protocol-aware metadata was found in the selected window. This usually means agents are not sending evidence
-              (DNS/HTTP payloads, TLS handshakes) or the worker is not running.
+            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-200 space-y-1">
+              <div className="font-medium">No protocol metadata in this window.</div>
+              <div>
+                L7 collection is enabled by default. If tables stay empty, confirm the{" "}
+                <span className="font-mono">proto-intel</span> worker is running and that agents are
+                capturing traffic (DNS, HTTP, or TLS handshakes).
+              </div>
             </div>
           ) : null}
 
           {!hasBlockingState ? <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-            <Section title="Application protocols" right={`top ${view.top_n}`}>
+            <Section title="Application protocols (L7)" right={`top ${view.top_n}`}>
               {loading && !data ? <Loading label="Loading..." /> : null}
-              {!loading && data && data.app_protocols.length === 0 ? <TableEmpty title="No app_proto yet" /> : null}
+              {!loading && data && data.app_protocols.length === 0 ? (
+                <TableEmpty
+                  title="No protocols classified yet"
+                  desc="Plaintext HTTP is labelled HTTP. Encrypted traffic (HTTPS, QUIC) appears as TLS or QUIC unless a handshake was captured."
+                />
+              ) : null}
               {data && data.app_protocols.length > 0 ? (
-                <div className="overflow-auto">
+                <div className="overflow-auto space-y-3">
+                  <div className="text-[11px] text-muted-foreground leading-relaxed">
+                    <span className="font-mono">http</span> = plaintext request bytes visible ·{" "}
+                    <span className="font-mono">tls</span>/<span className="font-mono">quic</span>/<span className="font-mono">dtls</span> = encrypted, handshake only
+                  </div>
                   <Table
                     columns={[
                       {
@@ -787,8 +806,10 @@ export default function ProtocolIntelPage() {
               ) : null}
             </Section>
 
-            <Section title="JA4 ptype distribution" right="q=QUIC, d=DTLS, t=TLS">
-              {!loading && data && data.ja4_ptypes.length === 0 ? <TableEmpty title="No JA4 ptype" /> : null}
+            <Section title="JA4 ptype distribution" right="q=QUIC · d=DTLS · t=TLS">
+              {!loading && data && data.ja4_ptypes.length === 0 ? (
+                <TableEmpty title="No JA4 ptype data" desc="Populated when TLS, QUIC, or DTLS handshakes are fingerprinted." />
+              ) : null}
               {data && data.ja4_ptypes.length > 0 ? (
                 <div className="overflow-auto">
                   <Table
@@ -827,8 +848,10 @@ export default function ProtocolIntelPage() {
               ) : null}
             </Section>
 
-            <Section title="HTTP methods" right="from HTTP/1 request parsing">
-              {!loading && data && data.http_methods.length === 0 ? <TableEmpty title="No HTTP methods" /> : null}
+            <Section title="HTTP methods" right="from plaintext HTTP/1 parsing">
+              {!loading && data && data.http_methods.length === 0 ? (
+                <TableEmpty title="No HTTP methods" desc="Requires plaintext HTTP/1 request payloads. Encrypted HTTPS traffic does not contribute here." />
+              ) : null}
               {data && data.http_methods.length > 0 ? (
                 <div className="overflow-auto">
                   <Table
@@ -863,7 +886,9 @@ export default function ProtocolIntelPage() {
             </Section>
 
             <Section title="Classification reasons" right={`top ${view.top_n}`}>
-              {!loading && data && data.app_proto_reasons.length === 0 ? <TableEmpty title="No classification reasons yet" /> : null}
+              {!loading && data && data.app_proto_reasons.length === 0 ? (
+                <TableEmpty title="No classification reasons yet" desc="Reasons appear once the proto-intel worker processes events." />
+              ) : null}
               {data && data.app_proto_reasons.length > 0 ? (
                 <div className="overflow-auto">
                   <Table
@@ -901,8 +926,10 @@ export default function ProtocolIntelPage() {
               ) : null}
             </Section>
 
-            <Section title="Confidence bands" right="app_proto confidence">
-              {!loading && data && data.app_proto_conf_bands.length === 0 ? <TableEmpty title="No confidence bands yet" /> : null}
+            <Section title="Confidence bands" right="80-100 · 60-79 · 40-59 · 0-39">
+              {!loading && data && data.app_proto_conf_bands.length === 0 ? (
+                <TableEmpty title="No confidence bands yet" desc="Bands reflect how certain the classifier is: agent evidence scores 99, parsed payloads 98, port guesses 70-90." />
+              ) : null}
               {data && data.app_proto_conf_bands.length > 0 ? (
                 <div className="overflow-auto">
                   <Table
