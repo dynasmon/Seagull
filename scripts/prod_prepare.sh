@@ -198,7 +198,15 @@ reject_env_pair_conflict "SEAGULL_JWT_SECRET" "SEAGULL_JWT_SECRET_FILE"
 reject_env_pair_conflict "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD" "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE"
 
 if command -v docker >/dev/null 2>&1; then
-  if docker compose -f docker-compose.yml -f compose.prod.yml config >/dev/null; then
+  if docker compose \
+    -f compose.base.yml \
+    -f compose.data.yml \
+    -f compose.backend.yml \
+    -f compose.portal.yml \
+    -f compose.observability.yml \
+    -f compose.agents.yml \
+    -f compose.prod.yml \
+    config >/dev/null; then
     echo "[prod-prepare] compose.prod.yml validated successfully"
   else
     echo "[prod-prepare] docker compose config validation failed" >&2
