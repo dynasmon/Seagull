@@ -228,4 +228,4 @@ if [[ -n "$OUTPUT_DIR" ]]; then
 else
   echo "Updated .env with AGENT_*_BOOTSTRAP_TOKEN values."
 fi
-echo "Next: docker compose -f docker-compose.yml -f compose.prod.yml up -d --force-recreate seagull-agent-core seagull-agent-sensor seagull-agent-lateral --profile legacy-agents seagull-agent-proc seagull-agent-scan seagull-agent-ddos seagull-agent-vuln"
+echo "Next: docker compose -f compose.base.yml -f compose.data.yml -f compose.backend.yml -f compose.portal.yml -f compose.observability.yml -f compose.agents.yml -f compose.prod.yml up -d --force-recreate seagull-agent-core seagull-agent-sensor seagull-agent-lateral --profile legacy-agents seagull-agent-proc seagull-agent-scan seagull-agent-ddos seagull-agent-vuln"

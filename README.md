@@ -227,7 +227,7 @@ This command:
 - Runs preflight checks (Docker daemon, TLS files/SAN, compose config)
 - Starts the stack with `--remove-orphans` to keep container state predictable
 - Mints short-lived per-agent bootstrap tokens and rewires agent containers with the fresh tokens
-- Uses `docker-compose.yml + compose.dev.yml`
+- Uses `compose.base.yml + compose.data.yml + compose.backend.yml + compose.portal.yml + compose.observability.yml + compose.agents.yml + compose.dev.yml`
 - Builds and starts the development stack
 
 Recommended local startup path: use `make dev` as the single entrypoint.
@@ -349,7 +349,7 @@ For production-style local runs:
 make prod
 ```
 
-This uses `docker-compose.yml + compose.prod.yml` with Caddy edge HTTPS + bootstrap credential flow.
+This uses the domain-scoped compose files (`compose.base.yml` → `compose.data.yml` → `compose.backend.yml` → `compose.portal.yml` → `compose.observability.yml` → `compose.agents.yml`) overlaid with `compose.prod.yml`, with Caddy edge HTTPS + bootstrap credential flow.
 On first run, `make prod` now auto-generates secure missing/placeholder secrets in `.env`, records a production state fingerprint, and resets stale runtime volumes automatically when critical secrets drift.
 `make prod-fresh` performs a full clean boot, including runtime state reset under `secrets/runtime/`.
 
@@ -376,7 +376,15 @@ make prod-observability
 or with raw compose:
 
 ```bash
-docker compose -f docker-compose.yml -f compose.dev.yml --profile observability up -d grafana kibana
+docker compose \
+  -f compose.base.yml \
+  -f compose.data.yml \
+  -f compose.backend.yml \
+  -f compose.portal.yml \
+  -f compose.observability.yml \
+  -f compose.agents.yml \
+  -f compose.dev.yml \
+  --profile observability up -d grafana kibana
 ```
 
 ### Redis modes
