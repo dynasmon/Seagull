@@ -283,6 +283,14 @@ require_world_or_group_readable SEAGULL_TLS_CERT_FILE "$tls_cert_file"
 require_world_or_group_readable SEAGULL_TLS_KEY_FILE "$tls_key_file"
 require_world_or_group_readable SEAGULL_AGENT_SERVER_CA_FILE "$agent_ca_file"
 
-docker compose -f docker-compose.yml -f compose.dev.yml config -q >/dev/null
+docker compose \
+  -f compose.base.yml \
+  -f compose.data.yml \
+  -f compose.backend.yml \
+  -f compose.portal.yml \
+  -f compose.observability.yml \
+  -f compose.agents.yml \
+  -f compose.dev.yml \
+  config -q >/dev/null
 
 echo "[preflight] ok: docker, compose, openssl, curl, jq and compose config are ready"

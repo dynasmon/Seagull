@@ -1,0 +1,253 @@
+# compose.agents.yml — all agent services and their state volumes
+# YAML anchors do not cross compose files; the x-agent-* anchors from the original
+# docker-compose.yml are redeclared verbatim here so merge keys resolve correctly.
+# Requires: compose.base.yml, compose.backend.yml (seagull-backend healthcheck dependency)
+#
+# Profiles:
+#   (default) seagull-agent-core, seagull-agent-sensor
+#   extra      seagull-agent-lateral
+#   legacy-agents  seagull-agent-proc, seagull-agent-scan, seagull-agent-ddos, seagull-agent-vuln
+#
+# Systemd-managed agents: set SYSTEMD_AGENT=1 in make targets; the Makefile passes
+# --scale seagull-agent-core=0 --scale seagull-agent-sensor=0 to suppress docker agents.
+
+x-agent-env: &agent-env
+  SEAGULL_API_URL: ${SEAGULL_API_URL:-https://127.0.0.1:${SEAGULL_EDGE_HTTPS_PORT:-${NETWATCH_EDGE_HTTPS_PORT:-8443}}/agent}
+  SEAGULL_HTTP_TIMEOUT: ${SEAGULL_HTTP_TIMEOUT:-${NETWATCH_HTTP_TIMEOUT:-}}
+  SEAGULL_CONTROL_HEARTBEAT_EVERY: ${SEAGULL_CONTROL_HEARTBEAT_EVERY:-${NETWATCH_CONTROL_HEARTBEAT_EVERY:-}}
+  SEAGULL_CONTROL_HEARTBEAT_JITTER: ${SEAGULL_CONTROL_HEARTBEAT_JITTER:-${NETWATCH_CONTROL_HEARTBEAT_JITTER:-5s}}
+  SEAGULL_CONTROL_CONFIG_EVERY: ${SEAGULL_CONTROL_CONFIG_EVERY:-${NETWATCH_CONTROL_CONFIG_EVERY:-}}
+  SEAGULL_CONTROL_CONFIG_JITTER: ${SEAGULL_CONTROL_CONFIG_JITTER:-${NETWATCH_CONTROL_CONFIG_JITTER:-30s}}
+  SEAGULL_PCAP_IFACE: ${SEAGULL_PCAP_IFACE:-${NETWATCH_PCAP_IFACE:-}}
+  SEAGULL_L7_PCAP_IFACE: ${SEAGULL_L7_PCAP_IFACE:-${NETWATCH_L7_PCAP_IFACE:-}}
+  SEAGULL_L7_DEDUP_TTL: ${SEAGULL_L7_DEDUP_TTL:-${NETWATCH_L7_DEDUP_TTL:-20s}}
+  SEAGULL_L7_MAX_BATCH: ${SEAGULL_L7_MAX_BATCH:-${NETWATCH_L7_MAX_BATCH:-400}}
+  SEAGULL_L7_MAX_PAYLOAD_BYTES: ${SEAGULL_L7_MAX_PAYLOAD_BYTES:-${NETWATCH_L7_MAX_PAYLOAD_BYTES:-512}}
+  SEAGULL_L7_INCLUDE_PAYLOAD: ${SEAGULL_L7_INCLUDE_PAYLOAD:-${NETWATCH_L7_INCLUDE_PAYLOAD:-false}}
+  SEAGULL_SKIP_LOOPBACK: ${SEAGULL_SKIP_LOOPBACK:-${NETWATCH_SKIP_LOOPBACK:-}}
+  SEAGULL_SKIP_LINK_LOCAL: ${SEAGULL_SKIP_LINK_LOCAL:-${NETWATCH_SKIP_LINK_LOCAL:-}}
+  SEAGULL_DENY_CIDRS: ${SEAGULL_DENY_CIDRS:-${NETWATCH_DENY_CIDRS:-}}
+  SEAGULL_DENY_DST_PORTS: ${SEAGULL_DENY_DST_PORTS:-${NETWATCH_DENY_DST_PORTS:-}}
+  # Syscollector defaults (can be overridden by control-plane config)
+  SEAGULL_AGENT_CONFIG_FILE: ${SEAGULL_AGENT_CONFIG_FILE:-${NETWATCH_AGENT_CONFIG_FILE:-}}
+  SEAGULL_SYSCOLLECT_EVERY: ${SEAGULL_SYSCOLLECT_EVERY:-${NETWATCH_SYSCOLLECT_EVERY:-}}
+  SEAGULL_SYSCOLLECT_STARTUP_JITTER: ${SEAGULL_SYSCOLLECT_STARTUP_JITTER:-${NETWATCH_SYSCOLLECT_STARTUP_JITTER:-45s}}
+  SEAGULL_SYSCOLLECT_CMD_TIMEOUT: ${SEAGULL_SYSCOLLECT_CMD_TIMEOUT:-${NETWATCH_SYSCOLLECT_CMD_TIMEOUT:-}}
+  SEAGULL_SYSCOLLECT_MAX_OUTPUT_BYTES: ${SEAGULL_SYSCOLLECT_MAX_OUTPUT_BYTES:-${NETWATCH_SYSCOLLECT_MAX_OUTPUT_BYTES:-}}
+  SEAGULL_SYSCOLLECT_MAX_PACKAGES: ${SEAGULL_SYSCOLLECT_MAX_PACKAGES:-${NETWATCH_SYSCOLLECT_MAX_PACKAGES:-}}
+  SEAGULL_AUTHLOG_DEDUP_TTL: ${SEAGULL_AUTHLOG_DEDUP_TTL:-${NETWATCH_AUTHLOG_DEDUP_TTL:-}}
+  SEAGULL_AUTHLOG_INCLUDE_ACCEPTED: ${SEAGULL_AUTHLOG_INCLUDE_ACCEPTED:-${NETWATCH_AUTHLOG_INCLUDE_ACCEPTED:-}}
+  SEAGULL_VULN_STARTUP_JITTER: ${SEAGULL_VULN_STARTUP_JITTER:-${NETWATCH_VULN_STARTUP_JITTER:-2m}}
+  SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${SEAGULL_AGENT_BOOTSTRAP_TOKEN:-${NETWATCH_AGENT_BOOTSTRAP_TOKEN:-}}
+  SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE:-${NETWATCH_AGENT_BOOTSTRAP_TOKEN_FILE:-}}
+  SEAGULL_FORCE_ENROLL_ON_START: ${SEAGULL_FORCE_ENROLL_ON_START:-${NETWATCH_FORCE_ENROLL_ON_START:-true}}
+  SEAGULL_TLS_SERVER_NAME: ${SEAGULL_AGENT_TLS_SERVER_NAME:-${NETWATCH_AGENT_TLS_SERVER_NAME:-localhost}}
+  SEAGULL_AGENT_CREDENTIAL_FILE: ${SEAGULL_AGENT_CREDENTIAL_FILE:-${NETWATCH_AGENT_CREDENTIAL_FILE:-/var/lib/seagull/agent.credential}}
+  SEAGULL_TLS_CA_FILE: ${SEAGULL_TLS_CA_FILE:-${NETWATCH_TLS_CA_FILE:-/etc/seagull/server-ca.crt}}
+  SEAGULL_CONTROL_CREDENTIAL_ROTATE_EVERY: ${SEAGULL_CONTROL_CREDENTIAL_ROTATE_EVERY:-${NETWATCH_CONTROL_CREDENTIAL_ROTATE_EVERY:-5m}}
+  SEAGULL_CONTROL_CREDENTIAL_ROTATE_BEFORE: ${SEAGULL_CONTROL_CREDENTIAL_ROTATE_BEFORE:-${NETWATCH_CONTROL_CREDENTIAL_ROTATE_BEFORE:-24h}}
+
+x-agent-build: &agent-build
+  build:
+    context: ./agent
+    dockerfile: Dockerfile
+
+x-agent-common: &agent-common
+  <<: *agent-build
+  network_mode: host
+  user: "0:0"
+  group_add:
+    - "${SEAGULL_HOST_ADM_GID:-${NETWATCH_HOST_ADM_GID:-4}}"
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+
+x-agent-core-base: &agent-core-base
+  <<: *agent-common
+  cap_drop:
+    - ALL
+  read_only: true
+  tmpfs:
+    - /tmp
+  mem_limit: 384m
+  cpus: "0.75"
+
+x-agent-sensor-base: &agent-sensor-base
+  <<: *agent-common
+  cap_drop:
+    - ALL
+  cap_add:
+    - NET_RAW
+    - NET_ADMIN
+  read_only: true
+  tmpfs:
+    - /tmp
+  mem_limit: 512m
+  cpus: "1.50"
+
+services:
+  seagull-agent-core:
+    <<: *agent-core-base
+    container_name: seagull-agent-core-1
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_CORE_ID:-agent-core-1}
+      SEAGULL_SOURCES: proc,authlog,syscollector,vuln
+      SEAGULL_AUTHLOG_PATH: /var/log/auth.log
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_CORE_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_CORE_BOOTSTRAP_TOKEN_FILE:-}
+      SEAGULL_HOST_ROOT: ${SEAGULL_VULN_HOST_ROOT:-${NETWATCH_VULN_HOST_ROOT:-}}
+      SEAGULL_VULN_SCAN_EVERY: ${SEAGULL_VULN_SCAN_EVERY:-${NETWATCH_VULN_SCAN_EVERY:-}}
+      SEAGULL_VULN_HTTP_TIMEOUT: ${SEAGULL_VULN_HTTP_TIMEOUT:-${NETWATCH_VULN_HTTP_TIMEOUT:-}}
+      SEAGULL_VULN_OSV_URL: ${SEAGULL_VULN_OSV_URL:-${NETWATCH_VULN_OSV_URL:-}}
+      SEAGULL_VULN_MIN_SEVERITY: ${SEAGULL_VULN_MIN_SEVERITY:-${NETWATCH_VULN_MIN_SEVERITY:-}}
+      SEAGULL_VULN_ANALYSIS_PROFILE: ${SEAGULL_VULN_ANALYSIS_PROFILE:-${NETWATCH_VULN_ANALYSIS_PROFILE:-}}
+      SEAGULL_VULN_EXPOSURE_ENABLED: ${SEAGULL_VULN_EXPOSURE_ENABLED:-${NETWATCH_VULN_EXPOSURE_ENABLED:-}}
+      SEAGULL_VULN_QUERY_BATCH_SIZE: ${SEAGULL_VULN_QUERY_BATCH_SIZE:-${NETWATCH_VULN_QUERY_BATCH_SIZE:-}}
+      SEAGULL_VULN_CMD_TIMEOUT: ${SEAGULL_VULN_CMD_TIMEOUT:-${NETWATCH_VULN_CMD_TIMEOUT:-}}
+      SEAGULL_VULN_MAX_PACKAGES: ${SEAGULL_VULN_MAX_PACKAGES:-${NETWATCH_VULN_MAX_PACKAGES:-}}
+      SEAGULL_VULN_HOST_ROOT: ${SEAGULL_VULN_HOST_ROOT:-${NETWATCH_VULN_HOST_ROOT:-}}
+      SEAGULL_VULN_EMIT_SUMMARY_EVENT: ${SEAGULL_VULN_EMIT_SUMMARY_EVENT:-${NETWATCH_VULN_EMIT_SUMMARY_EVENT:-}}
+    volumes:
+      - /var/log:/host/var/log:ro
+      - /:/host:ro
+      - agent-core-state:/var/lib/seagull
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}}:/etc/seagull/server-ca.crt:ro
+
+  seagull-agent-sensor:
+    <<: *agent-sensor-base
+    container_name: seagull-agent-sensor-1
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_SENSOR_ID:-agent-sensor-1}
+      SEAGULL_SOURCES: scan,ddos,l7
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_SENSOR_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SENSOR_BOOTSTRAP_TOKEN_FILE:-}
+      SEAGULL_DDOS_SUSTAIN_WINDOWS: ${SEAGULL_DDOS_SUSTAIN_WINDOWS:-${NETWATCH_DDOS_SUSTAIN_WINDOWS:-}}
+      SEAGULL_DDOS_COOLDOWN: ${SEAGULL_DDOS_COOLDOWN:-${NETWATCH_DDOS_COOLDOWN:-}}
+    volumes:
+      - agent-sensor-state:/var/lib/seagull
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}}:/etc/seagull/server-ca.crt:ro
+
+  seagull-agent-lateral:
+    <<: *agent-sensor-base
+    container_name: seagull-agent-lateral
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    profiles: ["extra"]
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_LATERAL_ID:-agent-lateral-1}
+      SEAGULL_SOURCES: lateral
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_LATERAL_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_LATERAL_BOOTSTRAP_TOKEN_FILE:-}
+      SEAGULL_LATERAL_MODE: ${SEAGULL_LATERAL_MODE:-${NETWATCH_LATERAL_MODE:-}}
+      SEAGULL_LATERAL_PCAP_IFACE: ${SEAGULL_LATERAL_PCAP_IFACE:-${NETWATCH_LATERAL_PCAP_IFACE:-}}
+      SEAGULL_LATERAL_PORTS: ${SEAGULL_LATERAL_PORTS:-${NETWATCH_LATERAL_PORTS:-}}
+      SEAGULL_LATERAL_INCLUDE_ESTABLISHED: ${SEAGULL_LATERAL_INCLUDE_ESTABLISHED:-${NETWATCH_LATERAL_INCLUDE_ESTABLISHED:-}}
+      SEAGULL_LATERAL_DEDUP_TTL: ${SEAGULL_LATERAL_DEDUP_TTL:-${NETWATCH_LATERAL_DEDUP_TTL:-}}
+      SEAGULL_LATERAL_MAX_BATCH: ${SEAGULL_LATERAL_MAX_BATCH:-${NETWATCH_LATERAL_MAX_BATCH:-}}
+    volumes:
+      - agent-lateral-state:/var/lib/seagull
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}}:/etc/seagull/server-ca.crt:ro
+
+  seagull-agent-proc:
+    <<: *agent-core-base
+    container_name: seagull-agent-proc-legacy
+    profiles: ["legacy-agents"]
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_PROC_ID:-agent-proc-1}
+      SEAGULL_SOURCES: proc,authlog,syscollector
+      SEAGULL_AUTHLOG_PATH: /var/log/auth.log
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_PROC_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_PROC_BOOTSTRAP_TOKEN_FILE:-}
+    volumes:
+      - /var/log:/host/var/log:ro
+      - agent-proc-state:/var/lib/seagull
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}}:/etc/seagull/server-ca.crt:ro
+
+  seagull-agent-scan:
+    <<: *agent-sensor-base
+    container_name: seagull-agent-scan-legacy
+    profiles: ["legacy-agents"]
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_SCAN_ID:-agent-scan-1}
+      SEAGULL_SOURCES: scan
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_SCAN_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SCAN_BOOTSTRAP_TOKEN_FILE:-}
+    volumes:
+      - agent-scan-state:/var/lib/seagull
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}}:/etc/seagull/server-ca.crt:ro
+
+  seagull-agent-ddos:
+    <<: *agent-sensor-base
+    container_name: seagull-agent-ddos-legacy
+    profiles: ["legacy-agents"]
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_DDOS_ID:-agent-ddos-1}
+      SEAGULL_SOURCES: ddos
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_DDOS_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_DDOS_BOOTSTRAP_TOKEN_FILE:-}
+      SEAGULL_DDOS_SUSTAIN_WINDOWS: ${SEAGULL_DDOS_SUSTAIN_WINDOWS:-${NETWATCH_DDOS_SUSTAIN_WINDOWS:-}}
+      SEAGULL_DDOS_COOLDOWN: ${SEAGULL_DDOS_COOLDOWN:-${NETWATCH_DDOS_COOLDOWN:-}}
+    volumes:
+      - agent-ddos-state:/var/lib/seagull
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}}:/etc/seagull/server-ca.crt:ro
+
+  seagull-agent-vuln:
+    <<: *agent-core-base
+    container_name: seagull-agent-vuln-legacy
+    profiles: ["legacy-agents"]
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_VULN_ID:-agent-vuln-1}
+      SEAGULL_SOURCES: vuln
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_VULN_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_VULN_BOOTSTRAP_TOKEN_FILE:-}
+      SEAGULL_HOST_ROOT: ${SEAGULL_VULN_HOST_ROOT:-${NETWATCH_VULN_HOST_ROOT:-}}
+      SEAGULL_VULN_SCAN_EVERY: ${SEAGULL_VULN_SCAN_EVERY:-${NETWATCH_VULN_SCAN_EVERY:-}}
+      SEAGULL_VULN_HTTP_TIMEOUT: ${SEAGULL_VULN_HTTP_TIMEOUT:-${NETWATCH_VULN_HTTP_TIMEOUT:-}}
+      SEAGULL_VULN_OSV_URL: ${SEAGULL_VULN_OSV_URL:-${NETWATCH_VULN_OSV_URL:-}}
+      SEAGULL_VULN_MIN_SEVERITY: ${SEAGULL_VULN_MIN_SEVERITY:-${NETWATCH_VULN_MIN_SEVERITY:-}}
+      SEAGULL_VULN_ANALYSIS_PROFILE: ${SEAGULL_VULN_ANALYSIS_PROFILE:-${NETWATCH_VULN_ANALYSIS_PROFILE:-}}
+      SEAGULL_VULN_EXPOSURE_ENABLED: ${SEAGULL_VULN_EXPOSURE_ENABLED:-${NETWATCH_VULN_EXPOSURE_ENABLED:-}}
+      SEAGULL_VULN_QUERY_BATCH_SIZE: ${SEAGULL_VULN_QUERY_BATCH_SIZE:-${NETWATCH_VULN_QUERY_BATCH_SIZE:-}}
+      SEAGULL_VULN_CMD_TIMEOUT: ${SEAGULL_VULN_CMD_TIMEOUT:-${NETWATCH_VULN_CMD_TIMEOUT:-}}
+      SEAGULL_VULN_MAX_PACKAGES: ${SEAGULL_VULN_MAX_PACKAGES:-${NETWATCH_VULN_MAX_PACKAGES:-}}
+      SEAGULL_VULN_HOST_ROOT: ${SEAGULL_VULN_HOST_ROOT:-${NETWATCH_VULN_HOST_ROOT:-}}
+      SEAGULL_VULN_EMIT_SUMMARY_EVENT: ${SEAGULL_VULN_EMIT_SUMMARY_EVENT:-${NETWATCH_VULN_EMIT_SUMMARY_EVENT:-}}
+    volumes:
+      - agent-vuln-state:/var/lib/seagull
+      - /:/host:ro
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-${NETWATCH_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}}:/etc/seagull/server-ca.crt:ro
+
+volumes:
+  agent-core-state:
+  agent-sensor-state:
+  agent-lateral-state:
+  agent-proc-state:
+  agent-scan-state:
+  agent-ddos-state:
+  agent-vuln-state:

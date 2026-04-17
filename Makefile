@@ -1,7 +1,13 @@
 SHELL := /bin/bash
 
 DC := docker compose
-COMPOSE_BASE := -f docker-compose.yml
+COMPOSE_BASE := \
+  -f compose.base.yml \
+  -f compose.data.yml \
+  -f compose.backend.yml \
+  -f compose.portal.yml \
+  -f compose.observability.yml \
+  -f compose.agents.yml
 COMPOSE_DEV := $(COMPOSE_BASE) -f compose.dev.yml
 COMPOSE_DEV_TLS := $(COMPOSE_DEV) -f compose.dev.tls.yml
 COMPOSE_PROD := $(COMPOSE_BASE) -f compose.prod.yml
