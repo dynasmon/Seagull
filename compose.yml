@@ -1,0 +1,880 @@
+networks:
+  seagull:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  elastic-data:
+  clickhouse-data:
+  caddy-data:
+  caddy-config:
+  agent-core-state:
+  agent-sensor-state:
+  agent-lateral-state:
+  agent-proc-state:
+  agent-scan-state:
+  agent-ddos-state:
+  agent-vuln-state:
+
+x-agent-env: &agent-env
+  SEAGULL_API_URL: ${SEAGULL_API_URL:-https://127.0.0.1:${SEAGULL_EDGE_HTTPS_PORT:-8443}/agent}
+  SEAGULL_HTTP_TIMEOUT: ${SEAGULL_HTTP_TIMEOUT:-}
+  SEAGULL_CONTROL_HEARTBEAT_EVERY: ${SEAGULL_CONTROL_HEARTBEAT_EVERY:-}
+  SEAGULL_CONTROL_HEARTBEAT_JITTER: ${SEAGULL_CONTROL_HEARTBEAT_JITTER:-5s}
+  SEAGULL_CONTROL_CONFIG_EVERY: ${SEAGULL_CONTROL_CONFIG_EVERY:-}
+  SEAGULL_CONTROL_CONFIG_JITTER: ${SEAGULL_CONTROL_CONFIG_JITTER:-30s}
+  SEAGULL_PCAP_IFACE: ${SEAGULL_PCAP_IFACE:-}
+  SEAGULL_L7_PCAP_IFACE: ${SEAGULL_L7_PCAP_IFACE:-}
+  SEAGULL_L7_DEDUP_TTL: ${SEAGULL_L7_DEDUP_TTL:-20s}
+  SEAGULL_L7_MAX_BATCH: ${SEAGULL_L7_MAX_BATCH:-400}
+  SEAGULL_L7_MAX_PAYLOAD_BYTES: ${SEAGULL_L7_MAX_PAYLOAD_BYTES:-512}
+  SEAGULL_L7_INCLUDE_PAYLOAD: ${SEAGULL_L7_INCLUDE_PAYLOAD:-false}
+  SEAGULL_SKIP_LOOPBACK: ${SEAGULL_SKIP_LOOPBACK:-}
+  SEAGULL_SKIP_LINK_LOCAL: ${SEAGULL_SKIP_LINK_LOCAL:-}
+  SEAGULL_DENY_CIDRS: ${SEAGULL_DENY_CIDRS:-}
+  SEAGULL_DENY_DST_PORTS: ${SEAGULL_DENY_DST_PORTS:-}
+  SEAGULL_AGENT_CONFIG_FILE: ${SEAGULL_AGENT_CONFIG_FILE:-}
+  SEAGULL_SYSCOLLECT_EVERY: ${SEAGULL_SYSCOLLECT_EVERY:-}
+  SEAGULL_SYSCOLLECT_STARTUP_JITTER: ${SEAGULL_SYSCOLLECT_STARTUP_JITTER:-45s}
+  SEAGULL_SYSCOLLECT_CMD_TIMEOUT: ${SEAGULL_SYSCOLLECT_CMD_TIMEOUT:-}
+  SEAGULL_SYSCOLLECT_MAX_OUTPUT_BYTES: ${SEAGULL_SYSCOLLECT_MAX_OUTPUT_BYTES:-}
+  SEAGULL_SYSCOLLECT_MAX_PACKAGES: ${SEAGULL_SYSCOLLECT_MAX_PACKAGES:-}
+  SEAGULL_AUTHLOG_DEDUP_TTL: ${SEAGULL_AUTHLOG_DEDUP_TTL:-}
+  SEAGULL_AUTHLOG_INCLUDE_ACCEPTED: ${SEAGULL_AUTHLOG_INCLUDE_ACCEPTED:-}
+  SEAGULL_VULN_STARTUP_JITTER: ${SEAGULL_VULN_STARTUP_JITTER:-2m}
+  SEAGULL_FORCE_ENROLL_ON_START: ${SEAGULL_FORCE_ENROLL_ON_START:-true}
+  SEAGULL_TLS_SERVER_NAME: ${SEAGULL_AGENT_TLS_SERVER_NAME:-localhost}
+  SEAGULL_TLS_CA_FILE: /etc/seagull/server-ca.crt
+  SEAGULL_AGENT_CREDENTIAL_FILE: ${SEAGULL_AGENT_CREDENTIAL_FILE:-/var/lib/seagull/agent.credential}
+  SEAGULL_CONTROL_CREDENTIAL_ROTATE_EVERY: ${SEAGULL_CONTROL_CREDENTIAL_ROTATE_EVERY:-5m}
+  SEAGULL_CONTROL_CREDENTIAL_ROTATE_BEFORE: ${SEAGULL_CONTROL_CREDENTIAL_ROTATE_BEFORE:-24h}
+
+x-agent-build: &agent-build
+  build:
+    context: ./agent
+    dockerfile: Dockerfile
+
+x-agent-common: &agent-common
+  <<: *agent-build
+  network_mode: host
+  user: "0:0"
+  group_add:
+    - "${SEAGULL_HOST_ADM_GID:-4}"
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+
+x-agent-core-base: &agent-core-base
+  <<: *agent-common
+  cap_drop:
+    - ALL
+  read_only: true
+  tmpfs:
+    - /tmp
+  mem_limit: 384m
+  cpus: "0.75"
+
+x-agent-sensor-base: &agent-sensor-base
+  <<: *agent-common
+  cap_drop:
+    - ALL
+  cap_add:
+    - NET_RAW
+    - NET_ADMIN
+  read_only: true
+  tmpfs:
+    - /tmp
+  mem_limit: 512m
+  cpus: "1.50"
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Data layer
+  # ---------------------------------------------------------------------------
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: seagull-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-seagull}
+      POSTGRES_USER: ${POSTGRES_USER:-seagull}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - seagull
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >-
+          DB_PASS="${POSTGRES_PASSWORD:-}";
+          if [ -z "$$DB_PASS" ] && [ -n "${POSTGRES_PASSWORD_FILE:-}" ]; then
+            DB_PASS="$$(cat "${POSTGRES_PASSWORD_FILE}")";
+          fi;
+          PGPASSWORD="$$DB_PASS" psql -h 127.0.0.1 -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -tAc 'SELECT 1' >/dev/null 2>&1 ||
+          { echo 'postgres auth failed'; exit 1; }
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: seagull-redis
+    command: ["/bin/sh", "/etc/seagull/redis/start.sh"]
+    environment:
+      SEAGULL_REDIS_PASSWORD: ${SEAGULL_REDIS_PASSWORD:-${NETWATCH_REDIS_PASSWORD:-}}
+      SEAGULL_REDIS_PASSWORD_FILE: ${SEAGULL_REDIS_PASSWORD_FILE:-${NETWATCH_REDIS_PASSWORD_FILE:-}}
+      SEAGULL_REDIS_CONFIG_FILE: /etc/seagull/redis/${SEAGULL_REDIS_CONFIG:-redis.dev.conf}
+      SEAGULL_REDIS_STRICT_PASSWORD: ${SEAGULL_REDIS_STRICT_PASSWORD:-false}
+    stop_grace_period: ${SEAGULL_REDIS_STOP_GRACE_PERIOD:-10s}
+    volumes:
+      - ./infra/redis:/etc/seagull/redis:ro
+      - redis-data:/data
+    networks:
+      - seagull
+    healthcheck:
+      test: ["CMD", "/bin/sh", "/etc/seagull/redis/healthcheck.sh"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: seagull-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: ${SEAGULL_ES_SECURITY_ENABLED:-false}
+      xpack.security.http.ssl.enabled: "false"
+      xpack.ml.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+      ELASTIC_PASSWORD: ${SEAGULL_ES_PASSWORD:-${NETWATCH_ES_PASSWORD:-}}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elastic-data:/usr/share/elasticsearch/data
+    ports:
+      - "${ELASTICSEARCH_PORT:-}:9200"
+    networks:
+      - seagull
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >-
+          ES_PASS="${SEAGULL_ES_PASSWORD:-}";
+          if [ -n "$$ES_PASS" ]; then
+            curl -fsS -u "elastic:$$ES_PASS" "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=2s" >/dev/null;
+          else
+            curl -fsS "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=2s" >/dev/null;
+          fi
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: seagull-clickhouse
+    environment:
+      CLICKHOUSE_DB: ${SEAGULL_CLICKHOUSE_DATABASE:-${NETWATCH_CLICKHOUSE_DATABASE:-seagull}}
+      CLICKHOUSE_USER: ${SEAGULL_CLICKHOUSE_USERNAME:-${NETWATCH_CLICKHOUSE_USERNAME:-default}}
+      CLICKHOUSE_PASSWORD: ${SEAGULL_CLICKHOUSE_PASSWORD:-${NETWATCH_CLICKHOUSE_PASSWORD:-}}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT:-}:8123"
+      - "${CLICKHOUSE_NATIVE_PORT:-}:9000"
+    networks:
+      - seagull
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8123/ping | grep -q 'Ok.'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Backend
+  # ---------------------------------------------------------------------------
+
+  seagull-backend:
+    build: ./backend
+    container_name: seagull-backend
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --workers
+      - "${SEAGULL_UVICORN_WORKERS:-2}"
+      - --no-access-log
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${SEAGULL_BACKEND_PORT:-}:8000"
+    environment:
+      SEAGULL_ENV: ${SEAGULL_ENV:-${SEAGULL_MODE:-dev}}
+      SEAGULL_DB_HOST: postgres
+      SEAGULL_DB_PORT: "5432"
+      SEAGULL_DB_NAME: ${POSTGRES_DB:-seagull}
+      SEAGULL_DB_USER: ${POSTGRES_USER:-seagull}
+      SEAGULL_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
+      SEAGULL_DB_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
+      SEAGULL_DB_AUTO_UPGRADE: ${SEAGULL_DB_AUTO_UPGRADE:-true}
+      SEAGULL_REDIS_PASSWORD: ${SEAGULL_REDIS_PASSWORD:-${NETWATCH_REDIS_PASSWORD:-}}
+      SEAGULL_REDIS_PASSWORD_FILE: ${SEAGULL_REDIS_PASSWORD_FILE:-${NETWATCH_REDIS_PASSWORD_FILE:-}}
+      SEAGULL_JWT_SECRET: ${SEAGULL_JWT_SECRET:-${NETWATCH_JWT_SECRET:-}}
+      SEAGULL_JWT_SECRET_FILE: ${SEAGULL_JWT_SECRET_FILE:-${NETWATCH_JWT_SECRET_FILE:-}}
+      SEAGULL_JWT_ISSUER: ${SEAGULL_JWT_ISSUER:-seagull-backend}
+      SEAGULL_JWT_AUDIENCE: ${SEAGULL_JWT_AUDIENCE:-seagull-portal}
+      SEAGULL_TOKEN_PEPPER: ${SEAGULL_TOKEN_PEPPER:-}
+      SEAGULL_ACCESS_TOKEN_TTL_SECONDS: ${SEAGULL_ACCESS_TOKEN_TTL_SECONDS:-600}
+      SEAGULL_REFRESH_TOKEN_TTL_SECONDS: ${SEAGULL_REFRESH_TOKEN_TTL_SECONDS:-604800}
+      SEAGULL_OTP_TOKEN_TTL_SECONDS: ${SEAGULL_OTP_TOKEN_TTL_SECONDS:-900}
+      SEAGULL_AUTH_OTP_ENABLED: ${SEAGULL_AUTH_OTP_ENABLED:-false}
+      SEAGULL_COOKIE_SECURE: ${SEAGULL_COOKIE_SECURE:-false}
+      SEAGULL_COOKIE_SAMESITE: ${SEAGULL_COOKIE_SAMESITE:-lax}
+      SEAGULL_COOKIE_DOMAIN: ${SEAGULL_COOKIE_DOMAIN:-}
+      SEAGULL_ENABLE_HSTS: ${SEAGULL_ENABLE_HSTS:-false}
+      SEAGULL_TRUST_PROXY_HEADERS: ${SEAGULL_TRUST_PROXY_HEADERS:-false}
+      SEAGULL_TRUSTED_PROXY_CIDRS: ${SEAGULL_TRUSTED_PROXY_CIDRS:-127.0.0.1,::1}
+      SEAGULL_ALLOWED_HOSTS: ${SEAGULL_ALLOWED_HOSTS:-${SEAGULL_ALLOWED_HOSTS_PROD:-localhost,127.0.0.1}}
+      SEAGULL_AUDIT_HASH_PEPPER: ${SEAGULL_AUDIT_HASH_PEPPER:-${NETWATCH_AUDIT_HASH_PEPPER:-}}
+      SEAGULL_AUDIT_HASH_PEPPER_FILE: ${SEAGULL_AUDIT_HASH_PEPPER_FILE:-}
+      SEAGULL_AUDIT_RETENTION_ENABLED: ${SEAGULL_AUDIT_RETENTION_ENABLED:-true}
+      SEAGULL_AUDIT_RETENTION_DAYS: ${SEAGULL_AUDIT_RETENTION_DAYS:-30}
+      SEAGULL_LOGIN_AUDIT_RETENTION_DAYS: ${SEAGULL_LOGIN_AUDIT_RETENTION_DAYS:-30}
+      SEAGULL_GOVERNANCE_RETENTION_DAYS: ${SEAGULL_GOVERNANCE_RETENTION_DAYS:-30}
+      SEAGULL_AUDIT_RETENTION_EVERY_SECONDS: ${SEAGULL_AUDIT_RETENTION_EVERY_SECONDS:-3600}
+      SEAGULL_AUDIT_RETENTION_DELETE_BATCH: ${SEAGULL_AUDIT_RETENTION_DELETE_BATCH:-5000}
+      SEAGULL_SEARCH_BACKEND: ${SEAGULL_SEARCH_BACKEND:-auto}
+      SEAGULL_ES_URL: ${SEAGULL_ES_URL:-http://elasticsearch:9200}
+      SEAGULL_ES_INDEX_PREFIX: ${SEAGULL_ES_INDEX_PREFIX:-seagull-events}
+      SEAGULL_ES_REQUEST_TIMEOUT_SECONDS: ${SEAGULL_ES_REQUEST_TIMEOUT_SECONDS:-30}
+      SEAGULL_ES_USERNAME: ${SEAGULL_ES_USERNAME:-${NETWATCH_ES_USERNAME:-}}
+      SEAGULL_ES_PASSWORD: ${SEAGULL_ES_PASSWORD:-${NETWATCH_ES_PASSWORD:-}}
+      SEAGULL_ES_PASSWORD_FILE: ${SEAGULL_ES_PASSWORD_FILE:-}
+      SEAGULL_ES_VERIFY_CERTS: ${SEAGULL_ES_VERIFY_CERTS:-true}
+      SEAGULL_ES_CA_CERTS: ${SEAGULL_ES_CA_CERTS:-}
+      SEAGULL_ES_PING_TTL_SECONDS: ${SEAGULL_ES_PING_TTL_SECONDS:-2}
+      SEAGULL_INGEST_WARM_INDEX_PREFIX: ${SEAGULL_INGEST_WARM_INDEX_PREFIX:-seagull-events-warm}
+      SEAGULL_INGEST_WARM_ILM_ENABLED: ${SEAGULL_INGEST_WARM_ILM_ENABLED:-true}
+      SEAGULL_INGEST_WARM_ILM_POLICY: ${SEAGULL_INGEST_WARM_ILM_POLICY:-seagull-warm-delete-30d}
+      SEAGULL_INGEST_WARM_ILM_DELETE_AFTER_DAYS: ${SEAGULL_INGEST_WARM_ILM_DELETE_AFTER_DAYS:-30}
+      SEAGULL_CLICKHOUSE_ENABLED: ${SEAGULL_CLICKHOUSE_ENABLED:-true}
+      SEAGULL_CLICKHOUSE_REQUIRED: ${SEAGULL_CLICKHOUSE_REQUIRED:-false}
+      SEAGULL_CLICKHOUSE_HOST: ${SEAGULL_CLICKHOUSE_HOST:-clickhouse}
+      SEAGULL_CLICKHOUSE_PORT: ${SEAGULL_CLICKHOUSE_PORT:-8123}
+      SEAGULL_CLICKHOUSE_DATABASE: ${SEAGULL_CLICKHOUSE_DATABASE:-${NETWATCH_CLICKHOUSE_DATABASE:-seagull}}
+      SEAGULL_CLICKHOUSE_USERNAME: ${SEAGULL_CLICKHOUSE_USERNAME:-${NETWATCH_CLICKHOUSE_USERNAME:-default}}
+      SEAGULL_CLICKHOUSE_PASSWORD: ${SEAGULL_CLICKHOUSE_PASSWORD:-${NETWATCH_CLICKHOUSE_PASSWORD:-}}
+      SEAGULL_CLICKHOUSE_SECURE: ${SEAGULL_CLICKHOUSE_SECURE:-false}
+      SEAGULL_CLICKHOUSE_VERIFY: ${SEAGULL_CLICKHOUSE_VERIFY:-true}
+      SEAGULL_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS: ${SEAGULL_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS:-2}
+      SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS: ${SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS:-5}
+      SEAGULL_CLICKHOUSE_PING_TTL_SECONDS: ${SEAGULL_CLICKHOUSE_PING_TTL_SECONDS:-2}
+      SEAGULL_CLICKHOUSE_EVENTS_TABLE: ${SEAGULL_CLICKHOUSE_EVENTS_TABLE:-net_events_raw}
+      SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS: ${SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS:-30}
+      SEAGULL_INGEST_MAX_BATCH: ${SEAGULL_INGEST_MAX_BATCH:-10000}
+      SEAGULL_INGEST_STORM_EVENTS_PER_SECOND: ${SEAGULL_INGEST_STORM_EVENTS_PER_SECOND:-8000}
+      SEAGULL_INGEST_STORM_MIN_BATCH: ${SEAGULL_INGEST_STORM_MIN_BATCH:-2500}
+      SEAGULL_INGEST_STORM_TTL_SECONDS: ${SEAGULL_INGEST_STORM_TTL_SECONDS:-20}
+      SEAGULL_INGEST_STORM_SAMPLE_PERCENT: ${SEAGULL_INGEST_STORM_SAMPLE_PERCENT:-2}
+      SEAGULL_INGEST_ROLLUP_ALWAYS: ${SEAGULL_INGEST_ROLLUP_ALWAYS:-false}
+      SEAGULL_INGEST_VALUES_PAGE_SIZE: ${SEAGULL_INGEST_VALUES_PAGE_SIZE:-1000}
+      SEAGULL_INGEST_ROLLUP_PAGE_SIZE: ${SEAGULL_INGEST_ROLLUP_PAGE_SIZE:-500}
+      SEAGULL_INGEST_QUEUE_KEY: ${SEAGULL_INGEST_QUEUE_KEY:-seagull:ingest:queue}
+      SEAGULL_INGEST_WORKER_BATCH_MESSAGES: ${SEAGULL_INGEST_WORKER_BATCH_MESSAGES:-50}
+      SEAGULL_INGEST_WORKER_IDLE_SLEEP_SECONDS: ${SEAGULL_INGEST_WORKER_IDLE_SLEEP_SECONDS:-0.25}
+      SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS: ${SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS:-50000}
+      SEAGULL_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS: ${SEAGULL_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS:-200000}
+      SEAGULL_INGEST_BACKPRESSURE_MODE: ${SEAGULL_INGEST_BACKPRESSURE_MODE:-rollup_only}
+      SEAGULL_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT: ${SEAGULL_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT:-2}
+      SEAGULL_INGEST_WARM_ENABLED: ${SEAGULL_INGEST_WARM_ENABLED:-true}
+      SEAGULL_INGEST_WARM_SAMPLE_PERCENT: ${SEAGULL_INGEST_WARM_SAMPLE_PERCENT:-0}
+      SEAGULL_INGEST_STORM_HOT_SAMPLE_PERCENT: ${SEAGULL_INGEST_STORM_HOT_SAMPLE_PERCENT:-2}
+      SEAGULL_INGEST_STORM_WARM_SAMPLE_PERCENT: ${SEAGULL_INGEST_STORM_WARM_SAMPLE_PERCENT:-5}
+      SEAGULL_INGEST_STORM_ALERT_TTL_SECONDS: ${SEAGULL_INGEST_STORM_ALERT_TTL_SECONDS:-3600}
+      SEAGULL_INGEST_ELEVATED_HOT_SAMPLE_PERCENT: ${SEAGULL_INGEST_ELEVATED_HOT_SAMPLE_PERCENT:-50}
+      SEAGULL_INGEST_DEGRADED_HOT_SAMPLE_PERCENT: ${SEAGULL_INGEST_DEGRADED_HOT_SAMPLE_PERCENT:-5}
+      SEAGULL_INGEST_CRITICAL_HOT_SAMPLE_PERCENT: ${SEAGULL_INGEST_CRITICAL_HOT_SAMPLE_PERCENT:-1}
+      SEAGULL_INGEST_CLICKHOUSE_SAMPLE_PERCENT: ${SEAGULL_INGEST_CLICKHOUSE_SAMPLE_PERCENT:-100}
+      SEAGULL_INGEST_DEGRADED_CLICKHOUSE_SAMPLE_PERCENT: ${SEAGULL_INGEST_DEGRADED_CLICKHOUSE_SAMPLE_PERCENT:-25}
+      SEAGULL_INGEST_CRITICAL_CLICKHOUSE_SAMPLE_PERCENT: ${SEAGULL_INGEST_CRITICAL_CLICKHOUSE_SAMPLE_PERCENT:-10}
+      SEAGULL_INGEST_MIN_HOT_EVENTS_PER_BATCH: ${SEAGULL_INGEST_MIN_HOT_EVENTS_PER_BATCH:-1}
+      SEAGULL_INGEST_MIN_CLICKHOUSE_EVENTS_PER_BATCH: ${SEAGULL_INGEST_MIN_CLICKHOUSE_EVENTS_PER_BATCH:-32}
+      SEAGULL_INGEST_RECENT_FEED_MAX_EVENTS: ${SEAGULL_INGEST_RECENT_FEED_MAX_EVENTS:-5000}
+      SEAGULL_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS: ${SEAGULL_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS:-1000}
+      SEAGULL_INGEST_RECENT_FEED_MIN_BATCH: ${SEAGULL_INGEST_RECENT_FEED_MIN_BATCH:-24}
+      SEAGULL_INGEST_RECENT_FEED_LOOKBACK_SECONDS: ${SEAGULL_INGEST_RECENT_FEED_LOOKBACK_SECONDS:-900}
+      SEAGULL_INGEST_RECENT_FEED_MAX_PUSH_PER_CALL: ${SEAGULL_INGEST_RECENT_FEED_MAX_PUSH_PER_CALL:-512}
+      SEAGULL_MAX_EVENT_CLOCK_SKEW_SECONDS: ${SEAGULL_MAX_EVENT_CLOCK_SKEW_SECONDS:-}
+      SEAGULL_RULES_ENV: ${SEAGULL_RULES_ENV:-${SEAGULL_ENV:-${SEAGULL_MODE:-dev}}}
+      SEAGULL_RULES_ENABLED_PACKS: ${SEAGULL_RULES_ENABLED_PACKS:-core,network,lab}
+      SEAGULL_RULES_DISABLED_PACKS: ${SEAGULL_RULES_DISABLED_PACKS:-}
+      SEAGULL_RULES_INCLUDE_EXPERIMENTAL: ${SEAGULL_RULES_INCLUDE_EXPERIMENTAL:-true}
+      SEAGULL_DEFAULT_AGENT_CONFIG_JSON: ${SEAGULL_DEFAULT_AGENT_CONFIG_JSON:-}
+      SEAGULL_MAX_AGENT_CONFIG_BYTES: ${SEAGULL_MAX_AGENT_CONFIG_BYTES:-}
+      SEAGULL_BOOTSTRAP_ADMIN_USERNAME: ${SEAGULL_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      SEAGULL_BOOTSTRAP_ADMIN_PASSWORD: ${SEAGULL_BOOTSTRAP_ADMIN_PASSWORD:-${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD:-}}
+      SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE: ${SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE:-}
+      SEAGULL_BOOTSTRAP_ADMIN_RESET_ON_START: ${SEAGULL_BOOTSTRAP_ADMIN_RESET_ON_START:-true}
+      SEAGULL_BOOTSTRAP_ADMIN_SYNC_ON_START: ${SEAGULL_BOOTSTRAP_ADMIN_SYNC_ON_START:-false}
+      SEAGULL_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START: ${SEAGULL_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START:-false}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS: ${SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS:-900}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES: ${SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES:-1}
+      SEAGULL_VULN_MAX_FINDINGS_PER_INGEST: ${SEAGULL_VULN_MAX_FINDINGS_PER_INGEST:-2000}
+      SEAGULL_VULN_MAX_EVIDENCE_BYTES: ${SEAGULL_VULN_MAX_EVIDENCE_BYTES:-32768}
+      SEAGULL_VULN_AUTO_REOPEN: ${SEAGULL_VULN_AUTO_REOPEN:-true}
+    volumes:
+      - ./rules:/app/rules:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 1024m
+    cpus: "1.00"
+    networks:
+      - seagull
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >-
+          python -c "import sys,urllib.request;
+          u=urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=2);
+          sys.exit(0 if u.getcode()==200 else 1)"
+      interval: 10s
+      timeout: 4s
+      retries: 20
+      start_period: 25s
+    restart: unless-stopped
+
+  seagull-ingest-pipeline:
+    build: ./backend
+    container_name: seagull-ingest-pipeline
+    command: ["python", "-m", "app.workers.manager", "ingest"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SEAGULL_ENV: ${SEAGULL_ENV:-${SEAGULL_MODE:-dev}}
+      SEAGULL_DB_HOST: postgres
+      SEAGULL_DB_PORT: "5432"
+      SEAGULL_DB_NAME: ${POSTGRES_DB:-seagull}
+      SEAGULL_DB_USER: ${POSTGRES_USER:-seagull}
+      SEAGULL_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
+      SEAGULL_DB_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
+      SEAGULL_DB_AUTO_UPGRADE: ${SEAGULL_DB_AUTO_UPGRADE:-true}
+      SEAGULL_REDIS_PASSWORD: ${SEAGULL_REDIS_PASSWORD:-${NETWATCH_REDIS_PASSWORD:-}}
+      SEAGULL_REDIS_PASSWORD_FILE: ${SEAGULL_REDIS_PASSWORD_FILE:-${NETWATCH_REDIS_PASSWORD_FILE:-}}
+      SEAGULL_ES_URL: ${SEAGULL_ES_URL:-http://elasticsearch:9200}
+      SEAGULL_ES_INDEX_PREFIX: ${SEAGULL_ES_INDEX_PREFIX:-seagull-events}
+      SEAGULL_ES_REQUEST_TIMEOUT_SECONDS: ${SEAGULL_ES_REQUEST_TIMEOUT_SECONDS:-30}
+      SEAGULL_ES_USERNAME: ${SEAGULL_ES_USERNAME:-${NETWATCH_ES_USERNAME:-}}
+      SEAGULL_ES_PASSWORD: ${SEAGULL_ES_PASSWORD:-${NETWATCH_ES_PASSWORD:-}}
+      SEAGULL_ES_PASSWORD_FILE: ${SEAGULL_ES_PASSWORD_FILE:-}
+      SEAGULL_ES_VERIFY_CERTS: ${SEAGULL_ES_VERIFY_CERTS:-true}
+      SEAGULL_ES_CA_CERTS: ${SEAGULL_ES_CA_CERTS:-}
+      SEAGULL_ES_BATCH_SIZE: ${SEAGULL_ES_BATCH_SIZE:-500}
+      SEAGULL_ES_EVERY_SECONDS: ${SEAGULL_ES_EVERY_SECONDS:-1}
+      SEAGULL_ES_IDLE_SLEEP_SECONDS: ${SEAGULL_ES_IDLE_SLEEP_SECONDS:-2}
+      SEAGULL_ES_BOOTSTRAP: ${SEAGULL_ES_BOOTSTRAP:-true}
+      SEAGULL_ES_ILM_ENABLED: ${SEAGULL_ES_ILM_ENABLED:-true}
+      SEAGULL_ES_ILM_DELETE_AFTER_DAYS: ${SEAGULL_ES_ILM_DELETE_AFTER_DAYS:-30}
+      SEAGULL_ES_ILM_POLICY_NAME: ${SEAGULL_ES_ILM_POLICY_NAME:-}
+      SEAGULL_INGEST_WARM_INDEX_PREFIX: ${SEAGULL_INGEST_WARM_INDEX_PREFIX:-seagull-events-warm}
+      SEAGULL_INGEST_WARM_ILM_ENABLED: ${SEAGULL_INGEST_WARM_ILM_ENABLED:-true}
+      SEAGULL_INGEST_WARM_ILM_POLICY: ${SEAGULL_INGEST_WARM_ILM_POLICY:-seagull-warm-delete-30d}
+      SEAGULL_INGEST_WARM_ILM_DELETE_AFTER_DAYS: ${SEAGULL_INGEST_WARM_ILM_DELETE_AFTER_DAYS:-30}
+      SEAGULL_CLICKHOUSE_ENABLED: ${SEAGULL_CLICKHOUSE_ENABLED:-true}
+      SEAGULL_CLICKHOUSE_REQUIRED: ${SEAGULL_CLICKHOUSE_REQUIRED:-false}
+      SEAGULL_CLICKHOUSE_HOST: ${SEAGULL_CLICKHOUSE_HOST:-clickhouse}
+      SEAGULL_CLICKHOUSE_PORT: ${SEAGULL_CLICKHOUSE_PORT:-8123}
+      SEAGULL_CLICKHOUSE_DATABASE: ${SEAGULL_CLICKHOUSE_DATABASE:-${NETWATCH_CLICKHOUSE_DATABASE:-seagull}}
+      SEAGULL_CLICKHOUSE_USERNAME: ${SEAGULL_CLICKHOUSE_USERNAME:-${NETWATCH_CLICKHOUSE_USERNAME:-default}}
+      SEAGULL_CLICKHOUSE_PASSWORD: ${SEAGULL_CLICKHOUSE_PASSWORD:-${NETWATCH_CLICKHOUSE_PASSWORD:-}}
+      SEAGULL_CLICKHOUSE_SECURE: ${SEAGULL_CLICKHOUSE_SECURE:-false}
+      SEAGULL_CLICKHOUSE_VERIFY: ${SEAGULL_CLICKHOUSE_VERIFY:-true}
+      SEAGULL_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS: ${SEAGULL_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS:-2}
+      SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS: ${SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS:-5}
+      SEAGULL_CLICKHOUSE_PING_TTL_SECONDS: ${SEAGULL_CLICKHOUSE_PING_TTL_SECONDS:-2}
+      SEAGULL_CLICKHOUSE_EVENTS_TABLE: ${SEAGULL_CLICKHOUSE_EVENTS_TABLE:-net_events_raw}
+      SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS: ${SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS:-30}
+      SEAGULL_CLICKHOUSE_RECONNECT_SECONDS: ${SEAGULL_CLICKHOUSE_RECONNECT_SECONDS:-5}
+      SEAGULL_INGEST_QUEUE_KEY: ${SEAGULL_INGEST_QUEUE_KEY:-seagull:ingest:queue}
+      SEAGULL_INGEST_PROCESSING_KEY: ${SEAGULL_INGEST_PROCESSING_KEY:-seagull:ingest:queue:processing}
+      SEAGULL_INGEST_WORKER_BATCH_MESSAGES: ${SEAGULL_INGEST_WORKER_BATCH_MESSAGES:-50}
+      SEAGULL_INGEST_WORKER_IDLE_SLEEP_SECONDS: ${SEAGULL_INGEST_WORKER_IDLE_SLEEP_SECONDS:-0.25}
+      SEAGULL_INGEST_VALUES_PAGE_SIZE: ${SEAGULL_INGEST_VALUES_PAGE_SIZE:-1000}
+      SEAGULL_INGEST_ROLLUP_PAGE_SIZE: ${SEAGULL_INGEST_ROLLUP_PAGE_SIZE:-500}
+      SEAGULL_INGEST_WARM_ENABLED: ${SEAGULL_INGEST_WARM_ENABLED:-true}
+      SEAGULL_ROLLUP_EVERY_SECONDS: ${SEAGULL_ROLLUP_EVERY_SECONDS:-1}
+      SEAGULL_ROLLUP_IDLE_SLEEP_SECONDS: ${SEAGULL_ROLLUP_IDLE_SLEEP_SECONDS:-2}
+      SEAGULL_ROLLUP_MAX_ROWS: ${SEAGULL_ROLLUP_MAX_ROWS:-5000}
+      SEAGULL_RULES_ENV: ${SEAGULL_RULES_ENV:-${SEAGULL_ENV:-${SEAGULL_MODE:-dev}}}
+      SEAGULL_RULES_ENABLED_PACKS: ${SEAGULL_RULES_ENABLED_PACKS:-core,network,lab}
+      SEAGULL_RULES_INCLUDE_EXPERIMENTAL: ${SEAGULL_RULES_INCLUDE_EXPERIMENTAL:-true}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 1280m
+    cpus: "1.25"
+    networks:
+      - seagull
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.workers.manager", "health", "ingest"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  seagull-intelligence-worker:
+    build: ./backend
+    container_name: seagull-intelligence-worker
+    command: ["python", "-m", "app.workers.manager", "intelligence"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SEAGULL_ENV: ${SEAGULL_ENV:-${SEAGULL_MODE:-dev}}
+      SEAGULL_DB_HOST: postgres
+      SEAGULL_DB_PORT: "5432"
+      SEAGULL_DB_NAME: ${POSTGRES_DB:-seagull}
+      SEAGULL_DB_USER: ${POSTGRES_USER:-seagull}
+      SEAGULL_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
+      SEAGULL_DB_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
+      SEAGULL_DB_AUTO_UPGRADE: ${SEAGULL_DB_AUTO_UPGRADE:-true}
+      SEAGULL_RULES_EVERY_SECONDS: ${SEAGULL_RULES_EVERY_SECONDS:-}
+      SEAGULL_RULES_ENV: ${SEAGULL_RULES_ENV:-${SEAGULL_ENV:-${SEAGULL_MODE:-dev}}}
+      SEAGULL_RULES_ENABLED_PACKS: ${SEAGULL_RULES_ENABLED_PACKS:-core,network,lab}
+      SEAGULL_RULES_DISABLED_PACKS: ${SEAGULL_RULES_DISABLED_PACKS:-}
+      SEAGULL_RULES_INCLUDE_EXPERIMENTAL: ${SEAGULL_RULES_INCLUDE_EXPERIMENTAL:-true}
+      SEAGULL_IP_INTEL_PROVIDER: ${SEAGULL_IP_INTEL_PROVIDER:-auto}
+      SEAGULL_IP_INTEL_FALLBACK_PROVIDER: ${SEAGULL_IP_INTEL_FALLBACK_PROVIDER:-ipinfo}
+      SEAGULL_IP_INTEL_MAXMIND_CITY_DB_PATH: ${SEAGULL_IP_INTEL_MAXMIND_CITY_DB_PATH:-/app/data/geoip/GeoLite2-City.mmdb}
+      SEAGULL_IP_INTEL_MAXMIND_ASN_DB_PATH: ${SEAGULL_IP_INTEL_MAXMIND_ASN_DB_PATH:-/app/data/geoip/GeoLite2-ASN.mmdb}
+      SEAGULL_IPINFO_TOKEN: ${SEAGULL_IPINFO_TOKEN:-}
+      SEAGULL_IP_INTEL_EVERY_SECONDS: ${SEAGULL_IP_INTEL_EVERY_SECONDS:-1}
+      SEAGULL_IP_INTEL_IDLE_SLEEP_SECONDS: ${SEAGULL_IP_INTEL_IDLE_SLEEP_SECONDS:-2}
+      SEAGULL_IP_INTEL_MAX_ROWS: ${SEAGULL_IP_INTEL_MAX_ROWS:-2000}
+      SEAGULL_IP_INTEL_BATCH_SIZE: ${SEAGULL_IP_INTEL_BATCH_SIZE:-200}
+      SEAGULL_IP_INTEL_HTTP_TIMEOUT_SECONDS: ${SEAGULL_IP_INTEL_HTTP_TIMEOUT_SECONDS:-8}
+      SEAGULL_IP_INTEL_CACHE_TTL_DAYS: ${SEAGULL_IP_INTEL_CACHE_TTL_DAYS:-7}
+      SEAGULL_IP_INTEL_SKIP_PRIVATE: ${SEAGULL_IP_INTEL_SKIP_PRIVATE:-true}
+      SEAGULL_PROTO_INTEL_EVERY_SECONDS: ${SEAGULL_PROTO_INTEL_EVERY_SECONDS:-1.0}
+      SEAGULL_PROTO_INTEL_IDLE_SLEEP_SECONDS: ${SEAGULL_PROTO_INTEL_IDLE_SLEEP_SECONDS:-2.0}
+      SEAGULL_PROTO_INTEL_MAX_ROWS: ${SEAGULL_PROTO_INTEL_MAX_ROWS:-5000}
+      SEAGULL_PROTO_INTEL_BATCH_SIZE: ${SEAGULL_PROTO_INTEL_BATCH_SIZE:-500}
+      SEAGULL_PROTO_INTEL_PAYLOAD_MAX_BYTES: ${SEAGULL_PROTO_INTEL_PAYLOAD_MAX_BYTES:-4096}
+      SEAGULL_ATTACK_CHAIN_EVERY_SECONDS: ${SEAGULL_ATTACK_CHAIN_EVERY_SECONDS:-1.0}
+      SEAGULL_ATTACK_CHAIN_IDLE_SLEEP_SECONDS: ${SEAGULL_ATTACK_CHAIN_IDLE_SLEEP_SECONDS:-2.0}
+      SEAGULL_ATTACK_CHAIN_BATCH_SIZE: ${SEAGULL_ATTACK_CHAIN_BATCH_SIZE:-500}
+      SEAGULL_ATTACK_CHAIN_LOG_EVERY_SECONDS: ${SEAGULL_ATTACK_CHAIN_LOG_EVERY_SECONDS:-2.0}
+      SEAGULL_ATTACK_CHAIN_LOG_IDLE_EVERY_SECONDS: ${SEAGULL_ATTACK_CHAIN_LOG_IDLE_EVERY_SECONDS:-20.0}
+      SEAGULL_ATTACK_CHAIN_DEBUG: ${SEAGULL_ATTACK_CHAIN_DEBUG:-false}
+      SEAGULL_ATTACK_CHAIN_IDLE_CLOSE_SECONDS: ${SEAGULL_ATTACK_CHAIN_IDLE_CLOSE_SECONDS:-2700}
+      SEAGULL_ATTACK_CHAIN_ATTACH_LOCAL_WINDOW_SECONDS: ${SEAGULL_ATTACK_CHAIN_ATTACH_LOCAL_WINDOW_SECONDS:-1200}
+      SEAGULL_ATTACK_CHAIN_STEP_DEDUP_SECONDS: ${SEAGULL_ATTACK_CHAIN_STEP_DEDUP_SECONDS:-60}
+      SEAGULL_ATTACK_CHAIN_MAX_SCORE: ${SEAGULL_ATTACK_CHAIN_MAX_SCORE:-100}
+      SEAGULL_ATTACK_CHAIN_SSH_BRUTEFORCE_SCORE: ${SEAGULL_ATTACK_CHAIN_SSH_BRUTEFORCE_SCORE:-12}
+      SEAGULL_ATTACK_CHAIN_SSH_BRUTEFORCE_SUCCESS_SCORE: ${SEAGULL_ATTACK_CHAIN_SSH_BRUTEFORCE_SUCCESS_SCORE:-34}
+      SEAGULL_ATTACK_CHAIN_SUDO_PRIV_ESCALATION_SCORE: ${SEAGULL_ATTACK_CHAIN_SUDO_PRIV_ESCALATION_SCORE:-24}
+      SEAGULL_ATTACK_CHAIN_SUDO_LOLBIN_SCORE: ${SEAGULL_ATTACK_CHAIN_SUDO_LOLBIN_SCORE:-14}
+      SEAGULL_ATTACK_CHAIN_LOG_TAMPER_SCORE: ${SEAGULL_ATTACK_CHAIN_LOG_TAMPER_SCORE:-22}
+    volumes:
+      - ./rules:/app/rules:ro
+      - ./backend/data/geoip:/app/data/geoip:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 1280m
+    cpus: "1.00"
+    networks:
+      - seagull
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.workers.manager", "health", "intelligence"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  seagull-maintenance-worker:
+    build: ./backend
+    container_name: seagull-maintenance-worker
+    command: ["python", "-m", "app.workers.manager", "maintenance"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SEAGULL_ENV: ${SEAGULL_ENV:-${SEAGULL_MODE:-dev}}
+      SEAGULL_DB_HOST: postgres
+      SEAGULL_DB_PORT: "5432"
+      SEAGULL_DB_NAME: ${POSTGRES_DB:-seagull}
+      SEAGULL_DB_USER: ${POSTGRES_USER:-seagull}
+      SEAGULL_DB_PASSWORD: ${POSTGRES_PASSWORD:-}
+      SEAGULL_DB_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
+      SEAGULL_DB_AUTO_UPGRADE: ${SEAGULL_DB_AUTO_UPGRADE:-true}
+      SEAGULL_JWT_SECRET: ${SEAGULL_JWT_SECRET:-${NETWATCH_JWT_SECRET:-}}
+      SEAGULL_JWT_SECRET_FILE: ${SEAGULL_JWT_SECRET_FILE:-}
+      SEAGULL_AUDIT_HASH_PEPPER: ${SEAGULL_AUDIT_HASH_PEPPER:-${NETWATCH_AUDIT_HASH_PEPPER:-}}
+      SEAGULL_AUDIT_HASH_PEPPER_FILE: ${SEAGULL_AUDIT_HASH_PEPPER_FILE:-}
+      SEAGULL_AUDIT_RETENTION_ENABLED: ${SEAGULL_AUDIT_RETENTION_ENABLED:-true}
+      SEAGULL_AUDIT_RETENTION_DAYS: ${SEAGULL_AUDIT_RETENTION_DAYS:-30}
+      SEAGULL_LOGIN_AUDIT_RETENTION_DAYS: ${SEAGULL_LOGIN_AUDIT_RETENTION_DAYS:-30}
+      SEAGULL_GOVERNANCE_RETENTION_DAYS: ${SEAGULL_GOVERNANCE_RETENTION_DAYS:-30}
+      SEAGULL_AUDIT_RETENTION_EVERY_SECONDS: ${SEAGULL_AUDIT_RETENTION_EVERY_SECONDS:-3600}
+      SEAGULL_AUDIT_RETENTION_DELETE_BATCH: ${SEAGULL_AUDIT_RETENTION_DELETE_BATCH:-5000}
+      SEAGULL_MAINTENANCE_ENABLE_BOOTSTRAP_ROTATOR: ${SEAGULL_MAINTENANCE_ENABLE_BOOTSTRAP_ROTATOR:-false}
+      SEAGULL_BOOTSTRAP_ADMIN_USERNAME: ${SEAGULL_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      SEAGULL_BOOTSTRAP_ADMIN_PASSWORD: ${SEAGULL_BOOTSTRAP_ADMIN_PASSWORD:-${NETWATCH_BOOTSTRAP_ADMIN_PASSWORD:-}}
+      SEAGULL_BOOTSTRAP_ROTATOR_EDGE_BASE: ${SEAGULL_BOOTSTRAP_ROTATOR_EDGE_BASE:-}
+      SEAGULL_BOOTSTRAP_ROTATOR_BACKEND_BASE: ${SEAGULL_BOOTSTRAP_ROTATOR_BACKEND_BASE:-http://seagull-backend:8000}
+      SEAGULL_BOOTSTRAP_ROTATOR_AGENT_IDS: ${SEAGULL_BOOTSTRAP_ROTATOR_AGENT_IDS:-agent-core-1,agent-sensor-1,agent-lateral-1,agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1}
+      SEAGULL_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS: ${SEAGULL_BOOTSTRAP_ROTATOR_TOKEN_TTL_SECONDS:-2592000}
+      SEAGULL_BOOTSTRAP_ROTATOR_TOKEN_MAX_USES: ${SEAGULL_BOOTSTRAP_ROTATOR_TOKEN_MAX_USES:-5}
+      SEAGULL_BOOTSTRAP_ROTATOR_EVERY_SECONDS: ${SEAGULL_BOOTSTRAP_ROTATOR_EVERY_SECONDS:-900}
+      SEAGULL_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS: ${SEAGULL_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS:-86400}
+      SEAGULL_BOOTSTRAP_ROTATOR_OUTPUT_DIR: ${SEAGULL_BOOTSTRAP_ROTATOR_OUTPUT_DIR:-/etc/seagull/bootstrap}
+      SEAGULL_BOOTSTRAP_ROTATOR_STATE_DIR: ${SEAGULL_BOOTSTRAP_ROTATOR_STATE_DIR:-/var/lib/seagull/bootstrap-rotator}
+    volumes:
+      - ./scripts/pki/agent_bootstrap_token_rotator.py:/scripts/agent_bootstrap_token_rotator.py:ro
+      - ./secrets/bootstrap:/etc/seagull/bootstrap
+      - ./secrets/runtime:/var/lib/seagull
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 384m
+    cpus: "0.30"
+    networks:
+      - seagull
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.workers.manager", "health", "maintenance"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Portal
+  # ---------------------------------------------------------------------------
+
+  seagull-portal:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: seagull-portal
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    ports:
+      - "${SEAGULL_PORTAL_PORT:-}:8080"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    cpus: "0.50"
+    networks:
+      - seagull
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/ >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Edge (Caddy)
+  # ---------------------------------------------------------------------------
+
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: seagull-caddy
+    depends_on:
+      seagull-portal:
+        condition: service_healthy
+      seagull-backend:
+        condition: service_healthy
+    ports:
+      - "${SEAGULL_EDGE_HTTP_PORT:-8081}:8081"
+      - "${SEAGULL_EDGE_HTTPS_PORT:-8443}:8443"
+    environment:
+      SEAGULL_CADDY_DOMAIN: ${SEAGULL_CADDY_DOMAIN:-}
+      SEAGULL_CADDY_EMAIL: ${SEAGULL_CADDY_EMAIL:-}
+      SEAGULL_PORTAL_INTERNAL_PORT: ${SEAGULL_PORTAL_INTERNAL_PORT:-8080}
+    volumes:
+      - ${SEAGULL_CADDY_CONFIG_FILE:-./infra/caddy/Caddyfile.local}:/etc/caddy/Caddyfile:ro
+      - ${SEAGULL_TLS_CERT_FILE:-./secrets/tls/tls.crt}:/etc/seagull/tls/tls.crt:ro
+      - ${SEAGULL_TLS_KEY_FILE:-./secrets/tls/tls.key}:/etc/seagull/tls/tls.key:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    mem_limit: 128m
+    cpus: "0.25"
+    networks:
+      - seagull
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >-
+          wget -q -O - --no-check-certificate
+          https://127.0.0.1:${SEAGULL_EDGE_HTTPS_PORT:-8443}/api/health/live
+          >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Agents (core)
+  # ---------------------------------------------------------------------------
+
+  seagull-agent-core:
+    <<: *agent-core-base
+    container_name: seagull-agent-core-1
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_CORE_ID:-agent-core-1}
+      SEAGULL_SOURCES: proc,authlog,syscollector,vuln
+      SEAGULL_AUTHLOG_PATH: /var/log/auth.log
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_CORE_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_CORE_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_CORE_ID:-agent-core-1}.token}
+      SEAGULL_HOST_ROOT: ${SEAGULL_VULN_HOST_ROOT:-}
+      SEAGULL_VULN_SCAN_EVERY: ${SEAGULL_VULN_SCAN_EVERY:-}
+      SEAGULL_VULN_HTTP_TIMEOUT: ${SEAGULL_VULN_HTTP_TIMEOUT:-}
+      SEAGULL_VULN_OSV_URL: ${SEAGULL_VULN_OSV_URL:-}
+      SEAGULL_VULN_MIN_SEVERITY: ${SEAGULL_VULN_MIN_SEVERITY:-}
+      SEAGULL_VULN_ANALYSIS_PROFILE: ${SEAGULL_VULN_ANALYSIS_PROFILE:-}
+      SEAGULL_VULN_EXPOSURE_ENABLED: ${SEAGULL_VULN_EXPOSURE_ENABLED:-}
+      SEAGULL_VULN_QUERY_BATCH_SIZE: ${SEAGULL_VULN_QUERY_BATCH_SIZE:-}
+      SEAGULL_VULN_CMD_TIMEOUT: ${SEAGULL_VULN_CMD_TIMEOUT:-}
+      SEAGULL_VULN_MAX_PACKAGES: ${SEAGULL_VULN_MAX_PACKAGES:-}
+      SEAGULL_VULN_HOST_ROOT: ${SEAGULL_VULN_HOST_ROOT:-}
+      SEAGULL_VULN_EMIT_SUMMARY_EVENT: ${SEAGULL_VULN_EMIT_SUMMARY_EVENT:-}
+    volumes:
+      - /var/log:/host/var/log:ro
+      - /:/host:ro
+      - agent-core-state:/var/lib/seagull
+      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+
+  seagull-agent-sensor:
+    <<: *agent-sensor-base
+    container_name: seagull-agent-sensor-1
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_SENSOR_ID:-agent-sensor-1}
+      SEAGULL_SOURCES: scan,ddos,l7
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_SENSOR_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SENSOR_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_SENSOR_ID:-agent-sensor-1}.token}
+      SEAGULL_DDOS_SUSTAIN_WINDOWS: ${SEAGULL_DDOS_SUSTAIN_WINDOWS:-}
+      SEAGULL_DDOS_COOLDOWN: ${SEAGULL_DDOS_COOLDOWN:-}
+    volumes:
+      - agent-sensor-state:/var/lib/seagull
+      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+
+  # ---------------------------------------------------------------------------
+  # Agents (optional — profile: extra)
+  # ---------------------------------------------------------------------------
+
+  seagull-agent-lateral:
+    <<: *agent-sensor-base
+    container_name: seagull-agent-lateral
+    profiles: ["extra"]
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_LATERAL_ID:-agent-lateral-1}
+      SEAGULL_SOURCES: lateral
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_LATERAL_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_LATERAL_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_LATERAL_ID:-agent-lateral-1}.token}
+      SEAGULL_LATERAL_MODE: ${SEAGULL_LATERAL_MODE:-}
+      SEAGULL_LATERAL_PCAP_IFACE: ${SEAGULL_LATERAL_PCAP_IFACE:-}
+      SEAGULL_LATERAL_PORTS: ${SEAGULL_LATERAL_PORTS:-}
+      SEAGULL_LATERAL_INCLUDE_ESTABLISHED: ${SEAGULL_LATERAL_INCLUDE_ESTABLISHED:-}
+      SEAGULL_LATERAL_DEDUP_TTL: ${SEAGULL_LATERAL_DEDUP_TTL:-}
+      SEAGULL_LATERAL_MAX_BATCH: ${SEAGULL_LATERAL_MAX_BATCH:-}
+    volumes:
+      - agent-lateral-state:/var/lib/seagull
+      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+
+  # ---------------------------------------------------------------------------
+  # Agents (legacy split — profile: legacy-agents)
+  # ---------------------------------------------------------------------------
+
+  seagull-agent-proc:
+    <<: *agent-core-base
+    container_name: seagull-agent-proc-legacy
+    profiles: ["legacy-agents"]
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_PROC_ID:-agent-proc-1}
+      SEAGULL_SOURCES: proc,authlog,syscollector
+      SEAGULL_AUTHLOG_PATH: /var/log/auth.log
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_PROC_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_PROC_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_PROC_ID:-agent-proc-1}.token}
+    volumes:
+      - /var/log:/host/var/log:ro
+      - agent-proc-state:/var/lib/seagull
+      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+
+  seagull-agent-scan:
+    <<: *agent-sensor-base
+    container_name: seagull-agent-scan-legacy
+    profiles: ["legacy-agents"]
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_SCAN_ID:-agent-scan-1}
+      SEAGULL_SOURCES: scan
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_SCAN_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SCAN_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_SCAN_ID:-agent-scan-1}.token}
+    volumes:
+      - agent-scan-state:/var/lib/seagull
+      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+
+  seagull-agent-ddos:
+    <<: *agent-sensor-base
+    container_name: seagull-agent-ddos-legacy
+    profiles: ["legacy-agents"]
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_DDOS_ID:-agent-ddos-1}
+      SEAGULL_SOURCES: ddos
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_DDOS_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_DDOS_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_DDOS_ID:-agent-ddos-1}.token}
+      SEAGULL_DDOS_SUSTAIN_WINDOWS: ${SEAGULL_DDOS_SUSTAIN_WINDOWS:-}
+      SEAGULL_DDOS_COOLDOWN: ${SEAGULL_DDOS_COOLDOWN:-}
+    volumes:
+      - agent-ddos-state:/var/lib/seagull
+      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+
+  seagull-agent-vuln:
+    <<: *agent-core-base
+    container_name: seagull-agent-vuln-legacy
+    profiles: ["legacy-agents"]
+    depends_on:
+      seagull-backend:
+        condition: service_healthy
+    environment:
+      <<: *agent-env
+      SEAGULL_AGENT_ID: ${AGENT_VULN_ID:-agent-vuln-1}
+      SEAGULL_SOURCES: vuln
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_VULN_BOOTSTRAP_TOKEN:-}
+      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_VULN_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_VULN_ID:-agent-vuln-1}.token}
+      SEAGULL_HOST_ROOT: ${SEAGULL_VULN_HOST_ROOT:-}
+      SEAGULL_VULN_SCAN_EVERY: ${SEAGULL_VULN_SCAN_EVERY:-}
+      SEAGULL_VULN_HTTP_TIMEOUT: ${SEAGULL_VULN_HTTP_TIMEOUT:-}
+      SEAGULL_VULN_OSV_URL: ${SEAGULL_VULN_OSV_URL:-}
+      SEAGULL_VULN_MIN_SEVERITY: ${SEAGULL_VULN_MIN_SEVERITY:-}
+      SEAGULL_VULN_ANALYSIS_PROFILE: ${SEAGULL_VULN_ANALYSIS_PROFILE:-}
+      SEAGULL_VULN_EXPOSURE_ENABLED: ${SEAGULL_VULN_EXPOSURE_ENABLED:-}
+      SEAGULL_VULN_QUERY_BATCH_SIZE: ${SEAGULL_VULN_QUERY_BATCH_SIZE:-}
+      SEAGULL_VULN_CMD_TIMEOUT: ${SEAGULL_VULN_CMD_TIMEOUT:-}
+      SEAGULL_VULN_MAX_PACKAGES: ${SEAGULL_VULN_MAX_PACKAGES:-}
+      SEAGULL_VULN_HOST_ROOT: ${SEAGULL_VULN_HOST_ROOT:-}
+      SEAGULL_VULN_EMIT_SUMMARY_EVENT: ${SEAGULL_VULN_EMIT_SUMMARY_EVENT:-}
+    volumes:
+      - /:/host:ro
+      - agent-vuln-state:/var/lib/seagull
+      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
+      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+
+  # ---------------------------------------------------------------------------
+  # Observability (optional — profile: observability)
+  # ---------------------------------------------------------------------------
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.4
+    container_name: seagull-kibana
+    profiles: ["observability"]
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      ELASTICSEARCH_USERNAME: ${SEAGULL_ES_USERNAME:-}
+      ELASTICSEARCH_PASSWORD: ${SEAGULL_ES_PASSWORD:-${NETWATCH_ES_PASSWORD:-}}
+      SERVER_BASEPATH: /kibana
+      SERVER_REWRITEBASEPATH: "true"
+      SERVER_PUBLICBASEURL: ${SEAGULL_KIBANA_PUBLIC_BASE_URL:-https://localhost/kibana}
+    ports:
+      - "${KIBANA_PORT:-}:5601"
+    networks:
+      - seagull
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: seagull-grafana
+    profiles: ["observability"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${GRAFANA_PORT:-}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-}
+      GF_SECURITY_ADMIN_PASSWORD__FILE: ${GF_SECURITY_ADMIN_PASSWORD_FILE:-}
+      POSTGRES_USER: ${POSTGRES_USER:-seagull}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
+      POSTGRES_DB: ${POSTGRES_DB:-seagull}
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - seagull
+    restart: unless-stopped
