@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from jose import jwt
+from starlette.websockets import WebSocketState
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
@@ -444,3 +445,104 @@ def test_websocket_endpoint_replays_events_with_same_envelope_schema() -> None:
                 assert body["payload"]["events_5m_delta"] == 2
     finally:
         realtime_api.get_redis = original_get_redis
+
+
+def test_websocket_sends_keepalive_frame_when_idle(monkeypatch) -> None:
+    """WS keepalive interval must emit a frame — not just update the timer silently."""
+    monkeypatch.setattr(realtime_api, "_ws_keepalive_seconds", lambda: 0)
+    monkeypatch.setattr(
+        realtime_api, "get_redis", lambda decode_responses=True: _FakeRedis(replay_rows=[], live_batches=[])
+    )
+
+    sent_messages: list[str] = []
+
+    class _MockWS:
+        query_params: dict = {
+            "st": _stream_token_with_claims(),
+            "topics": "overview",
+            "cursor": "0",
+        }
+        application_state = WebSocketState.CONNECTED
+        client_state = WebSocketState.CONNECTED
+
+        async def accept(self) -> None:
+            pass
+
+        async def send_text(self, data: str) -> None:
+            sent_messages.append(data)
+            _MockWS.application_state = WebSocketState.DISCONNECTED
+
+        async def close(self, code: int | None = None, reason: str | None = None) -> None:
+            pass
+
+    disconnect_calls = [0]
+    original_disconnect = realtime_api._websocket_is_disconnected
+
+    async def _limited_disconnect(websocket: object) -> bool:
+        disconnect_calls[0] += 1
+        if disconnect_calls[0] > 8:
+            return True
+        return await original_disconnect(websocket)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(realtime_api, "_websocket_is_disconnected", _limited_disconnect)
+
+    asyncio.run(realtime_api.portal_websocket_endpoint(_MockWS()))  # type: ignore[arg-type]
+
+    assert len(sent_messages) >= 1, "WS keepalive frame was never sent"
+    frame = json.loads(sent_messages[0])
+    assert frame.get("kind") == "keepalive"
+    assert frame.get("transport") == "ws"
+
+
+class _UnexpectedStreamError(Exception):
+    pass
+
+
+def test_websocket_closes_on_unexpected_exception(monkeypatch) -> None:
+    """An unexpected exception escaping the stream loop must close the WebSocket before propagating."""
+    monkeypatch.setattr(
+        realtime_api, "get_redis", lambda decode_responses=True: _FakeRedis(replay_rows=[], live_batches=[])
+    )
+
+    close_calls: list[tuple] = []
+
+    class _MockWS:
+        query_params: dict = {
+            "st": _stream_token_with_claims(),
+            "topics": "overview",
+            "cursor": "0",
+        }
+        application_state = WebSocketState.CONNECTED
+        client_state = WebSocketState.CONNECTED
+
+        async def accept(self) -> None:
+            pass
+
+        async def send_text(self, data: str) -> None:
+            raise _UnexpectedStreamError("unexpected-internal-error")
+
+        async def close(self, code: int | None = None, reason: str | None = None) -> None:
+            close_calls.append((code, reason))
+
+    async def _run() -> None:
+        try:
+            await realtime_api.portal_websocket_endpoint(_MockWS())  # type: ignore[arg-type]
+        except _UnexpectedStreamError:
+            pass
+
+    monkeypatch.setattr(realtime_api, "_ws_keepalive_seconds", lambda: 0)
+
+    disconnect_calls = [0]
+    original_disconnect = realtime_api._websocket_is_disconnected
+
+    async def _limited_disconnect(websocket: object) -> bool:
+        disconnect_calls[0] += 1
+        if disconnect_calls[0] > 3:
+            return True
+        return await original_disconnect(websocket)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(realtime_api, "_websocket_is_disconnected", _limited_disconnect)
+
+    asyncio.run(_run())
+
+    assert len(close_calls) >= 1, "websocket.close() was never called after unexpected exception"
