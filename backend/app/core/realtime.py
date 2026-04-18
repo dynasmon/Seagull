@@ -126,7 +126,8 @@ def load_portal_realtime_replay(
         rows = redis_client.xrevrange(key, max="+", min="-", count=limit) or []
     except Exception:
         try:
-            rows = redis_client.xrange(key, min="-", max="+", count=limit) or []
+            all_rows = redis_client.xrange(key, min="-", max="+") or []
+            rows = all_rows[-limit:]
         except Exception:
             return []
 

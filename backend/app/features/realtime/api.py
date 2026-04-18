@@ -445,6 +445,7 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
             now = time.monotonic()
             if now - last_keepalive >= float(keepalive_seconds):
                 last_keepalive = now
+                await websocket.send_text('{"kind":"keepalive","transport":"ws"}')
     except WebSocketDisconnect:
         _record_stream_close(transport="ws", reason="client_disconnect")
         return
@@ -453,6 +454,10 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
         return
     except Exception as exc:
         _record_stream_close(transport="ws", reason=type(exc).__name__)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
         raise
     else:
         _record_stream_close(transport="ws", reason="client_disconnect")
