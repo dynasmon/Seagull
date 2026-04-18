@@ -273,13 +273,33 @@ export function useLiveRefresh(options: UseLiveRefreshOptions) {
       return;
     }
 
-    clearCadenceTimer();
-    cadenceTimerRef.current = window.setTimeout(() => {
-      cadenceTimerRef.current = null;
-      void requestRefresh(realtimeStatus === "open" ? "reconcile" : "fallback");
-    }, intervalMs);
+    let active = true;
 
-    return clearCadenceTimer;
+    const scheduleCadence = (delayMs: number) => {
+      clearCadenceTimer();
+      if (!active) return;
+      cadenceTimerRef.current = window.setTimeout(() => {
+        cadenceTimerRef.current = null;
+        const reason = realtimeStatusRef.current === "open" ? "reconcile" : "fallback";
+        void requestRefresh(reason).finally(() => {
+          if (!active) return;
+          const nextMs = (() => {
+            if (!isVisibleRef.current) return profileRef.current.hiddenMs;
+            return realtimeStatusRef.current === "open"
+              ? profileRef.current.reconcileMs
+              : profileRef.current.fallbackMs;
+          })();
+          if (nextMs !== null) scheduleCadence(nextMs);
+        });
+      }, delayMs);
+    };
+
+    scheduleCadence(intervalMs);
+
+    return () => {
+      active = false;
+      clearCadenceTimer();
+    };
   }, [clearCadenceTimer, clearDeferredTimer, clearInvalidateTimer, enabled, isVisible, profile, realtimeStatus, requestRefresh]);
 
   useEffect(() => {
