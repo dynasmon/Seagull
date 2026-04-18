@@ -17,6 +17,8 @@ htmlcov/
 venv/
 backend/.venv/
 backend/venv/
+.claude
+.claude/
 
 agent/bin/
 agent/dist/

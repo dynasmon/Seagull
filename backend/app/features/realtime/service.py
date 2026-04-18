@@ -414,10 +414,14 @@ def coalesce_realtime_envelopes(envelopes: Iterable[RealtimeEnvelope]) -> list[R
             key = (envelope.topic, envelope.type, envelope.scope)
             existing_index = invalidate_positions.get(key)
             if existing_index is not None:
-                out[existing_index] = envelope
+                out.pop(existing_index)
+                for k, idx in invalidate_positions.items():
+                    if idx > existing_index:
+                        invalidate_positions[k] = idx - 1
                 coalesced_total += 1
-                continue
-            invalidate_positions[key] = len(out)
+                invalidate_positions[key] = len(out)
+            else:
+                invalidate_positions[key] = len(out)
         out.append(envelope)
     if coalesced_total > 0:
         incr_counter("realtime_delivery_coalesced_total", value=float(coalesced_total), kind="invalidate")
