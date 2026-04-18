@@ -117,7 +117,7 @@ def run() -> None:
                 f"run: chmod 644 {path}"
             )
 
-    if not _compose.validate(_compose.DEV_FILES):
+    if not _compose.validate(_compose.STACK_FILES):
         raise RuntimeError("[preflight] docker compose config validation failed")
 
     print("[preflight] ok: docker, compose, openssl, curl, jq and compose config are ready")

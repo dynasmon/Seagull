@@ -204,7 +204,7 @@ export default function DdosEventsPage() {
     if (query.agent_id && payloadAgentId && payloadAgentId !== query.agent_id) return;
 
     const incoming = Array.isArray(event.payload?.events)
-      ? event.payload.events.map((row) => compactRowToEvent(row)).filter((row): row is NetEvent => Boolean(row) && isDdosEvent(row))
+      ? event.payload.events.map((row) => compactRowToEvent(row)).filter((row): row is NetEvent => row !== null && isDdosEvent(row))
       : [];
 
     if (incoming.length > 0) {
