@@ -31,7 +31,7 @@ dev-persist:
 	@$(CLI) dev --persist $(_SYSTEMD_AGENT_FLAG)
 
 dev-tls:
-	@$(CLI) dev --tls $(_SYSTEMD_AGENT_FLAG)
+	@$(CLI) dev --dev-reload $(_SYSTEMD_AGENT_FLAG)
 
 prod:
 	@$(CLI) prod

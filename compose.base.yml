@@ -1,7 +1,0 @@
-# compose.base.yml — shared network definition
-# Always included first in the COMPOSE_BASE chain.
-# Every other compose.*.yml in this project depends on this file.
-
-networks:
-  seagull:
-    driver: bridge

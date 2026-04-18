@@ -24,12 +24,12 @@ def _clear_bootstrap_tokens() -> None:
 def cmd_dev(args: argparse.Namespace) -> int:
     systemd_agent: bool = getattr(args, "systemd_agent", False)
     persist: bool = getattr(args, "persist", False)
-    tls: bool = getattr(args, "tls", False)
+    dev_reload: bool = getattr(args, "dev_reload", False)
     extra: bool = getattr(args, "extra", False)
 
     _preflight.run()
 
-    files = _compose.DEV_TLS_FILES if tls else _compose.DEV_FILES
+    files = _compose.DEV_RELOAD_FILES if dev_reload else _compose.STACK_FILES
 
     profile_flags: list[str] = []
     if extra:
@@ -80,7 +80,7 @@ def cmd_prod(args: argparse.Namespace) -> int:
     _prepare.run()
 
     if fresh:
-        _compose.run(_compose.PROD_FILES, ["down", "-v", "--remove-orphans"])
+        _compose.run(_compose.STACK_FILES, ["down", "-v", "--remove-orphans"])
         _clear_bootstrap_tokens()
         _state.clear()
     else:
@@ -88,14 +88,14 @@ def cmd_prod(args: argparse.Namespace) -> int:
         if result in (_state.DRIFT, _state.ORPHAN_VOLUMES):
             print(msg, file=sys.stderr)
             print("[prod] resetting named runtime volumes due to configuration drift")
-            _compose.run(_compose.PROD_FILES, ["down", "-v", "--remove-orphans"])
+            _compose.run(_compose.STACK_FILES, ["down", "-v", "--remove-orphans"])
             _clear_bootstrap_tokens()
             _state.clear()
 
-    _compose.run(_compose.PROD_FILES, ["down", "--remove-orphans"])
+    _compose.run(_compose.STACK_FILES, ["down", "--remove-orphans"])
 
     rc = _compose.run(
-        _compose.PROD_FILES,
+        _compose.STACK_FILES,
         ["up", "-d", "--build", "--remove-orphans"] + _compose.PROD_CORE_SERVICES,
     ).returncode
     if rc != 0:
@@ -104,7 +104,7 @@ def cmd_prod(args: argparse.Namespace) -> int:
     _tokens.mint(output_dir=_env.root() / "secrets" / "bootstrap")
 
     rc = _compose.run(
-        _compose.PROD_FILES,
+        _compose.STACK_FILES,
         ["up", "-d", "--force-recreate"] + _compose.PROD_AGENT_SERVICES,
     ).returncode
     if rc != 0:
@@ -123,82 +123,70 @@ def cmd_prod_setup(args: argparse.Namespace) -> int:
 
 
 def cmd_down(args: argparse.Namespace) -> int:
-    prod: bool = getattr(args, "prod", False)
-    files = _compose.PROD_FILES if prod else _compose.DEV_FILES
-    return _compose.run(files, ["down", "--remove-orphans"]).returncode
+    return _compose.run(_compose.STACK_FILES, ["down", "--remove-orphans"]).returncode
 
 
 def cmd_restart(args: argparse.Namespace) -> int:
     persist: bool = getattr(args, "persist", False)
     quick: bool = getattr(args, "quick", False)
+    dev_reload: bool = getattr(args, "dev_reload", False)
     systemd_agent: bool = getattr(args, "systemd_agent", False)
 
     _preflight.run()
 
+    files = _compose.DEV_RELOAD_FILES if dev_reload else _compose.STACK_FILES
     scale_args: list[str] = []
     if systemd_agent:
         scale_args = ["--scale", "seagull-agent-core=0", "--scale", "seagull-agent-sensor=0"]
 
     if quick:
         return _compose.run(
-            _compose.DEV_FILES,
+            files,
             ["up", "-d", "--force-recreate", "--remove-orphans"] + scale_args,
             persist_redis=persist,
         ).returncode
 
-    _compose.run(_compose.DEV_FILES, ["down", "--remove-orphans"], persist_redis=persist)
+    _compose.run(files, ["down", "--remove-orphans"], persist_redis=persist)
     return _compose.run(
-        _compose.DEV_FILES,
+        files,
         ["up", "-d", "--build", "--remove-orphans"] + scale_args,
         persist_redis=persist,
     ).returncode
 
 
 def cmd_ps(args: argparse.Namespace) -> int:
-    prod: bool = getattr(args, "prod", False)
-    files = _compose.PROD_FILES if prod else _compose.DEV_FILES
-    return _compose.run(files, ["ps"]).returncode
+    return _compose.run(_compose.STACK_FILES, ["ps"]).returncode
 
 
 def cmd_logs(args: argparse.Namespace) -> int:
-    prod: bool = getattr(args, "prod", False)
     svc: str | None = getattr(args, "svc", None)
-    files = _compose.PROD_FILES if prod else _compose.DEV_FILES
     log_args = ["logs", "-f"]
     if svc:
         log_args.append(svc)
-    return _compose.run(files, log_args).returncode
+    return _compose.run(_compose.STACK_FILES, log_args).returncode
 
 
 def cmd_build(args: argparse.Namespace) -> int:
-    prod: bool = getattr(args, "prod", False)
-    files = _compose.PROD_FILES if prod else _compose.DEV_FILES
-    return _compose.run(files, ["build"]).returncode
+    return _compose.run(_compose.STACK_FILES, ["build"]).returncode
 
 
 def cmd_pull(args: argparse.Namespace) -> int:
-    return _compose.run(
-        [
-            "compose.base.yml", "compose.data.yml", "compose.backend.yml",
-            "compose.portal.yml", "compose.observability.yml", "compose.agents.yml",
-        ],
-        ["pull"],
-    ).returncode
+    return _compose.run(_compose.STACK_FILES, ["pull"]).returncode
 
 
 def cmd_clean(args: argparse.Namespace) -> int:
-    return _compose.run(_compose.DEV_FILES, ["down", "--remove-orphans"]).returncode
+    return _compose.run(_compose.STACK_FILES, ["down", "--remove-orphans"]).returncode
 
 
 def cmd_nuke(args: argparse.Namespace) -> int:
-    return _compose.run(_compose.DEV_FILES, ["down", "-v", "--remove-orphans"]).returncode
+    return _compose.run(_compose.STACK_FILES, ["down", "-v", "--remove-orphans"]).returncode
 
 
 def cmd_psql(args: argparse.Namespace) -> int:
     pg_user = _env.read("POSTGRES_USER", "seagull")
     pg_db = _env.read("POSTGRES_DB", "seagull")
     return _compose.run(
-        _compose.DEV_FILES,
+        _compose.STACK_FILES,
         ["exec", "postgres", "psql", "-U", pg_user, "-d", pg_db],
     ).returncode
 
@@ -245,7 +233,7 @@ def cmd_admin(args: argparse.Namespace) -> int:
     if sub == "reset":
         _env.bootstrap()
         return _compose.run(
-            _compose.PROD_FILES,
+            _compose.STACK_FILES,
             ["run", "--rm", "--build", "-T", "seagull-backend",
              "python", "-m", "app.cli", "admin-reset"],
         ).returncode
@@ -273,13 +261,13 @@ def cmd_db(args: argparse.Namespace) -> int:
     sub: str = args.db_cmd
     if sub == "upgrade":
         return _compose.run(
-            _compose.DEV_FILES,
+            _compose.STACK_FILES,
             ["run", "--rm", "--build", "seagull-backend",
              "python", "-m", "alembic", "upgrade", "head"],
         ).returncode
     if sub == "current":
         return _compose.run(
-            _compose.DEV_FILES,
+            _compose.STACK_FILES,
             ["run", "--rm", "--build", "seagull-backend", "python", "-m", "alembic", "current"],
         ).returncode
     print(f"[seagull] unknown db subcommand: {sub}", file=sys.stderr)
@@ -370,15 +358,9 @@ def cmd_redis(args: argparse.Namespace) -> int:
 
 
 def cmd_observability(args: argparse.Namespace) -> int:
-    prod: bool = getattr(args, "prod", False)
-    files = _compose.PROD_FILES if prod else _compose.DEV_FILES
-    if prod:
-        _env.bootstrap()
-        _prepare.run()
-    else:
-        _preflight.run()
+    _preflight.run()
     return _compose.run(
-        files,
+        _compose.STACK_FILES,
         ["--profile", "observability", "up", "-d", "--build", "grafana", "kibana"],
     ).returncode
 
@@ -390,40 +372,43 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command", metavar="command")
 
-    dev_p = sub.add_parser("dev", help="bootstrap and start development stack")
-    dev_p.add_argument("--tls", action="store_true", help="enable stricter TLS cookie/proxy settings")
+    dev_p = sub.add_parser("dev", help="start the stack in dev mode")
     dev_p.add_argument("--persist", action="store_true", help="enable persistent Redis storage")
+    dev_p.add_argument(
+        "--dev-reload", action="store_true", dest="dev_reload",
+        help="enable frontend hot reload (uses compose.dev-reload.yml overlay)",
+    )
     dev_p.add_argument(
         "--systemd-agent", action="store_true", dest="systemd_agent",
         help="skip docker agents (host systemd manages them)",
     )
     dev_p.add_argument("--extra", action="store_true", help="include extra profile services")
 
-    prod_p = sub.add_parser("prod", help="bootstrap and start production stack")
+    prod_p = sub.add_parser("prod", help="start the stack in production mode")
     prod_p.add_argument("--fresh", action="store_true", help="drop volumes and start fresh")
 
     sub.add_parser("prod-setup", help="run env wizard then validate production config")
 
-    down_p = sub.add_parser("down", help="stop stack")
-    down_p.add_argument("--prod", action="store_true", help="use production compose files")
+    sub.add_parser("down", help="stop stack")
 
-    restart_p = sub.add_parser("restart", help="restart development stack")
+    restart_p = sub.add_parser("restart", help="restart the stack")
     restart_p.add_argument("--quick", action="store_true", help="recreate containers without rebuild")
+    restart_p.add_argument(
+        "--dev-reload", action="store_true", dest="dev_reload",
+        help="include hot reload overlay",
+    )
     restart_p.add_argument("--persist", action="store_true", help="enable persistent Redis storage")
     restart_p.add_argument(
         "--systemd-agent", action="store_true", dest="systemd_agent",
         help="skip docker agents",
     )
 
-    ps_p = sub.add_parser("ps", help="list service containers")
-    ps_p.add_argument("--prod", action="store_true", help="use production compose files")
+    sub.add_parser("ps", help="list service containers")
 
     logs_p = sub.add_parser("logs", help="follow service logs")
     logs_p.add_argument("svc", nargs="?", default=None, help="specific service name")
-    logs_p.add_argument("--prod", action="store_true", help="use production compose files")
 
-    build_p = sub.add_parser("build", help="build service images")
-    build_p.add_argument("--prod", action="store_true", help="build production images")
+    sub.add_parser("build", help="build service images")
 
     sub.add_parser("pull", help="pull base images")
     sub.add_parser("clean", help="stop and remove containers, keep volumes")

@@ -124,7 +124,7 @@ def run(auto_fix: Optional[bool] = None) -> None:
     _reject_pair_conflict("SEAGULL_JWT_SECRET", "SEAGULL_JWT_SECRET_FILE")
     _reject_pair_conflict("SEAGULL_BOOTSTRAP_ADMIN_PASSWORD", "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE")
 
-    if not _compose.validate(_compose.PROD_FILES):
+    if not _compose.validate(_compose.STACK_FILES):
         raise RuntimeError("[prod-prepare] docker compose config validation failed")
 
     print("[prod-prepare] ok: production environment validated")
