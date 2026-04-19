@@ -298,9 +298,15 @@ normalize_bootstrap_token_settings() {
 
   normalize_env_key SEAGULL_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}"
   normalize_env_key SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_AGENT_IDENTITY_STATE_FILE "${INSTALL_ENV_PATH}"
   normalize_env_key SEAGULL_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}"
 
-  local credential_file token_inline token_file credential_present
+  local identity_state_file credential_file token_inline token_file credential_present
+  identity_state_file="$(trim "$(read_env_value SEAGULL_AGENT_IDENTITY_STATE_FILE "${INSTALL_ENV_PATH}")")"
+  if [[ -z "${identity_state_file}" ]]; then
+    identity_state_file="${INSTALL_STATE_DIR}/agent.identity.json"
+    set_env_value SEAGULL_AGENT_IDENTITY_STATE_FILE "${identity_state_file}" "${INSTALL_ENV_PATH}"
+  fi
   credential_file="$(trim "$(read_env_value SEAGULL_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}")")"
   if [[ -z "${credential_file}" ]]; then
     credential_file="${INSTALL_STATE_DIR}/agent.credential"
@@ -448,15 +454,16 @@ install_service_file() {
 }
 
 validate_runtime_readiness() {
-  local ca_file token_file token_inline credential_file credential_inline
+  local ca_file token_file token_inline credential_file credential_inline identity_state_file
   ca_file="$(trim "$(read_env_value SEAGULL_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
   token_file="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}")")"
   token_inline="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
   credential_file="$(trim "$(read_env_value SEAGULL_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}")")"
   credential_inline="$(trim "$(read_env_value SEAGULL_AGENT_CREDENTIAL "${INSTALL_ENV_PATH}")")"
+  identity_state_file="$(trim "$(read_env_value SEAGULL_AGENT_IDENTITY_STATE_FILE "${INSTALL_ENV_PATH}")")"
 
   local has_credential="0"
-  if [[ -n "${credential_inline}" || ( -n "${credential_file}" && -s "${credential_file}" ) ]]; then
+  if [[ -n "${credential_inline}" || ( -n "${credential_file}" && -s "${credential_file}" ) || ( -n "${identity_state_file}" && -s "${identity_state_file}" ) ]]; then
     has_credential="1"
   fi
 
@@ -488,17 +495,18 @@ is_runtime_ready() {
     return 1
   fi
 
-  local ca_file token_file token_inline credential_file credential_inline
+  local ca_file token_file token_inline credential_file credential_inline identity_state_file
   ca_file="$(trim "$(read_env_value SEAGULL_TLS_CA_FILE "${INSTALL_ENV_PATH}")")"
   token_file="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}")")"
   token_inline="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
   credential_file="$(trim "$(read_env_value SEAGULL_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}")")"
   credential_inline="$(trim "$(read_env_value SEAGULL_AGENT_CREDENTIAL "${INSTALL_ENV_PATH}")")"
+  identity_state_file="$(trim "$(read_env_value SEAGULL_AGENT_IDENTITY_STATE_FILE "${INSTALL_ENV_PATH}")")"
 
   local has_credential="0"
   local has_bootstrap="0"
 
-  if [[ -n "${credential_inline}" || ( -n "${credential_file}" && -s "${credential_file}" ) ]]; then
+  if [[ -n "${credential_inline}" || ( -n "${credential_file}" && -s "${credential_file}" ) || ( -n "${identity_state_file}" && -s "${identity_state_file}" ) ]]; then
     has_credential="1"
   fi
 

@@ -191,6 +191,9 @@ class Settings:
     SEAGULL_AGENT_CREDENTIAL_TTL_SECONDS: int = _env_int("SEAGULL_AGENT_CREDENTIAL_TTL_SECONDS", 604800)
     SEAGULL_AGENT_CREDENTIAL_MAX_USES: int = _env_int("SEAGULL_AGENT_CREDENTIAL_MAX_USES", 100000)
     SEAGULL_AGENT_CREDENTIAL_ROTATE_BEFORE_SECONDS: int = _env_int("SEAGULL_AGENT_CREDENTIAL_ROTATE_BEFORE_SECONDS", 86400)
+    SEAGULL_AGENT_CREDENTIAL_OVERLAP_SECONDS: int = _env_int("SEAGULL_AGENT_CREDENTIAL_OVERLAP_SECONDS", 900)
+    SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS: int = _env_int("SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS", 2592000)
+    SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE: int = _env_int("SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE", 2)
 
     # Rules worker
     SEAGULL_RULES_EVERY_SECONDS: float = _env_float("SEAGULL_RULES_EVERY_SECONDS", 5.0)
@@ -416,6 +419,18 @@ class Settings:
             errors.append("SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS must be >= 60")
         if (self.SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES or 0) < 1:
             errors.append("SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES must be >= 1")
+        if (self.SEAGULL_AGENT_CREDENTIAL_TTL_SECONDS or 0) < 300:
+            errors.append("SEAGULL_AGENT_CREDENTIAL_TTL_SECONDS must be >= 300")
+        if (self.SEAGULL_AGENT_CREDENTIAL_MAX_USES or 0) < 1:
+            errors.append("SEAGULL_AGENT_CREDENTIAL_MAX_USES must be >= 1")
+        if (self.SEAGULL_AGENT_CREDENTIAL_ROTATE_BEFORE_SECONDS or 0) < 60:
+            errors.append("SEAGULL_AGENT_CREDENTIAL_ROTATE_BEFORE_SECONDS must be >= 60")
+        if (self.SEAGULL_AGENT_CREDENTIAL_OVERLAP_SECONDS or 0) < 0:
+            errors.append("SEAGULL_AGENT_CREDENTIAL_OVERLAP_SECONDS must be >= 0")
+        if (self.SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS or 0) < 3600:
+            errors.append("SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS must be >= 3600")
+        if (self.SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE or 0) < 1:
+            errors.append("SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE must be >= 1")
 
         if svc == "backend-api":
             secret = (self.SEAGULL_JWT_SECRET or "").strip()
@@ -542,6 +557,12 @@ class Settings:
                 "has_audit_hash_pepper": bool((self.SEAGULL_AUDIT_HASH_PEPPER or "").strip()),
                 "agent_bootstrap_token_ttl_seconds": int(self.SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS),
                 "agent_bootstrap_token_max_uses": int(self.SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES),
+                "agent_credential_ttl_seconds": int(self.SEAGULL_AGENT_CREDENTIAL_TTL_SECONDS),
+                "agent_credential_max_uses": int(self.SEAGULL_AGENT_CREDENTIAL_MAX_USES),
+                "agent_credential_rotate_before_seconds": int(self.SEAGULL_AGENT_CREDENTIAL_ROTATE_BEFORE_SECONDS),
+                "agent_credential_overlap_seconds": int(self.SEAGULL_AGENT_CREDENTIAL_OVERLAP_SECONDS),
+                "agent_renewal_token_ttl_seconds": int(self.SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS),
+                "agent_renewal_token_max_active": int(self.SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE),
                 "bootstrap_admin_sync_on_start": bool(self.SEAGULL_BOOTSTRAP_ADMIN_SYNC_ON_START),
                 "bootstrap_admin_allow_sync_on_start": bool(self.SEAGULL_BOOTSTRAP_ADMIN_ALLOW_SYNC_ON_START),
             },

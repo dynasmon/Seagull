@@ -4,9 +4,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Tuple
 
+from sqlalchemy import or_
 from fastapi import HTTPException, Request, status
 
 from app.core.db import SessionLocal
+from app.core.observability import incr_counter
 from app.features.agents.models import AgentCredentialModel
 from app.features.agents.models import AgentModel
 
@@ -57,6 +59,7 @@ def _extract_agent_headers(request: Request) -> tuple[str, str]:
     agent_id = (request.headers.get("X-Agent-ID") or "").strip()
     credential = (request.headers.get("X-Agent-Credential") or "").strip()
     if not agent_id or not credential:
+        incr_counter("agent_auth_requests_total", outcome="failure", reason="missing_headers")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing agent credentials")
     return agent_id, credential
 
@@ -68,6 +71,7 @@ def get_current_agent(request: Request) -> AgentPrincipal:
     try:
         agent: AgentModel | None = db.query(AgentModel).filter(AgentModel.agent_id == agent_id).first()
         if not agent or agent.is_revoked:
+            incr_counter("agent_auth_requests_total", outcome="failure", reason="unknown_or_revoked_agent")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
 
         now = datetime.utcnow()
@@ -75,7 +79,7 @@ def get_current_agent(request: Request) -> AgentPrincipal:
             db.query(AgentCredentialModel)
             .filter(
                 AgentCredentialModel.agent_id == agent_id,
-                AgentCredentialModel.revoked_at.is_(None),
+                or_(AgentCredentialModel.revoked_at.is_(None), AgentCredentialModel.revoked_at > now),
             )
             .all()
         )
@@ -89,11 +93,14 @@ def get_current_agent(request: Request) -> AgentPrincipal:
             break
 
         if matched is None:
+            incr_counter("agent_auth_requests_total", outcome="failure", reason="invalid_credential")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid agent credential")
 
         if matched.expires_at <= now:
+            incr_counter("agent_auth_requests_total", outcome="failure", reason="expired")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Agent credential expired")
         if int(matched.used_uses or 0) >= int(matched.max_uses or 1):
+            incr_counter("agent_auth_requests_total", outcome="failure", reason="exhausted")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Agent credential exhausted")
 
         matched.used_uses = int(matched.used_uses or 0) + 1
@@ -103,6 +110,7 @@ def get_current_agent(request: Request) -> AgentPrincipal:
         db.add(matched)
         db.add(agent)
         db.commit()
+        incr_counter("agent_auth_requests_total", outcome="success", method="credential")
 
         return AgentPrincipal(
             id=agent.id,

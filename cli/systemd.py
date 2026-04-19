@@ -14,6 +14,7 @@ ENV_FILE          = Path("/etc/seagull/agent.env")
 CA_DEFAULT        = Path("/etc/seagull/pki/root_ca.crt")
 TOKEN_DEFAULT     = Path("/var/lib/seagull/bootstrap.token")
 CREDENTIAL_DEFAULT = Path("/var/lib/seagull/agent.credential")
+IDENTITY_STATE_DEFAULT = Path("/var/lib/seagull/agent.identity.json")
 
 
 class ValidationError(Exception):
@@ -43,7 +44,10 @@ def _has_credential() -> bool:
     if inline:
         return True
     path = Path(_read_agent_env("SEAGULL_AGENT_CREDENTIAL_FILE") or str(CREDENTIAL_DEFAULT))
-    return path.exists() and path.stat().st_size > 0
+    if path.exists() and path.stat().st_size > 0:
+        return True
+    identity_path = Path(_read_agent_env("SEAGULL_AGENT_IDENTITY_STATE_FILE") or str(IDENTITY_STATE_DEFAULT))
+    return identity_path.exists() and identity_path.stat().st_size > 0
 
 
 def _has_bootstrap_token() -> bool:
