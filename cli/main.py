@@ -42,6 +42,12 @@ def _up_dev(
     if rc != 0:
         return rc
 
+    print()
+    if not _health.wait_healthy(files, _health.ESSENTIAL_DEV):
+        print()
+        _health.print_summary(files)
+        return 1
+
     if not systemd_agent:
         _tokens.mint()
         rc = _compose.run(
@@ -54,10 +60,8 @@ def _up_dev(
             return rc
 
     print()
-    ok = _health.wait_healthy(files, _health.ESSENTIAL_DEV)
-    print()
     _health.print_summary(files)
-    return 0 if ok else 1
+    return 0
 
 
 def _up_prod(
@@ -100,7 +104,7 @@ def _up_prod(
     else:
         rc = _compose.run(
             _compose.STACK_FILES,
-            ["up", "-d", "--force-recreate"] + list(_compose.PROD_AGENT_SERVICES),
+            ["up", "-d", "--build", "--force-recreate"] + list(_compose.PROD_AGENT_SERVICES),
         ).returncode
         if rc != 0:
             return rc

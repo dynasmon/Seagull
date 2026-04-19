@@ -137,9 +137,9 @@ Worker group manager entrypoints:
 
 ### Prerequisites
 
-- Docker
-- Docker Compose (Docker CLI plugin or standalone)
-- Git (to clone the repository)
+- Docker with Compose plugin (`docker compose version`)
+- Python 3.9+
+- Git
 
 ### 1. Clone the repository
 
@@ -148,116 +148,83 @@ git clone https://gitlab.com/nathanmblima/dynasmon-seagull.git
 cd dynasmon-seagull
 ```
 
-### 2. Configure environment variables
+### 2. Start (single command)
 
-No manual `.env` setup is required for first run. `make dev` (and `make prod`) now auto-creates `.env` from `.env.example` when missing, and auto-adds newly introduced variables on future runs while preserving existing values.
+```bash
+./seagull up
+```
 
-If you want to pre-customize values before first startup, create `.env` manually from the template:
+This is the only command you need for first run and all subsequent reruns. It:
+
+- Creates `.env` from `.env.example` when missing, and syncs new keys on reruns
+- Runs preflight checks (Docker daemon, TLS files, compose config)
+- Builds and starts the full stack
+- Mints short-lived per-agent bootstrap tokens and starts agent containers
+
+### 3. Common commands
+
+```bash
+./seagull up                        # start (dev mode by default)
+./seagull up --mode dev             # explicit dev mode
+./seagull up --mode prod            # production mode (Caddy HTTPS edge)
+./seagull up --agent-mode systemd   # start platform only; host systemd agent handles collection
+./seagull down                      # stop the stack
+./seagull status                    # show running container status
+./seagull logs                      # follow all service logs
+./seagull logs seagull-backend      # follow a specific service
+./seagull doctor                    # check deps, TLS, secrets, compose config
+./seagull restart                   # rebuild and restart
+./seagull restart --quick           # recreate containers without rebuild
+./seagull reset --volumes           # stop and remove all containers and volumes (DANGEROUS)
+```
+
+### 4. Environment variables
+
+No manual `.env` setup is required. `./seagull up` handles it automatically.
+
+To pre-customize values before first startup:
 
 ```bash
 cp .env.example .env
+# edit .env
 ```
 
-Create runtime secret files (recommended for prod and supported in dev):
+Minimum required for a secure bootstrap:
 
-```bash
-mkdir -p secrets
-openssl rand -hex 24 > secrets/postgres_password.txt
-openssl rand -hex 32 > secrets/seagull_jwt_secret.txt
-openssl rand -hex 24 > secrets/seagull_bootstrap_admin_password.txt
-openssl rand -hex 24 > secrets/seagull_redis_password.txt
-openssl rand -hex 24 > secrets/seagull_es_password.txt
-openssl rand -hex 32 > secrets/seagull_audit_hash_pepper.txt
-openssl rand -hex 24 > secrets/grafana_admin_password.txt  # optional, only if observability profile is enabled
-```
-
-The backend now supports both `VAR` and `VAR_FILE` for secrets. Compose prod mounts Docker secrets under `/run/secrets/*`.
-
-Minimum required for secure bootstrap:
-
-- `SEAGULL_JWT_SECRET` or `SEAGULL_JWT_SECRET_FILE`
+- `SEAGULL_JWT_SECRET` or `SEAGULL_JWT_SECRET_FILE` (auto-generated if weak/missing in prod mode)
 - `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD` or `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE`
-- In dev, `SEAGULL_BOOTSTRAP_ADMIN_RESET_ON_START=true` can resync the bootstrap admin password on startup.
+- In dev, `SEAGULL_BOOTSTRAP_ADMIN_RESET_ON_START=true` re-syncs the admin password on startup.
 
-Recommended hardening:
+Recommended production hardening:
 
-- Use short-lived bootstrap tokens per agent for enrollment.
-- When behind HTTPS, set `SEAGULL_COOKIE_SECURE=true` and consider `SEAGULL_COOKIE_SAMESITE=strict`.
-- Configure Caddy edge domain/email for automatic HTTPS:
-  - `SEAGULL_CADDY_DOMAIN`
-  - `SEAGULL_CADDY_EMAIL`
-- Configure audit integrity and retention:
-  - `SEAGULL_AUDIT_HASH_PEPPER` / `SEAGULL_AUDIT_HASH_PEPPER_FILE`
-  - `SEAGULL_AUDIT_RETENTION_DAYS`
-  - `SEAGULL_LOGIN_AUDIT_RETENTION_DAYS`
-  - `SEAGULL_GOVERNANCE_RETENTION_DAYS`
+- Use `*_FILE` variants with Docker secrets for all credentials.
+- Set `SEAGULL_COOKIE_SECURE=true` behind HTTPS.
+- Configure Caddy domain: `SEAGULL_CADDY_DOMAIN`, `SEAGULL_CADDY_EMAIL`.
+- Set `SEAGULL_AUDIT_HASH_PEPPER` / `SEAGULL_AUDIT_HASH_PEPPER_FILE`.
 
-For local lab/dev TLS (self-signed), keep your dev certs under `secrets/tls/`:
+For production setup wizard (interactive):
 
 ```bash
-mkdir -p secrets/tls
-openssl req -x509 -nodes -newkey rsa:4096 \
-  -days 365 \
-  -keyout secrets/tls/tls.key \
-  -out secrets/tls/tls.crt \
-  -subj "/CN=localhost"
+./seagull env wizard
+./seagull up --mode prod
 ```
 
-Then trust/import `secrets/tls/ca.crt` in your local OS/browser store if you want to remove browser warnings.
+### 5. Native Linux `systemd` agent deployment
 
-If you enable SSH enrichment (Lupe / IP Intelligence), the preferred setup is local MaxMind GeoLite2 databases mounted into `backend/data/geoip/`:
-
-- `backend/data/geoip/GeoLite2-City.mmdb`
-- `backend/data/geoip/GeoLite2-ASN.mmdb`
-
-Optional fallback:
-
-- `SEAGULL_IPINFO_TOKEN` (used only when the local MMDB files are missing and fallback is enabled)
-
-### 3. Bootstrap and start (single command)
+Run the agent directly on a Linux host instead of in a container. The platform services (backend, portal, workers) still run in Docker; only the agent runs as a systemd service.
 
 ```bash
-make dev
+# Install (from repo root, as root):
+./seagull agent install-systemd
+
+# Start platform without Docker agent containers:
+./seagull up --agent-mode systemd
+
+# Agent management:
+./seagull agent status-systemd
+./seagull agent restart-systemd
+./seagull agent validate-systemd
 ```
-
-This command:
-
-- Creates `.env` from `.env.example` when missing
-- Syncs newly introduced env keys into an existing `.env`
-- Runs preflight checks (Docker daemon, TLS files/SAN, compose config)
-- Starts the stack with `--remove-orphans` to keep container state predictable
-- Mints short-lived per-agent bootstrap tokens and rewires agent containers with the fresh tokens
-- Uses `compose.base.yml + compose.data.yml + compose.backend.yml + compose.portal.yml + compose.observability.yml + compose.agents.yml + compose.dev.yml`
-- Builds and starts the development stack
-
-Recommended local startup path: use `make dev` as the single entrypoint.
-
-If local runtime state gets corrupted and you want a clean dev reset:
-
-```bash
-make nuke
-make dev
-```
-
-If you run the host agent with `systemd` (`seagull-agent.service`) and do not want Docker to start
-`seagull-agent-core`/`seagull-agent-sensor`, run:
-
-```bash
-make dev SYSTEMD_AGENT=1
-```
-
-Use the same flag for restarts:
-
-```bash
-make restart SYSTEMD_AGENT=1
-make restart-quick SYSTEMD_AGENT=1
-```
-
-### 3.1 Native Linux `systemd` agent deployment
-
-If you want to run the Seagull agent natively on a Linux host (without containerized agent services), use the deployment scripts under `deploy/systemd/`.
-
-This path is compatible with the existing Docker workflow. When the host `systemd` agent is enabled, use `SYSTEMD_AGENT=1` in the compose/make commands shown above so Docker does not start `seagull-agent-core`/`seagull-agent-sensor`.
 
 #### Installed paths
 
@@ -270,206 +237,96 @@ This path is compatible with the existing Docker workflow. When the host `system
 | CA sync helper | `/usr/local/lib/seagull/seagull-agent-sync-ca.sh` |
 | CA sync timer | `seagull-agent-ca-sync.timer` |
 | State files | `/var/lib/seagull` |
-| Runtime logs | `journalctl -u seagull-agent` and `/var/log/seagull` |
+| Runtime logs | `journalctl -u seagull-agent` |
 
-#### Install
-
-Run from repository root as `root`:
-
-```bash
-bash deploy/systemd/install-agent.sh
-```
-
-Install modes:
-
-- Build from source (default):
-  ```bash
-  BUILD_FROM_SOURCE=1 bash deploy/systemd/install-agent.sh
-  ```
-- Install from an existing binary:
-  ```bash
-  BUILD_FROM_SOURCE=0 SOURCE_BINARY=/path/to/seagull-agent bash deploy/systemd/install-agent.sh
-  ```
-- Install and auto-start only when runtime prerequisites are met:
-  ```bash
-  AUTO_START_IF_READY=1 bash deploy/systemd/install-agent.sh
-  ```
-
-Installer behavior (idempotent and hardening-oriented):
-
-- Reuses existing user/directories, preserves existing `/etc/seagull/agent.env`, reloads systemd, enables the service.
-- Migrates legacy `SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE=/etc/seagull/bootstrap.token` to `/var/lib/seagull/bootstrap.token`.
-- Moves inline `SEAGULL_AGENT_BOOTSTRAP_TOKEN` content to file-based token storage and clears inline value.
-- Normalizes bootstrap token file ownership/permissions to `seagull:seagull` and `0600`.
-- Clears stale `SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE` when credential-based enroll is already complete and token file was consumed.
-- Removes stale systemd drop-ins that override bootstrap token env vars (unless `PRESERVE_BOOTSTRAP_DROPINS=1`).
-- Deduplicates managed keys in `agent.env` and applies sane host defaults for authlog and DDoS tuning.
-- If `SEAGULL_TLS_CA_FILE` is missing, can auto-seed from local dev CA (`AUTO_INSTALL_DEV_CA=1`, default).
-- Auto-discovers the local CA source, writes `SEAGULL_TLS_CA_SOURCE_FILE`, and installs CA sync timer to keep trust aligned.
-
-#### Configure
-
-Edit `/etc/seagull/agent.env` and set at least:
+After install, edit `/etc/seagull/agent.env` and set at minimum:
 
 - `SEAGULL_AGENT_ID`
 - `SEAGULL_API_URL`
-- One bootstrap source:
-  - `SEAGULL_AGENT_BOOTSTRAP_TOKEN`, or
-  - `SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE`
+- `SEAGULL_AGENT_BOOTSTRAP_TOKEN` or `SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE`
 - `SEAGULL_TLS_CA_FILE` (default: `/etc/seagull/pki/root_ca.crt`)
-- `SEAGULL_TLS_CA_SOURCE_FILE` (typically your repo `secrets/tls/ca.crt`)
 
-Optional backend mTLS:
-
-- `SEAGULL_TLS_CERT_FILE`
-- `SEAGULL_TLS_KEY_FILE`
-
-If one of `SEAGULL_TLS_CERT_FILE` / `SEAGULL_TLS_KEY_FILE` is set, the other must also be set.
-
-#### Start and inspect
+Install modes:
 
 ```bash
-systemctl start seagull-agent
-systemctl status seagull-agent --no-pager
-journalctl -u seagull-agent -f
+# Default: build from source
+./seagull agent install-systemd
+
+# Use a pre-built binary:
+BUILD_FROM_SOURCE=0 SOURCE_BINARY=/path/to/seagull-agent ./seagull agent install-systemd
+
+# Auto-start when prerequisites are met:
+AUTO_START_IF_READY=1 ./seagull agent install-systemd
 ```
 
-#### Current limitations
+The installer is idempotent: preserves existing `agent.env`, migrates legacy token paths, normalizes permissions, installs the CA sync timer.
 
-- No `ExecReload` is configured in the unit.
-- Bootstrap token file deletion occurs only after successful enroll/re-enroll.
-- Service auto-start is intentionally conservative unless explicitly requested with `AUTO_START_IF_READY=1`.
-
-Advanced/manual compose invocations are still possible, but they are not the recommended developer path.
-Use them only for debugging custom scenarios.
-
-For production-style local runs:
+### 6. Clean reset
 
 ```bash
-make prod
+./seagull nuke    # remove all containers and volumes
+./seagull up      # fresh start
 ```
 
-This uses the domain-scoped compose files (`compose.base.yml` → `compose.data.yml` → `compose.backend.yml` → `compose.portal.yml` → `compose.observability.yml` → `compose.agents.yml`) overlaid with `compose.prod.yml`, with Caddy edge HTTPS + bootstrap credential flow.
-On first run, `make prod` now auto-generates secure missing/placeholder secrets in `.env`, records a production state fingerprint, and resets stale runtime volumes automatically when critical secrets drift.
-`make prod-fresh` performs a full clean boot, including runtime state reset under `secrets/runtime/`.
+### 7. Open the Portal
 
-The dev stack runs through HTTPS edge; agents use header-based rotating credentials.
-It serves:
-- HTTP redirect: `http://localhost:${SEAGULL_EDGE_HTTP_PORT:-8081}`
-- HTTPS: `https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}`
+- Dev: `https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}`
+- Prod: `https://<SEAGULL_CADDY_DOMAIN>`
+- Login: `SEAGULL_BOOTSTRAP_ADMIN_USERNAME` / `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD`
 
-### 4. Start optional profiles
+If login gets out of sync with `.env`:
 
 ```bash
-make up-extra
+./seagull admin reset
 ```
 
-`make up-extra` starts the `extra` profile (for additional agent collectors such as `seagull-agent-lateral`).
-
-To start optional observability tooling (Grafana + Kibana), use:
-
-```bash
-make up-observability
-make prod-observability
-```
-
-or with raw compose:
-
-```bash
-docker compose \
-  -f compose.base.yml \
-  -f compose.data.yml \
-  -f compose.backend.yml \
-  -f compose.portal.yml \
-  -f compose.observability.yml \
-  -f compose.agents.yml \
-  -f compose.dev.yml \
-  --profile observability up -d grafana kibana
-```
-
-### Redis modes
-
-- Dev default: `redis.dev.conf`
-  - Ephemeral.
-  - Writes to `/tmp/redis`, so old Redis state does not poison normal restart loops.
-  - Normal usage stays simple: `make dev` or `make SYSTEMD_AGENT=1 restart`.
-- Dev persistent: `redis.dev.persist.conf`
-  - Uses the same dev compose files and shared `redis-data` volume.
-  - Use only when testing persistence or restart recovery.
-  - Shortcuts: `make dev-persist`, `make restart-persist`, or `make SYSTEMD_AGENT=1 DEV_REDIS_PERSIST=1 restart`.
-- Prod: `redis.prod.conf`
-  - Uses `redis-data`.
-  - Fails fast if `SEAGULL_REDIS_PASSWORD` or `SEAGULL_REDIS_PASSWORD_FILE` is missing.
-
-Persistent Redis recovery is explicit and manual:
-
-```bash
-make redis-repair-aof
-```
-
-The repair command:
-
-- requires the Redis container to be stopped first
-- creates a timestamped backup inside the Redis volume before modifying files
-- runs `redis-check-aof --fix` against the detected manifest or legacy AOF file
-
-### 5. Open the Portal
-
-- Recommended (dev TLS edge): `https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}`
-- Direct Vite port (fallback): `http://localhost:${SEAGULL_PORTAL_PORT:-8080}`
-- Prod compose: `https://<SEAGULL_CADDY_DOMAIN>` (for local runs, use `https://127.0.0.1:${SEAGULL_EDGE_HTTPS_PORT:-8443}`)
-- Login with:
-  - Username: `SEAGULL_BOOTSTRAP_ADMIN_USERNAME` (default: `admin`)
-  - Password: `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD`
-
-The admin account is bootstrapped on an empty database at backend startup.
-After logging in, change your password via **Settings** (or `POST /account/change-password`).
-If login gets out of sync with `.env`, run `make admin-reset` (backend CLI command) to force-sync the bootstrap admin password into the database.
-Important: this login troubleshooting is primarily for `prod` runs behind `caddy` (`/api/*` path).
-In `dev` direct backend usage (`compose.dev.yml` / `http://localhost:8000`), host/proxy behaviors differ.
-
-### 6. Verify the Backend
+### 8. Verify the backend
 
 ```bash
 curl -k https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}/api/health
-```
+# {"status":"ok"}
 
-Expected:
-
-```json
-{"status":"ok"}
-```
-
-Readiness endpoint:
-
-```bash
 curl -k https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}/api/health/ready
 ```
 
-- `/health` and `/health/live` mean process liveness.
-- `/health/ready` means the API is usable (DB required; optional backends like Elasticsearch/ClickHouse are only blocking when explicitly configured as required).
+### 9. Optional profiles
 
-### 7. Grafana / Kibana (optional)
+```bash
+# Observability (Grafana + Kibana):
+./seagull observability
 
-- Grafana: `http://localhost:${GRAFANA_PORT:-3000}`
-  - Credentials: `GF_SECURITY_ADMIN_USER` + value from `GF_SECURITY_ADMIN_PASSWORD` or `GF_SECURITY_ADMIN_PASSWORD_FILE`
-  - Datasources + dashboards are **auto‑provisioned** from `infra/grafana/provisioning`.
+# Extra agent collectors (lateral movement):
+./seagull dev --extra
+```
 
-- Kibana (optional, behind TLS edge): `https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}/kibana/` (start with `--profile observability`)
-- Elasticsearch HTTP API (if intentionally exposed via edge): `https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}/elasticsearch/`
+Grafana: `http://localhost:${GRAFANA_PORT:-3000}` (auto-provisioned from `infra/grafana/provisioning`).
 
-### 8. Developer quality pipeline
+### 10. Redis modes
 
-Local commands:
+- **Dev (default)**: ephemeral — restarts are clean by default.
+- **Dev persistent**: `./seagull up --mode dev --persist` — survives restarts.
+- **Prod**: persistent, requires `SEAGULL_REDIS_PASSWORD`.
 
-- `make lint` -> backend (`ruff`), frontend (`eslint`), agent (`gofmt` + `go vet`)
-- `make test` -> backend (`pytest`), agent (`go test`), frontend smoke (`npm run smoke`)
-- `make build-prod` -> production image builds with `compose.prod.yml`
-- `make deps-check` -> `pip-audit`, `npm audit`, `govulncheck`
+AOF recovery (stop Redis first):
 
-CI (`.github/workflows/ci.yml`) runs lint/tests, image build, dependency checks, and secret scanning (`gitleaks`) on push and pull request.
+```bash
+./seagull redis repair-aof
+```
 
-### 9. Database migrations and lifecycle (Alembic)
+### 11. Developer quality pipeline
+
+```bash
+./seagull lint          # ruff + eslint + gofmt + go vet
+./seagull test          # pytest + go test + npm smoke
+./seagull test --detections   # detection catalog + rule unit tests only
+./seagull build         # build all service images
+./seagull deps-check    # pip-audit + npm audit + govulncheck
+./seagull ci            # lint + test + build
+```
+
+CI (`.github/workflows/ci.yml`) runs lint/tests, image build, dependency audit, and secret scanning (`gitleaks`) on push and pull request.
+
+### 12. Database migrations and lifecycle (Alembic)
 
 The project now uses Alembic for schema versioning.
 
@@ -481,17 +338,19 @@ The project now uses Alembic for schema versioning.
 
 Lifecycle flow:
 
-- **Initial bootstrap (dev)**: `compose.dev.yml` sets `SEAGULL_DB_AUTO_UPGRADE=true`, so services apply `alembic upgrade head` automatically.
+- **Initial bootstrap (dev)**: `SEAGULL_DB_AUTO_UPGRADE=true` is set in dev mode, so services apply `alembic upgrade head` automatically.
 - **Upgrade before prod deploy**: run migrations explicitly, then start services.
 
 Useful commands:
 
-- `make db-upgrade` -> run `alembic upgrade head` via backend container
-- `make db-current` -> show current revision
+```bash
+./seagull db upgrade    # run alembic upgrade head via backend container
+./seagull db current    # show current revision
+```
 
-For production-like runs (`compose.prod.yml`), `SEAGULL_DB_AUTO_UPGRADE=false` by default.
+In production mode, `SEAGULL_DB_AUTO_UPGRADE=false` by default.
 
-### 10. Administrative Audit and Governance
+### 13. Administrative Audit and Governance
 
 Administrative evidence is persisted in Postgres with the same architecture in dev and prod:
 
@@ -541,7 +400,7 @@ Troubleshooting (Postgres auth failed):
 
 - If you see `password authentication failed for user "seagull"` after changing `POSTGRES_PASSWORD`, your existing `postgres-data` volume still has the old password.
 - Option 1 (keep data): set `.env` `POSTGRES_PASSWORD` back to the password used when that volume was first created.
-- Option 2 (reset disposable local state): run `make nuke` and then `make dev`.
+- Option 2 (reset disposable local state): run `./seagull nuke` and then `./seagull up`.
 
 Other common first-run issues:
 
@@ -549,7 +408,7 @@ Other common first-run issues:
 - Portal loads but UI fails behind TLS edge: check `infra/caddy/Caddyfile.dev` (dev CSP/HMR policy) and restart with `make restart`.
 - Optional workers degraded while API is available: this is expected when optional services (for example Elasticsearch/ClickHouse) are unavailable and not required.
 
-### 11. Development observability
+### 14. Development observability
 
 Backend and workers now emit structured JSON logs with a common shape:
 
@@ -742,7 +601,7 @@ Validation suite:
 - Rule behavior/unit tests: `backend/tests/test_rules_and_correlations.py`
 - Catalog quality checks (schema/severity/ATT&CK mapping + pack filtering): `backend/tests/test_detection_catalog.py`
 - Run only detection validation:
-  - `make test-detections`
+  - `./seagull test --detections`
 
 ---
 
