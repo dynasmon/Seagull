@@ -76,10 +76,10 @@ prod-agent-tokens-bootstrap:
 	@$(CLI) agent tokens --output-dir ./secrets/bootstrap
 
 systemd-agent-install:
-	@$(CLI) agent install
+	@$(CLI) agent install-systemd
 
 systemd-agent-restart:
-	@$(CLI) agent restart
+	@$(CLI) agent restart-systemd
 
 admin-reset:
 	@$(CLI) admin reset

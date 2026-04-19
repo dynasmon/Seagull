@@ -13,6 +13,7 @@ from . import preflight as _preflight
 from . import prepare as _prepare
 from . import health as _health
 from . import wizard as _wizard
+from . import systemd as _systemd
 
 
 def _clear_bootstrap_tokens() -> None:
@@ -29,6 +30,9 @@ def _up_dev(
     systemd_agent: bool,
 ) -> int:
     _preflight.run()
+
+    if systemd_agent:
+        _systemd.validate()
 
     scale_args: list[str] = []
     if systemd_agent:
@@ -68,6 +72,9 @@ def _up_prod(
     systemd_agent: bool,
 ) -> int:
     _prepare.run()
+
+    if systemd_agent:
+        _systemd.validate()
 
     if fresh:
         _compose.run(_compose.STACK_FILES, ["down", "-v", "--remove-orphans"])
@@ -324,16 +331,19 @@ def cmd_agent(args: argparse.Namespace) -> int:
         output_dir = Path(args.output_dir) if getattr(args, "output_dir", None) else None
         _tokens.mint(output_dir=output_dir)
         return 0
-    if sub == "install":
-        return subprocess.run(
-            ["sudo", "env", "AUTO_START_IF_READY=1", "bash", "deploy/systemd/install-agent.sh"],
-            cwd=str(_env.root()),
-        ).returncode
-    if sub == "restart":
-        rc = subprocess.run(["sudo", "systemctl", "restart", "seagull-agent"]).returncode
-        if rc == 0:
-            subprocess.run(["sudo", "systemctl", "status", "seagull-agent", "--no-pager"])
-        return rc
+    if sub in ("install", "install-systemd"):
+        return _systemd.install()
+    if sub in ("restart", "restart-systemd"):
+        return _systemd.restart()
+    if sub in ("status", "status-systemd"):
+        return _systemd.status()
+    if sub in ("validate", "validate-systemd"):
+        try:
+            _systemd.validate()
+            print("[systemd-agent] ok")
+            return 0
+        except _systemd.ValidationError:
+            return 1
     print(f"[seagull] unknown agent subcommand: {sub}", file=sys.stderr)
     return 1
 
@@ -492,7 +502,8 @@ def _print_help() -> None:
         "\n"
         "Management:\n"
         "  env bootstrap | wizard | prepare\n"
-        "  agent tokens [--output-dir path] | install | restart\n"
+        "  agent tokens [--output-dir path]\n"
+        "  agent install-systemd | restart-systemd | status-systemd | validate-systemd\n"
         "  admin reset\n"
         "  state check | clear\n"
         "  db upgrade | current\n"
@@ -582,8 +593,12 @@ def _build_parser() -> argparse.ArgumentParser:
     agent_sub = agent_p.add_subparsers(dest="agent_cmd", metavar="agent_cmd")
     tok_p = agent_sub.add_parser("tokens", help="mint agent bootstrap tokens")
     tok_p.add_argument("--output-dir", dest="output_dir", default=None)
-    agent_sub.add_parser("install", help="install or update host systemd seagull-agent")
-    agent_sub.add_parser("restart", help="restart host systemd seagull-agent service")
+    agent_sub.add_parser("install-systemd", help="install or update the host systemd agent")
+    agent_sub.add_parser("restart-systemd", help="restart the host systemd agent service")
+    agent_sub.add_parser("status-systemd", help="show host systemd agent service status")
+    agent_sub.add_parser("validate-systemd", help="validate systemd agent installation and config")
+    agent_sub.add_parser("install", help="(alias for install-systemd)")
+    agent_sub.add_parser("restart", help="(alias for restart-systemd)")
 
     admin_p = sub.add_parser("admin", help="admin account operations")
     admin_sub = admin_p.add_subparsers(dest="admin_cmd", metavar="admin_cmd")
