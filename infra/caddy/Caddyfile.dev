@@ -13,7 +13,6 @@
 		Permissions-Policy "geolocation=(), microphone=(), camera=()"
 		Cross-Origin-Opener-Policy "same-origin"
 		Cross-Origin-Resource-Policy "same-origin"
-		# Dev-only CSP: allow Vite preamble/HMR while still constraining embedding and origins.
 		Content-Security-Policy "default-src 'self' data: blob: http: https: ws: wss:; base-uri 'self'; frame-ancestors 'none'; img-src 'self' data: blob: http: https:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' blob:; connect-src 'self' ws: wss: http: https:; worker-src 'self' blob:;"
 	}
 
@@ -44,6 +43,6 @@
 	}
 
 	handle {
-		reverse_proxy seagull-portal:5173
+		reverse_proxy seagull-portal:{$SEAGULL_PORTAL_INTERNAL_PORT:-8080}
 	}
 }
