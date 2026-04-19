@@ -30,8 +30,6 @@ def run() -> None:
     if subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
         raise RuntimeError("[preflight] docker daemon is not reachable (is Docker running?)")
 
-    _env.bootstrap()
-
     ev = _env.read
     tls_cert = ev("SEAGULL_TLS_CERT_FILE", "./secrets/tls/tls.crt")
     tls_key = ev("SEAGULL_TLS_KEY_FILE", "./secrets/tls/tls.key")

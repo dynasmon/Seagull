@@ -405,7 +405,7 @@ Troubleshooting (Postgres auth failed):
 Other common first-run issues:
 
 - `Bootstrap admin password rejected`: your `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD` does not meet policy (12+ chars, upper/lower/digit/symbol, cannot include username).
-- Portal loads but UI fails behind TLS edge: check `infra/caddy/Caddyfile.dev` (dev CSP/HMR policy) and restart with `make restart`.
+- Portal loads but UI fails behind TLS edge: check `infra/caddy/Caddyfile.dev` (dev CSP/HMR policy) and restart with `./seagull restart`.
 - Optional workers degraded while API is available: this is expected when optional services (for example Elasticsearch/ClickHouse) are unavailable and not required.
 
 ### 14. Development observability
