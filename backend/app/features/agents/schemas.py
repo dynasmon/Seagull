@@ -18,6 +18,10 @@ class AgentCredentialOut(BaseModel):
     expires_at: datetime
     max_uses: int
     used_uses: int = 0
+    # Renewal token enables the agent to self-recover if the credential expires.
+    # Issued on every successful enrollment or rotation; one-time use, longer TTL.
+    renewal_token: Optional[str] = None
+    renewal_token_expires_at: Optional[datetime] = None
 
 
 class AgentEnrollOut(BaseModel):
