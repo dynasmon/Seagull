@@ -163,7 +163,10 @@ def _revoke_active_credentials(
     active = repository.list_active_credentials(db, agent_id)
     now = datetime.utcnow()
     for row in active:
-        row.revoked_at = overlap_until if overlap_until is not None else now
+        target_revoked_at = overlap_until if overlap_until is not None else now
+        if overlap_until is not None and row.revoked_at is not None and row.revoked_at > now and row.revoked_at < target_revoked_at:
+            target_revoked_at = row.revoked_at
+        row.revoked_at = target_revoked_at
         row.rotated_at = rotated_at
         row.revoked_reason = reason
         repository.save_credential(db, row)

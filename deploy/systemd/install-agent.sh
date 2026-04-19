@@ -301,7 +301,7 @@ normalize_bootstrap_token_settings() {
   normalize_env_key SEAGULL_AGENT_IDENTITY_STATE_FILE "${INSTALL_ENV_PATH}"
   normalize_env_key SEAGULL_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}"
 
-  local identity_state_file credential_file token_inline token_file credential_present
+  local identity_state_file credential_file token_inline token_file persisted_identity_present
   identity_state_file="$(trim "$(read_env_value SEAGULL_AGENT_IDENTITY_STATE_FILE "${INSTALL_ENV_PATH}")")"
   if [[ -z "${identity_state_file}" ]]; then
     identity_state_file="${INSTALL_STATE_DIR}/agent.identity.json"
@@ -312,9 +312,9 @@ normalize_bootstrap_token_settings() {
     credential_file="${INSTALL_STATE_DIR}/agent.credential"
     set_env_value SEAGULL_AGENT_CREDENTIAL_FILE "${credential_file}" "${INSTALL_ENV_PATH}"
   fi
-  credential_present="0"
-  if [[ -s "${credential_file}" ]]; then
-    credential_present="1"
+  persisted_identity_present="0"
+  if [[ -s "${credential_file}" || ( -n "${identity_state_file}" && -s "${identity_state_file}" ) ]]; then
+    persisted_identity_present="1"
   fi
 
   token_inline="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
@@ -353,18 +353,18 @@ normalize_bootstrap_token_settings() {
     chown seagull:seagull "${token_file}" || true
     chmod 0600 "${token_file}" || true
     echo "[install] ensured bootstrap token permissions: ${token_file}"
-  elif [[ -n "${token_file}" && "${credential_present}" == "1" ]]; then
-    # Keep restart-safe behavior by clearing stale file path when credential already exists.
+  elif [[ -n "${token_file}" && "${persisted_identity_present}" == "1" ]]; then
+    # Keep restart-safe behavior by clearing stale file paths once the agent has persisted identity.
     set_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "" "${INSTALL_ENV_PATH}"
     token_file=""
-    echo "[install] cleared stale SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE (credential already present)"
+    echo "[install] cleared stale SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE (persisted identity already present)"
   elif [[ -z "${token_file}" && -f "${DEFAULT_BOOTSTRAP_TOKEN_FILE}" ]]; then
     set_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${DEFAULT_BOOTSTRAP_TOKEN_FILE}" "${INSTALL_ENV_PATH}"
     token_file="${DEFAULT_BOOTSTRAP_TOKEN_FILE}"
     chown seagull:seagull "${token_file}" || true
     chmod 0600 "${token_file}" || true
     echo "[install] using bootstrap token file ${token_file}"
-  elif [[ -z "${token_file}" && "${credential_present}" == "0" ]]; then
+  elif [[ -z "${token_file}" && "${persisted_identity_present}" == "0" ]]; then
     echo "[install] warning: bootstrap token not configured in ${INSTALL_ENV_PATH}"
     echo "[install] set SEAGULL_AGENT_BOOTSTRAP_TOKEN or SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE before first enroll"
   fi
@@ -472,7 +472,7 @@ validate_runtime_readiness() {
   fi
 
   if [[ "${has_credential}" == "1" && -n "${token_file}" && ! -f "${token_file}" ]]; then
-    echo "[install] info: SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE points to a missing file but credential is already present"
+    echo "[install] info: SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE points to a missing file but credential or identity state is already present"
     echo "[install] info: this install will clear stale token-file paths automatically"
   fi
 
