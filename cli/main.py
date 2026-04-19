@@ -34,18 +34,11 @@ def _up_dev(
     if systemd_agent:
         _systemd.validate()
 
-    scale_args: list[str] = []
+    up_args = ["up", "-d", "--build", "--remove-orphans"]
     if systemd_agent:
-        scale_args = [
-            "--scale", "seagull-agent-core=0",
-            "--scale", "seagull-agent-sensor=0",
-        ]
+        up_args += _compose.agent_scale_zero_args()
 
-    rc = _compose.run(
-        files,
-        ["up", "-d", "--build", "--remove-orphans"] + scale_args,
-        persist_redis=persist,
-    ).returncode
+    rc = _compose.run(files, up_args, persist_redis=persist).returncode
     if rc != 0:
         return rc
 
@@ -101,19 +94,16 @@ def _up_prod(
 
     _tokens.mint(output_dir=_env.root() / "secrets" / "bootstrap")
 
-    scale_args: list[str] = []
     if systemd_agent:
-        scale_args = [
-            "--scale", "seagull-agent-core=0",
-            "--scale", "seagull-agent-sensor=0",
-        ]
-
-    rc = _compose.run(
-        _compose.STACK_FILES,
-        ["up", "-d", "--force-recreate"] + list(_compose.PROD_AGENT_SERVICES) + scale_args,
-    ).returncode
-    if rc != 0:
-        return rc
+        # Stop any running Docker agent containers; host systemd agent handles collection.
+        _compose.run(_compose.STACK_FILES, ["stop"] + list(_compose.DOCKER_AGENT_SERVICES))
+    else:
+        rc = _compose.run(
+            _compose.STACK_FILES,
+            ["up", "-d", "--force-recreate"] + list(_compose.PROD_AGENT_SERVICES),
+        ).returncode
+        if rc != 0:
+            return rc
 
     _state.commit()
     print()
@@ -184,15 +174,11 @@ def cmd_dev(args: argparse.Namespace) -> int:
     if extra:
         profile_flags += ["--profile", "extra"]
 
-    scale_args: list[str] = []
+    up_args = profile_flags + ["up", "-d", "--build", "--force-recreate", "--remove-orphans"]
     if systemd_agent:
-        scale_args = ["--scale", "seagull-agent-core=0", "--scale", "seagull-agent-sensor=0"]
+        up_args += _compose.agent_scale_zero_args()
 
-    rc = _compose.run(
-        files,
-        profile_flags + ["up", "-d", "--build", "--force-recreate", "--remove-orphans"] + scale_args,
-        persist_redis=persist,
-    ).returncode
+    rc = _compose.run(files, up_args, persist_redis=persist).returncode
     if rc != 0:
         return rc
 
@@ -252,21 +238,19 @@ def cmd_restart(args: argparse.Namespace) -> int:
     _preflight.run()
 
     files = _compose.DEV_RELOAD_FILES if dev_reload else _compose.STACK_FILES
-    scale_args: list[str] = []
-    if systemd_agent:
-        scale_args = ["--scale", "seagull-agent-core=0", "--scale", "seagull-agent-sensor=0"]
+    extra_args = _compose.agent_scale_zero_args() if systemd_agent else []
 
     if quick:
         return _compose.run(
             files,
-            ["up", "-d", "--force-recreate", "--remove-orphans"] + scale_args,
+            ["up", "-d", "--force-recreate", "--remove-orphans"] + extra_args,
             persist_redis=persist,
         ).returncode
 
     _compose.run(files, ["down", "--remove-orphans"], persist_redis=persist)
     return _compose.run(
         files,
-        ["up", "-d", "--build", "--remove-orphans"] + scale_args,
+        ["up", "-d", "--build", "--remove-orphans"] + extra_args,
         persist_redis=persist,
     ).returncode
 
