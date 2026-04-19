@@ -48,7 +48,7 @@ Backend modular-monolith boundaries and contribution guardrails are documented i
     - `lateral` (PCAP + proc‑assisted lateral movement telemetry)
     - `ddos` (PCAP‑based DoS/DDoS heuristics)
     - `syscollector` (OS + package inventory snapshots)
-  - Sends batched events to the backend over HTTPS with rotating agent credentials (bound to agent_id).
+  - Sends batched events to the backend over HTTPS with rotating agent credentials plus a persisted self-recovery token (both bound to `agent_id`).
 
 - **seagull-backend** (FastAPI)
   - Ingestion API (agent‑auth): `POST /ingest/events`
@@ -109,7 +109,7 @@ Worker group manager entrypoints:
 
 - **Language:** Go
 - **Telemetry:** `/proc/net/tcp*`, authlog parsing, gopacket PCAP capture
-- **Security:** HTTPS edge + rotating per-agent credential hashes (no client cert operation for agents).
+- **Security:** HTTPS edge + rotating per-agent credential hashes with durable agent-side identity state (no client cert operation for agents).
 
 ### Backend
 
@@ -117,7 +117,7 @@ Worker group manager entrypoints:
 - **Framework:** FastAPI (Pydantic + OpenAPI)
 - **DB:** SQLAlchemy + PostgreSQL
 - **Auth (Portal):** access/refresh tokens with HttpOnly cookies + Bearer access token
-- **Auth (Agents):** bootstrap token + rotating credential flow (hash-only persistence, agent_id binding).
+- **Auth (Agents):** one-time bootstrap enrollment, overlapping rotating credentials, and recovery-token self-healing (hash-only persistence, `agent_id` binding).
 - **Perf:** bulk inserts for ingest, optional rollups for dashboard load reduction
 
 ### Portal
@@ -236,7 +236,7 @@ Run the agent directly on a Linux host instead of in a container. The platform s
 | CA file | `/etc/seagull/pki/root_ca.crt` |
 | CA sync helper | `/usr/local/lib/seagull/seagull-agent-sync-ca.sh` |
 | CA sync timer | `seagull-agent-ca-sync.timer` |
-| State files | `/var/lib/seagull` |
+| State files | `/var/lib/seagull` (`agent.identity.json`, `agent.credential`, `agent.config.json`) |
 | Runtime logs | `journalctl -u seagull-agent` |
 
 After install, edit `/etc/seagull/agent.env` and set at minimum:
@@ -555,15 +555,21 @@ Control-plane path for agents remains `https://<edge>/agent/*`.
 2. Start/restart the agent with:
    - `SEAGULL_AGENT_BOOTSTRAP_TOKEN` (or `_FILE`) for first enroll
    - `SEAGULL_AGENT_ID`
-3. Agent enrolls with bootstrap token (`POST /agent/agents/enroll`) and receives a rotating credential.
-4. Agent uses `X-Agent-ID` + `X-Agent-Credential` for `/agent/*` requests.
-5. Backend stores only salted credential hashes and binds credentials to `agent_id`.
-6. Rotation is supported by time and use limits; agent rotates via `POST /agent/agents/credential/rotate`.
+3. Agent enrolls with the bootstrap token (`POST /agent/agents/enroll`) and receives:
+   - a rotating credential
+   - a long-lived one-time recovery token
+4. Agent persists identity state under `/var/lib/seagull` and keeps the legacy credential file for compatibility.
+5. Agent uses `X-Agent-ID` + `X-Agent-Credential` for `/agent/*` requests.
+6. Backend stores only salted credential/recovery-token hashes and binds them to `agent_id`.
+7. The agent rotates the credential before expiry via `POST /agent/agents/credential/rotate`.
+8. If the active credential is expired, revoked, or lost during switchover, the agent automatically reenrolls with the recovery token, then falls back to the bootstrap token if still available.
 
 Operational notes:
 
 - Keep bootstrap tokens short-lived and low-use.
-- Revoking/disabling an agent revokes active credentials.
+- Credential rotation keeps a short overlap window so switchover is crash-safe.
+- Disabling an agent revokes active credentials and all recovery/bootstrap tokens.
+- Operators can hard-reset an agent identity with `POST /api/agents/{agent_id}/identity/reissue`.
 - No step-ca, edge reloader, or runtime edge cert/key issuance is required for public edge.
 
 ### Detection Content Engineering

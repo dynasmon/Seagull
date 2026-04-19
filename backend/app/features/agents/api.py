@@ -47,6 +47,25 @@ async def create_agent_bootstrap_token(
         )
 
 
+@router.post("/{agent_id}/identity/reissue", response_model=AgentBootstrapTokenOut, status_code=status.HTTP_201_CREATED)
+async def reissue_agent_identity(
+    agent_id: str,
+    payload: AgentBootstrapTokenCreateIn,
+    request: Request,
+    admin: PortalPrincipal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    with managed_session(db) as db_session:
+        return service.reissue_agent_identity(
+            db_session,
+            agent_id=agent_id,
+            payload=payload,
+            request=request,
+            admin=admin,
+            audit_writer=write_audit_event,
+        )
+
+
 @router.post("/enroll", response_model=AgentEnrollOut, status_code=status.HTTP_201_CREATED)
 async def enroll_agent(request: Request, payload: AgentEnrollIn, db: Session = Depends(get_db)):
     raw_bootstrap = (request.headers.get("X-Agent-Bootstrap-Token") or "").strip()

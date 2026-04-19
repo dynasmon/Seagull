@@ -17,6 +17,7 @@ from app.core.agent_auth import (
 )
 from app.core.audit import audit_actor, write_audit_event
 from app.core.config import settings
+from app.core.observability import incr_counter
 from app.core.portal_auth import PortalPrincipal
 from app.features.agents import repository
 from app.features.agents.models import AgentBootstrapTokenModel, AgentCredentialModel, AgentModel
@@ -122,6 +123,12 @@ def _agent_to_detail(a: AgentModel) -> AgentDetail:
     return AgentDetail(**pub.dict(), config=a.config or {})
 
 
+def _credential_overlap_until(now: datetime | None = None) -> datetime:
+    base = now or datetime.utcnow()
+    overlap_seconds = max(0, int(settings.SEAGULL_AGENT_CREDENTIAL_OVERLAP_SECONDS or 0))
+    return base + timedelta(seconds=overlap_seconds)
+
+
 def _consume_bootstrap_token(db: Session, agent_id: str, raw_token: str) -> AgentBootstrapTokenModel:
     now = datetime.utcnow()
     candidates = repository.list_active_bootstrap_tokens_for_update(db, agent_id)
@@ -135,19 +142,58 @@ def _consume_bootstrap_token(db: Session, agent_id: str, raw_token: str) -> Agen
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bootstrap token already consumed")
         tok.used_uses = int(tok.used_uses or 0) + 1
         tok.last_used_at = now
+        if int(tok.used_uses or 0) >= int(tok.max_uses or 1):
+            tok.revoked_at = now
+            tok.revoked_reason = "consumed"
         repository.save_bootstrap_token(db, tok)
+        incr_counter("agent_bootstrap_token_consumed_total", token_type=str(tok.token_type or "enrollment"))
         return tok
+    incr_counter("agent_bootstrap_token_consumed_total", outcome="invalid")
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid bootstrap token")
 
 
-def _revoke_active_credentials(db: Session, agent_id: str, reason: str, *, rotated_at: datetime | None = None) -> None:
+def _revoke_active_credentials(
+    db: Session,
+    agent_id: str,
+    reason: str,
+    *,
+    rotated_at: datetime | None = None,
+    overlap_until: datetime | None = None,
+) -> None:
     active = repository.list_active_credentials(db, agent_id)
     now = datetime.utcnow()
     for row in active:
-        row.revoked_at = now
+        row.revoked_at = overlap_until if overlap_until is not None else now
         row.rotated_at = rotated_at
         row.revoked_reason = reason
         repository.save_credential(db, row)
+
+
+def _revoke_active_bootstrap_tokens(db: Session, agent_id: str, reason: str, *, token_type: str | None = None) -> None:
+    active = repository.list_active_bootstrap_tokens_for_update(db, agent_id, token_type=token_type)
+    now = datetime.utcnow()
+    for row in active:
+        row.revoked_at = now
+        row.revoked_reason = reason
+        repository.save_bootstrap_token(db, row)
+
+
+def _prune_active_renewal_tokens(db: Session, agent_id: str) -> None:
+    active = repository.list_active_renewal_tokens_for_update(db, agent_id)
+    if not active:
+        return
+    keep = max(1, int(settings.SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE or 1))
+    now = datetime.utcnow()
+    for idx, row in enumerate(active):
+        if row.expires_at <= now:
+            row.revoked_at = now
+            row.revoked_reason = "expired"
+            repository.save_bootstrap_token(db, row)
+            continue
+        if idx >= keep:
+            row.revoked_at = now
+            row.revoked_reason = "superseded"
+            repository.save_bootstrap_token(db, row)
 
 
 def _issue_agent_credential(
@@ -176,6 +222,49 @@ def _issue_agent_credential(
     return credential, row
 
 
+def _issue_bootstrap_token(
+    db: Session,
+    *,
+    agent_id: str,
+    token_type: str,
+    expires_at: datetime,
+    max_uses: int,
+    created_by_user_id: int | None = None,
+    description: str | None = None,
+) -> tuple[str, AgentBootstrapTokenModel]:
+    token, salt, token_hash = generate_bootstrap_token(agent_id)
+    row = AgentBootstrapTokenModel(
+        agent_id=agent_id,
+        token_salt=salt,
+        token_hash=token_hash,
+        token_type=token_type,
+        expires_at=expires_at,
+        max_uses=max_uses,
+        used_uses=0,
+        created_by_user_id=created_by_user_id,
+        description=description,
+    )
+    repository.save_bootstrap_token(db, row)
+    repository.flush(db)
+    incr_counter("agent_bootstrap_token_issued_total", token_type=token_type)
+    return token, row
+
+
+def _issue_renewal_token(db: Session, *, agent_id: str) -> tuple[str, AgentBootstrapTokenModel]:
+    ttl_seconds = max(3600, int(settings.SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS or 0))
+    expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
+    token, row = _issue_bootstrap_token(
+        db,
+        agent_id=agent_id,
+        token_type="renewal",
+        expires_at=expires_at,
+        max_uses=1,
+        description="agent-self-renewal",
+    )
+    _prune_active_renewal_tokens(db, agent_id)
+    return token, row
+
+
 def create_bootstrap_token(
     db: Session,
     *,
@@ -188,7 +277,6 @@ def create_bootstrap_token(
     ttl_seconds = int(payload.ttl_seconds or settings.SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS)
     max_uses = int(payload.max_uses or settings.SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES)
     expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
-    token, salt, token_hash = generate_bootstrap_token(agent_id)
 
     row = repository.get_agent_by_agent_id(db, agent_id)
     if not row:
@@ -197,8 +285,6 @@ def create_bootstrap_token(
             default_cfg = {}
         row = AgentModel(
             agent_id=agent_id,
-            key_salt="",
-            key_hash="",
             agent_metadata={},
             display_name=agent_id[:128],
             description=None,
@@ -211,17 +297,16 @@ def create_bootstrap_token(
         )
         repository.save_agent(db, row)
 
-    rec = AgentBootstrapTokenModel(
+    _revoke_active_bootstrap_tokens(db, agent_id, "superseded_by_admin_issue", token_type="enrollment")
+    token, _rec = _issue_bootstrap_token(
+        db,
         agent_id=agent_id,
-        token_salt=salt,
-        token_hash=token_hash,
+        token_type="enrollment",
         expires_at=expires_at,
         max_uses=max_uses,
-        used_uses=0,
         created_by_user_id=admin.id,
         description=payload.description,
     )
-    repository.save_bootstrap_token(db, rec)
     audit_writer(
         db,
         request=request,
@@ -240,6 +325,7 @@ def create_bootstrap_token(
         },
     )
     repository.commit(db)
+    incr_counter("agent_bootstrap_token_admin_issue_total", outcome="success")
     return AgentBootstrapTokenOut(
         agent_id=agent_id,
         bootstrap_token=token,
@@ -255,6 +341,8 @@ def enroll(
     raw_bootstrap_token: str,
 ) -> AgentEnrollOut:
     bootstrap = _consume_bootstrap_token(db, payload.agent_id, raw_bootstrap_token)
+    rotated_at = datetime.utcnow()
+    overlap_until = _credential_overlap_until(rotated_at)
     agent = repository.get_agent_by_agent_id(db, payload.agent_id)
     meta = {"hostname": payload.hostname, "os": payload.os, "version": payload.version}
     if not agent:
@@ -263,8 +351,6 @@ def enroll(
             default_cfg = {}
         agent = AgentModel(
             agent_id=payload.agent_id,
-            key_salt="",
-            key_hash="",
             agent_metadata=meta,
             display_name=(payload.hostname or payload.agent_id)[:128],
             description=None,
@@ -278,21 +364,31 @@ def enroll(
     else:
         if agent.is_revoked:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
-        agent.key_salt = ""
-        agent.key_hash = ""
         agent.agent_metadata = {**(agent.agent_metadata or {}), **meta}
         agent.last_seen_at = datetime.utcnow()
         if not (agent.display_name or "").strip():
             agent.display_name = (payload.hostname or payload.agent_id)[:128]
-    _revoke_active_credentials(db, payload.agent_id, "replaced_by_enroll")
+
+    _revoke_active_credentials(
+        db,
+        payload.agent_id,
+        "replaced_by_enroll",
+        rotated_at=rotated_at,
+        overlap_until=overlap_until,
+    )
+
     credential, cred_row = _issue_agent_credential(
         db,
         agent_id=payload.agent_id,
         issued_from_bootstrap_token_id=bootstrap.id,
         replaces_credential_id=None,
     )
+    renewal_token, renewal_row = _issue_renewal_token(db, agent_id=payload.agent_id)
+
     repository.save_agent(db, agent)
     repository.commit(db)
+    incr_counter("agent_identity_enroll_total", outcome="success", token_type=str(bootstrap.token_type or "enrollment"))
+
     return AgentEnrollOut(
         agent_id=payload.agent_id,
         config=agent.config or {},
@@ -301,6 +397,8 @@ def enroll(
             expires_at=cred_row.expires_at,
             max_uses=int(cred_row.max_uses or 1),
             used_uses=int(cred_row.used_uses or 0),
+            renewal_token=renewal_token,
+            renewal_token_expires_at=renewal_row.expires_at,
         ),
     )
 
@@ -309,20 +407,33 @@ def rotate_credential(db: Session, *, agent: AgentPrincipal) -> AgentCredentialO
     row = repository.get_agent_by_id(db, agent.id)
     if not row or row.is_revoked:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
+
     rotated_at = datetime.utcnow()
-    _revoke_active_credentials(db, agent.agent_id, "rotated", rotated_at=rotated_at)
+    _revoke_active_credentials(
+        db,
+        agent.agent_id,
+        "rotated",
+        rotated_at=rotated_at,
+        overlap_until=_credential_overlap_until(rotated_at),
+    )
+
     credential, cred_row = _issue_agent_credential(
         db,
         agent_id=agent.agent_id,
         issued_from_bootstrap_token_id=None,
         replaces_credential_id=agent.credential_id,
     )
+    renewal_token, renewal_row = _issue_renewal_token(db, agent_id=agent.agent_id)
+
     repository.commit(db)
+    incr_counter("agent_credential_rotate_total", outcome="success")
     return AgentCredentialOut(
         credential=credential,
         expires_at=cred_row.expires_at,
         max_uses=int(cred_row.max_uses or 1),
         used_uses=int(cred_row.used_uses or 0),
+        renewal_token=renewal_token,
+        renewal_token_expires_at=renewal_row.expires_at,
     )
 
 
@@ -615,6 +726,62 @@ def update_agent(
     return _agent_to_detail(row)
 
 
+def reissue_agent_identity(
+    db: Session,
+    *,
+    agent_id: str,
+    payload: AgentBootstrapTokenCreateIn,
+    request,
+    admin: PortalPrincipal,
+    audit_writer=write_audit_event,
+) -> AgentBootstrapTokenOut:
+    row = repository.get_agent_by_agent_id(db, agent_id)
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if row.is_revoked:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
+
+    ttl_seconds = int(payload.ttl_seconds or settings.SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS)
+    max_uses = int(payload.max_uses or settings.SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES)
+    expires_at = datetime.utcnow() + timedelta(seconds=ttl_seconds)
+
+    _revoke_active_credentials(db, row.agent_id, "operator_reissue")
+    _revoke_active_bootstrap_tokens(db, row.agent_id, "operator_reissue")
+    token, _rec = _issue_bootstrap_token(
+        db,
+        agent_id=row.agent_id,
+        token_type="enrollment",
+        expires_at=expires_at,
+        max_uses=max_uses,
+        created_by_user_id=admin.id,
+        description=payload.description or "operator-reissue",
+    )
+    audit_writer(
+        db,
+        request=request,
+        actor=audit_actor(admin.id, admin.username),
+        event_type="admin_action",
+        action="agents.identity.reissue",
+        resource_type="agent",
+        resource_id=row.agent_id,
+        outcome="success",
+        before={"agent_id": row.agent_id, "is_revoked": bool(row.is_revoked)},
+        after={
+            "agent_id": row.agent_id,
+            "bootstrap_token_expires_at": expires_at.isoformat(),
+            "bootstrap_token_max_uses": max_uses,
+        },
+    )
+    repository.commit(db)
+    incr_counter("agent_identity_reissue_total", outcome="success")
+    return AgentBootstrapTokenOut(
+        agent_id=row.agent_id,
+        bootstrap_token=token,
+        expires_at=expires_at,
+        max_uses=max_uses,
+    )
+
+
 def disable_agent(
     db: Session,
     *,
@@ -629,6 +796,7 @@ def disable_agent(
     before = {"agent_id": row.agent_id, "is_revoked": bool(row.is_revoked)}
     row.is_revoked = True
     _revoke_active_credentials(db, row.agent_id, "agent_disabled")
+    _revoke_active_bootstrap_tokens(db, row.agent_id, "agent_disabled")
     repository.save_agent(db, row)
     audit_writer(
         db,
@@ -643,6 +811,7 @@ def disable_agent(
         after={"agent_id": row.agent_id, "is_revoked": True},
     )
     repository.commit(db)
+    incr_counter("agent_disable_total", outcome="success")
 
 
 def enable_agent(
@@ -672,3 +841,4 @@ def enable_agent(
         after={"agent_id": row.agent_id, "is_revoked": False},
     )
     repository.commit(db)
+    incr_counter("agent_enable_total", outcome="success")

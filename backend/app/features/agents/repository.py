@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
+
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.features.agents.models import AgentBootstrapTokenModel, AgentCredentialModel, AgentModel
@@ -23,16 +26,28 @@ def save_agent(db: Session, row: AgentModel) -> AgentModel:
     return row
 
 
-def list_active_bootstrap_tokens_for_update(db: Session, agent_id: str) -> list[AgentBootstrapTokenModel]:
-    return (
+def list_active_bootstrap_tokens_for_update(
+    db: Session,
+    agent_id: str,
+    *,
+    token_type: str | None = None,
+) -> list[AgentBootstrapTokenModel]:
+    q = (
         db.query(AgentBootstrapTokenModel)
         .filter(
             AgentBootstrapTokenModel.agent_id == agent_id,
             AgentBootstrapTokenModel.revoked_at.is_(None),
         )
+        .order_by(AgentBootstrapTokenModel.created_at.desc(), AgentBootstrapTokenModel.id.desc())
         .with_for_update()
-        .all()
     )
+    if token_type:
+        q = q.filter(AgentBootstrapTokenModel.token_type == token_type)
+    return q.all()
+
+
+def list_active_renewal_tokens_for_update(db: Session, agent_id: str) -> list[AgentBootstrapTokenModel]:
+    return list_active_bootstrap_tokens_for_update(db, agent_id, token_type="renewal")
 
 
 def save_bootstrap_token(db: Session, row: AgentBootstrapTokenModel) -> AgentBootstrapTokenModel:
@@ -41,11 +56,12 @@ def save_bootstrap_token(db: Session, row: AgentBootstrapTokenModel) -> AgentBoo
 
 
 def list_active_credentials(db: Session, agent_id: str) -> list[AgentCredentialModel]:
+    now = datetime.utcnow()
     return (
         db.query(AgentCredentialModel)
         .filter(
             AgentCredentialModel.agent_id == agent_id,
-            AgentCredentialModel.revoked_at.is_(None),
+            or_(AgentCredentialModel.revoked_at.is_(None), AgentCredentialModel.revoked_at > now),
         )
         .all()
     )
