@@ -94,7 +94,10 @@ def _up_prod(
         return rc
 
     print()
-    _health.wait_healthy(_compose.STACK_FILES, _health.ESSENTIAL_PROD, timeout=180)
+    if not _health.wait_healthy(_compose.STACK_FILES, _health.ESSENTIAL_PROD, timeout=180):
+        print()
+        _health.print_summary(_compose.STACK_FILES)
+        return 1
 
     _tokens.mint(output_dir=_env.root() / "secrets" / "bootstrap")
 
