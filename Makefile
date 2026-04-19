@@ -1,46 +1,29 @@
 SHELL := /bin/bash
-
-CLI    := ./seagull
-PYTHON ?= python3
-
-SYSTEMD_AGENT     ?= 0
-DEV_REDIS_PERSIST ?= 0
-
-_AGENT_MODE   := $(if $(filter 1 true TRUE yes YES y Y,$(SYSTEMD_AGENT)),--agent-mode systemd,)
-_PERSIST      := $(if $(filter 1 true TRUE yes YES y Y,$(DEV_REDIS_PERSIST)),--persist,)
-_LEGACY_AGENT := $(if $(filter 1 true TRUE yes YES y Y,$(SYSTEMD_AGENT)),--systemd-agent,)
+CLI   := ./seagull
 
 .PHONY: help \
-  up dev prod \
-  down restart status logs doctor reset \
-  dev-persist dev-tls \
-  prod-fresh prod-setup prod-state-clear \
-  agent-tokens-bootstrap prod-agent-tokens-bootstrap \
-  admin-reset env-init prod-prepare \
-  up-extra up-observability prod-observability \
-  restart-persist restart-quick \
-  systemd-agent-install systemd-agent-restart \
-  ps build pull clean nuke psql \
+  up down restart status logs doctor reset \
+  dev prod dev-persist dev-reload prod-fresh prod-setup prod-state-clear \
+  admin-reset agent-tokens \
+  systemd-install systemd-restart systemd-status systemd-validate \
+  up-extra observability \
+  build build-prod pull clean nuke psql \
   db-upgrade db-current \
-  lint test test-detections deps-check redis-repair-aof ci
+  lint test test-detections deps-check ci redis-repair-aof
+
+# Primary interface
 
 help:
 	@$(CLI) --help
 
 up:
-	@$(CLI) up $(_AGENT_MODE) $(_PERSIST)
-
-dev:
-	@$(CLI) up --mode dev $(_AGENT_MODE) $(_PERSIST)
-
-prod:
-	@$(CLI) up --mode prod $(_AGENT_MODE)
+	@$(CLI) up $(ARGS)
 
 down:
 	@$(CLI) down
 
 restart:
-	@$(CLI) restart $(_LEGACY_AGENT) $(_PERSIST)
+	@$(CLI) restart $(ARGS)
 
 status:
 	@$(CLI) status
@@ -52,16 +35,23 @@ doctor:
 	@$(CLI) doctor
 
 reset:
-	@$(CLI) reset
+	@$(CLI) reset $(ARGS)
+
+# Stack variants
 
 dev-persist:
-	@$(CLI) up --mode dev --persist $(_AGENT_MODE)
+	@$(CLI) up --mode dev --persist
 
-dev-tls:
-	@$(CLI) up --mode dev --dev-reload $(_AGENT_MODE)
+dev-reload:
+	@$(CLI) up --mode dev --dev-reload
 
 prod-fresh:
 	@$(CLI) up --mode prod --fresh
+
+# Environment / setup
+
+env-init:
+	@$(CLI) env wizard
 
 prod-setup:
 	@$(CLI) prod-setup
@@ -69,50 +59,52 @@ prod-setup:
 prod-state-clear:
 	@$(CLI) state clear
 
-agent-tokens-bootstrap:
-	@$(CLI) agent tokens
-
-prod-agent-tokens-bootstrap:
-	@$(CLI) agent tokens --output-dir ./secrets/bootstrap
-
-systemd-agent-install:
-	@$(CLI) agent install-systemd
-
-systemd-agent-restart:
-	@$(CLI) agent restart-systemd
+# Agent operations
 
 admin-reset:
 	@$(CLI) admin reset
 
-env-init:
-	@$(CLI) env wizard
+agent-tokens:
+	@$(CLI) agent tokens
 
-prod-prepare:
-	@$(CLI) env prepare
+systemd-install:
+	@$(CLI) agent install-systemd
+
+systemd-restart:
+	@$(CLI) agent restart-systemd
+
+systemd-status:
+	@$(CLI) agent status-systemd
+
+systemd-validate:
+	@$(CLI) agent validate-systemd
+
+# Optional profiles
 
 up-extra:
-	@$(CLI) dev --extra $(_LEGACY_AGENT)
+	@$(CLI) dev --extra
 
-up-observability:
+observability:
 	@$(CLI) observability
 
-prod-observability:
-	@$(CLI) observability
+# Image management
 
-restart-persist:
-	@$(CLI) restart --persist $(_LEGACY_AGENT)
-
-restart-quick:
-	@$(CLI) restart --quick $(_LEGACY_AGENT)
-
-ps:
-	@$(CLI) ps
-
-build:
+build build-prod:
 	@$(CLI) build
 
 pull:
 	@$(CLI) pull
+
+# DB / utilities
+
+db-upgrade:
+	@$(CLI) db upgrade
+
+db-current:
+	@$(CLI) db current
+
+psql:
+	@$(CLI) psql
 
 clean:
 	@$(CLI) clean
@@ -120,14 +112,10 @@ clean:
 nuke:
 	@$(CLI) nuke
 
-psql:
-	@$(CLI) psql
+redis-repair-aof:
+	@$(CLI) redis repair-aof
 
-db-upgrade:
-	@$(CLI) db upgrade
-
-db-current:
-	@$(CLI) db current
+# CI / quality
 
 lint:
 	@$(CLI) lint
@@ -141,8 +129,15 @@ test-detections:
 deps-check:
 	@$(CLI) deps-check
 
-redis-repair-aof:
-	@$(CLI) redis repair-aof
-
 ci:
 	@$(CLI) ci
+
+# Compatibility wrappers (deprecated)
+
+dev:
+	@echo "[seagull] 'make dev' is deprecated — use: ./seagull up --mode dev" >&2
+	@$(CLI) up --mode dev $(ARGS)
+
+prod:
+	@echo "[seagull] 'make prod' is deprecated — use: ./seagull up --mode prod" >&2
+	@$(CLI) up --mode prod $(ARGS)
