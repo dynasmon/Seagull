@@ -26,7 +26,7 @@ def read(key: str, default: str = "", path: Optional[Path] = None) -> str:
         return default
     for line in p.read_text().splitlines():
         if line.startswith(f"{key}="):
-            return line[len(key) + 1:].strip("\r")
+            return line[len(key) + 1:].strip()
     return default
 
 
