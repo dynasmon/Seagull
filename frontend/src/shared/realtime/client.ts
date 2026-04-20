@@ -85,7 +85,7 @@ export type PortalRealtimeClientOptions = {
 const DEFAULT_RECONNECT_BASE_MS = 1000;
 const DEFAULT_RECONNECT_MAX_MS = 15000;
 const DEFAULT_BASE_TOPICS: readonly PortalRealtimeTopic[] = ["agents"];
-const DEFAULT_HOT_TOPICS: readonly PortalRealtimeTopic[] = ["investigations", "workflows", "events", "ddos"];
+const DEFAULT_HOT_TOPICS: readonly PortalRealtimeTopic[] = ["overview", "investigations", "workflows", "events", "ddos"];
 const RECENT_EVENT_KEY_LIMIT = 256;
 const DEFAULT_DIAGNOSTICS: RealtimeDiagnosticsSnapshot = {
   reconnectCount: 0,
