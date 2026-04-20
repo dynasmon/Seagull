@@ -4,7 +4,10 @@
 
 :8443 {
 	tls /etc/seagull/tls/tls.crt /etc/seagull/tls/tls.key
-	encode zstd gzip
+	@compressible {
+		not path /api/realtime/portal
+	}
+	encode @compressible zstd gzip
 
 	header {
 		X-Content-Type-Options "nosniff"

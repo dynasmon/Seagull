@@ -156,6 +156,15 @@ def restart() -> int:
     return rc
 
 
+def sync_ca() -> int:
+    script = _env.root() / "deploy" / "systemd" / "refresh-ca.sh"
+    if not script.exists():
+        print(f"[systemd-agent] warning: CA sync script not found: {script}", file=sys.stderr)
+        return 1
+    print("[systemd-agent] syncing CA certificate to agent...")
+    return subprocess.run(["sudo", "bash", str(script)], cwd=str(_env.root())).returncode
+
+
 def install() -> int:
     script = _env.root() / "deploy" / "systemd" / "install-agent.sh"
     return subprocess.run(
