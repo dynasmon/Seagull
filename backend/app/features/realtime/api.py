@@ -62,7 +62,7 @@ def _ws_keepalive_seconds() -> int:
 
 
 def _stream_read_block_ms() -> int:
-    configured = int(getattr(settings, "SEAGULL_REALTIME_STREAM_READ_BLOCK_MS", 1000) or 1000)
+    configured = int(getattr(settings, "SEAGULL_REALTIME_STREAM_READ_BLOCK_MS", 200) or 200)
     if configured < 100:
         return 100
     if configured > 5000:
