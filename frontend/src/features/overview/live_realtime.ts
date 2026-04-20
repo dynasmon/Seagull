@@ -380,6 +380,34 @@ export function mergeStormStatus(
   };
 }
 
+export function resolveStormUiState(
+  storm: StormStatus | null,
+  meta: OverviewSnapshot["meta"] | null | undefined,
+): { effectiveActive: boolean; phaseLabel: string } {
+  const stormPhase = String(storm?.phase || "").toLowerCase();
+  if (storm) {
+    const effectiveActive =
+      Boolean(storm.active) ||
+      stormPhase === "storm" ||
+      stormPhase === "shedding" ||
+      stormPhase === "draining";
+    return {
+      effectiveActive,
+      phaseLabel: storm.phase || (effectiveActive ? "active" : "ok"),
+    };
+  }
+
+  const effectiveActive =
+    Boolean(meta?.protection_active) ||
+    Boolean(meta?.draining) ||
+    Number(meta?.ddos_telemetry_dropped_per_sec || 0) > 0;
+
+  return {
+    effectiveActive,
+    phaseLabel: effectiveActive ? "active" : "ok",
+  };
+}
+
 
 export function applyStormStatusToOverviewSnapshot(
   snapshot: OverviewSnapshot | null,

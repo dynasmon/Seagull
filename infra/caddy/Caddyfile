@@ -18,6 +18,16 @@
 		Content-Security-Policy "default-src 'self'; frame-ancestors 'none'; base-uri 'self'"
 	}
 
+	@portal_ws path /api/realtime/portal/ws
+	handle @portal_ws {
+		uri strip_prefix /api
+		reverse_proxy seagull-backend:8000 {
+			transport http {
+				versions 1.1
+			}
+		}
+	}
+
 	@portal_sse path /api/realtime/portal
 	handle @portal_sse {
 		uri strip_prefix /api
@@ -25,15 +35,6 @@
 			flush_interval -1
 			header_down Cache-Control "no-cache, no-transform"
 			header_down X-Accel-Buffering "no"
-		}
-	}
-
-	@portal_ws path /api/realtime/portal/ws
-	handle @portal_ws {
-		uri strip_prefix /api
-		reverse_proxy seagull-backend:8000 {
-			header_up Connection {>Connection}
-			header_up Upgrade {>Upgrade}
 		}
 	}
 

@@ -19,6 +19,7 @@ export default defineConfig({
       '/api': {
         target: 'http://seagull-backend:8000',
         changeOrigin: true,
+        ws: true,
         cookiePathRewrite: {
           "/auth": "/api/auth",
         },
