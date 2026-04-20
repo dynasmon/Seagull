@@ -33,6 +33,7 @@ def _up_dev(
 
     if systemd_agent:
         _systemd.validate()
+        _systemd.sync_ca()
 
     up_args = ["up", "-d", "--build", "--remove-orphans"]
     if systemd_agent:
@@ -72,6 +73,7 @@ def _up_prod(
 
     if systemd_agent:
         _systemd.validate()
+        _systemd.sync_ca()
 
     if fresh:
         _compose.run(_compose.STACK_FILES, ["down", "-v", "--remove-orphans"])
@@ -243,6 +245,9 @@ def cmd_restart(args: argparse.Namespace) -> int:
 
     _env.bootstrap()
     _preflight.run()
+
+    if systemd_agent:
+        _systemd.sync_ca()
 
     files = _compose.DEV_RELOAD_FILES if dev_reload else _compose.STACK_FILES
     extra_args = _compose.agent_scale_zero_args() if systemd_agent else []

@@ -3,7 +3,10 @@
 }
 
 {$SEAGULL_CADDY_DOMAIN} {
-	encode zstd gzip
+	@compressible {
+		not path /api/realtime/portal
+	}
+	encode @compressible zstd gzip
 
 	header {
 		X-Content-Type-Options "nosniff"
