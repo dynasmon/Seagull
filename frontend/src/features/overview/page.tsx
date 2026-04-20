@@ -9,6 +9,7 @@ import { cx } from "@/shared/lib/cx";
 import type { Alert } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
 import { OverviewLiveProvider, useOverviewLive } from "./live";
+import { resolveStormUiState } from "./live_realtime";
 
 import { listAttackChainCases } from "@/features/attack_chain/api";
 
@@ -467,19 +468,12 @@ function OverviewPageView() {
   const degradedSources = [trafficSourceMeta, ddosVolumeSourceMeta, ingestRatesSourceMeta].filter(
     (x) => Boolean(x?.degraded_reason)
   ).length;
-  const stormPhase = String(storm?.phase || "").toLowerCase();
-  const stormEffectiveActive =
-    Boolean(storm?.active) ||
-    stormPhase === "storm" ||
-    stormPhase === "shedding" ||
-    stormPhase === "draining" ||
-    Boolean(snapshot?.meta?.protection_active) ||
-    Boolean(snapshot?.meta?.draining) ||
-    Number(snapshot?.meta?.ddos_telemetry_dropped_per_sec || 0) > 0;
+  const stormUi = resolveStormUiState(storm, snapshot?.meta);
+  const stormEffectiveActive = stormUi.effectiveActive;
   const stormBacklogEvents = storm?.backlog_events ?? Number(snapshot?.meta?.backlog_events || 0);
   const stormBacklogMessages = storm?.backlog_messages ?? Number(snapshot?.meta?.backlog_messages || 0);
   const stormDropPercent = storm?.drop_percent ?? 0;
-  const stormPhaseLabel = storm?.phase || (stormEffectiveActive ? "active" : "ok");
+  const stormPhaseLabel = stormUi.phaseLabel;
 
   if (isLoading && !snapshot) {
     return (
