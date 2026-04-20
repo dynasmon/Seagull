@@ -376,6 +376,37 @@ describe("PortalRealtimeClient", () => {
     client.stop();
   });
 
+  it("uses websocket first for overview subscriptions in auto mode", async () => {
+    const tokenProvider = vi.fn(async () => tokenOut("token-overview-auto"));
+    const sockets: FakeWebSocket[] = [];
+    const sources: FakeEventSource[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      eventSourceFactory: (url) => {
+        const source = new FakeEventSource(url);
+        sources.push(source);
+        return source;
+      },
+      reconnectBaseMs: 1,
+      reconnectMaxMs: 1,
+    });
+
+    client.subscribe("overview.patch", vi.fn());
+    client.start();
+    await waitForTick(2);
+
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0]?.url).toContain("/api/realtime/portal/ws?");
+    expect(sources).toHaveLength(0);
+
+    client.stop();
+  });
+
   it("does not fall back to sse on explicit websocket auth closes before open", async () => {
     const tokenProvider = vi.fn(async () => tokenOut("token-auth-close"));
     const sockets: FakeWebSocket[] = [];

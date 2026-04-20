@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
-import { Navigate, Route, Routes as RRRoutes } from "react-router-dom";
+import { Navigate, Route, Routes as RRRoutes, useLocation } from "react-router-dom";
+import RouteErrorBoundary from "@/app/RouteErrorBoundary";
 
 const loadLoginPage = () => import("@/features/auth/login");
 const loadProtectedLayout = () => import("@/app/ProtectedLayout");
@@ -98,6 +99,8 @@ function Fallback() {
 }
 
 export function Routes() {
+  const location = useLocation();
+
   useEffect(() => {
     let canceled = false;
     const run = () => {
@@ -129,56 +132,58 @@ export function Routes() {
 
   return (
     <Suspense fallback={<Fallback />}>
-      <RRRoutes>
-        <Route path="/login" element={<LoginPage />} />
+      <RouteErrorBoundary key={`${location.pathname}${location.search}`} currentPath={`${location.pathname}${location.search}`}>
+        <RRRoutes>
+          <Route path="/login" element={<LoginPage />} />
 
-        <Route element={<ProtectedLayout />}>
-          <Route path="/" element={<Navigate to="/overview" replace />} />
-          <Route path="/overview" element={<OverviewPage />} />
-          <Route path="/agents" element={<AgentsPage />} />
-          <Route path="/events" element={<EventsLayout />}>
-            <Route index element={<EventsStreamPage />} />
-            <Route path="ssh" element={<SshInsightsPage />} />
-            <Route path="network" element={<ProtocolIntelPage />} />
-            <Route path="ddos" element={<DdosPage />} />
+          <Route element={<ProtectedLayout />}>
+            <Route path="/" element={<Navigate to="/overview" replace />} />
+            <Route path="/overview" element={<OverviewPage />} />
+            <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/events" element={<EventsLayout />}>
+              <Route index element={<EventsStreamPage />} />
+              <Route path="ssh" element={<SshInsightsPage />} />
+              <Route path="network" element={<ProtocolIntelPage />} />
+              <Route path="ddos" element={<DdosPage />} />
+            </Route>
+
+            <Route path="/alerts" element={<AlertsLayout />}>
+              <Route index element={<Navigate to="/alerts/queue" replace />} />
+              <Route path="queue" element={<AlertsQueuePage />} />
+              <Route path="rules" element={<AlertsRulesPage />} />
+            </Route>
+
+            <Route path="/correlations" element={<CorrelationsLayout />}>
+              <Route index element={<Navigate to="/correlations/findings" replace />} />
+              <Route path="findings" element={<CorrelationFindingsPage />} />
+              <Route path="rules" element={<CorrelationRulesPage />} />
+            </Route>
+
+            <Route path="/attack-chain" element={<AttackChainPage />} />
+            <Route path="/investigations" element={<InvestigationsPage />} />
+
+            <Route path="/vulnerabilities" element={<VulnerabilitiesPage />} />
+            <Route path="/vulnerabilities/scans" element={<VulnerabilityScansPage />} />
+
+            <Route path="/inventory" element={<InventoryPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/audit" element={<AuditLayout />}>
+              <Route index element={<Navigate to="/audit/admin-actions" replace />} />
+              <Route path="admin-actions" element={<AuditAdminActionsPage />} />
+              <Route path="logins" element={<AuditLoginsPage />} />
+              <Route path="changes" element={<AuditChangesPage />} />
+              <Route path="timeline" element={<AuditTimelinePage />} />
+            </Route>
+            <Route path="/internal" element={<InternalLayout />}>
+              <Route index element={<Navigate to="/internal/debug" replace />} />
+              <Route path="debug" element={<InternalDebugPage />} />
+              <Route path="agents" element={<InternalAgentsPage />} />
+              <Route path="health" element={<InternalHealthPage />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/overview" replace />} />
           </Route>
-
-          <Route path="/alerts" element={<AlertsLayout />}>
-            <Route index element={<Navigate to="/alerts/queue" replace />} />
-            <Route path="queue" element={<AlertsQueuePage />} />
-            <Route path="rules" element={<AlertsRulesPage />} />
-          </Route>
-
-          <Route path="/correlations" element={<CorrelationsLayout />}>
-            <Route index element={<Navigate to="/correlations/findings" replace />} />
-            <Route path="findings" element={<CorrelationFindingsPage />} />
-            <Route path="rules" element={<CorrelationRulesPage />} />
-          </Route>
-
-          <Route path="/attack-chain" element={<AttackChainPage />} />
-          <Route path="/investigations" element={<InvestigationsPage />} />
-
-          <Route path="/vulnerabilities" element={<VulnerabilitiesPage />} />
-          <Route path="/vulnerabilities/scans" element={<VulnerabilityScansPage />} />
-
-          <Route path="/inventory" element={<InventoryPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/audit" element={<AuditLayout />}>
-            <Route index element={<Navigate to="/audit/admin-actions" replace />} />
-            <Route path="admin-actions" element={<AuditAdminActionsPage />} />
-            <Route path="logins" element={<AuditLoginsPage />} />
-            <Route path="changes" element={<AuditChangesPage />} />
-            <Route path="timeline" element={<AuditTimelinePage />} />
-          </Route>
-          <Route path="/internal" element={<InternalLayout />}>
-            <Route index element={<Navigate to="/internal/debug" replace />} />
-            <Route path="debug" element={<InternalDebugPage />} />
-            <Route path="agents" element={<InternalAgentsPage />} />
-            <Route path="health" element={<InternalHealthPage />} />
-          </Route>
-          <Route path="*" element={<Navigate to="/overview" replace />} />
-        </Route>
-      </RRRoutes>
+        </RRRoutes>
+      </RouteErrorBoundary>
     </Suspense>
   );
 }
