@@ -6,6 +6,7 @@ import {
   applyOverviewRealtimeAlertUpdated,
   applyOverviewRealtimePatch,
   mergeStormStatus,
+  resolveStormUiState,
   reconcileFetchedOverviewSnapshot,
   nextRealtimeInvalidationDelayMs,
 } from "@/features/overview/live_realtime";
@@ -127,6 +128,44 @@ describe("overview live realtime helpers", () => {
       reason: "traffic spike",
     });
     expect(fromPhase?.active).toBe(true);
+  });
+
+  it("prefers explicit storm status over overview meta fallback flags", () => {
+    const resolved = resolveStormUiState(
+      {
+        active: false,
+        phase: "ok",
+        eps: 0,
+        sample_hot_percent: 100,
+        sample_warm_percent: 0,
+        drop_percent: 0,
+        backlog_events: 0,
+        backlog_messages: 0,
+        reason: "recovered",
+        since: null,
+        open_alert_id: null,
+      },
+      {
+        ...makeSnapshot().meta,
+        protection_active: true,
+        draining: true,
+        ddos_telemetry_dropped_per_sec: 9,
+      },
+    );
+
+    expect(resolved.effectiveActive).toBe(false);
+    expect(resolved.phaseLabel).toBe("ok");
+  });
+
+  it("falls back to overview meta when explicit storm status is unavailable", () => {
+    const resolved = resolveStormUiState(null, {
+      ...makeSnapshot().meta,
+      protection_active: true,
+      ddos_telemetry_dropped_per_sec: 3,
+    });
+
+    expect(resolved.effectiveActive).toBe(true);
+    expect(resolved.phaseLabel).toBe("active");
   });
 
   it("computes delayed invalidation refresh window to avoid refetch storms", () => {

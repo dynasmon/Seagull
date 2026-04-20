@@ -255,8 +255,11 @@ def _target_sample_policy(*, level: str, storm_active: bool) -> tuple[int, int, 
             max(1, int(settings.SEAGULL_INGEST_RECENT_FEED_MIN_BATCH or 24)),
         )
     if level == "elevated":
+        # Elevated mode is an advisory early-warning state, not active protection.
+        # Keep raw hot telemetry intact here so operators do not see a phantom
+        # ~50% drop rate after a storm has already recovered.
         return (
-            max(1, int(settings.SEAGULL_INGEST_ELEVATED_HOT_SAMPLE_PERCENT or 50)),
+            100,
             max(1, int(settings.SEAGULL_INGEST_CLICKHOUSE_SAMPLE_PERCENT or 100)),
             warm_pct,
             max(8, int(settings.SEAGULL_INGEST_RECENT_FEED_MIN_BATCH or 24) // 2),
