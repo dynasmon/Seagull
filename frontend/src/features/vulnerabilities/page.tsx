@@ -277,7 +277,6 @@ export default function VulnerabilitiesPage() {
       });
       setSummary(out);
     } catch {
-      // Summary is best-effort. Keep the rest of the page functional.
       setSummary(null);
     } finally {
       setSummaryBusy(false);
@@ -334,7 +333,6 @@ export default function VulnerabilitiesPage() {
       setCursor(out.next_cursor);
       setHasMore(Boolean(out.has_more));
 
-      // Keep selection only if still present.
       setSelected((prev) => {
         if (!prev) return null;
         return nextItems.find((x) => x.id === prev.id) || null;
@@ -470,7 +468,6 @@ export default function VulnerabilitiesPage() {
     invalidateDashboard("dependency", { immediate: true, supersede: true });
   }, [activeDays, filters, invalidateDashboard, isAdmin, pageSize]);
 
-  // Patch individual scan rows in-place without triggering a full refetch.
   usePortalRealtimeSubscription("ui.vulnerabilities.scan.lifecycle", (event) => {
     if (!isAdmin) return;
     const { scan_uuid, agent_id, lifecycle_event, scan: scanData } = event.payload ?? {};
@@ -496,13 +493,11 @@ export default function VulnerabilitiesPage() {
       return applyLifecycleScanPatch(prev, scanData as Record<string, any>);
     });
 
-    // Invalidate findings only when a scan finishes (new findings may have been stored).
     if (lifecycle_event === "completed" || lifecycle_event === "failed") {
       invalidateDashboard();
     }
   });
 
-  // Coarse invalidate: refresh findings on ingestion, scans list on new scan queued.
   usePortalRealtimeSubscription("ui.vulnerabilities.invalidate", (event) => {
     if (!isAdmin) return;
     const reason = String(event.payload?.reason || "");
@@ -523,7 +518,6 @@ export default function VulnerabilitiesPage() {
     if (reason === "findings_ingested") {
       invalidateDashboard();
     }
-    // Scans are patched in-place via lifecycle events; only reconcile on explicit queued signal.
     if (reason === "manual_scan_queued") {
       if (!onlySelectedAgentScans || !scanTargetAgent || !eventAgentId || scanTargetAgent === eventAgentId) {
         invalidateRecentScans();
@@ -538,7 +532,6 @@ export default function VulnerabilitiesPage() {
       .filter((k) => Object.prototype.hasOwnProperty.call(m, k))
       .map((k) => ({ k, v: Number(m[k] || 0) }));
 
-    // Include any unexpected severities at the end.
     Object.keys(m)
       .filter((k) => !order.includes(k))
       .sort()
@@ -680,7 +673,6 @@ export default function VulnerabilitiesPage() {
         }
       />
 
-      {/* Summary */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
         <Card title="Observed" right={summaryBusy ? "loading" : undefined} className="rounded-xl">
           <div className="text-3xl font-semibold">{summary?.total_observed ?? "-"}</div>
@@ -980,7 +972,6 @@ export default function VulnerabilitiesPage() {
         </Card>
       </div>
 
-      {/* Filters */}
       <Card
         title="Filters"
         right={
@@ -1141,7 +1132,6 @@ export default function VulnerabilitiesPage() {
         </div>
       </Card>
 
-      {/* Findings */}
       <Card
         title="Filtered inventory table"
         right={
