@@ -249,13 +249,11 @@ export default function VulnerabilityScansPage() {
   });
   const { refreshNow: refreshScansNow, invalidate: invalidateScans } = live;
 
-  // Re-fetch when filters or page size change.
   useEffect(() => {
     if (!isAdmin) return;
     invalidateScans("dependency", { immediate: true, supersede: true });
   }, [filters, invalidateScans, isAdmin, pageSize]);
 
-  // Patch individual scan rows in-place from lifecycle events.
   usePortalRealtimeSubscription("ui.vulnerabilities.scan.lifecycle", (event) => {
     if (!isAdmin) return;
     const { scan_uuid, agent_id, scan: scanData } = event.payload ?? {};
@@ -287,7 +285,6 @@ export default function VulnerabilityScansPage() {
     });
   });
 
-  // Full refetch only when coarse invalidate carries a reason that adds new scans.
   usePortalRealtimeSubscription("ui.vulnerabilities.invalidate", (event) => {
     if (!isAdmin) return;
     const reason = String(event.payload?.reason || "");
@@ -380,7 +377,6 @@ export default function VulnerabilityScansPage() {
         }
       />
 
-      {/* Quick stats */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
         <Card title="Running" className="rounded-xl">
           <div className="text-3xl font-semibold">{quickStats.running}</div>
@@ -400,7 +396,6 @@ export default function VulnerabilityScansPage() {
         </Card>
       </div>
 
-      {/* Filters */}
       <Card
         title="Filters"
         right={
@@ -495,7 +490,6 @@ export default function VulnerabilityScansPage() {
         </div>
       </Card>
 
-      {/* Timeline */}
       <Card
         title="Scan inventory table"
         right={<span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{items.length} scans</span>}

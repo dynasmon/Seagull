@@ -7,7 +7,6 @@ import type { AgentPublic } from "@/features/agents/types";
 
 import type { VulnScan } from "./types";
 
-// Canonical phase sequence — used to order the timeline
 const PHASE_SEQ = [
   "queued",
   "acknowledged",
@@ -22,7 +21,6 @@ const PHASE_SEQ = [
   "cancelled",
 ];
 
-// Ordered stat display: first known stats from the agent pipeline, then any extras
 const STAT_DISPLAY: Array<{ keys: string[]; label: string }> = [
   { keys: ["inventory_packages", "packages_collected"], label: "packages collected" },
   { keys: ["queried_packages", "packages_queried", "packages_analyzed"], label: "packages queried" },
@@ -86,7 +84,6 @@ function isLiveScan(state: string): boolean {
   return s === "queued" || s === "acknowledged" || s === "running";
 }
 
-// Ticks once per second when `active` is true — causes only this component to re-render.
 function useLiveElapsed(startIso: string | null | undefined, endIso: string | null | undefined): string {
   const active = Boolean(startIso && !endIso);
   const [, setTick] = useState(0);
@@ -103,7 +100,6 @@ function useLiveElapsed(startIso: string | null | undefined, endIso: string | nu
   return fmtSec(Math.max(0, Math.floor((end - start) / 1000)));
 }
 
-// Stat counters — only real numeric values, rendered in pipeline order
 export function ScanStats({ stats }: { stats: Record<string, any> }) {
   const chips = useMemo(() => {
     if (!stats || typeof stats !== "object") return [];
@@ -151,7 +147,6 @@ export function ScanStats({ stats }: { stats: Record<string, any> }) {
   );
 }
 
-// Phase lifecycle timeline with per-phase timestamps and inter-phase durations
 export function PhaseTimeline({ scan }: { scan: VulnScan }) {
   const { current_phase, lifecycle_state } = scan;
 
@@ -397,7 +392,6 @@ export function ActiveScanPanel({
   const scanState = scan ? String(scan.lifecycle_state || "").toLowerCase() : "";
   const scanIsLive = scan ? isLiveScan(scanState) : false;
 
-  // useLiveElapsed lives here; its interval only re-renders this component, not page.tsx.
   const elapsed = useLiveElapsed(
     scan?.started_at ?? scan?.queued_at ?? null,
     scan?.finished_at ?? null
@@ -433,7 +427,6 @@ export function ActiveScanPanel({
   return (
     <Card title="Scan execution" className="rounded-xl">
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        {/* Left: controls + active scan status */}
         <div className="space-y-4">
           <div className="space-y-2">
             <div className="text-xs text-muted-foreground">
@@ -487,7 +480,6 @@ export function ActiveScanPanel({
           {scanMsg ? <div className="text-xs text-emerald-300">{scanMsg}</div> : null}
           {scanErr ? <div className="text-xs text-red-300">{scanErr}</div> : null}
 
-          {/* Active / most-recent scan status block */}
           {scan ? (
             <div
               className={cx(
@@ -499,7 +491,6 @@ export function ActiveScanPanel({
                   : "border-border/50 bg-background/20"
               )}
             >
-              {/* Header */}
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2 flex-wrap">
                   <Badge variant={scanVariant(scanState)}>{scan.lifecycle_state}</Badge>
@@ -543,7 +534,6 @@ export function ActiveScanPanel({
                 </div>
               </div>
 
-              {/* Timing grid */}
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
                 {scan.queued_at && (
                   <>
@@ -596,14 +586,12 @@ export function ActiveScanPanel({
                 )}
               </dl>
 
-              {/* Error summary */}
               {scan.error_summary && (
                 <div className="rounded border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-200">
                   {scan.error_summary}
                 </div>
               )}
 
-              {/* Progress counters */}
               {hasStats && <ScanStats stats={scan.stats} />}
             </div>
           ) : (
@@ -613,7 +601,6 @@ export function ActiveScanPanel({
           )}
         </div>
 
-        {/* Right: phase timeline + recent scan history */}
         <div className="space-y-4">
           {hasPhaseTimeline && scan && (
             <div>
