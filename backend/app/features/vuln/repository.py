@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
-from sqlalchemy import Float, and_, case, cast, func, literal, or_, select
+from sqlalchemy import Float, and_, case, cast, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.features.agents.models import AgentModel
+from app.features.vuln.domain import (
+    derive_legacy_finding_status,
+    lifecycle_state_for_phase,
+    normalize_finding_observation_state,
+    normalize_finding_operator_disposition,
+    normalize_scan_lifecycle_state,
+    normalize_scan_phase,
+    normalize_trigger_source,
+    scan_lifecycle_rank,
+    scan_phase_rank,
+)
 from app.features.vuln.models import VulnFindingModel, VulnScanModel
 
 
@@ -63,6 +74,68 @@ def _risk_score_expr(now: datetime, vf=VulnFindingModel):
     )
 
 
+def _merge_json(existing: Any, incoming: dict[str, Any]) -> dict[str, Any]:
+    base = dict(existing or {})
+    if incoming:
+        base.update(incoming)
+    return base
+
+
+def _normalize_phase_timestamps(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, str] = {}
+    for k, v in value.items():
+        key = str(k or "").strip().lower()
+        val = str(v or "").strip()
+        if not key or not val:
+            continue
+        out[key] = val
+    return out
+
+
+def _isoformat(dt: datetime | None) -> str | None:
+    if dt is None:
+        return None
+    return dt.isoformat()
+
+
+def _pick_earliest(existing: datetime | None, incoming: datetime | None) -> datetime | None:
+    if existing is None:
+        return incoming
+    if incoming is None:
+        return existing
+    return incoming if incoming < existing else existing
+
+
+def _pick_latest(existing: datetime | None, incoming: datetime | None) -> datetime | None:
+    if existing is None:
+        return incoming
+    if incoming is None:
+        return existing
+    return incoming if incoming > existing else existing
+
+
+def _should_apply_scan_state(existing_state: str | None, incoming_state: str | None) -> bool:
+    existing_norm = normalize_scan_lifecycle_state(existing_state)
+    incoming_norm = normalize_scan_lifecycle_state(incoming_state)
+    if existing_norm in {"completed", "failed", "cancelled"} and incoming_norm not in {"completed", "failed", "cancelled"}:
+        return False
+    return scan_lifecycle_rank(incoming_norm) >= scan_lifecycle_rank(existing_norm)
+
+
+def _should_apply_scan_phase(existing_phase: str | None, incoming_phase: str | None) -> bool:
+    existing_norm = normalize_scan_phase(existing_phase)
+    incoming_norm = normalize_scan_phase(incoming_phase)
+    if existing_norm in {"completed", "failed", "cancelled"} and incoming_norm not in {"completed", "failed", "cancelled"}:
+        return False
+    return scan_phase_rank(incoming_norm) >= scan_phase_rank(existing_norm)
+
+
+def get_scan_by_uuid(db: Session, scan_uuid: str) -> VulnScanModel | None:
+    return db.execute(select(VulnScanModel).where(VulnScanModel.scan_uuid == scan_uuid)).scalar_one_or_none()
+
+
 def upsert_scan_metadata(
     db: Session,
     *,
@@ -71,51 +144,113 @@ def upsert_scan_metadata(
     target: str | None,
     tool: str,
     tool_version: str | None,
-    status: str,
-    started_at: datetime,
+    status: str | None,
+    lifecycle_state: str | None,
+    current_phase: str | None,
+    queued_at: datetime | None,
+    acknowledged_at: datetime | None,
+    started_at: datetime | None,
     finished_at: datetime | None,
+    last_progress_at: datetime | None,
+    trigger_source: str | None,
+    error_summary: str | None,
     scope: dict[str, Any],
     config: dict[str, Any],
     stats: dict[str, Any],
+    phase_timestamps: dict[str, str],
     now: datetime,
-) -> int | None:
-    scan_insert = insert(VulnScanModel).values(
-        scan_uuid=scan_uuid,
-        reporter_agent_id=reporter_agent_id,
-        target=target,
-        tool=tool,
-        tool_version=tool_version,
-        status=status,
-        started_at=started_at,
-        finished_at=finished_at,
-        scope=scope,
-        config=config,
-        stats=stats,
-        updated_at=now,
+) -> VulnScanModel:
+    requested_state = normalize_scan_lifecycle_state(lifecycle_state or status or lifecycle_state_for_phase(current_phase))
+    requested_phase = normalize_scan_phase(current_phase, fallback_state=requested_state)
+    progress_at = last_progress_at or finished_at or started_at or acknowledged_at or queued_at or now
+    inferred_started_at = started_at
+    if inferred_started_at is None and requested_state in {"running", "completed", "failed", "cancelled"}:
+        inferred_started_at = progress_at
+    source = normalize_trigger_source(
+        trigger_source,
+        manual_trigger=bool(scope.get("manual_trigger") or config.get("manual_trigger")),
     )
-    scan_upsert = scan_insert.on_conflict_do_update(
-        index_elements=[VulnScanModel.scan_uuid],
-        set_={
-            "reporter_agent_id": scan_insert.excluded.reporter_agent_id,
-            "target": func.coalesce(scan_insert.excluded.target, VulnScanModel.target),
-            "tool": scan_insert.excluded.tool,
-            "tool_version": func.coalesce(scan_insert.excluded.tool_version, VulnScanModel.tool_version),
-            "status": scan_insert.excluded.status,
-            "started_at": func.least(VulnScanModel.started_at, scan_insert.excluded.started_at),
-            "finished_at": func.coalesce(scan_insert.excluded.finished_at, VulnScanModel.finished_at),
-            "scope": VulnScanModel.scope.op("||")(scan_insert.excluded.scope),
-            "config": VulnScanModel.config.op("||")(scan_insert.excluded.config),
-            "stats": VulnScanModel.stats.op("||")(scan_insert.excluded.stats),
-            "updated_at": now,
-        },
-    ).returning(VulnScanModel.id)
-    row = db.execute(scan_upsert).first()
-    return int(row[0]) if row and row[0] is not None else None
+    row = get_scan_by_uuid(db, scan_uuid)
+    if row is None:
+        row = VulnScanModel(
+            scan_uuid=scan_uuid,
+            reporter_agent_id=reporter_agent_id,
+            target=target,
+            tool=tool,
+            tool_version=tool_version,
+            status=requested_state,
+            lifecycle_state=requested_state,
+            current_phase=requested_phase,
+            queued_at=queued_at or started_at or progress_at,
+            acknowledged_at=acknowledged_at,
+            started_at=inferred_started_at,
+            finished_at=finished_at,
+            last_progress_at=progress_at,
+            trigger_source=source,
+            error_summary=error_summary,
+            scope=dict(scope or {}),
+            config=dict(config or {}),
+            stats=dict(stats or {}),
+            phase_timestamps=_normalize_phase_timestamps(phase_timestamps),
+            updated_at=now,
+        )
+        db.add(row)
+    else:
+        row.reporter_agent_id = reporter_agent_id or row.reporter_agent_id
+        row.target = target or row.target
+        row.tool = tool or row.tool
+        row.tool_version = tool_version or row.tool_version
+        row.queued_at = _pick_earliest(row.queued_at, queued_at or started_at or progress_at) or progress_at
+        row.acknowledged_at = _pick_earliest(row.acknowledged_at, acknowledged_at)
+        row.started_at = _pick_earliest(row.started_at, inferred_started_at)
+        row.finished_at = _pick_latest(row.finished_at, finished_at)
+        row.last_progress_at = _pick_latest(row.last_progress_at, progress_at) or progress_at
+        row.trigger_source = source or row.trigger_source
+        row.scope = _merge_json(row.scope, dict(scope or {}))
+        row.config = _merge_json(row.config, dict(config or {}))
+        row.stats = _merge_json(row.stats, dict(stats or {}))
+        if error_summary is not None:
+            row.error_summary = error_summary
+        elif requested_state == "completed":
+            row.error_summary = None
+
+        if _should_apply_scan_state(row.lifecycle_state, requested_state):
+            row.lifecycle_state = requested_state
+            row.status = requested_state
+        if _should_apply_scan_phase(row.current_phase, requested_phase):
+            row.current_phase = requested_phase
+
+        merged_phase_timestamps = _normalize_phase_timestamps(row.phase_timestamps)
+        merged_phase_timestamps.update(_normalize_phase_timestamps(phase_timestamps))
+        row.phase_timestamps = merged_phase_timestamps
+        row.updated_at = now
+
+    phase_map = _normalize_phase_timestamps(row.phase_timestamps)
+    for phase_name, at in [
+        ("queued", row.queued_at),
+        ("acknowledged", row.acknowledged_at),
+        ("running", row.started_at),
+        (requested_phase, progress_at),
+        (row.current_phase, row.last_progress_at),
+        (row.lifecycle_state, row.finished_at or row.last_progress_at),
+    ]:
+        key = normalize_scan_phase(phase_name, fallback_state=phase_name)
+        val = _isoformat(at)
+        if val and key not in phase_map:
+            phase_map[key] = val
+    if row.finished_at is not None and row.lifecycle_state in {"completed", "failed", "cancelled"}:
+        phase_map[row.lifecycle_state] = _isoformat(row.finished_at) or phase_map.get(row.lifecycle_state, "")
+    row.phase_timestamps = phase_map
+    row.updated_at = now
+    db.add(row)
+    db.flush()
+    return row
 
 
 def bulk_upsert_findings(db: Session, *, rows: list[dict[str, Any]], auto_reopen: bool, now: datetime) -> None:
     if not rows:
         return
+
     finding_insert = insert(VulnFindingModel).values(rows)
     excl = finding_insert.excluded
     finding_upsert = finding_insert.on_conflict_do_update(
@@ -145,17 +280,48 @@ def bulk_upsert_findings(db: Session, *, rows: list[dict[str, Any]], auto_reopen
             "evidence": VulnFindingModel.evidence.op("||")(excl.evidence),
             "last_seen_at": func.greatest(VulnFindingModel.last_seen_at, excl.last_seen_at),
             "occurrences": VulnFindingModel.occurrences + 1,
+            "observation_state": literal("observed"),
             "status": case(
-                (
-                    and_(literal(bool(auto_reopen)).is_(True), VulnFindingModel.status.in_(["fixed", "resolved"])),
-                    literal("open"),
-                ),
-                else_=VulnFindingModel.status,
+                (VulnFindingModel.operator_disposition == "suppressed", literal("ignored")),
+                (VulnFindingModel.operator_disposition == "accepted_risk", literal("accepted")),
+                else_=literal("open"),
+            ),
+            "is_suppressed": case(
+                (VulnFindingModel.operator_disposition == "suppressed", literal(True)),
+                else_=literal(False),
             ),
             "updated_at": now,
         },
     )
     db.execute(finding_upsert)
+
+
+def reconcile_resolved_findings(
+    db: Session,
+    *,
+    reporter_agent_id: str,
+    observed_fingerprints: list[str],
+    sources: list[str],
+    now: datetime,
+) -> None:
+    if not reporter_agent_id:
+        return
+
+    stmt = (
+        update(VulnFindingModel)
+        .where(VulnFindingModel.reporter_agent_id == reporter_agent_id)
+        .where(VulnFindingModel.observation_state.in_(["observed", "awaiting_verification"]))
+        .values(
+            observation_state="resolved",
+            status="resolved",
+            updated_at=now,
+        )
+    )
+    if sources:
+        stmt = stmt.where(VulnFindingModel.source.in_(sources))
+    if observed_fingerprints:
+        stmt = stmt.where(VulnFindingModel.fingerprint.not_in(observed_fingerprints))
+    db.execute(stmt)
 
 
 def get_agent_by_agent_id(db: Session, agent_id: str) -> AgentModel | None:
@@ -179,11 +345,18 @@ def list_scans_page(
     status_q: str | None,
     tool: str | None,
 ) -> list[VulnScanModel]:
-    stmt = select(VulnScanModel).order_by(VulnScanModel.started_at.desc(), VulnScanModel.id.desc())
+    stmt = select(VulnScanModel).order_by(VulnScanModel.queued_at.desc(), VulnScanModel.id.desc())
     if reporter_agent_id:
         stmt = stmt.where(VulnScanModel.reporter_agent_id == reporter_agent_id)
     if status_q:
-        stmt = stmt.where(VulnScanModel.status == status_q.lower())
+        q = status_q.lower()
+        stmt = stmt.where(
+            or_(
+                VulnScanModel.status == q,
+                VulnScanModel.lifecycle_state == q,
+                VulnScanModel.current_phase == q,
+            )
+        )
     if tool:
         stmt = stmt.where(VulnScanModel.tool == tool.lower())
 
@@ -191,8 +364,8 @@ def list_scans_page(
         c_ts, c_id = cursor_parsed
         stmt = stmt.where(
             or_(
-                VulnScanModel.started_at < c_ts,
-                and_(VulnScanModel.started_at == c_ts, VulnScanModel.id < c_id),
+                VulnScanModel.queued_at < c_ts,
+                and_(VulnScanModel.queued_at == c_ts, VulnScanModel.id < c_id),
             )
         )
 
@@ -207,6 +380,8 @@ def list_findings_page(
     asset_agent_id: str | None,
     reporter_agent_id: str | None,
     status_q: str | None,
+    observation_state_q: str | None,
+    operator_disposition_q: str | None,
     include_suppressed: bool,
     min_severity_rank: int | None,
     cve: str | None,
@@ -220,8 +395,12 @@ def list_findings_page(
         stmt = stmt.where(VulnFindingModel.reporter_agent_id == reporter_agent_id)
     if status_q:
         stmt = stmt.where(VulnFindingModel.status == status_q.lower())
+    if observation_state_q:
+        stmt = stmt.where(VulnFindingModel.observation_state == observation_state_q.lower())
+    if operator_disposition_q:
+        stmt = stmt.where(VulnFindingModel.operator_disposition == operator_disposition_q.lower())
     if not include_suppressed:
-        stmt = stmt.where(VulnFindingModel.is_suppressed.is_(False))
+        stmt = stmt.where(VulnFindingModel.operator_disposition != "suppressed")
     if min_severity_rank is not None:
         stmt = stmt.where(VulnFindingModel.severity_rank >= min_severity_rank)
     if cve:
@@ -258,14 +437,19 @@ def apply_finding_patch(
     db: Session,
     *,
     row: VulnFindingModel,
-    status: str | None,
-    is_suppressed: bool | None,
+    observation_state: str | None,
+    operator_disposition: str | None,
     updated_at: datetime,
 ) -> None:
-    if status is not None:
-        row.status = status
-    if is_suppressed is not None:
-        row.is_suppressed = bool(is_suppressed)
+    next_observation_state = normalize_finding_observation_state(observation_state or row.observation_state)
+    next_operator_disposition = normalize_finding_operator_disposition(
+        operator_disposition or row.operator_disposition,
+        is_suppressed=(operator_disposition == "suppressed"),
+    )
+    row.observation_state = next_observation_state
+    row.operator_disposition = next_operator_disposition
+    row.status = derive_legacy_finding_status(next_observation_state, next_operator_disposition)
+    row.is_suppressed = next_operator_disposition == "suppressed"
     row.updated_at = updated_at
     db.add(row)
 
@@ -275,10 +459,10 @@ def summary_counts(
     *,
     since: datetime,
     include_suppressed: bool,
-) -> tuple[int, int, dict[str, int], dict[str, int]]:
+) -> tuple[int, int, int, int, int, dict[str, int], dict[str, int], dict[str, int], dict[str, int]]:
     conds = [VulnFindingModel.last_seen_at >= since]
     if not include_suppressed:
-        conds.append(VulnFindingModel.is_suppressed.is_(False))
+        conds.append(VulnFindingModel.operator_disposition != "suppressed")
 
     total_open = (
         db.execute(
@@ -289,13 +473,39 @@ def summary_counts(
         ).scalar_one()
         or 0
     )
-
+    total_observed = (
+        db.execute(
+            select(func.count())
+            .select_from(VulnFindingModel)
+            .where(*conds)
+            .where(VulnFindingModel.observation_state == "observed")
+        ).scalar_one()
+        or 0
+    )
+    total_awaiting_verification = (
+        db.execute(
+            select(func.count())
+            .select_from(VulnFindingModel)
+            .where(*conds)
+            .where(VulnFindingModel.observation_state == "awaiting_verification")
+        ).scalar_one()
+        or 0
+    )
+    total_resolved = (
+        db.execute(
+            select(func.count())
+            .select_from(VulnFindingModel)
+            .where(*conds)
+            .where(VulnFindingModel.observation_state == "resolved")
+        ).scalar_one()
+        or 0
+    )
     total_suppressed = (
         db.execute(
             select(func.count())
             .select_from(VulnFindingModel)
             .where(VulnFindingModel.last_seen_at >= since)
-            .where(VulnFindingModel.is_suppressed.is_(True))
+            .where(VulnFindingModel.operator_disposition == "suppressed")
         ).scalar_one()
         or 0
     )
@@ -316,7 +526,33 @@ def summary_counts(
     ).all()
     by_status = {str(k or "unknown"): int(v or 0) for (k, v) in by_status_rows}
 
-    return int(total_open), int(total_suppressed), by_severity, by_status
+    by_observation_rows = db.execute(
+        select(VulnFindingModel.observation_state, func.count())
+        .select_from(VulnFindingModel)
+        .where(*conds)
+        .group_by(VulnFindingModel.observation_state)
+    ).all()
+    by_observation_state = {str(k or "unknown"): int(v or 0) for (k, v) in by_observation_rows}
+
+    by_disposition_rows = db.execute(
+        select(VulnFindingModel.operator_disposition, func.count())
+        .select_from(VulnFindingModel)
+        .where(*conds)
+        .group_by(VulnFindingModel.operator_disposition)
+    ).all()
+    by_disposition = {str(k or "unknown"): int(v or 0) for (k, v) in by_disposition_rows}
+
+    return (
+        int(total_open),
+        int(total_observed),
+        int(total_awaiting_verification),
+        int(total_resolved),
+        int(total_suppressed),
+        by_severity,
+        by_status,
+        by_observation_state,
+        by_disposition,
+    )
 
 
 def posture_data(
@@ -339,9 +575,9 @@ def posture_data(
         and_(vf.cve.is_not(None), func.btrim(vf.cve) != "", vf.severity_rank >= 3),
     ).label("exploit_likely")
 
-    base_conds = [vf.status == "open", vf.last_seen_at >= since]
+    base_conds = [vf.observation_state == "observed", vf.last_seen_at >= since]
     if not include_suppressed:
-        base_conds.append(vf.is_suppressed.is_(False))
+        base_conds.append(vf.operator_disposition != "suppressed")
 
     base = (
         select(

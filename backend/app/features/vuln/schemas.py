@@ -23,24 +23,37 @@ class VulnScanIn(BaseModel):
 
     tool: str = Field("unknown", min_length=1, max_length=64)
     tool_version: Optional[str] = Field(None, max_length=64)
-    status: str = Field("running", min_length=1, max_length=16)
 
+    status: Optional[str] = Field(None, min_length=1, max_length=24, description="Legacy lifecycle state")
+    lifecycle_state: Optional[str] = Field(None, min_length=1, max_length=24)
+    current_phase: Optional[str] = Field(None, min_length=1, max_length=32)
+
+    queued_at: Optional[datetime] = None
+    acknowledged_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
+    last_progress_at: Optional[datetime] = None
+
+    trigger_source: Optional[str] = Field(None, min_length=1, max_length=24)
+    error_summary: Optional[str] = Field(None, max_length=512)
 
     scope: Dict[str, Any] = Field(default_factory=dict)
     config: Dict[str, Any] = Field(default_factory=dict)
     stats: Dict[str, Any] = Field(default_factory=dict)
+    phase_timestamps: Dict[str, str] = Field(default_factory=dict)
 
     @validator("scan_uuid", pre=True)
     def _v_scan_uuid(cls, v):
-        v = _norm(v)
-        return v
+        return _norm(v)
 
-    @validator("tool", "status", pre=True)
+    @validator("tool", "status", "lifecycle_state", "current_phase", "trigger_source", pre=True)
     def _v_lower_trim(cls, v):
         v = _norm(v) or ""
-        return v.lower() if v else v
+        return v.lower() if v else None
+
+    @validator("error_summary", pre=True)
+    def _v_error_summary(cls, v):
+        return _norm(v)
 
 
 class VulnFindingIn(BaseModel):
@@ -99,7 +112,6 @@ class VulnFindingIn(BaseModel):
         if not v2:
             return None
         if not _CVE_RE.match(v2):
-            # Accept non-standard strings but keep them as-is.
             return v2
         return v2.upper()
 
@@ -116,12 +128,25 @@ class VulnScanOut(BaseModel):
     target: Optional[str] = None
     tool: str
     tool_version: Optional[str] = None
+
     status: str
-    started_at: datetime
+    lifecycle_state: str
+    current_phase: str
+
+    queued_at: datetime
+    acknowledged_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
+    last_progress_at: datetime
+    duration_ms: Optional[int] = None
+
+    trigger_source: str
+    error_summary: Optional[str] = None
+
     scope: Dict[str, Any]
     config: Dict[str, Any]
     stats: Dict[str, Any]
+    phase_timestamps: Dict[str, str]
     created_at: datetime
     updated_at: datetime
 
@@ -161,6 +186,8 @@ class VulnFindingOut(BaseModel):
 
     status: str
     is_suppressed: bool
+    observation_state: str
+    operator_disposition: str
 
     first_seen_at: datetime
     last_seen_at: datetime
@@ -172,10 +199,12 @@ class VulnFindingOut(BaseModel):
 
 
 class VulnFindingPatchIn(BaseModel):
-    status: Optional[str] = Field(None, min_length=1, max_length=16)
+    status: Optional[str] = Field(None, min_length=1, max_length=24, description="Legacy compatibility status")
     is_suppressed: Optional[bool] = None
+    observation_state: Optional[str] = Field(None, min_length=1, max_length=32)
+    operator_disposition: Optional[str] = Field(None, min_length=1, max_length=32)
 
-    @validator("status", pre=True)
+    @validator("status", "observation_state", "operator_disposition", pre=True)
     def _v_status(cls, v):
         v2 = _norm(v)
         return v2.lower() if v2 else None
@@ -184,6 +213,8 @@ class VulnFindingPatchIn(BaseModel):
 class VulnIngestResult(BaseModel):
     scan_id: Optional[int] = None
     scan_uuid: Optional[str] = None
+    lifecycle_state: Optional[str] = None
+    current_phase: Optional[str] = None
     received_findings: int
     stored_findings: int
 
@@ -191,9 +222,14 @@ class VulnIngestResult(BaseModel):
 class VulnSummaryOut(BaseModel):
     generated_at: datetime
     total_open: int
+    total_observed: int
+    total_awaiting_verification: int
+    total_resolved: int
     total_suppressed: int
     by_severity: Dict[str, int]
     by_status: Dict[str, int]
+    by_observation_state: Dict[str, int]
+    by_disposition: Dict[str, int]
 
 
 class VulnRiskItemOut(BaseModel):
@@ -253,5 +289,8 @@ class VulnManualScanOut(BaseModel):
     agent_id: str
     trigger_token: str
     scan_uuid: str
+    request_state: str
     status: str
+    lifecycle_state: str
+    current_phase: str
     queued_at: datetime
