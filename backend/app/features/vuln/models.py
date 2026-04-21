@@ -19,17 +19,35 @@ class VulnScanModel(Base):
     tool = Column(String(64), nullable=False, default="unknown")
     tool_version = Column(String(64), nullable=True)
 
-    status = Column(String(16), nullable=False, default="running")
-    started_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    status = Column(String(24), nullable=False, default="queued")
+    lifecycle_state = Column(String(24), nullable=False, default="queued")
+    current_phase = Column(String(32), nullable=False, default="queued")
+
+    queued_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
+    last_progress_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    trigger_source = Column(String(24), nullable=False, default="scheduled")
+    error_summary = Column(String(512), nullable=True)
 
     # JSON payloads for extensibility: scopes, scanner config, stats.
     scope = Column(JSONB, nullable=False, default=dict)
     config = Column(JSONB, nullable=False, default=dict)
     stats = Column(JSONB, nullable=False, default=dict)
+    phase_timestamps = Column(JSONB, nullable=False, default=dict)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    @property
+    def duration_ms(self) -> int | None:
+        if self.started_at is None:
+            return None
+        end = self.finished_at or self.last_progress_at
+        if end is None:
+            return None
+        return max(0, int((end - self.started_at).total_seconds() * 1000))
 
 
 class VulnFindingModel(Base):
@@ -80,8 +98,10 @@ class VulnFindingModel(Base):
 
     evidence = Column(JSONB, nullable=False, default=dict)
 
-    status = Column(String(16), nullable=False, default="open")
+    status = Column(String(24), nullable=False, default="open")
     is_suppressed = Column(Boolean, nullable=False, default=False)
+    observation_state = Column(String(32), nullable=False, default="observed")
+    operator_disposition = Column(String(32), nullable=False, default="open")
 
     first_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)

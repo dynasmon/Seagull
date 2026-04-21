@@ -292,15 +292,19 @@ def _ensure_indexes(conn) -> None:
         ),
         (
             "vuln_scans",
-            Index("idx_vuln_scans_started_at_id", VulnScanModel.started_at.desc(), VulnScanModel.id.desc()),
+            Index("idx_vuln_scans_queued_at_id", VulnScanModel.queued_at.desc(), VulnScanModel.id.desc()),
         ),
         (
             "vuln_scans",
-            Index("idx_vuln_scans_reporter_started", VulnScanModel.reporter_agent_id, VulnScanModel.started_at.desc(), VulnScanModel.id.desc()),
+            Index("idx_vuln_scans_reporter_queued", VulnScanModel.reporter_agent_id, VulnScanModel.queued_at.desc(), VulnScanModel.id.desc()),
         ),
         (
             "vuln_scans",
-            Index("idx_vuln_scans_status_started", VulnScanModel.status, VulnScanModel.started_at.desc(), VulnScanModel.id.desc()),
+            Index("idx_vuln_scans_lifecycle_queued", VulnScanModel.lifecycle_state, VulnScanModel.queued_at.desc(), VulnScanModel.id.desc()),
+        ),
+        (
+            "vuln_scans",
+            Index("idx_vuln_scans_phase_progress", VulnScanModel.current_phase, VulnScanModel.last_progress_at.desc(), VulnScanModel.id.desc()),
         ),
         (
             "vuln_findings",
@@ -317,6 +321,14 @@ def _ensure_indexes(conn) -> None:
         (
             "vuln_findings",
             Index("idx_vuln_findings_status_last_seen", VulnFindingModel.status, VulnFindingModel.last_seen_at.desc(), VulnFindingModel.id.desc()),
+        ),
+        (
+            "vuln_findings",
+            Index("idx_vuln_findings_observation_last_seen", VulnFindingModel.observation_state, VulnFindingModel.last_seen_at.desc(), VulnFindingModel.id.desc()),
+        ),
+        (
+            "vuln_findings",
+            Index("idx_vuln_findings_disposition_last_seen", VulnFindingModel.operator_disposition, VulnFindingModel.last_seen_at.desc(), VulnFindingModel.id.desc()),
         ),
         (
             "vuln_findings",

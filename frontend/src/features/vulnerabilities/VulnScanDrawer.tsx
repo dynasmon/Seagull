@@ -33,11 +33,11 @@ function fmtSeconds(sec: number): string {
   return mr ? `${h}h ${mr}m` : `${h}h`;
 }
 
-function statusVariant(status: string) {
-  const s = String(status || "").toLowerCase();
-  if (s === "running" || s === "queued" || s === "started") return "info";
-  if (s === "failed" || s === "error") return "critical";
-  return "neutral";
+function lifecycleVariant(state: string) {
+  const s = String(state || "").toLowerCase();
+  if (s === "completed") return "neutral";
+  if (s === "failed" || s === "cancelled") return "critical";
+  return "info";
 }
 
 function pickStatChips(stats: Record<string, any>): Array<{ k: string; v: string }> {
@@ -45,10 +45,10 @@ function pickStatChips(stats: Record<string, any>): Array<{ k: string; v: string
   for (const k of Object.keys(stats || {})) {
     const v = (stats as any)[k];
     if (typeof v === "number" && Number.isFinite(v)) out.push({ k, v: String(v) });
-    if (typeof v === "string" && v.length <= 16 && /^\d+$/.test(v)) out.push({ k, v });
+    if (typeof v === "string" && v.length <= 18) out.push({ k, v });
   }
   out.sort((a, b) => a.k.localeCompare(b.k));
-  return out.slice(0, 6);
+  return out.slice(0, 8);
 }
 
 export default function VulnScanDrawer({
@@ -62,7 +62,10 @@ export default function VulnScanDrawer({
 }) {
   const duration = useMemo(() => {
     if (!scan) return null;
-    const start = Date.parse(scan.started_at);
+    if (typeof scan.duration_ms === "number" && Number.isFinite(scan.duration_ms)) {
+      return Math.max(0, scan.duration_ms / 1000);
+    }
+    const start = Date.parse(scan.started_at || "");
     const end = scan.finished_at ? Date.parse(scan.finished_at) : Date.now();
     if (Number.isNaN(start) || Number.isNaN(end)) return null;
     return Math.max(0, (end - start) / 1000);
@@ -81,17 +84,25 @@ export default function VulnScanDrawer({
       onClose={onClose}
       title={`Scan #${scan.id}`}
       description={`${scan.tool}${scan.tool_version ? ` v${scan.tool_version}` : ""} • ${scan.scan_uuid}`}
-      widthClassName="w-[860px]"
+      widthClassName="w-[900px]"
     >
       <div className="space-y-4">
         <Card title="Overview" className="rounded-xl">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div>
-              <div className="text-xs text-muted-foreground">Status</div>
-              <div className="mt-1 flex items-center gap-2">
-                <Badge variant={statusVariant(scan.status)}>{scan.status}</Badge>
-                <span className="text-xs text-muted-foreground font-mono">duration {duration === null ? "-" : fmtSeconds(duration)}</span>
+              <div className="text-xs text-muted-foreground">Lifecycle</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <Badge variant={lifecycleVariant(scan.lifecycle_state)}>{scan.lifecycle_state}</Badge>
+                <Badge variant="neutral">{scan.current_phase}</Badge>
+                <span className="text-xs text-muted-foreground font-mono">
+                  duration {duration === null ? "-" : fmtSeconds(duration)}
+                </span>
               </div>
+            </div>
+
+            <div>
+              <div className="text-xs text-muted-foreground">Trigger</div>
+              <div className="mt-1 font-mono text-sm">{scan.trigger_source}</div>
             </div>
 
             <div>
@@ -101,21 +112,33 @@ export default function VulnScanDrawer({
 
             <div>
               <div className="text-xs text-muted-foreground">Target</div>
-              <div className="mt-1 font-mono text-sm truncate" title={scan.target || ""}>{scan.target || "-"}</div>
+              <div className="mt-1 font-mono text-sm truncate" title={scan.target || ""}>
+                {scan.target || "-"}
+              </div>
               <div className="mt-1 text-xs text-muted-foreground">
                 profile {(scan.config as any)?.analysis_profile || (scan.scope as any)?.analysis_profile || "-"}
               </div>
             </div>
+          </div>
 
-            <div>
-              <div className="text-xs text-muted-foreground">Time</div>
-              <div className="mt-1 text-sm text-muted-foreground">started {fmtWhen(scan.started_at)}</div>
-              <div className="text-sm text-muted-foreground">finished {fmtWhen(scan.finished_at)}</div>
-              <div className="text-sm text-muted-foreground">
-                exposure score {(scan.stats as any)?.exposure_surface_score ?? "-"}
-              </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="space-y-1 text-sm text-muted-foreground">
+              <div>queued {fmtWhen(scan.queued_at)}</div>
+              <div>acknowledged {fmtWhen(scan.acknowledged_at)}</div>
+              <div>started {fmtWhen(scan.started_at)}</div>
+            </div>
+            <div className="space-y-1 text-sm text-muted-foreground">
+              <div>last progress {fmtWhen(scan.last_progress_at)}</div>
+              <div>finished {fmtWhen(scan.finished_at)}</div>
+              <div>exposure score {(scan.stats as any)?.exposure_surface_score ?? "-"}</div>
             </div>
           </div>
+
+          {scan.error_summary ? (
+            <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+              {scan.error_summary}
+            </div>
+          ) : null}
 
           {statChips.length ? (
             <div className="mt-4 flex flex-wrap gap-2">
@@ -135,7 +158,12 @@ export default function VulnScanDrawer({
           ) : null}
         </Card>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+          <Card title="Phase Timestamps" className="rounded-xl lg:col-span-1">
+            <pre className="text-xs whitespace-pre-wrap break-words text-muted-foreground">
+              {safeJson(scan.phase_timestamps)}
+            </pre>
+          </Card>
           <Card title="Scope" className="rounded-xl lg:col-span-1">
             <pre className="text-xs whitespace-pre-wrap break-words text-muted-foreground">{safeJson(scan.scope)}</pre>
           </Card>
@@ -148,7 +176,7 @@ export default function VulnScanDrawer({
         </div>
 
         <Card title="Raw" right="copy" className="rounded-xl">
-          <div className="flex items-center justify-end mb-3">
+          <div className="mb-3 flex items-center justify-end">
             <button
               type="button"
               onClick={() => navigator.clipboard.writeText(safeJson(scan))}
