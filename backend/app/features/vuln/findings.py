@@ -191,11 +191,16 @@ def list_findings(
     status_q: str | None,
     observation_state_q: str | None,
     operator_disposition_q: str | None,
-    min_severity_rank: int | None,
+    min_severity: str | None = None,
+    min_severity_rank: int | None = None,
     cve: str | None,
     q: str | None,
     include_suppressed: bool,
 ) -> CursorPage[VulnFindingOut]:
+    effective_min_severity_rank = min_severity_rank
+    if effective_min_severity_rank is None and min_severity is not None:
+        effective_min_severity_rank = _severity_rank(min_severity)
+
     cursor_parsed = parse_cursor_ts_id(cursor) if cursor else None
     rows = list_findings_page(
         db,
@@ -207,7 +212,7 @@ def list_findings(
         observation_state_q=observation_state_q,
         operator_disposition_q=operator_disposition_q,
         include_suppressed=include_suppressed,
-        min_severity_rank=min_severity_rank,
+        min_severity_rank=effective_min_severity_rank,
         cve=cve,
         query_text=q,
     )

@@ -43,6 +43,7 @@ REALTIME_EVENT_POLICIES: dict[str, dict[str, str]] = {
     "ui.ddos.live.patch": {"topic": "ddos", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
     "ui.inventory.invalidate": {"topic": "inventory", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
     "ui.vulnerabilities.invalidate": {"topic": "vulnerabilities", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE_ADMIN},
+    "ui.vulnerabilities.scan.lifecycle": {"topic": "vulnerabilities", "mode": "patch", "scope": STREAM_TOKEN_SCOPE_ADMIN},
     "overview.invalidate": {"topic": "overview", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
     "overview.patch": {"topic": "overview", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
     "storm.status": {"topic": "overview", "mode": "replace", "scope": STREAM_TOKEN_SCOPE},
