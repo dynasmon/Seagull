@@ -123,7 +123,6 @@ export default function VulnFindingDrawer(props: {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
     } catch {
-      // Ignore: clipboard permission can be denied.
     }
   }
 
