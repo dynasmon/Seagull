@@ -1,4 +1,3 @@
-# backend/app/core/config.py
 import json
 from urllib.parse import urlsplit
 from typing import Any, Dict
@@ -54,7 +53,6 @@ def _env_csv(name: str, default: str = "") -> list[str]:
 
 
 class Settings:
-    # Environment
     SEAGULL_ENV: str = (_env_str("SEAGULL_ENV", "dev") or "dev").lower()
     SEAGULL_DB_AUTO_UPGRADE: bool = _env_bool(
         "SEAGULL_DB_AUTO_UPGRADE",
@@ -63,7 +61,6 @@ class Settings:
     SEAGULL_SKIP_STARTUP_BOOTSTRAP: bool = _env_bool("SEAGULL_SKIP_STARTUP_BOOTSTRAP", False)
     SEAGULL_LOG_LEVEL: str = (_env_str("SEAGULL_LOG_LEVEL", "INFO") or "INFO").upper()
 
-    # Redis
     SEAGULL_REDIS_HOST: str = _env_str("SEAGULL_REDIS_HOST", "redis") or "redis"
     SEAGULL_REDIS_PORT: int = _env_int("SEAGULL_REDIS_PORT", 6379)
     SEAGULL_REDIS_USERNAME: str | None = _env_str("SEAGULL_REDIS_USERNAME", None)
@@ -89,7 +86,6 @@ class Settings:
     SEAGULL_DB_EXECUTEMANY_MODE: str = _env_str("SEAGULL_DB_EXECUTEMANY_MODE", "values_plus_batch") or "values_plus_batch"
     SEAGULL_DB_EXECUTEMANY_VALUES_PAGE_SIZE: int = _env_int("SEAGULL_DB_EXECUTEMANY_VALUES_PAGE_SIZE", 1000)
 
-    # Portal auth
     SEAGULL_JWT_SECRET: str | None = _env_str("SEAGULL_JWT_SECRET", None)
     SEAGULL_TOKEN_PEPPER: str | None = _env_str("SEAGULL_TOKEN_PEPPER", None)
 
@@ -134,7 +130,6 @@ class Settings:
     # - postgres: always use Postgres
     SEAGULL_SEARCH_BACKEND: str = (_env_str("SEAGULL_SEARCH_BACKEND", "auto") or "auto").lower()
 
-    # Elasticsearch connection (used by API hunting endpoints)
     SEAGULL_ES_URL: str = _env_str("SEAGULL_ES_URL", "http://elasticsearch:9200") or "http://elasticsearch:9200"
     SEAGULL_ES_INDEX_PREFIX: str = _env_str("SEAGULL_ES_INDEX_PREFIX", "seagull-events") or "seagull-events"
     SEAGULL_ES_REQUEST_TIMEOUT_SECONDS: int = _env_int("SEAGULL_ES_REQUEST_TIMEOUT_SECONDS", 30)
@@ -144,7 +139,6 @@ class Settings:
     SEAGULL_ES_CA_CERTS: str | None = _env_str("SEAGULL_ES_CA_CERTS", None)
     SEAGULL_ES_PING_TTL_SECONDS: int = _env_int("SEAGULL_ES_PING_TTL_SECONDS", 2)
 
-    # ClickHouse analytics backend. This is the primary analytical store.
     SEAGULL_CLICKHOUSE_ENABLED: bool = _env_bool("SEAGULL_CLICKHOUSE_ENABLED", True)
     SEAGULL_CLICKHOUSE_REQUIRED: bool = _env_bool("SEAGULL_CLICKHOUSE_REQUIRED", True)
     SEAGULL_CLICKHOUSE_HOST: str = _env_str("SEAGULL_CLICKHOUSE_HOST", "clickhouse") or "clickhouse"
@@ -160,7 +154,6 @@ class Settings:
     SEAGULL_CLICKHOUSE_EVENTS_TABLE: str = _env_str("SEAGULL_CLICKHOUSE_EVENTS_TABLE", "net_events_raw") or "net_events_raw"
     SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS: int = _env_int("SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS", 30)
 
-    # Bootstrap admin user (required on first run).
     SEAGULL_BOOTSTRAP_ADMIN_USERNAME: str = _env_str("SEAGULL_BOOTSTRAP_ADMIN_USERNAME", "admin") or "admin"
     SEAGULL_BOOTSTRAP_ADMIN_PASSWORD: str | None = _env_str("SEAGULL_BOOTSTRAP_ADMIN_PASSWORD", None)
     SEAGULL_BOOTSTRAP_ADMIN_RESET_ON_START: bool = _env_bool(
@@ -178,14 +171,10 @@ class Settings:
         False,
     )
 
-    # Default agent configuration applied on first enroll (JSON object).
     SEAGULL_DEFAULT_AGENT_CONFIG_JSON: str = _env_str("SEAGULL_DEFAULT_AGENT_CONFIG_JSON", "{}") or "{}"
 
-    # Hard limit for agent config payloads (JSON-encoded bytes).
     SEAGULL_MAX_AGENT_CONFIG_BYTES: int = _env_int("SEAGULL_MAX_AGENT_CONFIG_BYTES", 262144)
 
-    # Agent identity/auth hardening.
-    # Agents authenticate using rotating credentials bound to agent_id.
     SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS: int = _env_int("SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS", 900)
     SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES: int = _env_int("SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES", 1)
     SEAGULL_AGENT_CREDENTIAL_TTL_SECONDS: int = _env_int("SEAGULL_AGENT_CREDENTIAL_TTL_SECONDS", 604800)
@@ -195,7 +184,6 @@ class Settings:
     SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS: int = _env_int("SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS", 2592000)
     SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE: int = _env_int("SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE", 2)
 
-    # Rules worker
     SEAGULL_RULES_EVERY_SECONDS: float = _env_float("SEAGULL_RULES_EVERY_SECONDS", 5.0)
     SEAGULL_RULES_ENV: str = (_env_str("SEAGULL_RULES_ENV", SEAGULL_ENV) or SEAGULL_ENV or "dev").lower()
     SEAGULL_RULES_ENABLED_PACKS: list[str] = _env_csv(
@@ -208,7 +196,6 @@ class Settings:
         SEAGULL_ENV not in {"prod", "production"},
     )
 
-    # Ingest controls
     SEAGULL_MAX_EVENT_CLOCK_SKEW_SECONDS: int = _env_int("SEAGULL_MAX_EVENT_CLOCK_SKEW_SECONDS", 300)
     SEAGULL_INGEST_MAX_BATCH: int = _env_int("SEAGULL_INGEST_MAX_BATCH", 10000)
     SEAGULL_INGEST_ROLLUP_ALWAYS: bool = _env_bool("SEAGULL_INGEST_ROLLUP_ALWAYS", False)
@@ -246,7 +233,6 @@ class Settings:
     SEAGULL_INGEST_DEGRADED_CLICKHOUSE_SAMPLE_PERCENT: int = _env_int("SEAGULL_INGEST_DEGRADED_CLICKHOUSE_SAMPLE_PERCENT", 25)
     SEAGULL_INGEST_CRITICAL_CLICKHOUSE_SAMPLE_PERCENT: int = _env_int("SEAGULL_INGEST_CRITICAL_CLICKHOUSE_SAMPLE_PERCENT", 10)
 
-    # Overview cache/tuning
     SEAGULL_OVERVIEW_CACHE_TTL_SECONDS: int = _env_int("SEAGULL_OVERVIEW_CACHE_TTL_SECONDS", 3)
     SEAGULL_OVERVIEW_CACHE_MAX_ENTRIES: int = _env_int("SEAGULL_OVERVIEW_CACHE_MAX_ENTRIES", 128)
     SEAGULL_OVERVIEW_PRESSURE_LOOKBACK_SECONDS: int = _env_int("SEAGULL_OVERVIEW_PRESSURE_LOOKBACK_SECONDS", 120)
@@ -256,15 +242,12 @@ class Settings:
     SEAGULL_EVENTS_SUMMARY_CACHE_TTL_SECONDS: int = _env_int("SEAGULL_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15)
     SEAGULL_EVENTS_ES_STALE_MARGIN_SECONDS: int = _env_int("SEAGULL_EVENTS_ES_STALE_MARGIN_SECONDS", 15)
 
-    # Vulnerability ingest controls
     SEAGULL_VULN_MAX_FINDINGS_PER_INGEST: int = _env_int("SEAGULL_VULN_MAX_FINDINGS_PER_INGEST", 2000)
     SEAGULL_VULN_MAX_EVIDENCE_BYTES: int = _env_int("SEAGULL_VULN_MAX_EVIDENCE_BYTES", 32768)
     SEAGULL_VULN_AUTO_REOPEN: bool = _env_bool("SEAGULL_VULN_AUTO_REOPEN", True)
 
-    # Protocol intelligence
     SEAGULL_PROTO_INTEL_PORT_HINTS: str = _env_str("SEAGULL_PROTO_INTEL_PORT_HINTS", "") or ""
 
-    # Beaconing / exfiltration heuristics
     SEAGULL_HEUR_MAX_ROWS: int = _env_int("SEAGULL_HEUR_MAX_ROWS", 50000)
     SEAGULL_HEUR_BEACON_WINDOW_SECONDS: int = _env_int("SEAGULL_HEUR_BEACON_WINDOW_SECONDS", 3600)
     SEAGULL_HEUR_BEACON_MIN_EVENTS: int = _env_int("SEAGULL_HEUR_BEACON_MIN_EVENTS", 7)
