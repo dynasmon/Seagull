@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import Drawer from "@/shared/components/Drawer";
 import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
 import { cx } from "@/shared/lib/cx";
 
+import { PhaseTimeline, ScanStats } from "./ActiveScanPanel";
 import type { VulnScan } from "./types";
 
 function safeJson(v: any): string {
@@ -20,6 +21,21 @@ function fmtWhen(iso?: string | null): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso);
   return d.toLocaleString();
+}
+
+function fmtAge(iso?: string | null): string {
+  if (!iso) return "-";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return String(iso);
+  const delta = Date.now() - t;
+  if (delta < 10_000) return "just now";
+  const sec = Math.floor(delta / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
 }
 
 function fmtSeconds(sec: number): string {
@@ -40,15 +56,24 @@ function lifecycleVariant(state: string) {
   return "info";
 }
 
-function pickStatChips(stats: Record<string, any>): Array<{ k: string; v: string }> {
-  const out: Array<{ k: string; v: string }> = [];
-  for (const k of Object.keys(stats || {})) {
-    const v = (stats as any)[k];
-    if (typeof v === "number" && Number.isFinite(v)) out.push({ k, v: String(v) });
-    if (typeof v === "string" && v.length <= 18) out.push({ k, v });
-  }
-  out.sort((a, b) => a.k.localeCompare(b.k));
-  return out.slice(0, 8);
+function useLiveDuration(
+  startIso: string | null | undefined,
+  endIso: string | null | undefined,
+  enabled: boolean
+): string {
+  const active = Boolean(enabled && startIso && !endIso);
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => setTick((value) => value + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [active]);
+
+  const start = Date.parse(startIso ?? "");
+  if (Number.isNaN(start)) return "-";
+  const end = endIso ? Date.parse(endIso) : Date.now();
+  return fmtSeconds(Math.max(0, (end - start) / 1000));
 }
 
 export default function VulnScanDrawer({
@@ -60,21 +85,33 @@ export default function VulnScanDrawer({
   scan: VulnScan | null;
   onClose: () => void;
 }) {
-  const duration = useMemo(() => {
-    if (!scan) return null;
+  const liveDuration = useLiveDuration(scan?.started_at ?? scan?.queued_at ?? null, scan?.finished_at ?? null, open);
+  const durationLabel = useMemo(() => {
+    if (!scan) return "-";
     if (typeof scan.duration_ms === "number" && Number.isFinite(scan.duration_ms)) {
-      return Math.max(0, scan.duration_ms / 1000);
+      return fmtSeconds(scan.duration_ms / 1000);
     }
-    const start = Date.parse(scan.started_at || "");
-    const end = scan.finished_at ? Date.parse(scan.finished_at) : Date.now();
-    if (Number.isNaN(start) || Number.isNaN(end)) return null;
-    return Math.max(0, (end - start) / 1000);
+    if (scan.started_at && scan.finished_at) {
+      const ms = Date.parse(scan.finished_at) - Date.parse(scan.started_at);
+      return Number.isFinite(ms) ? fmtSeconds(Math.max(0, ms / 1000)) : "-";
+    }
+    if (scan.started_at || scan.queued_at) return liveDuration;
+    return "-";
+  }, [liveDuration, scan]);
+
+  const queueWaitLabel = useMemo(() => {
+    if (!scan?.queued_at) return "-";
+    const queuedAt = Date.parse(scan.queued_at);
+    const dequeuedAt = Date.parse(scan.acknowledged_at || scan.started_at || scan.finished_at || "");
+    if (Number.isNaN(queuedAt) || Number.isNaN(dequeuedAt)) return "-";
+    return fmtSeconds(Math.max(0, (dequeuedAt - queuedAt) / 1000));
   }, [scan]);
 
-  const statChips = useMemo(() => {
-    if (!scan) return [];
-    return pickStatChips(scan.stats || {});
-  }, [scan]);
+  const hasTimeline = useMemo(() => Boolean(scan && Object.keys(scan.phase_timestamps ?? {}).length), [scan]);
+  const hasStats = useMemo(
+    () => Boolean(scan && Object.values(scan.stats ?? {}).some((value) => typeof value === "number" && Number.isFinite(value))),
+    [scan]
+  );
 
   if (!scan) return null;
 
@@ -84,94 +121,113 @@ export default function VulnScanDrawer({
       onClose={onClose}
       title={`Scan #${scan.id}`}
       description={`${scan.tool}${scan.tool_version ? ` v${scan.tool_version}` : ""} • ${scan.scan_uuid}`}
-      widthClassName="w-[900px]"
+      widthClassName="w-[1040px]"
     >
       <div className="space-y-4">
         <Card title="Overview" className="rounded-xl">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div>
-              <div className="text-xs text-muted-foreground">Lifecycle</div>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <Badge variant={lifecycleVariant(scan.lifecycle_state)}>{scan.lifecycle_state}</Badge>
-                <Badge variant="neutral">{scan.current_phase}</Badge>
-                <span className="text-xs text-muted-foreground font-mono">
-                  duration {duration === null ? "-" : fmtSeconds(duration)}
-                </span>
-              </div>
-            </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={lifecycleVariant(scan.lifecycle_state)}>{scan.lifecycle_state}</Badge>
+            <Badge variant="neutral">{scan.current_phase}</Badge>
+            <span
+              className={cx(
+                "rounded border px-2 py-0.5 text-[10px] font-mono uppercase tracking-widest",
+                scan.trigger_source === "manual"
+                  ? "border-info/30 text-info/70"
+                  : "border-border/40 text-muted-foreground/60"
+              )}
+            >
+              {scan.trigger_source}
+            </span>
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {scan.tool}
+              {scan.tool_version ? ` @ ${scan.tool_version}` : ""}
+            </span>
+          </div>
 
-            <div>
-              <div className="text-xs text-muted-foreground">Trigger</div>
-              <div className="mt-1 font-mono text-sm">{scan.trigger_source}</div>
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="rounded-lg border border-border/50 bg-background/20 p-3">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Reporter</div>
+              <div className="mt-2 font-mono text-sm">{scan.reporter_agent_id || "-"}</div>
             </div>
-
-            <div>
-              <div className="text-xs text-muted-foreground">Reporter</div>
-              <div className="mt-1 font-mono text-sm">{scan.reporter_agent_id || "-"}</div>
-            </div>
-
-            <div>
-              <div className="text-xs text-muted-foreground">Target</div>
-              <div className="mt-1 font-mono text-sm truncate" title={scan.target || ""}>
+            <div className="rounded-lg border border-border/50 bg-background/20 p-3">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Target</div>
+              <div className="mt-2 truncate font-mono text-sm" title={scan.target || ""}>
                 {scan.target || "-"}
               </div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                profile {(scan.config as any)?.analysis_profile || (scan.scope as any)?.analysis_profile || "-"}
-              </div>
+            </div>
+            <div className="rounded-lg border border-border/50 bg-background/20 p-3">
+              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Duration</div>
+              <div className="mt-2 font-mono text-sm text-foreground">{durationLabel}</div>
+              <div className="mt-1 text-xs text-muted-foreground">queue wait {queueWaitLabel}</div>
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="space-y-1 text-sm text-muted-foreground">
-              <div>queued {fmtWhen(scan.queued_at)}</div>
-              <div>acknowledged {fmtWhen(scan.acknowledged_at)}</div>
-              <div>started {fmtWhen(scan.started_at)}</div>
+          <dl className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <dt className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Queued</dt>
+              <dd className="mt-1 font-mono text-[12px] text-muted-foreground">{fmtWhen(scan.queued_at)}</dd>
             </div>
-            <div className="space-y-1 text-sm text-muted-foreground">
-              <div>last progress {fmtWhen(scan.last_progress_at)}</div>
-              <div>finished {fmtWhen(scan.finished_at)}</div>
-              <div>exposure score {(scan.stats as any)?.exposure_surface_score ?? "-"}</div>
+            <div>
+              <dt className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Acknowledged</dt>
+              <dd className="mt-1 font-mono text-[12px] text-muted-foreground">{fmtWhen(scan.acknowledged_at)}</dd>
             </div>
-          </div>
+            <div>
+              <dt className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Started</dt>
+              <dd className="mt-1 font-mono text-[12px] text-muted-foreground">{fmtWhen(scan.started_at)}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Finished</dt>
+              <dd className="mt-1 font-mono text-[12px] text-muted-foreground">{fmtWhen(scan.finished_at)}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Last progress</dt>
+              <dd className="mt-1 font-mono text-[12px] text-muted-foreground">
+                {fmtWhen(scan.last_progress_at)}
+                {scan.last_progress_at ? ` · ${fmtAge(scan.last_progress_at)}` : ""}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Profile</dt>
+              <dd className="mt-1 font-mono text-[12px] text-muted-foreground">
+                {(scan.config as any)?.analysis_profile || (scan.scope as any)?.analysis_profile || "-"}
+              </dd>
+            </div>
+          </dl>
 
           {scan.error_summary ? (
             <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
               {scan.error_summary}
             </div>
           ) : null}
-
-          {statChips.length ? (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {statChips.map((x) => (
-                <span
-                  key={x.k}
-                  className={cx(
-                    "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                    "px-2 py-1"
-                  )}
-                >
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{x.k}</span>
-                  <span className="font-mono text-[12px]">{x.v}</span>
-                </span>
-              ))}
-            </div>
-          ) : null}
         </Card>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-          <Card title="Phase Timestamps" className="rounded-xl lg:col-span-1">
-            <pre className="text-xs whitespace-pre-wrap break-words text-muted-foreground">
-              {safeJson(scan.phase_timestamps)}
-            </pre>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <Card title="Execution Timeline" className="rounded-xl xl:col-span-2">
+            {hasTimeline ? (
+              <PhaseTimeline scan={scan} />
+            ) : (
+              <div className="text-sm text-muted-foreground">No phase transitions have been recorded for this scan yet.</div>
+            )}
           </Card>
-          <Card title="Scope" className="rounded-xl lg:col-span-1">
+
+          <Card title="Pipeline Counters" className="rounded-xl">
+            {hasStats ? (
+              <>
+                <ScanStats stats={scan.stats} />
+                <pre className="mt-4 text-xs whitespace-pre-wrap break-words text-muted-foreground">{safeJson(scan.stats)}</pre>
+              </>
+            ) : (
+              <div className="text-sm text-muted-foreground">No numeric pipeline counters were reported for this scan.</div>
+            )}
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <Card title="Scope" className="rounded-xl">
             <pre className="text-xs whitespace-pre-wrap break-words text-muted-foreground">{safeJson(scan.scope)}</pre>
           </Card>
-          <Card title="Config" className="rounded-xl lg:col-span-1">
+          <Card title="Config" className="rounded-xl">
             <pre className="text-xs whitespace-pre-wrap break-words text-muted-foreground">{safeJson(scan.config)}</pre>
-          </Card>
-          <Card title="Stats" className="rounded-xl lg:col-span-1">
-            <pre className="text-xs whitespace-pre-wrap break-words text-muted-foreground">{safeJson(scan.stats)}</pre>
           </Card>
         </div>
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
@@ -8,9 +8,11 @@ import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { cx } from "@/shared/lib/cx";
+import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { useAuth } from "@/features/auth/context";
 
+import { ScanStats } from "./ActiveScanPanel";
 import { getVulnScansPage } from "./api";
 import VulnScanDrawer from "./VulnScanDrawer";
 import type { VulnScan } from "./types";
@@ -39,6 +41,21 @@ function fmtSeconds(sec: number): string {
   const h = Math.floor(m / 60);
   const mr = m % 60;
   return mr ? `${h}h ${mr}m` : `${h}h`;
+}
+
+function fmtAge(iso?: string | null): string {
+  if (!iso) return "-";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return String(iso);
+  const delta = Date.now() - t;
+  if (delta < 10_000) return "just now";
+  const sec = Math.floor(delta / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
 }
 
 function statusVariant(status: string) {
@@ -79,15 +96,54 @@ function Toggle({
   );
 }
 
-function pickStatChips(stats: Record<string, any>): Array<{ k: string; v: string }> {
-  const out: Array<{ k: string; v: string }> = [];
-  for (const k of Object.keys(stats || {})) {
-    const v = (stats as any)[k];
-    if (typeof v === "number" && Number.isFinite(v)) out.push({ k, v: String(v) });
-    if (typeof v === "string" && v.length <= 16 && /^\d+$/.test(v)) out.push({ k, v });
-  }
-  out.sort((a, b) => a.k.localeCompare(b.k));
-  return out.slice(0, 4);
+function applyLifecycleScanPatch(existing: VulnScan, patch: Record<string, any>): VulnScan {
+  return {
+    ...existing,
+    id: patch.id ?? existing.id,
+    status: patch.status ?? existing.status,
+    lifecycle_state: patch.lifecycle_state ?? existing.lifecycle_state,
+    current_phase: patch.current_phase ?? existing.current_phase,
+    acknowledged_at: "acknowledged_at" in patch ? patch.acknowledged_at : existing.acknowledged_at,
+    started_at: "started_at" in patch ? patch.started_at : existing.started_at,
+    finished_at: "finished_at" in patch ? patch.finished_at : existing.finished_at,
+    last_progress_at: patch.last_progress_at ?? existing.last_progress_at,
+    duration_ms: "duration_ms" in patch ? patch.duration_ms : existing.duration_ms,
+    error_summary: "error_summary" in patch ? patch.error_summary : existing.error_summary,
+    stats: patch.stats ? (patch.stats as Record<string, any>) : existing.stats,
+    phase_timestamps: patch.phase_timestamps ? (patch.phase_timestamps as Record<string, string>) : existing.phase_timestamps,
+    updated_at: patch.updated_at ?? existing.updated_at,
+  };
+}
+
+function buildVulnScanFromPatch(patch: Record<string, any>): VulnScan | null {
+  const uuid = String(patch.scan_uuid || "").trim();
+  if (!uuid) return null;
+  const now = new Date().toISOString();
+  return {
+    id: patch.id ?? 0,
+    scan_uuid: uuid,
+    reporter_agent_id: patch.reporter_agent_id ?? null,
+    target: patch.target ?? null,
+    tool: patch.tool ?? "unknown",
+    tool_version: patch.tool_version ?? null,
+    status: patch.status ?? "queued",
+    lifecycle_state: patch.lifecycle_state ?? "queued",
+    current_phase: patch.current_phase ?? "queued",
+    queued_at: patch.queued_at ?? now,
+    acknowledged_at: patch.acknowledged_at ?? null,
+    started_at: patch.started_at ?? null,
+    finished_at: patch.finished_at ?? null,
+    last_progress_at: patch.last_progress_at ?? now,
+    duration_ms: patch.duration_ms ?? null,
+    trigger_source: patch.trigger_source ?? "unknown",
+    error_summary: patch.error_summary ?? null,
+    stats: (patch.stats ?? {}) as Record<string, any>,
+    phase_timestamps: (patch.phase_timestamps ?? {}) as Record<string, string>,
+    scope: (patch.scope ?? {}) as Record<string, any>,
+    config: (patch.config ?? {}) as Record<string, any>,
+    updated_at: patch.updated_at ?? now,
+    created_at: patch.created_at ?? now,
+  };
 }
 
 export default function VulnerabilityScansPage() {
@@ -127,7 +183,7 @@ export default function VulnerabilityScansPage() {
     itemsRef.current = items;
   }, [items]);
 
-  async function loadPage(opts: { reset: boolean; cursor?: string | null }) {
+  const loadPage = useCallback(async (opts: { reset: boolean; cursor?: string | null }) => {
     if (!isAdmin) return;
 
     const mySeq = ++reqSeq.current;
@@ -157,7 +213,7 @@ export default function VulnerabilityScansPage() {
 
       setSelected((prev) => {
         if (!prev) return null;
-        return nextItems.find((x) => x.id === prev.id) || null;
+        return nextItems.find((x) => x.scan_uuid === prev.scan_uuid) ?? prev;
       });
     } catch (e: any) {
       if (reqSeq.current !== mySeq) return;
@@ -166,15 +222,13 @@ export default function VulnerabilityScansPage() {
         setItems([]);
         setCursor(null);
         setHasMore(false);
-        setSelected(null);
-        setDrawerOpen(false);
       }
     } finally {
       if (reqSeq.current !== mySeq) return;
       setBusy(false);
       setBusyMore(false);
     }
-  }
+  }, [isAdmin, filters, pageSize]);
 
   function applyFilters() {
     setFilters(draft);
@@ -186,17 +240,61 @@ export default function VulnerabilityScansPage() {
     setFilters(base);
   }
 
-  useEffect(() => {
-    if (!isAdmin) return;
-    loadPage({ reset: true, cursor: null });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin]);
+  const live = useLiveRefresh({
+    enabled: isAdmin,
+    profile: "admin",
+    refresh: useCallback(async () => {
+      await loadPage({ reset: true, cursor: null });
+    }, [loadPage]),
+  });
+  const { refreshNow: refreshScansNow, invalidate: invalidateScans } = live;
 
+  // Re-fetch when filters or page size change.
   useEffect(() => {
     if (!isAdmin) return;
-    loadPage({ reset: true, cursor: null });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, pageSize]);
+    invalidateScans("dependency", { immediate: true, supersede: true });
+  }, [filters, invalidateScans, isAdmin, pageSize]);
+
+  // Patch individual scan rows in-place from lifecycle events.
+  usePortalRealtimeSubscription("ui.vulnerabilities.scan.lifecycle", (event) => {
+    if (!isAdmin) return;
+    const { scan_uuid, agent_id, scan: scanData } = event.payload ?? {};
+    if (!scan_uuid || !scanData) return;
+
+    const agentFilter = (filters.reporterAgentId || "").trim();
+    const eventAgent = String(agent_id || "").trim();
+    if (agentFilter && eventAgent && agentFilter !== eventAgent) return;
+
+    setItems((prev) => {
+      const idx = prev.findIndex((s) => s.scan_uuid === scan_uuid);
+      if (idx === -1) {
+        const sf = filters.status;
+        if (sf !== "all" && sf !== String((scanData as Record<string, any>).lifecycle_state || "").toLowerCase()) {
+          return prev;
+        }
+        const built = buildVulnScanFromPatch(scanData as Record<string, any>);
+        if (built) return [built, ...prev];
+        return prev;
+      }
+      const next = [...prev];
+      next[idx] = applyLifecycleScanPatch(next[idx], scanData as Record<string, any>);
+      return next;
+    });
+
+    setSelected((prev) => {
+      if (!prev || prev.scan_uuid !== scan_uuid) return prev;
+      return applyLifecycleScanPatch(prev, scanData as Record<string, any>);
+    });
+  });
+
+  // Full refetch only when coarse invalidate carries a reason that adds new scans.
+  usePortalRealtimeSubscription("ui.vulnerabilities.invalidate", (event) => {
+    if (!isAdmin) return;
+    const reason = String(event.payload?.reason || "");
+    if (reason === "manual_scan_queued") {
+      invalidateScans();
+    }
+  });
 
   const dense = density === "compact";
 
@@ -267,7 +365,7 @@ export default function VulnerabilityScansPage() {
 
             <button
               type="button"
-              onClick={() => loadPage({ reset: true, cursor: null })}
+              onClick={() => void refreshScansNow()}
               className={cx(
                 "inline-flex items-center rounded-md border border-border/60 bg-background/40",
                 "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
@@ -419,17 +517,18 @@ export default function VulnerabilityScansPage() {
               <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
                 <tr className="border-b border-border/60 text-muted-foreground">
                   <th className="text-left font-medium px-3 py-2 w-[130px]">Status</th>
-                  <th className="text-left font-medium px-3 py-2 w-[220px]">Time</th>
+                  <th className="text-left font-medium px-3 py-2 w-[120px]">Trigger</th>
+                  <th className="text-left font-medium px-3 py-2 w-[220px]">Started</th>
                   <th className="text-left font-medium px-3 py-2 w-[120px]">Duration</th>
+                  <th className="text-left font-medium px-3 py-2 w-[240px]">Reporter / Target</th>
                   <th className="text-left font-medium px-3 py-2 w-[160px]">Tool</th>
-                  <th className="text-left font-medium px-3 py-2 w-[220px]">Reporter</th>
                   <th className="text-left font-medium px-3 py-2">Stats</th>
                   <th className="text-right font-medium px-3 py-2 w-[120px]">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((s) => {
-                  const selectedRow = selected?.id === s.id;
+                  const selectedRow = selected?.scan_uuid === s.scan_uuid;
                   const rowPad = dense ? "py-1.5" : "py-2";
                   const start = Date.parse(s.started_at || "");
                   const end = s.finished_at ? Date.parse(s.finished_at) : Date.now();
@@ -439,11 +538,14 @@ export default function VulnerabilityScansPage() {
                       : !Number.isNaN(start) && !Number.isNaN(end)
                         ? Math.max(0, (end - start) / 1000)
                         : NaN;
-                  const chips = pickStatChips(s.stats || {});
+                  const isLive = ["queued", "acknowledged", "running"].includes(String(s.lifecycle_state || "").toLowerCase());
+                  const hasNumericStats = Object.values(s.stats || {}).some(
+                    (value) => typeof value === "number" && Number.isFinite(value)
+                  );
 
                   return (
                     <tr
-                      key={s.id}
+                      key={s.id || s.scan_uuid}
                       className={cx("border-b border-border/40 hover:bg-muted/30", selectedRow && "bg-muted/40")}
                       onClick={() => {
                         setSelected(s);
@@ -455,36 +557,41 @@ export default function VulnerabilityScansPage() {
                       <td className={cx("px-3", rowPad)}>
                         <div className="flex flex-col gap-1">
                           <Badge variant={statusVariant(s.lifecycle_state)}>{s.lifecycle_state}</Badge>
-                          <div className="text-[11px] text-muted-foreground">{s.current_phase}</div>
+                          <div className="text-[11px] text-muted-foreground">{s.current_phase.replace(/_/g, " ")}</div>
                         </div>
+                      </td>
+                      <td className={cx("px-3", rowPad)}>
+                        <span
+                          className={cx(
+                            "inline-flex rounded border px-2 py-0.5 text-[10px] font-mono uppercase tracking-widest",
+                            s.trigger_source === "manual"
+                              ? "border-info/30 text-info/70"
+                              : "border-border/40 text-muted-foreground/60"
+                          )}
+                        >
+                          {s.trigger_source || "—"}
+                        </span>
                       </td>
                       <td className={cx("px-3 font-mono text-[12px]", rowPad)}>
-                        <div className="text-muted-foreground">{fmtWhen(s.queued_at)}</div>
-                        <div className="text-muted-foreground">start {fmtWhen(s.started_at)}</div>
-                        <div className="text-muted-foreground">→ {fmtWhen(s.finished_at)}</div>
+                        <div className="text-foreground">{fmtWhen(s.started_at || s.queued_at)}</div>
+                        <div className="text-muted-foreground">queued {fmtWhen(s.queued_at)}</div>
+                        <div className="text-muted-foreground">last progress {fmtAge(s.last_progress_at)}</div>
                       </td>
-                      <td className={cx("px-3 font-mono text-[12px]", rowPad)}>{Number.isFinite(dur) ? fmtSeconds(dur) : "-"}</td>
+                      <td className={cx("px-3 font-mono text-[12px]", rowPad)}>
+                        {Number.isFinite(dur) ? fmtSeconds(dur) : isLive ? "running…" : "-"}
+                      </td>
+                      <td className={cx("px-3", rowPad)}>
+                        <div className="font-mono text-[12px]">{s.reporter_agent_id || "-"}</div>
+                        <div className="truncate text-[11px] text-muted-foreground" title={s.target || ""}>
+                          {s.target || s.scan_uuid}
+                        </div>
+                      </td>
                       <td className={cx("px-3", rowPad)}>
                         <div className="font-mono text-[12px]">{s.tool}{s.tool_version ? `@${s.tool_version}` : ""}</div>
-                        <div className="text-[11px] text-muted-foreground truncate">{s.target || s.scan_uuid}</div>
+                        <div className="text-[11px] text-muted-foreground truncate">{s.scan_uuid}</div>
                       </td>
-                      <td className={cx("px-3 font-mono text-[12px]", rowPad)}>{s.reporter_agent_id || "-"}</td>
                       <td className={cx("px-3", rowPad)}>
-                        <div className="flex flex-wrap gap-2">
-                          {chips.length ? (
-                            chips.map((x) => (
-                              <span
-                                key={x.k}
-                                className="inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40 px-2 py-1"
-                              >
-                                <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{x.k}</span>
-                                <span className="font-mono text-[12px]">{x.v}</span>
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-xs text-muted-foreground">-</span>
-                          )}
-                        </div>
+                        {hasNumericStats ? <ScanStats stats={s.stats} /> : <span className="text-xs text-muted-foreground">-</span>}
                       </td>
                       <td className={cx("px-3", rowPad)}>
                         <div className="flex justify-end">
@@ -517,7 +624,7 @@ export default function VulnerabilityScansPage() {
           <div className="text-xs text-muted-foreground">{hasMore ? "More available" : "End"}</div>
           <button
             type="button"
-            onClick={() => loadPage({ reset: false, cursor })}
+            onClick={() => void loadPage({ reset: false, cursor })}
             disabled={!hasMore || busyMore}
             className={cx(
               "rounded-md border border-border/60 bg-background/40 px-3 py-2",

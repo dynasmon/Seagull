@@ -71,6 +71,60 @@ def _env_bool(name: str, default: bool) -> bool:
     return default
 
 
+def _iso(dt: datetime | None) -> str | None:
+    if dt is None:
+        return None
+    try:
+        return _ensure_utc(dt).isoformat()
+    except Exception:
+        return None
+
+
+def _scan_lifecycle_event(lifecycle_state: str, has_findings: bool) -> str:
+    s = str(lifecycle_state or "").lower()
+    if s in ("queued", "acknowledged", "completed", "failed", "cancelled"):
+        return s
+    return "phase_changed" if has_findings else "progress"
+
+
+def _build_scan_lifecycle_payload(*, lifecycle_event: str, scan_row: "VulnScanModel", agent_id: str) -> dict:
+    started = _ensure_utc(scan_row.started_at)
+    finished = _ensure_utc(scan_row.finished_at)
+    dur = None
+    if started and finished:
+        dur = max(0, int((finished - started).total_seconds() * 1000))
+    return {
+        "lifecycle_event": lifecycle_event,
+        "scan_uuid": scan_row.scan_uuid,
+        "agent_id": str(agent_id or "").strip(),
+        "scan": {
+            "id": scan_row.id,
+            "scan_uuid": scan_row.scan_uuid,
+            "reporter_agent_id": scan_row.reporter_agent_id,
+            "target": scan_row.target,
+            "tool": scan_row.tool,
+            "tool_version": scan_row.tool_version,
+            "status": scan_row.lifecycle_state,
+            "lifecycle_state": scan_row.lifecycle_state,
+            "current_phase": scan_row.current_phase,
+            "queued_at": _iso(scan_row.queued_at),
+            "acknowledged_at": _iso(scan_row.acknowledged_at),
+            "started_at": _iso(scan_row.started_at),
+            "finished_at": _iso(scan_row.finished_at),
+            "last_progress_at": _iso(scan_row.last_progress_at),
+            "duration_ms": dur,
+            "trigger_source": scan_row.trigger_source,
+            "error_summary": scan_row.error_summary,
+            "stats": dict(scan_row.stats or {}),
+            "phase_timestamps": dict(scan_row.phase_timestamps or {}),
+            "scope": dict(scan_row.scope or {}),
+            "config": dict(scan_row.config or {}),
+            "updated_at": _iso(scan_row.updated_at),
+            "created_at": _iso(scan_row.created_at),
+        },
+    }
+
+
 def _normalize_cfg_map(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
@@ -138,17 +192,29 @@ def ingest_findings(db: Session, *, payload: VulnIngestBatch, agent: AgentPrinci
     commit(db)
 
     try:
-        publish_realtime(
-            "ui.vulnerabilities.invalidate",
-            {
-                "reason": "findings_ingested" if payload.findings else "scan_progress",
-                "scope": "vulnerabilities",
-                "agent_id": str(agent.agent_id or "").strip(),
-                "scan_uuid": scan_uuid,
-                "status": scan_row.lifecycle_state if scan_row is not None else None,
-                "phase": scan_row.current_phase if scan_row is not None else None,
-            },
-        )
+        has_findings = bool(payload.findings)
+        if scan_row is not None:
+            lc_event = _scan_lifecycle_event(scan_row.lifecycle_state, has_findings)
+            publish_realtime(
+                "ui.vulnerabilities.scan.lifecycle",
+                _build_scan_lifecycle_payload(
+                    lifecycle_event=lc_event,
+                    scan_row=scan_row,
+                    agent_id=str(agent.agent_id or "").strip(),
+                ),
+            )
+        if has_findings:
+            publish_realtime(
+                "ui.vulnerabilities.invalidate",
+                {
+                    "reason": "findings_ingested",
+                    "scope": "vulnerabilities",
+                    "agent_id": str(agent.agent_id or "").strip(),
+                    "scan_uuid": scan_uuid,
+                    "status": scan_row.lifecycle_state if scan_row is not None else None,
+                    "phase": scan_row.current_phase if scan_row is not None else None,
+                },
+            )
     except Exception:
         pass
 
@@ -215,6 +281,14 @@ def trigger_manual_scan(db: Session, *, body: VulnManualScanIn) -> VulnManualSca
     commit(db)
 
     try:
+        publish_realtime(
+            "ui.vulnerabilities.scan.lifecycle",
+            _build_scan_lifecycle_payload(
+                lifecycle_event="queued",
+                scan_row=queued_scan,
+                agent_id=str(body.agent_id or "").strip(),
+            ),
+        )
         publish_realtime(
             "ui.vulnerabilities.invalidate",
             {
