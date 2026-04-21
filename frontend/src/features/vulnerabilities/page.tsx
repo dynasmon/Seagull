@@ -24,7 +24,8 @@ type Density = "comfortable" | "compact";
 type Filters = {
   q: string;
   minSeverity: string;
-  status: string;
+  observationState: string;
+  disposition: string;
   reporterAgentId: string;
   assetAgentId: string;
   cve: string;
@@ -110,15 +111,36 @@ function packagePivotKey(f: VulnFinding): string {
 }
 
 function scanDurationLabel(s: VulnScan): string {
+  if (typeof s.duration_ms === "number" && Number.isFinite(s.duration_ms)) {
+    const sec = Math.max(0, Math.round(s.duration_ms / 1000));
+    if (sec < 60) return `${sec}s`;
+    const m = Math.floor(sec / 60);
+    const r = sec % 60;
+    return r ? `${m}m ${r}s` : `${m}m`;
+  }
   const start = Date.parse(s.started_at || "");
   const end = Date.parse(s.finished_at || "");
   if (Number.isNaN(start)) return "-";
-  if (Number.isNaN(end)) return s.status === "running" ? "running" : "-";
+  if (Number.isNaN(end)) return s.lifecycle_state === "running" ? "running" : "-";
   const sec = Math.max(0, Math.round((end - start) / 1000));
   if (sec < 60) return `${sec}s`;
   const m = Math.floor(sec / 60);
   const r = sec % 60;
   return r ? `${m}m ${r}s` : `${m}m`;
+}
+
+function observationVariant(state: string) {
+  const s = String(state || "").toLowerCase();
+  if (s === "observed") return "info";
+  if (s === "awaiting_verification") return "high";
+  return "neutral";
+}
+
+function dispositionVariant(disposition: string) {
+  const s = String(disposition || "").toLowerCase();
+  if (s === "suppressed") return "neutral";
+  if (s === "accepted_risk") return "low";
+  return "neutral";
 }
 
 function Toggle({
@@ -148,13 +170,14 @@ function Toggle({
   );
 }
 
-function scanStatusHint(status: string): string {
-  const s = String(status || "").toLowerCase();
-  if (s === "queued") return "queued";
-  if (s === "running" || s === "started") return "running";
-  if (s === "finished" || s === "done" || s === "completed") return "completed";
-  if (s === "failed" || s === "error") return "failed";
-  return s || "-";
+function scanStatusHint(scan: VulnScan): string {
+  const state = String(scan.lifecycle_state || "").toLowerCase();
+  const phase = String(scan.current_phase || "").toLowerCase();
+  if (state === "completed") return "completed";
+  if (state === "failed") return "failed";
+  if (state === "cancelled") return "cancelled";
+  if (phase) return phase.replaceAll("_", " ");
+  return state || "-";
 }
 
 export default function VulnerabilitiesPage() {
@@ -190,7 +213,8 @@ export default function VulnerabilitiesPage() {
   const [draft, setDraft] = useState<Filters>({
     q: "",
     minSeverity: "all",
-    status: "all",
+    observationState: "all",
+    disposition: "all",
     reporterAgentId: "",
     assetAgentId: "",
     cve: "",
@@ -219,7 +243,7 @@ export default function VulnerabilitiesPage() {
     itemsRef.current = items;
   }, [items]);
 
-  async function loadSummary(params?: { includeSuppressed?: boolean }) {
+  const loadSummary = useCallback(async (params?: { includeSuppressed?: boolean }) => {
     if (!isAdmin) return;
     setSummaryBusy(true);
     try {
@@ -234,9 +258,9 @@ export default function VulnerabilitiesPage() {
     } finally {
       setSummaryBusy(false);
     }
-  }
+  }, [activeDays, filters.includeSuppressed, isAdmin]);
 
-  async function loadPosture(params?: { includeSuppressed?: boolean }) {
+  const loadPosture = useCallback(async (params?: { includeSuppressed?: boolean }) => {
     if (!isAdmin) return;
     setPostureBusy(true);
     try {
@@ -251,9 +275,9 @@ export default function VulnerabilitiesPage() {
     } finally {
       setPostureBusy(false);
     }
-  }
+  }, [activeDays, filters.includeSuppressed, isAdmin]);
 
-  async function loadPage(opts: { reset: boolean; cursor?: string | null }) {
+  const loadPage = useCallback(async (opts: { reset: boolean; cursor?: string | null }) => {
     if (!isAdmin) return;
 
     const mySeq = ++reqSeq.current;
@@ -271,11 +295,12 @@ export default function VulnerabilitiesPage() {
         cursor: opts.cursor ?? null,
         q: (filters.q || "").trim() || undefined,
         min_severity: filters.minSeverity !== "all" ? filters.minSeverity : undefined,
-        status: filters.status !== "all" ? filters.status : undefined,
+        observation_state: filters.observationState !== "all" ? filters.observationState : undefined,
+        disposition: filters.disposition !== "all" ? filters.disposition : undefined,
         reporter_agent_id: (filters.reporterAgentId || "").trim() || undefined,
         asset_agent_id: (filters.assetAgentId || "").trim() || undefined,
         cve: (filters.cve || "").trim() || undefined,
-        include_suppressed: filters.includeSuppressed,
+        include_suppressed: filters.includeSuppressed || filters.disposition === "suppressed",
       });
 
       if (reqSeq.current !== mySeq) return;
@@ -305,7 +330,7 @@ export default function VulnerabilitiesPage() {
       setBusy(false);
       setBusyMore(false);
     }
-  }
+  }, [filters, isAdmin, pageSize]);
 
   function applyFilters() {
     setFilters(draft);
@@ -315,7 +340,8 @@ export default function VulnerabilitiesPage() {
     const base: Filters = {
       q: "",
       minSeverity: "all",
-      status: "all",
+      observationState: "all",
+      disposition: "all",
       reporterAgentId: "",
       assetAgentId: "",
       cve: "",
@@ -348,7 +374,9 @@ export default function VulnerabilitiesPage() {
     setScanMsg(null);
     try {
       const out = await triggerVulnScanNow(scanTargetAgent);
-      setScanMsg(`Scan queued (${out.status}) for ${out.agent_id} at ${fmtWhen(out.queued_at)} · id ${out.scan_uuid}`);
+      setScanMsg(
+        `Request ${out.request_state} for ${out.agent_id} at ${fmtWhen(out.queued_at)} · ${out.lifecycle_state} · id ${out.scan_uuid}`
+      );
       void Promise.all([live.refreshNow(), scansLive.refreshNow()]);
     } catch (e: any) {
       setScanErr(e?.message || "Failed to trigger manual scan");
@@ -379,7 +407,7 @@ export default function VulnerabilitiesPage() {
       loadPosture({ includeSuppressed: filters.includeSuppressed }),
     ]);
     await loadPage({ reset: true, cursor: null });
-  }, [activeDays, filters, pageSize]);
+  }, [filters.includeSuppressed, loadPage, loadPosture, loadSummary]);
 
   const live = useLiveRefresh({
     enabled: isAdmin,
@@ -398,12 +426,12 @@ export default function VulnerabilitiesPage() {
   useEffect(() => {
     if (!isAdmin || !scanTargetAgent) return;
     scansLive.invalidate("dependency", { immediate: true, supersede: true });
-  }, [isAdmin, scanTargetAgent, scansLive.invalidate]);
+  }, [isAdmin, scanTargetAgent, scansLive]);
 
   useEffect(() => {
     if (!isAdmin) return;
     live.invalidate("dependency", { immediate: true, supersede: true });
-  }, [activeDays, filters, isAdmin, live.invalidate, pageSize]);
+  }, [activeDays, filters, isAdmin, live, pageSize]);
 
   usePortalRealtimeSubscription("ui.vulnerabilities.invalidate", (event) => {
     if (!isAdmin) return;
@@ -453,7 +481,8 @@ export default function VulnerabilitiesPage() {
     let n = 0;
     if ((filters.q || "").trim()) n++;
     if (filters.minSeverity !== "all") n++;
-    if (filters.status !== "all") n++;
+    if (filters.observationState !== "all") n++;
+    if (filters.disposition !== "all") n++;
     if ((filters.reporterAgentId || "").trim()) n++;
     if ((filters.assetAgentId || "").trim()) n++;
     if ((filters.cve || "").trim()) n++;
@@ -463,12 +492,12 @@ export default function VulnerabilitiesPage() {
   const findingsHint = useMemo(() => {
     const scans = visibleRecentScans;
     const hasRunning = scans.some((s) => {
-      const st = String(s.status || "").toLowerCase();
-      return st === "queued" || st === "running" || st === "started";
+      const st = String(s.lifecycle_state || "").toLowerCase();
+      return st === "queued" || st === "acknowledged" || st === "running";
     });
     const hasCompleted = scans.some((s) => {
-      const st = String(s.status || "").toLowerCase();
-      return st === "finished" || st === "done" || st === "completed";
+      const st = String(s.lifecycle_state || "").toLowerCase();
+      return st === "completed";
     });
     const totalEmitted = scans.reduce((acc, s) => {
       const v = Number((s.stats as any)?.emitted_findings || 0);
@@ -564,9 +593,14 @@ export default function VulnerabilitiesPage() {
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-        <Card title="Open" right={summaryBusy ? "loading" : undefined} className="rounded-xl">
-          <div className="text-3xl font-semibold">{summary?.total_open ?? "-"}</div>
+        <Card title="Observed" right={summaryBusy ? "loading" : undefined} className="rounded-xl">
+          <div className="text-3xl font-semibold">{summary?.total_observed ?? "-"}</div>
           <div className="mt-1 text-xs text-muted-foreground">active within {activeDays}d</div>
+        </Card>
+
+        <Card title="Awaiting Verification" right={summaryBusy ? "loading" : undefined} className="rounded-xl">
+          <div className="text-3xl font-semibold">{summary?.total_awaiting_verification ?? "-"}</div>
+          <div className="mt-1 text-xs text-muted-foreground">waiting for rescan confirmation</div>
         </Card>
 
         <Card title="Suppressed" right={summaryBusy ? "loading" : undefined} className="rounded-xl">
@@ -574,7 +608,7 @@ export default function VulnerabilitiesPage() {
           <div className="mt-1 text-xs text-muted-foreground">excluded by default</div>
         </Card>
 
-        <Card title="Severity" right={summaryBusy ? "loading" : undefined} className="rounded-xl lg:col-span-2">
+        <Card title="Severity" right={summaryBusy ? "loading" : undefined} className="rounded-xl">
           <div className="flex flex-wrap gap-2">
             {severityBlocks.length ? (
               severityBlocks.map((x) => (
@@ -608,9 +642,9 @@ export default function VulnerabilitiesPage() {
       <Card title="Quick Guide" className="rounded-xl">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 text-xs text-muted-foreground">
           <div className="rounded-md border border-border/50 bg-background/30 p-3">
-            <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Open / Suppressed</div>
+            <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Observed / Awaiting</div>
             <div>
-              `Open` are active vulnerabilities. `Suppressed` are hidden from default triage.
+              `Observed` means the latest scan still sees the issue. `Awaiting verification` means an operator wants the next rescan to confirm remediation.
             </div>
           </div>
           <div className="rounded-md border border-border/50 bg-background/30 p-3">
@@ -628,7 +662,7 @@ export default function VulnerabilitiesPage() {
           <div className="rounded-md border border-border/50 bg-background/30 p-3">
             <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Manual Scan</div>
             <div>
-              After triggering, scan status moves from `queued` to `running` and then `finished`/`failed`.
+              Manual scans now move through `queued`, `acknowledged`, `running`, detailed execution phases, and then `completed`/`failed`.
             </div>
           </div>
         </div>
@@ -716,7 +750,7 @@ export default function VulnerabilitiesPage() {
                   <thead className="text-left text-muted-foreground">
                     <tr className="border-b border-border/40">
                       <th className="px-2 py-1">Agent</th>
-                      <th className="px-2 py-1">Status</th>
+                      <th className="px-2 py-1">Lifecycle</th>
                       <th className="px-2 py-1">Started</th>
                       <th className="px-2 py-1">Duration</th>
                       <th className="px-2 py-1">Findings</th>
@@ -745,12 +779,20 @@ export default function VulnerabilitiesPage() {
                           </span>
                         </td>
                         <td className="px-2 py-1">
-                          <Badge variant={s.status === "finished" ? "neutral" : s.status === "failed" ? "critical" : "info"}>
-                            {s.status}
+                          <Badge
+                            variant={
+                              s.lifecycle_state === "completed"
+                                ? "neutral"
+                                : s.lifecycle_state === "failed" || s.lifecycle_state === "cancelled"
+                                  ? "critical"
+                                  : "info"
+                            }
+                          >
+                            {s.lifecycle_state}
                           </Badge>
-                          <div className="mt-1 text-[10px] text-muted-foreground">{scanStatusHint(s.status)}</div>
+                          <div className="mt-1 text-[10px] text-muted-foreground">{scanStatusHint(s)}</div>
                         </td>
-                        <td className="px-2 py-1 font-mono text-[11px]">{fmtAge(s.started_at)}</td>
+                        <td className="px-2 py-1 font-mono text-[11px]">{fmtAge(s.started_at || s.queued_at)}</td>
                         <td className="px-2 py-1 font-mono text-[11px]">{scanDurationLabel(s)}</td>
                         <td className="px-2 py-1 font-mono">{(s.stats as any)?.emitted_findings ?? "-"}</td>
                         <td className="px-2 py-1 font-mono">
@@ -1044,10 +1086,27 @@ export default function VulnerabilitiesPage() {
           </div>
 
           <div>
-            <div className="text-xs text-muted-foreground">Status</div>
+            <div className="text-xs text-muted-foreground">Observation state</div>
             <select
-              value={draft.status}
-              onChange={(e) => setDraft((p) => ({ ...p, status: e.target.value }))}
+              value={draft.observationState}
+              onChange={(e) => setDraft((p) => ({ ...p, observationState: e.target.value }))}
+              className={cx(
+                "mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
+                "text-sm outline-none focus:ring-2 focus:ring-primary/30"
+              )}
+            >
+              <option value="all">All</option>
+              <option value="observed">Observed</option>
+              <option value="awaiting_verification">Awaiting verification</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </div>
+
+          <div>
+            <div className="text-xs text-muted-foreground">Disposition</div>
+            <select
+              value={draft.disposition}
+              onChange={(e) => setDraft((p) => ({ ...p, disposition: e.target.value }))}
               className={cx(
                 "mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
                 "text-sm outline-none focus:ring-2 focus:ring-primary/30"
@@ -1055,9 +1114,8 @@ export default function VulnerabilitiesPage() {
             >
               <option value="all">All</option>
               <option value="open">Open</option>
-              <option value="fixed">Fixed</option>
-              <option value="resolved">Resolved</option>
-              <option value="ignored">Ignored</option>
+              <option value="accepted_risk">Accepted risk</option>
+              <option value="suppressed">Suppressed</option>
             </select>
           </div>
 
@@ -1173,7 +1231,7 @@ export default function VulnerabilitiesPage() {
                   <th className="text-left font-medium px-3 py-2 w-[120px] whitespace-nowrap">Severity</th>
                   <th className="text-left font-medium px-3 py-2 min-w-[280px]">Title</th>
                   <th className="text-left font-medium px-3 py-2 w-[190px] whitespace-nowrap">Asset</th>
-                  <th className="text-left font-medium px-3 py-2 w-[140px] whitespace-nowrap">Status</th>
+                  <th className="text-left font-medium px-3 py-2 w-[180px] whitespace-nowrap">State</th>
                   <th className="text-left font-medium px-3 py-2 w-[170px] whitespace-nowrap">Exposure</th>
                   <th className="text-left font-medium px-3 py-2 w-[150px] whitespace-nowrap">Last seen</th>
                   <th className="text-left font-medium px-3 py-2 w-[110px] whitespace-nowrap">Hits</th>
@@ -1223,8 +1281,10 @@ export default function VulnerabilitiesPage() {
                       </td>
                       <td className={cx("px-3", rowPad)}>
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={f.status === "open" ? "info" : "neutral"}>{f.status}</Badge>
-                          {f.is_suppressed ? <Badge variant="neutral">suppressed</Badge> : null}
+                          <Badge variant={observationVariant(f.observation_state)}>{f.observation_state}</Badge>
+                          {f.operator_disposition !== "open" ? (
+                            <Badge variant={dispositionVariant(f.operator_disposition)}>{f.operator_disposition}</Badge>
+                          ) : null}
                         </div>
                       </td>
                       <td className={cx("px-3", rowPad)}>
@@ -1296,7 +1356,7 @@ export default function VulnerabilitiesPage() {
 
           // If the user is excluding suppressed findings and this item was just suppressed,
           // remove it locally to match server behavior.
-          if (!filters.includeSuppressed && next.is_suppressed) {
+          if (!filters.includeSuppressed && filters.disposition !== "suppressed" && next.is_suppressed) {
             setItems((prev) => prev.filter((x) => x.id !== next.id));
             setDrawerOpen(false);
           }

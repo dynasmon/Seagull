@@ -31,6 +31,8 @@ export function getVulnFindingsPage(params?: {
   asset_agent_id?: string;
   reporter_agent_id?: string;
   status?: string;
+  observation_state?: string;
+  disposition?: string;
   min_severity?: string;
   cve?: string;
   q?: string;
@@ -42,6 +44,8 @@ export function getVulnFindingsPage(params?: {
   if (params?.asset_agent_id) q.set("asset_agent_id", params.asset_agent_id);
   if (params?.reporter_agent_id) q.set("reporter_agent_id", params.reporter_agent_id);
   if (params?.status) q.set("status_q", params.status);
+  if (params?.observation_state) q.set("observation_state", params.observation_state);
+  if (params?.disposition) q.set("disposition", params.disposition);
   if (params?.min_severity) q.set("min_severity", params.min_severity);
   if (params?.cve) q.set("cve", params.cve);
   if (params?.q) q.set("q", params.q);

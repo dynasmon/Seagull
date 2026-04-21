@@ -5,7 +5,7 @@ import Drawer from "@/shared/components/Drawer";
 import { cx } from "@/shared/lib/cx";
 
 import { patchVulnFinding } from "./api";
-import type { VulnFinding } from "./types";
+import type { VulnFinding, VulnFindingPatchIn } from "./types";
 
 function sevVariant(sev: string) {
   const s = String(sev || "").toLowerCase();
@@ -13,6 +13,20 @@ function sevVariant(sev: string) {
   if (s === "high") return "high";
   if (s === "medium") return "medium";
   if (s === "low") return "low";
+  return "neutral";
+}
+
+function observationVariant(state: string) {
+  const s = String(state || "").toLowerCase();
+  if (s === "observed") return "info";
+  if (s === "awaiting_verification") return "high";
+  return "neutral";
+}
+
+function dispositionVariant(disposition: string) {
+  const s = String(disposition || "").toLowerCase();
+  if (s === "accepted_risk") return "low";
+  if (s === "suppressed") return "neutral";
   return "neutral";
 }
 
@@ -89,7 +103,7 @@ export default function VulnFindingDrawer(props: {
     return base.length > 120 ? `${base.slice(0, 117)}…` : base;
   }, [f]);
 
-  async function doPatch(patch: { status?: string; is_suppressed?: boolean }) {
+  async function doPatch(patch: VulnFindingPatchIn) {
     if (!f || busy) return;
     setBusy(true);
     setErr(null);
@@ -125,27 +139,44 @@ export default function VulnFindingDrawer(props: {
         <div className="text-sm text-muted-foreground">No finding selected.</div>
       ) : (
         <div className="space-y-5">
-          {/* Header */}
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={sevVariant(f.severity)}>{f.severity}</Badge>
-            <Badge variant={f.status === "open" ? "info" : "neutral"}>{f.status}</Badge>
-            {f.is_suppressed ? <Badge variant="neutral">suppressed</Badge> : null}
+            <Badge variant={observationVariant(f.observation_state)}>{f.observation_state}</Badge>
+            {f.operator_disposition !== "open" ? (
+              <Badge variant={dispositionVariant(f.operator_disposition)}>{f.operator_disposition}</Badge>
+            ) : null}
             <span className="text-xs text-muted-foreground">confidence {f.confidence}/100</span>
           </div>
 
-          {/* Actions */}
           <div className="flex flex-wrap gap-2">
             <ActionButton
-              label={f.status === "open" ? "Mark Fixed" : "Reopen"}
+              label={f.observation_state === "observed" ? "Await Verification" : "Mark Observed"}
               kind="primary"
               disabled={busy}
-              onClick={() => doPatch({ status: f.status === "open" ? "fixed" : "open" })}
+              onClick={() =>
+                doPatch({
+                  observation_state: f.observation_state === "observed" ? "awaiting_verification" : "observed",
+                })
+              }
             />
             <ActionButton
-              label={f.is_suppressed ? "Unsuppress" : "Suppress"}
-              kind={f.is_suppressed ? "neutral" : "danger"}
+              label={f.operator_disposition === "accepted_risk" ? "Reopen Risk" : "Accept Risk"}
               disabled={busy}
-              onClick={() => doPatch({ is_suppressed: !f.is_suppressed })}
+              onClick={() =>
+                doPatch({
+                  operator_disposition: f.operator_disposition === "accepted_risk" ? "open" : "accepted_risk",
+                })
+              }
+            />
+            <ActionButton
+              label={f.operator_disposition === "suppressed" ? "Unsuppress" : "Suppress"}
+              kind={f.operator_disposition === "suppressed" ? "neutral" : "danger"}
+              disabled={busy}
+              onClick={() =>
+                doPatch({
+                  operator_disposition: f.operator_disposition === "suppressed" ? "open" : "suppressed",
+                })
+              }
             />
             <ActionButton
               label={copied ? "Copied" : "Copy fingerprint"}
@@ -160,9 +191,8 @@ export default function VulnFindingDrawer(props: {
             </div>
           ) : null}
 
-          {/* Main fields */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="rounded-xl border border-border/60 bg-background/60 backdrop-blur-md p-4">
+            <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
               <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Asset</div>
               <div className="mt-2 space-y-2">
                 <div className="text-sm">
@@ -180,7 +210,7 @@ export default function VulnFindingDrawer(props: {
               </div>
             </div>
 
-            <div className="rounded-xl border border-border/60 bg-background/60 backdrop-blur-md p-4">
+            <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
               <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Timing</div>
               <div className="mt-2 space-y-2">
                 <div className="text-sm">
@@ -199,8 +229,7 @@ export default function VulnFindingDrawer(props: {
             </div>
           </div>
 
-          {/* Identifiers */}
-          <div className="rounded-xl border border-border/60 bg-background/60 backdrop-blur-md p-4">
+          <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
             <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Identifiers</div>
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
@@ -222,22 +251,20 @@ export default function VulnFindingDrawer(props: {
             </div>
           </div>
 
-          {/* Description / remediation */}
           {f.description || f.remediation ? (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="rounded-xl border border-border/60 bg-background/60 backdrop-blur-md p-4">
+              <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
                 <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Description</div>
-                <div className="mt-2 text-sm text-foreground/90 whitespace-pre-wrap">{f.description || "-"}</div>
+                <div className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">{f.description || "-"}</div>
               </div>
-              <div className="rounded-xl border border-border/60 bg-background/60 backdrop-blur-md p-4">
+              <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
                 <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Remediation</div>
-                <div className="mt-2 text-sm text-foreground/90 whitespace-pre-wrap">{f.remediation || "-"}</div>
+                <div className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">{f.remediation || "-"}</div>
               </div>
             </div>
           ) : null}
 
-          {/* Tags */}
-          <div className="rounded-xl border border-border/60 bg-background/60 backdrop-blur-md p-4">
+          <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
             <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Tags</div>
             <div className="mt-2 flex flex-wrap gap-2">
               {f.tags?.length ? (
@@ -252,85 +279,28 @@ export default function VulnFindingDrawer(props: {
             </div>
           </div>
 
-          {/* Exposure */}
-          <div className="rounded-xl border border-border/60 bg-background/60 backdrop-blur-md p-4">
+          <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
             <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Exposure</div>
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
               <div>
                 <div className="text-xs text-muted-foreground">Exposure score</div>
-                <div className="font-mono text-[12px]">{exposure.score}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Services</div>
-                <div className="font-mono text-[12px] break-all">
-                  {exposure.serviceHints.length ? exposure.serviceHints.join(", ") : "-"}
-                </div>
+                <div className="font-mono text-sm">{exposure.score}</div>
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Exposed ports</div>
-                <div className="font-mono text-[12px] break-all">
-                  {exposure.exposedPorts.length ? exposure.exposedPorts.join(", ") : "-"}
-                </div>
+                <div className="font-mono text-sm">{exposure.exposedPorts.length ? exposure.exposedPorts.join(", ") : "-"}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Service hints</div>
+                <div className="font-mono text-sm">{exposure.serviceHints.length ? exposure.serviceHints.join(", ") : "-"}</div>
               </div>
             </div>
-            {exposure.portServices.length ? (
-              <div className="mt-3 max-h-[220px] overflow-auto rounded-lg border border-border/60 bg-background/40 p-2">
-                <table className="w-full text-[12px]">
-                  <thead>
-                    <tr className="text-left text-muted-foreground">
-                      <th className="px-2 py-1">Proto</th>
-                      <th className="px-2 py-1">Port</th>
-                      <th className="px-2 py-1">Process</th>
-                      <th className="px-2 py-1">PID</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {exposure.portServices.slice(0, 50).map((ps: any, idx: number) => (
-                      <tr key={`${ps.proto}-${ps.port}-${ps.pid}-${idx}`} className="border-t border-border/40">
-                        <td className="px-2 py-1 font-mono">{ps.proto || "-"}</td>
-                        <td className="px-2 py-1 font-mono">{ps.port ?? "-"}</td>
-                        <td className="px-2 py-1 font-mono truncate" title={ps.cmdline || ps.exe || ps.process || ""}>
-                          {ps.process || "-"}
-                        </td>
-                        <td className="px-2 py-1 font-mono">{ps.pid ?? "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
           </div>
 
-          {/* Evidence */}
-          <div className="rounded-xl border border-border/60 bg-background/60 backdrop-blur-md p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Evidence</div>
-              <button
-                type="button"
-                className={cx(
-                  "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                  "text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                  "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                )}
-                onClick={() => copy(safeJson(f.evidence || {}))}
-              >
-                {copied ? "Copied" : "Copy JSON"}
-              </button>
-            </div>
-            <pre className="mt-3 max-h-[320px] overflow-auto rounded-lg border border-border/60 bg-background/40 p-3 text-[12px] text-foreground/90">
-              {safeJson(f.evidence || {})}
-            </pre>
+          <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
+            <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Evidence</div>
+            <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">{safeJson(f.evidence)}</pre>
           </div>
-
-          {/* Asset metadata */}
-          {f.asset && Object.keys(f.asset).length ? (
-            <div className="rounded-xl border border-border/60 bg-background/60 backdrop-blur-md p-4">
-              <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Asset metadata</div>
-              <pre className="mt-3 max-h-[220px] overflow-auto rounded-lg border border-border/60 bg-background/40 p-3 text-[12px] text-foreground/90">
-                {safeJson(f.asset)}
-              </pre>
-            </div>
-          ) : null}
         </div>
       )}
     </Drawer>

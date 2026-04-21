@@ -30,6 +30,8 @@ export type VulnFinding = {
 
   status: string;
   is_suppressed: boolean;
+  observation_state: string;
+  operator_disposition: string;
 
   first_seen_at: string;
   last_seen_at: string;
@@ -40,14 +42,21 @@ export type VulnFinding = {
 export type VulnFindingPatchIn = {
   status?: string;
   is_suppressed?: boolean;
+  observation_state?: string;
+  operator_disposition?: string;
 };
 
 export type VulnSummary = {
   generated_at: string;
   total_open: number;
+  total_observed: number;
+  total_awaiting_verification: number;
+  total_resolved: number;
   total_suppressed: number;
   by_severity: Record<string, number>;
   by_status: Record<string, number>;
+  by_observation_state: Record<string, number>;
+  by_disposition: Record<string, number>;
 };
 
 export type VulnRiskItem = {
@@ -102,12 +111,25 @@ export type VulnScan = {
   target: string | null;
   tool: string;
   tool_version: string | null;
+
   status: string;
-  started_at: string;
+  lifecycle_state: string;
+  current_phase: string;
+
+  queued_at: string;
+  acknowledged_at: string | null;
+  started_at: string | null;
   finished_at: string | null;
+  last_progress_at: string;
+  duration_ms: number | null;
+
+  trigger_source: string;
+  error_summary: string | null;
+
   scope: Record<string, any>;
   config: Record<string, any>;
   stats: Record<string, any>;
+  phase_timestamps: Record<string, string>;
   created_at: string;
   updated_at: string;
 };
@@ -116,6 +138,9 @@ export type VulnManualScanResult = {
   agent_id: string;
   trigger_token: string;
   scan_uuid: string;
+  request_state: string;
   status: string;
+  lifecycle_state: string;
+  current_phase: string;
   queued_at: string;
 };

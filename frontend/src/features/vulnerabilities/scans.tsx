@@ -43,8 +43,8 @@ function fmtSeconds(sec: number): string {
 
 function statusVariant(status: string) {
   const s = String(status || "").toLowerCase();
-  if (s === "running" || s === "queued" || s === "started") return "info";
-  if (s === "failed" || s === "error") return "critical";
+  if (s === "queued" || s === "acknowledged" || s === "running") return "info";
+  if (s === "failed" || s === "cancelled") return "critical";
   return "neutral";
 }
 
@@ -210,18 +210,18 @@ export default function VulnerabilityScansPage() {
     let durCount = 0;
 
     for (const s of items) {
-      const st = String(s.status || "unknown").toLowerCase();
+      const st = String(s.lifecycle_state || "unknown").toLowerCase();
       byStatus[st] = (byStatus[st] || 0) + 1;
       byTool[s.tool] = (byTool[s.tool] || 0) + 1;
 
       if (st === "running" || st === "queued" || st === "started") running++;
-      else if (st === "failed" || st === "error") failed++;
-      else finished++;
+      else if (st === "acknowledged") running++;
+      else if (st === "failed" || st === "cancelled") failed++;
+      else if (st === "completed") finished++;
 
-      const start = Date.parse(s.started_at);
-      const end = s.finished_at ? Date.parse(s.finished_at) : NaN;
-      if (!Number.isNaN(start) && !Number.isNaN(end) && end >= start) {
-        durSum += (end - start) / 1000;
+      const dur = typeof s.duration_ms === "number" ? s.duration_ms / 1000 : NaN;
+      if (Number.isFinite(dur)) {
+        durSum += dur;
         durCount++;
       }
     }
@@ -252,7 +252,7 @@ export default function VulnerabilityScansPage() {
       <PageHeader
         title="Vulnerabilities"
         breadcrumb={["Detection", "Vulnerabilities"]}
-        description="Scan execution timeline and agent-reported stats."
+        description="Scan execution lifecycle and agent-reported phase progress."
         tabs={[
           { label: "Findings", to: "/vulnerabilities" },
           { label: "Scans", to: "/vulnerabilities/scans" },
@@ -358,10 +358,12 @@ export default function VulnerabilityScansPage() {
               )}
             >
               <option value="all">All</option>
+              <option value="queued">Queued</option>
+              <option value="acknowledged">Acknowledged</option>
               <option value="running">Running</option>
-              <option value="finished">Finished</option>
+              <option value="completed">Completed</option>
               <option value="failed">Failed</option>
-              <option value="error">Error</option>
+              <option value="cancelled">Cancelled</option>
             </select>
           </div>
 
@@ -429,9 +431,14 @@ export default function VulnerabilityScansPage() {
                 {items.map((s) => {
                   const selectedRow = selected?.id === s.id;
                   const rowPad = dense ? "py-1.5" : "py-2";
-                  const start = Date.parse(s.started_at);
+                  const start = Date.parse(s.started_at || "");
                   const end = s.finished_at ? Date.parse(s.finished_at) : Date.now();
-                  const dur = !Number.isNaN(start) && !Number.isNaN(end) ? Math.max(0, (end - start) / 1000) : NaN;
+                  const dur =
+                    typeof s.duration_ms === "number"
+                      ? Math.max(0, s.duration_ms / 1000)
+                      : !Number.isNaN(start) && !Number.isNaN(end)
+                        ? Math.max(0, (end - start) / 1000)
+                        : NaN;
                   const chips = pickStatChips(s.stats || {});
 
                   return (
@@ -446,10 +453,14 @@ export default function VulnerabilityScansPage() {
                       tabIndex={0}
                     >
                       <td className={cx("px-3", rowPad)}>
-                        <Badge variant={statusVariant(s.status)}>{s.status}</Badge>
+                        <div className="flex flex-col gap-1">
+                          <Badge variant={statusVariant(s.lifecycle_state)}>{s.lifecycle_state}</Badge>
+                          <div className="text-[11px] text-muted-foreground">{s.current_phase}</div>
+                        </div>
                       </td>
                       <td className={cx("px-3 font-mono text-[12px]", rowPad)}>
-                        <div className="text-muted-foreground">{fmtWhen(s.started_at)}</div>
+                        <div className="text-muted-foreground">{fmtWhen(s.queued_at)}</div>
+                        <div className="text-muted-foreground">start {fmtWhen(s.started_at)}</div>
                         <div className="text-muted-foreground">→ {fmtWhen(s.finished_at)}</div>
                       </td>
                       <td className={cx("px-3 font-mono text-[12px]", rowPad)}>{Number.isFinite(dur) ? fmtSeconds(dur) : "-"}</td>
