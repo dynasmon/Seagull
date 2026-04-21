@@ -40,6 +40,7 @@ export const PORTAL_REALTIME_EVENT_TYPES = [
   "ui.ddos.live.patch",
   "ui.inventory.invalidate",
   "ui.vulnerabilities.invalidate",
+  "ui.vulnerabilities.scan.lifecycle",
   "overview.invalidate",
   "overview.patch",
   "storm.status",
@@ -71,6 +72,7 @@ export const PORTAL_REALTIME_EVENT_TOPIC: Record<PortalRealtimeEventType, Portal
   "ui.ddos.live.patch": "ddos",
   "ui.inventory.invalidate": "inventory",
   "ui.vulnerabilities.invalidate": "vulnerabilities",
+  "ui.vulnerabilities.scan.lifecycle": "vulnerabilities",
   "overview.invalidate": "overview",
   "overview.patch": "overview",
   "storm.status": "overview",
@@ -100,6 +102,7 @@ export const PORTAL_REALTIME_EVENT_MODE: Record<PortalRealtimeEventType, PortalR
   "ui.ddos.live.patch": "patch",
   "ui.inventory.invalidate": "invalidate",
   "ui.vulnerabilities.invalidate": "invalidate",
+  "ui.vulnerabilities.scan.lifecycle": "patch",
   "overview.invalidate": "invalidate",
   "overview.patch": "patch",
   "storm.status": "replace",
@@ -129,6 +132,7 @@ export const PORTAL_REALTIME_EVENT_SCOPE: Record<PortalRealtimeEventType, string
   "ui.ddos.live.patch": "portal:realtime",
   "ui.inventory.invalidate": "portal:realtime",
   "ui.vulnerabilities.invalidate": "portal:admin",
+  "ui.vulnerabilities.scan.lifecycle": "portal:admin",
   "overview.invalidate": "portal:realtime",
   "overview.patch": "portal:realtime",
   "storm.status": "portal:realtime",
@@ -418,8 +422,39 @@ export type PortalRealtimeEventPayloadMap = {
     agent_id?: string;
     scan_uuid?: string;
     status?: string;
+    phase?: string;
     resume_from_cursor?: string;
     resume_to_cursor?: string;
+  };
+  "ui.vulnerabilities.scan.lifecycle": {
+    lifecycle_event?: "queued" | "acknowledged" | "phase_changed" | "progress" | "completed" | "failed" | "cancelled";
+    scan_uuid?: string;
+    agent_id?: string;
+    scan?: {
+      id?: number | null;
+      scan_uuid?: string;
+      reporter_agent_id?: string | null;
+      target?: string | null;
+      tool?: string;
+      tool_version?: string | null;
+      status?: string;
+      lifecycle_state?: string;
+      current_phase?: string;
+      queued_at?: string | null;
+      acknowledged_at?: string | null;
+      started_at?: string | null;
+      finished_at?: string | null;
+      last_progress_at?: string | null;
+      duration_ms?: number | null;
+      trigger_source?: string;
+      error_summary?: string | null;
+      stats?: Record<string, unknown>;
+      phase_timestamps?: Record<string, string>;
+      scope?: Record<string, unknown>;
+      config?: Record<string, unknown>;
+      updated_at?: string | null;
+      created_at?: string | null;
+    };
   };
   "overview.invalidate": {
     reason?: string;

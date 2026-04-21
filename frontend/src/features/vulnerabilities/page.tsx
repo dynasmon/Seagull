@@ -15,9 +15,60 @@ import { listAgents } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
 
 import { getVulnFindingsPage, getVulnPosture, getVulnScansPage, getVulnSummary, triggerVulnScanNow } from "./api";
+import { ActiveScanPanel } from "./ActiveScanPanel";
 import VulnFindingDrawer from "./VulnFindingDrawer";
 import VulnScanDrawer from "./VulnScanDrawer";
 import type { VulnFinding, VulnPosture, VulnScan, VulnSummary } from "./types";
+
+function applyLifecycleScanPatch(existing: VulnScan, patch: Record<string, any>): VulnScan {
+  return {
+    ...existing,
+    id: patch.id ?? existing.id,
+    status: patch.status ?? existing.status,
+    lifecycle_state: patch.lifecycle_state ?? existing.lifecycle_state,
+    current_phase: patch.current_phase ?? existing.current_phase,
+    acknowledged_at: "acknowledged_at" in patch ? patch.acknowledged_at : existing.acknowledged_at,
+    started_at: "started_at" in patch ? patch.started_at : existing.started_at,
+    finished_at: "finished_at" in patch ? patch.finished_at : existing.finished_at,
+    last_progress_at: patch.last_progress_at ?? existing.last_progress_at,
+    duration_ms: "duration_ms" in patch ? patch.duration_ms : existing.duration_ms,
+    error_summary: "error_summary" in patch ? patch.error_summary : existing.error_summary,
+    stats: patch.stats ? (patch.stats as Record<string, any>) : existing.stats,
+    phase_timestamps: patch.phase_timestamps ? (patch.phase_timestamps as Record<string, string>) : existing.phase_timestamps,
+    updated_at: patch.updated_at ?? existing.updated_at,
+  };
+}
+
+function buildVulnScanFromPatch(patch: Record<string, any>): VulnScan | null {
+  const uuid = String(patch.scan_uuid || "").trim();
+  if (!uuid) return null;
+  const now = new Date().toISOString();
+  return {
+    id: patch.id ?? 0,
+    scan_uuid: uuid,
+    reporter_agent_id: patch.reporter_agent_id ?? null,
+    target: patch.target ?? null,
+    tool: patch.tool ?? "unknown",
+    tool_version: patch.tool_version ?? null,
+    status: patch.status ?? "queued",
+    lifecycle_state: patch.lifecycle_state ?? "queued",
+    current_phase: patch.current_phase ?? "queued",
+    queued_at: patch.queued_at ?? now,
+    acknowledged_at: patch.acknowledged_at ?? null,
+    started_at: patch.started_at ?? null,
+    finished_at: patch.finished_at ?? null,
+    last_progress_at: patch.last_progress_at ?? now,
+    duration_ms: patch.duration_ms ?? null,
+    trigger_source: patch.trigger_source ?? "unknown",
+    error_summary: patch.error_summary ?? null,
+    stats: (patch.stats ?? {}) as Record<string, any>,
+    phase_timestamps: (patch.phase_timestamps ?? {}) as Record<string, string>,
+    scope: (patch.scope ?? {}) as Record<string, any>,
+    config: (patch.config ?? {}) as Record<string, any>,
+    updated_at: patch.updated_at ?? now,
+    created_at: patch.created_at ?? now,
+  };
+}
 
 type Density = "comfortable" | "compact";
 
@@ -31,6 +82,8 @@ type Filters = {
   cve: string;
   includeSuppressed: boolean;
 };
+
+const RECENT_SCANS_PAGE_SIZE = 12;
 
 function sevVariant(sev: string) {
   const s = String(sev || "").toLowerCase();
@@ -110,25 +163,6 @@ function packagePivotKey(f: VulnFinding): string {
   return "";
 }
 
-function scanDurationLabel(s: VulnScan): string {
-  if (typeof s.duration_ms === "number" && Number.isFinite(s.duration_ms)) {
-    const sec = Math.max(0, Math.round(s.duration_ms / 1000));
-    if (sec < 60) return `${sec}s`;
-    const m = Math.floor(sec / 60);
-    const r = sec % 60;
-    return r ? `${m}m ${r}s` : `${m}m`;
-  }
-  const start = Date.parse(s.started_at || "");
-  const end = Date.parse(s.finished_at || "");
-  if (Number.isNaN(start)) return "-";
-  if (Number.isNaN(end)) return s.lifecycle_state === "running" ? "running" : "-";
-  const sec = Math.max(0, Math.round((end - start) / 1000));
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  const r = sec % 60;
-  return r ? `${m}m ${r}s` : `${m}m`;
-}
-
 function observationVariant(state: string) {
   const s = String(state || "").toLowerCase();
   if (s === "observed") return "info";
@@ -168,16 +202,6 @@ function Toggle({
       {label}
     </button>
   );
-}
-
-function scanStatusHint(scan: VulnScan): string {
-  const state = String(scan.lifecycle_state || "").toLowerCase();
-  const phase = String(scan.current_phase || "").toLowerCase();
-  if (state === "completed") return "completed";
-  if (state === "failed") return "failed";
-  if (state === "cancelled") return "cancelled";
-  if (phase) return phase.replaceAll("_", " ");
-  return state || "-";
 }
 
 export default function VulnerabilitiesPage() {
@@ -377,7 +401,7 @@ export default function VulnerabilitiesPage() {
       setScanMsg(
         `Request ${out.request_state} for ${out.agent_id} at ${fmtWhen(out.queued_at)} · ${out.lifecycle_state} · id ${out.scan_uuid}`
       );
-      void Promise.all([live.refreshNow(), scansLive.refreshNow()]);
+      void Promise.all([refreshDashboardNow(), refreshRecentScansNow()]);
     } catch (e: any) {
       setScanErr(e?.message || "Failed to trigger manual scan");
     } finally {
@@ -386,14 +410,22 @@ export default function VulnerabilitiesPage() {
   }
 
   async function loadRecentScans(agentId: string) {
-    if (!agentId) {
+    if (onlySelectedAgentScans && !agentId) {
       setRecentScans([]);
       return;
     }
     setRecentScansBusy(true);
     try {
-      const out = await getVulnScansPage({ page_size: 8, reporter_agent_id: agentId });
-      setRecentScans(out.items || []);
+      const out = await getVulnScansPage({
+        page_size: RECENT_SCANS_PAGE_SIZE,
+        reporter_agent_id: onlySelectedAgentScans ? agentId : undefined,
+      });
+      const nextItems = out.items || [];
+      setRecentScans(nextItems);
+      setSelectedScan((prev) => {
+        if (!prev) return null;
+        return nextItems.find((item) => item.scan_uuid === prev.scan_uuid) ?? prev;
+      });
     } catch {
       setRecentScans([]);
     } finally {
@@ -416,29 +448,69 @@ export default function VulnerabilitiesPage() {
   });
 
   const scansLive = useLiveRefresh({
-    enabled: isAdmin && Boolean(scanTargetAgent),
+    enabled: isAdmin && (!onlySelectedAgentScans || Boolean(scanTargetAgent)),
     profile: "admin",
     refresh: async () => {
       await loadRecentScans(scanTargetAgent);
     },
   });
-
-  useEffect(() => {
-    if (!isAdmin || !scanTargetAgent) return;
-    scansLive.invalidate("dependency", { immediate: true, supersede: true });
-  }, [isAdmin, scanTargetAgent, scansLive]);
+  const { refreshNow: refreshDashboardNow, invalidate: invalidateDashboard } = live;
+  const { refreshNow: refreshRecentScansNow, invalidate: invalidateRecentScans } = scansLive;
+  const recentScansScopeKey = onlySelectedAgentScans ? scanTargetAgent || "__none__" : "__all__";
+  const recentScansScopeMissing = recentScansScopeKey === "__none__";
 
   useEffect(() => {
     if (!isAdmin) return;
-    live.invalidate("dependency", { immediate: true, supersede: true });
-  }, [activeDays, filters, isAdmin, live, pageSize]);
+    if (recentScansScopeMissing) return;
+    invalidateRecentScans("dependency", { immediate: true, supersede: true });
+  }, [invalidateRecentScans, isAdmin, recentScansScopeKey, recentScansScopeMissing]);
 
+  useEffect(() => {
+    if (!isAdmin) return;
+    invalidateDashboard("dependency", { immediate: true, supersede: true });
+  }, [activeDays, filters, invalidateDashboard, isAdmin, pageSize]);
+
+  // Patch individual scan rows in-place without triggering a full refetch.
+  usePortalRealtimeSubscription("ui.vulnerabilities.scan.lifecycle", (event) => {
+    if (!isAdmin) return;
+    const { scan_uuid, agent_id, lifecycle_event, scan: scanData } = event.payload ?? {};
+    if (!scan_uuid || !scanData) return;
+
+    setRecentScans((prev) => {
+      const idx = prev.findIndex((s) => s.scan_uuid === scan_uuid);
+      if (idx === -1) {
+        const targetAgent = scanTargetAgent;
+        const eventAgent = String(agent_id || (scanData as Record<string, any>).reporter_agent_id || "").trim();
+        if (onlySelectedAgentScans && targetAgent && eventAgent !== targetAgent) return prev;
+        const built = buildVulnScanFromPatch(scanData as Record<string, any>);
+        if (built) return [built, ...prev].slice(0, RECENT_SCANS_PAGE_SIZE);
+        return prev;
+      }
+      const next = [...prev];
+      next[idx] = applyLifecycleScanPatch(next[idx], scanData as Record<string, any>);
+      return next;
+    });
+
+    setSelectedScan((prev) => {
+      if (!prev || prev.scan_uuid !== scan_uuid) return prev;
+      return applyLifecycleScanPatch(prev, scanData as Record<string, any>);
+    });
+
+    // Invalidate findings only when a scan finishes (new findings may have been stored).
+    if (lifecycle_event === "completed" || lifecycle_event === "failed") {
+      invalidateDashboard();
+    }
+  });
+
+  // Coarse invalidate: refresh findings on ingestion, scans list on new scan queued.
   usePortalRealtimeSubscription("ui.vulnerabilities.invalidate", (event) => {
     if (!isAdmin) return;
+    const reason = String(event.payload?.reason || "");
     const eventAgentId = String(event.payload?.agent_id || "").trim();
     const reporterAgentId = String(filters.reporterAgentId || "").trim();
     const assetAgentId = String(filters.assetAgentId || "").trim();
     const hasScopedAgentFilter = Boolean(reporterAgentId || assetAgentId);
+
     if (
       hasScopedAgentFilter &&
       eventAgentId &&
@@ -447,9 +519,15 @@ export default function VulnerabilitiesPage() {
     ) {
       return;
     }
-    live.invalidate();
-    if (!scanTargetAgent || !eventAgentId || scanTargetAgent === eventAgentId) {
-      scansLive.invalidate();
+
+    if (reason === "findings_ingested") {
+      invalidateDashboard();
+    }
+    // Scans are patched in-place via lifecycle events; only reconcile on explicit queued signal.
+    if (reason === "manual_scan_queued") {
+      if (!onlySelectedAgentScans || !scanTargetAgent || !eventAgentId || scanTargetAgent === eventAgentId) {
+        invalidateRecentScans();
+      }
     }
   });
 
@@ -477,6 +555,17 @@ export default function VulnerabilitiesPage() {
       ),
     [recentScans, onlySelectedAgentScans, scanTargetAgent]
   );
+  const selectedAgentRecentScans = useMemo(
+    () => (recentScans || []).filter((s) => (s.reporter_agent_id || "") === (scanTargetAgent || "")),
+    [recentScans, scanTargetAgent]
+  );
+  const activeScan = useMemo(() => {
+    const liveScan = selectedAgentRecentScans.find((scan) => {
+      const state = String(scan.lifecycle_state || "").toLowerCase();
+      return state === "queued" || state === "acknowledged" || state === "running";
+    });
+    return liveScan ?? selectedAgentRecentScans[0] ?? null;
+  }, [selectedAgentRecentScans]);
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if ((filters.q || "").trim()) n++;
@@ -575,7 +664,7 @@ export default function VulnerabilitiesPage() {
             <button
               type="button"
               onClick={() => {
-                void Promise.all([live.refreshNow(), scansLive.refreshNow()]);
+                void Promise.all([refreshDashboardNow(), refreshRecentScansNow()]);
               }}
               className={cx(
                 "inline-flex items-center rounded-md border border-border/60 bg-background/40",
@@ -668,158 +757,27 @@ export default function VulnerabilitiesPage() {
         </div>
       </Card>
 
-      {/* Risk posture */}
-      <Card title="Manual scan" className="rounded-xl">
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div className="space-y-3">
-            <div className="text-xs text-muted-foreground">Run an immediate vulnerability scan.</div>
-            <select
-              value={scanTargetAgent}
-              onChange={(e) => setScanTargetAgent(e.target.value)}
-              className={cx(
-                "w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-sm font-mono outline-none focus:ring-2 focus:ring-primary/30"
-              )}
-            >
-              {agents.map((a) => (
-                <option key={a.agent_id} value={a.agent_id}>
-                  {a.agent_id}
-                </option>
-              ))}
-            </select>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={runManualScan}
-                disabled={scanBusy || !scanTargetAgent}
-                className={cx(
-                  "inline-flex h-10 items-center rounded-md border border-border/60 bg-background/40",
-                  "px-4 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                  "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
-                  (scanBusy || !scanTargetAgent) && "opacity-60"
-                )}
-              >
-                {scanBusy ? "Queueing…" : "Run Scan Now"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void scansLive.refreshNow();
-                }}
-                disabled={recentScansBusy || !scanTargetAgent}
-                className={cx(
-                  "inline-flex h-10 items-center rounded-md border border-border/60 bg-background/40",
-                  "px-4 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                  "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
-                  (recentScansBusy || !scanTargetAgent) && "opacity-60"
-                )}
-              >
-                {recentScansBusy ? "Refreshing…" : "Refresh status"}
-              </button>
-            </div>
-            {scanMsg ? <div className="text-xs text-emerald-300">{scanMsg}</div> : null}
-            {scanErr ? <div className="text-xs text-red-300">{scanErr}</div> : null}
-          </div>
-
-            <div className="rounded-lg border border-border/60 bg-background/30 p-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-                  Recent scans ({scanTargetAgent || "-"}) · click row for scan drawer
-                </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setOnlySelectedAgentScans((v) => !v)}
-                  className={cx(
-                    "rounded-md border border-border/60 bg-background/40 px-2 py-1",
-                    "text-[10px] font-mono uppercase tracking-widest",
-                    onlySelectedAgentScans ? "text-foreground" : "text-muted-foreground",
-                    "hover:bg-muted/15 hover:text-foreground"
-                  )}
-                >
-                  {onlySelectedAgentScans ? "Only selected agent" : "All agents"}
-                </button>
-                <div className="text-[11px] text-muted-foreground">{visibleRecentScans.length} items</div>
-              </div>
-            </div>
-            {!visibleRecentScans.length ? (
-              <div className="text-xs text-muted-foreground">No recent scans for this agent.</div>
-            ) : (
-              <div className="max-h-[220px] overflow-auto">
-                <table className="w-full text-[12px]">
-                  <thead className="text-left text-muted-foreground">
-                    <tr className="border-b border-border/40">
-                      <th className="px-2 py-1">Agent</th>
-                      <th className="px-2 py-1">Lifecycle</th>
-                      <th className="px-2 py-1">Started</th>
-                      <th className="px-2 py-1">Duration</th>
-                      <th className="px-2 py-1">Findings</th>
-                      <th className="px-2 py-1">Exposure</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleRecentScans.map((s) => (
-                      <tr
-                        key={s.id}
-                        className="border-b border-border/20 align-top cursor-pointer hover:bg-muted/20"
-                        onClick={() => {
-                          setSelectedScan(s);
-                          setScanDrawerOpen(true);
-                        }}
-                      >
-                        <td className="px-2 py-1">
-                          <span
-                            className={cx(
-                              "font-mono text-[11px]",
-                              s.reporter_agent_id === scanTargetAgent ? "text-foreground" : "text-muted-foreground"
-                            )}
-                            title={s.reporter_agent_id || "-"}
-                          >
-                            {s.reporter_agent_id || "-"}
-                          </span>
-                        </td>
-                        <td className="px-2 py-1">
-                          <Badge
-                            variant={
-                              s.lifecycle_state === "completed"
-                                ? "neutral"
-                                : s.lifecycle_state === "failed" || s.lifecycle_state === "cancelled"
-                                  ? "critical"
-                                  : "info"
-                            }
-                          >
-                            {s.lifecycle_state}
-                          </Badge>
-                          <div className="mt-1 text-[10px] text-muted-foreground">{scanStatusHint(s)}</div>
-                        </td>
-                        <td className="px-2 py-1 font-mono text-[11px]">{fmtAge(s.started_at || s.queued_at)}</td>
-                        <td className="px-2 py-1 font-mono text-[11px]">{scanDurationLabel(s)}</td>
-                        <td className="px-2 py-1 font-mono">{(s.stats as any)?.emitted_findings ?? "-"}</td>
-                        <td className="px-2 py-1 font-mono">
-                          <div className="flex items-center justify-between gap-2">
-                            <span>{(s.stats as any)?.exposure_surface_score ?? "-"}</span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedScan(s);
-                                setScanDrawerOpen(true);
-                              }}
-                              className="rounded border border-border/60 bg-background/40 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:bg-muted/15"
-                            >
-                              View
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      </Card>
+      <ActiveScanPanel
+        activeScan={activeScan}
+        recentScans={recentScans}
+        agents={agents}
+        scanTargetAgent={scanTargetAgent}
+        onAgentChange={setScanTargetAgent}
+        onRunScan={runManualScan}
+        scanBusy={scanBusy}
+        scanMsg={scanMsg}
+        scanErr={scanErr}
+        recentScansBusy={recentScansBusy}
+        onRefreshScans={() => {
+          void refreshRecentScansNow();
+        }}
+        onViewScan={(scan) => {
+          setSelectedScan(scan);
+          setScanDrawerOpen(true);
+        }}
+        onlySelectedAgent={onlySelectedAgentScans}
+        onToggleAgentFilter={() => setOnlySelectedAgentScans((value) => !value)}
+      />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <Card title="Mean risk score" right={postureBusy ? "loading" : undefined} className="rounded-xl">
