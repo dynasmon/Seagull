@@ -244,7 +244,6 @@ class Settings:
 
     SEAGULL_VULN_MAX_FINDINGS_PER_INGEST: int = _env_int("SEAGULL_VULN_MAX_FINDINGS_PER_INGEST", 2000)
     SEAGULL_VULN_MAX_EVIDENCE_BYTES: int = _env_int("SEAGULL_VULN_MAX_EVIDENCE_BYTES", 32768)
-    SEAGULL_VULN_AUTO_REOPEN: bool = _env_bool("SEAGULL_VULN_AUTO_REOPEN", True)
 
     SEAGULL_PROTO_INTEL_PORT_HINTS: str = _env_str("SEAGULL_PROTO_INTEL_PORT_HINTS", "") or ""
 
@@ -552,7 +551,6 @@ class Settings:
             "vuln": {
                 "max_findings_per_ingest": self.SEAGULL_VULN_MAX_FINDINGS_PER_INGEST,
                 "max_evidence_bytes": self.SEAGULL_VULN_MAX_EVIDENCE_BYTES,
-                "auto_reopen": bool(self.SEAGULL_VULN_AUTO_REOPEN),
             },
         }
 

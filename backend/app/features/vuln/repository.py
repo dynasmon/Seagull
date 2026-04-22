@@ -11,8 +11,12 @@ from app.features.agents.models import AgentModel
 from app.features.vuln.domain import (
     derive_legacy_finding_status,
     lifecycle_state_for_phase,
+    normalize_finding_disposition_filter,
+    normalize_finding_observation_filter,
     normalize_finding_observation_state,
     normalize_finding_operator_disposition,
+    normalize_legacy_finding_status,
+    normalize_scan_filter_terms,
     normalize_scan_lifecycle_state,
     normalize_scan_phase,
     normalize_trigger_source,
@@ -189,6 +193,19 @@ def get_scan_by_uuid(db: Session, scan_uuid: str) -> VulnScanModel | None:
     return db.execute(select(VulnScanModel).where(VulnScanModel.scan_uuid == scan_uuid)).scalar_one_or_none()
 
 
+def get_latest_live_manual_scan_for_agent(db: Session, reporter_agent_id: str) -> VulnScanModel | None:
+    if not reporter_agent_id:
+        return None
+    stmt = (
+        select(VulnScanModel)
+        .where(VulnScanModel.reporter_agent_id == reporter_agent_id)
+        .where(VulnScanModel.trigger_source == "manual")
+        .where(VulnScanModel.lifecycle_state.in_(["queued", "acknowledged", "running"]))
+        .order_by(VulnScanModel.queued_at.desc(), VulnScanModel.id.desc())
+    )
+    return db.execute(stmt).scalar_one_or_none()
+
+
 def upsert_scan_metadata(
     db: Session,
     *,
@@ -300,7 +317,7 @@ def upsert_scan_metadata(
     return row
 
 
-def bulk_upsert_findings(db: Session, *, rows: list[dict[str, Any]], auto_reopen: bool, now: datetime) -> list[int]:
+def bulk_upsert_findings(db: Session, *, rows: list[dict[str, Any]], now: datetime) -> list[int]:
     if not rows:
         return []
 
@@ -403,16 +420,19 @@ def list_scans_page(
     if reporter_agent_id:
         stmt = stmt.where(VulnScanModel.reporter_agent_id == reporter_agent_id)
     if status_q:
-        q = status_q.lower()
-        stmt = stmt.where(
-            or_(
-                VulnScanModel.status == q,
-                VulnScanModel.lifecycle_state == q,
-                VulnScanModel.current_phase == q,
+        scan_terms = normalize_scan_filter_terms(status_q)
+        if not scan_terms:
+            stmt = stmt.where(literal(False))
+        else:
+            stmt = stmt.where(
+                or_(
+                    VulnScanModel.status.in_(scan_terms),
+                    VulnScanModel.lifecycle_state.in_(scan_terms),
+                    VulnScanModel.current_phase.in_(scan_terms),
+                )
             )
-        )
     if tool:
-        stmt = stmt.where(VulnScanModel.tool == tool.lower())
+        stmt = stmt.where(VulnScanModel.tool == tool.strip().lower())
 
     if cursor_parsed:
         c_ts, c_id = cursor_parsed
@@ -448,11 +468,23 @@ def list_findings_page(
     if reporter_agent_id:
         stmt = stmt.where(VulnFindingModel.reporter_agent_id == reporter_agent_id)
     if status_q:
-        stmt = stmt.where(VulnFindingModel.status == status_q.lower())
+        normalized_status = normalize_legacy_finding_status(status_q)
+        if normalized_status is None:
+            stmt = stmt.where(literal(False))
+        else:
+            stmt = stmt.where(VulnFindingModel.status == normalized_status)
     if observation_state_q:
-        stmt = stmt.where(VulnFindingModel.observation_state == observation_state_q.lower())
+        normalized_observation = normalize_finding_observation_filter(observation_state_q)
+        if normalized_observation is None:
+            stmt = stmt.where(literal(False))
+        else:
+            stmt = stmt.where(VulnFindingModel.observation_state == normalized_observation)
     if operator_disposition_q:
-        stmt = stmt.where(VulnFindingModel.operator_disposition == operator_disposition_q.lower())
+        normalized_disposition = normalize_finding_disposition_filter(operator_disposition_q)
+        if normalized_disposition is None:
+            stmt = stmt.where(literal(False))
+        else:
+            stmt = stmt.where(VulnFindingModel.operator_disposition == normalized_disposition)
     if not include_suppressed:
         stmt = stmt.where(VulnFindingModel.operator_disposition != "suppressed")
     if min_severity_rank is not None:

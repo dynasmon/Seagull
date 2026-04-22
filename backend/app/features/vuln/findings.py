@@ -108,7 +108,6 @@ def persist_ingested_findings(
     agent: AgentPrincipal,
     scan_row: VulnScanModel | None,
     now: datetime,
-    auto_reopen: bool,
 ) -> tuple[int, list[int]]:
     rows: list[dict[str, Any]] = []
     observed_fingerprints: list[str] = []
@@ -167,7 +166,7 @@ def persist_ingested_findings(
 
     changed_ids: list[int] = []
     if rows:
-        changed_ids.extend(bulk_upsert_findings(db, rows=rows, auto_reopen=auto_reopen, now=now))
+        changed_ids.extend(bulk_upsert_findings(db, rows=rows, now=now))
 
     if scan_row is not None and scan_row.lifecycle_state == "completed":
         sources = sorted(sources_seen) or _default_sources_for_tool(scan_row.tool)
@@ -212,6 +211,7 @@ def list_findings(
     effective_min_severity_rank = min_severity_rank
     if effective_min_severity_rank is None and min_severity is not None:
         effective_min_severity_rank = _severity_rank(min_severity)
+    normalized_cve = cve.strip().upper() if isinstance(cve, str) and cve.strip() else None
 
     cursor_parsed = parse_cursor_ts_id(cursor) if cursor else None
     rows = list_findings_page(
@@ -225,7 +225,7 @@ def list_findings(
         operator_disposition_q=operator_disposition_q,
         include_suppressed=include_suppressed,
         min_severity_rank=effective_min_severity_rank,
-        cve=cve,
+        cve=normalized_cve,
         query_text=q,
     )
     has_more = len(rows) > page_size
