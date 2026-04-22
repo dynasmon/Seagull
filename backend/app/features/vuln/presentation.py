@@ -7,6 +7,8 @@ from typing import Any, Mapping
 
 _FIXED_VERSION_RE = re.compile(r">=\s*([^\s,;]+)")
 _LOC_VERSION_RE = re.compile(r"@([^@\s]+)$")
+_SENSITIVE_SCAN_SCOPE_KEYS = {"request_token", "trigger_token", "scan_now_token", "host_root"}
+_SENSITIVE_SCAN_CONFIG_KEYS = {"request_token", "trigger_token", "scan_now_token", "scan_now_at", "osv_url", "host_root"}
 
 
 def _value(row: Any, key: str, default: Any = None) -> Any:
@@ -120,6 +122,75 @@ def _dedupe_ints(values: list[Any]) -> list[int]:
         seen.add(num)
         out.append(num)
     return out
+
+
+def _sanitize_mapping(value: Any, *, blocked_keys: set[str]) -> dict[str, Any]:
+    raw = _as_dict(value)
+    if not raw:
+        return {}
+    out: dict[str, Any] = {}
+    for key, item in raw.items():
+        normalized_key = _lower(key)
+        if normalized_key in blocked_keys:
+            continue
+        key_text = _text(key)
+        if not key_text:
+            continue
+        out[key_text] = item
+    return out
+
+
+def serialize_scan(row: Any) -> dict[str, Any]:
+    queued_at = _dt(_value(row, "queued_at"))
+    started_at = _dt(_value(row, "started_at"))
+    finished_at = _dt(_value(row, "finished_at"))
+    created_at = _dt(_value(row, "created_at"))
+    updated_at = _dt(_value(row, "updated_at"))
+    last_progress_at = _dt(_value(row, "last_progress_at")) or finished_at or started_at or queued_at or updated_at or created_at
+    queued_at = queued_at or started_at or last_progress_at or updated_at or created_at
+
+    duration_ms: int | None = None
+    if started_at is not None and last_progress_at is not None:
+        end_at = finished_at or last_progress_at
+        duration_ms = max(0, int((end_at - started_at).total_seconds() * 1000))
+
+    created_at = created_at or updated_at or queued_at or last_progress_at
+    updated_at = updated_at or created_at or last_progress_at or queued_at
+
+    phase_timestamps: dict[str, str] = {}
+    for key, value in _as_dict(_value(row, "phase_timestamps", {})).items():
+        phase_name = _text(key)
+        phase_at = _iso(value)
+        if not phase_name or not phase_at:
+            continue
+        phase_timestamps[phase_name.lower()] = phase_at
+
+    lifecycle_state = _text(_value(row, "lifecycle_state")) or _text(_value(row, "status")) or "queued"
+    return {
+        "id": _to_int(_value(row, "id")),
+        "scan_uuid": _text(_value(row, "scan_uuid")) or "",
+        "reporter_agent_id": _text(_value(row, "reporter_agent_id")),
+        "target": _text(_value(row, "target")),
+        "tool": _text(_value(row, "tool")) or "unknown",
+        "tool_version": _text(_value(row, "tool_version")),
+        "status": lifecycle_state,
+        "lifecycle_state": lifecycle_state,
+        "current_phase": _text(_value(row, "current_phase")) or lifecycle_state,
+        "queued_at": _iso(queued_at),
+        "acknowledged_at": _iso(_value(row, "acknowledged_at")),
+        "started_at": _iso(started_at),
+        "finished_at": _iso(finished_at),
+        "last_progress_at": _iso(last_progress_at),
+        "duration_ms": duration_ms,
+        "trigger_source": _text(_value(row, "trigger_source")) or "scheduled",
+        "error_summary": _text(_value(row, "error_summary")),
+        "scope": _sanitize_mapping(_value(row, "scope", {}), blocked_keys=_SENSITIVE_SCAN_SCOPE_KEYS),
+        "config": _sanitize_mapping(_value(row, "config", {}), blocked_keys=_SENSITIVE_SCAN_CONFIG_KEYS),
+        "stats": _as_dict(_value(row, "stats", {})),
+        "phase_timestamps": phase_timestamps,
+        "created_at": _iso(created_at),
+        "updated_at": _iso(updated_at),
+    }
 
 
 def _severity_points(rank: int) -> float:

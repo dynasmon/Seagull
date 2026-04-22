@@ -304,6 +304,7 @@ class VulnManualScanIn(BaseModel):
 
 class VulnManualScanOut(BaseModel):
     agent_id: str
+    request_token: str
     trigger_token: str
     scan_uuid: str
     request_state: str
@@ -311,6 +312,7 @@ class VulnManualScanOut(BaseModel):
     lifecycle_state: str
     current_phase: str
     queued_at: datetime
+    scan: Optional[VulnScanOut] = None
 
 
 class VulnFindingComponentOut(BaseModel):

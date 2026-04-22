@@ -16,15 +16,18 @@ from app.features.vuln.domain import (
     normalize_scan_lifecycle_state,
     normalize_scan_phase,
     normalize_trigger_source,
+    scan_lifecycle_event,
 )
 from app.features.vuln.findings import persist_ingested_findings
 from app.features.vuln.models import VulnScanModel
-from app.features.vuln.presentation import serialize_finding
+from app.features.vuln.presentation import serialize_finding, serialize_scan
 from app.features.vuln.repository import (
     add_agent,
     add_vuln_scan,
     commit,
     get_agent_by_agent_id,
+    get_latest_live_manual_scan_for_agent,
+    get_scan_by_uuid,
     get_findings_by_ids,
     list_scans_page,
     upsert_scan_metadata,
@@ -61,69 +64,26 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    raw = getattr(settings, name, None)
-    if raw is None:
-        return default
-    value = str(raw).strip().lower()
-    if value in {"1", "true", "t", "yes", "y", "on"}:
-        return True
-    if value in {"0", "false", "f", "no", "n", "off"}:
-        return False
-    return default
-
-
-def _iso(dt: datetime | None) -> str | None:
-    if dt is None:
+def _request_token_from_scan(scan_row: VulnScanModel | None) -> str | None:
+    if scan_row is None:
         return None
-    try:
-        return _ensure_utc(dt).isoformat()
-    except Exception:
-        return None
-
-
-def _scan_lifecycle_event(lifecycle_state: str, has_findings: bool) -> str:
-    s = str(lifecycle_state or "").lower()
-    if s in ("queued", "acknowledged", "completed", "failed", "cancelled"):
-        return s
-    return "phase_changed" if has_findings else "progress"
+    if getattr(scan_row, "request_token", None):
+        return str(scan_row.request_token).strip() or None
+    scope = getattr(scan_row, "scope", None) or {}
+    if isinstance(scope, dict):
+        for key in ("request_token", "trigger_token"):
+            value = str(scope.get(key) or "").strip()
+            if value:
+                return value
+    return None
 
 
 def _build_scan_lifecycle_payload(*, lifecycle_event: str, scan_row: "VulnScanModel", agent_id: str) -> dict:
-    started = _ensure_utc(scan_row.started_at)
-    finished = _ensure_utc(scan_row.finished_at)
-    dur = None
-    if started and finished:
-        dur = max(0, int((finished - started).total_seconds() * 1000))
     return {
         "lifecycle_event": lifecycle_event,
         "scan_uuid": scan_row.scan_uuid,
         "agent_id": str(agent_id or "").strip(),
-        "scan": {
-            "id": scan_row.id,
-            "scan_uuid": scan_row.scan_uuid,
-            "reporter_agent_id": scan_row.reporter_agent_id,
-            "target": scan_row.target,
-            "tool": scan_row.tool,
-            "tool_version": scan_row.tool_version,
-            "status": scan_row.lifecycle_state,
-            "lifecycle_state": scan_row.lifecycle_state,
-            "current_phase": scan_row.current_phase,
-            "queued_at": _iso(scan_row.queued_at),
-            "acknowledged_at": _iso(scan_row.acknowledged_at),
-            "started_at": _iso(scan_row.started_at),
-            "finished_at": _iso(scan_row.finished_at),
-            "last_progress_at": _iso(scan_row.last_progress_at),
-            "duration_ms": dur,
-            "trigger_source": scan_row.trigger_source,
-            "error_summary": scan_row.error_summary,
-            "stats": dict(scan_row.stats or {}),
-            "phase_timestamps": dict(scan_row.phase_timestamps or {}),
-            "scope": dict(scan_row.scope or {}),
-            "config": dict(scan_row.config or {}),
-            "updated_at": _iso(scan_row.updated_at),
-            "created_at": _iso(scan_row.created_at),
-        },
+        "scan": serialize_scan(scan_row),
     }
 
 
@@ -167,12 +127,17 @@ def ingest_findings(db: Session, *, payload: VulnIngestBatch, agent: AgentPrinci
         )
 
     now = _utc_now()
-    auto_reopen = _env_bool("SEAGULL_VULN_AUTO_REOPEN", True)
     scan_uuid: str | None = None
     scan_row: VulnScanModel | None = None
+    previous_lifecycle_state: str | None = None
+    previous_phase: str | None = None
 
     if payload.scan is not None:
         scan_uuid = (payload.scan.scan_uuid or "").strip() or str(uuid.uuid4())
+        existing_scan = get_scan_by_uuid(db, scan_uuid)
+        if existing_scan is not None:
+            previous_lifecycle_state = existing_scan.lifecycle_state
+            previous_phase = existing_scan.current_phase
         manual_trigger = bool(
             (payload.scan.scope or {}).get("manual_trigger")
             or (payload.scan.config or {}).get("manual_trigger")
@@ -214,14 +179,17 @@ def ingest_findings(db: Session, *, payload: VulnIngestBatch, agent: AgentPrinci
         agent=agent,
         scan_row=scan_row,
         now=now,
-        auto_reopen=auto_reopen,
     )
     commit(db)
 
     try:
-        has_findings = bool(payload.findings)
         if scan_row is not None:
-            lc_event = _scan_lifecycle_event(scan_row.lifecycle_state, has_findings)
+            lc_event = scan_lifecycle_event(
+                previous_lifecycle_state,
+                previous_phase,
+                scan_row.lifecycle_state,
+                scan_row.current_phase,
+            )
             publish_realtime(
                 "ui.vulnerabilities.scan.lifecycle",
                 _build_scan_lifecycle_payload(
@@ -270,8 +238,25 @@ def trigger_manual_scan(db: Session, *, body: VulnManualScanIn) -> VulnManualSca
     if row.is_revoked:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
 
+    existing_scan = get_latest_live_manual_scan_for_agent(db, body.agent_id)
+    if existing_scan is not None:
+        request_token = _request_token_from_scan(existing_scan) or str(existing_scan.scan_uuid)
+        return VulnManualScanOut(
+            agent_id=body.agent_id,
+            request_token=request_token,
+            trigger_token=request_token,
+            scan_uuid=existing_scan.scan_uuid,
+            request_state="existing",
+            status=existing_scan.lifecycle_state,
+            lifecycle_state=existing_scan.lifecycle_state,
+            current_phase=existing_scan.current_phase,
+            queued_at=_ensure_utc(existing_scan.queued_at) or _utc_now(),
+            scan=VulnScanOut(**serialize_scan(existing_scan)),
+        )
+
     now = _utc_now()
-    token = str(uuid.uuid4())
+    request_token = str(uuid.uuid4())
+    scan_uuid = str(uuid.uuid4())
 
     cfg = _normalize_cfg_map(row.config)
     modules = _normalize_cfg_map(cfg.get("modules"))
@@ -279,7 +264,7 @@ def trigger_manual_scan(db: Session, *, body: VulnManualScanIn) -> VulnManualSca
 
     if "enabled" not in vuln_cfg:
         vuln_cfg["enabled"] = True
-    vuln_cfg["scan_now_token"] = token
+    vuln_cfg["scan_now_token"] = request_token
     vuln_cfg["scan_now_at"] = now.isoformat()
 
     modules["vulnscanner"] = vuln_cfg
@@ -287,7 +272,8 @@ def trigger_manual_scan(db: Session, *, body: VulnManualScanIn) -> VulnManualSca
     row.config = cfg
 
     queued_scan = VulnScanModel(
-        scan_uuid=token,
+        scan_uuid=scan_uuid,
+        request_token=request_token,
         reporter_agent_id=body.agent_id,
         target=f"agent:{body.agent_id}",
         tool="osv-wazuh-like",
@@ -302,13 +288,14 @@ def trigger_manual_scan(db: Session, *, body: VulnManualScanIn) -> VulnManualSca
         last_progress_at=now,
         trigger_source="manual",
         error_summary=None,
-        scope={"type": "manual_trigger", "manual_trigger": True, "trigger_token": token},
+        scope={"type": "manual_trigger", "manual_trigger": True, "request_token": request_token},
         config={
             "manual_trigger": True,
             "analysis_profile": str(vuln_cfg.get("analysis_profile") or "wazuh_like_v1"),
         },
         stats={},
         phase_timestamps={"queued": now.isoformat()},
+        created_at=now,
         updated_at=now,
     )
     add_vuln_scan(db, queued_scan)
@@ -330,7 +317,7 @@ def trigger_manual_scan(db: Session, *, body: VulnManualScanIn) -> VulnManualSca
                 "reason": "manual_scan_queued",
                 "scope": "vulnerabilities",
                 "agent_id": str(body.agent_id or "").strip(),
-                "scan_uuid": token,
+                "scan_uuid": scan_uuid,
                 "status": "queued",
                 "phase": "queued",
             },
@@ -340,13 +327,15 @@ def trigger_manual_scan(db: Session, *, body: VulnManualScanIn) -> VulnManualSca
 
     return VulnManualScanOut(
         agent_id=body.agent_id,
-        trigger_token=token,
-        scan_uuid=token,
+        request_token=request_token,
+        trigger_token=request_token,
+        scan_uuid=scan_uuid,
         request_state="created",
         status="queued",
         lifecycle_state="queued",
         current_phase="queued",
         queued_at=now,
+        scan=VulnScanOut(**serialize_scan(queued_scan)),
     )
 
 
@@ -371,4 +360,4 @@ def list_scans(
     has_more = len(rows) > page_size
     items = rows[:page_size]
     next_cursor = make_cursor_ts_id(items[-1].queued_at, items[-1].id) if has_more and items else None
-    return CursorPage(items=items, next_cursor=next_cursor, has_more=has_more)
+    return CursorPage(items=[VulnScanOut(**serialize_scan(row)) for row in items], next_cursor=next_cursor, has_more=has_more)
