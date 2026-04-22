@@ -22,7 +22,11 @@ import {
   fmtSec,
   fmtWhen,
   isLiveScan,
+  scanLifecycleLabel,
+  scanPhaseLabel,
+  scanTriggerLabel,
   scanVariant,
+  upsertLifecycleScan,
 } from "./scanUtils";
 import VulnScanDrawer from "./VulnScanDrawer";
 import type { VulnScan } from "./types";
@@ -98,6 +102,7 @@ export default function VulnerabilityScansPage() {
 
   const reqSeq = useRef(0);
   const itemsRef = useRef<VulnScan[]>([]);
+  const didInvalidateRef = useRef(false);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -171,6 +176,10 @@ export default function VulnerabilityScansPage() {
 
   useEffect(() => {
     if (!isAdmin) return;
+    if (!didInvalidateRef.current) {
+      didInvalidateRef.current = true;
+      return;
+    }
     invalidateScans("dependency", { immediate: true, supersede: true });
   }, [filters, invalidateScans, isAdmin, pageSize]);
 
@@ -182,26 +191,30 @@ export default function VulnerabilityScansPage() {
     const agentFilter = (filters.reporterAgentId || "").trim();
     const eventAgent = String(agent_id || "").trim();
     if (agentFilter && eventAgent && agentFilter !== eventAgent) return;
+    const scanPatch = scanData as Record<string, any>;
+    const built = buildVulnScanFromPatch(scanPatch);
+    if (!built) return;
 
     setItems((prev) => {
-      const idx = prev.findIndex((s) => s.scan_uuid === scan_uuid);
-      if (idx === -1) {
-        const sf = filters.status;
-        if (sf !== "all" && sf !== String((scanData as Record<string, any>).lifecycle_state || "").toLowerCase()) {
+      const alreadyVisible = prev.some((scan) => scan.scan_uuid === scan_uuid);
+      if (!alreadyVisible) {
+        if (filters.status !== "all") {
+          const matchesState =
+            built.status === filters.status ||
+            built.lifecycle_state === filters.status ||
+            built.current_phase === filters.status;
+          if (!matchesState) return prev;
+        }
+        if ((filters.tool || "").trim() && built.tool.toLowerCase() !== filters.tool.trim().toLowerCase()) {
           return prev;
         }
-        const built = buildVulnScanFromPatch(scanData as Record<string, any>);
-        if (built) return [built, ...prev];
-        return prev;
       }
-      const next = [...prev];
-      next[idx] = applyLifecycleScanPatch(next[idx], scanData as Record<string, any>);
-      return next;
+      return upsertLifecycleScan(prev, scanPatch);
     });
 
     setSelected((prev) => {
       if (!prev || prev.scan_uuid !== scan_uuid) return prev;
-      return applyLifecycleScanPatch(prev, scanData as Record<string, any>);
+      return applyLifecycleScanPatch(prev, scanPatch);
     });
   });
 
@@ -361,7 +374,7 @@ export default function VulnerabilityScansPage() {
           </div>
 
           <div>
-            <div className="text-xs text-muted-foreground">Status</div>
+            <div className="text-xs text-muted-foreground">State</div>
             <select
               value={draft.status}
               onChange={(e) => setDraft((p) => ({ ...p, status: e.target.value }))}
@@ -430,7 +443,7 @@ export default function VulnerabilityScansPage() {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
                 <tr className="border-b border-border/60 text-muted-foreground">
-                  <th className="text-left font-medium px-3 py-2 w-[130px]">Status</th>
+                  <th className="text-left font-medium px-3 py-2 w-[130px]">State</th>
                   <th className="text-left font-medium px-3 py-2 w-[120px]">Trigger</th>
                   <th className="text-left font-medium px-3 py-2 w-[220px]">Started</th>
                   <th className="text-left font-medium px-3 py-2 w-[120px]">Duration</th>
@@ -474,12 +487,12 @@ export default function VulnerabilityScansPage() {
                     >
                       <td className={cx("px-3", rowPad)}>
                         <div className="flex flex-col gap-1">
-                          <Badge variant={scanVariant(s.lifecycle_state)}>{s.lifecycle_state}</Badge>
+                          <Badge variant={scanVariant(s.lifecycle_state)}>{scanLifecycleLabel(s.lifecycle_state)}</Badge>
                           <div className={cx(
                             "text-[11px]",
                             live ? "text-primary/80" : "text-muted-foreground"
                           )}>
-                            {s.current_phase.replace(/_/g, " ")}
+                            {scanPhaseLabel(s.current_phase)}
                           </div>
                         </div>
                       </td>
@@ -492,7 +505,7 @@ export default function VulnerabilityScansPage() {
                               : "border-border/40 text-muted-foreground/60"
                           )}
                         >
-                          {s.trigger_source || "—"}
+                          {scanTriggerLabel(s.trigger_source)}
                         </span>
                       </td>
                       <td className={cx("px-3 font-mono text-[12px]", rowPad)}>

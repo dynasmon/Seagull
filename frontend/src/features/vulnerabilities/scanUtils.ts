@@ -14,6 +14,27 @@ export const PHASE_SEQ: string[] = [
   "cancelled",
 ];
 
+const SCAN_PHASE_LABELS: Record<string, string> = {
+  queued: "Queued",
+  acknowledged: "Acknowledged",
+  running: "Running",
+  collecting_inventory: "Collecting inventory",
+  analyzing_exposure: "Analyzing exposure",
+  querying_source: "Querying source",
+  normalizing_findings: "Normalizing findings",
+  ingesting_results: "Ingesting results",
+  completed: "Completed",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+const SCAN_TRIGGER_LABELS: Record<string, string> = {
+  manual: "Manual",
+  scheduled: "Scheduled",
+  api: "API",
+  agent: "Agent",
+};
+
 export const STAT_DISPLAY: Array<{ keys: string[]; label: string }> = [
   { keys: ["inventory_packages", "packages_collected"], label: "packages collected" },
   { keys: ["queried_packages", "packages_queried", "packages_analyzed"], label: "packages queried" },
@@ -77,23 +98,56 @@ export function isLiveScan(state: string): boolean {
   return s === "queued" || s === "acknowledged" || s === "running";
 }
 
+function humanizeToken(value: string): string {
+  return value
+    .trim()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+export function scanPhaseLabel(phase?: string | null): string {
+  const normalized = String(phase || "").trim().toLowerCase();
+  if (!normalized) return "-";
+  return SCAN_PHASE_LABELS[normalized] ?? humanizeToken(normalized);
+}
+
+export function scanLifecycleLabel(state?: string | null): string {
+  return scanPhaseLabel(state);
+}
+
+export function scanTriggerLabel(triggerSource?: string | null): string {
+  const normalized = String(triggerSource || "").trim().toLowerCase();
+  if (!normalized) return "Unknown";
+  return SCAN_TRIGGER_LABELS[normalized] ?? humanizeToken(normalized);
+}
+
 export function applyLifecycleScanPatch(existing: VulnScan, patch: Record<string, any>): VulnScan {
   return {
     ...existing,
     id: patch.id ?? existing.id,
+    scan_uuid: patch.scan_uuid ?? existing.scan_uuid,
+    reporter_agent_id: "reporter_agent_id" in patch ? patch.reporter_agent_id : existing.reporter_agent_id,
+    target: "target" in patch ? patch.target : existing.target,
+    tool: patch.tool ?? existing.tool,
+    tool_version: "tool_version" in patch ? patch.tool_version : existing.tool_version,
     status: patch.status ?? existing.status,
     lifecycle_state: patch.lifecycle_state ?? existing.lifecycle_state,
     current_phase: patch.current_phase ?? existing.current_phase,
+    queued_at: patch.queued_at ?? existing.queued_at,
     acknowledged_at: "acknowledged_at" in patch ? patch.acknowledged_at : existing.acknowledged_at,
     started_at: "started_at" in patch ? patch.started_at : existing.started_at,
     finished_at: "finished_at" in patch ? patch.finished_at : existing.finished_at,
     last_progress_at: patch.last_progress_at ?? existing.last_progress_at,
     duration_ms: "duration_ms" in patch ? patch.duration_ms : existing.duration_ms,
+    trigger_source: patch.trigger_source ?? existing.trigger_source,
     error_summary: "error_summary" in patch ? patch.error_summary : existing.error_summary,
     stats: patch.stats ? (patch.stats as Record<string, any>) : existing.stats,
     phase_timestamps: patch.phase_timestamps
       ? (patch.phase_timestamps as Record<string, string>)
       : existing.phase_timestamps,
+    scope: patch.scope ? (patch.scope as Record<string, any>) : existing.scope,
+    config: patch.config ? (patch.config as Record<string, any>) : existing.config,
+    created_at: patch.created_at ?? existing.created_at,
     updated_at: patch.updated_at ?? existing.updated_at,
   };
 }
@@ -127,4 +181,23 @@ export function buildVulnScanFromPatch(patch: Record<string, any>): VulnScan | n
     updated_at: patch.updated_at ?? now,
     created_at: patch.created_at ?? now,
   };
+}
+
+export function upsertLifecycleScan(
+  current: VulnScan[],
+  patch: Record<string, any>,
+  opts?: { maxItems?: number },
+): VulnScan[] {
+  const built = buildVulnScanFromPatch(patch);
+  if (!built) return current;
+
+  const idx = current.findIndex((item) => item.scan_uuid === built.scan_uuid);
+  if (idx === -1) {
+    const next = [built, ...current];
+    return typeof opts?.maxItems === "number" ? next.slice(0, opts.maxItems) : next;
+  }
+
+  const next = [...current];
+  next[idx] = applyLifecycleScanPatch(next[idx], patch);
+  return next;
 }
