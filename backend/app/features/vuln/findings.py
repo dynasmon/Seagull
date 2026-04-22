@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.agent_auth import AgentPrincipal
 from app.core.config import settings
 from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
+from app.features.vuln.presentation import serialize_finding
 from app.features.vuln.models import VulnScanModel
 from app.features.vuln.repository import (
     bulk_upsert_findings,
@@ -108,7 +109,7 @@ def persist_ingested_findings(
     scan_row: VulnScanModel | None,
     now: datetime,
     auto_reopen: bool,
-) -> int:
+) -> tuple[int, list[int]]:
     rows: list[dict[str, Any]] = []
     observed_fingerprints: list[str] = []
     sources_seen: set[str] = set()
@@ -164,21 +165,32 @@ def persist_ingested_findings(
             }
         )
 
+    changed_ids: list[int] = []
     if rows:
-        bulk_upsert_findings(db, rows=rows, auto_reopen=auto_reopen, now=now)
+        changed_ids.extend(bulk_upsert_findings(db, rows=rows, auto_reopen=auto_reopen, now=now))
 
     if scan_row is not None and scan_row.lifecycle_state == "completed":
         sources = sorted(sources_seen) or _default_sources_for_tool(scan_row.tool)
         if sources:
-            reconcile_resolved_findings(
-                db,
-                reporter_agent_id=agent.agent_id,
-                observed_fingerprints=observed_fingerprints,
-                sources=sources,
-                now=now,
+            changed_ids.extend(
+                reconcile_resolved_findings(
+                    db,
+                    reporter_agent_id=agent.agent_id,
+                    observed_fingerprints=observed_fingerprints,
+                    sources=sources,
+                    now=now,
+                )
             )
 
-    return len(rows)
+    deduped_ids: list[int] = []
+    seen_ids: set[int] = set()
+    for finding_id in changed_ids:
+        if finding_id in seen_ids:
+            continue
+        seen_ids.add(finding_id)
+        deduped_ids.append(finding_id)
+
+    return len(rows), deduped_ids
 
 
 def list_findings(
@@ -217,8 +229,9 @@ def list_findings(
         query_text=q,
     )
     has_more = len(rows) > page_size
-    items = rows[:page_size]
-    next_cursor = make_cursor_ts_id(items[-1].last_seen_at, items[-1].id) if has_more and items else None
+    page_rows = rows[:page_size]
+    items = [VulnFindingOut(**serialize_finding(row)) for row in page_rows]
+    next_cursor = make_cursor_ts_id(page_rows[-1].last_seen_at, page_rows[-1].id) if has_more and page_rows else None
     return CursorPage(items=items, next_cursor=next_cursor, has_more=has_more)
 
 
@@ -226,4 +239,4 @@ def get_finding(db: Session, *, finding_id: int):
     row = get_finding_by_id(db, finding_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    return row
+    return VulnFindingOut(**serialize_finding(row))

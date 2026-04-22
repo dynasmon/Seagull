@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.features.realtime.service import publish_realtime
 from app.features.vuln.domain import normalize_finding_observation_state, normalize_finding_operator_disposition
+from app.features.vuln.presentation import serialize_finding
 from app.features.vuln.repository import apply_finding_patch, commit, get_finding_by_id, refresh
 from app.features.vuln.schemas import VulnFindingPatchIn
 
@@ -68,14 +69,12 @@ def patch_finding(db: Session, *, finding_id: int, patch: VulnFindingPatchIn):
     refresh(db, row)
     try:
         publish_realtime(
-            "ui.vulnerabilities.invalidate",
+            "ui.vulnerabilities.finding.patch",
             {
                 "reason": "finding_updated",
-                "scope": "vulnerabilities",
                 "agent_id": str(row.asset_agent_id or row.reporter_agent_id or "").strip() or None,
-                "status": str(row.status or "").strip() or None,
-                "observation_state": str(row.observation_state or "").strip() or None,
-                "operator_disposition": str(row.operator_disposition or "").strip() or None,
+                "findings": [serialize_finding(row)],
+                "requires_reconcile": False,
             },
         )
     except Exception:
