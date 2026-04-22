@@ -14,6 +14,16 @@ import { useAuth } from "@/features/auth/context";
 
 import { ScanStats } from "./ActiveScanPanel";
 import { getVulnScansPage } from "./api";
+import { LiveElapsedText } from "./LiveElapsedText";
+import {
+  applyLifecycleScanPatch,
+  buildVulnScanFromPatch,
+  fmtAge,
+  fmtSec,
+  fmtWhen,
+  isLiveScan,
+  scanVariant,
+} from "./scanUtils";
 import VulnScanDrawer from "./VulnScanDrawer";
 import type { VulnScan } from "./types";
 
@@ -24,46 +34,6 @@ type Filters = {
   status: string;
   tool: string;
 };
-
-function fmtWhen(iso?: string | null): string {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleString();
-}
-
-function fmtSeconds(sec: number): string {
-  if (!Number.isFinite(sec) || sec < 0) return "-";
-  if (sec < 60) return `${Math.round(sec)}s`;
-  const m = Math.floor(sec / 60);
-  const r = Math.round(sec % 60);
-  if (m < 60) return r ? `${m}m ${r}s` : `${m}m`;
-  const h = Math.floor(m / 60);
-  const mr = m % 60;
-  return mr ? `${h}h ${mr}m` : `${h}h`;
-}
-
-function fmtAge(iso?: string | null): string {
-  if (!iso) return "-";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return String(iso);
-  const delta = Date.now() - t;
-  if (delta < 10_000) return "just now";
-  const sec = Math.floor(delta / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
-
-function statusVariant(status: string) {
-  const s = String(status || "").toLowerCase();
-  if (s === "queued" || s === "acknowledged" || s === "running") return "info";
-  if (s === "failed" || s === "cancelled") return "critical";
-  return "neutral";
-}
 
 function densityToggleLabel(d: Density): string {
   return d === "compact" ? "Compact" : "Comfortable";
@@ -94,56 +64,6 @@ function Toggle({
       {label}
     </button>
   );
-}
-
-function applyLifecycleScanPatch(existing: VulnScan, patch: Record<string, any>): VulnScan {
-  return {
-    ...existing,
-    id: patch.id ?? existing.id,
-    status: patch.status ?? existing.status,
-    lifecycle_state: patch.lifecycle_state ?? existing.lifecycle_state,
-    current_phase: patch.current_phase ?? existing.current_phase,
-    acknowledged_at: "acknowledged_at" in patch ? patch.acknowledged_at : existing.acknowledged_at,
-    started_at: "started_at" in patch ? patch.started_at : existing.started_at,
-    finished_at: "finished_at" in patch ? patch.finished_at : existing.finished_at,
-    last_progress_at: patch.last_progress_at ?? existing.last_progress_at,
-    duration_ms: "duration_ms" in patch ? patch.duration_ms : existing.duration_ms,
-    error_summary: "error_summary" in patch ? patch.error_summary : existing.error_summary,
-    stats: patch.stats ? (patch.stats as Record<string, any>) : existing.stats,
-    phase_timestamps: patch.phase_timestamps ? (patch.phase_timestamps as Record<string, string>) : existing.phase_timestamps,
-    updated_at: patch.updated_at ?? existing.updated_at,
-  };
-}
-
-function buildVulnScanFromPatch(patch: Record<string, any>): VulnScan | null {
-  const uuid = String(patch.scan_uuid || "").trim();
-  if (!uuid) return null;
-  const now = new Date().toISOString();
-  return {
-    id: patch.id ?? 0,
-    scan_uuid: uuid,
-    reporter_agent_id: patch.reporter_agent_id ?? null,
-    target: patch.target ?? null,
-    tool: patch.tool ?? "unknown",
-    tool_version: patch.tool_version ?? null,
-    status: patch.status ?? "queued",
-    lifecycle_state: patch.lifecycle_state ?? "queued",
-    current_phase: patch.current_phase ?? "queued",
-    queued_at: patch.queued_at ?? now,
-    acknowledged_at: patch.acknowledged_at ?? null,
-    started_at: patch.started_at ?? null,
-    finished_at: patch.finished_at ?? null,
-    last_progress_at: patch.last_progress_at ?? now,
-    duration_ms: patch.duration_ms ?? null,
-    trigger_source: patch.trigger_source ?? "unknown",
-    error_summary: patch.error_summary ?? null,
-    stats: (patch.stats ?? {}) as Record<string, any>,
-    phase_timestamps: (patch.phase_timestamps ?? {}) as Record<string, string>,
-    scope: (patch.scope ?? {}) as Record<string, any>,
-    config: (patch.config ?? {}) as Record<string, any>,
-    updated_at: patch.updated_at ?? now,
-    created_at: patch.created_at ?? now,
-  };
 }
 
 export default function VulnerabilityScansPage() {
@@ -391,7 +311,7 @@ export default function VulnerabilityScansPage() {
           <div className="mt-1 text-xs text-muted-foreground">in current page</div>
         </Card>
         <Card title="Avg duration" className="rounded-xl">
-          <div className="text-3xl font-semibold">{quickStats.avgDuration == null ? "-" : fmtSeconds(quickStats.avgDuration)}</div>
+          <div className="text-3xl font-semibold">{quickStats.avgDuration == null ? "-" : fmtSec(quickStats.avgDuration)}</div>
           <div className="mt-1 text-xs text-muted-foreground">completed scans only</div>
         </Card>
       </div>
@@ -532,7 +452,7 @@ export default function VulnerabilityScansPage() {
                       : !Number.isNaN(start) && !Number.isNaN(end)
                         ? Math.max(0, (end - start) / 1000)
                         : NaN;
-                  const isLive = ["queued", "acknowledged", "running"].includes(String(s.lifecycle_state || "").toLowerCase());
+                  const live = isLiveScan(String(s.lifecycle_state || "").toLowerCase());
                   const hasNumericStats = Object.values(s.stats || {}).some(
                     (value) => typeof value === "number" && Number.isFinite(value)
                   );
@@ -540,7 +460,11 @@ export default function VulnerabilityScansPage() {
                   return (
                     <tr
                       key={s.id || s.scan_uuid}
-                      className={cx("border-b border-border/40 hover:bg-muted/30", selectedRow && "bg-muted/40")}
+                      className={cx(
+                        "border-b border-border/40",
+                        live ? "hover:bg-primary/5" : "hover:bg-muted/30",
+                        selectedRow && "bg-muted/40"
+                      )}
                       onClick={() => {
                         setSelected(s);
                         setDrawerOpen(true);
@@ -550,8 +474,13 @@ export default function VulnerabilityScansPage() {
                     >
                       <td className={cx("px-3", rowPad)}>
                         <div className="flex flex-col gap-1">
-                          <Badge variant={statusVariant(s.lifecycle_state)}>{s.lifecycle_state}</Badge>
-                          <div className="text-[11px] text-muted-foreground">{s.current_phase.replace(/_/g, " ")}</div>
+                          <Badge variant={scanVariant(s.lifecycle_state)}>{s.lifecycle_state}</Badge>
+                          <div className={cx(
+                            "text-[11px]",
+                            live ? "text-primary/80" : "text-muted-foreground"
+                          )}>
+                            {s.current_phase.replace(/_/g, " ")}
+                          </div>
                         </div>
                       </td>
                       <td className={cx("px-3", rowPad)}>
@@ -572,7 +501,17 @@ export default function VulnerabilityScansPage() {
                         <div className="text-muted-foreground">last progress {fmtAge(s.last_progress_at)}</div>
                       </td>
                       <td className={cx("px-3 font-mono text-[12px]", rowPad)}>
-                        {Number.isFinite(dur) ? fmtSeconds(dur) : isLive ? "running…" : "-"}
+                        {live ? (
+                          <LiveElapsedText
+                            startIso={s.started_at ?? s.queued_at}
+                            endIso={s.finished_at}
+                            className="text-primary/90"
+                          />
+                        ) : Number.isFinite(dur) ? (
+                          fmtSec(dur)
+                        ) : (
+                          "-"
+                        )}
                       </td>
                       <td className={cx("px-3", rowPad)}>
                         <div className="font-mono text-[12px]">{s.reporter_agent_id || "-"}</div>

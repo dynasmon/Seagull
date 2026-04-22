@@ -1,106 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 
 import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
 import { cx } from "@/shared/lib/cx";
 import type { AgentPublic } from "@/features/agents/types";
 
+import { LiveElapsedText } from "./LiveElapsedText";
+import {
+  PHASE_SEQ,
+  STAT_DISPLAY,
+  fmtSec,
+  fmtWhen,
+  fmtAge,
+  fmtAbsoluteAndAge,
+  scanVariant,
+  isLiveScan,
+} from "./scanUtils";
 import type { VulnScan } from "./types";
-
-const PHASE_SEQ = [
-  "queued",
-  "acknowledged",
-  "running",
-  "collecting_inventory",
-  "analyzing_exposure",
-  "querying_source",
-  "normalizing_findings",
-  "ingesting_results",
-  "completed",
-  "failed",
-  "cancelled",
-];
-
-const STAT_DISPLAY: Array<{ keys: string[]; label: string }> = [
-  { keys: ["inventory_packages", "packages_collected"], label: "packages collected" },
-  { keys: ["queried_packages", "packages_queried", "packages_analyzed"], label: "packages queried" },
-  { keys: ["received_vulns", "vulnerabilities_matched", "vulns_matched"], label: "vulnerabilities matched" },
-  { keys: ["emitted_findings", "findings_emitted"], label: "findings emitted" },
-  { keys: ["stored_findings", "findings_stored"], label: "findings stored" },
-  { keys: ["exposed_ports"], label: "exposed ports" },
-  { keys: ["exposure_surface_score"], label: "exposure score" },
-  { keys: ["errors_count", "error_count"], label: "errors" },
-];
 
 const KNOWN_STAT_KEYS = new Set(STAT_DISPLAY.flatMap((d) => d.keys));
 
-function fmtSec(sec: number): string {
-  if (!Number.isFinite(sec) || sec < 0) return "-";
-  if (sec < 60) return `${Math.round(sec)}s`;
-  const m = Math.floor(sec / 60);
-  const r = Math.round(sec % 60);
-  if (m < 60) return r ? `${m}m ${r}s` : `${m}m`;
-  const h = Math.floor(m / 60);
-  const mr = m % 60;
-  return mr ? `${h}h ${mr}m` : `${h}h`;
-}
-
-function fmtWhen(iso?: string | null): string {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleString();
-}
-
-function fmtAge(iso?: string | null): string {
-  if (!iso) return "-";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return String(iso);
-  const delta = Date.now() - t;
-  if (delta < 10_000) return "just now";
-  const sec = Math.floor(delta / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
-
-function fmtAbsoluteAndAge(iso?: string | null): string {
-  if (!iso) return "-";
-  return `${fmtWhen(iso)} · ${fmtAge(iso)}`;
-}
-
-function scanVariant(state: string): "info" | "neutral" | "critical" {
-  const s = String(state || "").toLowerCase();
-  if (s === "completed") return "neutral";
-  if (s === "failed" || s === "cancelled") return "critical";
-  return "info";
-}
-
-function isLiveScan(state: string): boolean {
-  const s = String(state || "").toLowerCase();
-  return s === "queued" || s === "acknowledged" || s === "running";
-}
-
-function useLiveElapsed(startIso: string | null | undefined, endIso: string | null | undefined): string {
-  const active = Boolean(startIso && !endIso);
-  const [, setTick] = useState(0);
-
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => clearInterval(id);
-  }, [active]);
-
-  const start = Date.parse(startIso ?? "");
-  if (Number.isNaN(start)) return "-";
-  const end = endIso ? Date.parse(endIso) : Date.now();
-  return fmtSec(Math.max(0, Math.floor((end - start) / 1000)));
-}
-
-export function ScanStats({ stats }: { stats: Record<string, any> }) {
+export const ScanStats = memo(function ScanStats({ stats }: { stats: Record<string, any> }) {
   const chips = useMemo(() => {
     if (!stats || typeof stats !== "object") return [];
     const rendered = new Set<string>();
@@ -145,9 +65,9 @@ export function ScanStats({ stats }: { stats: Record<string, any> }) {
       ))}
     </div>
   );
-}
+});
 
-export function PhaseTimeline({ scan }: { scan: VulnScan }) {
+export const PhaseTimeline = memo(function PhaseTimeline({ scan }: { scan: VulnScan }) {
   const { current_phase, lifecycle_state } = scan;
 
   const rows = useMemo(() => {
@@ -227,9 +147,9 @@ export function PhaseTimeline({ scan }: { scan: VulnScan }) {
       ))}
     </div>
   );
-}
+});
 
-function RecentScansTable({
+const RecentScansTable = memo(function RecentScansTable({
   scans,
   scanTargetAgent,
   onlySelectedAgent,
@@ -257,11 +177,11 @@ function RecentScansTable({
   }
 
   return (
-    <div className="max-h-[260px] overflow-auto rounded-lg border border-border/60 bg-background/20">
+    <div className="max-h-[280px] overflow-auto rounded-lg border border-border/60 bg-background/20">
       <table className="w-full text-[11px]">
         <thead className="sticky top-0 bg-background/90 backdrop-blur">
           <tr className="border-b border-border/40 text-left text-muted-foreground/70">
-            <th className="px-2 py-1.5 font-medium">Status</th>
+            <th className="px-2 py-1.5 font-medium">Status / Phase</th>
             <th className="px-2 py-1.5 font-medium">Reporter / Target</th>
             <th className="px-2 py-1.5 font-medium">Trigger</th>
             <th className="px-2 py-1.5 font-medium">Started</th>
@@ -274,24 +194,27 @@ function RecentScansTable({
           {visible.map((s) => {
             const state = String(s.lifecycle_state || "").toLowerCase();
             const live = isLiveScan(state);
-            const durMs =
-              typeof s.duration_ms === "number" && Number.isFinite(s.duration_ms)
-                ? s.duration_ms
-                : s.started_at && s.finished_at
-                ? Date.parse(s.finished_at) - Date.parse(s.started_at)
-                : null;
+            const hasStaticDuration =
+              (typeof s.duration_ms === "number" && Number.isFinite(s.duration_ms)) ||
+              Boolean(s.started_at && s.finished_at);
 
             return (
               <tr
                 key={s.id || s.scan_uuid}
-                className="border-b border-border/20 hover:bg-muted/15 cursor-pointer"
+                className={cx(
+                  "border-b border-border/20 cursor-pointer",
+                  live ? "hover:bg-primary/5 bg-primary/[0.03]" : "hover:bg-muted/15"
+                )}
                 onClick={() => onViewScan(s)}
               >
                 <td className="px-2 py-1.5">
                   <div className="flex flex-col gap-0.5">
                     <Badge variant={scanVariant(state)}>{s.lifecycle_state}</Badge>
                     {s.current_phase && s.current_phase !== s.lifecycle_state ? (
-                      <span className="text-[10px] text-muted-foreground/70">
+                      <span className={cx(
+                        "text-[10px]",
+                        live ? "text-primary/80" : "text-muted-foreground/70"
+                      )}>
                         {s.current_phase.replace(/_/g, " ")}
                       </span>
                     ) : null}
@@ -324,12 +247,33 @@ function RecentScansTable({
                   <div>{fmtWhen(s.started_at || s.queued_at)}</div>
                   <div className="text-muted-foreground/60">{fmtAge(s.started_at || s.queued_at)}</div>
                 </td>
-                <td className="px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
-                  {durMs !== null && Number.isFinite(durMs)
-                    ? fmtSec(Math.max(0, durMs / 1000))
-                    : live
-                    ? "running…"
-                    : "—"}
+                <td className="px-2 py-1.5 font-mono text-[10px]">
+                  {live && !hasStaticDuration ? (
+                    <LiveElapsedText
+                      startIso={s.started_at ?? s.queued_at}
+                      endIso={s.finished_at}
+                      className="text-primary/90"
+                    />
+                  ) : hasStaticDuration ? (
+                    <span className="text-muted-foreground">
+                      {typeof s.duration_ms === "number" && Number.isFinite(s.duration_ms)
+                        ? fmtSec(s.duration_ms / 1000)
+                        : fmtSec(
+                            Math.max(
+                              0,
+                              (Date.parse(s.finished_at!) - Date.parse(s.started_at!)) / 1000
+                            )
+                          )}
+                    </span>
+                  ) : live ? (
+                    <LiveElapsedText
+                      startIso={s.started_at ?? s.queued_at}
+                      endIso={null}
+                      className="text-primary/90"
+                    />
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
                 </td>
                 <td className="px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
                   {(s.stats as any)?.findings_emitted ??
@@ -355,6 +299,45 @@ function RecentScansTable({
       </table>
     </div>
   );
+});
+
+function ScanDurationCell({ scan, isLive }: { scan: VulnScan; isLive: boolean }) {
+  const labelClass = cx(
+    "font-mono text-[12px] font-semibold",
+    isLive ? "text-primary" : "text-foreground"
+  );
+
+  if (typeof scan.duration_ms === "number" && Number.isFinite(scan.duration_ms)) {
+    return <span className={labelClass}>{fmtSec(scan.duration_ms / 1000)}</span>;
+  }
+  if (scan.started_at && scan.finished_at) {
+    const ms = Date.parse(scan.finished_at) - Date.parse(scan.started_at);
+    return (
+      <span className={labelClass}>
+        {Number.isFinite(ms) ? fmtSec(Math.max(0, ms / 1000)) : "—"}
+      </span>
+    );
+  }
+  if (scan.started_at || scan.queued_at) {
+    return (
+      <LiveElapsedText
+        startIso={scan.started_at ?? scan.queued_at}
+        endIso={scan.finished_at}
+        className={labelClass}
+      />
+    );
+  }
+  return <span className={labelClass}>—</span>;
+}
+
+function QueueWaitLabel({ scan }: { scan: VulnScan }) {
+  if (!scan.queued_at) return <span>—</span>;
+  const queuedAt = Date.parse(scan.queued_at);
+  const dequeuedAt = Date.parse(
+    scan.acknowledged_at || scan.started_at || scan.finished_at || ""
+  );
+  if (Number.isNaN(queuedAt) || Number.isNaN(dequeuedAt)) return <span>—</span>;
+  return <span>{fmtSec(Math.max(0, (dequeuedAt - queuedAt) / 1000))}</span>;
 }
 
 export function ActiveScanPanel({
@@ -391,32 +374,6 @@ export function ActiveScanPanel({
   const scan = activeScan;
   const scanState = scan ? String(scan.lifecycle_state || "").toLowerCase() : "";
   const scanIsLive = scan ? isLiveScan(scanState) : false;
-
-  const elapsed = useLiveElapsed(
-    scan?.started_at ?? scan?.queued_at ?? null,
-    scan?.finished_at ?? null
-  );
-
-  const durationLabel = (() => {
-    if (!scan) return "—";
-    if (typeof scan.duration_ms === "number" && Number.isFinite(scan.duration_ms)) {
-      return fmtSec(scan.duration_ms / 1000);
-    }
-    if (scan.started_at && scan.finished_at) {
-      const ms = Date.parse(scan.finished_at) - Date.parse(scan.started_at);
-      return Number.isFinite(ms) ? fmtSec(Math.max(0, ms / 1000)) : "—";
-    }
-    if (scan.started_at || scan.queued_at) return elapsed;
-    return "—";
-  })();
-  const queueWaitLabel = (() => {
-    if (!scan?.queued_at) return "—";
-    const queuedAt = Date.parse(scan.queued_at);
-    const dequeuedAt = Date.parse(scan.acknowledged_at || scan.started_at || scan.finished_at || "");
-    if (Number.isNaN(queuedAt) || Number.isNaN(dequeuedAt)) return "—";
-    return fmtSec(Math.max(0, (dequeuedAt - queuedAt) / 1000));
-  })();
-
   const hasPhaseTimeline = scan && Object.keys(scan.phase_timestamps ?? {}).length > 0;
   const hasStats =
     scan &&
@@ -470,7 +427,8 @@ export function ActiveScanPanel({
                 "inline-flex h-9 items-center rounded-md border border-border/60 bg-background/40",
                 "px-4 text-xs font-mono uppercase tracking-widest text-muted-foreground",
                 "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
-                (recentScansBusy || (onlySelectedAgent && !scanTargetAgent)) && "opacity-50 cursor-not-allowed"
+                (recentScansBusy || (onlySelectedAgent && !scanTargetAgent)) &&
+                  "opacity-50 cursor-not-allowed"
               )}
             >
               {recentScansBusy ? "Refreshing…" : "Refresh"}
@@ -495,7 +453,10 @@ export function ActiveScanPanel({
                 <div className="flex items-center gap-2 flex-wrap">
                   <Badge variant={scanVariant(scanState)}>{scan.lifecycle_state}</Badge>
                   {scan.current_phase && scan.current_phase !== scan.lifecycle_state && (
-                    <span className="font-mono text-[11px] text-muted-foreground">
+                    <span className={cx(
+                      "font-mono text-[11px]",
+                      scanIsLive ? "text-primary/80" : "text-muted-foreground"
+                    )}>
                       {scan.current_phase.replace(/_/g, " ")}
                     </span>
                   )}
@@ -523,12 +484,21 @@ export function ActiveScanPanel({
 
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                 <div className="rounded border border-border/40 bg-background/20 px-2.5 py-2">
-                  <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/70">Reporter</div>
-                  <div className="mt-1 font-mono text-[11px] text-foreground">{scan.reporter_agent_id || "—"}</div>
+                  <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/70">
+                    Reporter
+                  </div>
+                  <div className="mt-1 font-mono text-[11px] text-foreground">
+                    {scan.reporter_agent_id || "—"}
+                  </div>
                 </div>
                 <div className="rounded border border-border/40 bg-background/20 px-2.5 py-2">
-                  <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/70">Target</div>
-                  <div className="mt-1 truncate font-mono text-[11px] text-foreground" title={scan.target || ""}>
+                  <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/70">
+                    Target
+                  </div>
+                  <div
+                    className="mt-1 truncate font-mono text-[11px] text-foreground"
+                    title={scan.target || ""}
+                  >
                     {scan.target || "—"}
                   </div>
                 </div>
@@ -562,19 +532,16 @@ export function ActiveScanPanel({
                 {scan.queued_at && (
                   <>
                     <dt className="text-[10px] text-muted-foreground/70 whitespace-nowrap">Queue wait</dt>
-                    <dd className="font-mono text-[10px] text-muted-foreground">{queueWaitLabel}</dd>
+                    <dd className="font-mono text-[10px] text-muted-foreground">
+                      <QueueWaitLabel scan={scan} />
+                    </dd>
                   </>
                 )}
                 <dt className="text-[10px] text-muted-foreground/70 whitespace-nowrap">
                   {scanIsLive ? "Elapsed" : "Duration"}
                 </dt>
-                <dd
-                  className={cx(
-                    "font-mono text-[12px] font-semibold",
-                    scanIsLive ? "text-primary" : "text-foreground"
-                  )}
-                >
-                  {durationLabel}
+                <dd>
+                  <ScanDurationCell scan={scan} isLive={scanIsLive} />
                 </dd>
                 {scan.last_progress_at && (
                   <>
