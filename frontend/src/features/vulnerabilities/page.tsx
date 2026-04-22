@@ -16,59 +16,15 @@ import type { AgentPublic } from "@/features/agents/types";
 
 import { getVulnFindingsPage, getVulnPosture, getVulnScansPage, getVulnSummary, triggerVulnScanNow } from "./api";
 import { ActiveScanPanel } from "./ActiveScanPanel";
+import {
+  applyLifecycleScanPatch,
+  buildVulnScanFromPatch,
+  fmtAge,
+  fmtWhen,
+} from "./scanUtils";
 import VulnFindingDrawer from "./VulnFindingDrawer";
 import VulnScanDrawer from "./VulnScanDrawer";
 import type { VulnFinding, VulnPosture, VulnScan, VulnSummary } from "./types";
-
-function applyLifecycleScanPatch(existing: VulnScan, patch: Record<string, any>): VulnScan {
-  return {
-    ...existing,
-    id: patch.id ?? existing.id,
-    status: patch.status ?? existing.status,
-    lifecycle_state: patch.lifecycle_state ?? existing.lifecycle_state,
-    current_phase: patch.current_phase ?? existing.current_phase,
-    acknowledged_at: "acknowledged_at" in patch ? patch.acknowledged_at : existing.acknowledged_at,
-    started_at: "started_at" in patch ? patch.started_at : existing.started_at,
-    finished_at: "finished_at" in patch ? patch.finished_at : existing.finished_at,
-    last_progress_at: patch.last_progress_at ?? existing.last_progress_at,
-    duration_ms: "duration_ms" in patch ? patch.duration_ms : existing.duration_ms,
-    error_summary: "error_summary" in patch ? patch.error_summary : existing.error_summary,
-    stats: patch.stats ? (patch.stats as Record<string, any>) : existing.stats,
-    phase_timestamps: patch.phase_timestamps ? (patch.phase_timestamps as Record<string, string>) : existing.phase_timestamps,
-    updated_at: patch.updated_at ?? existing.updated_at,
-  };
-}
-
-function buildVulnScanFromPatch(patch: Record<string, any>): VulnScan | null {
-  const uuid = String(patch.scan_uuid || "").trim();
-  if (!uuid) return null;
-  const now = new Date().toISOString();
-  return {
-    id: patch.id ?? 0,
-    scan_uuid: uuid,
-    reporter_agent_id: patch.reporter_agent_id ?? null,
-    target: patch.target ?? null,
-    tool: patch.tool ?? "unknown",
-    tool_version: patch.tool_version ?? null,
-    status: patch.status ?? "queued",
-    lifecycle_state: patch.lifecycle_state ?? "queued",
-    current_phase: patch.current_phase ?? "queued",
-    queued_at: patch.queued_at ?? now,
-    acknowledged_at: patch.acknowledged_at ?? null,
-    started_at: patch.started_at ?? null,
-    finished_at: patch.finished_at ?? null,
-    last_progress_at: patch.last_progress_at ?? now,
-    duration_ms: patch.duration_ms ?? null,
-    trigger_source: patch.trigger_source ?? "unknown",
-    error_summary: patch.error_summary ?? null,
-    stats: (patch.stats ?? {}) as Record<string, any>,
-    phase_timestamps: (patch.phase_timestamps ?? {}) as Record<string, string>,
-    scope: (patch.scope ?? {}) as Record<string, any>,
-    config: (patch.config ?? {}) as Record<string, any>,
-    updated_at: patch.updated_at ?? now,
-    created_at: patch.created_at ?? now,
-  };
-}
 
 type Density = "comfortable" | "compact";
 
@@ -94,27 +50,10 @@ function sevVariant(sev: string) {
   return "neutral";
 }
 
-function fmtWhen(iso?: string | null): string {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleString();
-}
-
-function fmtAge(iso?: string | null): string {
-  if (!iso) return "-";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return String(iso);
-  const delta = Date.now() - t;
-  if (delta < 10_000) return "just now";
-  const sec = Math.floor(delta / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  return `${day}d ago`;
+function fmtRisk(n: number | null | undefined): string {
+  const v = Number(n || 0);
+  if (!Number.isFinite(v)) return "0.0";
+  return v.toFixed(1);
 }
 
 function prettyAssetLabel(f: VulnFinding): string {
@@ -122,12 +61,6 @@ function prettyAssetLabel(f: VulnFinding): string {
   if (f.asset_key) return f.asset_key;
   if (f.target) return f.target;
   return "-";
-}
-
-function fmtRisk(n: number | null | undefined): string {
-  const v = Number(n || 0);
-  if (!Number.isFinite(v)) return "0.0";
-  return v.toFixed(1);
 }
 
 function exposureScoreOf(f: VulnFinding): number {
@@ -147,10 +80,13 @@ function serviceHintsOf(f: VulnFinding): string[] {
 }
 
 function packagePivotKey(f: VulnFinding): string {
-  const fromEvidence =
-    String((f.evidence as any)?.package?.name || (f.evidence as any)?.package_name || (f.evidence as any)?.dependency?.name || "").trim();
+  const fromEvidence = String(
+    (f.evidence as any)?.package?.name ||
+      (f.evidence as any)?.package_name ||
+      (f.evidence as any)?.dependency?.name ||
+      ""
+  ).trim();
   if (fromEvidence) return fromEvidence;
-
   const fromLocation = String(f.location || "").trim();
   if (fromLocation) {
     const at = fromLocation.indexOf("@");
@@ -159,7 +95,6 @@ function packagePivotKey(f: VulnFinding): string {
     if (colon > 0) return fromLocation.slice(0, colon);
     return fromLocation;
   }
-
   return "";
 }
 
@@ -177,29 +112,57 @@ function dispositionVariant(disposition: string) {
   return "neutral";
 }
 
-function Toggle({
-  value,
-  onChange,
+function StatItem({
   label,
+  value,
+  sub,
+  loading,
 }: {
-  value: boolean;
-  onChange: (next: boolean) => void;
   label: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+  loading?: boolean;
+}) {
+  return (
+    <div>
+      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+        {label}
+      </div>
+      <div
+        className={cx(
+          "mt-1 text-2xl font-semibold tabular-nums transition-opacity",
+          loading && "opacity-50"
+        )}
+      >
+        {value}
+      </div>
+      {sub && <div className="mt-0.5 text-[11px] text-muted-foreground">{sub}</div>}
+    </div>
+  );
+}
+
+function CtrlBtn({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
-      onClick={() => onChange(!value)}
+      onClick={onClick}
+      disabled={disabled}
       className={cx(
-        "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-        "px-3 py-2 text-xs font-mono uppercase tracking-widest",
-        value ? "text-foreground" : "text-muted-foreground",
-        "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+        "rounded-md border border-border/60 bg-background/40 px-3 py-2",
+        "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
+        "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
+        disabled && "opacity-50 cursor-not-allowed"
       )}
-      title={label}
     >
-      <span className={cx("h-2.5 w-2.5 rounded-full", value ? "bg-primary" : "bg-muted-foreground/50")} />
-      {label}
+      {children}
     </button>
   );
 }
@@ -244,7 +207,6 @@ export default function VulnerabilitiesPage() {
     cve: "",
     includeSuppressed: false,
   });
-
   const [filters, setFilters] = useState<Filters>(draft);
 
   const [selected, setSelected] = useState<VulnFinding | null>(null);
@@ -267,92 +229,101 @@ export default function VulnerabilitiesPage() {
     itemsRef.current = items;
   }, [items]);
 
-  const loadSummary = useCallback(async (params?: { includeSuppressed?: boolean }) => {
-    if (!isAdmin) return;
-    setSummaryBusy(true);
-    try {
-      const out = await getVulnSummary({
-        active_within_days: activeDays,
-        include_suppressed: params?.includeSuppressed ?? filters.includeSuppressed,
-      });
-      setSummary(out);
-    } catch {
-      setSummary(null);
-    } finally {
-      setSummaryBusy(false);
-    }
-  }, [activeDays, filters.includeSuppressed, isAdmin]);
-
-  const loadPosture = useCallback(async (params?: { includeSuppressed?: boolean }) => {
-    if (!isAdmin) return;
-    setPostureBusy(true);
-    try {
-      const out = await getVulnPosture({
-        active_within_days: activeDays,
-        include_suppressed: params?.includeSuppressed ?? filters.includeSuppressed,
-        top_n: 15,
-      });
-      setPosture(out);
-    } catch {
-      setPosture(null);
-    } finally {
-      setPostureBusy(false);
-    }
-  }, [activeDays, filters.includeSuppressed, isAdmin]);
-
-  const loadPage = useCallback(async (opts: { reset: boolean; cursor?: string | null }) => {
-    if (!isAdmin) return;
-
-    const mySeq = ++reqSeq.current;
-    if (opts.reset) {
-      setBusy(true);
-      setError(null);
-    } else {
-      setBusyMore(true);
-      setError(null);
-    }
-
-    try {
-      const out = await getVulnFindingsPage({
-        page_size: pageSize,
-        cursor: opts.cursor ?? null,
-        q: (filters.q || "").trim() || undefined,
-        min_severity: filters.minSeverity !== "all" ? filters.minSeverity : undefined,
-        observation_state: filters.observationState !== "all" ? filters.observationState : undefined,
-        disposition: filters.disposition !== "all" ? filters.disposition : undefined,
-        reporter_agent_id: (filters.reporterAgentId || "").trim() || undefined,
-        asset_agent_id: (filters.assetAgentId || "").trim() || undefined,
-        cve: (filters.cve || "").trim() || undefined,
-        include_suppressed: filters.includeSuppressed || filters.disposition === "suppressed",
-      });
-
-      if (reqSeq.current !== mySeq) return;
-
-      const nextItems = opts.reset ? (out.items || []) : [...itemsRef.current, ...(out.items || [])];
-      setItems(nextItems);
-      setCursor(out.next_cursor);
-      setHasMore(Boolean(out.has_more));
-
-      setSelected((prev) => {
-        if (!prev) return null;
-        return nextItems.find((x) => x.id === prev.id) || null;
-      });
-    } catch (e: any) {
-      if (reqSeq.current !== mySeq) return;
-      setError(e?.message || "Failed to load findings");
-      if (opts.reset) {
-        setItems([]);
-        setCursor(null);
-        setHasMore(false);
-        setSelected(null);
-        setDrawerOpen(false);
+  const loadSummary = useCallback(
+    async (params?: { includeSuppressed?: boolean }) => {
+      if (!isAdmin) return;
+      setSummaryBusy(true);
+      try {
+        const out = await getVulnSummary({
+          active_within_days: activeDays,
+          include_suppressed: params?.includeSuppressed ?? filters.includeSuppressed,
+        });
+        setSummary(out);
+      } catch {
+        // keep stale data on error
+      } finally {
+        setSummaryBusy(false);
       }
-    } finally {
-      if (reqSeq.current !== mySeq) return;
-      setBusy(false);
-      setBusyMore(false);
-    }
-  }, [filters, isAdmin, pageSize]);
+    },
+    [activeDays, filters.includeSuppressed, isAdmin]
+  );
+
+  const loadPosture = useCallback(
+    async (params?: { includeSuppressed?: boolean }) => {
+      if (!isAdmin) return;
+      setPostureBusy(true);
+      try {
+        const out = await getVulnPosture({
+          active_within_days: activeDays,
+          include_suppressed: params?.includeSuppressed ?? filters.includeSuppressed,
+          top_n: 15,
+        });
+        setPosture(out);
+      } catch {
+        // keep stale data on error
+      } finally {
+        setPostureBusy(false);
+      }
+    },
+    [activeDays, filters.includeSuppressed, isAdmin]
+  );
+
+  const loadPage = useCallback(
+    async (opts: { reset: boolean; cursor?: string | null }) => {
+      if (!isAdmin) return;
+
+      const mySeq = ++reqSeq.current;
+      if (opts.reset) {
+        setBusy(true);
+        setError(null);
+      } else {
+        setBusyMore(true);
+        setError(null);
+      }
+
+      try {
+        const out = await getVulnFindingsPage({
+          page_size: pageSize,
+          cursor: opts.cursor ?? null,
+          q: (filters.q || "").trim() || undefined,
+          min_severity: filters.minSeverity !== "all" ? filters.minSeverity : undefined,
+          observation_state: filters.observationState !== "all" ? filters.observationState : undefined,
+          disposition: filters.disposition !== "all" ? filters.disposition : undefined,
+          reporter_agent_id: (filters.reporterAgentId || "").trim() || undefined,
+          asset_agent_id: (filters.assetAgentId || "").trim() || undefined,
+          cve: (filters.cve || "").trim() || undefined,
+          include_suppressed: filters.includeSuppressed || filters.disposition === "suppressed",
+        });
+
+        if (reqSeq.current !== mySeq) return;
+
+        const nextItems = opts.reset ? (out.items || []) : [...itemsRef.current, ...(out.items || [])];
+        setItems(nextItems);
+        setCursor(out.next_cursor);
+        setHasMore(Boolean(out.has_more));
+
+        setSelected((prev) => {
+          if (!prev) return null;
+          return nextItems.find((x) => x.id === prev.id) || null;
+        });
+      } catch (e: any) {
+        if (reqSeq.current !== mySeq) return;
+        setError(e?.message || "Failed to load findings");
+        if (opts.reset) {
+          setItems([]);
+          setCursor(null);
+          setHasMore(false);
+          setSelected(null);
+          setDrawerOpen(false);
+        }
+      } finally {
+        if (reqSeq.current !== mySeq) return;
+        setBusy(false);
+        setBusyMore(false);
+      }
+    },
+    [filters, isAdmin, pageSize]
+  );
 
   function applyFilters() {
     setFilters(draft);
@@ -381,9 +352,7 @@ export default function VulnerabilitiesPage() {
         pick.sort((a, b) => a.agent_id.localeCompare(b.agent_id));
         setAgents(pick);
         const preferred =
-          pick.find((a) => a.agent_id.includes("vuln"))?.agent_id ||
-          pick[0]?.agent_id ||
-          "";
+          pick.find((a) => a.agent_id.includes("vuln"))?.agent_id || pick[0]?.agent_id || "";
         setScanTargetAgent(preferred);
       })
       .catch(() => setAgents([]));
@@ -435,8 +404,8 @@ export default function VulnerabilitiesPage() {
     await Promise.all([
       loadSummary({ includeSuppressed: filters.includeSuppressed }),
       loadPosture({ includeSuppressed: filters.includeSuppressed }),
+      loadPage({ reset: true, cursor: null }),
     ]);
-    await loadPage({ reset: true, cursor: null });
   }, [filters.includeSuppressed, loadPage, loadPosture, loadSummary]);
 
   const live = useLiveRefresh({
@@ -454,6 +423,7 @@ export default function VulnerabilitiesPage() {
   });
   const { refreshNow: refreshDashboardNow, invalidate: invalidateDashboard } = live;
   const { refreshNow: refreshRecentScansNow, invalidate: invalidateRecentScans } = scansLive;
+
   const recentScansScopeKey = onlySelectedAgentScans ? scanTargetAgent || "__none__" : "__all__";
   const recentScansScopeMissing = recentScansScopeKey === "__none__";
 
@@ -515,9 +485,7 @@ export default function VulnerabilitiesPage() {
       return;
     }
 
-    if (reason === "findings_ingested") {
-      invalidateDashboard();
-    }
+    if (reason === "findings_ingested") invalidateDashboard();
     if (reason === "manual_scan_queued") {
       if (!onlySelectedAgentScans || !scanTargetAgent || !eventAgentId || scanTargetAgent === eventAgentId) {
         invalidateRecentScans();
@@ -525,33 +493,28 @@ export default function VulnerabilitiesPage() {
     }
   });
 
+  // Derived state
+
   const severityBlocks = useMemo(() => {
     const m = summary?.by_severity || {};
     const order = ["critical", "high", "medium", "low", "unknown"];
     const out = order
       .filter((k) => Object.prototype.hasOwnProperty.call(m, k))
       .map((k) => ({ k, v: Number(m[k] || 0) }));
-
     Object.keys(m)
       .filter((k) => !order.includes(k))
       .sort()
       .forEach((k) => out.push({ k, v: Number(m[k] || 0) }));
-
     return out;
   }, [summary]);
 
   const dense = density === "compact";
-  const visibleRecentScans = useMemo(
-    () =>
-      (recentScans || []).filter((s) =>
-        onlySelectedAgentScans ? (s.reporter_agent_id || "") === (scanTargetAgent || "") : true
-      ),
-    [recentScans, onlySelectedAgentScans, scanTargetAgent]
-  );
+
   const selectedAgentRecentScans = useMemo(
     () => (recentScans || []).filter((s) => (s.reporter_agent_id || "") === (scanTargetAgent || "")),
     [recentScans, scanTargetAgent]
   );
+
   const activeScan = useMemo(() => {
     const liveScan = selectedAgentRecentScans.find((scan) => {
       const state = String(scan.lifecycle_state || "").toLowerCase();
@@ -559,6 +522,7 @@ export default function VulnerabilitiesPage() {
     });
     return liveScan ?? selectedAgentRecentScans[0] ?? null;
   }, [selectedAgentRecentScans]);
+
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if ((filters.q || "").trim()) n++;
@@ -571,34 +535,27 @@ export default function VulnerabilitiesPage() {
     if (filters.includeSuppressed) n++;
     return n;
   }, [filters]);
+
   const findingsHint = useMemo(() => {
-    const scans = visibleRecentScans;
+    const scans = (recentScans || []).filter((s) =>
+      onlySelectedAgentScans ? (s.reporter_agent_id || "") === (scanTargetAgent || "") : true
+    );
     const hasRunning = scans.some((s) => {
       const st = String(s.lifecycle_state || "").toLowerCase();
       return st === "queued" || st === "acknowledged" || st === "running";
     });
-    const hasCompleted = scans.some((s) => {
-      const st = String(s.lifecycle_state || "").toLowerCase();
-      return st === "completed";
-    });
+    const hasCompleted = scans.some((s) => String(s.lifecycle_state || "").toLowerCase() === "completed");
     const totalEmitted = scans.reduce((acc, s) => {
       const v = Number((s.stats as any)?.emitted_findings || 0);
       return acc + (Number.isFinite(v) ? v : 0);
     }, 0);
-    if (activeFilterCount > 0) {
-      return `No findings match the current filters (${activeFilterCount} active).`;
-    }
-    if (hasRunning) {
-      return "A scan is running/queued. Wait a few seconds and refresh.";
-    }
-    if (hasCompleted && totalEmitted === 0) {
-      return "Completed scans reported no vulnerability findings.";
-    }
-    if (!scans.length) {
-      return "No recent scans for this agent yet.";
-    }
+    if (activeFilterCount > 0) return `No findings match the current filters (${activeFilterCount} active).`;
+    if (hasRunning) return "A scan is in progress. Wait a few seconds and refresh.";
+    if (hasCompleted && totalEmitted === 0) return "Completed scans reported no vulnerability findings.";
+    if (!scans.length) return "No recent scans for this agent yet.";
     return "No persisted findings for the recent scans yet.";
-  }, [visibleRecentScans, activeFilterCount]);
+  }, [recentScans, onlySelectedAgentScans, scanTargetAgent, activeFilterCount]);
+
   const assetPivots = useMemo(() => {
     const map = new Map<string, { label: string; count: number; maxRisk: number }>();
     for (const f of items) {
@@ -610,8 +567,9 @@ export default function VulnerabilitiesPage() {
     }
     return Array.from(map.values())
       .sort((a, b) => (b.maxRisk === a.maxRisk ? b.count - a.count : b.maxRisk - a.maxRisk))
-      .slice(0, 10);
+      .slice(0, 8);
   }, [items]);
+
   const packagePivots = useMemo(() => {
     const map = new Map<string, number>();
     for (const f of items) {
@@ -622,8 +580,10 @@ export default function VulnerabilitiesPage() {
     return Array.from(map.entries())
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
+      .slice(0, 8);
   }, [items]);
+
+  const hasPivots = assetPivots.length > 0 || packagePivots.length > 0;
 
   if (!isAdmin) {
     return (
@@ -636,8 +596,14 @@ export default function VulnerabilitiesPage() {
     );
   }
 
+  const inputCx = cx(
+    "w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
+    "text-sm outline-none focus:ring-2 focus:ring-primary/30"
+  );
+
   return (
     <div className="space-y-6">
+      {/* ── Header ── */}
       <PageHeader
         title="Vulnerabilities"
         breadcrumb={["Detection", "Vulnerabilities"]}
@@ -648,164 +614,176 @@ export default function VulnerabilitiesPage() {
         ]}
         toolbarRight={
           <div className="flex flex-wrap items-center gap-2">
-            <Toggle
-              value={density === "compact"}
-              onChange={(v) => setDensity(v ? "compact" : "comfortable")}
-              label={density === "compact" ? "Compact" : "Comfortable"}
-            />
+            <button
+              type="button"
+              onClick={() => setDensity(density === "compact" ? "comfortable" : "compact")}
+              className={cx(
+                "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
+                "px-3 py-2 text-xs font-mono uppercase tracking-widest",
+                density === "compact" ? "text-foreground" : "text-muted-foreground",
+                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              )}
+            >
+              <span
+                className={cx(
+                  "h-2.5 w-2.5 rounded-full",
+                  density === "compact" ? "bg-primary" : "bg-muted-foreground/50"
+                )}
+              />
+              {density === "compact" ? "Compact" : "Comfortable"}
+            </button>
 
             <button
               type="button"
-              onClick={() => {
-                void Promise.all([refreshDashboardNow(), refreshRecentScansNow()]);
-              }}
+              onClick={() => void Promise.all([refreshDashboardNow(), refreshRecentScansNow()])}
+              disabled={busy && items.length === 0}
               className={cx(
                 "inline-flex items-center rounded-md border border-border/60 bg-background/40",
                 "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
                 "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
               )}
-              disabled={busy}
-              title="Refresh"
             >
-              {busy ? "Refreshing…" : "Refresh"}
+              Refresh
             </button>
           </div>
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-        <Card title="Observed" right={summaryBusy ? "loading" : undefined} className="rounded-xl">
-          <div className="text-3xl font-semibold">{summary?.total_observed ?? "-"}</div>
-          <div className="mt-1 text-xs text-muted-foreground">active within {activeDays}d</div>
-        </Card>
-
-        <Card title="Awaiting Verification" right={summaryBusy ? "loading" : undefined} className="rounded-xl">
-          <div className="text-3xl font-semibold">{summary?.total_awaiting_verification ?? "-"}</div>
-          <div className="mt-1 text-xs text-muted-foreground">waiting for rescan confirmation</div>
-        </Card>
-
-        <Card title="Suppressed" right={summaryBusy ? "loading" : undefined} className="rounded-xl">
-          <div className="text-3xl font-semibold">{summary?.total_suppressed ?? "-"}</div>
-          <div className="mt-1 text-xs text-muted-foreground">excluded by default</div>
-        </Card>
-
-        <Card title="Severity" right={summaryBusy ? "loading" : undefined} className="rounded-xl">
-          <div className="flex flex-wrap gap-2">
-            {severityBlocks.length ? (
-              severityBlocks.map((x) => (
-                <span key={x.k} className="inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40 px-2 py-1">
-                  <Badge variant={sevVariant(x.k)}>{x.k}</Badge>
-                  <span className="font-mono text-[12px]">{x.v}</span>
-                </span>
-              ))
-            ) : (
-              <span className="text-sm text-muted-foreground">-</span>
-            )}
-          </div>
-
-          <div className="mt-4 flex items-center gap-3">
-            <span className="text-xs text-muted-foreground">Window (days)</span>
+      {/* ── Section 1: Posture ── */}
+      <Card
+        title="Posture"
+        right={
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>window</span>
             <DraftNumberInput
               value={activeDays}
               onCommit={(n) => setActiveDays(n)}
               min={1}
               max={365}
               className={cx(
-                "w-24 rounded-md border border-border/60 bg-background/40 px-2 py-1",
-                "text-sm font-mono text-foreground outline-none",
-                "focus:ring-2 focus:ring-primary/30"
+                "w-16 rounded-md border border-border/60 bg-background/40 px-2 py-1",
+                "text-sm font-mono text-foreground outline-none focus:ring-2 focus:ring-primary/30"
               )}
             />
+            <span>days</span>
           </div>
-        </Card>
-      </div>
+        }
+        className="rounded-xl"
+      >
+        {/* Primary metric row */}
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <StatItem
+            label="Critical / High"
+            value={posture ? posture.critical_open + posture.high_open : "—"}
+            sub={
+              posture
+                ? `critical ${posture.critical_open} · high ${posture.high_open}`
+                : "loading…"
+            }
+            loading={postureBusy}
+          />
+          <StatItem
+            label="Exploitable"
+            value={posture?.exploitable_open ?? "—"}
+            sub="CVE + CVSS + exposure"
+            loading={postureBusy}
+          />
+          <StatItem
+            label="Awaiting Verification"
+            value={summary?.total_awaiting_verification ?? "—"}
+            sub="rescan pending"
+            loading={summaryBusy}
+          />
+          <StatItem
+            label="Fix Available"
+            value={posture?.fixable_open ?? "—"}
+            sub="remediation or OSV patch"
+            loading={postureBusy}
+          />
+        </div>
 
-      <Card title="Quick Guide" className="rounded-xl">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 text-xs text-muted-foreground">
-          <div className="rounded-md border border-border/50 bg-background/30 p-3">
-            <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Observed / Awaiting</div>
-            <div>
-              `Observed` means the latest scan still sees the issue. `Awaiting verification` means an operator wants the next rescan to confirm remediation.
-            </div>
+        {/* Secondary metric strip */}
+        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-border/30 pt-4">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Observed
+            </span>
+            <span
+              className={cx(
+                "font-mono text-sm tabular-nums transition-opacity",
+                summaryBusy && "opacity-50"
+              )}
+            >
+              {summary?.total_observed ?? "—"}
+            </span>
           </div>
-          <div className="rounded-md border border-border/50 bg-background/30 p-3">
-            <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Risk Score</div>
-            <div>
-              Prioritizes severity, confidence, recurrence, and exploitation/exposure signals.
-            </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Stale &gt;30d
+            </span>
+            <span
+              className={cx(
+                "font-mono text-sm tabular-nums transition-opacity",
+                postureBusy && "opacity-50"
+              )}
+            >
+              {posture?.stale_open ?? "—"}
+            </span>
           </div>
-          <div className="rounded-md border border-border/50 bg-background/30 p-3">
-            <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Exposure Score</div>
-            <div>
-              Measures host exposure surface (detected ports/services). Higher means more urgent.
-            </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Mean risk
+            </span>
+            <span
+              className={cx(
+                "font-mono text-sm tabular-nums transition-opacity",
+                postureBusy && "opacity-50"
+              )}
+            >
+              {posture ? fmtRisk(posture.mean_risk) : "—"}
+              {posture ? <span className="text-muted-foreground"> · p95 {fmtRisk(posture.p95_risk)}</span> : null}
+            </span>
           </div>
-          <div className="rounded-md border border-border/50 bg-background/30 p-3">
-            <div className="font-mono uppercase tracking-widest text-[10px] mb-1">Manual Scan</div>
-            <div>
-              Manual scans now move through `queued`, `acknowledged`, `running`, detailed execution phases, and then `completed`/`failed`.
-            </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              Suppressed
+            </span>
+            <span
+              className={cx(
+                "font-mono text-sm tabular-nums transition-opacity",
+                summaryBusy && "opacity-50"
+              )}
+            >
+              {summary?.total_suppressed ?? "—"}
+            </span>
           </div>
+          {severityBlocks.length > 0 && (
+            <div className="flex items-baseline gap-2">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                Severity
+              </span>
+              <span className="flex flex-wrap gap-1.5">
+                {severityBlocks.map((x) => (
+                  <span key={x.k} className="inline-flex items-center gap-1 font-mono text-xs">
+                    <Badge variant={sevVariant(x.k)}>{x.k}</Badge>
+                    <span className="text-muted-foreground">{x.v}</span>
+                  </span>
+                ))}
+              </span>
+            </div>
+          )}
         </div>
       </Card>
 
-      <ActiveScanPanel
-        activeScan={activeScan}
-        recentScans={recentScans}
-        agents={agents}
-        scanTargetAgent={scanTargetAgent}
-        onAgentChange={setScanTargetAgent}
-        onRunScan={runManualScan}
-        scanBusy={scanBusy}
-        scanMsg={scanMsg}
-        scanErr={scanErr}
-        recentScansBusy={recentScansBusy}
-        onRefreshScans={() => {
-          void refreshRecentScansNow();
-        }}
-        onViewScan={(scan) => {
-          setSelectedScan(scan);
-          setScanDrawerOpen(true);
-        }}
-        onlySelectedAgent={onlySelectedAgentScans}
-        onToggleAgentFilter={() => setOnlySelectedAgentScans((value) => !value)}
-      />
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-        <Card title="Mean risk score" right={postureBusy ? "loading" : undefined} className="rounded-xl">
-          <div className="text-3xl font-semibold">{posture ? fmtRisk(posture.mean_risk) : "-"}</div>
-          <div className="mt-1 text-xs text-muted-foreground">p95: {posture ? fmtRisk(posture.p95_risk) : "-"}</div>
-        </Card>
-
-        <Card title="Critical/High" right={postureBusy ? "loading" : undefined} className="rounded-xl">
-          <div className="text-3xl font-semibold">
-            {posture ? posture.critical_open + posture.high_open : "-"}
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            critical {posture?.critical_open ?? "-"} · high {posture?.high_open ?? "-"}
-          </div>
-        </Card>
-
-        <Card title="Exploitable likely" right={postureBusy ? "loading" : undefined} className="rounded-xl">
-          <div className="text-3xl font-semibold">{posture?.exploitable_open ?? "-"}</div>
-          <div className="mt-1 text-xs text-muted-foreground">CVE/CVSS/network exposure heuristics</div>
-        </Card>
-
-        <Card title="Fix available" right={postureBusy ? "loading" : undefined} className="rounded-xl">
-          <div className="text-3xl font-semibold">{posture?.fixable_open ?? "-"}</div>
-          <div className="mt-1 text-xs text-muted-foreground">remediation text or OSV fixed version</div>
-        </Card>
-
-        <Card title="Stale open (>30d)" right={postureBusy ? "loading" : undefined} className="rounded-xl">
-          <div className="text-3xl font-semibold">{posture?.stale_open ?? "-"}</div>
-          <div className="mt-1 text-xs text-muted-foreground">needs ownership/escalation</div>
-        </Card>
-      </div>
-
+      {/* ── Posture detail tables ── */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card
           title="Top risky findings"
-          right={<span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{posture?.top_risks?.length ?? 0} items</span>}
+          right={
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              {posture?.top_risks?.length ?? 0} items
+            </span>
+          }
           className="rounded-xl"
         >
           {!posture || posture.top_risks.length === 0 ? (
@@ -813,19 +791,19 @@ export default function VulnerabilitiesPage() {
           ) : (
             <div className="w-full overflow-auto">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
+                <thead className="sticky top-0 z-10 bg-background/60 backdrop-blur">
                   <tr className="border-b border-border/60 text-muted-foreground">
-                    <th className="text-left font-medium px-3 py-2 w-[86px]">Risk</th>
-                    <th className="text-left font-medium px-3 py-2">Finding</th>
-                    <th className="text-left font-medium px-3 py-2 w-[160px]">Asset</th>
-                    <th className="text-left font-medium px-3 py-2 w-[110px]">Fix</th>
+                    <th className="w-[86px] px-3 py-2 text-left font-medium">Risk</th>
+                    <th className="px-3 py-2 text-left font-medium">Finding</th>
+                    <th className="w-[160px] px-3 py-2 text-left font-medium">Asset</th>
+                    <th className="w-[110px] px-3 py-2 text-left font-medium">Fix</th>
                   </tr>
                 </thead>
                 <tbody>
                   {posture.top_risks.map((x) => (
                     <tr
                       key={x.id}
-                      className="border-b border-border/40 hover:bg-muted/30 cursor-pointer"
+                      className="cursor-pointer border-b border-border/40 hover:bg-muted/30"
                       onClick={() => {
                         const row = items.find((it) => it.id === x.id);
                         if (row) {
@@ -839,12 +817,21 @@ export default function VulnerabilitiesPage() {
                       }}
                     >
                       <td className="px-3 py-2 font-mono text-[12px]">
-                        <span className={cx("inline-flex rounded-md border px-2 py-0.5", Number(x.risk_score) >= 80 ? "border-red-500/50 text-red-300" : Number(x.risk_score) >= 65 ? "border-orange-500/50 text-orange-300" : "border-border/60 text-foreground")}>
+                        <span
+                          className={cx(
+                            "inline-flex rounded-md border px-2 py-0.5",
+                            Number(x.risk_score) >= 80
+                              ? "border-red-500/50 text-red-300"
+                              : Number(x.risk_score) >= 65
+                              ? "border-orange-500/50 text-orange-300"
+                              : "border-border/60 text-foreground"
+                          )}
+                        >
                           {fmtRisk(x.risk_score)}
                         </span>
                       </td>
                       <td className="px-3 py-2">
-                        <div className="font-mono text-[12px] truncate" title={x.title}>
+                        <div className="truncate font-mono text-[12px]" title={x.title}>
                           {x.cve ? `${x.cve} — ${x.title}` : x.title}
                         </div>
                         <div className="text-[11px] text-muted-foreground">
@@ -853,7 +840,9 @@ export default function VulnerabilitiesPage() {
                           {x.internet_exposed ? <span className="ml-2">AV:N</span> : null}
                         </div>
                       </td>
-                      <td className="px-3 py-2 font-mono text-[12px] truncate" title={x.asset_key}>{x.asset_agent_id ? `agent:${x.asset_agent_id}` : x.asset_key}</td>
+                      <td className="truncate px-3 py-2 font-mono text-[12px]" title={x.asset_key}>
+                        {x.asset_agent_id ? `agent:${x.asset_agent_id}` : x.asset_key}
+                      </td>
                       <td className="px-3 py-2 text-[11px]">{x.has_fix ? "available" : "unknown"}</td>
                     </tr>
                   ))}
@@ -865,7 +854,11 @@ export default function VulnerabilitiesPage() {
 
         <Card
           title="Most exposed assets"
-          right={<span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{posture?.top_assets?.length ?? 0} assets</span>}
+          right={
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              {posture?.top_assets?.length ?? 0} assets
+            </span>
+          }
           className="rounded-xl"
         >
           {!posture || posture.top_assets.length === 0 ? (
@@ -888,13 +881,19 @@ export default function VulnerabilitiesPage() {
                   className="w-full rounded-lg border border-border/60 bg-background/40 p-3 text-left hover:bg-muted/15"
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <div className="font-mono text-[12px] truncate" title={a.asset_agent_id ? `agent:${a.asset_agent_id}` : a.asset_key}>
+                    <div
+                      className="truncate font-mono text-[12px]"
+                      title={a.asset_agent_id ? `agent:${a.asset_agent_id}` : a.asset_key}
+                    >
                       {a.asset_agent_id ? `agent:${a.asset_agent_id}` : a.asset_key}
                     </div>
-                    <div className="font-mono text-[12px] text-muted-foreground">max {fmtRisk(a.max_risk)}</div>
+                    <div className="font-mono text-[12px] text-muted-foreground">
+                      max {fmtRisk(a.max_risk)}
+                    </div>
                   </div>
                   <div className="mt-1 text-[11px] text-muted-foreground">
-                    open {a.open_findings} · critical/high {a.critical_high} · avg {fmtRisk(a.avg_risk)} · seen {fmtAge(a.last_seen_at)}
+                    open {a.open_findings} · critical/high {a.critical_high} · avg{" "}
+                    {fmtRisk(a.avg_risk)} · seen {fmtAge(a.last_seen_at)}
                   </div>
                 </button>
               ))}
@@ -903,116 +902,59 @@ export default function VulnerabilitiesPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Card
-          title="Asset pivots"
-          right={<span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{assetPivots.length} assets</span>}
-          className="rounded-xl"
-        >
-          {assetPivots.length === 0 ? (
-            <EmptyState title="No asset pivots" description="Load findings to pivot by affected assets." />
-          ) : (
-            <div className="space-y-2">
-              {assetPivots.map((p) => (
-                <button
-                  key={p.label}
-                  type="button"
-                  onClick={() => {
-                    const agentId = p.label.startsWith("agent:") ? p.label.slice(6) : "";
-                    const next = { ...draft, assetAgentId: agentId, q: agentId ? draft.q : p.label };
-                    setDraft(next);
-                    setFilters(next);
-                  }}
-                  className={cx(
-                    "w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-left",
-                    "hover:bg-muted/15 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-mono text-[12px] truncate">{p.label}</div>
-                    <div className="text-[11px] text-muted-foreground">risk {fmtRisk(p.maxRisk)} · {p.count}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </Card>
+      {/* ── Section 2: Scan execution ── */}
+      <ActiveScanPanel
+        activeScan={activeScan}
+        recentScans={recentScans}
+        agents={agents}
+        scanTargetAgent={scanTargetAgent}
+        onAgentChange={setScanTargetAgent}
+        onRunScan={runManualScan}
+        scanBusy={scanBusy}
+        scanMsg={scanMsg}
+        scanErr={scanErr}
+        recentScansBusy={recentScansBusy}
+        onRefreshScans={() => void refreshRecentScansNow()}
+        onViewScan={(scan) => {
+          setSelectedScan(scan);
+          setScanDrawerOpen(true);
+        }}
+        onlySelectedAgent={onlySelectedAgentScans}
+        onToggleAgentFilter={() => setOnlySelectedAgentScans((v) => !v)}
+      />
 
-        <Card
-          title="Package pivots"
-          right={<span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{packagePivots.length} packages</span>}
-          className="rounded-xl"
-        >
-          {packagePivots.length === 0 ? (
-            <EmptyState title="No package pivots" description="Package names were not present in the current findings page." />
-          ) : (
-            <div className="space-y-2">
-              {packagePivots.map((p) => (
-                <button
-                  key={p.name}
-                  type="button"
-                  onClick={() => {
-                    const next = { ...draft, q: p.name };
-                    setDraft(next);
-                    setFilters(next);
-                  }}
-                  className={cx(
-                    "w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-left",
-                    "hover:bg-muted/15 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-mono text-[12px] truncate">{p.name}</div>
-                    <div className="text-[11px] text-muted-foreground">{p.count} findings</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
-
+      {/* ── Section 3: Findings ── */}
       <Card
-        title="Filters"
+        title="Findings"
         right={
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={resetFilters}
-              className={cx(
-                "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              )}
-            >
-              Reset
-            </button>
-            <button
-              type="button"
-              onClick={applyFilters}
-              className={cx(
-                "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              )}
-            >
-              Apply
-            </button>
+          <div className="flex items-center gap-3">
+            {busy && items.length > 0 && (
+              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60 animate-pulse">
+                updating
+              </span>
+            )}
+            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              {items.length} items
+            </span>
+            {activeFilterCount > 0 && (
+              <span className="rounded border border-primary/30 px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-widest text-primary/70">
+                {activeFilterCount} filter{activeFilterCount !== 1 ? "s" : ""}
+              </span>
+            )}
           </div>
         }
         className="rounded-xl"
       >
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+        {/* Filter grid */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <div className="text-xs text-muted-foreground">Search</div>
             <input
               value={draft.q}
               onChange={(e) => setDraft((p) => ({ ...p, q: e.target.value }))}
-              placeholder="title / cve / external_id"
-              className={cx(
-                "mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-sm outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+              placeholder="title / CVE / external_id"
+              className={cx(inputCx, "mt-1")}
             />
           </div>
 
@@ -1021,10 +963,7 @@ export default function VulnerabilitiesPage() {
             <select
               value={draft.minSeverity}
               onChange={(e) => setDraft((p) => ({ ...p, minSeverity: e.target.value }))}
-              className={cx(
-                "mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-sm outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              className={cx(inputCx, "mt-1")}
             >
               <option value="all">All</option>
               <option value="low">Low+</option>
@@ -1039,10 +978,7 @@ export default function VulnerabilitiesPage() {
             <select
               value={draft.observationState}
               onChange={(e) => setDraft((p) => ({ ...p, observationState: e.target.value }))}
-              className={cx(
-                "mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-sm outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              className={cx(inputCx, "mt-1")}
             >
               <option value="all">All</option>
               <option value="observed">Observed</option>
@@ -1056,10 +992,7 @@ export default function VulnerabilitiesPage() {
             <select
               value={draft.disposition}
               onChange={(e) => setDraft((p) => ({ ...p, disposition: e.target.value }))}
-              className={cx(
-                "mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-sm outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              className={cx(inputCx, "mt-1")}
             >
               <option value="all">All</option>
               <option value="open">Open</option>
@@ -1073,11 +1006,9 @@ export default function VulnerabilitiesPage() {
             <input
               value={draft.cve}
               onChange={(e) => setDraft((p) => ({ ...p, cve: e.target.value }))}
+              onKeyDown={(e) => e.key === "Enter" && applyFilters()}
               placeholder="CVE-2024-1234"
-              className={cx(
-                "mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-sm font-mono outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              className={cx(inputCx, "mt-1 font-mono")}
             />
           </div>
 
@@ -1086,11 +1017,9 @@ export default function VulnerabilitiesPage() {
             <input
               value={draft.reporterAgentId}
               onChange={(e) => setDraft((p) => ({ ...p, reporterAgentId: e.target.value }))}
+              onKeyDown={(e) => e.key === "Enter" && applyFilters()}
               placeholder="agent-id"
-              className={cx(
-                "mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-sm font-mono outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              className={cx(inputCx, "mt-1 font-mono")}
             />
           </div>
 
@@ -1099,94 +1028,167 @@ export default function VulnerabilitiesPage() {
             <input
               value={draft.assetAgentId}
               onChange={(e) => setDraft((p) => ({ ...p, assetAgentId: e.target.value }))}
+              onKeyDown={(e) => e.key === "Enter" && applyFilters()}
               placeholder="agent-id"
-              className={cx(
-                "mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-sm font-mono outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              className={cx(inputCx, "mt-1 font-mono")}
             />
           </div>
 
-          <div className="flex items-end">
-            <Toggle
-              value={draft.includeSuppressed}
-              onChange={(v) => setDraft((p) => ({ ...p, includeSuppressed: v }))}
-              label={draft.includeSuppressed ? "Including suppressed" : "Exclude suppressed"}
-            />
-          </div>
+          <div className="flex items-end justify-between gap-2">
+            <div className="flex items-end gap-2">
+              <span className="mb-2 text-xs text-muted-foreground">Page</span>
+              <DraftNumberInput
+                value={pageSize}
+                onCommit={(n) => setPageSize(n)}
+                min={1}
+                max={200}
+                className={cx(
+                  "w-20 rounded-md border border-border/60 bg-background/40 px-2 py-2",
+                  "text-sm font-mono text-foreground outline-none focus:ring-2 focus:ring-primary/30"
+                )}
+              />
+            </div>
 
-          <div className="flex items-end gap-2">
-            <span className="text-xs text-muted-foreground">Page size</span>
-            <DraftNumberInput
-              value={pageSize}
-              onCommit={(n) => setPageSize(n)}
-              min={1}
-              max={200}
-              className={cx(
-                "w-24 rounded-md border border-border/60 bg-background/40 px-2 py-2",
-                "text-sm font-mono text-foreground outline-none",
-                "focus:ring-2 focus:ring-primary/30"
-              )}
-            />
+            <div className="flex items-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDraft((p) => ({ ...p, includeSuppressed: !p.includeSuppressed }))}
+                className={cx(
+                  "mb-0 inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/40",
+                  "px-3 py-2 text-[10px] font-mono uppercase tracking-widest",
+                  draft.includeSuppressed ? "text-foreground" : "text-muted-foreground",
+                  "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                )}
+              >
+                <span
+                  className={cx(
+                    "h-2 w-2 rounded-full",
+                    draft.includeSuppressed ? "bg-primary" : "bg-muted-foreground/40"
+                  )}
+                />
+                Suppressed
+              </button>
+            </div>
           </div>
         </div>
-      </Card>
 
-      <Card
-        title="Filtered inventory table"
-        right={
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-              {items.length} items
-            </span>
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-              filters {activeFilterCount}
-            </span>
+        {/* Filter action row */}
+        <div className="mt-3 flex items-center gap-2">
+          <CtrlBtn onClick={applyFilters}>Apply</CtrlBtn>
+          <CtrlBtn onClick={resetFilters}>Reset</CtrlBtn>
+        </div>
+
+        {/* Quick-pivot chips: assets and packages from loaded findings */}
+        {hasPivots && (
+          <div className="mt-4 space-y-2">
+            {assetPivots.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60">
+                  Assets
+                </span>
+                {assetPivots.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => {
+                      const agentId = p.label.startsWith("agent:") ? p.label.slice(6) : "";
+                      const next = {
+                        ...draft,
+                        assetAgentId: agentId,
+                        q: agentId ? draft.q : p.label,
+                      };
+                      setDraft(next);
+                      setFilters(next);
+                    }}
+                    className={cx(
+                      "inline-flex items-center gap-1 rounded border border-border/50 bg-background/30",
+                      "px-2 py-0.5 text-[10px] font-mono text-muted-foreground",
+                      "hover:border-primary/30 hover:text-foreground"
+                    )}
+                  >
+                    {p.label}
+                    <span className="text-muted-foreground/50">×{p.count}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {packagePivots.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60">
+                  Packages
+                </span>
+                {packagePivots.map((p) => (
+                  <button
+                    key={p.name}
+                    type="button"
+                    onClick={() => {
+                      const next = { ...draft, q: p.name };
+                      setDraft(next);
+                      setFilters(next);
+                    }}
+                    className={cx(
+                      "inline-flex items-center gap-1 rounded border border-border/50 bg-background/30",
+                      "px-2 py-0.5 text-[10px] font-mono text-muted-foreground",
+                      "hover:border-primary/30 hover:text-foreground"
+                    )}
+                  >
+                    {p.name}
+                    <span className="text-muted-foreground/50">×{p.count}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        }
-        className="rounded-xl"
-      >
-        {busy ? (
-          <div className="h-[360px]">
+        )}
+
+        {/* Table divider */}
+        <div className="mt-4 border-t border-border/40" />
+
+        {/* Findings table — non-blanking: keep rows visible while updating */}
+        {busy && items.length === 0 ? (
+          <div className="py-16">
             <Loading label="Loading findings…" />
           </div>
         ) : error ? (
           <EmptyState title="Failed to load" description={error} />
         ) : items.length === 0 ? (
-          <div className="h-[360px]">
-            <div className="flex h-full flex-col items-center justify-center gap-3">
+          <div className="py-16">
+            <div className="flex flex-col items-center gap-3">
               <EmptyState title="No findings" description={findingsHint} />
-              {activeFilterCount > 0 ? (
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className={cx(
-                    "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                    "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                    "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  )}
-                >
-                  Clear filters
-                </button>
-              ) : null}
+              {activeFilterCount > 0 && (
+                <CtrlBtn onClick={resetFilters}>Clear filters</CtrlBtn>
+              )}
             </div>
           </div>
         ) : (
           <div className="w-full overflow-auto">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
+              <thead className="sticky top-0 z-10 bg-background/60 backdrop-blur">
                 <tr className="border-b border-border/60 text-muted-foreground">
-                  <th className="text-left font-medium px-3 py-2 w-[120px] whitespace-nowrap">Severity</th>
-                  <th className="text-left font-medium px-3 py-2 min-w-[280px]">Title</th>
-                  <th className="text-left font-medium px-3 py-2 w-[190px] whitespace-nowrap">Asset</th>
-                  <th className="text-left font-medium px-3 py-2 w-[180px] whitespace-nowrap">State</th>
-                  <th className="text-left font-medium px-3 py-2 w-[170px] whitespace-nowrap">Exposure</th>
-                  <th className="text-left font-medium px-3 py-2 w-[150px] whitespace-nowrap">Last seen</th>
-                  <th className="text-left font-medium px-3 py-2 w-[110px] whitespace-nowrap">Hits</th>
-                  <th className="text-right font-medium px-3 py-2 w-[120px] whitespace-nowrap">Actions</th>
+                  <th className="w-[120px] whitespace-nowrap px-3 py-2 text-left font-medium">
+                    Severity
+                  </th>
+                  <th className="min-w-[280px] px-3 py-2 text-left font-medium">Title</th>
+                  <th className="w-[190px] whitespace-nowrap px-3 py-2 text-left font-medium">
+                    Asset
+                  </th>
+                  <th className="w-[180px] whitespace-nowrap px-3 py-2 text-left font-medium">
+                    State
+                  </th>
+                  <th className="w-[170px] whitespace-nowrap px-3 py-2 text-left font-medium">
+                    Exposure
+                  </th>
+                  <th className="w-[150px] whitespace-nowrap px-3 py-2 text-left font-medium">
+                    Last seen
+                  </th>
+                  <th className="w-[80px] whitespace-nowrap px-3 py-2 text-left font-medium">
+                    Hits
+                  </th>
+                  <th className="w-[100px] whitespace-nowrap px-3 py-2 text-right font-medium">
+                    Actions
+                  </th>
                 </tr>
               </thead>
-
               <tbody>
                 {items.map((f) => {
                   const selectedRow = selected?.id === f.id;
@@ -1197,9 +1199,8 @@ export default function VulnerabilitiesPage() {
                     <tr
                       key={f.id}
                       className={cx(
-                        "border-b border-border/40 hover:bg-muted/30",
-                        selectedRow && "bg-muted/40",
-                        "align-top"
+                        "border-b border-border/40 hover:bg-muted/30 align-top",
+                        selectedRow && "bg-muted/40"
                       )}
                       onClick={() => {
                         setSelected(f);
@@ -1212,34 +1213,42 @@ export default function VulnerabilitiesPage() {
                         <Badge variant={sevVariant(f.severity)}>{f.severity}</Badge>
                       </td>
                       <td className={cx("px-3", rowPad)}>
-                        <div className="font-mono text-[12px] truncate" title={f.title}>
+                        <div className="truncate font-mono text-[12px]" title={f.title}>
                           {f.cve ? `${f.cve} — ${f.title}` : f.title}
                         </div>
-                        <div className="text-[11px] text-muted-foreground truncate">
+                        <div className="truncate text-[11px] text-muted-foreground">
                           {f.location || f.external_id || f.source} · conf {f.confidence}
                         </div>
                       </td>
                       <td className={cx("px-3", rowPad)}>
-                        <div className="font-mono text-[12px] truncate" title={prettyAssetLabel(f)}>
+                        <div
+                          className="truncate font-mono text-[12px]"
+                          title={prettyAssetLabel(f)}
+                        >
                           {prettyAssetLabel(f)}
                         </div>
-                        <div className="text-[11px] text-muted-foreground truncate">
+                        <div className="truncate text-[11px] text-muted-foreground">
                           {f.reporter_agent_id ? `reported by ${f.reporter_agent_id}` : "-"}
                         </div>
                       </td>
                       <td className={cx("px-3", rowPad)}>
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={observationVariant(f.observation_state)}>{f.observation_state}</Badge>
-                          {f.operator_disposition !== "open" ? (
-                            <Badge variant={dispositionVariant(f.operator_disposition)}>{f.operator_disposition}</Badge>
-                          ) : null}
+                          <Badge variant={observationVariant(f.observation_state)}>
+                            {f.observation_state}
+                          </Badge>
+                          {f.operator_disposition !== "open" && (
+                            <Badge variant={dispositionVariant(f.operator_disposition)}>
+                              {f.operator_disposition}
+                            </Badge>
+                          )}
                         </div>
                       </td>
                       <td className={cx("px-3", rowPad)}>
-                        <div className="font-mono text-[12px]">
-                          score {expScore}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground truncate" title={svc.join(", ") || "-"}>
+                        <div className="font-mono text-[12px]">score {expScore}</div>
+                        <div
+                          className="truncate text-[11px] text-muted-foreground"
+                          title={svc.join(", ") || "-"}
+                        >
                           {svc.length ? svc.join(", ") : "-"}
                         </div>
                       </td>
@@ -1256,12 +1265,10 @@ export default function VulnerabilitiesPage() {
                             setDrawerOpen(true);
                           }}
                           className={cx(
-                            "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                            "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                            "hover:bg-muted/15 hover:text-foreground",
-                            "focus:outline-none focus:ring-2 focus:ring-primary/30"
+                            "inline-flex items-center rounded-md border border-border/60 bg-background/40",
+                            "px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
+                            "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                           )}
-                          title="Open drawer"
                         >
                           View
                         </button>
@@ -1272,28 +1279,28 @@ export default function VulnerabilitiesPage() {
               </tbody>
             </table>
 
-            {hasMore ? (
+            {hasMore && (
               <div className="mt-4 flex justify-center">
                 <button
                   type="button"
                   disabled={busyMore}
-                  onClick={() => loadPage({ reset: false, cursor })}
+                  onClick={() => void loadPage({ reset: false, cursor })}
                   className={cx(
                     "rounded-md border border-border/60 bg-background/40 px-4 py-2",
                     "text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                    "hover:bg-muted/15 hover:text-foreground",
-                    "focus:outline-none focus:ring-2 focus:ring-primary/30",
+                    "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
                     busyMore && "opacity-60"
                   )}
                 >
                   {busyMore ? "Loading…" : "Load more"}
                 </button>
               </div>
-            ) : null}
+            )}
           </div>
         )}
       </Card>
 
+      {/* ── Drawers ── */}
       <VulnFindingDrawer
         open={drawerOpen}
         finding={selected}
@@ -1301,14 +1308,10 @@ export default function VulnerabilitiesPage() {
         onPatched={(next) => {
           setSelected(next);
           setItems((prev) => prev.map((x) => (x.id === next.id ? next : x)));
-
-          // If the user is excluding suppressed findings and this item was just suppressed,
-          // remove it locally to match server behavior.
           if (!filters.includeSuppressed && filters.disposition !== "suppressed" && next.is_suppressed) {
             setItems((prev) => prev.filter((x) => x.id !== next.id));
             setDrawerOpen(false);
           }
-
           loadSummary();
           loadPosture();
         }}
