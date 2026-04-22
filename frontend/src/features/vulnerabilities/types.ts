@@ -179,11 +179,13 @@ export type VulnScan = {
 
 export type VulnManualScanResult = {
   agent_id: string;
-  trigger_token: string;
+  request_token: string;
+  trigger_token?: string;
   scan_uuid: string;
   request_state: string;
   status: string;
   lifecycle_state: string;
   current_phase: string;
   queued_at: string;
+  scan?: VulnScan;
 };
