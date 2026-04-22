@@ -9,6 +9,7 @@ class VulnScanModel(Base):
 
     id = Column(Integer, primary_key=True)
     scan_uuid = Column(String(36), unique=True, index=True, nullable=False)
+    request_token = Column(String(36), index=True, nullable=True)
 
     # Which agent produced the scan (can be a dedicated scanner agent).
     reporter_agent_id = Column(String(64), index=True, nullable=True)

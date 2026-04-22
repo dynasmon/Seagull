@@ -28,6 +28,14 @@ SCAN_PHASES: tuple[str, ...] = (
 
 SCAN_TERMINAL_STATES = {"completed", "failed", "cancelled"}
 
+LEGACY_FINDING_STATUSES: tuple[str, ...] = (
+    "open",
+    "fixed",
+    "resolved",
+    "ignored",
+    "accepted",
+)
+
 FINDING_OBSERVATION_STATES: tuple[str, ...] = (
     "observed",
     "awaiting_verification",
@@ -82,6 +90,23 @@ _FINDING_DISPOSITION_ALIASES = {
     "acceptedrisk": "accepted_risk",
     "ignore": "suppressed",
     "ignored": "suppressed",
+}
+
+_LEGACY_FINDING_STATUS_ALIASES = {
+    "open": "open",
+    "observed": "open",
+    "active": "open",
+    "fixed": "fixed",
+    "awaiting_verification": "fixed",
+    "pending_verification": "fixed",
+    "resolved": "resolved",
+    "closed": "resolved",
+    "ignored": "ignored",
+    "suppressed": "ignored",
+    "accepted": "accepted",
+    "accepted_risk": "accepted",
+    "accepted-risk": "accepted",
+    "acceptedrisk": "accepted",
 }
 
 _SCAN_LIFECYCLE_ORDER = {
@@ -154,6 +179,21 @@ def scan_phase_rank(value: str | None) -> int:
     return _SCAN_PHASE_ORDER.get(normalize_scan_phase(value), 0)
 
 
+def normalize_scan_filter_terms(value: str | None) -> tuple[str, ...]:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ()
+
+    terms: list[str] = []
+    lifecycle_term = _SCAN_LIFECYCLE_ALIASES.get(raw, raw)
+    phase_term = _SCAN_PHASE_ALIASES.get(raw, raw)
+    for candidate in (lifecycle_term, phase_term):
+        if candidate in SCAN_LIFECYCLE_STATES or candidate in SCAN_PHASES:
+            if candidate not in terms:
+                terms.append(candidate)
+    return tuple(terms)
+
+
 def normalize_trigger_source(value: str | None, *, manual_trigger: bool = False) -> str:
     raw = str(value or "").strip().lower()
     if raw in {"manual", "scheduled", "api", "agent"}:
@@ -172,6 +212,14 @@ def normalize_finding_observation_state(value: str | None) -> str:
     )
 
 
+def normalize_finding_observation_filter(value: str | None) -> str | None:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    normalized = _FINDING_OBSERVATION_ALIASES.get(raw, raw)
+    return normalized if normalized in FINDING_OBSERVATION_STATES else None
+
+
 def normalize_finding_operator_disposition(value: str | None, *, is_suppressed: bool = False) -> str:
     if is_suppressed:
         return "suppressed"
@@ -181,6 +229,22 @@ def normalize_finding_operator_disposition(value: str | None, *, is_suppressed: 
         aliases=_FINDING_DISPOSITION_ALIASES,
         default="open",
     )
+
+
+def normalize_finding_disposition_filter(value: str | None) -> str | None:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    normalized = _FINDING_DISPOSITION_ALIASES.get(raw, raw)
+    return normalized if normalized in FINDING_OPERATOR_DISPOSITIONS else None
+
+
+def normalize_legacy_finding_status(value: str | None) -> str | None:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    normalized = _LEGACY_FINDING_STATUS_ALIASES.get(raw, raw)
+    return normalized if normalized in LEGACY_FINDING_STATUSES else None
 
 
 def derive_legacy_finding_status(observation_state: str | None, operator_disposition: str | None) -> str:
@@ -195,3 +259,20 @@ def derive_legacy_finding_status(observation_state: str | None, operator_disposi
     if operator_disposition_norm == "accepted_risk":
         return "accepted"
     return "open"
+
+
+def scan_lifecycle_event(
+    previous_state: str | None,
+    previous_phase: str | None,
+    next_state: str | None,
+    next_phase: str | None,
+) -> str:
+    next_state_norm = normalize_scan_lifecycle_state(next_state)
+    if next_state_norm in {"queued", "acknowledged", "completed", "failed", "cancelled"}:
+        return next_state_norm
+
+    previous_phase_norm = normalize_scan_phase(previous_phase, fallback_state=previous_state) if previous_phase else None
+    next_phase_norm = normalize_scan_phase(next_phase, fallback_state=next_state_norm)
+    if previous_phase_norm != next_phase_norm:
+        return "phase_changed"
+    return "progress"
