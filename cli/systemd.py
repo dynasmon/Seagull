@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
+import socket
+import ssl
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from . import env as _env
 
@@ -55,6 +60,110 @@ def _has_bootstrap_token() -> bool:
         return True
     path = Path(_read_agent_env("SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE") or str(TOKEN_DEFAULT))
     return path.exists()
+
+
+def _parse_optional_timestamp(raw: str) -> datetime | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _identity_state_path() -> Path:
+    return Path(_read_agent_env("SEAGULL_AGENT_IDENTITY_STATE_FILE") or str(IDENTITY_STATE_DEFAULT))
+
+
+def _has_active_recovery_token() -> tuple[bool, str | None]:
+    path = _identity_state_path()
+    try:
+        payload = json.loads(path.read_text())
+    except FileNotFoundError:
+        return False, None
+    except PermissionError:
+        return False, (
+            f"identity state is not readable: {path}\n"
+            "  fix: run ./seagull agent validate-systemd as root for full recovery validation"
+        )
+    except OSError as exc:
+        return False, f"failed to read identity state: {path} ({exc})"
+    except json.JSONDecodeError as exc:
+        return False, f"identity state is not valid JSON: {path} ({exc})"
+
+    if not isinstance(payload, dict):
+        return False, f"identity state has invalid format: {path}"
+
+    now = datetime.now(timezone.utc)
+    candidates = (
+        ("renewal_token", "renewal_token_expires_at"),
+        ("previous_renewal_token", "previous_renewal_token_expires_at"),
+    )
+    for token_key, expires_key in candidates:
+        token = str(payload.get(token_key) or "").strip()
+        if not token:
+            continue
+        expires_at = _parse_optional_timestamp(str(payload.get(expires_key) or ""))
+        if expires_at is None or expires_at > now:
+            return True, None
+    return False, None
+
+
+def _is_loopback_host(host: str) -> bool:
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+
+def _validate_tls_server_name(api_url: str) -> str | None:
+    parsed = urlparse(api_url)
+    host = (parsed.hostname or "").strip().lower()
+    if parsed.scheme != "https" or not _is_loopback_host(host):
+        return None
+    tls_server_name = (_read_agent_env("SEAGULL_TLS_SERVER_NAME") or "").strip().lower()
+    if not tls_server_name or _is_loopback_host(tls_server_name):
+        return None
+    return (
+        f"SEAGULL_TLS_SERVER_NAME={tls_server_name!r} is incompatible with loopback API host {host!r}\n"
+        "  fix: set SEAGULL_TLS_SERVER_NAME=localhost or issue a certificate that includes that hostname"
+    )
+
+
+def _validate_live_tls(api_url: str, ca_file: Path) -> str | None:
+    parsed = urlparse(api_url)
+    host = (parsed.hostname or "").strip()
+    if parsed.scheme != "https" or not host or not ca_file.exists():
+        return None
+
+    server_name = (_read_agent_env("SEAGULL_TLS_SERVER_NAME") or "").strip() or host
+    port = parsed.port or 443
+    try:
+        context = ssl.create_default_context(cafile=str(ca_file))
+    except ssl.SSLError as exc:
+        return (
+            f"failed to load agent CA file {ca_file}: {exc}\n"
+            "  fix: replace SEAGULL_TLS_CA_FILE with a valid PEM certificate bundle"
+        )
+
+    try:
+        with socket.create_connection((host, port), timeout=2.5) as sock:
+            with context.wrap_socket(sock, server_hostname=server_name):
+                return None
+    except ssl.SSLCertVerificationError as exc:
+        verify_message = getattr(exc, "verify_message", "") or str(exc)
+        return (
+            f"TLS verification failed for {api_url} using server name {server_name!r}: {verify_message}\n"
+            "  fix: align SEAGULL_TLS_SERVER_NAME with the certificate SANs or replace the server certificate"
+        )
+    except ssl.SSLError as exc:
+        return (
+            f"TLS handshake failed for {api_url} using server name {server_name!r}: {exc}\n"
+            "  fix: verify the agent CA file and the server certificate chain"
+        )
+    except (ConnectionError, TimeoutError, OSError):
+        return None
 
 
 def _service_enabled() -> bool:
@@ -125,10 +234,29 @@ def validate() -> None:
                 "  fix: ./seagull agent install-systemd  (syncs CA from repo secrets)"
             )
 
-        if not _has_credential() and not _has_bootstrap_token():
+        has_credential = _has_credential()
+        has_bootstrap_token = _has_bootstrap_token()
+        has_recovery_token, recovery_warning = _has_active_recovery_token()
+
+        if recovery_warning:
+            warnings.append(recovery_warning)
+
+        tls_server_name_error = _validate_tls_server_name(api_url)
+        if tls_server_name_error:
+            errors.append(tls_server_name_error)
+        live_tls_error = _validate_live_tls(api_url, ca_file)
+        if live_tls_error:
+            errors.append(live_tls_error)
+
+        if not has_credential and not has_bootstrap_token:
             errors.append(
                 "no bootstrap token or credential found\n"
                 "  fix: ./seagull agent tokens  then  ./seagull agent install-systemd"
+            )
+        elif has_credential and not has_bootstrap_token and not has_recovery_token:
+            errors.append(
+                "credential present but no active bootstrap token or renewal token found\n"
+                "  fix: issue a new bootstrap token or re-enroll the agent so it can recover after a 401/expiry"
             )
 
     for w in warnings:
