@@ -40,6 +40,7 @@ export const PORTAL_REALTIME_EVENT_TYPES = [
   "ui.ddos.live.patch",
   "ui.inventory.invalidate",
   "ui.vulnerabilities.invalidate",
+  "ui.vulnerabilities.finding.patch",
   "ui.vulnerabilities.scan.lifecycle",
   "overview.invalidate",
   "overview.patch",
@@ -72,6 +73,7 @@ export const PORTAL_REALTIME_EVENT_TOPIC: Record<PortalRealtimeEventType, Portal
   "ui.ddos.live.patch": "ddos",
   "ui.inventory.invalidate": "inventory",
   "ui.vulnerabilities.invalidate": "vulnerabilities",
+  "ui.vulnerabilities.finding.patch": "vulnerabilities",
   "ui.vulnerabilities.scan.lifecycle": "vulnerabilities",
   "overview.invalidate": "overview",
   "overview.patch": "overview",
@@ -102,6 +104,7 @@ export const PORTAL_REALTIME_EVENT_MODE: Record<PortalRealtimeEventType, PortalR
   "ui.ddos.live.patch": "patch",
   "ui.inventory.invalidate": "invalidate",
   "ui.vulnerabilities.invalidate": "invalidate",
+  "ui.vulnerabilities.finding.patch": "patch",
   "ui.vulnerabilities.scan.lifecycle": "patch",
   "overview.invalidate": "invalidate",
   "overview.patch": "patch",
@@ -132,6 +135,7 @@ export const PORTAL_REALTIME_EVENT_SCOPE: Record<PortalRealtimeEventType, string
   "ui.ddos.live.patch": "portal:realtime",
   "ui.inventory.invalidate": "portal:realtime",
   "ui.vulnerabilities.invalidate": "portal:admin",
+  "ui.vulnerabilities.finding.patch": "portal:admin",
   "ui.vulnerabilities.scan.lifecycle": "portal:admin",
   "overview.invalidate": "portal:realtime",
   "overview.patch": "portal:realtime",
@@ -425,6 +429,13 @@ export type PortalRealtimeEventPayloadMap = {
     phase?: string;
     resume_from_cursor?: string;
     resume_to_cursor?: string;
+  };
+  "ui.vulnerabilities.finding.patch": {
+    reason?: string;
+    agent_id?: string;
+    scan_uuid?: string | null;
+    requires_reconcile?: boolean;
+    findings?: Array<Record<string, unknown>>;
   };
   "ui.vulnerabilities.scan.lifecycle": {
     lifecycle_event?: "queued" | "acknowledged" | "phase_changed" | "progress" | "completed" | "failed" | "cancelled";

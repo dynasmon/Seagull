@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
+from app.features.vuln.presentation import serialize_risk_item
 from app.features.vuln.repository import posture_data, summary_counts
 from app.features.vuln.schemas import (
     VulnAssetRiskOut,
@@ -77,6 +78,6 @@ def posture(
         stale_open=int(totals.get("stale_open") or 0),
         mean_risk=float(totals.get("mean_risk") or 0.0),
         p95_risk=float(totals.get("p95_risk") or 0.0),
-        top_risks=[VulnRiskItemOut(**row) for row in top_rows],
+        top_risks=[VulnRiskItemOut(**serialize_risk_item(row)) for row in top_rows],
         top_assets=[VulnAssetRiskOut(**row) for row in asset_rows],
     )
