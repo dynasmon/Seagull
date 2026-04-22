@@ -19,11 +19,13 @@ from app.features.vuln.domain import (
 )
 from app.features.vuln.findings import persist_ingested_findings
 from app.features.vuln.models import VulnScanModel
+from app.features.vuln.presentation import serialize_finding
 from app.features.vuln.repository import (
     add_agent,
     add_vuln_scan,
     commit,
     get_agent_by_agent_id,
+    get_findings_by_ids,
     list_scans_page,
     upsert_scan_metadata,
 )
@@ -131,6 +133,31 @@ def _normalize_cfg_map(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _publish_finding_patch_batch(
+    *,
+    finding_rows: list[Any],
+    agent_id: str,
+    reason: str,
+    scan_uuid: str | None = None,
+) -> bool:
+    if not finding_rows:
+        return False
+    try:
+        publish_realtime(
+            "ui.vulnerabilities.finding.patch",
+            {
+                "reason": reason,
+                "agent_id": str(agent_id or "").strip() or None,
+                "scan_uuid": scan_uuid,
+                "findings": [serialize_finding(row) for row in finding_rows],
+                "requires_reconcile": False,
+            },
+        )
+        return True
+    except Exception:
+        return False
+
+
 def ingest_findings(db: Session, *, payload: VulnIngestBatch, agent: AgentPrincipal) -> VulnIngestResult:
     max_findings = max(1, _env_int("SEAGULL_VULN_MAX_FINDINGS_PER_INGEST", 2000))
     if len(payload.findings) > max_findings:
@@ -181,7 +208,7 @@ def ingest_findings(db: Session, *, payload: VulnIngestBatch, agent: AgentPrinci
             now=now,
         )
 
-    stored_findings = persist_ingested_findings(
+    stored_findings, changed_finding_ids = persist_ingested_findings(
         db,
         findings=list(payload.findings or []),
         agent=agent,
@@ -203,18 +230,26 @@ def ingest_findings(db: Session, *, payload: VulnIngestBatch, agent: AgentPrinci
                     agent_id=str(agent.agent_id or "").strip(),
                 ),
             )
-        if has_findings:
-            publish_realtime(
-                "ui.vulnerabilities.invalidate",
-                {
-                    "reason": "findings_ingested",
-                    "scope": "vulnerabilities",
-                    "agent_id": str(agent.agent_id or "").strip(),
-                    "scan_uuid": scan_uuid,
-                    "status": scan_row.lifecycle_state if scan_row is not None else None,
-                    "phase": scan_row.current_phase if scan_row is not None else None,
-                },
+        if changed_finding_ids:
+            finding_rows = get_findings_by_ids(db, changed_finding_ids[:50])
+            published_patch = _publish_finding_patch_batch(
+                finding_rows=finding_rows,
+                agent_id=str(agent.agent_id or "").strip(),
+                reason="findings_reconciled",
+                scan_uuid=scan_uuid,
             )
+            if (not published_patch) or len(changed_finding_ids) > 50:
+                publish_realtime(
+                    "ui.vulnerabilities.invalidate",
+                    {
+                        "reason": "findings_ingested",
+                        "scope": "vulnerabilities",
+                        "agent_id": str(agent.agent_id or "").strip(),
+                        "scan_uuid": scan_uuid,
+                        "status": scan_row.lifecycle_state if scan_row is not None else None,
+                        "phase": scan_row.current_phase if scan_row is not None else None,
+                    },
+                )
     except Exception:
         pass
 

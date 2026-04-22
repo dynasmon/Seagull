@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Float, and_, case, cast, func, literal, or_, select, update
+from sqlalchemy import Float, Text, and_, case, cast, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,17 @@ def _cvss_numeric_expr(vf=VulnFindingModel):
     )
 
 
+def _json_float_expr(expr):
+    return case(
+        (expr.op("~")(r"^[0-9]+(\.[0-9]+)?$"), cast(expr, Float)),
+        else_=0.0,
+    )
+
+
+def _json_bool_expr(expr):
+    return func.lower(func.coalesce(expr, "")) == "true"
+
+
 def _has_fix_expr(vf=VulnFindingModel):
     return or_(
         vf.evidence["osv"]["fixed"].astext.is_not(None),
@@ -36,8 +47,32 @@ def _has_fix_expr(vf=VulnFindingModel):
     )
 
 
+def _surface_score_expr(vf=VulnFindingModel):
+    return func.greatest(
+        _json_float_expr(vf.evidence["analysis"]["exposure_score"].astext),
+        _json_float_expr(vf.asset["exposure"]["surface_score"].astext),
+    )
+
+
+def _observed_external_expr(vf=VulnFindingModel):
+    return _json_bool_expr(vf.asset["exposure"]["has_exposed_ports"].astext)
+
+
+def _package_relevant_expr(vf=VulnFindingModel):
+    return _json_bool_expr(vf.evidence["analysis"]["package_network_facing"].astext)
+
+
 def _internet_exposed_expr(vf=VulnFindingModel):
-    return func.upper(func.coalesce(vf.cvss, "")).like("%AV:N%")
+    network_attack_vector = or_(
+        func.upper(func.coalesce(vf.cvss, "")).like("%AV:N%"),
+        _json_bool_expr(vf.evidence["analysis"]["network_attack_vector"].astext),
+    )
+    return or_(
+        _observed_external_expr(vf),
+        _package_relevant_expr(vf),
+        network_attack_vector,
+        _surface_score_expr(vf) >= 60.0,
+    )
 
 
 def _risk_score_expr(now: datetime, vf=VulnFindingModel):
@@ -45,6 +80,9 @@ def _risk_score_expr(now: datetime, vf=VulnFindingModel):
     cve_present = and_(vf.cve.is_not(None), func.btrim(vf.cve) != "")
     has_fix = _has_fix_expr(vf)
     internet_exposed = _internet_exposed_expr(vf)
+    observed_external = _observed_external_expr(vf)
+    package_relevant = _package_relevant_expr(vf)
+    surface_score = _surface_score_expr(vf)
 
     cvss_points = case(
         (cvss_num >= 9.0, 16.0),
@@ -59,16 +97,31 @@ def _risk_score_expr(now: datetime, vf=VulnFindingModel):
         else_=0.0,
     )
 
+    recurrence_points = case(
+        (vf.occurrences >= 5, 8.0),
+        (vf.occurrences >= 2, 4.0),
+        else_=0.0,
+    )
+
+    surface_points = case(
+        (surface_score >= 60.0, 6.0),
+        (surface_score >= 30.0, 3.0),
+        else_=0.0,
+    )
+
     return func.least(
         100.0,
         (
-            cast(vf.severity_rank, Float) * 18.0
+            cast(vf.severity_rank, Float) * 17.0
             + cast(func.least(func.greatest(vf.confidence, 0), 100), Float) * 0.12
-            + cast(func.least(func.greatest(vf.occurrences, 1), 50), Float) * 0.45
             + case((cve_present, 6.0), else_=0.0)
             + cvss_points
-            + case((internet_exposed, 6.0), else_=0.0)
-            + case((has_fix, 4.0), else_=0.0)
+            + case((observed_external, 12.0), else_=0.0)
+            + case((and_(internet_exposed, observed_external.is_(False)), 6.0), else_=0.0)
+            + case((package_relevant, 6.0), else_=0.0)
+            + surface_points
+            + case((has_fix, 6.0), else_=0.0)
+            + recurrence_points
             + recency_points
         ),
     )
@@ -247,9 +300,9 @@ def upsert_scan_metadata(
     return row
 
 
-def bulk_upsert_findings(db: Session, *, rows: list[dict[str, Any]], auto_reopen: bool, now: datetime) -> None:
+def bulk_upsert_findings(db: Session, *, rows: list[dict[str, Any]], auto_reopen: bool, now: datetime) -> list[int]:
     if not rows:
-        return
+        return []
 
     finding_insert = insert(VulnFindingModel).values(rows)
     excl = finding_insert.excluded
@@ -292,8 +345,8 @@ def bulk_upsert_findings(db: Session, *, rows: list[dict[str, Any]], auto_reopen
             ),
             "updated_at": now,
         },
-    )
-    db.execute(finding_upsert)
+    ).returning(VulnFindingModel.id)
+    return [int(x) for x in db.execute(finding_upsert).scalars().all()]
 
 
 def reconcile_resolved_findings(
@@ -303,9 +356,9 @@ def reconcile_resolved_findings(
     observed_fingerprints: list[str],
     sources: list[str],
     now: datetime,
-) -> None:
+) -> list[int]:
     if not reporter_agent_id:
-        return
+        return []
 
     stmt = (
         update(VulnFindingModel)
@@ -321,7 +374,8 @@ def reconcile_resolved_findings(
         stmt = stmt.where(VulnFindingModel.source.in_(sources))
     if observed_fingerprints:
         stmt = stmt.where(VulnFindingModel.fingerprint.not_in(observed_fingerprints))
-    db.execute(stmt)
+    stmt = stmt.returning(VulnFindingModel.id)
+    return [int(x) for x in db.execute(stmt).scalars().all()]
 
 
 def get_agent_by_agent_id(db: Session, agent_id: str) -> AgentModel | None:
@@ -412,8 +466,12 @@ def list_findings_page(
             or_(
                 VulnFindingModel.title.ilike(q2),
                 VulnFindingModel.target.ilike(q2),
+                VulnFindingModel.asset_key.ilike(q2),
+                VulnFindingModel.location.ilike(q2),
                 VulnFindingModel.cve.ilike(q2),
                 VulnFindingModel.external_id.ilike(q2),
+                cast(VulnFindingModel.asset, Text).ilike(q2),
+                cast(VulnFindingModel.evidence, Text).ilike(q2),
             )
         )
 
@@ -431,6 +489,17 @@ def list_findings_page(
 
 def get_finding_by_id(db: Session, finding_id: int) -> VulnFindingModel | None:
     return db.get(VulnFindingModel, finding_id)
+
+
+def get_findings_by_ids(db: Session, finding_ids: list[int]) -> list[VulnFindingModel]:
+    if not finding_ids:
+        return []
+    rows = db.execute(
+        select(VulnFindingModel).where(VulnFindingModel.id.in_([int(x) for x in finding_ids]))
+    ).scalars().all()
+    order = {int(fid): idx for idx, fid in enumerate(finding_ids)}
+    rows.sort(key=lambda row: order.get(int(row.id), len(order)))
+    return rows
 
 
 def apply_finding_patch(
@@ -594,6 +663,10 @@ def posture_data(
             vf.last_seen_at.label("last_seen_at"),
             vf.remediation.label("remediation"),
             vf.cvss.label("cvss"),
+            vf.source.label("source"),
+            vf.location.label("location"),
+            vf.asset.label("asset"),
+            vf.evidence.label("evidence"),
             cvss_num,
             has_fix,
             internet_exposed,
@@ -636,6 +709,10 @@ def posture_data(
             base.c.last_seen_at,
             base.c.remediation,
             base.c.cvss,
+            base.c.source,
+            base.c.location,
+            base.c.asset,
+            base.c.evidence,
             base.c.cvss_score,
             base.c.has_fix,
             base.c.internet_exposed,

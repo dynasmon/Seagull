@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
@@ -16,6 +16,20 @@ import type { AgentPublic } from "@/features/agents/types";
 
 import { getVulnFindingsPage, getVulnPosture, getVulnScansPage, getVulnSummary, triggerVulnScanNow } from "./api";
 import { ActiveScanPanel } from "./ActiveScanPanel";
+import {
+  dispositionVariant,
+  findingAssetLabel,
+  findingComponentLabel,
+  findingDispositionLabel,
+  findingExposureLabel,
+  findingFixedVersion,
+  findingInstalledVersion,
+  findingObservationLabel,
+  mergeFindingsById,
+  observationVariant,
+  sevVariant,
+  sortFindingsByPriority,
+} from "./findingUtils";
 import {
   applyLifecycleScanPatch,
   buildVulnScanFromPatch,
@@ -40,15 +54,13 @@ type Filters = {
 };
 
 const RECENT_SCANS_PAGE_SIZE = 12;
-
-function sevVariant(sev: string) {
-  const s = String(sev || "").toLowerCase();
-  if (s === "critical") return "critical";
-  if (s === "high") return "high";
-  if (s === "medium") return "medium";
-  if (s === "low") return "low";
-  return "neutral";
-}
+const FINDING_PATCH_METRICS_DELAY_MS = 300;
+const MIN_SEVERITY_RANK: Record<string, number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+  critical: 4,
+};
 
 function fmtRisk(n: number | null | undefined): string {
   const v = Number(n || 0);
@@ -56,37 +68,9 @@ function fmtRisk(n: number | null | undefined): string {
   return v.toFixed(1);
 }
 
-function prettyAssetLabel(f: VulnFinding): string {
-  if (f.asset_agent_id) return `agent:${f.asset_agent_id}`;
-  if (f.asset_key) return f.asset_key;
-  if (f.target) return f.target;
-  return "-";
-}
-
-function exposureScoreOf(f: VulnFinding): number {
-  const a = Number((f.evidence as any)?.analysis?.exposure_score);
-  if (Number.isFinite(a)) return a;
-  const b = Number((f.asset as any)?.exposure?.surface_score);
-  if (Number.isFinite(b)) return b;
-  return 0;
-}
-
-function serviceHintsOf(f: VulnFinding): string[] {
-  const fromAsset = (f.asset as any)?.exposure?.service_hints;
-  if (Array.isArray(fromAsset)) return fromAsset.map((x) => String(x || "").trim()).filter(Boolean);
-  const fromEvidence = (f.evidence as any)?.exposure?.service_hints;
-  if (Array.isArray(fromEvidence)) return fromEvidence.map((x) => String(x || "").trim()).filter(Boolean);
-  return [];
-}
-
 function packagePivotKey(f: VulnFinding): string {
-  const fromEvidence = String(
-    (f.evidence as any)?.package?.name ||
-      (f.evidence as any)?.package_name ||
-      (f.evidence as any)?.dependency?.name ||
-      ""
-  ).trim();
-  if (fromEvidence) return fromEvidence;
+  const direct = String(f.component?.name || "").trim();
+  if (direct) return direct;
   const fromLocation = String(f.location || "").trim();
   if (fromLocation) {
     const at = fromLocation.indexOf("@");
@@ -98,18 +82,48 @@ function packagePivotKey(f: VulnFinding): string {
   return "";
 }
 
-function observationVariant(state: string) {
-  const s = String(state || "").toLowerCase();
-  if (s === "observed") return "info";
-  if (s === "awaiting_verification") return "high";
-  return "neutral";
-}
-
-function dispositionVariant(disposition: string) {
-  const s = String(disposition || "").toLowerCase();
-  if (s === "suppressed") return "neutral";
-  if (s === "accepted_risk") return "low";
-  return "neutral";
+function findingMatchesFilters(f: VulnFinding, filters: Filters): boolean {
+  if (!filters.includeSuppressed && filters.disposition !== "suppressed" && f.operator_disposition === "suppressed") {
+    return false;
+  }
+  if (filters.minSeverity !== "all" && Number(f.severity_rank || 0) < Number(MIN_SEVERITY_RANK[filters.minSeverity] || 0)) {
+    return false;
+  }
+  if (filters.observationState !== "all" && f.observation_state !== filters.observationState) {
+    return false;
+  }
+  if (filters.disposition !== "all" && f.operator_disposition !== filters.disposition) {
+    return false;
+  }
+  if (filters.reporterAgentId && f.reporter_agent_id !== filters.reporterAgentId) {
+    return false;
+  }
+  if (filters.assetAgentId && f.asset_agent_id !== filters.assetAgentId) {
+    return false;
+  }
+  if (filters.cve && String(f.cve || "").toLowerCase() !== filters.cve.toLowerCase()) {
+    return false;
+  }
+  const query = String(filters.q || "").trim().toLowerCase();
+  if (query) {
+    const haystack = [
+      f.title,
+      f.cve,
+      f.external_id,
+      f.asset_display,
+      f.asset_key,
+      f.location,
+      f.component?.name,
+      f.risk_summary,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    if (!haystack.includes(query)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function StatItem({
@@ -119,8 +133,8 @@ function StatItem({
   loading,
 }: {
   label: string;
-  value: React.ReactNode;
-  sub?: React.ReactNode;
+  value: ReactNode;
+  sub?: ReactNode;
   loading?: boolean;
 }) {
   return (
@@ -148,7 +162,7 @@ function CtrlBtn({
 }: {
   onClick: () => void;
   disabled?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button
@@ -224,6 +238,7 @@ export default function VulnerabilitiesPage() {
 
   const reqSeq = useRef(0);
   const itemsRef = useRef<VulnFinding[]>([]);
+  const metricsRefreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -269,7 +284,7 @@ export default function VulnerabilitiesPage() {
   );
 
   const loadPage = useCallback(
-    async (opts: { reset: boolean; cursor?: string | null }) => {
+    async (opts: { reset: boolean; cursor?: string | null; signal?: AbortSignal }) => {
       if (!isAdmin) return;
 
       const mySeq = ++reqSeq.current;
@@ -293,31 +308,32 @@ export default function VulnerabilitiesPage() {
           asset_agent_id: (filters.assetAgentId || "").trim() || undefined,
           cve: (filters.cve || "").trim() || undefined,
           include_suppressed: filters.includeSuppressed || filters.disposition === "suppressed",
+          signal: opts.signal,
         });
 
-        if (reqSeq.current !== mySeq) return;
+        if (reqSeq.current !== mySeq || opts.signal?.aborted) return;
 
-        const nextItems = opts.reset ? (out.items || []) : [...itemsRef.current, ...(out.items || [])];
+        const nextItems = sortFindingsByPriority(
+          opts.reset ? (out.items || []) : mergeFindingsById(itemsRef.current, out.items || [])
+        );
         setItems(nextItems);
         setCursor(out.next_cursor);
         setHasMore(Boolean(out.has_more));
 
         setSelected((prev) => {
           if (!prev) return null;
-          return nextItems.find((x) => x.id === prev.id) || null;
+          return nextItems.find((x) => x.id === prev.id) || prev;
         });
       } catch (e: any) {
-        if (reqSeq.current !== mySeq) return;
+        if (reqSeq.current !== mySeq || opts.signal?.aborted) return;
         setError(e?.message || "Failed to load findings");
         if (opts.reset) {
           setItems([]);
           setCursor(null);
           setHasMore(false);
-          setSelected(null);
-          setDrawerOpen(false);
         }
       } finally {
-        if (reqSeq.current !== mySeq) return;
+        if (reqSeq.current !== mySeq || opts.signal?.aborted) return;
         setBusy(false);
         setBusyMore(false);
       }
@@ -376,7 +392,7 @@ export default function VulnerabilitiesPage() {
     }
   }
 
-  async function loadRecentScans(agentId: string) {
+  async function loadRecentScans(agentId: string, signal?: AbortSignal) {
     if (onlySelectedAgentScans && !agentId) {
       setRecentScans([]);
       return;
@@ -386,7 +402,9 @@ export default function VulnerabilitiesPage() {
       const out = await getVulnScansPage({
         page_size: RECENT_SCANS_PAGE_SIZE,
         reporter_agent_id: onlySelectedAgentScans ? agentId : undefined,
+        signal,
       });
+      if (signal?.aborted) return;
       const nextItems = out.items || [];
       setRecentScans(nextItems);
       setSelectedScan((prev) => {
@@ -394,35 +412,57 @@ export default function VulnerabilitiesPage() {
         return nextItems.find((item) => item.scan_uuid === prev.scan_uuid) ?? prev;
       });
     } catch {
-      setRecentScans([]);
+      if (!signal?.aborted) setRecentScans([]);
     } finally {
       setRecentScansBusy(false);
     }
   }
 
-  const refreshDashboard = useCallback(async () => {
-    await Promise.all([
-      loadSummary({ includeSuppressed: filters.includeSuppressed }),
-      loadPosture({ includeSuppressed: filters.includeSuppressed }),
-      loadPage({ reset: true, cursor: null }),
-    ]);
-  }, [filters.includeSuppressed, loadPage, loadPosture, loadSummary]);
+  const refreshMetrics = useCallback(
+    async () => {
+      await Promise.all([
+        loadSummary({ includeSuppressed: filters.includeSuppressed }),
+        loadPosture({ includeSuppressed: filters.includeSuppressed }),
+      ]);
+    },
+    [filters.includeSuppressed, loadPosture, loadSummary]
+  );
+
+  const refreshDashboard = useCallback(
+    async (signal?: AbortSignal) => {
+      await Promise.all([
+        refreshMetrics(),
+        loadPage({ reset: true, cursor: null, signal }),
+      ]);
+    },
+    [loadPage, refreshMetrics]
+  );
 
   const live = useLiveRefresh({
     enabled: isAdmin,
     profile: "admin",
-    refresh: refreshDashboard,
+    refresh: async (context) => {
+      await refreshDashboard(context.signal);
+    },
   });
 
   const scansLive = useLiveRefresh({
     enabled: isAdmin && (!onlySelectedAgentScans || Boolean(scanTargetAgent)),
     profile: "admin",
-    refresh: async () => {
-      await loadRecentScans(scanTargetAgent);
+    refresh: async (context) => {
+      await loadRecentScans(scanTargetAgent, context.signal);
     },
   });
   const { refreshNow: refreshDashboardNow, invalidate: invalidateDashboard } = live;
   const { refreshNow: refreshRecentScansNow, invalidate: invalidateRecentScans } = scansLive;
+
+  const scheduleMetricsRefresh = useCallback(() => {
+    if (metricsRefreshTimerRef.current !== null) return;
+    metricsRefreshTimerRef.current = window.setTimeout(() => {
+      metricsRefreshTimerRef.current = null;
+      void refreshMetrics();
+    }, FINDING_PATCH_METRICS_DELAY_MS);
+  }, [refreshMetrics]);
 
   const recentScansScopeKey = onlySelectedAgentScans ? scanTargetAgent || "__none__" : "__all__";
   const recentScansScopeMissing = recentScansScopeKey === "__none__";
@@ -437,6 +477,15 @@ export default function VulnerabilitiesPage() {
     if (!isAdmin) return;
     invalidateDashboard("dependency", { immediate: true, supersede: true });
   }, [activeDays, filters, invalidateDashboard, isAdmin, pageSize]);
+
+  useEffect(() => {
+    return () => {
+      if (metricsRefreshTimerRef.current !== null) {
+        window.clearTimeout(metricsRefreshTimerRef.current);
+        metricsRefreshTimerRef.current = null;
+      }
+    };
+  }, []);
 
   usePortalRealtimeSubscription("ui.vulnerabilities.scan.lifecycle", (event) => {
     if (!isAdmin) return;
@@ -463,9 +512,56 @@ export default function VulnerabilitiesPage() {
       return applyLifecycleScanPatch(prev, scanData as Record<string, any>);
     });
 
-    if (lifecycle_event === "completed" || lifecycle_event === "failed") {
-      invalidateDashboard();
+    if (lifecycle_event === "completed" || lifecycle_event === "failed") scheduleMetricsRefresh();
+  });
+
+  usePortalRealtimeSubscription("ui.vulnerabilities.finding.patch", (event) => {
+    if (!isAdmin) return;
+    const payload = event.payload ?? {};
+    const incoming = Array.isArray(payload.findings)
+      ? (payload.findings.filter(Boolean) as VulnFinding[])
+      : [];
+    const eventAgentId = String(payload.agent_id || "").trim();
+    const reporterAgentId = String(filters.reporterAgentId || "").trim();
+    const assetAgentId = String(filters.assetAgentId || "").trim();
+    const hasScopedAgentFilter = Boolean(reporterAgentId || assetAgentId);
+
+    if (
+      hasScopedAgentFilter &&
+      eventAgentId &&
+      reporterAgentId !== eventAgentId &&
+      assetAgentId !== eventAgentId
+    ) {
+      return;
     }
+
+    if (payload.requires_reconcile) {
+      invalidateDashboard();
+      return;
+    }
+    if (!incoming.length) return;
+
+    setItems((prev) => {
+      const incomingById = new Map<number, VulnFinding>();
+      for (const finding of incoming) {
+        if (typeof finding?.id !== "number") continue;
+        incomingById.set(finding.id, finding);
+      }
+      const retained = prev.filter((existing) => {
+        const replacement = incomingById.get(existing.id);
+        if (!replacement) return true;
+        return findingMatchesFilters(replacement, filters);
+      });
+      const visibleIncoming = incoming.filter((finding) => findingMatchesFilters(finding, filters));
+      return sortFindingsByPriority(mergeFindingsById(retained, visibleIncoming));
+    });
+
+    setSelected((prev) => {
+      if (!prev) return null;
+      return incoming.find((finding) => finding.id === prev.id) ?? prev;
+    });
+
+    scheduleMetricsRefresh();
   });
 
   usePortalRealtimeSubscription("ui.vulnerabilities.invalidate", (event) => {
@@ -559,10 +655,10 @@ export default function VulnerabilitiesPage() {
   const assetPivots = useMemo(() => {
     const map = new Map<string, { label: string; count: number; maxRisk: number }>();
     for (const f of items) {
-      const label = prettyAssetLabel(f);
+      const label = findingAssetLabel(f);
       const entry = map.get(label) || { label, count: 0, maxRisk: 0 };
       entry.count += 1;
-      entry.maxRisk = Math.max(entry.maxRisk, Number((f.evidence as any)?.analysis?.risk_score || 0));
+      entry.maxRisk = Math.max(entry.maxRisk, Number(f.priority?.score || 0));
       map.set(label, entry);
     }
     return Array.from(map.values())
@@ -778,10 +874,10 @@ export default function VulnerabilitiesPage() {
       {/* ── Posture detail tables ── */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Card
-          title="Top risky findings"
+          title="Priority Queue"
           right={
             <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-              {posture?.top_risks?.length ?? 0} items
+              explainable ranking
             </span>
           }
           className="rounded-xl"
@@ -789,65 +885,77 @@ export default function VulnerabilitiesPage() {
           {!posture || posture.top_risks.length === 0 ? (
             <EmptyState title="No prioritized findings" description="No open findings in the selected window." />
           ) : (
-            <div className="w-full overflow-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-10 bg-background/60 backdrop-blur">
-                  <tr className="border-b border-border/60 text-muted-foreground">
-                    <th className="w-[86px] px-3 py-2 text-left font-medium">Risk</th>
-                    <th className="px-3 py-2 text-left font-medium">Finding</th>
-                    <th className="w-[160px] px-3 py-2 text-left font-medium">Asset</th>
-                    <th className="w-[110px] px-3 py-2 text-left font-medium">Fix</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {posture.top_risks.map((x) => (
-                    <tr
-                      key={x.id}
-                      className="cursor-pointer border-b border-border/40 hover:bg-muted/30"
-                      onClick={() => {
-                        const row = items.find((it) => it.id === x.id);
-                        if (row) {
-                          setSelected(row);
-                          setDrawerOpen(true);
-                          return;
-                        }
-                        const next = { ...draft, cve: x.cve || "", q: x.cve ? "" : x.title };
-                        setDraft(next);
-                        setFilters(next);
-                      }}
-                    >
-                      <td className="px-3 py-2 font-mono text-[12px]">
+            <div className="space-y-2">
+              {posture.top_risks.map((x) => (
+                <button
+                  key={x.id}
+                  type="button"
+                  className="w-full rounded-lg border border-border/60 bg-background/40 p-3 text-left hover:bg-muted/15"
+                  onClick={() => {
+                    const row = items.find((it) => it.id === x.id);
+                    if (row) {
+                      setSelected(row);
+                      setDrawerOpen(true);
+                      return;
+                    }
+                    const next = { ...draft, cve: x.cve || "", q: x.cve ? "" : x.component_name || x.title };
+                    setDraft(next);
+                    setFilters(next);
+                  }}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span
                           className={cx(
-                            "inline-flex rounded-md border px-2 py-0.5",
+                            "inline-flex rounded-md border px-2 py-0.5 font-mono text-[12px]",
                             Number(x.risk_score) >= 80
                               ? "border-red-500/50 text-red-300"
                               : Number(x.risk_score) >= 65
-                              ? "border-orange-500/50 text-orange-300"
-                              : "border-border/60 text-foreground"
+                                ? "border-orange-500/50 text-orange-300"
+                                : "border-border/60 text-foreground"
                           )}
                         >
                           {fmtRisk(x.risk_score)}
                         </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="truncate font-mono text-[12px]" title={x.title}>
-                          {x.cve ? `${x.cve} — ${x.title}` : x.title}
+                        <Badge variant={sevVariant(x.severity)}>{x.severity}</Badge>
+                        <span className="text-[11px] text-muted-foreground">conf {x.confidence}</span>
+                        <span className="text-[11px] text-muted-foreground">{x.exposure_source.replaceAll("_", " ")}</span>
+                      </div>
+                      <div className="mt-2 truncate font-mono text-[12px]" title={x.component_name || x.title}>
+                        {x.component_name || x.title}
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        {x.installed_version ? `installed ${x.installed_version}` : "installed version unknown"}
+                        {x.fixed_version ? ` · fix ${x.fixed_version}` : " · no fix version recorded"}
+                        {x.cve ? ` · ${x.cve}` : ""}
+                      </div>
+                      {x.risk_summary ? (
+                        <div className="mt-2 line-clamp-2 text-sm text-foreground/85">{x.risk_summary}</div>
+                      ) : null}
+                      {x.priority_factors?.length ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {x.priority_factors.slice(0, 4).map((factor) => (
+                            <span
+                              key={factor}
+                              className="inline-flex items-center rounded border border-border/50 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground"
+                            >
+                              {factor}
+                            </span>
+                          ))}
                         </div>
-                        <div className="text-[11px] text-muted-foreground">
-                          <Badge variant={sevVariant(x.severity)}>{x.severity}</Badge>
-                          <span className="ml-2">conf {x.confidence}</span>
-                          {x.internet_exposed ? <span className="ml-2">AV:N</span> : null}
-                        </div>
-                      </td>
-                      <td className="truncate px-3 py-2 font-mono text-[12px]" title={x.asset_key}>
-                        {x.asset_agent_id ? `agent:${x.asset_agent_id}` : x.asset_key}
-                      </td>
-                      <td className="px-3 py-2 text-[11px]">{x.has_fix ? "available" : "unknown"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      ) : null}
+                    </div>
+                    <div className="min-w-[170px] text-right text-[11px] text-muted-foreground">
+                      <div className="font-mono text-[12px] text-foreground" title={x.asset_display}>
+                        {x.asset_display}
+                      </div>
+                      <div className="mt-1">{x.has_fix ? "fix ready for validation" : "manual remediation required"}</div>
+                      <div className="mt-1">seen {fmtAge(x.last_seen_at)}</div>
+                    </div>
+                  </div>
+                </button>
+              ))}
             </div>
           )}
         </Card>
@@ -925,7 +1033,7 @@ export default function VulnerabilitiesPage() {
 
       {/* ── Section 3: Findings ── */}
       <Card
-        title="Findings"
+        title="Findings Queue"
         right={
           <div className="flex items-center gap-3">
             {busy && items.length > 0 && (
@@ -981,9 +1089,9 @@ export default function VulnerabilitiesPage() {
               className={cx(inputCx, "mt-1")}
             >
               <option value="all">All</option>
-              <option value="observed">Observed</option>
-              <option value="awaiting_verification">Awaiting verification</option>
-              <option value="resolved">Resolved</option>
+              <option value="observed">Still observed</option>
+              <option value="awaiting_verification">Pending verification</option>
+              <option value="resolved">No longer observed</option>
             </select>
           </div>
 
@@ -995,8 +1103,8 @@ export default function VulnerabilitiesPage() {
               className={cx(inputCx, "mt-1")}
             >
               <option value="all">All</option>
-              <option value="open">Open</option>
-              <option value="accepted_risk">Accepted risk</option>
+              <option value="open">Active</option>
+              <option value="accepted_risk">Accepted</option>
               <option value="suppressed">Suppressed</option>
             </select>
           </div>
@@ -1165,22 +1273,11 @@ export default function VulnerabilitiesPage() {
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-background/60 backdrop-blur">
                 <tr className="border-b border-border/60 text-muted-foreground">
-                  <th className="w-[120px] whitespace-nowrap px-3 py-2 text-left font-medium">
-                    Severity
-                  </th>
-                  <th className="min-w-[280px] px-3 py-2 text-left font-medium">Title</th>
-                  <th className="w-[190px] whitespace-nowrap px-3 py-2 text-left font-medium">
-                    Asset
-                  </th>
-                  <th className="w-[180px] whitespace-nowrap px-3 py-2 text-left font-medium">
-                    State
-                  </th>
-                  <th className="w-[170px] whitespace-nowrap px-3 py-2 text-left font-medium">
-                    Exposure
-                  </th>
-                  <th className="w-[150px] whitespace-nowrap px-3 py-2 text-left font-medium">
-                    Last seen
-                  </th>
+                  <th className="w-[140px] whitespace-nowrap px-3 py-2 text-left font-medium">Priority</th>
+                  <th className="min-w-[320px] px-3 py-2 text-left font-medium">Finding</th>
+                  <th className="w-[230px] whitespace-nowrap px-3 py-2 text-left font-medium">Asset Context</th>
+                  <th className="w-[220px] whitespace-nowrap px-3 py-2 text-left font-medium">State</th>
+                  <th className="w-[170px] whitespace-nowrap px-3 py-2 text-left font-medium">Seen</th>
                   <th className="w-[80px] whitespace-nowrap px-3 py-2 text-left font-medium">
                     Hits
                   </th>
@@ -1193,8 +1290,9 @@ export default function VulnerabilitiesPage() {
                 {items.map((f) => {
                   const selectedRow = selected?.id === f.id;
                   const rowPad = dense ? "py-1.5" : "py-2";
-                  const expScore = exposureScoreOf(f);
-                  const svc = serviceHintsOf(f).slice(0, 2);
+                  const svc = (f.exposure?.service_hints || []).slice(0, 2);
+                  const installedVersion = findingInstalledVersion(f);
+                  const fixedVersion = findingFixedVersion(f);
                   return (
                     <tr
                       key={f.id}
@@ -1210,50 +1308,70 @@ export default function VulnerabilitiesPage() {
                       tabIndex={0}
                     >
                       <td className={cx("px-3", rowPad)}>
-                        <Badge variant={sevVariant(f.severity)}>{f.severity}</Badge>
+                        <div className="space-y-1">
+                          <span
+                            className={cx(
+                              "inline-flex rounded-md border px-2 py-0.5 font-mono text-[12px]",
+                              Number(f.priority?.score || 0) >= 80
+                                ? "border-red-500/50 text-red-300"
+                                : Number(f.priority?.score || 0) >= 65
+                                  ? "border-orange-500/50 text-orange-300"
+                                  : "border-border/60 text-foreground"
+                            )}
+                          >
+                            {fmtRisk(f.priority?.score)}
+                          </span>
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                            <Badge variant={sevVariant(f.severity)}>{f.severity}</Badge>
+                            <span>conf {f.confidence}</span>
+                          </div>
+                        </div>
                       </td>
                       <td className={cx("px-3", rowPad)}>
-                        <div className="truncate font-mono text-[12px]" title={f.title}>
-                          {f.cve ? `${f.cve} — ${f.title}` : f.title}
+                        <div className="truncate font-mono text-[12px]" title={findingComponentLabel(f)}>
+                          {findingComponentLabel(f)}
                         </div>
                         <div className="truncate text-[11px] text-muted-foreground">
-                          {f.location || f.external_id || f.source} · conf {f.confidence}
+                          {installedVersion ? `installed ${installedVersion}` : "installed version unknown"}
+                          {fixedVersion ? ` · fix ${fixedVersion}` : " · no fix version recorded"}
+                          {f.cve ? ` · ${f.cve}` : ""}
+                        </div>
+                        <div className="mt-1 line-clamp-2 text-sm text-foreground/85">
+                          {f.risk_summary || f.title}
                         </div>
                       </td>
                       <td className={cx("px-3", rowPad)}>
-                        <div
-                          className="truncate font-mono text-[12px]"
-                          title={prettyAssetLabel(f)}
-                        >
-                          {prettyAssetLabel(f)}
+                        <div className="truncate font-mono text-[12px]" title={findingAssetLabel(f)}>
+                          {findingAssetLabel(f)}
                         </div>
                         <div className="truncate text-[11px] text-muted-foreground">
-                          {f.reporter_agent_id ? `reported by ${f.reporter_agent_id}` : "-"}
+                          {findingExposureLabel(f)}
+                          {svc.length ? ` · ${svc.join(", ")}` : ""}
+                        </div>
+                        <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
+                          {f.asset_context?.length ? f.asset_context.join(" · ") : "-"}
                         </div>
                       </td>
                       <td className={cx("px-3", rowPad)}>
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant={observationVariant(f.observation_state)}>
-                            {f.observation_state}
+                            {findingObservationLabel(f)}
                           </Badge>
                           {f.operator_disposition !== "open" && (
                             <Badge variant={dispositionVariant(f.operator_disposition)}>
-                              {f.operator_disposition}
+                              {findingDispositionLabel(f)}
                             </Badge>
                           )}
                         </div>
-                      </td>
-                      <td className={cx("px-3", rowPad)}>
-                        <div className="font-mono text-[12px]">score {expScore}</div>
-                        <div
-                          className="truncate text-[11px] text-muted-foreground"
-                          title={svc.join(", ") || "-"}
-                        >
-                          {svc.length ? svc.join(", ") : "-"}
+                        <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
+                          {f.remediation_guidance || "Await scanner evidence or analyst disposition."}
                         </div>
                       </td>
                       <td className={cx("px-3 font-mono text-[12px]", rowPad)}>
                         <div title={fmtWhen(f.last_seen_at)}>{fmtAge(f.last_seen_at)}</div>
+                        <div className="mt-1 text-[11px] text-muted-foreground" title={fmtWhen(f.first_seen_at)}>
+                          first {fmtAge(f.first_seen_at)}
+                        </div>
                       </td>
                       <td className={cx("px-3 font-mono text-[12px]", rowPad)}>{f.occurrences}</td>
                       <td className={cx("px-3 text-right", rowPad)}>
@@ -1307,13 +1425,12 @@ export default function VulnerabilitiesPage() {
         onClose={() => setDrawerOpen(false)}
         onPatched={(next) => {
           setSelected(next);
-          setItems((prev) => prev.map((x) => (x.id === next.id ? next : x)));
-          if (!filters.includeSuppressed && filters.disposition !== "suppressed" && next.is_suppressed) {
-            setItems((prev) => prev.filter((x) => x.id !== next.id));
-            setDrawerOpen(false);
-          }
-          loadSummary();
-          loadPosture();
+          setItems((prev) => {
+            const retained = prev.filter((item) => item.id !== next.id);
+            const merged = findingMatchesFilters(next, filters) ? [...retained, next] : retained;
+            return sortFindingsByPriority(merged);
+          });
+          scheduleMetricsRefresh();
         }}
       />
       <VulnScanDrawer

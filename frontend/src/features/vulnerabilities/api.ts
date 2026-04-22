@@ -14,7 +14,7 @@ export function getVulnSummary(params?: { active_within_days?: number; include_s
   const q = new URLSearchParams();
   q.set("active_within_days", String(params?.active_within_days ?? 30));
   if (params?.include_suppressed) q.set("include_suppressed", "true");
-  return apiGet<VulnSummary>(`/api/vuln/summary?${q.toString()}`);
+  return apiGet<VulnSummary>(`/api/vuln/summary?${q.toString()}`, { cacheMs: 0 });
 }
 
 export function getVulnPosture(params?: { active_within_days?: number; include_suppressed?: boolean; top_n?: number }) {
@@ -22,7 +22,7 @@ export function getVulnPosture(params?: { active_within_days?: number; include_s
   q.set("active_within_days", String(params?.active_within_days ?? 30));
   if (params?.include_suppressed) q.set("include_suppressed", "true");
   if (params?.top_n) q.set("top_n", String(params.top_n));
-  return apiGet<VulnPosture>(`/api/vuln/posture?${q.toString()}`);
+  return apiGet<VulnPosture>(`/api/vuln/posture?${q.toString()}`, { cacheMs: 0 });
 }
 
 export function getVulnFindingsPage(params?: {
@@ -37,6 +37,7 @@ export function getVulnFindingsPage(params?: {
   cve?: string;
   q?: string;
   include_suppressed?: boolean;
+  signal?: AbortSignal;
 }) {
   const q = new URLSearchParams();
   q.set("page_size", String(params?.page_size ?? 50));
@@ -50,11 +51,17 @@ export function getVulnFindingsPage(params?: {
   if (params?.cve) q.set("cve", params.cve);
   if (params?.q) q.set("q", params.q);
   if (params?.include_suppressed) q.set("include_suppressed", "true");
-  return apiGet<CursorPage<VulnFinding>>(`/api/vuln/findings?${q.toString()}`);
+  return apiGet<CursorPage<VulnFinding>>(`/api/vuln/findings?${q.toString()}`, {
+    cacheMs: 0,
+    signal: params?.signal,
+  });
 }
 
-export function getVulnFinding(id: number) {
-  return apiGet<VulnFinding>(`/api/vuln/findings/${encodeURIComponent(String(id))}`);
+export function getVulnFinding(id: number, opts?: { signal?: AbortSignal }) {
+  return apiGet<VulnFinding>(`/api/vuln/findings/${encodeURIComponent(String(id))}`, {
+    cacheMs: 0,
+    signal: opts?.signal,
+  });
 }
 
 export function patchVulnFinding(id: number, patch: VulnFindingPatchIn) {
@@ -67,6 +74,7 @@ export function getVulnScansPage(params?: {
   reporter_agent_id?: string;
   status?: string;
   tool?: string;
+  signal?: AbortSignal;
 }) {
   const q = new URLSearchParams();
   q.set("page_size", String(params?.page_size ?? 50));
@@ -74,7 +82,10 @@ export function getVulnScansPage(params?: {
   if (params?.reporter_agent_id) q.set("reporter_agent_id", params.reporter_agent_id);
   if (params?.status) q.set("status_q", params.status);
   if (params?.tool) q.set("tool", params.tool);
-  return apiGet<CursorPage<VulnScan>>(`/api/vuln/scans?${q.toString()}`);
+  return apiGet<CursorPage<VulnScan>>(`/api/vuln/scans?${q.toString()}`, {
+    cacheMs: 0,
+    signal: params?.signal,
+  });
 }
 
 export function triggerVulnScanNow(agent_id: string) {

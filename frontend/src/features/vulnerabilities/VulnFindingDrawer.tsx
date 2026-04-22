@@ -1,41 +1,24 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { Badge } from "@/shared/components/Badge";
 import Drawer from "@/shared/components/Drawer";
 import { cx } from "@/shared/lib/cx";
 
 import { patchVulnFinding } from "./api";
+import {
+  dispositionVariant,
+  findingAssetLabel,
+  findingComponentLabel,
+  findingDispositionLabel,
+  findingExposureLabel,
+  findingFixedVersion,
+  findingInstalledVersion,
+  findingObservationLabel,
+  observationVariant,
+  sevVariant,
+} from "./findingUtils";
+import { fmtWhen } from "./scanUtils";
 import type { VulnFinding, VulnFindingPatchIn } from "./types";
-
-function sevVariant(sev: string) {
-  const s = String(sev || "").toLowerCase();
-  if (s === "critical") return "critical";
-  if (s === "high") return "high";
-  if (s === "medium") return "medium";
-  if (s === "low") return "low";
-  return "neutral";
-}
-
-function observationVariant(state: string) {
-  const s = String(state || "").toLowerCase();
-  if (s === "observed") return "info";
-  if (s === "awaiting_verification") return "high";
-  return "neutral";
-}
-
-function dispositionVariant(disposition: string) {
-  const s = String(disposition || "").toLowerCase();
-  if (s === "accepted_risk") return "low";
-  if (s === "suppressed") return "neutral";
-  return "neutral";
-}
-
-function fmtWhen(iso?: string | null): string {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleString();
-}
 
 function safeJson(v: any): string {
   try {
@@ -43,17 +26,6 @@ function safeJson(v: any): string {
   } catch {
     return String(v);
   }
-}
-
-function exposureMeta(f: VulnFinding | null) {
-  const a = (f?.asset as any)?.exposure || {};
-  const ev = (f?.evidence as any) || {};
-  const analysis = ev.analysis || {};
-  const portServices = Array.isArray(a.port_services) ? a.port_services : [];
-  const serviceHints = Array.isArray(a.service_hints) ? a.service_hints : [];
-  const exposedPorts = Array.isArray(a.exposed_ports) ? a.exposed_ports : [];
-  const score = Number(analysis.exposure_score ?? a.surface_score ?? 0) || 0;
-  return { score, serviceHints, exposedPorts, portServices };
 }
 
 function ActionButton(props: {
@@ -84,6 +56,32 @@ function ActionButton(props: {
   );
 }
 
+function Section({
+  title,
+  children,
+  className,
+}: {
+  title: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cx("rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md", className)}>
+      <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">{title}</div>
+      <div className="mt-3">{children}</div>
+    </div>
+  );
+}
+
+function MetaItem({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 text-sm text-foreground">{value}</div>
+    </div>
+  );
+}
+
 export default function VulnFindingDrawer(props: {
   open: boolean;
   finding: VulnFinding | null;
@@ -91,16 +89,15 @@ export default function VulnFindingDrawer(props: {
   onPatched: (next: VulnFinding) => void;
 }) {
   const f = props.finding;
-
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const exposure = useMemo(() => exposureMeta(f), [f]);
 
   const title = useMemo(() => {
-    if (!f) return "Vulnerability";
-    const base = f.cve ? `${f.cve} — ${f.title}` : f.title;
-    return base.length > 120 ? `${base.slice(0, 117)}…` : base;
+    if (!f) return "Finding";
+    const component = findingComponentLabel(f);
+    const prefix = f.cve ? `${f.cve} · ${component}` : component;
+    return prefix.length > 120 ? `${prefix.slice(0, 117)}...` : prefix;
   }, [f]);
 
   async function doPatch(patch: VulnFindingPatchIn) {
@@ -126,13 +123,16 @@ export default function VulnFindingDrawer(props: {
     }
   }
 
+  const installedVersion = f ? findingInstalledVersion(f) : null;
+  const fixedVersion = f ? findingFixedVersion(f) : null;
+
   return (
     <Drawer
       open={props.open}
       title={title}
-      description={f ? `Finding #${f.id} • ${f.source} • Last seen ${fmtWhen(f.last_seen_at)}` : ""}
+      description={f ? `Finding #${f.id} · ${findingAssetLabel(f)} · Last seen ${fmtWhen(f.last_seen_at)}` : ""}
       onClose={props.onClose}
-      widthClassName="w-[820px]"
+      widthClassName="w-[880px]"
     >
       {!f ? (
         <div className="text-sm text-muted-foreground">No finding selected.</div>
@@ -140,26 +140,27 @@ export default function VulnFindingDrawer(props: {
         <div className="space-y-5">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={sevVariant(f.severity)}>{f.severity}</Badge>
-            <Badge variant={observationVariant(f.observation_state)}>{f.observation_state}</Badge>
+            <Badge variant={observationVariant(f.observation_state)}>{findingObservationLabel(f)}</Badge>
             {f.operator_disposition !== "open" ? (
-              <Badge variant={dispositionVariant(f.operator_disposition)}>{f.operator_disposition}</Badge>
+              <Badge variant={dispositionVariant(f.operator_disposition)}>{findingDispositionLabel(f)}</Badge>
             ) : null}
             <span className="text-xs text-muted-foreground">confidence {f.confidence}/100</span>
+            <span className="text-xs text-muted-foreground">priority {Number(f.priority?.score || 0).toFixed(1)}</span>
           </div>
 
           <div className="flex flex-wrap gap-2">
             <ActionButton
-              label={f.observation_state === "observed" ? "Await Verification" : "Mark Observed"}
+              label={f.observation_state === "awaiting_verification" ? "Mark Still Observed" : "Mark Pending Verification"}
               kind="primary"
               disabled={busy}
               onClick={() =>
                 doPatch({
-                  observation_state: f.observation_state === "observed" ? "awaiting_verification" : "observed",
+                  observation_state: f.observation_state === "awaiting_verification" ? "observed" : "awaiting_verification",
                 })
               }
             />
             <ActionButton
-              label={f.operator_disposition === "accepted_risk" ? "Reopen Risk" : "Accept Risk"}
+              label={f.operator_disposition === "accepted_risk" ? "Reopen Review" : "Accept Risk"}
               disabled={busy}
               onClick={() =>
                 doPatch({
@@ -178,10 +179,15 @@ export default function VulnFindingDrawer(props: {
               }
             />
             <ActionButton
-              label={copied ? "Copied" : "Copy fingerprint"}
+              label={copied ? "Copied" : "Copy Fingerprint"}
               disabled={!f.fingerprint}
               onClick={() => copy(f.fingerprint)}
             />
+          </div>
+
+          <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+            Accepted and suppressed states record analyst disposition only. A finding moves to{" "}
+            <span className="text-foreground">No longer observed</span> when a later scan stops seeing it.
           </div>
 
           {err ? (
@@ -190,116 +196,116 @@ export default function VulnFindingDrawer(props: {
             </div>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
-              <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Asset</div>
-              <div className="mt-2 space-y-2">
-                <div className="text-sm">
-                  <div className="text-xs text-muted-foreground">asset_key</div>
-                  <div className="font-mono text-[12px] break-all">{f.asset_key}</div>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <Section title="Why It Matters">
+              <div className="space-y-3">
+                <div className="text-sm leading-6 text-foreground/90">
+                  {f.risk_summary || f.description || "No additional rationale was provided."}
                 </div>
-                <div className="text-sm">
-                  <div className="text-xs text-muted-foreground">reporter_agent_id</div>
-                  <div className="font-mono text-[12px] break-all">{f.reporter_agent_id || "-"}</div>
-                </div>
-                <div className="text-sm">
-                  <div className="text-xs text-muted-foreground">location</div>
-                  <div className="font-mono text-[12px] break-all">{f.location || "-"}</div>
-                </div>
+                {f.priority?.factors?.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {f.priority.factors.map((factor) => (
+                      <span
+                        key={factor}
+                        className="inline-flex items-center rounded-md border border-border/60 bg-background/30 px-2 py-1 text-[11px] font-mono text-muted-foreground"
+                      >
+                        {factor}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            </div>
+            </Section>
 
-            <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
-              <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Timing</div>
-              <div className="mt-2 space-y-2">
-                <div className="text-sm">
-                  <div className="text-xs text-muted-foreground">first_seen</div>
-                  <div className="font-mono text-[12px]">{fmtWhen(f.first_seen_at)}</div>
-                </div>
-                <div className="text-sm">
-                  <div className="text-xs text-muted-foreground">last_seen</div>
-                  <div className="font-mono text-[12px]">{fmtWhen(f.last_seen_at)}</div>
-                </div>
-                <div className="text-sm">
-                  <div className="text-xs text-muted-foreground">occurrences</div>
-                  <div className="font-mono text-[12px]">{f.occurrences}</div>
-                </div>
+            <Section title="Component">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <MetaItem label="Affected component" value={<span className="font-mono text-[12px]">{findingComponentLabel(f)}</span>} />
+                <MetaItem label="Kind" value={<span className="font-mono text-[12px]">{f.component?.kind || "-"}</span>} />
+                <MetaItem label="Installed version" value={<span className="font-mono text-[12px]">{installedVersion || "-"}</span>} />
+                <MetaItem label="Fixed version" value={<span className="font-mono text-[12px]">{fixedVersion || "-"}</span>} />
+                <MetaItem label="Package manager" value={<span className="font-mono text-[12px]">{f.component?.manager || "-"}</span>} />
+                <MetaItem label="Ecosystem" value={<span className="font-mono text-[12px]">{f.component?.ecosystem || "-"}</span>} />
               </div>
-            </div>
+            </Section>
           </div>
 
-          <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
-            <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Identifiers</div>
-            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div>
-                <div className="text-xs text-muted-foreground">CVE</div>
-                <div className="font-mono text-[12px] break-all">{f.cve || "-"}</div>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <Section title="Exposure And Asset">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <MetaItem label="Asset" value={<span className="font-mono text-[12px] break-all">{findingAssetLabel(f)}</span>} />
+                <MetaItem label="Exposure basis" value={<span className="text-sm">{findingExposureLabel(f)}</span>} />
+                <MetaItem label="Externally exposed" value={<span className="font-mono text-[12px]">{f.exposure?.externally_exposed ? "yes" : "no"}</span>} />
+                <MetaItem label="Surface score" value={<span className="font-mono text-[12px]">{f.exposure?.surface_score ?? 0}</span>} />
+                <MetaItem
+                  label="Exposed ports"
+                  value={<span className="font-mono text-[12px]">{f.exposure?.exposed_ports?.length ? f.exposure.exposed_ports.join(", ") : "-"}</span>}
+                />
+                <MetaItem
+                  label="Service hints"
+                  value={<span className="font-mono text-[12px]">{f.exposure?.service_hints?.length ? f.exposure.service_hints.join(", ") : "-"}</span>}
+                />
               </div>
-              <div>
-                <div className="text-xs text-muted-foreground">external_id</div>
-                <div className="font-mono text-[12px] break-all">{f.external_id || "-"}</div>
+              {f.asset_context?.length ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {f.asset_context.map((item) => (
+                    <span
+                      key={item}
+                      className="inline-flex items-center rounded-md border border-border/60 bg-background/30 px-2 py-0.5 text-[11px] font-mono text-muted-foreground"
+                    >
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </Section>
+
+            <Section title="Observation State">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <MetaItem label="Observation" value={<span className="text-sm">{findingObservationLabel(f)}</span>} />
+                <MetaItem label="Disposition" value={<span className="text-sm">{findingDispositionLabel(f)}</span>} />
+                <MetaItem label="First seen" value={<span className="font-mono text-[12px]">{fmtWhen(f.first_seen_at)}</span>} />
+                <MetaItem label="Last seen" value={<span className="font-mono text-[12px]">{fmtWhen(f.last_seen_at)}</span>} />
+                <MetaItem label="Repeated observation" value={<span className="font-mono text-[12px]">{f.repeated_observation ? "yes" : "no"}</span>} />
+                <MetaItem label="Total observations" value={<span className="font-mono text-[12px]">{f.occurrences}</span>} />
               </div>
-              <div>
-                <div className="text-xs text-muted-foreground">source</div>
-                <div className="font-mono text-[12px] break-all">{f.source}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">fingerprint</div>
-                <div className="font-mono text-[12px] break-all">{f.fingerprint}</div>
-              </div>
-            </div>
+            </Section>
           </div>
 
-          {f.description || f.remediation ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
-                <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Description</div>
-                <div className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">{f.description || "-"}</div>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <Section title="Remediation Guidance">
+              <div className="space-y-3">
+                <div className="text-sm leading-6 text-foreground/90">
+                  {f.remediation_guidance || "No concrete remediation guidance was provided."}
+                </div>
+                {fixedVersion ? (
+                  <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-200">
+                    Fix version available: <span className="font-mono">{fixedVersion}</span>
+                  </div>
+                ) : null}
               </div>
-              <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
-                <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Remediation</div>
-                <div className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">{f.remediation || "-"}</div>
+            </Section>
+
+            <Section title="Identifiers">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <MetaItem label="CVE" value={<span className="font-mono text-[12px] break-all">{f.cve || "-"}</span>} />
+                <MetaItem label="CWE" value={<span className="font-mono text-[12px] break-all">{f.cwe || "-"}</span>} />
+                <MetaItem label="CVSS" value={<span className="font-mono text-[12px] break-all">{f.cvss || "-"}</span>} />
+                <MetaItem label="Source" value={<span className="font-mono text-[12px] break-all">{f.source}</span>} />
+                <MetaItem label="External id" value={<span className="font-mono text-[12px] break-all">{f.external_id || "-"}</span>} />
+                <MetaItem label="Fingerprint" value={<span className="font-mono text-[12px] break-all">{f.fingerprint}</span>} />
               </div>
-            </div>
+            </Section>
+          </div>
+
+          {f.description ? (
+            <Section title="Scanner Details">
+              <div className="whitespace-pre-wrap text-sm leading-6 text-foreground/90">{f.description}</div>
+            </Section>
           ) : null}
 
-          <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
-            <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Tags</div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {f.tags?.length ? (
-                f.tags.map((t) => (
-                  <span key={t} className="inline-flex items-center rounded-md border border-border/60 bg-background/30 px-2 py-0.5 text-[11px] font-mono">
-                    {t}
-                  </span>
-                ))
-              ) : (
-                <span className="text-sm text-muted-foreground">-</span>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
-            <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Exposure</div>
-            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div>
-                <div className="text-xs text-muted-foreground">Exposure score</div>
-                <div className="font-mono text-sm">{exposure.score}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Exposed ports</div>
-                <div className="font-mono text-sm">{exposure.exposedPorts.length ? exposure.exposedPorts.join(", ") : "-"}</div>
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Service hints</div>
-                <div className="font-mono text-sm">{exposure.serviceHints.length ? exposure.serviceHints.join(", ") : "-"}</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md">
-            <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Evidence</div>
-            <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">{safeJson(f.evidence)}</pre>
-          </div>
+          <Section title="Evidence">
+            <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground">{safeJson(f.evidence)}</pre>
+          </Section>
         </div>
       )}
     </Drawer>

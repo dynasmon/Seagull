@@ -194,6 +194,15 @@ class VulnFindingOut(BaseModel):
     occurrences: int
     updated_at: datetime
 
+    component: "VulnFindingComponentOut"
+    exposure: "VulnFindingExposureOut"
+    asset_display: str
+    asset_context: List[str]
+    risk_summary: Optional[str] = None
+    remediation_guidance: Optional[str] = None
+    repeated_observation: bool = False
+    priority: "VulnFindingPriorityOut"
+
     class Config:
         orm_mode = True
 
@@ -250,6 +259,14 @@ class VulnRiskItemOut(BaseModel):
     internet_exposed: bool
     exploit_likely: bool
     risk_score: float
+    component_name: Optional[str] = None
+    installed_version: Optional[str] = None
+    fixed_version: Optional[str] = None
+    asset_display: str
+    risk_summary: Optional[str] = None
+    priority_factors: List[str] = Field(default_factory=list)
+    exposure_source: str = "none"
+    service_hints: List[str] = Field(default_factory=list)
 
 
 class VulnAssetRiskOut(BaseModel):
@@ -294,3 +311,32 @@ class VulnManualScanOut(BaseModel):
     lifecycle_state: str
     current_phase: str
     queued_at: datetime
+
+
+class VulnFindingComponentOut(BaseModel):
+    kind: str = "package"
+    name: Optional[str] = None
+    installed_version: Optional[str] = None
+    fixed_version: Optional[str] = None
+    ecosystem: Optional[str] = None
+    manager: Optional[str] = None
+    purl: Optional[str] = None
+
+
+class VulnFindingExposureOut(BaseModel):
+    source: str = "none"
+    observed: bool = False
+    inferred: bool = False
+    externally_exposed: bool = False
+    package_relevant: bool = False
+    surface_score: int = 0
+    service_hints: List[str] = Field(default_factory=list)
+    exposed_ports: List[int] = Field(default_factory=list)
+
+
+class VulnFindingPriorityOut(BaseModel):
+    score: float = 0.0
+    factors: List[str] = Field(default_factory=list)
+
+
+VulnFindingOut.update_forward_refs()

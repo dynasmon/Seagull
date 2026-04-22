@@ -1,3 +1,29 @@
+export type VulnFindingComponent = {
+  kind: string;
+  name: string | null;
+  installed_version: string | null;
+  fixed_version: string | null;
+  ecosystem: string | null;
+  manager: string | null;
+  purl: string | null;
+};
+
+export type VulnFindingExposure = {
+  source: string;
+  observed: boolean;
+  inferred: boolean;
+  externally_exposed: boolean;
+  package_relevant: boolean;
+  surface_score: number;
+  service_hints: string[];
+  exposed_ports: number[];
+};
+
+export type VulnFindingPriority = {
+  score: number;
+  factors: string[];
+};
+
 export type VulnFinding = {
   id: number;
   scan_id: number | null;
@@ -37,6 +63,15 @@ export type VulnFinding = {
   last_seen_at: string;
   occurrences: number;
   updated_at: string;
+
+  component: VulnFindingComponent;
+  exposure: VulnFindingExposure;
+  asset_display: string;
+  asset_context: string[];
+  risk_summary: string | null;
+  remediation_guidance: string | null;
+  repeated_observation: boolean;
+  priority: VulnFindingPriority;
 };
 
 export type VulnFindingPatchIn = {
@@ -77,6 +112,14 @@ export type VulnRiskItem = {
   internet_exposed: boolean;
   exploit_likely: boolean;
   risk_score: number;
+  component_name: string | null;
+  installed_version: string | null;
+  fixed_version: string | null;
+  asset_display: string;
+  risk_summary: string | null;
+  priority_factors: string[];
+  exposure_source: string;
+  service_hints: string[];
 };
 
 export type VulnAssetRisk = {
