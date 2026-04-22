@@ -13,6 +13,9 @@ import {
   fmtWhen,
   fmtAge,
   fmtAbsoluteAndAge,
+  scanLifecycleLabel,
+  scanPhaseLabel,
+  scanTriggerLabel,
   scanVariant,
   isLiveScan,
 } from "./scanUtils";
@@ -133,7 +136,7 @@ export const PhaseTimeline = memo(function PhaseTimeline({ scan }: { scan: VulnS
               isCurrent ? "text-foreground" : "text-muted-foreground"
             )}
           >
-            {phase.replace(/_/g, " ")}
+            {scanPhaseLabel(phase)}
           </span>
           <span className="flex-1 font-mono text-[10px] text-muted-foreground/80">
             {ts ? fmtWhen(ts) : "—"}
@@ -209,13 +212,13 @@ const RecentScansTable = memo(function RecentScansTable({
               >
                 <td className="px-2 py-1.5">
                   <div className="flex flex-col gap-0.5">
-                    <Badge variant={scanVariant(state)}>{s.lifecycle_state}</Badge>
+                    <Badge variant={scanVariant(state)}>{scanLifecycleLabel(s.lifecycle_state)}</Badge>
                     {s.current_phase && s.current_phase !== s.lifecycle_state ? (
                       <span className={cx(
                         "text-[10px]",
                         live ? "text-primary/80" : "text-muted-foreground/70"
                       )}>
-                        {s.current_phase.replace(/_/g, " ")}
+                        {scanPhaseLabel(s.current_phase)}
                       </span>
                     ) : null}
                   </div>
@@ -237,7 +240,7 @@ const RecentScansTable = memo(function RecentScansTable({
                         : "border-border/40 text-muted-foreground/50"
                     )}
                   >
-                    {s.trigger_source || "—"}
+                    {scanTriggerLabel(s.trigger_source)}
                   </span>
                 </td>
                 <td
@@ -451,13 +454,13 @@ export function ActiveScanPanel({
             >
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant={scanVariant(scanState)}>{scan.lifecycle_state}</Badge>
+                  <Badge variant={scanVariant(scanState)}>{scanLifecycleLabel(scan.lifecycle_state)}</Badge>
                   {scan.current_phase && scan.current_phase !== scan.lifecycle_state && (
                     <span className={cx(
                       "font-mono text-[11px]",
                       scanIsLive ? "text-primary/80" : "text-muted-foreground"
                     )}>
-                      {scan.current_phase.replace(/_/g, " ")}
+                      {scanPhaseLabel(scan.current_phase)}
                     </span>
                   )}
                   {scan.trigger_source && (
@@ -469,7 +472,7 @@ export function ActiveScanPanel({
                           : "border-border/40 text-muted-foreground/50"
                       )}
                     >
-                      {scan.trigger_source}
+                      {scanTriggerLabel(scan.trigger_source)}
                     </span>
                   )}
                 </div>

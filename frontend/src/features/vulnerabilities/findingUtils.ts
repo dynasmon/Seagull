@@ -59,7 +59,7 @@ export function findingObservationLabel(f: VulnFinding): string {
 
 export function findingDispositionLabel(f: VulnFinding): string {
   const value = String(f.operator_disposition || "").toLowerCase();
-  if (value === "accepted_risk") return "Accepted";
+  if (value === "accepted_risk") return "Risk accepted";
   if (value === "suppressed") return "Suppressed";
   return "Active";
 }

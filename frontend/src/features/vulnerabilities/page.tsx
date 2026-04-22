@@ -35,6 +35,8 @@ import {
   buildVulnScanFromPatch,
   fmtAge,
   fmtWhen,
+  scanLifecycleLabel,
+  upsertLifecycleScan,
 } from "./scanUtils";
 import VulnFindingDrawer from "./VulnFindingDrawer";
 import VulnScanDrawer from "./VulnScanDrawer";
@@ -239,6 +241,8 @@ export default function VulnerabilitiesPage() {
   const reqSeq = useRef(0);
   const itemsRef = useRef<VulnFinding[]>([]);
   const metricsRefreshTimerRef = useRef<number | null>(null);
+  const didInvalidateDashboardRef = useRef(false);
+  const didInvalidateRecentScansRef = useRef(false);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -381,10 +385,22 @@ export default function VulnerabilitiesPage() {
     setScanMsg(null);
     try {
       const out = await triggerVulnScanNow(scanTargetAgent);
-      setScanMsg(
-        `Request ${out.request_state} for ${out.agent_id} at ${fmtWhen(out.queued_at)} · ${out.lifecycle_state} · id ${out.scan_uuid}`
+      const optimisticScan = buildVulnScanFromPatch(
+        ((out.scan as Record<string, any> | undefined) ?? out) as Record<string, any>
       );
-      void Promise.all([refreshDashboardNow(), refreshRecentScansNow()]);
+      if (optimisticScan) {
+        setRecentScans((prev) => upsertLifecycleScan(prev, optimisticScan, { maxItems: RECENT_SCANS_PAGE_SIZE }));
+        setSelectedScan((prev) => {
+          if (!prev || prev.scan_uuid !== optimisticScan.scan_uuid) return prev;
+          return applyLifecycleScanPatch(prev, optimisticScan);
+        });
+      }
+      setScanMsg(
+        `Request ${out.request_state} for ${out.agent_id} at ${fmtWhen(out.queued_at)} · ${scanLifecycleLabel(out.lifecycle_state)} · scan ${out.scan_uuid}`
+      );
+      if (!optimisticScan) {
+        void refreshRecentScansNow();
+      }
     } catch (e: any) {
       setScanErr(e?.message || "Failed to trigger manual scan");
     } finally {
@@ -470,11 +486,19 @@ export default function VulnerabilitiesPage() {
   useEffect(() => {
     if (!isAdmin) return;
     if (recentScansScopeMissing) return;
+    if (!didInvalidateRecentScansRef.current) {
+      didInvalidateRecentScansRef.current = true;
+      return;
+    }
     invalidateRecentScans("dependency", { immediate: true, supersede: true });
   }, [invalidateRecentScans, isAdmin, recentScansScopeKey, recentScansScopeMissing]);
 
   useEffect(() => {
     if (!isAdmin) return;
+    if (!didInvalidateDashboardRef.current) {
+      didInvalidateDashboardRef.current = true;
+      return;
+    }
     invalidateDashboard("dependency", { immediate: true, supersede: true });
   }, [activeDays, filters, invalidateDashboard, isAdmin, pageSize]);
 
@@ -491,25 +515,19 @@ export default function VulnerabilitiesPage() {
     if (!isAdmin) return;
     const { scan_uuid, agent_id, lifecycle_event, scan: scanData } = event.payload ?? {};
     if (!scan_uuid || !scanData) return;
+    const scanPatch = scanData as Record<string, any>;
 
     setRecentScans((prev) => {
-      const idx = prev.findIndex((s) => s.scan_uuid === scan_uuid);
-      if (idx === -1) {
-        const targetAgent = scanTargetAgent;
-        const eventAgent = String(agent_id || (scanData as Record<string, any>).reporter_agent_id || "").trim();
-        if (onlySelectedAgentScans && targetAgent && eventAgent !== targetAgent) return prev;
-        const built = buildVulnScanFromPatch(scanData as Record<string, any>);
-        if (built) return [built, ...prev].slice(0, RECENT_SCANS_PAGE_SIZE);
-        return prev;
-      }
-      const next = [...prev];
-      next[idx] = applyLifecycleScanPatch(next[idx], scanData as Record<string, any>);
-      return next;
+      const targetAgent = scanTargetAgent;
+      const eventAgent = String(agent_id || scanPatch.reporter_agent_id || "").trim();
+      const alreadyVisible = prev.some((scan) => scan.scan_uuid === scan_uuid);
+      if (onlySelectedAgentScans && targetAgent && eventAgent !== targetAgent && !alreadyVisible) return prev;
+      return upsertLifecycleScan(prev, scanPatch, { maxItems: RECENT_SCANS_PAGE_SIZE });
     });
 
     setSelectedScan((prev) => {
       if (!prev || prev.scan_uuid !== scan_uuid) return prev;
-      return applyLifecycleScanPatch(prev, scanData as Record<string, any>);
+      return applyLifecycleScanPatch(prev, scanPatch);
     });
 
     if (lifecycle_event === "completed" || lifecycle_event === "failed") scheduleMetricsRefresh();
@@ -1104,7 +1122,7 @@ export default function VulnerabilitiesPage() {
             >
               <option value="all">All</option>
               <option value="open">Active</option>
-              <option value="accepted_risk">Accepted</option>
+              <option value="accepted_risk">Risk accepted</option>
               <option value="suppressed">Suppressed</option>
             </select>
           </div>

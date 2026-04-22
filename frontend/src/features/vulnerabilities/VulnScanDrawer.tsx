@@ -7,7 +7,7 @@ import { cx } from "@/shared/lib/cx";
 
 import { PhaseTimeline, ScanStats } from "./ActiveScanPanel";
 import { LiveElapsedText } from "./LiveElapsedText";
-import { fmtSec, fmtWhen, fmtAge, scanVariant } from "./scanUtils";
+import { fmtSec, fmtWhen, fmtAge, scanLifecycleLabel, scanPhaseLabel, scanTriggerLabel, scanVariant } from "./scanUtils";
 import type { VulnScan } from "./types";
 
 function safeJson(v: any): string {
@@ -96,8 +96,8 @@ export default function VulnScanDrawer({
       <div className="space-y-4">
         <Card title="Overview" className="rounded-xl">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={scanVariant(scan.lifecycle_state)}>{scan.lifecycle_state}</Badge>
-            <Badge variant="neutral">{scan.current_phase}</Badge>
+            <Badge variant={scanVariant(scan.lifecycle_state)}>{scanLifecycleLabel(scan.lifecycle_state)}</Badge>
+            <Badge variant="neutral">{scanPhaseLabel(scan.current_phase)}</Badge>
             <span
               className={cx(
                 "rounded border px-2 py-0.5 text-[10px] font-mono uppercase tracking-widest",
@@ -106,7 +106,7 @@ export default function VulnScanDrawer({
                   : "border-border/40 text-muted-foreground/60"
               )}
             >
-              {scan.trigger_source}
+              {scanTriggerLabel(scan.trigger_source)}
             </span>
             <span className="font-mono text-[11px] text-muted-foreground">
               {scan.tool}

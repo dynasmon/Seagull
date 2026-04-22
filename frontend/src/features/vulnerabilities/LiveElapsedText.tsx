@@ -21,8 +21,22 @@ export function LiveElapsedText({
 
   useEffect(() => {
     if (!active) return;
-    const id = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => clearInterval(id);
+    let timerId: number | null = null;
+
+    const scheduleNextTick = () => {
+      const now = Date.now();
+      const remainderMs = now % 1000;
+      const delayMs = remainderMs === 0 ? 1000 : 1000 - remainderMs;
+      timerId = window.setTimeout(() => {
+        setTick((n) => n + 1);
+        scheduleNextTick();
+      }, delayMs);
+    };
+
+    scheduleNextTick();
+    return () => {
+      if (timerId !== null) window.clearTimeout(timerId);
+    };
   }, [active]);
 
   const start = Date.parse(startIso ?? "");
