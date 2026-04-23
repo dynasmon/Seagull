@@ -424,6 +424,10 @@ def _norm_severity(value: object) -> str:
     return "unknown"
 
 
+def _is_ddos_summary_event_type(event_type: object) -> bool:
+    return str(event_type or "").strip().lower() in {"dos_attack", "ddos_telemetry"}
+
+
 def _build_live_overview_summary(events: List[NetEvent]) -> Dict[str, object]:
     event_type_counts: Dict[str, int] = {}
     severity_counts: Dict[str, int] = {}
@@ -444,11 +448,7 @@ def _build_live_overview_summary(events: List[NetEvent]) -> Dict[str, object]:
         severity_counts[severity] = int(severity_counts.get(severity) or 0) + 1
 
         bytes_sum += max(0, _as_int(e.bytes, 0))
-
-        has_network_shape = bool(e.src_ip or e.dst_ip or e.proto or e.dst_port is not None)
-        if has_network_shape:
-            pkt = max(0, _as_int(extra.get("packets"), 0))
-            ddos_packets_estimated += (pkt if pkt > 0 else 1)
+        is_ddos_event = _is_ddos_summary_event_type(ev_type)
 
         pps = max(0.0, _as_float(extra.get("pps"), 0.0))
         bps = max(0.0, _as_float(extra.get("bps"), 0.0))
@@ -459,12 +459,13 @@ def _build_live_overview_summary(events: List[NetEvent]) -> Dict[str, object]:
         window_s = max(1.0, _as_float(extra.get("window_seconds"), 1.0))
         flow_rps = max(http_rps, tls_hs_rps, (reqs / window_s))
 
-        ddos_peak_pps = max(ddos_peak_pps, pps)
-        ddos_peak_bps = max(ddos_peak_bps, bps)
-        ddos_peak_syn_ratio = max(ddos_peak_syn_ratio, syn_ratio)
-        ddos_peak_flow_rps = max(ddos_peak_flow_rps, flow_rps)
-
-        if ev_type in {"dos_attack", "ddos_telemetry"} or any(v > 0 for v in (pps, bps, syn_ratio, http_rps, tls_hs_rps)):
+        if is_ddos_event:
+            pkt = max(0, _as_int(extra.get("packets"), 0))
+            ddos_packets_estimated += (pkt if pkt > 0 else 1)
+            ddos_peak_pps = max(ddos_peak_pps, pps)
+            ddos_peak_bps = max(ddos_peak_bps, bps)
+            ddos_peak_syn_ratio = max(ddos_peak_syn_ratio, syn_ratio)
+            ddos_peak_flow_rps = max(ddos_peak_flow_rps, flow_rps)
             ddos_samples += 1
 
     return {
