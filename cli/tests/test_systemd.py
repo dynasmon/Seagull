@@ -118,3 +118,28 @@ def test_validate_accepts_credential_with_active_renewal_token(
     )
 
     systemd.validate()
+
+
+def test_installed_agent_id_falls_back_to_repo_env_when_env_file_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(systemd, "_read_agent_env", lambda _key: "")
+    monkeypatch.setattr(systemd._env, "read", lambda key, default="": "agent-core-from-repo" if key == "AGENT_CORE_ID" else default)
+
+    assert systemd.installed_agent_id() == "agent-core-from-repo"
+
+
+def test_repo_bootstrap_token_for_agent_uses_matching_repo_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    values = {
+        "AGENT_CORE_ID": "agent-core-1",
+        "AGENT_CORE_BOOTSTRAP_TOKEN": "abt.core.token",
+        "AGENT_SENSOR_ID": "agent-sensor-1",
+        "AGENT_SENSOR_BOOTSTRAP_TOKEN": "abt.sensor.token",
+    }
+    monkeypatch.setattr(systemd._env, "read", lambda key, default="": values.get(key, default))
+
+    assert systemd.repo_bootstrap_token_for_agent("agent-core-1") == "abt.core.token"
+    assert systemd.repo_bootstrap_token_for_agent("agent-sensor-1") == "abt.sensor.token"
+    assert systemd.repo_bootstrap_token_for_agent("agent-missing") == ""
