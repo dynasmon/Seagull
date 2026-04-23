@@ -125,6 +125,32 @@ install_env_file() {
   fi
 }
 
+apply_runtime_env_overrides() {
+  if [[ ! -f "${INSTALL_ENV_PATH}" ]]; then
+    return
+  fi
+
+  local override_agent_id override_bootstrap_token override_bootstrap_token_file
+  override_agent_id="$(trim "${SEAGULL_AGENT_ID:-}")"
+  override_bootstrap_token="$(trim "${SEAGULL_AGENT_BOOTSTRAP_TOKEN:-}")"
+  override_bootstrap_token_file="$(trim "${SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE:-}")"
+
+  if [[ -n "${override_agent_id}" ]]; then
+    set_env_value SEAGULL_AGENT_ID "${override_agent_id}" "${INSTALL_ENV_PATH}"
+    echo "[install] applied SEAGULL_AGENT_ID override"
+  fi
+
+  if [[ -n "${override_bootstrap_token}" ]]; then
+    set_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN "${override_bootstrap_token}" "${INSTALL_ENV_PATH}"
+    echo "[install] applied bootstrap token override"
+  fi
+
+  if [[ -n "${override_bootstrap_token_file}" ]]; then
+    set_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${override_bootstrap_token_file}" "${INSTALL_ENV_PATH}"
+    echo "[install] applied bootstrap token file override"
+  fi
+}
+
 ensure_sources_default_includes_l7() {
   local file="$1"
   local legacy_default="authlog,proc,scan,ddos,syscollector,vuln"
@@ -570,6 +596,7 @@ main() {
   build_binary_if_needed
   install_binary
   install_env_file
+  apply_runtime_env_overrides
   normalize_agent_runtime_defaults
   normalize_bootstrap_token_settings
   normalize_tls_ca_settings

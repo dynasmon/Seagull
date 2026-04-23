@@ -21,6 +21,16 @@ TOKEN_DEFAULT     = Path("/var/lib/seagull/bootstrap.token")
 CREDENTIAL_DEFAULT = Path("/var/lib/seagull/agent.credential")
 IDENTITY_STATE_DEFAULT = Path("/var/lib/seagull/agent.identity.json")
 
+_AGENT_ENV_MAP: tuple[tuple[str, str], ...] = (
+    ("AGENT_CORE_ID", "AGENT_CORE_BOOTSTRAP_TOKEN"),
+    ("AGENT_SENSOR_ID", "AGENT_SENSOR_BOOTSTRAP_TOKEN"),
+    ("AGENT_LATERAL_ID", "AGENT_LATERAL_BOOTSTRAP_TOKEN"),
+    ("AGENT_PROC_ID", "AGENT_PROC_BOOTSTRAP_TOKEN"),
+    ("AGENT_SCAN_ID", "AGENT_SCAN_BOOTSTRAP_TOKEN"),
+    ("AGENT_DDOS_ID", "AGENT_DDOS_BOOTSTRAP_TOKEN"),
+    ("AGENT_VULN_ID", "AGENT_VULN_BOOTSTRAP_TOKEN"),
+)
+
 
 class ValidationError(Exception):
     pass
@@ -182,6 +192,33 @@ def _service_active() -> bool:
     return result.returncode == 0
 
 
+def is_active() -> bool:
+    return _service_active()
+
+
+def installed_agent_id() -> str:
+    agent_id = (_read_agent_env("SEAGULL_AGENT_ID") or "").strip()
+    if agent_id:
+        return agent_id
+    fallback = (_env.read("AGENT_CORE_ID", "agent-core-1") or "").strip()
+    return fallback or "agent-core-1"
+
+
+def repo_bootstrap_token_for_agent(agent_id: str) -> str:
+    target = str(agent_id or "").strip()
+    if not target:
+        return ""
+
+    for agent_key, token_key in _AGENT_ENV_MAP:
+        mapped_agent_id = (_env.read(agent_key, "") or "").strip()
+        if mapped_agent_id != target:
+            continue
+        token = (_env.read(token_key, "") or "").strip()
+        if token:
+            return token
+    return ""
+
+
 def is_installed() -> bool:
     """Return True only if the minimum installation requirements are met."""
     return BINARY.exists() and SERVICE_FILE.exists() and ENV_FILE.exists() and _service_enabled()
@@ -293,9 +330,11 @@ def sync_ca() -> int:
     return subprocess.run(["sudo", "bash", str(script)], cwd=str(_env.root())).returncode
 
 
-def install() -> int:
+def install(*, bootstrap_token: str | None = None) -> int:
     script = _env.root() / "deploy" / "systemd" / "install-agent.sh"
-    return subprocess.run(
-        ["sudo", "env", "AUTO_START_IF_READY=1", "bash", str(script)],
-        cwd=str(_env.root()),
-    ).returncode
+    cmd = ["sudo", "env", "AUTO_START_IF_READY=1"]
+    token = str(bootstrap_token or "").strip()
+    if token:
+        cmd.append(f"SEAGULL_AGENT_BOOTSTRAP_TOKEN={token}")
+    cmd += ["bash", str(script)]
+    return subprocess.run(cmd, cwd=str(_env.root())).returncode
