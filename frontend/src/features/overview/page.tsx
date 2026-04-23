@@ -1,21 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, CSSProperties } from "react";
 import { Link } from "react-router-dom";
 
 import EmptyState from "@/shared/components/EmptyState";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import { Table } from "@/shared/components/Table";
+import { useUrlQueryState, type UrlQueryUpdater } from "@/shared/hooks/useUrlQueryState";
 import { cx } from "@/shared/lib/cx";
+import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
 import type { Alert } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
 import { timeSeriesHasSignal } from "./dashboard_state";
 import { OverviewLiveProvider, useOverviewLive } from "./live";
+import {
+  DEFAULT_OVERVIEW_WINDOW_MINUTES,
+  durationMinutesBetween,
+  localInputToIso,
+  resolveOverviewQuery,
+  type OverviewQueryState,
+  type OverviewResolvedQuery,
+} from "./query";
 import { resolveStormUiState } from "./live_realtime";
 
 import { listAttackChainCases } from "@/features/attack_chain/api";
-
-// One overview snapshot covers this time window.
-const WINDOW_MINUTES = 60;
 
 // Panel heights to keep the dashboard compact (Grafana-style).
 const H_PANEL_BIG = 340;
@@ -72,6 +79,22 @@ function fmtDateTime(input: unknown) {
   const mi = String(d.getMinutes()).padStart(2, "0");
   const ss = String(d.getSeconds()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+function fmtDurationCompact(totalMinutes: number): string {
+  const minutes = Math.max(1, Math.trunc(Number(totalMinutes) || 0));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours < 24) return mins === 0 ? `${hours}h` : `${hours}h ${mins}m`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours === 0 ? `${days}d` : `${days}d ${remHours}h`;
+}
+
+function fmtRangeSummary(startIso: string | null | undefined, endIso: string | null | undefined): string {
+  if (!startIso || !endIso) return "-";
+  return `${fmtDateTime(startIso)} → ${fmtDateTime(endIso)}`;
 }
 
 function sumRow(row: Record<string, any>): number {
@@ -318,6 +341,113 @@ function BadgeTone({
   return <span className={cx("rounded-md border px-2 py-1 text-[10px] font-mono", cls)}>{text}</span>;
 }
 
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cx(
+        "h-6 rounded-full border px-2.5 text-[8px] font-mono uppercase tracking-[0.24em] transition-colors",
+        active
+          ? "border-primary/50 bg-primary/10 text-primary"
+          : "border-border/60 bg-background/40 text-muted-foreground hover:bg-muted/15"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function OverviewRangeControls({
+  query,
+  draft,
+  onDraftChange,
+  onApplyRange,
+  onSetLiveWindow,
+  onResetToLive,
+  applyDisabled,
+}: {
+  query: OverviewQueryState;
+  draft: { from: string; to: string };
+  onDraftChange: (field: "from" | "to", value: string) => void;
+  onApplyRange: () => void;
+  onSetLiveWindow: (minutes: number) => void;
+  onResetToLive: () => void;
+  applyDisabled: boolean;
+}) {
+  const historical = Boolean(query.from || query.to);
+
+  return (
+    <div className="border-b border-border/40 pb-2">
+      <div className="flex flex-col gap-2 2xl:flex-row 2xl:items-end 2xl:justify-between">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="text-[8px] font-mono font-bold uppercase tracking-[0.28em] text-muted-foreground">
+            Range
+          </div>
+          <div className="text-[8px] font-mono uppercase tracking-[0.16em] text-muted-foreground">
+            {historical ? "Historical paused" : `Live ${fmtDurationCompact(query.windowMinutes)}`}
+          </div>
+          <FilterChip active={!historical && query.windowMinutes === 60} onClick={() => onSetLiveWindow(60)}>60m</FilterChip>
+          <FilterChip active={!historical && query.windowMinutes === 360} onClick={() => onSetLiveWindow(360)}>6h</FilterChip>
+          <FilterChip active={!historical && query.windowMinutes === 1440} onClick={() => onSetLiveWindow(1440)}>24h</FilterChip>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-1.5">
+          <label className="flex flex-col gap-1">
+            <div className="text-[8px] font-mono uppercase tracking-[0.16em] text-muted-foreground">From</div>
+            <input
+              type="datetime-local"
+              value={draft.from}
+              onChange={(e) => onDraftChange("from", e.target.value)}
+              className="h-7 w-full rounded-md border border-border/60 bg-background/70 px-2 text-[11px] text-foreground outline-none focus:border-primary/50 sm:w-[11rem]"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <div className="text-[8px] font-mono uppercase tracking-[0.16em] text-muted-foreground">To</div>
+            <input
+              type="datetime-local"
+              value={draft.to}
+              onChange={(e) => onDraftChange("to", e.target.value)}
+              className="h-7 w-full rounded-md border border-border/60 bg-background/70 px-2 text-[11px] text-foreground outline-none focus:border-primary/50 sm:w-[11rem]"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={onApplyRange}
+            disabled={applyDisabled}
+            className={cx(
+              "h-7 rounded-md border px-2 text-[9px] font-mono uppercase tracking-[0.16em] transition-colors",
+              applyDisabled
+                ? "cursor-not-allowed border-border/40 bg-background/30 text-muted-foreground/60"
+                : "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+            )}
+          >
+            Apply
+          </button>
+
+          <button
+            type="button"
+            onClick={onResetToLive}
+            className="h-7 rounded-md border border-border/60 bg-background/40 px-2 text-[9px] font-mono uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:bg-muted/15"
+          >
+            Live
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function QuickPivot({
   to,
   label,
@@ -353,8 +483,21 @@ function SeverityBadge({ severity }: { severity: string }) {
   return <span className={`px-2 py-0.5 text-[10px] uppercase font-mono border ${color} font-medium`}>{severity}</span>;
 }
 
-function OverviewPageView() {
+function OverviewPageView({
+  query,
+  setQuery,
+  resolvedQuery,
+}: {
+  query: OverviewQueryState;
+  setQuery: (next: UrlQueryUpdater<OverviewQueryState>) => void;
+  resolvedQuery: OverviewResolvedQuery;
+}) {
   const { snapshot, storm, isLoading, error, lastUpdatedAt } = useOverviewLive();
+  const [rangeDraft, setRangeDraft] = useState<{ from: string; to: string }>({ from: query.from, to: query.to });
+
+  useEffect(() => {
+    setRangeDraft({ from: query.from, to: query.to });
+  }, [query.from, query.to]);
 
   const derived = useMemo(() => {
     if (!snapshot) {
@@ -375,10 +518,10 @@ function OverviewPageView() {
 
     const totalAgents = snapshot.kpis.total_agents;
     const onlineAgents = snapshot.kpis.online_agents;
-    const events1h = snapshot.traffic.data.reduce((acc, row) => acc + sumRow(row), 0);
+    const eventsWindow = snapshot.traffic.data.reduce((acc, row) => acc + sumRow(row), 0);
     const events5mFromChart = snapshot.traffic.data.slice(-5).reduce((acc, row) => acc + sumRow(row), 0);
     const events5m = snapshot.kpis.events_5m > 0 ? snapshot.kpis.events_5m : events5mFromChart;
-    const alerts1h = snapshot.kpis.alerts_60m;
+    const alertsWindow = snapshot.kpis.alerts_60m;
 
 
     const lastEvent = snapshot.raw_events?.[0]?.timestamp ? new Date(snapshot.raw_events[0].timestamp) : null;
@@ -409,8 +552,8 @@ function OverviewPageView() {
       totalAgents,
       onlineAgents,
       events5m,
-      events1h,
-      alerts1h,
+      events1h: eventsWindow,
+      alerts1h: alertsWindow,
       lastEventTs,
       ddos5m,
       ddosPackets5m,
@@ -477,6 +620,42 @@ function OverviewPageView() {
   const stormPhaseLabel = stormUi.phaseLabel;
   const hasDdosDetectionsSignal = timeSeriesHasSignal(snapshot?.ddos?.data || []);
   const hasDdosVolumeSignal = timeSeriesHasSignal(snapshot?.ddos_volume?.data || []);
+  const activeWindowStart = snapshot?.query_meta?.query_window_start || snapshot?.meta?.window_start || resolvedQuery.startTs || null;
+  const activeWindowEnd = snapshot?.query_meta?.query_window_end || snapshot?.meta?.window_end || resolvedQuery.endTs || null;
+  const windowDurationMinutes = durationMinutesBetween(activeWindowStart, activeWindowEnd) ?? resolvedQuery.windowMinutes;
+  const windowLabel = fmtDurationCompact(windowDurationMinutes);
+  const rangeSummary = fmtRangeSummary(activeWindowStart, activeWindowEnd);
+  const draftStartIso = localInputToIso(rangeDraft.from);
+  const draftEndIso = localInputToIso(rangeDraft.to);
+  const draftRangeReversed =
+    draftStartIso !== undefined &&
+    draftEndIso !== undefined &&
+    Date.parse(draftStartIso) > Date.parse(draftEndIso);
+  const applyRangeDisabled =
+    (Boolean(rangeDraft.from) && !draftStartIso) ||
+    (Boolean(rangeDraft.to) && !draftEndIso) ||
+    draftRangeReversed;
+
+  const applyRange = useCallback(() => {
+    if (applyRangeDisabled) return;
+    setQuery((prev) => ({
+      ...prev,
+      from: rangeDraft.from.trim(),
+      to: rangeDraft.to.trim(),
+    }));
+  }, [applyRangeDisabled, rangeDraft.from, rangeDraft.to, setQuery]);
+
+  const setLiveWindow = useCallback((minutes: number) => {
+    setQuery({
+      windowMinutes: minutes,
+      from: "",
+      to: "",
+    });
+  }, [setQuery]);
+
+  const resetToLive = useCallback(() => {
+    setLiveWindow(query.windowMinutes || DEFAULT_OVERVIEW_WINDOW_MINUTES);
+  }, [query.windowMinutes, setLiveWindow]);
 
   if (isLoading && !snapshot) {
     return (
@@ -496,6 +675,7 @@ function OverviewPageView() {
 
   const headerRight = (
     <div className="flex flex-wrap items-center justify-end gap-2">
+      {resolvedQuery.fixedRange ? <BadgeTone text="Historical range" tone="neutral" /> : null}
       {degradedSources > 0 ? <BadgeTone text={`Degraded sources: ${degradedSources}`} tone="warning" /> : null}
       {snapshot.meta?.ddos_telemetry_dropped_per_sec > 0 ? (
         <BadgeTone text={`DDoS drop/s: ${snapshot.meta.ddos_telemetry_dropped_per_sec}`} tone="warning" />
@@ -515,16 +695,16 @@ function OverviewPageView() {
       {snapshot.query_meta ? (
         <DataQueryStateBanner
           tone={snapshot.query_meta.degraded_reason ? "warning" : "neutral"}
-          message={`query ${snapshot.query_meta.source}${typeof snapshot.query_meta.source_freshness_seconds === "number" ? ` · ${snapshot.query_meta.source_freshness_seconds}s` : ""}${snapshot.query_meta.cache_hit ? " · cache" : ""}`}
+          message={`range ${rangeSummary} · query ${snapshot.query_meta.source}${!resolvedQuery.fixedRange && typeof snapshot.query_meta.source_freshness_seconds === "number" ? ` · ${snapshot.query_meta.source_freshness_seconds}s` : ""}${snapshot.query_meta.cache_hit ? " · cache" : ""}${resolvedQuery.fixedRange ? " · realtime paused" : ""}`}
         />
       ) : null}
 
       <DataStatsStrip
         stats={[
           { label: "Events (5m)", value: derived.events5m },
-          { label: `Events (${WINDOW_MINUTES}m)`, value: derived.events1h },
+          { label: `Events (${windowLabel})`, value: derived.events1h },
           { label: "Active agents", value: `${derived.onlineAgents}/${derived.totalAgents}` },
-          { label: "Alerts (1h)", value: derived.alerts1h },
+          { label: "Alerts (window)", value: derived.alerts1h },
           { label: "DDoS detections (5m)", value: derived.ddos5m },
           { label: "DDoS peak PPS", value: fmtCompact(derived.ddosPeakPps) },
           { label: "Storm phase", value: stormPhaseLabel },
@@ -546,7 +726,7 @@ function OverviewPageView() {
       <DashboardSection id="ingestion" title="INGESTION & HEALTH" defaultOpen>
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
           <StatTile label="EVENTS (last 5m)" value={derived.events5m} />
-          <StatTile label={`EVENTS (last ${WINDOW_MINUTES}m)`} value={derived.events1h} />
+          <StatTile label={`EVENTS (${windowLabel})`} value={derived.events1h} />
           <StatTile
             label="ACTIVE AGENTS"
             value={derived.onlineAgents}
@@ -554,7 +734,7 @@ function OverviewPageView() {
             tone={derived.onlineAgents > 0 ? "good" : "warn"}
           />
           <StatTile label="LAST EVENT TS" value={derived.lastEventTs} tone={derived.lastEventTs === "-" ? "warn" : "default"} />
-          <StatTile label="ALERTS (last 1h)" value={derived.alerts1h} tone={derived.alerts1h > 0 ? "warn" : "good"} />
+          <StatTile label="ALERTS (window)" value={derived.alerts1h} tone={derived.alerts1h > 0 ? "warn" : "good"} />
 
           <StatLinkTile
             to="/attack-chain"
@@ -693,6 +873,7 @@ function OverviewPageView() {
             title="Events per minute by type"
             className={cx("lg:col-span-2")}
             style={{ height: H_PANEL_BIG }}
+            bodyClassName="flex flex-col gap-3"
             right={
               <div className="flex items-center gap-3">
                 <span className="text-[10px] font-mono text-muted-foreground">{fmtSource(trafficSourceMeta)}</span>
@@ -702,15 +883,26 @@ function OverviewPageView() {
               </div>
             }
           >
+            <OverviewRangeControls
+              query={query}
+              draft={rangeDraft}
+              onDraftChange={(field, value) => setRangeDraft((prev) => ({ ...prev, [field]: value }))}
+              onApplyRange={applyRange}
+              onSetLiveWindow={setLiveWindow}
+              onResetToLive={resetToLive}
+              applyDisabled={applyRangeDisabled}
+            />
             {snapshot.traffic.data.length === 0 ? (
-              <EmptyState title="NO SIGNAL" hint="Waiting for telemetry..." />
+              <div className="flex min-h-0 flex-1 items-center justify-center">
+                <EmptyState title="NO SIGNAL" hint="Waiting for telemetry..." />
+              </div>
             ) : (
-              <div className="h-full w-full flex items-center justify-center overflow-hidden">
+              <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
                 <div className="w-full max-w-full flex justify-center">
                   <SimpleTimeSeries
                     data={snapshot.traffic.data}
                     seriesKeys={snapshot.traffic.series}
-                    height={250}
+                    height={190}
                     allowHorizontalScroll={false}
                   />
                 </div>
@@ -1031,9 +1223,26 @@ function OverviewPageView() {
 }
 
 export default function OverviewPage() {
+  const [query, setQuery] = useUrlQueryState<OverviewQueryState>({
+    parse: (sp) => ({
+      windowMinutes: getIntParam(sp, "window_minutes", { min: 5, max: 1440, fallback: DEFAULT_OVERVIEW_WINDOW_MINUTES }),
+      from: getStringParam(sp, "from", ""),
+      to: getStringParam(sp, "to", ""),
+    }),
+    serialize: (value) => {
+      const sp = new URLSearchParams();
+      setOptionalParam(sp, "window_minutes", value.windowMinutes === DEFAULT_OVERVIEW_WINDOW_MINUTES ? null : value.windowMinutes);
+      setOptionalParam(sp, "from", value.from || null);
+      setOptionalParam(sp, "to", value.to || null);
+      return sp;
+    },
+    replace: true,
+  });
+  const resolvedQuery = useMemo(() => resolveOverviewQuery(query), [query]);
+
   return (
-    <OverviewLiveProvider>
-      <OverviewPageView />
+    <OverviewLiveProvider query={resolvedQuery}>
+      <OverviewPageView query={query} setQuery={setQuery} resolvedQuery={resolvedQuery} />
     </OverviewLiveProvider>
   );
 }

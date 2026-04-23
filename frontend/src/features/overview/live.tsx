@@ -15,10 +15,10 @@ import {
   mergeStormStatus,
   reconcileFetchedOverviewSnapshot,
 } from "./live_realtime";
+import { DEFAULT_OVERVIEW_WINDOW_MINUTES, type OverviewResolvedQuery } from "./query";
 import type { OverviewSnapshot, StormStatus } from "./types";
 
-const WINDOW_MINUTES = 60;
-const SNAPSHOT_CACHE_KEY = "nw_overview_snapshot_v1";
+const SNAPSHOT_CACHE_PREFIX = "nw_overview_snapshot_v2";
 const FULL_REFRESH_MS = 15000;
 const FULL_REFRESH_TIMEOUT_MS = 6000;
 const REALTIME_KPI_FLUSH_MS = 180;
@@ -42,30 +42,58 @@ type OverviewLiveCtx = {
 
 const OverviewLiveContext = createContext<OverviewLiveCtx | null>(null);
 
-export function OverviewLiveProvider({ children }: { children: ReactNode }) {
-  const { status: realtimeStatus } = usePortalRealtime();
+function snapshotCacheKey(query: OverviewResolvedQuery): string {
+  return `${SNAPSHOT_CACHE_PREFIX}:${query.cacheKey}`;
+}
 
-  const [snapshot, setSnapshot] = useState<OverviewSnapshot | null>(() => {
-    try {
-      const raw = sessionStorage.getItem(SNAPSHOT_CACHE_KEY);
-      if (!raw) return null;
-      return JSON.parse(raw) as OverviewSnapshot;
-    } catch {
-      return null;
-    }
-  });
+function readCachedSnapshot(key: string): OverviewSnapshot | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as OverviewSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedSnapshot(key: string, payload: OverviewSnapshot): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(payload));
+  } catch {
+    // no-op: cache is best-effort
+  }
+}
+
+function buildOverviewParams(query: OverviewResolvedQuery, lite: boolean) {
+  return {
+    window_minutes: query.windowMinutes,
+    start_ts: query.startTs,
+    end_ts: query.endTs,
+    lite,
+  };
+}
+
+export function OverviewLiveProvider({
+  children,
+  query,
+}: {
+  children: ReactNode;
+  query: OverviewResolvedQuery;
+}) {
+  const { status: realtimeStatus } = usePortalRealtime();
+  const realtimeEnabled = !query.fixedRange;
+  const cacheKey = useMemo(() => snapshotCacheKey(query), [query]);
+
+  const [snapshot, setSnapshot] = useState<OverviewSnapshot | null>(() => readCachedSnapshot(cacheKey));
   const [storm, setStorm] = useState<StormStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(() => {
-    try {
-      return !Boolean(sessionStorage.getItem(SNAPSHOT_CACHE_KEY));
-    } catch {
-      return true;
-    }
-  });
+  const [isLoading, setIsLoading] = useState(() => !readCachedSnapshot(cacheKey));
   const [error, setError] = useState<string | null>(null);
 
   const snapshotRef = useRef<OverviewSnapshot | null>(snapshot);
   const stormRef = useRef<StormStatus | null>(storm);
+  const queryRef = useRef<OverviewResolvedQuery>(query);
+  const cacheKeyRef = useRef(cacheKey);
+  const realtimeEnabledRef = useRef(realtimeEnabled);
   const lastFullAtRef = useRef(0);
   const refreshSeqRef = useRef(0);
   const fullRefreshSeqRef = useRef(0);
@@ -86,18 +114,28 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
   const alertsBurstStartRef = useRef(0);
   const alertsBurstCountRef = useRef(0);
 
+  const persistSnapshot = useCallback((payload: OverviewSnapshot) => {
+    writeCachedSnapshot(cacheKeyRef.current, payload);
+  }, []);
+
   useEffect(() => {
     snapshotRef.current = snapshot;
-    if (snapshot) {
-      lastSnapshotMutationAtRef.current = Date.now();
-    }
+    if (snapshot) lastSnapshotMutationAtRef.current = Date.now();
   }, [snapshot]);
 
   useEffect(() => {
     stormRef.current = storm;
   }, [storm]);
 
+  useEffect(() => {
+    queryRef.current = query;
+    cacheKeyRef.current = cacheKey;
+    realtimeEnabledRef.current = realtimeEnabled;
+  }, [cacheKey, query, realtimeEnabled]);
+
   const refresh = useCallback(async () => {
+    const activeQuery = queryRef.current;
+    const activeCacheKey = cacheKeyRef.current;
     const mySeq = ++refreshSeqRef.current;
     const requestStartedAt = Date.now();
 
@@ -106,11 +144,24 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
     fastAbortRef.current = fastController;
 
     try {
+      if (activeQuery.fixedRange) {
+        const full = await getOverview(
+          buildOverviewParams(activeQuery, false),
+          { signal: fastController.signal, timeoutMs: FULL_REFRESH_TIMEOUT_MS },
+        );
+        if (refreshSeqRef.current !== mySeq) return;
+        setSnapshot(full);
+        setError(null);
+        writeCachedSnapshot(activeCacheKey, full);
+        return;
+      }
+
       const fast = await getOverview(
-        { window_minutes: WINDOW_MINUTES, lite: true },
+        buildOverviewParams(activeQuery, true),
         { signal: fastController.signal, timeoutMs: FULL_REFRESH_TIMEOUT_MS },
       );
       if (refreshSeqRef.current !== mySeq) return;
+
       const prevEnd = Date.parse(snapshotRef.current?.meta?.window_end || "");
       const nextFastEnd = Date.parse(fast?.meta?.window_end || "");
       if (Number.isFinite(prevEnd) && Number.isFinite(nextFastEnd) && nextFastEnd < prevEnd) {
@@ -122,11 +173,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       });
       setSnapshot(mergedFast);
       setError(null);
-      try {
-        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(mergedFast));
-      } catch {
-        // no-op: cache is best-effort
-      }
+      writeCachedSnapshot(activeCacheKey, mergedFast);
 
       const needFull = !snapshotRef.current || (Date.now() - lastFullAtRef.current) >= FULL_REFRESH_MS;
       if (needFull && !fullPendingRef.current) {
@@ -137,7 +184,7 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
         fullAbortRef.current = fullController;
 
         void getOverview(
-          { window_minutes: WINDOW_MINUTES },
+          buildOverviewParams(activeQuery, false),
           { signal: fullController.signal, timeoutMs: FULL_REFRESH_TIMEOUT_MS },
         )
           .then((full) => {
@@ -153,19 +200,13 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
             setSnapshot(reconciled);
             setError(null);
             lastFullAtRef.current = Date.now();
-            try {
-              sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(reconciled));
-            } catch {
-              // no-op
-            }
+            writeCachedSnapshot(activeCacheKey, reconciled);
           })
           .catch((e: unknown) => {
             if (isAbortError(e)) return;
           })
           .finally(() => {
-            if (fullAbortRef.current === fullController) {
-              fullAbortRef.current = null;
-            }
+            if (fullAbortRef.current === fullController) fullAbortRef.current = null;
             fullPendingRef.current = false;
           });
       }
@@ -175,20 +216,60 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       const message = e && typeof e === "object" && "message" in e ? String((e as { message: unknown }).message || "") : "";
       setError(message || "Failed to load overview");
     } finally {
-      if (fastAbortRef.current === fastController) {
-        fastAbortRef.current = null;
-      }
-      if (refreshSeqRef.current === mySeq) {
-        setIsLoading(false);
-      }
+      if (fastAbortRef.current === fastController) fastAbortRef.current = null;
+      if (refreshSeqRef.current === mySeq) setIsLoading(false);
     }
   }, []);
+
   const overviewLive = useLiveRefresh({
+    enabled: realtimeEnabled,
     profile: "hot-operational",
     refresh,
+    immediate: false,
   });
 
+  const stormLive = useLiveRefresh({
+    enabled: realtimeEnabled,
+    profile: "hot-operational",
+    immediate: false,
+    refresh: async () => {
+      try {
+        const status = await getStormStatus({ timeoutMs: FULL_REFRESH_TIMEOUT_MS });
+        setStorm((prev) => mergeStormStatus(prev, status));
+        setSnapshot((prev) => {
+          const next = applyStormStatusToOverviewSnapshot(prev, status);
+          if (!next || next === prev) return next;
+          lastSnapshotMutationAtRef.current = Date.now();
+          persistSnapshot(next);
+          return next;
+        });
+        overviewLive.markUpdated();
+      } catch {
+        if (!stormRef.current) setStorm(null);
+      }
+    },
+  });
+
+  useEffect(() => {
+    fastAbortRef.current?.abort();
+    fullAbortRef.current?.abort();
+    fullPendingRef.current = false;
+    lastFullAtRef.current = 0;
+    kpiPendingRef.current = null;
+    stormPendingRef.current = null;
+    alertsPendingRef.current = [];
+    const cached = readCachedSnapshot(cacheKey);
+    snapshotRef.current = cached;
+    setSnapshot(cached);
+    setStorm(null);
+    setError(null);
+    setIsLoading(!cached);
+    void refresh();
+    if (realtimeEnabled) void stormLive.refreshNow();
+  }, [cacheKey, refresh, realtimeEnabled, stormLive.refreshNow]);
+
   const scheduleRefreshFromInvalidate = useCallback(() => {
+    if (!realtimeEnabledRef.current) return;
     overviewLive.invalidate();
   }, [overviewLive.invalidate]);
 
@@ -218,31 +299,21 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       const next = applyOverviewRealtimePatch(prev, pending as any);
       if (!next) return next;
       lastSnapshotMutationAtRef.current = Date.now();
-      try {
-        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
-      } catch {
-        // no-op
-      }
+      persistSnapshot(next);
       return next;
     });
     setStorm((prev) => {
       const patch: Partial<StormStatus> = {
-        phase: pending?.phase as any,
-        reason: pending?.reason as any,
+        phase: pending?.phase as StormStatus["phase"],
+        reason: pending?.reason as string,
       };
-      if (typeof pending?.backlog_events === "number") {
-        patch.backlog_events = pending.backlog_events as number;
-      }
-      if (typeof pending?.backlog_messages === "number") {
-        patch.backlog_messages = pending.backlog_messages as number;
-      }
-      if (typeof pending?.protection_active === "boolean") {
-        patch.active = pending.protection_active as boolean;
-      }
+      if (typeof pending?.backlog_events === "number") patch.backlog_events = pending.backlog_events;
+      if (typeof pending?.backlog_messages === "number") patch.backlog_messages = pending.backlog_messages;
+      if (typeof pending?.protection_active === "boolean") patch.active = pending.protection_active;
       return mergeStormStatus(prev, patch);
     });
     overviewLive.markUpdated();
-  }, []);
+  }, [overviewLive, persistSnapshot]);
 
   const scheduleKpiFlush = useCallback(() => {
     if (kpiFlushTimerRef.current) return;
@@ -259,15 +330,11 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       const next = applyStormStatusToOverviewSnapshot(prev, pending as Partial<StormStatus>);
       if (!next || next === prev) return next;
       lastSnapshotMutationAtRef.current = Date.now();
-      try {
-        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
-      } catch {
-        // no-op
-      }
+      persistSnapshot(next);
       return next;
     });
     overviewLive.markUpdated();
-  }, []);
+  }, [overviewLive, persistSnapshot]);
 
   const scheduleStormFlush = useCallback(() => {
     if (stormFlushTimerRef.current) return;
@@ -286,15 +353,11 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       }
       if (!next || next === prev) return next;
       lastSnapshotMutationAtRef.current = Date.now();
-      try {
-        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
-      } catch {
-        // no-op
-      }
+      persistSnapshot(next);
       return next;
     });
     overviewLive.markUpdated();
-  }, []);
+  }, [overviewLive, persistSnapshot]);
 
   const scheduleAlertsFlush = useCallback(() => {
     if (alertsFlushTimerRef.current) return;
@@ -322,42 +385,51 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
   }, [scheduleStormFlush]);
 
   usePortalRealtimeSubscription("ui.overview.kpi.patch", (event) => {
+    if (!realtimeEnabledRef.current) return;
     if (!consumeBurstBudget(kpiBurstStartRef, kpiBurstCountRef, REALTIME_KPI_BURST_LIMIT)) return;
     enqueueKpiPatch((event.payload || {}) as Record<string, unknown>);
   });
 
   usePortalRealtimeSubscription("overview.patch", (event) => {
+    if (!realtimeEnabledRef.current) return;
     if (!consumeBurstBudget(kpiBurstStartRef, kpiBurstCountRef, REALTIME_KPI_BURST_LIMIT)) return;
     enqueueKpiPatch((event.payload || {}) as Record<string, unknown>);
   });
 
   usePortalRealtimeSubscription("ui.overview.invalidate", () => {
+    if (!realtimeEnabledRef.current) return;
     scheduleRefreshFromInvalidate();
   });
 
   usePortalRealtimeSubscription("overview.invalidate", () => {
+    if (!realtimeEnabledRef.current) return;
     scheduleRefreshFromInvalidate();
   });
 
   usePortalRealtimeSubscription("ui.alerts.invalidate", () => {
+    if (!realtimeEnabledRef.current) return;
     scheduleRefreshFromInvalidate();
   });
 
   usePortalRealtimeSubscription("alerts.invalidate", () => {
+    if (!realtimeEnabledRef.current) return;
     scheduleRefreshFromInvalidate();
   });
 
   usePortalRealtimeSubscription("ui.overview.storm.patch", (event) => {
+    if (!realtimeEnabledRef.current) return;
     if (!consumeBurstBudget(stormBurstStartRef, stormBurstCountRef, REALTIME_STORM_BURST_LIMIT)) return;
     enqueueStormPatch((event.payload || {}) as Record<string, unknown>);
   });
 
   usePortalRealtimeSubscription("storm.status", (event) => {
+    if (!realtimeEnabledRef.current) return;
     if (!consumeBurstBudget(stormBurstStartRef, stormBurstCountRef, REALTIME_STORM_BURST_LIMIT)) return;
     enqueueStormPatch((event.payload || {}) as Record<string, unknown>);
   });
 
   usePortalRealtimeSubscription("ui.alerts.delta.patch", (event) => {
+    if (!realtimeEnabledRef.current) return;
     if (!consumeBurstBudget(alertsBurstStartRef, alertsBurstCountRef, REALTIME_ALERTS_BURST_LIMIT)) return;
     alertsPendingRef.current.push({
       payload: (event.payload || {}) as Record<string, unknown>,
@@ -372,76 +444,38 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
   });
 
   usePortalRealtimeSubscription("alert.created", (event) => {
+    if (!realtimeEnabledRef.current) return;
     if (!consumeBurstBudget(alertsBurstStartRef, alertsBurstCountRef, REALTIME_ALERTS_BURST_LIMIT)) return;
     setSnapshot((prev) => {
       const next = applyOverviewRealtimeAlertCreated(prev, event.payload as any, String(event.timestamp || ""));
       if (!next || next === prev) return next;
       lastSnapshotMutationAtRef.current = Date.now();
-      try {
-        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
-      } catch {
-        // no-op
-      }
+      persistSnapshot(next);
       return next;
     });
     overviewLive.markUpdated();
   });
 
   usePortalRealtimeSubscription("alert.updated", (event) => {
+    if (!realtimeEnabledRef.current) return;
     if (!consumeBurstBudget(alertsBurstStartRef, alertsBurstCountRef, REALTIME_ALERTS_BURST_LIMIT)) return;
     setSnapshot((prev) => {
       const next = applyOverviewRealtimeAlertUpdated(prev, event.payload as any);
       if (!next || next === prev) return next;
       lastSnapshotMutationAtRef.current = Date.now();
-      try {
-        sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
-      } catch {
-        // no-op
-      }
+      persistSnapshot(next);
       return next;
     });
     overviewLive.markUpdated();
-  });
-  useLiveRefresh({
-    profile: "hot-operational",
-    refresh: async () => {
-      try {
-        const status = await getStormStatus({ timeoutMs: FULL_REFRESH_TIMEOUT_MS });
-        setStorm((prev) => mergeStormStatus(prev, status));
-        setSnapshot((prev) => {
-          const next = applyStormStatusToOverviewSnapshot(prev, status);
-          if (!next || next === prev) return next;
-          lastSnapshotMutationAtRef.current = Date.now();
-          try {
-            sessionStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(next));
-          } catch {
-            // no-op
-          }
-          return next;
-        });
-        overviewLive.markUpdated();
-      } catch {
-        if (!stormRef.current) setStorm(null);
-      }
-    },
   });
 
   useEffect(() => {
     return () => {
       fastAbortRef.current?.abort();
       fullAbortRef.current?.abort();
-      if (kpiFlushTimerRef.current) {
-        window.clearTimeout(kpiFlushTimerRef.current);
-        kpiFlushTimerRef.current = null;
-      }
-      if (stormFlushTimerRef.current) {
-        window.clearTimeout(stormFlushTimerRef.current);
-        stormFlushTimerRef.current = null;
-      }
-      if (alertsFlushTimerRef.current) {
-        window.clearTimeout(alertsFlushTimerRef.current);
-        alertsFlushTimerRef.current = null;
-      }
+      if (kpiFlushTimerRef.current) window.clearTimeout(kpiFlushTimerRef.current);
+      if (stormFlushTimerRef.current) window.clearTimeout(stormFlushTimerRef.current);
+      if (alertsFlushTimerRef.current) window.clearTimeout(alertsFlushTimerRef.current);
     };
   }, []);
 
@@ -452,11 +486,11 @@ export function OverviewLiveProvider({ children }: { children: ReactNode }) {
       realtimeStatus,
       isLoading,
       error,
-      lastUpdatedAt: overviewLive.state.lastUpdatedAt,
-      windowMinutes: WINDOW_MINUTES,
+      lastUpdatedAt: realtimeEnabled ? overviewLive.state.lastUpdatedAt : null,
+      windowMinutes: query.windowMinutes || DEFAULT_OVERVIEW_WINDOW_MINUTES,
       refresh,
     }),
-    [error, isLoading, overviewLive.state.lastUpdatedAt, realtimeStatus, refresh, snapshot, storm],
+    [error, isLoading, overviewLive.state.lastUpdatedAt, query.windowMinutes, realtimeEnabled, realtimeStatus, refresh, snapshot, storm],
   );
 
   return <OverviewLiveContext.Provider value={value}>{children}</OverviewLiveContext.Provider>;
