@@ -8,6 +8,8 @@ os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.features.events import service
+from app.features.events.models import NetEventModel
+from app.features.events.schemas import NetEventDB
 from app.workers import es_indexer
 
 
@@ -253,3 +255,98 @@ def test_network_summary_falls_back_to_postgres_when_clickhouse_protocol_metadat
     assert out.top_tls_sni[0].key == "login.example.net"
     assert out.top_alpn[0].key == "h2"
     assert out.top_ja4[0].ja4 == "ja4v"
+
+
+class _ScalarRows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return list(self._rows)
+
+
+def test_event_stream_snapshot_normalizes_postgres_rows(monkeypatch) -> None:
+    now = _utc_now()
+    pg_row = NetEventModel(
+        id=77,
+        agent_id="agent-pg",
+        event_type="l7_flow",
+        schema_version=1,
+        timestamp=now,
+        src_ip="10.0.0.5",
+        dst_ip="203.0.113.50",
+        src_port=55000,
+        dst_port=443,
+        proto="tcp",
+        bytes=2048,
+        extra={},
+        app_proto="tls",
+        app_proto_reason="parsed_tls",
+        tls_sni="console.example.net",
+    )
+
+    monkeypatch.setattr(service, "fetch_recent_feed_events", lambda **_kwargs: [])
+    monkeypatch.setattr(service, "_ch_client_or_none", lambda: None)
+    monkeypatch.setattr(service, "_es_client_or_none", lambda: None)
+    monkeypatch.setattr(service, "recent_feed_health", lambda **_kwargs: {"freshness_seconds": 2})
+    monkeypatch.setattr(service.repository, "run", lambda _db, _stmt: _ScalarRows([pg_row]))
+
+    out = service.get_event_stream_snapshot(db=object(), limit=10, since_minutes=60)
+
+    assert len(out.items) == 1
+    assert isinstance(out.items[0], NetEventDB)
+    assert out.items[0].id == 77
+    assert out.items[0].extra["app_proto"] == "tls"
+    assert out.items[0].extra["app_proto_reason"] == "parsed_tls"
+    assert out.items[0].extra["tls_sni"] == "console.example.net"
+
+
+def test_get_recent_events_postgres_fallback_honors_since_minutes(monkeypatch) -> None:
+    now = _utc_now()
+    stale = NetEventModel(
+        id=10,
+        agent_id="agent-pg",
+        event_type="ssh_auth",
+        schema_version=1,
+        timestamp=now - service.timedelta(minutes=90),
+        src_ip="10.0.0.10",
+        dst_ip="203.0.113.10",
+        src_port=50000,
+        dst_port=22,
+        proto="tcp",
+        bytes=128,
+        extra={"action": "failed_password"},
+    )
+    fresh = NetEventModel(
+        id=11,
+        agent_id="agent-pg",
+        event_type="ssh_auth",
+        schema_version=1,
+        timestamp=now - service.timedelta(minutes=5),
+        src_ip="10.0.0.11",
+        dst_ip="203.0.113.11",
+        src_port=50001,
+        dst_port=22,
+        proto="tcp",
+        bytes=256,
+        extra={"action": "accepted"},
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_run(_db, stmt):
+        captured["stmt"] = stmt
+        return _ScalarRows([fresh, stale])
+
+    monkeypatch.setattr(service, "fetch_recent_feed_events", lambda **_kwargs: [])
+    monkeypatch.setattr(service, "_ch_client_or_none", lambda: None)
+    monkeypatch.setattr(service, "_es_client_or_none", lambda: None)
+    monkeypatch.setattr(service.repository, "run", _fake_run)
+
+    out = service.get_recent_events(db=object(), limit=10, since_minutes=30)
+
+    assert [item.id for item in out] == [11]
+    assert "timestamp" in str(captured["stmt"])

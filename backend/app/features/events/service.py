@@ -64,6 +64,32 @@ _PROTO_EXTRA_NORMALIZERS: dict[str, tuple[bool, bool, str | None]] = {
     "ja4_ptype": (False, False, "t"),
 }
 
+_EVENT_ROW_FIELDS: tuple[str, ...] = (
+    "id",
+    "agent_id",
+    "event_type",
+    "schema_version",
+    "timestamp",
+    "src_ip",
+    "dst_ip",
+    "src_port",
+    "dst_port",
+    "proto",
+    "bytes",
+    "extra",
+    "app_proto",
+    "app_proto_reason",
+    "app_proto_conf_band",
+    "dns_qname",
+    "http_host",
+    "http_method",
+    "tls_sni",
+    "tls_alpn_first",
+    "ja3",
+    "ja4",
+    "ja4_ptype",
+)
+
 
 def _coerce_utc_iso(value: str | None) -> datetime | None:
     if not value:
@@ -313,6 +339,25 @@ def _row_to_event_safe(row: Dict[str, Any]) -> NetEventDB | None:
         )
     except Exception:
         return None
+
+
+def _event_obj_to_event_safe(item: Any) -> NetEventDB | None:
+    if item is None:
+        return None
+    if isinstance(item, NetEventDB):
+        return item
+    if isinstance(item, dict):
+        return _row_to_event_safe(item)
+
+    row: Dict[str, Any] = {}
+    for field in _EVENT_ROW_FIELDS:
+        try:
+            row[field] = getattr(item, field)
+        except Exception:
+            continue
+    if not row:
+        return None
+    return _row_to_event_safe(row)
 
 
 def _guess_app_proto_from_port(port: int | None, transport: str | None) -> str:
@@ -1231,11 +1276,21 @@ def get_recent_events(
         stmt = stmt.where(NetEventModel.agent_id == agent_id)
     if event_type:
         stmt = stmt.where(NetEventModel.event_type == event_type)
+    if since_ts is not None:
+        stmt = stmt.where(NetEventModel.timestamp >= since_ts)
     stmt = stmt.limit(int(limit))
 
     result = repository.run(db, stmt)
     rows = result.scalars().all()
-    return _merge_recent_events(primary=feed_events, secondary=list(rows), limit=int(limit))
+    pg_events: List[NetEventDB] = []
+    for row in rows:
+        event = _event_obj_to_event_safe(row)
+        if event is None:
+            continue
+        if since_ts is not None and event.timestamp < since_ts:
+            continue
+        pg_events.append(event)
+    return _merge_recent_events(primary=feed_events, secondary=pg_events, limit=int(limit))
 
 
 def get_recent_events_view(

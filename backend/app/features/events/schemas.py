@@ -44,6 +44,7 @@ class NetEventDB(NetEvent):
     id: int = Field(..., description="Database event identifier")
 
     class Config:
+        from_attributes = True
         orm_mode = True
 
 
