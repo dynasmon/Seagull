@@ -118,6 +118,23 @@ def _publish_finding_patch_batch(
         return False
 
 
+def _clear_agent_scan_token(db: Session, *, agent_id: str, scan_uuid: str) -> None:
+    agent_row = get_agent_by_agent_id(db, agent_id)
+    if agent_row is None:
+        return
+    cfg = _normalize_cfg_map(agent_row.config)
+    modules = _normalize_cfg_map(cfg.get("modules"))
+    vuln_cfg = _normalize_cfg_map(modules.get("vulnscanner"))
+    stored_token = str(vuln_cfg.get("scan_now_token") or "").strip()
+    if stored_token != scan_uuid:
+        return
+    vuln_cfg["scan_now_token"] = ""
+    modules["vulnscanner"] = vuln_cfg
+    cfg["modules"] = modules
+    agent_row.config = cfg
+    add_agent(db, agent_row)
+
+
 def ingest_findings(db: Session, *, payload: VulnIngestBatch, agent: AgentPrincipal) -> VulnIngestResult:
     max_findings = max(1, _env_int("SEAGULL_VULN_MAX_FINDINGS_PER_INGEST", 2000))
     if len(payload.findings) > max_findings:
@@ -172,6 +189,8 @@ def ingest_findings(db: Session, *, payload: VulnIngestBatch, agent: AgentPrinci
             phase_timestamps=dict(payload.scan.phase_timestamps or {}),
             now=now,
         )
+        if scan_row.lifecycle_state in {"completed", "failed", "cancelled"}:
+            _clear_agent_scan_token(db, agent_id=agent.agent_id, scan_uuid=scan_uuid)
 
     stored_findings, changed_finding_ids = persist_ingested_findings(
         db,
@@ -240,12 +259,30 @@ def trigger_manual_scan(db: Session, *, body: VulnManualScanIn) -> VulnManualSca
 
     existing_scan = get_latest_live_manual_scan_for_agent(db, body.agent_id)
     if existing_scan is not None:
-        request_token = _request_token_from_scan(existing_scan) or str(existing_scan.scan_uuid)
+        scan_uuid_existing = str(existing_scan.scan_uuid)
+        request_token = _request_token_from_scan(existing_scan) or scan_uuid_existing
+
+        # Re-assert the token in agent config so the agent picks it up even if it
+        # restarted after the original trigger (lastTriggerToken resets to "" on restart).
+        now = _utc_now()
+        cfg = _normalize_cfg_map(row.config)
+        modules = _normalize_cfg_map(cfg.get("modules"))
+        vuln_cfg = _normalize_cfg_map(modules.get("vulnscanner"))
+        if str(vuln_cfg.get("scan_now_token") or "").strip() != scan_uuid_existing:
+            vuln_cfg["enabled"] = True
+            vuln_cfg["scan_now_token"] = scan_uuid_existing
+            vuln_cfg["scan_now_at"] = now.isoformat()
+            modules["vulnscanner"] = vuln_cfg
+            cfg["modules"] = modules
+            row.config = cfg
+            add_agent(db, row)
+            commit(db)
+
         return VulnManualScanOut(
             agent_id=body.agent_id,
             request_token=request_token,
             trigger_token=request_token,
-            scan_uuid=existing_scan.scan_uuid,
+            scan_uuid=scan_uuid_existing,
             request_state="existing",
             status=existing_scan.lifecycle_state,
             lifecycle_state=existing_scan.lifecycle_state,
@@ -262,9 +299,8 @@ def trigger_manual_scan(db: Session, *, body: VulnManualScanIn) -> VulnManualSca
     modules = _normalize_cfg_map(cfg.get("modules"))
     vuln_cfg = _normalize_cfg_map(modules.get("vulnscanner"))
 
-    if "enabled" not in vuln_cfg:
-        vuln_cfg["enabled"] = True
-    vuln_cfg["scan_now_token"] = request_token
+    vuln_cfg["enabled"] = True
+    vuln_cfg["scan_now_token"] = scan_uuid
     vuln_cfg["scan_now_at"] = now.isoformat()
 
     modules["vulnscanner"] = vuln_cfg
