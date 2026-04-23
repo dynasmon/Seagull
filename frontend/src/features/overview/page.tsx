@@ -8,6 +8,7 @@ import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 import type { Alert } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
+import { timeSeriesHasSignal } from "./dashboard_state";
 import { OverviewLiveProvider, useOverviewLive } from "./live";
 import { resolveStormUiState } from "./live_realtime";
 
@@ -474,6 +475,8 @@ function OverviewPageView() {
   const stormBacklogMessages = storm?.backlog_messages ?? Number(snapshot?.meta?.backlog_messages || 0);
   const stormDropPercent = storm?.drop_percent ?? 0;
   const stormPhaseLabel = stormUi.phaseLabel;
+  const hasDdosDetectionsSignal = timeSeriesHasSignal(snapshot?.ddos?.data || []);
+  const hasDdosVolumeSignal = timeSeriesHasSignal(snapshot?.ddos_volume?.data || []);
 
   if (isLoading && !snapshot) {
     return (
@@ -962,7 +965,7 @@ function OverviewPageView() {
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <CyberPanel title="DoS/DDoS detections per minute" style={{ height: H_PANEL_SM }}>
-            {snapshot.ddos.data.length === 0 ? (
+            {!hasDdosDetectionsSignal ? (
               <EmptyState title="NO DDOS" hint="No DoS/DDoS detections available." />
             ) : (
               <div className="h-full w-full flex items-center justify-center overflow-hidden">
@@ -979,7 +982,7 @@ function OverviewPageView() {
           </CyberPanel>
 
           <CyberPanel title="Estimated DDoS packet volume / peak PPS" style={{ height: H_PANEL_SM }} right={fmtSource(ddosVolumeSourceMeta)}>
-            {!snapshot.ddos_volume || snapshot.ddos_volume.data.length === 0 ? (
+            {!hasDdosVolumeSignal ? (
               <EmptyState title="NO DDOS VOLUME" hint="No continuous DDoS telemetry available in the selected window." />
             ) : (
               <div className="h-full w-full flex items-center justify-center overflow-hidden">
