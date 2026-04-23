@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy.orm import Session
@@ -66,9 +67,22 @@ def _overview_cache_set(key: str, payload: Dict[str, Any]) -> None:
                 _overview_cache.pop(k, None)
 
 
-def get_overview(db: Session, *, window_minutes: int, agent_id: str | None, lite: bool) -> Dict[str, Any]:
+def get_overview(
+    db: Session,
+    *,
+    window_minutes: int,
+    start_ts: datetime | None = None,
+    end_ts: datetime | None = None,
+    agent_id: str | None,
+    lite: bool,
+) -> Dict[str, Any]:
     started = time.perf_counter()
-    cache_key = f"w={int(window_minutes)}|a={agent_id or '*'}|lite={1 if lite else 0}"
+    cache_key = (
+        f"w={int(window_minutes)}"
+        f"|s={start_ts.isoformat() if start_ts is not None else ''}"
+        f"|e={end_ts.isoformat() if end_ts is not None else ''}"
+        f"|a={agent_id or '*'}|lite={1 if lite else 0}"
+    )
     cached = _overview_cache_get(cache_key)
     if cached is not None:
         out = dict(cached)
@@ -84,6 +98,8 @@ def get_overview(db: Session, *, window_minutes: int, agent_id: str | None, lite
     payload = get_overview_payload(
         db,
         window_minutes=window_minutes,
+        start_ts=start_ts,
+        end_ts=end_ts,
         agent_id=agent_id,
         lite=lite,
     )

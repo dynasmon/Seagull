@@ -92,6 +92,41 @@ def _fmt_hhmm(dt: datetime) -> str:
     return dt.strftime("%H:%M")
 
 
+def _resolve_requested_overview_range(
+    *,
+    now: datetime,
+    window_minutes: int,
+    start_ts: datetime | None,
+    end_ts: datetime | None,
+) -> tuple[datetime, datetime, int, bool]:
+    fixed_range = start_ts is not None or end_ts is not None
+    resolved_end = _to_utc(end_ts) or now
+    if resolved_end > now:
+        resolved_end = now
+
+    resolved_start = _to_utc(start_ts)
+    if resolved_start is None:
+        resolved_start = resolved_end - timedelta(minutes=max(1, int(window_minutes)))
+
+    if resolved_start > resolved_end:
+        resolved_start, resolved_end = resolved_end, resolved_start
+
+    span_minutes = int(max(1, (resolved_end - resolved_start).total_seconds() // 60))
+    return resolved_start, resolved_end, span_minutes, fixed_range
+
+
+def _fmt_bucket_label(dt: datetime, *, start_ts: datetime, end_ts: datetime) -> str:
+    dt = _to_utc(dt) or dt
+    start_utc = _to_utc(start_ts) or start_ts
+    end_utc = _to_utc(end_ts) or end_ts
+    if start_utc.date() != end_utc.date():
+        return dt.strftime("%m-%d %H:%M")
+    span_seconds = max(0, int((end_utc - start_utc).total_seconds()))
+    if span_seconds >= 12 * 60 * 60:
+        return dt.strftime("%m-%d %H:%M")
+    return dt.strftime("%H:%M")
+
+
 def _normalize_recent_ssh_event(
     *,
     timestamp: Any,
@@ -273,12 +308,12 @@ def _source_meta(
     }
 
 
-def _overview_query_source(traffic_source: str) -> str:
+def _overview_query_source(traffic_source: str, *, use_clickhouse: bool = False) -> str:
     src = str(traffic_source or "").strip().lower()
     if src in {"rollup_1s", "live_1s", "recent_feed", "clickhouse", "elasticsearch", "postgres"}:
         return src
     # rollup_1m / historical are served from relational rollups.
-    return "postgres"
+    return "clickhouse" if use_clickhouse else "postgres"
 
 
 def _overview_fallback_chain(*, selected_source: str, degraded_reason: str | None) -> list[str]:
@@ -504,11 +539,19 @@ def get_overview_payload(
     db: Session,
     *,
     window_minutes: int,
+    start_ts: Optional[datetime] = None,
+    end_ts: Optional[datetime] = None,
     agent_id: Optional[str],
     lite: bool,
 ) -> Dict[str, Any]:
     started = time.perf_counter()
     now = _utc_now()
+    requested_start_ts, requested_end_ts, requested_window_minutes, fixed_range = _resolve_requested_overview_range(
+        now=now,
+        window_minutes=window_minutes,
+        start_ts=start_ts,
+        end_ts=end_ts,
+    )
     backlog_ev, backlog_msgs = _best_effort_ingest_backlog()
     pressure_window_s = max(30, _env_int("SEAGULL_OVERVIEW_PRESSURE_LOOKBACK_SECONDS", 120))
     rollup_fresh_s = max(10, _env_int("SEAGULL_OVERVIEW_INGEST_ROLLUP_FRESH_SECONDS", 120))
@@ -562,41 +605,67 @@ def get_overview_payload(
             if drift_s > float(max(20, rollup_fresh_s)):
                 rollup_stuck = True
 
-    live_window_s = max(60, _env_int("SEAGULL_OVERVIEW_LIVE_WINDOW_SECONDS", 900))
-    live_fresh_s = max(5, _env_int("SEAGULL_OVERVIEW_LIVE_FRESH_SECONDS", 15))
-    live_payload = read_overview_live_window(seconds=min(window_minutes * 60, live_window_s))
-    live_rows = list(live_payload.get("rows") or [])
-    live_last_ts = _to_utc(live_payload.get("last_data_ts"))
-    live_freshness_s = live_payload.get("freshness_seconds")
-    live_fresh = live_freshness_s is not None and int(live_freshness_s) <= int(live_fresh_s)
+    live_rows: List[Dict[str, Any]] = []
+    live_last_ts = None
+    live_freshness_s = None
+    live_fresh = False
+    if not fixed_range:
+        live_window_s = max(60, _env_int("SEAGULL_OVERVIEW_LIVE_WINDOW_SECONDS", 900))
+        live_fresh_s = max(5, _env_int("SEAGULL_OVERVIEW_LIVE_FRESH_SECONDS", 15))
+        live_payload = read_overview_live_window(seconds=min(requested_window_minutes * 60, live_window_s))
+        live_rows = list(live_payload.get("rows") or [])
+        live_last_ts = _to_utc(live_payload.get("last_data_ts"))
+        live_freshness_s = live_payload.get("freshness_seconds")
+        live_fresh = live_freshness_s is not None and int(live_freshness_s) <= int(live_fresh_s)
+    else:
+        live_payload = {
+            "rows": [],
+            "last_data_ts": None,
+            "freshness_seconds": None,
+            "ddos_samples_last_second": 0,
+            "dropped_last_second": 0,
+        }
 
-    traffic_fallback = "rollup_1m"
-    if protection_active or draining:
+    if fixed_range:
+        traffic_source = "historical"
+        traffic_degraded_reason = None
+        ddos_source = "historical"
+        ddos_degraded_reason = None
+    else:
         traffic_fallback = "rollup_1m"
-    traffic_source, traffic_degraded_reason = _choose_series_source(
-        rollups_fresh=bool(rollups_fresh),
-        rollup_stuck=bool(rollup_stuck),
-        live_fresh=bool(live_fresh),
-        fallback=traffic_fallback,
-    )
-    ddos_source, ddos_degraded_reason = _choose_series_source(
-        rollups_fresh=bool(rollups_fresh),
-        rollup_stuck=bool(rollup_stuck),
-        live_fresh=bool(live_fresh),
-        fallback="historical",
-    )
+        if protection_active or draining:
+            traffic_fallback = "rollup_1m"
+        traffic_source, traffic_degraded_reason = _choose_series_source(
+            rollups_fresh=bool(rollups_fresh),
+            rollup_stuck=bool(rollup_stuck),
+            live_fresh=bool(live_fresh),
+            fallback=traffic_fallback,
+        )
+        ddos_source, ddos_degraded_reason = _choose_series_source(
+            rollups_fresh=bool(rollups_fresh),
+            rollup_stuck=bool(rollup_stuck),
+            live_fresh=bool(live_fresh),
+            fallback="historical",
+        )
 
-    use_ingest_rollups = traffic_source == "rollup_1s"
-    data_end_ts = last_roll_ts if (use_ingest_rollups and last_roll_ts is not None) else now
-    start_ts = data_end_ts - timedelta(minutes=window_minutes)
+    use_ingest_rollups = (not fixed_range) and traffic_source == "rollup_1s"
+    data_end_ts = min(requested_end_ts, last_roll_ts) if (use_ingest_rollups and last_roll_ts is not None) else requested_end_ts
+    start_ts = requested_start_ts if fixed_range else (data_end_ts - timedelta(minutes=requested_window_minutes))
     ch = _ch_client_or_none()
-    recent_feed = fetch_recent_feed_events(limit=30, agent_id=agent_id)
-    recent_health = recent_feed_health(agent_id=agent_id)
+    recent_feed = [] if fixed_range else fetch_recent_feed_events(limit=30, agent_id=agent_id)
+    recent_health = {} if fixed_range else recent_feed_health(agent_id=agent_id)
+
+    alerts_window_start = start_ts if fixed_range else (now - timedelta(minutes=60))
+    alerts_window_end = data_end_ts if fixed_range else now
 
     kpi_stmt = select(
         (select(func.count()).select_from(AgentModel)).label("total_agents"),
         (select(func.count()).select_from(AgentModel).where(AgentModel.last_seen_at >= now - timedelta(minutes=5))).label("online_agents"),
-        (select(func.count()).select_from(AlertModel).where(AlertModel.created_at >= now - timedelta(minutes=60))).label("alerts_60m"),
+        (
+            select(func.count())
+            .select_from(AlertModel)
+            .where(AlertModel.created_at >= alerts_window_start, AlertModel.created_at <= alerts_window_end)
+        ).label("alerts_60m"),
     )
     kpi_row = db.execute(kpi_stmt).mappings().one()
     total_agents = int(kpi_row.get("total_agents") or 0)
@@ -794,7 +863,7 @@ def get_overview_payload(
     traffic_data: List[Dict[str, Any]] = []
     for b in _minute_buckets(start_ts, data_end_ts):
         vals = traffic_map.get(b, {})
-        row: Dict[str, Any] = {"t": _fmt_hhmm(b)}
+        row: Dict[str, Any] = {"t": _fmt_bucket_label(b, start_ts=start_ts, end_ts=data_end_ts)}
         known = 0
         for t in [t1, t2, t3]:
             if t:
@@ -838,7 +907,10 @@ def get_overview_payload(
             ssh_stmt = ssh_stmt.where(SshFailRollup1mModel.agent_id == agent_id)
         ssh_rows = db.execute(ssh_stmt).all()
         ssh_map = {_to_utc(r.bucket_ts): int(r.failures or 0) for r in ssh_rows if _to_utc(r.bucket_ts) is not None}
-    ssh_data = [{"t": _fmt_hhmm(b), "failures": int(ssh_map.get(b, 0))} for b in _minute_buckets(start_ts, data_end_ts)]
+    ssh_data = [
+        {"t": _fmt_bucket_label(b, start_ts=start_ts, end_ts=data_end_ts), "failures": int(ssh_map.get(b, 0))}
+        for b in _minute_buckets(start_ts, data_end_ts)
+    ]
     ssh_series = ["failures"]
 
     sev_stmt = (
@@ -878,7 +950,7 @@ def get_overview_payload(
     for b in _minute_buckets(start_ts, data_end_ts):
         vals = sev_map.get(b, {})
         row = {
-            "t": _fmt_hhmm(b),
+            "t": _fmt_bucket_label(b, start_ts=start_ts, end_ts=data_end_ts),
             "critical": int(vals.get("critical", 0)),
             "high": int(vals.get("high", 0)),
             "medium": int(vals.get("medium", 0)),
@@ -913,7 +985,7 @@ def get_overview_payload(
     ddos_series = ["critical", "high"]
     ddos_data = [
         {
-            "t": _fmt_hhmm(b),
+            "t": _fmt_bucket_label(b, start_ts=start_ts, end_ts=data_end_ts),
             "critical": int((ddos_map.get(b) or {}).get("critical", 0)),
             "high": int((ddos_map.get(b) or {}).get("high", 0)),
         }
@@ -1018,7 +1090,7 @@ def get_overview_payload(
         vals = ddos_vol_map.get(b, {"packets": 0.0, "peak_pps": 0.0, "peak_bps": 0.0})
         ddos_volume_data.append(
             {
-                "t": _fmt_hhmm(b),
+                "t": _fmt_bucket_label(b, start_ts=start_ts, end_ts=data_end_ts),
                 "packets": int(vals.get("packets", 0.0)),
                 "peak_pps": float(vals.get("peak_pps", 0.0)),
                 "peak_bps": float(vals.get("peak_bps", 0.0)),
@@ -1118,6 +1190,7 @@ def get_overview_payload(
                 AlertModel.description,
                 AlertModel.details,
             )
+            .where(AlertModel.created_at >= start_ts, AlertModel.created_at <= data_end_ts)
             .order_by(AlertModel.created_at.desc())
             .limit(25)
         )
@@ -1135,14 +1208,19 @@ def get_overview_payload(
                 AlertModel.description,
                 AlertModel.details,
             )
-            .where(func.lower(AlertModel.severity).in_(["critical", "high"]), _ddos_rule_filter(AlertModel.rule_id))
+            .where(
+                AlertModel.created_at >= start_ts,
+                AlertModel.created_at <= data_end_ts,
+                func.lower(AlertModel.severity).in_(["critical", "high"]),
+                _ddos_rule_filter(AlertModel.rule_id),
+            )
             .order_by(AlertModel.created_at.desc())
             .limit(15)
         )
         ddos_alerts = [dict(r) for r in db.execute(ddos_alerts_stmt).mappings().all()]
 
         recent_ssh_rows: List[Dict[str, Any]] = []
-        ssh_feed_rows = fetch_recent_feed_events(limit=40, agent_id=agent_id, event_type="ssh_auth")
+        ssh_feed_rows = [] if fixed_range else fetch_recent_feed_events(limit=40, agent_id=agent_id, event_type="ssh_auth")
         for item in ssh_feed_rows:
             extra = item.get("extra") if isinstance(item, dict) else {}
             normalized = _normalize_recent_ssh_event(
@@ -1159,7 +1237,7 @@ def get_overview_payload(
             if normalized is not None:
                 recent_ssh_rows.append(normalized)
 
-        recent_ssh_end_ts = now
+        recent_ssh_end_ts = data_end_ts
         if ch is not None:
             ssh_params = {"start_ts": start_ts, "end_ts": recent_ssh_end_ts}
             ssh_where = "timestamp >= {start_ts:DateTime64(3)} AND timestamp <= {end_ts:DateTime64(3)} AND event_type = 'ssh_auth'"
@@ -1234,7 +1312,7 @@ def get_overview_payload(
 
         recent_ssh = _merge_recent_ssh_rows(*recent_ssh_rows, limit=20)
 
-        raw_events = _recent_feed_events(30, recent_feed)
+        raw_events = [] if fixed_range else _recent_feed_events(30, recent_feed)
         if len(raw_events) < 30 and ch is not None:
             ch_recent = _clickhouse_recent_events(
                 ch=ch,
@@ -1280,6 +1358,7 @@ def get_overview_payload(
                     NetEventModel.dst_ip,
                     NetEventModel.dst_port,
                 )
+                .where(NetEventModel.timestamp >= start_ts, NetEventModel.timestamp <= data_end_ts)
                 .order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
                 .limit(30)
             )
@@ -1329,7 +1408,7 @@ def get_overview_payload(
         vals = ingest_rates_map.get(b, {"ingest_events": 0.0, "processed_events": 0.0})
         ingest_rates_data.append(
             {
-                "t": _fmt_hhmm(b),
+                "t": _fmt_bucket_label(b, start_ts=start_ts, end_ts=data_end_ts),
                 "ingest_events": int(max(0.0, float(vals.get("ingest_events") or 0.0))),
                 "processed_events": int(max(0.0, float(vals.get("processed_events") or 0.0))),
             }
@@ -1345,7 +1424,7 @@ def get_overview_payload(
     ingest_source_reason = None if live_fresh else "live_stale_fallback_ingest_stats"
     ingest_last_ts = live_last_ts if live_fresh else (ingest_stats_last_ts or live_last_ts)
 
-    query_source = _overview_query_source(traffic_source)
+    query_source = _overview_query_source(traffic_source, use_clickhouse=bool(ch is not None and traffic_source not in {"rollup_1s", "live_1s"}))
     query_freshness = _source_meta(
         now=now,
         source=traffic_source,
@@ -1457,7 +1536,8 @@ def get_overview_payload(
         logger,
         "info",
         "overview_response_ready",
-        window_minutes=int(window_minutes),
+        window_minutes=int(requested_window_minutes),
+        fixed_range=bool(fixed_range),
         agent_id=agent_id or "",
         lite=bool(lite),
         use_ingest_rollups=bool(use_ingest_rollups),
