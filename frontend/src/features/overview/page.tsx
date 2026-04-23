@@ -367,6 +367,7 @@ function FilterChip({
 }
 
 function OverviewRangeControls({
+  label = "Range",
   query,
   draft,
   onDraftChange,
@@ -375,6 +376,7 @@ function OverviewRangeControls({
   onResetToLive,
   applyDisabled,
 }: {
+  label?: string;
   query: OverviewQueryState;
   draft: { from: string; to: string };
   onDraftChange: (field: "from" | "to", value: string) => void;
@@ -390,7 +392,7 @@ function OverviewRangeControls({
       <div className="flex flex-col gap-2 2xl:flex-row 2xl:items-end 2xl:justify-between">
         <div className="flex flex-wrap items-center gap-1.5">
           <div className="text-[8px] font-mono font-bold uppercase tracking-[0.28em] text-muted-foreground">
-            Range
+            {label}
           </div>
           <div className="text-[8px] font-mono uppercase tracking-[0.16em] text-muted-foreground">
             {historical ? "Historical paused" : `Live ${fmtDurationCompact(query.windowMinutes)}`}
@@ -884,6 +886,7 @@ function OverviewPageView({
             }
           >
             <OverviewRangeControls
+              label="Event Range"
               query={query}
               draft={rangeDraft}
               onDraftChange={(field, value) => setRangeDraft((prev) => ({ ...prev, [field]: value }))}
@@ -1142,80 +1145,93 @@ function OverviewPageView({
       </DashboardSection>
 
       <DashboardSection id="ddos" title="DOS / DDOS" defaultOpen>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <StatTile label="DoS/DDoS detections (last 5m)" value={derived.ddos5m} tone={derived.ddos5m > 0 ? "warn" : "good"} />
-          <StatTile
-            label="DDoS packets est. (last 5m)"
-            value={derived.ddosPackets5m}
-            hint={`peak pps: ${fmtCompact(derived.ddosPeakPps)}`}
-            tone={derived.ddosPackets5m > 0 ? "warn" : "good"}
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <StatTile label="DoS/DDoS detections (last 5m)" value={derived.ddos5m} tone={derived.ddos5m > 0 ? "warn" : "good"} />
+            <StatTile
+              label="DDoS packets est. (last 5m)"
+              value={derived.ddosPackets5m}
+              hint={`peak pps: ${fmtCompact(derived.ddosPeakPps)}`}
+              tone={derived.ddosPackets5m > 0 ? "warn" : "good"}
+            />
+            <StatTile label="Last attack kind" value={derived.ddosLastKind} hint={`peak pps: ${fmtCompact(derived.ddosPeakPps)}`} />
+            <StatTile label="Last target" value={derived.ddosLastTarget} />
+            <StatTile label="Alerts (critical/high)" value={snapshot.ddos_alerts.length} tone={snapshot.ddos_alerts.length > 0 ? "warn" : "good"} />
+          </div>
+
+          <OverviewRangeControls
+            label="DDoS Range"
+            query={query}
+            draft={rangeDraft}
+            onDraftChange={(field, value) => setRangeDraft((prev) => ({ ...prev, [field]: value }))}
+            onApplyRange={applyRange}
+            onSetLiveWindow={setLiveWindow}
+            onResetToLive={resetToLive}
+            applyDisabled={applyRangeDisabled}
           />
-          <StatTile label="Last attack kind" value={derived.ddosLastKind} hint={`peak pps: ${fmtCompact(derived.ddosPeakPps)}`} />
-          <StatTile label="Last target" value={derived.ddosLastTarget} />
-          <StatTile label="Alerts (critical/high)" value={snapshot.ddos_alerts.length} tone={snapshot.ddos_alerts.length > 0 ? "warn" : "good"} />
-        </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          <CyberPanel title="DoS/DDoS detections per minute" style={{ height: H_PANEL_SM }}>
-            {!hasDdosDetectionsSignal ? (
-              <EmptyState title="NO DDOS" hint="No DoS/DDoS detections available." />
-            ) : (
-              <div className="h-full w-full flex items-center justify-center overflow-hidden">
-                <div className="w-full max-w-full flex justify-center">
-                  <SimpleTimeSeries
-                    data={snapshot.ddos.data}
-                    seriesKeys={snapshot.ddos.series}
-                    height={160}
-                    allowHorizontalScroll={false}
-                  />
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <CyberPanel title="DoS/DDoS detections per minute" style={{ height: H_PANEL_SM }}>
+              {!hasDdosDetectionsSignal ? (
+                <EmptyState title="NO DDOS" hint="No DoS/DDoS detections available." />
+              ) : (
+                <div className="h-full w-full flex items-center justify-center overflow-hidden">
+                  <div className="w-full max-w-full flex justify-center">
+                    <SimpleTimeSeries
+                      data={snapshot.ddos.data}
+                      seriesKeys={snapshot.ddos.series}
+                      height={160}
+                      allowHorizontalScroll={false}
+                    />
+                  </div>
                 </div>
-              </div>
-            )}
-          </CyberPanel>
+              )}
+            </CyberPanel>
 
-          <CyberPanel title="Estimated DDoS packet volume / peak PPS" style={{ height: H_PANEL_SM }} right={fmtSource(ddosVolumeSourceMeta)}>
-            {!hasDdosVolumeSignal ? (
-              <EmptyState title="NO DDOS VOLUME" hint="No continuous DDoS telemetry available in the selected window." />
-            ) : (
-              <div className="h-full w-full flex items-center justify-center overflow-hidden">
-                <div className="w-full max-w-full flex justify-center">
-                  <SimpleTimeSeries
-                    data={snapshot.ddos_volume.data}
-                    seriesKeys={snapshot.ddos_volume.series}
-                    height={160}
-                    allowHorizontalScroll={false}
-                  />
+            <CyberPanel title="Estimated DDoS packet volume / peak PPS" style={{ height: H_PANEL_SM }} right={fmtSource(ddosVolumeSourceMeta)}>
+              {!hasDdosVolumeSignal ? (
+                <EmptyState title="NO DDOS VOLUME" hint="No continuous DDoS telemetry available in the selected window." />
+              ) : (
+                <div className="h-full w-full flex items-center justify-center overflow-hidden">
+                  <div className="w-full max-w-full flex justify-center">
+                    <SimpleTimeSeries
+                      data={snapshot.ddos_volume.data}
+                      seriesKeys={snapshot.ddos_volume.series}
+                      height={160}
+                      allowHorizontalScroll={false}
+                    />
+                  </div>
                 </div>
-              </div>
-            )}
-          </CyberPanel>
+              )}
+            </CyberPanel>
 
-          <CyberPanel title="Recent DoS/DDoS detections" style={{ height: H_PANEL_TABLE }} scrollY>
-            {snapshot.ddos_alerts.length === 0 ? (
-              <EmptyState title="NO DDOS ALERTS" hint="No critical/high DoS/DDoS alerts found." />
-            ) : (
-              <Table
-                scrollX={false}
-                className="text-xs"
-                columns={[
-                    {
-                      key: "created_at",
-                      title: "TIME",
-                      className: "font-mono text-muted-foreground w-28",
-                      render: (r: Alert) => fmtDateTime(new Date(r.created_at))
-                    },
-                    { key: "severity", title: "SEV", className: "w-20", render: (r: Alert) => <SeverityBadge severity={r.severity} /> },
-                    { key: "rule_id", title: "RULE", className: "font-mono text-muted-foreground w-64" },
-                    { key: "src_ip", title: "SRC", className: "font-mono text-muted-foreground w-32", render: (r: Alert) => r.src_ip || "-" },
-                    { key: "dst_ip", title: "DST", className: "font-mono text-muted-foreground w-32", render: (r: Alert) => r.dst_ip || "-" },
-                    { key: "dst_port", title: "DST PORT", className: "font-mono text-muted-foreground w-24", render: (r: Alert) => (r.dst_port ?? "-") },
-                    { key: "description", title: "DESC", className: "font-mono text-foreground" }
-                  ]}
-                  rows={snapshot.ddos_alerts}
-                  rowKey={(r, i) => `${r.id ?? "na"}-${r.created_at || "na"}-${r.rule_id || "na"}-${i}`}
-              />
-            )}
-          </CyberPanel>
+            <CyberPanel title="Recent DoS/DDoS detections" style={{ height: H_PANEL_TABLE }} scrollY>
+              {snapshot.ddos_alerts.length === 0 ? (
+                <EmptyState title="NO DDOS ALERTS" hint="No critical/high DoS/DDoS alerts found." />
+              ) : (
+                <Table
+                  scrollX={false}
+                  className="text-xs"
+                  columns={[
+                      {
+                        key: "created_at",
+                        title: "TIME",
+                        className: "font-mono text-muted-foreground w-28",
+                        render: (r: Alert) => fmtDateTime(new Date(r.created_at))
+                      },
+                      { key: "severity", title: "SEV", className: "w-20", render: (r: Alert) => <SeverityBadge severity={r.severity} /> },
+                      { key: "rule_id", title: "RULE", className: "font-mono text-muted-foreground w-64" },
+                      { key: "src_ip", title: "SRC", className: "font-mono text-muted-foreground w-32", render: (r: Alert) => r.src_ip || "-" },
+                      { key: "dst_ip", title: "DST", className: "font-mono text-muted-foreground w-32", render: (r: Alert) => r.dst_ip || "-" },
+                      { key: "dst_port", title: "DST PORT", className: "font-mono text-muted-foreground w-24", render: (r: Alert) => (r.dst_port ?? "-") },
+                      { key: "description", title: "DESC", className: "font-mono text-foreground" }
+                    ]}
+                    rows={snapshot.ddos_alerts}
+                    rowKey={(r, i) => `${r.id ?? "na"}-${r.created_at || "na"}-${r.rule_id || "na"}-${i}`}
+                />
+              )}
+            </CyberPanel>
+          </div>
         </div>
       </DashboardSection>
     </div>
