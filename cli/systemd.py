@@ -168,8 +168,12 @@ def _validate_live_tls(api_url: str, ca_file: Path) -> str | None:
             "  fix: align SEAGULL_TLS_SERVER_NAME with the certificate SANs or replace the server certificate"
         )
     except ssl.SSLError as exc:
+        message = str(exc)
+        # Caddy can briefly tear down loopback handshakes while the edge is restarting.
+        if _is_loopback_host(host.strip().lower()) and "EOF occurred in violation of protocol" in message:
+            return None
         return (
-            f"TLS handshake failed for {api_url} using server name {server_name!r}: {exc}\n"
+            f"TLS handshake failed for {api_url} using server name {server_name!r}: {message}\n"
             "  fix: verify the agent CA file and the server certificate chain"
         )
     except (ConnectionError, TimeoutError, OSError):
