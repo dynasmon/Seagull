@@ -291,6 +291,47 @@ def _overview_fallback_chain(*, selected_source: str, degraded_reason: str | Non
     return [selected_source]
 
 
+def _ddos_volume_bucket_has_signal(values: Dict[str, Any] | None) -> bool:
+    if not isinstance(values, dict):
+        return False
+    if int(values.get("packets") or 0) > 0:
+        return True
+    if int(values.get("samples") or 0) > 0:
+        return True
+    if float(values.get("peak_pps") or 0.0) > 0.0:
+        return True
+    if float(values.get("peak_bps") or 0.0) > 0.0:
+        return True
+    return False
+
+
+def _build_live_ddos_volume_map(live_rows: List[Dict[str, Any]]) -> Dict[datetime, Dict[str, float]]:
+    out: Dict[datetime, Dict[str, float]] = {}
+    for row in live_rows:
+        ts = _to_utc((row or {}).get("ts"))
+        if ts is None:
+            continue
+        bucket_ts = _minute_floor(ts)
+        cur = out.setdefault(bucket_ts, {"packets": 0.0, "peak_pps": 0.0, "peak_bps": 0.0, "samples": 0.0})
+        cur["packets"] += float(max(0, int((row or {}).get("ddos_packets_estimated") or 0)))
+        cur["samples"] += float(max(0, int((row or {}).get("ddos_samples") or 0)))
+        cur["peak_pps"] = max(float(cur.get("peak_pps") or 0.0), float((row or {}).get("ddos_peak_pps") or 0.0))
+        cur["peak_bps"] = max(float(cur.get("peak_bps") or 0.0), float((row or {}).get("ddos_peak_bps") or 0.0))
+    return out
+
+
+def _overlay_live_ddos_volume_map(
+    base_map: Dict[datetime, Dict[str, float]],
+    live_rows: List[Dict[str, Any]],
+) -> Dict[datetime, Dict[str, float]]:
+    merged = dict(base_map)
+    for bucket_ts, values in _build_live_ddos_volume_map(live_rows).items():
+        if not _ddos_volume_bucket_has_signal(values):
+            continue
+        merged[bucket_ts] = values
+    return merged
+
+
 def _storm_key_active() -> bool:
     r = get_redis()
     if r is None:
@@ -856,7 +897,7 @@ def get_overview_payload(
         .where(
             AlertModel.created_at >= start_ts,
             AlertModel.created_at <= data_end_ts,
-            func.lower(AlertModel.severity).in_(["critical", "high", "medium"]),
+            func.lower(AlertModel.severity).in_(["critical", "high"]),
             _ddos_rule_filter(AlertModel.rule_id),
         )
         .group_by("bucket_ts", "sev")
@@ -879,7 +920,9 @@ def get_overview_payload(
         for b in _minute_buckets(start_ts, data_end_ts)
     ]
 
-    if ddos_source == "rollup_1s":
+    ddos_history_source = ddos_source if ddos_source != "live_1s" else "historical"
+
+    if ddos_history_source == "rollup_1s":
         ddos_vol_stmt = (
             select(
                 func.date_trunc("minute", NetEventRollup1sModel.bucket_ts).label("bucket_ts"),
@@ -901,21 +944,6 @@ def get_overview_payload(
             for r in ddos_vol_rows
             if _to_utc(r.bucket_ts) is not None
         }
-    elif ddos_source == "live_1s":
-        ddos_vol_map: Dict[datetime, Dict[str, float]] = {}
-        for row in live_rows:
-            ts = _to_utc((row or {}).get("ts"))
-            if ts is None:
-                continue
-            b = _minute_floor(ts)
-            cur = ddos_vol_map.setdefault(b, {"packets": 0.0, "peak_pps": 0.0, "peak_bps": 0.0})
-            cur["packets"] += float(max(0, int((row or {}).get("ddos_packets_estimated") or 0)))
-            cur["peak_pps"] = max(
-                float(cur.get("peak_pps") or 0.0),
-                float((row or {}).get("ddos_peak_pps") or 0.0),
-                float((row or {}).get("ingest_received") or 0.0),
-            )
-            cur["peak_bps"] = max(float(cur.get("peak_bps") or 0.0), float((row or {}).get("ddos_peak_bps") or 0.0))
     elif ch is not None:
         ddos_params: Dict[str, Any] = {"start_ts": start_ts, "end_ts": data_end_ts}
         ddos_where = (
@@ -981,6 +1009,9 @@ def get_overview_payload(
             if _to_utc(r.bucket_ts) is not None
         }
 
+    if ddos_source == "live_1s":
+        ddos_vol_map = _overlay_live_ddos_volume_map(ddos_vol_map, live_rows)
+
     ddos_volume_series = ["packets", "peak_pps", "peak_bps"]
     ddos_volume_data = []
     for b in _minute_buckets(start_ts, data_end_ts):
@@ -994,15 +1025,14 @@ def get_overview_payload(
             }
         )
 
-    # If alert-based DDoS buckets are empty during active attacks (rule worker lag,
-    # cooldown windows, or temporary suppression), keep the panel alive using
-    # telemetry-derived activity from dos_attack events.
-    if all((int(row.get("critical") or 0) + int(row.get("high") or 0)) <= 0 for row in ddos_data):
-        for idx, vol in enumerate(ddos_volume_data):
-            active = (int(vol.get("packets") or 0) > 0) or (float(vol.get("peak_pps") or 0.0) > 0.0)
-            if not active:
-                continue
-            ddos_data[idx]["high"] = max(1, int(ddos_data[idx].get("high") or 0))
+    # If alert-based DDoS buckets lag behind live detection events, keep the
+    # current buckets visible without erasing historical alert-backed data.
+    for idx, vol in enumerate(ddos_volume_data):
+        if not _ddos_volume_bucket_has_signal(vol):
+            continue
+        if (int(ddos_data[idx].get("critical") or 0) + int(ddos_data[idx].get("high") or 0)) > 0:
+            continue
+        ddos_data[idx]["high"] = max(1, int(ddos_data[idx].get("high") or 0))
 
     ports: List[Dict[str, Any]] = []
     top_sources: List[Dict[str, Any]] = []
@@ -1105,7 +1135,7 @@ def get_overview_payload(
                 AlertModel.description,
                 AlertModel.details,
             )
-            .where(func.lower(AlertModel.severity).in_(["critical", "high", "medium"]), _ddos_rule_filter(AlertModel.rule_id))
+            .where(func.lower(AlertModel.severity).in_(["critical", "high"]), _ddos_rule_filter(AlertModel.rule_id))
             .order_by(AlertModel.created_at.desc())
             .limit(15)
         )
