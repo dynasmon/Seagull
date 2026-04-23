@@ -23,6 +23,41 @@ def _clear_bootstrap_tokens() -> None:
             f.unlink()
 
 
+def _reconcile_systemd_agent() -> int:
+    try:
+        _systemd.validate()
+        if _systemd.is_active():
+            return 0
+        rc = _systemd.restart()
+        if rc == 0 and _systemd.is_active():
+            return 0
+    except _systemd.ValidationError:
+        pass
+
+    agent_id = _systemd.installed_agent_id()
+    print(f"[systemd-agent] attempting automatic recovery for {agent_id}")
+    _tokens.mint()
+    bootstrap_token = _systemd.repo_bootstrap_token_for_agent(agent_id)
+    if not bootstrap_token:
+        print(
+            f"[systemd-agent] no repo bootstrap token found for {agent_id}; "
+            "run ./seagull agent tokens or set AGENT_*_BOOTSTRAP_TOKEN in .env",
+            file=sys.stderr,
+        )
+        return 1
+
+    rc = _systemd.install(bootstrap_token=bootstrap_token)
+    if rc != 0:
+        return rc
+
+    try:
+        _systemd.validate()
+    except _systemd.ValidationError:
+        return 1
+
+    return 0 if _systemd.is_active() else 1
+
+
 
 def _up_dev(
     files: list[str],
@@ -32,8 +67,8 @@ def _up_dev(
     _preflight.run()
 
     if systemd_agent:
-        _systemd.validate()
-        _systemd.sync_ca()
+        if _systemd.sync_ca() != 0:
+            return 1
 
     up_args = ["up", "-d", "--build", "--remove-orphans"]
     if systemd_agent:
@@ -60,6 +95,11 @@ def _up_dev(
         if rc != 0:
             return rc
 
+    if systemd_agent:
+        rc = _reconcile_systemd_agent()
+        if rc != 0:
+            return rc
+
     print()
     _health.print_summary(files)
     return 0
@@ -72,8 +112,8 @@ def _up_prod(
     _prepare.run()
 
     if systemd_agent:
-        _systemd.validate()
-        _systemd.sync_ca()
+        if _systemd.sync_ca() != 0:
+            return 1
 
     if fresh:
         _compose.run(_compose.STACK_FILES, ["down", "-v", "--remove-orphans"])
@@ -106,6 +146,9 @@ def _up_prod(
     if systemd_agent:
         # Stop any running Docker agent containers; host systemd agent handles collection.
         _compose.run(_compose.STACK_FILES, ["stop"] + list(_compose.DOCKER_AGENT_SERVICES))
+        rc = _reconcile_systemd_agent()
+        if rc != 0:
+            return rc
     else:
         rc = _compose.run(
             _compose.STACK_FILES,
@@ -247,24 +290,31 @@ def cmd_restart(args: argparse.Namespace) -> int:
     _preflight.run()
 
     if systemd_agent:
-        _systemd.sync_ca()
+        if _systemd.sync_ca() != 0:
+            return 1
 
     files = _compose.DEV_RELOAD_FILES if dev_reload else _compose.STACK_FILES
     extra_args = _compose.agent_scale_zero_args() if systemd_agent else []
 
     if quick:
-        return _compose.run(
+        rc = _compose.run(
             files,
             ["up", "-d", "--force-recreate", "--remove-orphans"] + extra_args,
             persist_redis=persist,
         ).returncode
+        if rc != 0:
+            return rc
+        return _reconcile_systemd_agent() if systemd_agent else 0
 
     _compose.run(files, ["down", "--remove-orphans"], persist_redis=persist)
-    return _compose.run(
+    rc = _compose.run(
         files,
         ["up", "-d", "--build", "--remove-orphans"] + extra_args,
         persist_redis=persist,
     ).returncode
+    if rc != 0:
+        return rc
+    return _reconcile_systemd_agent() if systemd_agent else 0
 
 
 def cmd_ps(args: argparse.Namespace) -> int:
