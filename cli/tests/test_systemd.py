@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -143,3 +144,28 @@ def test_repo_bootstrap_token_for_agent_uses_matching_repo_mapping(
     assert systemd.repo_bootstrap_token_for_agent("agent-core-1") == "abt.core.token"
     assert systemd.repo_bootstrap_token_for_agent("agent-sensor-1") == "abt.sensor.token"
     assert systemd.repo_bootstrap_token_for_agent("agent-missing") == ""
+
+
+def test_validate_live_tls_ignores_transient_loopback_eof(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ca_file = tmp_path / "root_ca.crt"
+    ca_file.write_text("ca\n")
+    monkeypatch.setattr(systemd, "_read_agent_env", lambda key: "localhost" if key == "SEAGULL_TLS_SERVER_NAME" else "")
+
+    class _FakeContext:
+        def wrap_socket(self, _sock, server_hostname=None):
+            raise ssl.SSLError("EOF occurred in violation of protocol (_ssl.c:1033)")
+
+    class _FakeSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(systemd.ssl, "create_default_context", lambda cafile=None: _FakeContext())
+    monkeypatch.setattr(systemd.socket, "create_connection", lambda *args, **kwargs: _FakeSocket())
+
+    assert systemd._validate_live_tls("https://127.0.0.1:8443/agent", ca_file) is None

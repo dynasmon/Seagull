@@ -90,7 +90,7 @@ build_binary_if_needed() {
     mkdir -p "$(dirname -- "${BUILD_OUTPUT}")"
     (
       cd "${REPO_ROOT}/agent"
-      CGO_ENABLED=1 go build -o "${BUILD_OUTPUT}" ./cmd/agent
+      CGO_ENABLED=1 go build -buildvcs=false -o "${BUILD_OUTPUT}" ./cmd/agent
     )
     SOURCE_BINARY="${BUILD_OUTPUT}"
     return
@@ -200,6 +200,55 @@ discover_repo_env_value() {
     return
   fi
   trim "$(read_env_value "${key}" "${repo_env}")"
+}
+
+discover_repo_bootstrap_token() {
+  local agent_id repo_agent_id token token_file candidate
+  agent_id="$(trim "$(read_env_value SEAGULL_AGENT_ID "${INSTALL_ENV_PATH}")")"
+  if [[ -z "${agent_id}" ]]; then
+    agent_id="$(trim "$(discover_repo_env_value AGENT_CORE_ID)")"
+  fi
+  if [[ -z "${agent_id}" ]]; then
+    printf ''
+    return
+  fi
+
+  local mappings=(
+    "AGENT_CORE_ID:AGENT_CORE_BOOTSTRAP_TOKEN:AGENT_CORE_BOOTSTRAP_TOKEN_FILE"
+    "AGENT_SENSOR_ID:AGENT_SENSOR_BOOTSTRAP_TOKEN:AGENT_SENSOR_BOOTSTRAP_TOKEN_FILE"
+    "AGENT_LATERAL_ID:AGENT_LATERAL_BOOTSTRAP_TOKEN:AGENT_LATERAL_BOOTSTRAP_TOKEN_FILE"
+    "AGENT_PROC_ID:AGENT_PROC_BOOTSTRAP_TOKEN:AGENT_PROC_BOOTSTRAP_TOKEN_FILE"
+    "AGENT_SCAN_ID:AGENT_SCAN_BOOTSTRAP_TOKEN:AGENT_SCAN_BOOTSTRAP_TOKEN_FILE"
+    "AGENT_DDOS_ID:AGENT_DDOS_BOOTSTRAP_TOKEN:AGENT_DDOS_BOOTSTRAP_TOKEN_FILE"
+    "AGENT_VULN_ID:AGENT_VULN_BOOTSTRAP_TOKEN:AGENT_VULN_BOOTSTRAP_TOKEN_FILE"
+  )
+
+  local mapping agent_key token_key token_file_key
+  for mapping in "${mappings[@]}"; do
+    IFS=: read -r agent_key token_key token_file_key <<< "${mapping}"
+    repo_agent_id="$(trim "$(discover_repo_env_value "${agent_key}")")"
+    if [[ "${repo_agent_id}" != "${agent_id}" ]]; then
+      continue
+    fi
+
+    token="$(trim "$(discover_repo_env_value "${token_key}")")"
+    if [[ -n "${token}" ]]; then
+      printf '%s' "${token}"
+      return
+    fi
+
+    token_file="$(trim "$(discover_repo_env_value "${token_file_key}")")"
+    if [[ -z "${token_file}" ]]; then
+      continue
+    fi
+    candidate="$(resolve_repo_path "${token_file}")"
+    if [[ -f "${candidate}" ]]; then
+      trim "$(tr -d '\r\n' < "${candidate}")"
+      return
+    fi
+  done
+
+  printf ''
 }
 
 discover_ca_source_file() {
@@ -327,7 +376,7 @@ normalize_bootstrap_token_settings() {
   normalize_env_key SEAGULL_AGENT_IDENTITY_STATE_FILE "${INSTALL_ENV_PATH}"
   normalize_env_key SEAGULL_AGENT_CREDENTIAL_FILE "${INSTALL_ENV_PATH}"
 
-  local identity_state_file credential_file token_inline token_file persisted_identity_present
+  local identity_state_file credential_file token_inline token_file persisted_identity_present repo_bootstrap_token
   identity_state_file="$(trim "$(read_env_value SEAGULL_AGENT_IDENTITY_STATE_FILE "${INSTALL_ENV_PATH}")")"
   if [[ -z "${identity_state_file}" ]]; then
     identity_state_file="${INSTALL_STATE_DIR}/agent.identity.json"
@@ -345,6 +394,15 @@ normalize_bootstrap_token_settings() {
 
   token_inline="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN "${INSTALL_ENV_PATH}")")"
   token_file="$(trim "$(read_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE "${INSTALL_ENV_PATH}")")"
+
+  if [[ "${persisted_identity_present}" == "0" && -z "${token_inline}" && ( -z "${token_file}" || ! -f "${token_file}" ) ]]; then
+    repo_bootstrap_token="$(discover_repo_bootstrap_token)"
+    if [[ -n "${repo_bootstrap_token}" ]]; then
+      token_inline="${repo_bootstrap_token}"
+      set_env_value SEAGULL_AGENT_BOOTSTRAP_TOKEN "${token_inline}" "${INSTALL_ENV_PATH}"
+      echo "[install] imported bootstrap token from repo env"
+    fi
+  fi
 
   if [[ "${token_file}" == "${LEGACY_BOOTSTRAP_TOKEN_FILE}" ]]; then
     token_file="${DEFAULT_BOOTSTRAP_TOKEN_FILE}"
