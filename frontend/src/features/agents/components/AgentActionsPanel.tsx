@@ -72,7 +72,7 @@ export default function AgentActionsPanel({
             </button>
           </div>
 
-          {agentError && <div className="text-[11px] text-red-400">{agentError}</div>}
+          {agentError && <div className="text-[11px] text-danger">{agentError}</div>}
         </div>
       )}
     </Panel>

@@ -438,8 +438,8 @@ export function ActiveScanPanel({
             </button>
           </div>
 
-          {scanMsg ? <div className="text-xs text-emerald-300">{scanMsg}</div> : null}
-          {scanErr ? <div className="text-xs text-red-300">{scanErr}</div> : null}
+          {scanMsg ? <div className="text-xs text-success">{scanMsg}</div> : null}
+          {scanErr ? <div className="text-xs text-danger">{scanErr}</div> : null}
 
           {scan ? (
             <div
@@ -448,7 +448,7 @@ export function ActiveScanPanel({
                 scanIsLive
                   ? "border-primary/25 bg-primary/5"
                   : scan.lifecycle_state === "failed"
-                  ? "border-red-500/25 bg-red-500/5"
+                  ? "border-danger/25 bg-danger/5"
                   : "border-border/50 bg-background/20"
               )}
             >
@@ -557,7 +557,7 @@ export function ActiveScanPanel({
               </dl>
 
               {scan.error_summary && (
-                <div className="rounded border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-200">
+                <div className="rounded border border-danger/30 bg-danger/10 px-2.5 py-1.5 text-[11px] text-danger">
                   {scan.error_summary}
                 </div>
               )}

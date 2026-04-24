@@ -374,7 +374,7 @@ export default function CorrelationRulesPage() {
                           <span
                             className={cx(
                               "inline-flex h-2 w-2 rounded-full",
-                              r.enabled ? "bg-emerald-500" : "bg-muted-foreground/50"
+                              r.enabled ? "bg-success" : "bg-muted-foreground/50"
                             )}
                             aria-hidden="true"
                           />

@@ -50,10 +50,10 @@ function statusOfAgent(a?: AgentPublic | null): "online" | "offline" | "disabled
 function StatusDot({ status }: { status: "online" | "offline" | "disabled" }) {
   const klass =
     status === "online"
-      ? "bg-emerald-400"
+      ? "bg-success"
       : status === "disabled"
         ? "bg-muted-foreground"
-        : "bg-amber-400";
+        : "bg-warning";
   return <span className={cx("inline-block h-2.5 w-2.5 rounded-full", klass)} />;
 }
 
@@ -200,7 +200,7 @@ export default function InternalAgentsInspectorView() {
             </div>
           </div>
 
-          {error ? <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
+          {error ? <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div> : null}
 
           <Card title="Runtime Snapshot">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

@@ -41,7 +41,7 @@ function ActionButton(props: {
     kind === "primary"
       ? "text-foreground hover:bg-primary/15 focus:ring-primary/30"
       : kind === "danger"
-        ? "text-red-400 hover:bg-red-500/10 focus:ring-red-500/30"
+        ? "text-danger hover:bg-danger/10 focus:ring-danger/30"
         : "text-muted-foreground hover:bg-muted/15 hover:text-foreground focus:ring-primary/30";
 
   return (
@@ -191,7 +191,7 @@ export default function VulnFindingDrawer(props: {
           </div>
 
           {err ? (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+            <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
               {err}
             </div>
           ) : null}
@@ -278,7 +278,7 @@ export default function VulnFindingDrawer(props: {
                   {f.remediation_guidance || "No concrete remediation guidance was provided."}
                 </div>
                 {fixedVersion ? (
-                  <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-200">
+                  <div className="rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-sm text-success">
                     Fix version available: <span className="font-mono">{fixedVersion}</span>
                   </div>
                 ) : null}

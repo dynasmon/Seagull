@@ -300,8 +300,8 @@ export default function PinToWorkspaceDrawer({
           </div>
         </div>
 
-        {error ? <div className="text-sm text-red-400">{error}</div> : null}
-        {success ? <div className="text-sm text-emerald-400">{success}</div> : null}
+        {error ? <div className="text-sm text-danger">{error}</div> : null}
+        {success ? <div className="text-sm text-success">{success}</div> : null}
 
         <div className="flex items-center justify-end gap-2">
           <button

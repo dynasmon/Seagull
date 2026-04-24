@@ -39,7 +39,7 @@ function fmtDateTime(value: string | null | undefined): string {
 function PasswordRule({ ok, label }: { ok: boolean; label: string }) {
   return (
     <div className="flex items-center gap-2 text-[12px]">
-      <span className={ok ? "inline-block h-2.5 w-2.5 rounded-full bg-emerald-400" : "inline-block h-2.5 w-2.5 rounded-full bg-muted-foreground/40"} />
+      <span className={ok ? "inline-block h-2.5 w-2.5 rounded-full bg-success" : "inline-block h-2.5 w-2.5 rounded-full bg-muted-foreground/40"} />
       <span className={ok ? "text-foreground" : "text-muted-foreground"}>{label}</span>
     </div>
   );
@@ -202,7 +202,7 @@ export default function SettingsPage() {
           {runtimeBusy ? (
             <Loading label="Loading runtime security policy..." />
           ) : runtimeError && isAdmin ? (
-            <div className="text-xs text-red-400">{runtimeError}</div>
+            <div className="text-xs text-danger">{runtimeError}</div>
           ) : (
             <div className="space-y-2 text-sm">
               <div className="flex flex-wrap items-center gap-2">
@@ -286,11 +286,11 @@ export default function SettingsPage() {
           </div>
 
           {pwError ? (
-            <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-mono text-red-300">{pwError}</div>
+            <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs font-mono text-danger">{pwError}</div>
           ) : null}
 
           {pwOk ? (
-            <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-mono text-emerald-300">{pwOk}</div>
+            <div className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-xs font-mono text-success">{pwOk}</div>
           ) : null}
 
           <div className="flex items-center gap-2">
@@ -306,7 +306,7 @@ export default function SettingsPage() {
           {loginBusy ? (
             <Loading label="Loading login activity..." />
           ) : loginError ? (
-            <div className="text-sm text-red-400">{loginError}</div>
+            <div className="text-sm text-danger">{loginError}</div>
           ) : loginRows.length === 0 ? (
             <div className="text-sm text-muted-foreground">No login activity available in current retention window.</div>
           ) : (

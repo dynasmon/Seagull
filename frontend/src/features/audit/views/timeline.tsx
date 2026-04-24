@@ -79,7 +79,7 @@ export default function AuditTimelineView() {
         </div>
       </div>
 
-      {q.error ? <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{q.error}</div> : null}
+      {q.error ? <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{q.error}</div> : null}
 
       {q.loading ? (
         <div className="py-8 text-sm text-muted-foreground">Loading timeline...</div>

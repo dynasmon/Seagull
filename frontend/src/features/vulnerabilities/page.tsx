@@ -928,9 +928,9 @@ export default function VulnerabilitiesPage() {
                           className={cx(
                             "inline-flex rounded-md border px-2 py-0.5 font-mono text-[12px]",
                             Number(x.risk_score) >= 80
-                              ? "border-red-500/50 text-red-300"
+                              ? "border-severity-critical/50 text-severity-critical"
                               : Number(x.risk_score) >= 65
-                                ? "border-orange-500/50 text-orange-300"
+                                ? "border-severity-high/50 text-severity-high"
                                 : "border-border/60 text-foreground"
                           )}
                         >
@@ -1331,9 +1331,9 @@ export default function VulnerabilitiesPage() {
                             className={cx(
                               "inline-flex rounded-md border px-2 py-0.5 font-mono text-[12px]",
                               Number(f.priority?.score || 0) >= 80
-                                ? "border-red-500/50 text-red-300"
+                                ? "border-severity-critical/50 text-severity-critical"
                                 : Number(f.priority?.score || 0) >= 65
-                                  ? "border-orange-500/50 text-orange-300"
+                                  ? "border-severity-high/50 text-severity-high"
                                   : "border-border/60 text-foreground"
                             )}
                           >

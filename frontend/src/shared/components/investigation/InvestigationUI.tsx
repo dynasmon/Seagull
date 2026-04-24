@@ -289,7 +289,7 @@ export function InvestigationStateBlock({
   if (loading) return <Loading label={loadingLabel || "Loading..."} />;
   if (error) {
     return (
-      <div className="rounded-lg border border-red-400/50 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+      <div className="rounded-lg border border-danger/50 bg-danger/10 px-4 py-3 text-sm text-danger">
         {error}
       </div>
     );
