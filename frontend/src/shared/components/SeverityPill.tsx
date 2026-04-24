@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 
 import { cx } from "@/shared/lib/cx";
 
-export type BadgeVariant = "critical" | "high" | "medium" | "low" | "info" | "neutral";
+export type SeverityVariant = "critical" | "high" | "medium" | "low" | "info" | "neutral";
 
-const map: Record<BadgeVariant, string> = {
+const map: Record<SeverityVariant, string> = {
   critical: "border-severity-critical/45 bg-severity-critical/10 text-severity-critical",
   high: "border-severity-high/45 bg-severity-high/10 text-severity-high",
   medium: "border-severity-medium/45 bg-severity-medium/10 text-severity-medium",
@@ -13,19 +13,19 @@ const map: Record<BadgeVariant, string> = {
   neutral: "border-border/70 bg-muted/40 text-muted-foreground",
 };
 
-export function Badge({
-  children,
+export function SeverityPill({
   variant = "neutral",
+  children,
   className,
 }: {
+  variant?: SeverityVariant;
   children: ReactNode;
-  variant?: BadgeVariant;
   className?: string;
 }) {
   return (
     <span
       className={cx(
-        "inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.06em]",
+        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.06em]",
         map[variant],
         className,
       )}
