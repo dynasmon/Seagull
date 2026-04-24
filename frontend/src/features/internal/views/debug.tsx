@@ -119,7 +119,7 @@ export default function InternalDebugView() {
     <div className="space-y-6">
       <InternalRefreshToolbar lastUpdatedLabel={fmtWhen(live.state.lastUpdatedAt)} onRefresh={live.refreshNow} busy={busy} />
 
-      {error ? <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
+      {error ? <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div> : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <InternalStatTile label="Backend" value={backendUp ? "UP" : "DOWN"} tone={backendUp ? "good" : "warn"} />

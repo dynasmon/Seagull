@@ -315,7 +315,7 @@ export default function SshIpDrawer({
               <div
                 className={cx(
                   "rounded-lg border px-3 py-2 text-[11px] font-mono",
-                  queryMeta.degraded_reason ? "border-amber-500/40 bg-amber-500/10 text-amber-200" : "border-border/60 bg-background/40 text-muted-foreground"
+                  queryMeta.degraded_reason ? "border-warning/40 bg-warning/10 text-warning" : "border-border/60 bg-background/40 text-muted-foreground"
                 )}
               >
                 source {queryMeta.source}
@@ -371,7 +371,7 @@ export default function SshIpDrawer({
               <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-muted/10">
                 <div className="text-sm font-semibold tracking-tight truncate">Recent SSH events</div>
                 <div className="text-xs text-muted-foreground truncate">
-                  {error ? <span className="text-red-400">{error}</span> : `${events.length} rows`}
+                  {error ? <span className="text-danger">{error}</span> : `${events.length} rows`}
                 </div>
               </div>
               <div className="p-4">

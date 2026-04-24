@@ -195,7 +195,7 @@ export default function VulnScanDrawer({
           </dl>
 
           {scan.error_summary ? (
-            <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+            <div className="mt-4 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
               {scan.error_summary}
             </div>
           ) : null}

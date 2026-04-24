@@ -591,7 +591,7 @@ export default function AttackChainDrawer({
               </div>
             ) : null}
             {s.missingEvidence.length ? (
-              <div className="mt-2 text-xs text-yellow-500">
+              <div className="mt-2 text-xs text-warning">
                 Missing for stronger confidence: {s.missingEvidence.join(" · ")}
               </div>
             ) : null}
@@ -848,7 +848,7 @@ export default function AttackChainDrawer({
                               </div>
                             ) : null}
                             {(st.missing_evidence || []).length ? (
-                              <div className="mt-2 text-xs text-yellow-500">
+                              <div className="mt-2 text-xs text-warning">
                                 Missing: {(st.missing_evidence || []).join(" · ")}
                               </div>
                             ) : null}
@@ -955,7 +955,7 @@ export default function AttackChainDrawer({
                         {workspace ? (
                           <div className="text-[11px] text-muted-foreground font-mono">workspace {workspace.workspace_key}</div>
                         ) : (
-                          <div className="text-[11px] text-amber-300 font-mono">no workspace linked</div>
+                          <div className="text-[11px] text-warning font-mono">no workspace linked</div>
                         )}
                         <button
                           type="button"
@@ -1070,8 +1070,8 @@ export default function AttackChainDrawer({
                         </div>
                       </div>
                     )}
-                    {wfError ? <div className="mt-2 text-xs text-red-400">{wfError}</div> : null}
-                    {pinResultText ? <div className="mt-2 text-xs text-emerald-400">{pinResultText}</div> : null}
+                    {wfError ? <div className="mt-2 text-xs text-danger">{wfError}</div> : null}
+                    {pinResultText ? <div className="mt-2 text-xs text-success">{pinResultText}</div> : null}
                   </div>
 
                   {workspace ? (
@@ -1134,7 +1134,7 @@ export default function AttackChainDrawer({
                         closeBusy ? "opacity-60" : "",
                         !isAdmin || payload.case.status !== "open"
                           ? "bg-muted/10 text-muted-foreground"
-                          : "bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/15",
+                          : "bg-danger/10 text-danger border-danger/30 hover:bg-danger/15",
                         "px-3 py-2 text-xs font-mono uppercase tracking-widest"
                       )}
                       title={!isAdmin ? "Admin required" : payload.case.status !== "open" ? "Already closed" : "Close case"}
@@ -1142,7 +1142,7 @@ export default function AttackChainDrawer({
                       {closeBusy ? "Closing..." : "Close case"}
                     </button>
                   </div>
-                  {closeError ? <div className="text-xs text-red-400">{closeError}</div> : null}
+                  {closeError ? <div className="text-xs text-danger">{closeError}</div> : null}
                 </div>
               ) : null}
             </div>

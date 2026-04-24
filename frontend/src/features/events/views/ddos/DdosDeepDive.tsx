@@ -44,7 +44,7 @@ function SummaryCard({
   const compact = raw.length > 26;
   const mid = raw.length > 16;
   const valueSize = compact ? "text-sm" : mid ? "text-lg" : "text-2xl";
-  const valueClass = tone === "warn" ? "text-red-400" : "text-foreground";
+  const valueClass = tone === "warn" ? "text-danger" : "text-foreground";
 
   return (
     <div className="rounded-lg border border-border/60 bg-background/40 px-5 py-5 shadow-sm min-w-0">

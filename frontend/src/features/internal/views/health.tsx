@@ -38,10 +38,10 @@ function LatencyPill({ ms }: { ms?: number | null }) {
   const band = classifyLatency(ms);
   const klass =
     band === "normal"
-      ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
+      ? "border-success/50 bg-success/10 text-success"
       : band === "attention"
-        ? "border-amber-500/50 bg-amber-500/10 text-amber-300"
-        : "border-red-500/50 bg-red-500/10 text-red-400";
+        ? "border-warning/50 bg-warning/10 text-warning"
+        : "border-danger/50 bg-danger/10 text-danger";
   return <span className={cx("rounded border px-2 py-0.5 text-[10px] font-mono", klass)}>{ms.toFixed(2)} ms</span>;
 }
 
@@ -49,12 +49,12 @@ function StatusPill({ value }: { value: string }) {
   const v = (value || "").toLowerCase();
   const klass =
     v === "ok"
-      ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
+      ? "border-success/50 bg-success/10 text-success"
       : v === "down"
-        ? "border-red-500/50 bg-red-500/10 text-red-400"
+        ? "border-danger/50 bg-danger/10 text-danger"
         : v === "storm"
-          ? "border-amber-500/50 bg-amber-500/10 text-amber-400"
-          : "border-amber-500/40 bg-amber-500/10 text-amber-300";
+          ? "border-warning/50 bg-warning/10 text-warning"
+          : "border-warning/40 bg-warning/10 text-warning";
   return <span className={cx("rounded border px-2 py-0.5 text-[10px] font-mono uppercase", klass)}>{value}</span>;
 }
 
@@ -142,7 +142,7 @@ export default function InternalHealthView() {
         busy={busy}
       />
 
-      {error ? <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div> : null}
+      {error ? <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div> : null}
 
       {snapshot ? (
         <>

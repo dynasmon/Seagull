@@ -69,9 +69,9 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
                   className={cx(
                     "mt-1 inline-flex items-center gap-2 rounded-md border px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
                     ddos.severity.toLowerCase() === "critical"
-                      ? "border-red-500/60 bg-red-500/10 text-red-400"
+                      ? "border-severity-critical/60 bg-severity-critical/10 text-severity-critical"
                       : ddos.severity.toLowerCase() === "high"
-                        ? "border-orange-500/60 bg-orange-500/10 text-orange-300"
+                        ? "border-severity-high/60 bg-severity-high/10 text-severity-high"
                         : "border-border/60 bg-background/30 text-muted-foreground"
                   )}
                 >

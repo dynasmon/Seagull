@@ -34,7 +34,7 @@ export default function RetentionCard({
 
   return (
     <Card title="Evidence Retention & Runtime Controls" right="/api/admin/runtime-config">
-      {error ? <div className="text-sm text-red-400">{error}</div> : null}
+      {error ? <div className="text-sm text-danger">{error}</div> : null}
       {loading ? (
         <div className="text-sm text-muted-foreground">Loading retention policy...</div>
       ) : (
