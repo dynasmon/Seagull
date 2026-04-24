@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, CSSProperties } from "react";
 import { Link } from "react-router-dom";
 
 import EmptyState from "@/shared/components/EmptyState";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import { Table } from "@/shared/components/Table";
-import { useUrlQueryState, type UrlQueryUpdater } from "@/shared/hooks/useUrlQueryState";
 import { cx } from "@/shared/lib/cx";
-import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
 import type { Alert } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
 import { timeSeriesHasSignal } from "./dashboard_state";
@@ -15,12 +13,12 @@ import { OverviewLiveProvider, useOverviewLive } from "./live";
 import {
   DEFAULT_OVERVIEW_WINDOW_MINUTES,
   durationMinutesBetween,
-  localInputToIso,
   resolveOverviewQuery,
   type OverviewQueryState,
   type OverviewResolvedQuery,
 } from "./query";
 import { resolveStormUiState } from "./live_realtime";
+import { useOverviewLiteWindow } from "./useOverviewLiteWindow";
 
 import { listAttackChainCases } from "@/features/attack_chain/api";
 
@@ -486,20 +484,13 @@ function SeverityBadge({ severity }: { severity: string }) {
 }
 
 function OverviewPageView({
-  query,
-  setQuery,
   resolvedQuery,
 }: {
-  query: OverviewQueryState;
-  setQuery: (next: UrlQueryUpdater<OverviewQueryState>) => void;
   resolvedQuery: OverviewResolvedQuery;
 }) {
   const { snapshot, storm, isLoading, error, lastUpdatedAt } = useOverviewLive();
-  const [rangeDraft, setRangeDraft] = useState<{ from: string; to: string }>({ from: query.from, to: query.to });
-
-  useEffect(() => {
-    setRangeDraft({ from: query.from, to: query.to });
-  }, [query.from, query.to]);
+  const trafficWindow = useOverviewLiteWindow({ baseQuery: resolvedQuery });
+  const ddosWindow = useOverviewLiteWindow({ baseQuery: resolvedQuery });
 
   const derived = useMemo(() => {
     if (!snapshot) {
@@ -609,9 +600,14 @@ function OverviewPageView({
   }, [snapshot, lastUpdatedAt]);
 
   const trafficSourceMeta = snapshot?.meta?.sources?.traffic;
-  const ddosVolumeSourceMeta = snapshot?.meta?.sources?.ddos_volume;
+  const trafficChart = trafficWindow.snapshot?.traffic ?? snapshot?.traffic;
+  const trafficChartSourceMeta = trafficWindow.snapshot?.meta?.sources?.traffic ?? trafficSourceMeta;
+  const ddosVolumeBaseSourceMeta = snapshot?.meta?.sources?.ddos_volume;
+  const ddosChart = ddosWindow.snapshot?.ddos ?? snapshot?.ddos;
+  const ddosVolumeChart = ddosWindow.snapshot?.ddos_volume ?? snapshot?.ddos_volume;
+  const ddosVolumeSourceMeta = ddosWindow.snapshot?.meta?.sources?.ddos_volume ?? ddosVolumeBaseSourceMeta;
   const ingestRatesSourceMeta = snapshot?.meta?.sources?.ingest_rates;
-  const degradedSources = [trafficSourceMeta, ddosVolumeSourceMeta, ingestRatesSourceMeta].filter(
+  const degradedSources = [trafficSourceMeta, ddosVolumeBaseSourceMeta, ingestRatesSourceMeta].filter(
     (x) => Boolean(x?.degraded_reason)
   ).length;
   const stormUi = resolveStormUiState(storm, snapshot?.meta);
@@ -620,44 +616,13 @@ function OverviewPageView({
   const stormBacklogMessages = storm?.backlog_messages ?? Number(snapshot?.meta?.backlog_messages || 0);
   const stormDropPercent = storm?.drop_percent ?? 0;
   const stormPhaseLabel = stormUi.phaseLabel;
-  const hasDdosDetectionsSignal = timeSeriesHasSignal(snapshot?.ddos?.data || []);
-  const hasDdosVolumeSignal = timeSeriesHasSignal(snapshot?.ddos_volume?.data || []);
+  const hasDdosDetectionsSignal = timeSeriesHasSignal(ddosChart?.data || []);
+  const hasDdosVolumeSignal = timeSeriesHasSignal(ddosVolumeChart?.data || []);
   const activeWindowStart = snapshot?.query_meta?.query_window_start || snapshot?.meta?.window_start || resolvedQuery.startTs || null;
   const activeWindowEnd = snapshot?.query_meta?.query_window_end || snapshot?.meta?.window_end || resolvedQuery.endTs || null;
   const windowDurationMinutes = durationMinutesBetween(activeWindowStart, activeWindowEnd) ?? resolvedQuery.windowMinutes;
   const windowLabel = fmtDurationCompact(windowDurationMinutes);
   const rangeSummary = fmtRangeSummary(activeWindowStart, activeWindowEnd);
-  const draftStartIso = localInputToIso(rangeDraft.from);
-  const draftEndIso = localInputToIso(rangeDraft.to);
-  const draftRangeReversed =
-    draftStartIso !== undefined &&
-    draftEndIso !== undefined &&
-    Date.parse(draftStartIso) > Date.parse(draftEndIso);
-  const applyRangeDisabled =
-    (Boolean(rangeDraft.from) && !draftStartIso) ||
-    (Boolean(rangeDraft.to) && !draftEndIso) ||
-    draftRangeReversed;
-
-  const applyRange = useCallback(() => {
-    if (applyRangeDisabled) return;
-    setQuery((prev) => ({
-      ...prev,
-      from: rangeDraft.from.trim(),
-      to: rangeDraft.to.trim(),
-    }));
-  }, [applyRangeDisabled, rangeDraft.from, rangeDraft.to, setQuery]);
-
-  const setLiveWindow = useCallback((minutes: number) => {
-    setQuery({
-      windowMinutes: minutes,
-      from: "",
-      to: "",
-    });
-  }, [setQuery]);
-
-  const resetToLive = useCallback(() => {
-    setLiveWindow(query.windowMinutes || DEFAULT_OVERVIEW_WINDOW_MINUTES);
-  }, [query.windowMinutes, setLiveWindow]);
 
   if (isLoading && !snapshot) {
     return (
@@ -856,7 +821,7 @@ function OverviewPageView({
                       drop {q.drop_percent}%
                     </div>
                     <div className="rounded border border-blue-500/40 bg-blue-500/10 px-2 py-1 text-blue-300 text-center">
-                      ana {q.analytics_percent}%
+                      analytics {q.analytics_percent}%
                     </div>
                   </div>
                   <div className="mt-2 text-[11px] text-muted-foreground font-mono">
@@ -878,7 +843,13 @@ function OverviewPageView({
             bodyClassName="flex flex-col gap-3"
             right={
               <div className="flex items-center gap-3">
-                <span className="text-[10px] font-mono text-muted-foreground">{fmtSource(trafficSourceMeta)}</span>
+                {trafficWindow.isLoading ? (
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">syncing</span>
+                ) : null}
+                {trafficWindow.error ? (
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-red-400">refresh error</span>
+                ) : null}
+                <span className="text-[10px] font-mono text-muted-foreground">{fmtSource(trafficChartSourceMeta)}</span>
                 <Link to="/events" className="text-[10px] font-mono uppercase tracking-wider text-primary hover:underline">
                   View events
                 </Link>
@@ -886,16 +857,16 @@ function OverviewPageView({
             }
           >
             <OverviewRangeControls
-              label="Event Range"
-              query={query}
-              draft={rangeDraft}
-              onDraftChange={(field, value) => setRangeDraft((prev) => ({ ...prev, [field]: value }))}
-              onApplyRange={applyRange}
-              onSetLiveWindow={setLiveWindow}
-              onResetToLive={resetToLive}
-              applyDisabled={applyRangeDisabled}
+              label="Event Chart Range"
+              query={trafficWindow.query}
+              draft={trafficWindow.draft}
+              onDraftChange={trafficWindow.onDraftChange}
+              onApplyRange={trafficWindow.onApplyRange}
+              onSetLiveWindow={trafficWindow.onSetLiveWindow}
+              onResetToLive={trafficWindow.onResetToLive}
+              applyDisabled={trafficWindow.applyDisabled}
             />
-            {snapshot.traffic.data.length === 0 ? (
+            {!trafficChart || trafficChart.data.length === 0 ? (
               <div className="flex min-h-0 flex-1 items-center justify-center">
                 <EmptyState title="NO SIGNAL" hint="Waiting for telemetry..." />
               </div>
@@ -903,8 +874,8 @@ function OverviewPageView({
               <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
                 <div className="w-full max-w-full flex justify-center">
                   <SimpleTimeSeries
-                    data={snapshot.traffic.data}
-                    seriesKeys={snapshot.traffic.series}
+                    data={trafficChart.data}
+                    seriesKeys={trafficChart.series}
                     height={190}
                     allowHorizontalScroll={false}
                   />
@@ -1160,26 +1131,36 @@ function OverviewPageView({
           </div>
 
           <OverviewRangeControls
-            label="DDoS Range"
-            query={query}
-            draft={rangeDraft}
-            onDraftChange={(field, value) => setRangeDraft((prev) => ({ ...prev, [field]: value }))}
-            onApplyRange={applyRange}
-            onSetLiveWindow={setLiveWindow}
-            onResetToLive={resetToLive}
-            applyDisabled={applyRangeDisabled}
+            label="DDoS Chart Range"
+            query={ddosWindow.query}
+            draft={ddosWindow.draft}
+            onDraftChange={ddosWindow.onDraftChange}
+            onApplyRange={ddosWindow.onApplyRange}
+            onSetLiveWindow={ddosWindow.onSetLiveWindow}
+            onResetToLive={ddosWindow.onResetToLive}
+            applyDisabled={ddosWindow.applyDisabled}
           />
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-            <CyberPanel title="DoS/DDoS detections per minute" style={{ height: H_PANEL_SM }}>
+            <CyberPanel
+              title="DoS/DDoS detections per minute"
+              style={{ height: H_PANEL_SM }}
+              right={
+                ddosWindow.isLoading ? (
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">syncing</span>
+                ) : ddosWindow.error ? (
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-red-400">refresh error</span>
+                ) : null
+              }
+            >
               {!hasDdosDetectionsSignal ? (
                 <EmptyState title="NO DDOS" hint="No DoS/DDoS detections available." />
               ) : (
                 <div className="h-full w-full flex items-center justify-center overflow-hidden">
                   <div className="w-full max-w-full flex justify-center">
                     <SimpleTimeSeries
-                      data={snapshot.ddos.data}
-                      seriesKeys={snapshot.ddos.series}
+                      data={ddosChart?.data || []}
+                      seriesKeys={ddosChart?.series || []}
                       height={160}
                       allowHorizontalScroll={false}
                     />
@@ -1188,15 +1169,29 @@ function OverviewPageView({
               )}
             </CyberPanel>
 
-            <CyberPanel title="Estimated DDoS packet volume / peak PPS" style={{ height: H_PANEL_SM }} right={fmtSource(ddosVolumeSourceMeta)}>
+            <CyberPanel
+              title="Estimated DDoS packet volume / peak PPS"
+              style={{ height: H_PANEL_SM }}
+              right={
+                <div className="flex items-center gap-3">
+                  {ddosWindow.isLoading ? (
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">syncing</span>
+                  ) : null}
+                  {ddosWindow.error ? (
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-red-400">refresh error</span>
+                  ) : null}
+                  <span className="text-[10px] font-mono text-muted-foreground">{fmtSource(ddosVolumeSourceMeta)}</span>
+                </div>
+              }
+            >
               {!hasDdosVolumeSignal ? (
                 <EmptyState title="NO DDOS VOLUME" hint="No continuous DDoS telemetry available in the selected window." />
               ) : (
                 <div className="h-full w-full flex items-center justify-center overflow-hidden">
                   <div className="w-full max-w-full flex justify-center">
                     <SimpleTimeSeries
-                      data={snapshot.ddos_volume.data}
-                      seriesKeys={snapshot.ddos_volume.series}
+                      data={ddosVolumeChart?.data || []}
+                      seriesKeys={ddosVolumeChart?.series || []}
                       height={160}
                       allowHorizontalScroll={false}
                     />
@@ -1239,26 +1234,19 @@ function OverviewPageView({
 }
 
 export default function OverviewPage() {
-  const [query, setQuery] = useUrlQueryState<OverviewQueryState>({
-    parse: (sp) => ({
-      windowMinutes: getIntParam(sp, "window_minutes", { min: 5, max: 1440, fallback: DEFAULT_OVERVIEW_WINDOW_MINUTES }),
-      from: getStringParam(sp, "from", ""),
-      to: getStringParam(sp, "to", ""),
-    }),
-    serialize: (value) => {
-      const sp = new URLSearchParams();
-      setOptionalParam(sp, "window_minutes", value.windowMinutes === DEFAULT_OVERVIEW_WINDOW_MINUTES ? null : value.windowMinutes);
-      setOptionalParam(sp, "from", value.from || null);
-      setOptionalParam(sp, "to", value.to || null);
-      return sp;
-    },
-    replace: true,
-  });
-  const resolvedQuery = useMemo(() => resolveOverviewQuery(query), [query]);
+  const resolvedQuery = useMemo(
+    () =>
+      resolveOverviewQuery({
+        windowMinutes: DEFAULT_OVERVIEW_WINDOW_MINUTES,
+        from: "",
+        to: "",
+      }),
+    [],
+  );
 
   return (
     <OverviewLiveProvider query={resolvedQuery}>
-      <OverviewPageView query={query} setQuery={setQuery} resolvedQuery={resolvedQuery} />
+      <OverviewPageView resolvedQuery={resolvedQuery} />
     </OverviewLiveProvider>
   );
 }
