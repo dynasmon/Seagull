@@ -111,7 +111,7 @@ function NavGroupHeading({ compact, label }: { compact: boolean; label: string }
   return (
     <h2
       className={cx(
-        "px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground",
+        "px-4 pb-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground",
         compact && "sr-only"
       )}
     >
@@ -143,21 +143,18 @@ function NavItem({
       onClick={onNavigate}
       className={({ isActive }) =>
         cx(
-          "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-colors",
+          "group relative flex items-center gap-3 border-l-2 border-transparent px-4 py-1.5 text-[12px] transition-colors",
           compact && "justify-center px-2",
           isActive
-            ? "bg-primary/10 text-foreground shadow-[inset_0_0_0_1px_rgb(var(--primary)/0.28)]"
-            : "text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+            ? "border-primary bg-primary/10 text-primary"
+            : "text-muted-foreground hover:bg-muted/35 hover:text-foreground"
         )
       }
     >
       {({ isActive }) => (
         <>
           <span
-            className={cx(
-              "absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-sm transition-opacity",
-              isActive ? "bg-primary opacity-100" : "bg-primary opacity-0"
-            )}
+            className="sr-only"
           />
           <span className={cx("shrink-0", isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground")}>
             <NavIcon icon={icon} />
@@ -194,29 +191,27 @@ export default function Sidebar({
       <aside
         id="primary-navigation"
         className={cx(
-          "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-border/70 bg-card/95 shadow-xl backdrop-blur-sm transition-transform lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 lg:shadow-none",
-          compact ? "w-[16.5rem] lg:w-[4.75rem]" : "w-[16.5rem] lg:w-[16.5rem]",
+          "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-border/80 bg-surface-1/95 shadow-[0_24px_64px_rgb(2_8_20/0.28)] backdrop-blur-sm transition-transform lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 lg:shadow-none",
+          compact ? "w-[12rem] lg:w-[4.5rem]" : "w-[12rem] lg:w-[12rem]",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
         aria-label="Primary navigation"
       >
-        <div className={cx("border-b border-border/60 px-3 py-3", condensed && "px-2 py-2")}>
+        <div className={cx("border-b border-border/80 px-4 py-3", condensed && "px-2.5 py-3")}>
           <div className="flex items-center gap-2">
-            <div className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M4 13h7V4H4v9Zm9 7h7V11h-7v9ZM4 20h7v-5H4v5Zm9-11h7V4h-7v5Z" fill="currentColor" />
-              </svg>
+            <div className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-sky-500 to-sky-600 text-[11px] font-bold tracking-[-0.03em] text-white shadow-[0_10px_22px_rgb(14_165_233/0.32)]">
+              SG
             </div>
             {!condensed ? (
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-foreground">Seagull</div>
-                <div className="truncate text-[11px] text-muted-foreground">Security Operations</div>
+                <div className="truncate text-[12px] font-semibold text-foreground">Seagull</div>
+                <div className="truncate text-[9px] uppercase tracking-[0.08em] text-muted-foreground">Security Operations</div>
               </div>
             ) : null}
           </div>
         </div>
 
-        <nav className="flex-1 space-y-5 overflow-y-auto px-2 py-3" aria-label="Portal sections">
+        <nav className="flex-1 space-y-4 overflow-y-auto px-0 py-3" aria-label="Portal sections">
           {SOC_NAV_GROUPS.map((group) => (
             <section key={group.id}>
               <NavGroupHeading compact={condensed} label={group.label} />

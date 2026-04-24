@@ -13,10 +13,10 @@ function MainFallback() {
     <div className="space-y-3">
       <Loading label="Loading view..." />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div className="h-24 rounded-lg border border-border/60 bg-card/70" />
-        <div className="h-24 rounded-lg border border-border/60 bg-card/70" />
+        <div className="h-24 rounded-md border border-border/80 bg-card/70 shadow-[0_10px_24px_rgb(2_8_20/0.12)]" />
+        <div className="h-24 rounded-md border border-border/80 bg-card/70 shadow-[0_10px_24px_rgb(2_8_20/0.12)]" />
       </div>
-      <div className="h-64 rounded-lg border border-border/60 bg-card/70" />
+      <div className="h-64 rounded-md border border-border/80 bg-card/70 shadow-[0_10px_24px_rgb(2_8_20/0.12)]" />
     </div>
   );
 }
@@ -46,7 +46,7 @@ export default function Shell({ children }: { children: ReactNode }) {
   }, [location.pathname]);
 
   const shellClassName = useMemo(
-    () => "h-screen overflow-hidden bg-background text-foreground",
+    () => "h-screen overflow-hidden bg-transparent text-foreground",
     []
   );
 
@@ -75,7 +75,7 @@ export default function Shell({ children }: { children: ReactNode }) {
           />
 
           <main id="main-content" role="main" className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
-            <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-6 lg:px-8">
+            <div className="mx-auto w-full max-w-[1800px] px-4 py-4 sm:px-5 lg:px-6">
               <Suspense fallback={<MainFallback />}>
                 <div key={location.pathname} className="page-transition-enter">
                   {children}
