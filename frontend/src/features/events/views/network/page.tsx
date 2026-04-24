@@ -608,7 +608,7 @@ export default function ProtocolIntelPage() {
                 </div>
 
                 {parseDraftInt(draft.since_minutes, view.since_minutes) > 60 * 24 ? (
-                  <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-200">
+                  <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
                     Large lookback windows can be expensive. Auto refresh is disabled above 24h to protect CPU/DB.
                   </div>
                 ) : parseDraftInt(draft.since_minutes, view.since_minutes) > 60 * 12 && draft.auto_refresh ? (
@@ -692,11 +692,11 @@ export default function ProtocolIntelPage() {
           ) : null}
 
           {!hasBlockingState && error ? (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>
+            <div className="rounded-xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger">{error}</div>
           ) : null}
 
           {!hasBlockingState && !error && fallbackSinceMinutes ? (
-            <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 text-sm text-sky-200">
+            <div className="rounded-xl border border-info/30 bg-info/10 p-4 text-sm text-info">
               No events were found in the selected window. Showing historical protocol telemetry from the last{" "}
               <span className="font-mono">{fallbackSinceMinutes}</span> minutes.
             </div>
@@ -710,7 +710,7 @@ export default function ProtocolIntelPage() {
           ) : null}
 
           {!hasBlockingState && shouldWarnNoCoverage ? (
-            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-200 space-y-1">
+            <div className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning space-y-1">
               <div className="font-medium">No protocol metadata in this window.</div>
               <div>
                 L7 collection is enabled by default. If tables stay empty, confirm the{" "}

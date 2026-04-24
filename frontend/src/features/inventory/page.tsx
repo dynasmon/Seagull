@@ -112,10 +112,10 @@ function StatusBadge({ status }: { status: FleetHealthRow["inventory_status"] })
   const s = status;
   const klass =
     s === "fresh"
-      ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/10"
+      ? "border-success/40 text-success bg-success/10"
       : s === "stale"
-        ? "border-amber-500/40 text-amber-400 bg-amber-500/10"
-        : "border-red-500/40 text-red-400 bg-red-500/10";
+        ? "border-warning/40 text-warning bg-warning/10"
+        : "border-danger/40 text-danger bg-danger/10";
   const label = s === "fresh" ? "fresh" : s === "stale" ? "stale" : "no inventory";
   return (
     <span className={cx("inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-mono uppercase", klass)}>
@@ -1158,7 +1158,7 @@ export default function InventoryPage() {
           {drawerBusy ? <Loading label="Loading agent..." /> : null}
 
           {drawerErr ? (
-            <div className="rounded-md border border-red-400/50 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <div className="rounded-md border border-danger/50 bg-danger/10 px-4 py-3 text-sm text-danger">
               {drawerErr}
             </div>
           ) : null}
@@ -1344,7 +1344,7 @@ export default function InventoryPage() {
                                   className={cx(
                                     "inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] uppercase",
                                     changed
-                                      ? "border-amber-500/40 text-amber-400 bg-amber-500/10"
+                                      ? "border-warning/40 text-warning bg-warning/10"
                                       : "border-border/60 text-muted-foreground bg-muted/10",
                                   )}
                                 >
@@ -1514,7 +1514,7 @@ export default function InventoryPage() {
                             className={cx(
                               "rounded-md border border-border/60 bg-background/40 px-3 py-2",
                               "text-xs font-mono uppercase tracking-widest",
-                              drawerAgent.is_revoked ? "text-emerald-400" : "text-amber-400",
+                              drawerAgent.is_revoked ? "text-success" : "text-warning",
                               "hover:bg-muted/15 focus:outline-none focus:ring-2 focus:ring-primary/30",
                             )}
                           >

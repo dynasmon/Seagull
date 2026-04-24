@@ -95,7 +95,7 @@ export default function AuditLoginsView() {
       />
 
       <Card title="Login Evidence Feed" right="/api/admin/login-history">
-        {evidenceError ? <div className="text-sm text-red-400">{evidenceError}</div> : null}
+        {evidenceError ? <div className="text-sm text-danger">{evidenceError}</div> : null}
         {evidenceLoading ? (
           <div className="py-6 text-sm text-muted-foreground">Loading login evidence...</div>
         ) : filteredEvidence.length === 0 ? (

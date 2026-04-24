@@ -19,8 +19,8 @@ export default function InternalStatTile({
       <div
         className={cx(
           "mt-2 text-2xl font-bold font-mono",
-          tone === "good" && "text-emerald-400",
-          tone === "warn" && "text-amber-400"
+          tone === "good" && "text-success",
+          tone === "warn" && "text-warning"
         )}
       >
         {value}

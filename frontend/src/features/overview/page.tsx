@@ -18,6 +18,7 @@ import {
   type OverviewResolvedQuery,
 } from "./query";
 import { resolveStormUiState } from "./live_realtime";
+import { severityBadgeClasses } from "@/shared/lib/severity";
 import { useOverviewLiteWindow } from "./useOverviewLiteWindow";
 
 import { listAttackChainCases } from "@/features/attack_chain/api";
@@ -185,9 +186,9 @@ function CyberPanel({
   style?: CSSProperties;
 }) {
   const borderClass = isCritical
-    ? "border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+    ? "border-danger/50 shadow-[0_0_15px_rgb(var(--danger)/0.2)]"
     : "border-border/60";
-  const bgClass = isCritical ? "bg-red-950/10" : "bg-background/70";
+  const bgClass = isCritical ? "bg-danger/5" : "bg-background/70";
 
   return (
     <div
@@ -197,13 +198,13 @@ function CyberPanel({
       <div
         className={cx(
           "flex items-center justify-between border-b px-3 py-2 shrink-0",
-          isCritical ? "border-red-500/30 bg-red-500/10" : "border-border/60 bg-muted/10"
+          isCritical ? "border-danger/30 bg-danger/10" : "border-border/60 bg-muted/10"
         )}
       >
         <h3
           className={cx(
             "text-xs font-bold uppercase tracking-widest font-mono",
-            isCritical ? "text-red-400 animate-pulse" : "text-primary/90"
+            isCritical ? "text-danger animate-pulse" : "text-primary/90"
           )}
         >
           {title}
@@ -285,7 +286,7 @@ function StatTile({
   tone?: "default" | "good" | "warn";
 }) {
   const valueClass =
-    tone === "warn" ? "text-red-500" : tone === "good" ? "text-green-500" : "text-foreground";
+    tone === "warn" ? "text-danger" : tone === "good" ? "text-success" : "text-foreground";
 
   return (
     <div className="border border-border/60 bg-background/80 backdrop-blur-md px-4 py-3">
@@ -332,9 +333,9 @@ function BadgeTone({
 }) {
   const cls =
     tone === "danger"
-      ? "border-red-500/40 bg-red-500/10 text-red-300"
+      ? "border-danger/40 bg-danger/10 text-danger"
       : tone === "warning"
-        ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+        ? "border-warning/40 bg-warning/10 text-warning"
         : "border-border/60 bg-background/40 text-muted-foreground";
   return <span className={cx("rounded-md border px-2 py-1 text-[10px] font-mono", cls)}>{text}</span>;
 }
@@ -472,15 +473,11 @@ function QuickPivot({
 }
 
 function SeverityBadge({ severity }: { severity: string }) {
-  const s = (severity || "").toLowerCase();
-  let color = "text-muted-foreground border-border/60 bg-muted/10";
-
-  if (s === "critical") color = "text-red-500 border-red-500 bg-red-500/10";
-  else if (s === "high") color = "text-orange-500 border-orange-500 bg-orange-500/10";
-  else if (s === "medium") color = "text-yellow-500 border-yellow-500 bg-yellow-500/10";
-  else if (s === "low") color = "text-blue-500 border-blue-500 bg-blue-500/10";
-
-  return <span className={`px-2 py-0.5 text-[10px] uppercase font-mono border ${color} font-medium`}>{severity}</span>;
+  return (
+    <span className={`px-2 py-0.5 text-[10px] uppercase font-mono border ${severityBadgeClasses(severity)} font-medium`}>
+      {severity}
+    </span>
+  );
 }
 
 function OverviewPageView({
@@ -814,13 +811,13 @@ function OverviewPageView({
                     <div className="text-[11px] font-mono text-muted-foreground">{q.received}</div>
                   </div>
                   <div className="mt-2 grid grid-cols-3 gap-1 text-[10px] font-mono">
-                    <div className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-emerald-300 text-center">
+                    <div className="rounded border border-success/40 bg-success/10 px-2 py-1 text-success text-center">
                       keep {q.kept_percent}%
                     </div>
-                    <div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-300 text-center">
+                    <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-danger text-center">
                       drop {q.drop_percent}%
                     </div>
-                    <div className="rounded border border-blue-500/40 bg-blue-500/10 px-2 py-1 text-blue-300 text-center">
+                    <div className="rounded border border-info/40 bg-info/10 px-2 py-1 text-info text-center">
                       analytics {q.analytics_percent}%
                     </div>
                   </div>
@@ -847,7 +844,7 @@ function OverviewPageView({
                   <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">syncing</span>
                 ) : null}
                 {trafficWindow.error ? (
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-red-400">refresh error</span>
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-danger">refresh error</span>
                 ) : null}
                 <span className="text-[10px] font-mono text-muted-foreground">{fmtSource(trafficChartSourceMeta)}</span>
                 <Link to="/events" className="text-[10px] font-mono uppercase tracking-wider text-primary hover:underline">
@@ -1103,7 +1100,7 @@ function OverviewPageView({
                     render: (r: any) => fmtDateTime(new Date(r.timestamp))
                   },
                   { key: "agent_id", title: "AGENT", className: "font-mono text-foreground w-32" },
-                  { key: "event_type", title: "TYPE", className: "font-mono text-blue-400 w-28" },
+                  { key: "event_type", title: "TYPE", className: "font-mono text-info w-28" },
                   { key: "src_ip", title: "SRC", className: "font-mono text-muted-foreground w-32", render: (r: any) => r.src_ip || "-" },
                   { key: "dst_ip", title: "DST", className: "font-mono text-muted-foreground w-32", render: (r: any) => r.dst_ip || "-" },
                   { key: "dst_port", title: "DST PORT", className: "font-mono text-muted-foreground w-24", render: (r: any) => (r.dst_port ?? "-") }
@@ -1149,7 +1146,7 @@ function OverviewPageView({
                 ddosWindow.isLoading ? (
                   <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">syncing</span>
                 ) : ddosWindow.error ? (
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-red-400">refresh error</span>
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-danger">refresh error</span>
                 ) : null
               }
             >
@@ -1178,7 +1175,7 @@ function OverviewPageView({
                     <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">syncing</span>
                   ) : null}
                   {ddosWindow.error ? (
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-red-400">refresh error</span>
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-danger">refresh error</span>
                   ) : null}
                   <span className="text-[10px] font-mono text-muted-foreground">{fmtSource(ddosVolumeSourceMeta)}</span>
                 </div>

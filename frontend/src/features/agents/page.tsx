@@ -1524,7 +1524,7 @@ export default function AgentsPage() {
           />
 
           {snapshotError && (
-            <div className="border border-border/60 bg-background/40 p-3 text-[11px] text-red-400">
+            <div className="border border-border/60 bg-background/40 p-3 text-[11px] text-danger">
               Overview: {snapshotError}
             </div>
           )}
@@ -1625,13 +1625,13 @@ export default function AgentsPage() {
             </InvestigationActionBar>
 
             {responseActionError && (
-              <div className="rounded-lg border border-red-400/50 bg-red-500/10 px-4 py-3 text-[12px] text-red-300">
+              <div className="rounded-lg border border-danger/50 bg-danger/10 px-4 py-3 text-[12px] text-danger">
                 {responseActionError}
               </div>
             )}
 
             {responseActionCreated && (
-              <div className="rounded-lg border border-emerald-400/50 bg-emerald-500/10 px-4 py-3 text-[12px] text-emerald-300">
+              <div className="rounded-lg border border-success/50 bg-success/10 px-4 py-3 text-[12px] text-success">
                 Response action #{responseActionCreated.id} queued for {responseActionCreated.agent_id} with status {responseActionCreated.status}.
               </div>
             )}
@@ -1718,10 +1718,10 @@ export default function AgentsPage() {
                           </button>
                         </div>
                         {responseActionExpirationInvalid && (
-                          <div className="mt-1 text-[11px] text-red-400">Expiration must be a valid date and time.</div>
+                          <div className="mt-1 text-[11px] text-danger">Expiration must be a valid date and time.</div>
                         )}
                         {responseActionExpirationInPast && (
-                          <div className="mt-1 text-[11px] text-red-400">Expiration must be in the future.</div>
+                          <div className="mt-1 text-[11px] text-danger">Expiration must be in the future.</div>
                         )}
                       </div>
                     </div>
@@ -1803,7 +1803,7 @@ export default function AgentsPage() {
                           disabled={responseActionBusy}
                         />
                         {responseActionPayloadError && (
-                          <div className="mt-1 text-[11px] text-red-400">Payload: {responseActionPayloadError}</div>
+                          <div className="mt-1 text-[11px] text-danger">Payload: {responseActionPayloadError}</div>
                         )}
                       </div>
                     )}
@@ -1958,7 +1958,7 @@ export default function AgentsPage() {
                       </button>
                     </div>
 
-                    {responseActionLiveError && <div className="text-[11px] text-red-400">{responseActionLiveError}</div>}
+                    {responseActionLiveError && <div className="text-[11px] text-danger">{responseActionLiveError}</div>}
 
                     {!responseActionLiveView ? (
                       <EmptyState title="No action selected" hint="Queue an action or select one from history." />
@@ -2055,7 +2055,7 @@ export default function AgentsPage() {
                       </div>
                     </div>
 
-                    {responseActionResultError && <div className="text-[11px] text-red-400">{responseActionResultError}</div>}
+                    {responseActionResultError && <div className="text-[11px] text-danger">{responseActionResultError}</div>}
 
                     {!responseActionResult ? (
                       <EmptyState title="Result unavailable" hint="This action has not reported a result yet." />
@@ -2143,7 +2143,7 @@ export default function AgentsPage() {
               right={responseActionHistoryLoading ? "Loading" : responseActionHistory.length ? String(responseActionHistory.length) : "Empty"}
             >
               {responseActionHistoryError ? (
-                <div className="text-[11px] text-red-400">{responseActionHistoryError}</div>
+                <div className="text-[11px] text-danger">{responseActionHistoryError}</div>
               ) : responseActionHistory.length === 0 ? (
                 <div className="text-[12px] text-muted-foreground">No actions found for this agent.</div>
               ) : (
@@ -2323,7 +2323,7 @@ export default function AgentsPage() {
                     </div>
                   </div>
 
-                  {agentError && <div className="text-[11px] text-red-400">{agentError}</div>}
+                  {agentError && <div className="text-[11px] text-danger">{agentError}</div>}
                 </div>
               </Panel>
             </div>
@@ -2563,7 +2563,7 @@ export default function AgentsPage() {
                     disabled={configBusy}
                   />
 
-                  {configParseError && <div className="text-[11px] text-red-400">Config: {configParseError}</div>}
+                  {configParseError && <div className="text-[11px] text-danger">Config: {configParseError}</div>}
 
                   <button
                     type="button"

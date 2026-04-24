@@ -596,7 +596,7 @@ function WorkspaceDrawer({
       widthClassName="w-[980px]"
     >
       {loading ? <Loading label="Loading workspace" /> : null}
-      {!loading && error ? <div className="text-sm text-red-400">{error}</div> : null}
+      {!loading && error ? <div className="text-sm text-danger">{error}</div> : null}
 
       {!loading && !error && !workspace ? <EmptyState title="Workspace not found" /> : null}
 
@@ -775,7 +775,7 @@ function WorkspaceDrawer({
                       type="button"
                       disabled={busy}
                       onClick={onCloseWorkspace}
-                      className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-mono uppercase tracking-widest text-red-300 hover:bg-red-500/15"
+                      className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs font-mono uppercase tracking-widest text-danger hover:bg-danger/15"
                     >
                       Close workspace
                     </button>
@@ -784,8 +784,8 @@ function WorkspaceDrawer({
                     Updated by {workspace.updated_by} · {fmtTs(workspace.updated_at)}
                   </div>
                 </div>
-                {saveError ? <div className="text-sm text-red-400">{saveError}</div> : null}
-                {saveSuccess ? <div className="text-sm text-emerald-400">{saveSuccess}</div> : null}
+                {saveError ? <div className="text-sm text-danger">{saveError}</div> : null}
+                {saveSuccess ? <div className="text-sm text-success">{saveSuccess}</div> : null}
               </div>
             </div>
           ) : null}

@@ -5,10 +5,10 @@ import { cx } from "@/shared/lib/cx";
 export function Dot({ state }: { state: "online" | "offline" | "disabled" }) {
   const cls =
     state === "online"
-      ? "bg-emerald-400 shadow-[0_0_10px_rgba(74,222,128,0.6)]"
+      ? "bg-success shadow-[0_0_10px_rgb(var(--success)/0.45)]"
       : state === "offline"
-        ? "bg-amber-400"
-        : "bg-slate-400";
+        ? "bg-warning"
+        : "bg-muted-foreground/50";
 
   return <span className={cx("inline-block h-2.5 w-2.5 rounded-full", cls)} />;
 }
@@ -44,7 +44,7 @@ export function Switch({
       <span
         className={cx(
           "h-2.5 w-2.5 rounded-full",
-          checked ? "bg-emerald-400" : "bg-muted-foreground/50"
+          checked ? "bg-success" : "bg-muted-foreground/50"
         )}
       />
       <span>{label}</span>
@@ -95,7 +95,7 @@ export function StatTile({
   hint?: string;
   tone?: "default" | "good" | "warn";
 }) {
-  const valueColor = tone === "good" ? "text-emerald-300" : tone === "warn" ? "text-amber-300" : "text-foreground";
+  const valueColor = tone === "good" ? "text-success" : tone === "warn" ? "text-warning" : "text-foreground";
 
   return (
     <div className="rounded-lg border border-border/60 bg-background/80 backdrop-blur-md px-4 py-3 min-w-0">
