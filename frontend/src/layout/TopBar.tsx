@@ -22,6 +22,16 @@ function IconPanelLeft() {
   );
 }
 
+function IconTile() {
+  return (
+    <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M4 13h7V4H4v9Zm9 7h7V11h-7v9ZM4 20h7v-5H4v5Zm9-11h7V4h-7v5Z" fill="currentColor" />
+      </svg>
+    </div>
+  );
+}
+
 function BreadcrumbTrail() {
   const location = useLocation();
   const meta = resolveRouteMeta(location.pathname);
@@ -70,8 +80,8 @@ export default function TopBar({
   const meta = resolveRouteMeta(location.pathname);
 
   return (
-    <header className="sticky top-0 z-20 border-b border-border/70 bg-background/96 backdrop-blur-sm" role="banner">
-      <div className="mx-auto flex h-[4.25rem] w-full max-w-[1800px] items-center gap-3 px-4 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-20 border-b border-border/80 bg-surface-2/95 backdrop-blur-sm" role="banner">
+      <div className="mx-auto flex h-12 w-full max-w-[1800px] items-center gap-3 px-4 sm:px-5 lg:px-6">
         <button
           type="button"
           onClick={onToggleNavigation}
@@ -94,19 +104,21 @@ export default function TopBar({
           <IconPanelLeft />
         </button>
 
+        <IconTile />
+
         <div className="min-w-0 flex-1">
           <BreadcrumbTrail />
           <div className="mt-0.5 flex min-w-0 items-baseline gap-2">
-            <h1 className="truncate text-base font-semibold tracking-tight text-foreground">{meta.title}</h1>
-            <p className="hidden truncate text-xs text-muted-foreground xl:block">{meta.subtitle}</p>
+            <h1 className="truncate text-[13px] font-semibold tracking-tight text-foreground">{meta.title}</h1>
+            <p className="hidden truncate text-[11px] text-muted-foreground xl:block">{meta.subtitle}</p>
           </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
           {user ? (
-            <div className="hidden items-center gap-2 rounded-md border border-border/70 bg-card/70 px-2.5 py-1.5 md:flex">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{user.role || "user"}</span>
-              <span className="max-w-[150px] truncate text-sm text-foreground">{user.username}</span>
+            <div className="hidden items-center gap-1.5 rounded-md border border-border/80 bg-background/35 px-2.5 py-1.5 md:flex">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{user.role || "user"}</span>
+              <span className="max-w-[140px] truncate text-[11px] font-semibold text-foreground">{user.username}</span>
             </div>
           ) : null}
 
