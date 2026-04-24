@@ -162,10 +162,10 @@ function Section({ id, title, children, defaultOpen = true }: { id: string; titl
 
 function Panel({ title, right, children, scrollY = false, className = "" }: { title: string; right?: any; children: any; scrollY?: boolean; className?: string }) {
   return (
-    <div className={cx("border border-border/60 bg-background/70 backdrop-blur-sm flex flex-col", className)}>
-      <div className="flex items-center justify-between border-b border-border/60 bg-muted/10 px-4 py-3">
-        <h3 className="text-[11px] font-mono font-bold uppercase tracking-[0.35em] text-primary/90">{title}</h3>
-        {right ? <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">{right}</div> : null}
+    <div className={cx("rounded-md border border-border/80 bg-card/95 shadow-[0_12px_32px_rgb(2_8_20/0.12)] backdrop-blur-sm flex flex-col", className)}>
+      <div className="flex items-center justify-between border-b border-border/80 bg-surface-2/70 px-4 py-3">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">{title}</h3>
+        {right ? <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{right}</div> : null}
       </div>
       <div className={cx("p-4 flex-1 min-h-0", scrollY ? "overflow-y-auto" : "overflow-hidden")}>{children}</div>
     </div>
@@ -174,10 +174,10 @@ function Panel({ title, right, children, scrollY = false, className = "" }: { ti
 
 function StatTile({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-background/80 backdrop-blur-md px-5 py-4">
-      <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">{label}</div>
-      <div className="mt-2 text-3xl font-bold font-mono tracking-tight leading-none">{value}</div>
-      {hint ? <div className="mt-2 text-[11px] text-muted-foreground font-mono opacity-80">{hint}</div> : null}
+    <div className="rounded-md border border-border/80 bg-card/95 shadow-[0_12px_32px_rgb(2_8_20/0.12)] backdrop-blur-md px-5 py-4">
+      <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{label}</div>
+      <div className="mt-2 text-3xl font-bold tracking-tight leading-none">{value}</div>
+      {hint ? <div className="mt-2 text-[10px] text-muted-foreground opacity-80">{hint}</div> : null}
     </div>
   );
 }
