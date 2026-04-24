@@ -37,10 +37,10 @@ export function PageHeader({
 
   return (
     <section className="ui-section-shell mb-6 overflow-hidden" aria-label={`${title} section`}>
-      <div className="border-b border-border/60 bg-muted/35 px-4 py-3 sm:px-5">
+      <div className="border-b border-border/80 bg-surface-2/80 px-4 py-4 sm:px-5">
         {breadcrumb && breadcrumb.length > 0 ? (
-          <nav aria-label="Section breadcrumb" className="mb-1.5">
-            <ol className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          <nav aria-label="Section breadcrumb" className="mb-2">
+            <ol className="flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
               {breadcrumb.map((entry, idx) => {
                 const item = asBreadcrumbItem(entry);
                 const isLast = idx === (breadcrumb.length - 1);
@@ -66,9 +66,10 @@ export function PageHeader({
 
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
+            <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-primary">Section</div>
+            <h1 className="mt-1 text-lg font-semibold tracking-tight text-foreground">{title}</h1>
             {description ? (
-              <div className="mt-1 text-sm text-muted-foreground">{description}</div>
+              <div className="mt-1 text-[12px] text-muted-foreground">{description}</div>
             ) : null}
           </div>
 
@@ -77,8 +78,8 @@ export function PageHeader({
       </div>
 
       {tabs && tabs.length > 0 ? (
-        <div className="px-3 py-2 sm:px-4">
-          <div className="ui-tab-shell gap-1.5 border-b-0">
+        <div className="px-4 pt-2 sm:px-5">
+          <div className="ui-tab-shell border-b-0">
             {tabs.map((t) => (
               <NavLink
                 key={t.to}

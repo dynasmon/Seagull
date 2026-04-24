@@ -7,11 +7,11 @@ export type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    "border-transparent bg-primary text-primary-foreground hover:bg-primary/90",
+    "border-primary/70 bg-primary text-primary-foreground hover:bg-primary/90 hover:border-primary/80",
   secondary:
-    "border-border/70 bg-muted/40 text-foreground hover:bg-muted/70",
+    "border-border/80 bg-muted/35 text-foreground hover:border-primary/30 hover:bg-muted/55",
   ghost:
-    "border-transparent bg-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+    "border-transparent bg-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground",
   danger:
     "border-danger/50 bg-danger/10 text-danger hover:bg-danger/20",
   success:
@@ -21,10 +21,10 @@ const variantClasses: Record<ButtonVariant, string> = {
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
-  sm: "h-7 px-2.5 text-xs gap-1.5",
-  md: "h-9 px-3 text-sm gap-2",
-  lg: "h-10 px-4 text-sm gap-2",
-  icon: "h-9 w-9 px-0",
+  sm: "h-7 px-2.5 text-[11px] gap-1.5",
+  md: "h-8 px-3 text-[11px] gap-2",
+  lg: "h-9 px-4 text-[12px] gap-2",
+  icon: "h-8 w-8 px-0",
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -46,7 +46,7 @@ export function Button({
       type="button"
       disabled={disabled}
       className={cx(
-        "inline-flex items-center justify-center rounded-md border font-medium transition-colors",
+        "inline-flex items-center justify-center rounded-md border font-semibold transition-colors",
         variantClasses[variant],
         sizeClasses[size],
         disabled && "cursor-not-allowed opacity-50",
