@@ -36,7 +36,7 @@ export function Card({
           )}
         </header>
       )}
-      <div className={cx("p-4", hasHeader ? "" : "")}>{children}</div>
+      <div className="p-4">{children}</div>
     </section>
   );
 }
