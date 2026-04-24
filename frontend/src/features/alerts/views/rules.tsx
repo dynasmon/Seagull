@@ -24,13 +24,13 @@ function Panel(props: {
   return (
     <div
       className={cx(
-        "rounded-xl border border-border/60 bg-background/70 backdrop-blur-md flex flex-col min-h-0",
+        "rounded-md border border-border/80 bg-card/95 shadow-[0_12px_32px_rgb(2_8_20/0.12)] backdrop-blur-md flex flex-col min-h-0",
         props.className
       )}
     >
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60 bg-muted/10">
-        <div className="text-sm font-semibold tracking-tight truncate">{props.title}</div>
-        {props.right ? <div className="text-xs text-muted-foreground truncate">{props.right}</div> : null}
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/80 bg-surface-2/70">
+        <div className="text-[12px] font-semibold tracking-tight truncate">{props.title}</div>
+        {props.right ? <div className="text-[10px] text-muted-foreground truncate">{props.right}</div> : null}
       </div>
 
       <div className={cx("p-4 min-h-0", props.scrollY && "overflow-y-auto", props.bodyClassName)} style={props.style}>
