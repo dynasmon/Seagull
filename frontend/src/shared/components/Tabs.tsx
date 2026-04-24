@@ -36,7 +36,7 @@ export function Tabs<T extends string>({
             {t.badge != null ? (
               <span
                 className={cx(
-                  "ml-1.5 rounded-full border px-1.5 py-0.5 text-[10px] font-mono leading-none",
+                  "ml-1.5 rounded-full border px-1.5 py-0.5 text-[10px] leading-none",
                   active
                     ? "border-primary/35 bg-primary/10 text-primary"
                     : "border-border/60 bg-muted/40 text-muted-foreground",

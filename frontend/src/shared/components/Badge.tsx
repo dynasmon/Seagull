@@ -25,7 +25,7 @@ export function Badge({
   return (
     <span
       className={cx(
-        "inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.06em]",
+        "inline-flex items-center rounded-sm border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
         map[variant],
         className,
       )}

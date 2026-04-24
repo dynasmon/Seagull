@@ -84,7 +84,7 @@ export function Table<T>({
           <thead
             className={cx(
               stickyHeader && "sticky top-0 z-[2]",
-              "bg-muted/85 text-left text-[11px] uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm"
+              "bg-surface-2/95 text-left text-[10px] uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm"
             )}
           >
             <tr>
@@ -123,7 +123,7 @@ export function Table<T>({
                         onClick={() => onSortChange?.({ key, direction: nextDirection(sort, key) })}
                         className={cx(
                           "inline-flex items-center gap-1 rounded-sm px-1 py-0.5",
-                          "hover:bg-muted/70 hover:text-foreground",
+                          "hover:bg-muted/45 hover:text-foreground",
                           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
                         )}
                       >
@@ -157,9 +157,9 @@ export function Table<T>({
                   <tr
                     key={renderKey}
                     className={cx(
-                      "border-t border-border/50",
-                      clickable ? "cursor-pointer hover:bg-muted/45" : "hover:bg-muted/35",
-                      isSelected && "bg-muted/50",
+                      "border-t border-border/60",
+                      clickable ? "cursor-pointer hover:bg-muted/30" : "hover:bg-muted/20",
+                      isSelected && "bg-primary/10",
                       rowClassName?.(r, i)
                     )}
                     onClick={() => onRowClick?.(r, i)}

@@ -28,8 +28,8 @@ export function MetricCard({
   className?: string;
 }) {
   return (
-    <div className={cx("ui-card-shell px-3 py-2.5", className)}>
-      <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-muted-foreground">
+    <div className={cx("ui-card-shell px-3 py-3", className)}>
+      <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
         {title}
       </div>
       <div className={cx("mt-1 text-lg font-semibold leading-tight", toneClasses[tone])}>
@@ -42,7 +42,7 @@ export function MetricCard({
         )}
       </div>
       {helper ? (
-        <div className="mt-1 text-[11px] text-muted-foreground">{helper}</div>
+        <div className="mt-1 text-[10px] text-muted-foreground">{helper}</div>
       ) : null}
     </div>
   );

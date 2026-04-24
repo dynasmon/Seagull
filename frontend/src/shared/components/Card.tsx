@@ -25,12 +25,12 @@ export function Card({
       )}
     >
       {hasHeader && (
-        <header className="flex items-center justify-between border-b border-border/60 bg-muted/35 px-4 py-2.5">
-          <div className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+        <header className="flex items-center justify-between border-b border-border/80 bg-surface-2/70 px-4 py-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
             {title}
           </div>
           {right && (
-            <div className="text-[11px] text-muted-foreground">
+            <div className="text-[10px] text-muted-foreground">
               {right}
             </div>
           )}
