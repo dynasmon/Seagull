@@ -157,10 +157,10 @@ function Panel(props: {
   bodyClassName?: string;
 }) {
   return (
-    <div className={cx("rounded-xl border border-border/60 bg-background/70 backdrop-blur-md flex flex-col min-h-0 min-w-0", props.className)}>
-      <div className="flex min-w-0 items-center justify-between gap-3 px-4 py-3 border-b border-border/60 bg-muted/10">
-        <div className="min-w-0 text-sm font-semibold tracking-tight truncate">{props.title}</div>
-        {props.right ? <div className="min-w-0 shrink text-xs text-muted-foreground truncate text-right">{props.right}</div> : null}
+    <div className={cx("rounded-md border border-border/80 bg-card/95 shadow-[0_12px_32px_rgb(2_8_20/0.12)] backdrop-blur-md flex flex-col min-h-0 min-w-0", props.className)}>
+      <div className="flex min-w-0 items-center justify-between gap-3 px-4 py-3 border-b border-border/80 bg-surface-2/70">
+        <div className="min-w-0 text-[12px] font-semibold tracking-tight truncate">{props.title}</div>
+        {props.right ? <div className="min-w-0 shrink text-[10px] text-muted-foreground truncate text-right">{props.right}</div> : null}
       </div>
 
       <div
@@ -185,7 +185,7 @@ function SmallToggle({
   hint?: string;
 }) {
   return (
-    <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/40 px-3 py-2">
+    <label className="flex items-start gap-3 rounded-md border border-border/80 bg-background/35 px-3 py-2">
       <input
         type="checkbox"
         checked={checked}
@@ -193,8 +193,8 @@ function SmallToggle({
         className="mt-1"
       />
       <div className="min-w-0">
-        <div className="text-[12px] font-mono text-foreground">{label}</div>
-        {hint ? <div className="mt-1 text-[11px] text-muted-foreground">{hint}</div> : null}
+        <div className="text-[12px] text-foreground">{label}</div>
+        {hint ? <div className="mt-1 text-[10px] text-muted-foreground">{hint}</div> : null}
       </div>
     </label>
   );
