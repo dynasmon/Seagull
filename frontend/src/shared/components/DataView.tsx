@@ -15,7 +15,7 @@ export function DataViewToolbar({
   className?: string;
 }) {
   return (
-    <div className={cx("ui-toolbar-shell flex flex-wrap items-center justify-between gap-2", className)}>
+    <div className={cx("ui-toolbar-shell flex flex-wrap items-center justify-between gap-3", className)}>
       <div className="min-w-0 grow">{left}</div>
       {right ? <div className="shrink-0">{right}</div> : null}
     </div>
@@ -133,10 +133,10 @@ export function DataStatsStrip({
   return (
     <div className={cx("grid gap-2 sm:grid-cols-2 xl:grid-cols-4", className)}>
       {stats.map((item) => (
-        <div key={item.label} className="ui-card-shell px-3 py-2.5">
-          <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-muted-foreground">{item.label}</div>
+        <div key={item.label} className="ui-card-shell px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{item.label}</div>
           <div className="mt-1 text-lg font-semibold leading-tight text-foreground">{item.value}</div>
-          {item.hint ? <div className="mt-1 text-[11px] text-muted-foreground">{item.hint}</div> : null}
+          {item.hint ? <div className="mt-1 text-[10px] text-muted-foreground">{item.hint}</div> : null}
         </div>
       ))}
     </div>
@@ -162,7 +162,7 @@ export function DataQueryStateBanner({
           : "border-border/60 bg-muted/30 text-muted-foreground";
 
   return (
-    <div className={cx("flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs", toneClasses)} role="status" aria-live="polite">
+    <div className={cx("flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-[11px]", toneClasses)} role="status" aria-live="polite">
       <div className="font-mono">{message}</div>
       {right ? <div className="font-mono">{right}</div> : null}
     </div>
@@ -243,11 +243,11 @@ export function DataPaginationFooter({
   return (
     <div className={cx("ui-toolbar-shell flex flex-wrap items-center justify-between gap-3", className)}>
       <div className="flex flex-wrap items-center gap-3">
-        <div className="text-xs text-muted-foreground">
+        <div className="text-[11px] text-muted-foreground">
           Showing <span className="font-semibold text-foreground">{totalCount}</span> rows
         </div>
 
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
           <span>Page size</span>
           <select
             value={String(pageSize)}
@@ -265,7 +265,7 @@ export function DataPaginationFooter({
       </div>
 
       <div className="flex items-center gap-2">
-        {error ? <span className="text-xs text-danger">{error}</span> : null}
+        {error ? <span className="text-[11px] text-danger">{error}</span> : null}
         {error && onRetry ? (
           <button type="button" onClick={onRetry} className="ui-btn-secondary h-8 px-2.5 text-xs">
             Retry
@@ -282,7 +282,7 @@ export function DataPaginationFooter({
             {loadingMore ? "Loading..." : loadMoreLabel}
           </button>
         ) : (
-          <span className="text-xs text-muted-foreground">No more rows</span>
+          <span className="text-[11px] text-muted-foreground">No more rows</span>
         )}
       </div>
     </div>

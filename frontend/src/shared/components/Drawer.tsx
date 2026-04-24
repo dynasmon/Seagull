@@ -196,7 +196,7 @@ export default function Drawer({
         className={cx(
           "absolute right-0 top-0 h-full max-w-[92vw]",
           widthClassName,
-          "border-l border-border/70 bg-background/96 backdrop-blur-sm shadow-2xl",
+          "border-l border-border/80 bg-surface-1/95 backdrop-blur-sm shadow-[0_24px_72px_rgb(2_8_20/0.4)]",
           "flex flex-col overflow-hidden"
         )}
         onMouseDown={(e) => e.stopPropagation()}
@@ -204,11 +204,11 @@ export default function Drawer({
         <header className="ui-drawer-header shrink-0 px-5 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
                 {headerLabel}
               </div>
-              <h2 id={titleId} className="mt-1 truncate text-lg font-semibold">{title}</h2>
-              {description ? <div id={descriptionId} className="mt-1 text-sm text-muted-foreground">{description}</div> : null}
+              <h2 id={titleId} className="mt-1 truncate text-base font-semibold">{title}</h2>
+              {description ? <div id={descriptionId} className="mt-1 text-[12px] text-muted-foreground">{description}</div> : null}
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
@@ -227,7 +227,7 @@ export default function Drawer({
 
         <div className={cx("flex-1 min-h-0 overflow-y-auto overscroll-contain p-5", bodyClassName)}>{children}</div>
 
-        {footer ? <footer className="shrink-0 border-t border-border/60 bg-muted/20 px-5 py-3">{footer}</footer> : null}
+        {footer ? <footer className="shrink-0 border-t border-border/80 bg-surface-2/60 px-5 py-3">{footer}</footer> : null}
       </section>
     </div>,
     document.body
