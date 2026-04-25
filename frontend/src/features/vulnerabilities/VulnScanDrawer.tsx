@@ -3,20 +3,13 @@ import { useMemo } from "react";
 import Drawer from "@/shared/components/Drawer";
 import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
+import { JsonBlock } from "@/shared/components/JsonBlock";
 import { cx } from "@/shared/lib/cx";
 
 import { PhaseTimeline, ScanStats } from "./ActiveScanPanel";
 import { LiveElapsedText } from "./LiveElapsedText";
 import { fmtSec, fmtWhen, fmtAge, scanLifecycleLabel, scanPhaseLabel, scanTriggerLabel, scanVariant } from "./scanUtils";
 import type { VulnScan } from "./types";
-
-function safeJson(v: any): string {
-  try {
-    return JSON.stringify(v ?? null, null, 2);
-  } catch {
-    return String(v);
-  }
-}
 
 function ScanDurationDisplay({ scan }: { scan: VulnScan }) {
   const isLive =
@@ -216,9 +209,7 @@ export default function VulnScanDrawer({
             {hasStats ? (
               <>
                 <ScanStats stats={scan.stats} />
-                <pre className="mt-4 text-xs whitespace-pre-wrap break-words text-muted-foreground">
-                  {safeJson(scan.stats)}
-                </pre>
+                <JsonBlock value={scan.stats} showControls={false} className="mt-4" />
               </>
             ) : (
               <div className="text-sm text-muted-foreground">
@@ -230,34 +221,15 @@ export default function VulnScanDrawer({
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <Card title="Scope" className="rounded-xl">
-            <pre className="text-xs whitespace-pre-wrap break-words text-muted-foreground">
-              {safeJson(scan.scope)}
-            </pre>
+            <JsonBlock value={scan.scope} showControls={false} />
           </Card>
           <Card title="Config" className="rounded-xl">
-            <pre className="text-xs whitespace-pre-wrap break-words text-muted-foreground">
-              {safeJson(scan.config)}
-            </pre>
+            <JsonBlock value={scan.config} showControls={false} />
           </Card>
         </div>
 
         <Card title="Raw" className="rounded-xl">
-          <div className="mb-3 flex items-center justify-end">
-            <button
-              type="button"
-              onClick={() => navigator.clipboard.writeText(safeJson(scan))}
-              className={cx(
-                "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              )}
-            >
-              Copy JSON
-            </button>
-          </div>
-          <pre className="text-xs whitespace-pre-wrap break-words text-muted-foreground">
-            {safeJson(scan)}
-          </pre>
+          <JsonBlock value={scan} />
         </Card>
       </div>
     </Drawer>

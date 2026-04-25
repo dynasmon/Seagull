@@ -3,6 +3,7 @@ import type { ReactNode, CSSProperties } from "react";
 import { Link } from "react-router-dom";
 
 import EmptyState from "@/shared/components/EmptyState";
+import { MetricCard } from "@/shared/components/MetricCard";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
@@ -274,28 +275,6 @@ function DashboardSection({
   );
 }
 
-function StatTile({
-  label,
-  value,
-  hint,
-  tone = "default"
-}: {
-  label: string;
-  value: string | number;
-  hint?: string;
-  tone?: "default" | "good" | "warn";
-}) {
-  const valueClass =
-    tone === "warn" ? "text-danger" : tone === "good" ? "text-success" : "text-foreground";
-
-  return (
-    <div className="border border-border/60 bg-background/80 backdrop-blur-md px-4 py-3">
-      <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1 font-mono">{label}</div>
-      <div className={cx("text-3xl font-bold font-mono tracking-tight leading-none", valueClass)}>{value}</div>
-      {hint && <div className="text-[10px] text-muted-foreground font-mono opacity-70 mt-1">{hint}</div>}
-    </div>
-  );
-}
 
 function StatLinkTile({
   to,
@@ -689,16 +668,16 @@ function OverviewPageView({
 
       <DashboardSection id="ingestion" title="INGESTION & HEALTH" defaultOpen>
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-          <StatTile label="EVENTS (last 5m)" value={derived.events5m} />
-          <StatTile label={`EVENTS (${windowLabel})`} value={derived.events1h} />
-          <StatTile
-            label="ACTIVE AGENTS"
+          <MetricCard title="EVENTS (last 5m)" value={derived.events5m} />
+          <MetricCard title={`EVENTS (${windowLabel})`} value={derived.events1h} />
+          <MetricCard
+            title="ACTIVE AGENTS"
             value={derived.onlineAgents}
-            hint={`TOTAL: ${derived.totalAgents}`}
-            tone={derived.onlineAgents > 0 ? "good" : "warn"}
+            helper={`TOTAL: ${derived.totalAgents}`}
+            tone={derived.onlineAgents > 0 ? "success" : "warning"}
           />
-          <StatTile label="LAST EVENT TS" value={derived.lastEventTs} tone={derived.lastEventTs === "-" ? "warn" : "default"} />
-          <StatTile label="ALERTS (window)" value={derived.alerts1h} tone={derived.alerts1h > 0 ? "warn" : "good"} />
+          <MetricCard title="LAST EVENT TS" value={derived.lastEventTs} tone={derived.lastEventTs === "-" ? "warning" : "default"} />
+          <MetricCard title="ALERTS (window)" value={derived.alerts1h} tone={derived.alerts1h > 0 ? "warning" : "success"} />
 
           <StatLinkTile
             to="/attack-chain"
@@ -711,8 +690,8 @@ function OverviewPageView({
             }
           />
 
-          <StatTile
-            label="STORM MODE"
+          <MetricCard
+            title="STORM MODE"
             value={
               storm?.phase === "storm"
                 ? "ATTACK"
@@ -724,7 +703,7 @@ function OverviewPageView({
                     ? "ACTIVE"
                     : "OK"
             }
-            hint={
+            helper={
               storm
                 ? `${storm.reason}${storm.open_alert_id ? ` · alert #${storm.open_alert_id}` : ""}`
                 : snapshot.meta?.protection_active
@@ -733,62 +712,62 @@ function OverviewPageView({
             }
             tone={
               storm?.phase === "storm" || storm?.phase === "shedding"
-                ? "warn"
+                ? "warning"
                 : storm?.phase === "draining"
                   ? "default"
                   : stormEffectiveActive
-                    ? "warn"
-                    : "good"
+                    ? "warning"
+                    : "success"
             }
           />
 
-          <StatTile
-            label="EPS (ingest)"
+          <MetricCard
+            title="EPS (ingest)"
             value={storm?.eps ?? 0}
-            hint={storm?.phase === "storm" ? "storm window" : "last second"}
-            tone={storm?.phase === "storm" ? "warn" : "default"}
+            helper={storm?.phase === "storm" ? "storm window" : "last second"}
+            tone={storm?.phase === "storm" ? "warning" : "default"}
           />
 
-          <StatTile
-            label="SAMPLE (hot/warm)"
+          <MetricCard
+            title="SAMPLE (hot/warm)"
             value={storm ? `${storm.sample_hot_percent}% / ${storm.sample_warm_percent}%` : "-"}
-            hint="hot=Postgres · warm=ES"
-            tone={stormEffectiveActive ? "warn" : "default"}
+            helper="hot=Postgres · warm=ES"
+            tone={stormEffectiveActive ? "warning" : "default"}
           />
 
-          <StatTile
-            label="DROP %"
+          <MetricCard
+            title="DROP %"
             value={`${stormDropPercent}%`}
-            hint="dropped from raw ingestion"
-            tone={stormDropPercent > 0 || snapshot.meta?.ddos_telemetry_dropped_per_sec > 0 ? "warn" : "good"}
+            helper="dropped from raw ingestion"
+            tone={stormDropPercent > 0 || snapshot.meta?.ddos_telemetry_dropped_per_sec > 0 ? "warning" : "success"}
           />
 
-          <StatTile
-            label="BACKLOG (events)"
+          <MetricCard
+            title="BACKLOG (events)"
             value={stormBacklogEvents}
-            hint={`messages: ${stormBacklogMessages}`}
-            tone={stormBacklogEvents > 50000 ? "warn" : "default"}
+            helper={`messages: ${stormBacklogMessages}`}
+            tone={stormBacklogEvents > 50000 ? "warning" : "default"}
           />
 
-          <StatTile
-            label="EPS (process)"
+          <MetricCard
+            title="EPS (process)"
             value={storm?.process_rate_eps ?? 0}
-            hint={storm ? `ingest: ${storm.ingest_rate_eps ?? storm.eps}` : undefined}
-            tone={storm && (storm.process_rate_eps ?? 0) < (storm.ingest_rate_eps ?? storm.eps ?? 0) ? "warn" : "good"}
+            helper={storm ? `ingest: ${storm.ingest_rate_eps ?? storm.eps}` : undefined}
+            tone={storm && (storm.process_rate_eps ?? 0) < (storm.ingest_rate_eps ?? storm.eps ?? 0) ? "warning" : "success"}
           />
 
-          <StatTile
-            label="WORKERS"
+          <MetricCard
+            title="WORKERS"
             value={storm?.workers_active ?? 0}
-            hint={storm?.processed_messages_per_sec ? `msgs/s: ${storm.processed_messages_per_sec}` : undefined}
-            tone={storm && (storm.workers_active ?? 0) > 0 ? "good" : "warn"}
+            helper={storm?.processed_messages_per_sec ? `msgs/s: ${storm.processed_messages_per_sec}` : undefined}
+            tone={storm && (storm.workers_active ?? 0) > 0 ? "success" : "warning"}
           />
 
-          <StatTile
-            label="DRAIN TIME"
+          <MetricCard
+            title="DRAIN TIME"
             value={storm?.phase === "draining" ? `${storm?.draining_seconds ?? 0}s` : "-"}
-            hint={storm?.phase === "draining" ? "recovery window" : "not draining"}
-            tone={storm?.phase === "draining" ? "default" : "good"}
+            helper={storm?.phase === "draining" ? "recovery window" : "not draining"}
+            tone={storm?.phase === "draining" ? "default" : "success"}
           />
         </div>
         <div className="mt-4 rounded-xl border border-border/60 bg-background/60 p-4">
@@ -1115,16 +1094,16 @@ function OverviewPageView({
       <DashboardSection id="ddos" title="DOS / DDOS" defaultOpen>
         <div className="space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <StatTile label="DoS/DDoS detections (last 5m)" value={derived.ddos5m} tone={derived.ddos5m > 0 ? "warn" : "good"} />
-            <StatTile
-              label="DDoS packets est. (last 5m)"
+            <MetricCard title="DoS/DDoS detections (last 5m)" value={derived.ddos5m} tone={derived.ddos5m > 0 ? "warning" : "success"} />
+            <MetricCard
+              title="DDoS packets est. (last 5m)"
               value={derived.ddosPackets5m}
-              hint={`peak pps: ${fmtCompact(derived.ddosPeakPps)}`}
-              tone={derived.ddosPackets5m > 0 ? "warn" : "good"}
+              helper={`peak pps: ${fmtCompact(derived.ddosPeakPps)}`}
+              tone={derived.ddosPackets5m > 0 ? "warning" : "success"}
             />
-            <StatTile label="Last attack kind" value={derived.ddosLastKind} hint={`peak pps: ${fmtCompact(derived.ddosPeakPps)}`} />
-            <StatTile label="Last target" value={derived.ddosLastTarget} />
-            <StatTile label="Alerts (critical/high)" value={snapshot.ddos_alerts.length} tone={snapshot.ddos_alerts.length > 0 ? "warn" : "good"} />
+            <MetricCard title="Last attack kind" value={derived.ddosLastKind} helper={`peak pps: ${fmtCompact(derived.ddosPeakPps)}`} />
+            <MetricCard title="Last target" value={derived.ddosLastTarget} />
+            <MetricCard title="Alerts (critical/high)" value={snapshot.ddos_alerts.length} tone={snapshot.ddos_alerts.length > 0 ? "warning" : "success"} />
           </div>
 
           <OverviewRangeControls

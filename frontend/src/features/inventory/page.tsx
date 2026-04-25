@@ -22,6 +22,7 @@ import {
   copyTextToClipboard,
   safeJson,
 } from "@/shared/components/investigation";
+import { MetricCard } from "@/shared/components/MetricCard";
 import { cx } from "@/shared/lib/cx";
 import { isAbortError } from "@/shared/lib/http";
 import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
@@ -172,15 +173,6 @@ function Panel({ title, right, children, scrollY = false, className = "" }: { ti
   );
 }
 
-function StatTile({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
-  return (
-    <div className="rounded-md border border-border/80 bg-card/95 shadow-[0_12px_32px_rgb(2_8_20/0.12)] backdrop-blur-md px-5 py-4">
-      <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{label}</div>
-      <div className="mt-2 text-3xl font-bold tracking-tight leading-none">{value}</div>
-      {hint ? <div className="mt-2 text-[10px] text-muted-foreground opacity-80">{hint}</div> : null}
-    </div>
-  );
-}
 
 function BarGaugeList({
   title,
@@ -760,13 +752,13 @@ export default function InventoryPage() {
             <Loading label="Loading inventory overview..." />
           ) : snapshot ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-              <StatTile label="Agents" value={snapshot.kpis.agents_total} hint="Registered endpoints" />
-              <StatTile label="Online (5m)" value={snapshot.kpis.agents_online_5m} hint="Last seen <= 5 minutes" />
-              <StatTile label="With inventory (6h)" value={snapshot.kpis.agents_with_inventory_6h} hint="Any snapshot in the last 6 hours" />
-              <StatTile
-                label="Oldest inventory"
+              <MetricCard title="Agents" value={snapshot.kpis.agents_total} helper="Registered endpoints" />
+              <MetricCard title="Online (5m)" value={snapshot.kpis.agents_online_5m} helper="Last seen <= 5 minutes" />
+              <MetricCard title="With inventory (6h)" value={snapshot.kpis.agents_with_inventory_6h} helper="Any snapshot in the last 6 hours" />
+              <MetricCard
+                title="Oldest inventory"
                 value={fmtMinutes(snapshot.kpis.oldest_inventory_age_minutes)}
-                hint="Max age across latest snapshots"
+                helper="Max age across latest snapshots"
               />
             </div>
           ) : (
