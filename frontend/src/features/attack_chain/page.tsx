@@ -1,13 +1,16 @@
-import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
+import { Button } from "@/shared/components/Button";
 import DetectionWorkflowRail from "@/shared/components/DetectionWorkflow";
 import PageHeader from "@/shared/components/PageHeader";
 import Loading from "@/shared/components/Loading";
 import EmptyState from "@/shared/components/EmptyState";
 import { Badge } from "@/shared/components/Badge";
 import { DataPaginationFooter, DataQueryStateBanner, DataStatsStrip } from "@/shared/components/DataView";
+import { Panel } from "@/shared/components/Panel";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { TextInput } from "@/shared/components/TextInput";
 import { cx } from "@/shared/lib/cx";
 
 import { listAgents } from "@/features/agents/api";
@@ -20,37 +23,6 @@ import type { AttackChainCase } from "./types";
 
 type Density = "comfortable" | "compact";
 type SincePreset = "any" | "15m" | "1h" | "6h" | "24h" | "7d" | "custom";
-
-function Panel(props: {
-  title: string;
-  right?: ReactNode;
-  children: ReactNode;
-  style?: CSSProperties;
-  scrollY?: boolean;
-  className?: string;
-  bodyClassName?: string;
-}) {
-  return (
-    <div
-      className={cx(
-        "rounded-md border border-border/80 bg-card/95 shadow-[0_12px_32px_rgb(2_8_20/0.12)] backdrop-blur-md flex flex-col min-h-0",
-        props.className
-      )}
-    >
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border/80 bg-surface-2/70">
-        <div className="text-[12px] font-semibold tracking-tight truncate">{props.title}</div>
-        {props.right ? <div className="text-[10px] text-muted-foreground truncate">{props.right}</div> : null}
-      </div>
-
-      <div
-        className={cx("p-4 min-h-0", props.scrollY && "overflow-y-auto", props.bodyClassName)}
-        style={props.style}
-      >
-        {props.children}
-      </div>
-    </div>
-  );
-}
 
 function fmtTs(iso: string) {
   const d = new Date(iso);
@@ -346,17 +318,9 @@ export default function AttackChainPage() {
         }
         toolbarRight={
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => fetchFirstPage(applied)}
-              className={cx(
-                "rounded-md border border-border/60 bg-background/40",
-                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground"
-              )}
-            >
+            <Button variant="subtle" size="md" onClick={() => fetchFirstPage(applied)}>
               Refresh
-            </button>
+            </Button>
             {lastRefresh ? (
               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
                 {fmtTs(lastRefresh.toISOString())}
@@ -394,7 +358,7 @@ export default function AttackChainPage() {
       <div className="w-full grid grid-cols-1 xl:grid-cols-12 gap-4 min-h-[calc(100vh-220px)]">
         <Panel
           title="Controls"
-          right={agentsLoading ? "loading agents" : `${agents.length} agents`}
+          actions={<span className="text-[10px] font-mono text-muted-foreground">{agentsLoading ? "loading agents" : `${agents.length} agents`}</span>}
           className="xl:col-span-4"
           scrollY
         >
@@ -404,21 +368,21 @@ export default function AttackChainPage() {
               <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Status</div>
-                  <select
-                    className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                  <SelectInput
+                    className="mt-1"
                     value={draft.status}
                     onChange={(e) => setDraft((p) => ({ ...p, status: e.target.value as any }))}
                   >
                     <option value="open">Open</option>
                     <option value="closed">Closed</option>
                     <option value="all">All</option>
-                  </select>
+                  </SelectInput>
                 </div>
 
                 <div>
                   <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Agent</div>
-                  <select
-                    className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                  <SelectInput
+                    className="mt-1"
                     value={draft.agentId}
                     onChange={(e) => setDraft((p) => ({ ...p, agentId: e.target.value }))}
                   >
@@ -432,27 +396,27 @@ export default function AttackChainPage() {
                             : a.agent_id}
                       </option>
                     ))}
-                  </select>
+                  </SelectInput>
                 </div>
 
                 <div>
                   <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Suspect IP</div>
-                  <input
+                  <TextInput
                     value={draft.suspectIp}
                     onChange={(e) => setDraft((p) => ({ ...p, suspectIp: e.target.value }))}
                     placeholder="e.g. 203.0.113.10"
-                    className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm font-mono"
+                    className="mt-1 font-mono"
                   />
                 </div>
 
                 <div>
                   <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Min score</div>
-                  <input
+                  <TextInput
                     value={draft.minScore}
                     onChange={(e) => setDraft((p) => ({ ...p, minScore: e.target.value }))}
                     placeholder="0"
                     inputMode="numeric"
-                    className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm font-mono"
+                    className="mt-1 font-mono"
                   />
                 </div>
               </div>
@@ -460,8 +424,8 @@ export default function AttackChainPage() {
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Since</div>
-                  <select
-                    className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                  <SelectInput
+                    className="mt-1"
                     value={draft.sincePreset}
                     onChange={(e) => setDraft((p) => ({ ...p, sincePreset: e.target.value as SincePreset }))}
                   >
@@ -472,45 +436,36 @@ export default function AttackChainPage() {
                     <option value="24h">Last 24 hours</option>
                     <option value="7d">Last 7 days</option>
                     <option value="custom">Custom…</option>
-                  </select>
+                  </SelectInput>
 
                   {draft.sincePreset === "custom" ? (
-                    <input
+                    <TextInput
                       value={draft.sinceCustomLocal}
                       onChange={(e) => setDraft((p) => ({ ...p, sinceCustomLocal: e.target.value }))}
                       type="datetime-local"
-                      className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm font-mono"
+                      className="mt-2 font-mono"
                     />
                   ) : null}
                 </div>
 
                 <div>
                   <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Density</div>
-                  <select
-                    className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                  <SelectInput
+                    className="mt-1"
                     value={draft.density}
                     onChange={(e) => setDraft((p) => ({ ...p, density: e.target.value as Density }))}
                   >
                     <option value="comfortable">Comfortable</option>
                     <option value="compact">Compact</option>
-                  </select>
-
+                  </SelectInput>
                 </div>
               </div>
 
               <div className="mt-4 flex items-center justify-between gap-3">
                 <div className="text-[11px] text-muted-foreground">Applied: {appliedSummary}</div>
-                <button
-                  type="button"
-                  onClick={applyFilters}
-                  className={cx(
-                    "rounded-md border border-border/60 bg-background/40",
-                    "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                    "hover:bg-muted/15 hover:text-foreground"
-                  )}
-                >
+                <Button variant="subtle" size="md" onClick={applyFilters}>
                   Apply & refresh
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -528,7 +483,7 @@ export default function AttackChainPage() {
 
         <Panel
           title="Cases"
-          right={`${rows.length} loaded${hasMore ? " · more available" : ""}`}
+          actions={<span className="text-[10px] font-mono text-muted-foreground">{rows.length} loaded{hasMore ? " · more available" : ""}</span>}
           className="xl:col-span-8"
           scrollY
         >
@@ -588,38 +543,22 @@ export default function AttackChainPage() {
                         </td>
                         <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2")}>
                           <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openCase(r.id);
-                              }}
-                              className={cx(
-                                "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                                "hover:bg-muted/15 hover:text-foreground",
-                                "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                              )}
+                            <Button
+                              variant="subtle"
+                              size="sm"
+                              onClick={(e) => { e.stopPropagation(); openCase(r.id); }}
                               title="Open attack-chain drawer"
                             >
                               View
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                pivotToInvestigations(r.id);
-                              }}
-                              className={cx(
-                                "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                                "hover:bg-muted/15 hover:text-foreground",
-                                "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                              )}
+                            </Button>
+                            <Button
+                              variant="subtle"
+                              size="sm"
+                              onClick={(e) => { e.stopPropagation(); pivotToInvestigations(r.id); }}
                               title="Pivot case into investigations workspace"
                             >
                               Investigate
-                            </button>
+                            </Button>
                           </div>
                         </td>
                       </tr>

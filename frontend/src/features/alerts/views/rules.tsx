@@ -1,44 +1,21 @@
-import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { Button } from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
+import { InlineAlert } from "@/shared/components/InlineAlert";
 import Loading from "@/shared/components/Loading";
 import { Badge } from "@/shared/components/Badge";
+import { Panel } from "@/shared/components/Panel";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { TextArea } from "@/shared/components/TextArea";
+import { TextInput } from "@/shared/components/TextInput";
 import { cx } from "@/shared/lib/cx";
 
 import { getAlertRuleHistory, getAlertRules, patchAlertRule, resetAlertRule } from "../api";
 import type { RuleGovernanceHistory, RuleOut } from "../types";
-
-function Panel(props: {
-  title: string;
-  right?: ReactNode;
-  children: ReactNode;
-  style?: CSSProperties;
-  scrollY?: boolean;
-  className?: string;
-  bodyClassName?: string;
-}) {
-  return (
-    <div
-      className={cx(
-        "rounded-md border border-border/80 bg-card/95 shadow-[0_12px_32px_rgb(2_8_20/0.12)] backdrop-blur-md flex flex-col min-h-0",
-        props.className
-      )}
-    >
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/80 bg-surface-2/70">
-        <div className="text-[12px] font-semibold tracking-tight truncate">{props.title}</div>
-        {props.right ? <div className="text-[10px] text-muted-foreground truncate">{props.right}</div> : null}
-      </div>
-
-      <div className={cx("p-4 min-h-0", props.scrollY && "overflow-y-auto", props.bodyClassName)} style={props.style}>
-        {props.children}
-      </div>
-    </div>
-  );
-}
 
 function sevVariant(sev: string) {
   const s = String(sev || "").toLowerCase();
@@ -399,17 +376,9 @@ export default function AlertsRulesPage() {
               placeholder="Search rule, pack, category..."
               className="h-9 min-w-[240px]"
             />
-            <button
-              onClick={() => reload()}
-              disabled={loading}
-              className={cx(
-                "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-                "hover:bg-muted/30 disabled:opacity-60"
-              )}
-              type="button"
-            >
+            <Button variant="subtle" size="lg" onClick={() => reload()} disabled={loading}>
               Refresh
-            </button>
+            </Button>
           </div>
         }
       />
@@ -433,7 +402,7 @@ export default function AlertsRulesPage() {
         ]}
       />
 
-      <Panel title="Rule catalog" right={headerRight} scrollY className={cx(panelHeightClass)}>
+      <Panel title="Rule catalog" actions={<span className="text-[10px] font-mono text-muted-foreground">{headerRight}</span>} scrollY className={cx(panelHeightClass)}>
         {loading ? (
           <Loading label="Loading rules…" />
         ) : filtered.length === 0 ? (
@@ -476,22 +445,14 @@ export default function AlertsRulesPage() {
                     </div>
 
                     <div className="shrink-0 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openDrawerFor(r);
-                        }}
-                        className={cx(
-                          "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                          "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                          "hover:bg-muted/15 hover:text-foreground",
-                          "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                        )}
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); openDrawerFor(r); }}
                         title="Open rule editor"
                       >
                         Edit
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -528,29 +489,18 @@ export default function AlertsRulesPage() {
 
               <div className="flex items-center gap-2">
                 {selected.has_override ? <Badge variant="neutral">override active</Badge> : <Badge variant="neutral">baseline only</Badge>}
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className={cx(
-                    "h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground",
-                    "hover:opacity-95 disabled:opacity-60"
-                  )}
-                  type="button"
-                >
+                <Button variant="primary" size="lg" onClick={handleSave} disabled={saving}>
                   {saving ? "Saving…" : "Save"}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="subtle"
+                  size="lg"
                   onClick={handleReset}
                   disabled={saving || !selected.has_override}
-                  className={cx(
-                    "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-                    "hover:bg-muted/30 disabled:opacity-60"
-                  )}
-                  type="button"
                   title="Remove overrides and revert to YAML"
                 >
                   Reset
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -566,31 +516,25 @@ export default function AlertsRulesPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="rounded-lg border border-border/60 bg-background/20 px-3 py-2">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Severity</div>
-                  <select
+                  <SelectInput
                     value={severity}
                     onChange={(e) => setSeverity(e.target.value)}
-                    className={cx(
-                      "mt-1 h-9 w-full rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none",
-                      "focus:ring-1 focus:ring-primary/40"
-                    )}
+                    className="mt-1 h-9"
                   >
                     <option value="critical">critical</option>
                     <option value="high">high</option>
                     <option value="medium">medium</option>
                     <option value="low">low</option>
                     <option value="unknown">unknown</option>
-                  </select>
+                  </SelectInput>
                 </div>
 
                 <div className="rounded-lg border border-border/60 bg-background/20 px-3 py-2">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Lookback window</div>
-                  <input
+                  <TextInput
                     value={window}
                     onChange={(e) => setWindow(e.target.value)}
-                    className={cx(
-                      "mt-1 h-9 w-full rounded-md border border-border/60 bg-background/40 px-3 text-sm font-mono outline-none",
-                      "focus:ring-1 focus:ring-primary/40"
-                    )}
+                    className="mt-1 h-9 font-mono"
                     placeholder="e.g. 5m, 30s, 1h"
                   />
                   <div className="mt-1 text-[11px] text-muted-foreground">Time range used to query events.</div>
@@ -598,13 +542,10 @@ export default function AlertsRulesPage() {
 
                 <div className="rounded-lg border border-border/60 bg-background/20 px-3 py-2">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Cooldown</div>
-                  <input
+                  <TextInput
                     value={cooldown}
                     onChange={(e) => setCooldown(e.target.value)}
-                    className={cx(
-                      "mt-1 h-9 w-full rounded-md border border-border/60 bg-background/40 px-3 text-sm font-mono outline-none",
-                      "focus:ring-1 focus:ring-primary/40"
-                    )}
+                    className="mt-1 h-9 font-mono"
                     placeholder="e.g. 10m"
                   />
                   <div className="mt-1 text-[11px] text-muted-foreground">
@@ -614,13 +555,10 @@ export default function AlertsRulesPage() {
 
                 <div className="rounded-lg border border-border/60 bg-background/20 px-3 py-2">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Min events (guard)</div>
-                  <input
+                  <TextInput
                     value={minEvents}
                     onChange={(e) => setMinEvents(e.target.value)}
-                    className={cx(
-                      "mt-1 h-9 w-full rounded-md border border-border/60 bg-background/40 px-3 text-sm font-mono outline-none",
-                      "focus:ring-1 focus:ring-primary/40"
-                    )}
+                    className="mt-1 h-9 font-mono"
                     placeholder="optional"
                   />
                   <div className="mt-1 text-[11px] text-muted-foreground">
@@ -641,13 +579,10 @@ export default function AlertsRulesPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="rounded-lg border border-border/60 bg-background/20 px-3 py-2">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Operator</div>
-                  <select
+                  <SelectInput
                     value={condOp}
                     onChange={(e) => setCondOp(e.target.value)}
-                    className={cx(
-                      "mt-1 h-9 w-full rounded-md border border-border/60 bg-background/40 px-3 text-sm font-mono outline-none",
-                      "focus:ring-1 focus:ring-primary/40"
-                    )}
+                    className="mt-1 h-9 font-mono"
                   >
                     <option value=">=">{">="}</option>
                     <option value=">">{">"}</option>
@@ -655,18 +590,15 @@ export default function AlertsRulesPage() {
                     <option value="<">{"<"}</option>
                     <option value="<=">{"<="}</option>
                     <option value="!=">{"!="}</option>
-                  </select>
+                  </SelectInput>
                 </div>
 
                 <div className="rounded-lg border border-border/60 bg-background/20 px-3 py-2 md:col-span-2">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Value</div>
-                  <input
+                  <TextInput
                     value={condValue}
                     onChange={(e) => setCondValue(e.target.value)}
-                    className={cx(
-                      "mt-1 h-9 w-full rounded-md border border-border/60 bg-background/40 px-3 text-sm font-mono outline-none",
-                      "focus:ring-1 focus:ring-primary/40"
-                    )}
+                    className="mt-1 h-9 font-mono"
                     placeholder="e.g. 10"
                   />
                   <div className="mt-1 text-[11px] text-muted-foreground">
@@ -694,13 +626,10 @@ export default function AlertsRulesPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="rounded-lg border border-border/60 bg-background/20 px-3 py-2">
                   <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Timezone</div>
-                  <input
+                  <TextInput
                     value={schedTz}
                     onChange={(e) => setSchedTz(e.target.value)}
-                    className={cx(
-                      "mt-1 h-9 w-full rounded-md border border-border/60 bg-background/40 px-3 text-sm font-mono outline-none",
-                      "focus:ring-1 focus:ring-primary/40"
-                    )}
+                    className="mt-1 h-9 font-mono"
                     placeholder="America/Fortaleza"
                   />
                 </div>
@@ -709,25 +638,19 @@ export default function AlertsRulesPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Start</div>
-                      <input
+                      <TextInput
                         value={schedStart}
                         onChange={(e) => setSchedStart(e.target.value)}
-                        className={cx(
-                          "mt-1 h-9 w-full rounded-md border border-border/60 bg-background/40 px-3 text-sm font-mono outline-none",
-                          "focus:ring-1 focus:ring-primary/40"
-                        )}
+                        className="mt-1 h-9 font-mono"
                         placeholder="22:00"
                       />
                     </div>
                     <div>
                       <div className="text-[10px] uppercase tracking-widest text-muted-foreground">End</div>
-                      <input
+                      <TextInput
                         value={schedEnd}
                         onChange={(e) => setSchedEnd(e.target.value)}
-                        className={cx(
-                          "mt-1 h-9 w-full rounded-md border border-border/60 bg-background/40 px-3 text-sm font-mono outline-none",
-                          "focus:ring-1 focus:ring-primary/40"
-                        )}
+                        className="mt-1 h-9 font-mono"
                         placeholder="06:00"
                       />
                     </div>
@@ -782,20 +705,12 @@ export default function AlertsRulesPage() {
                 </div>
               </div>
 
-              {patchError ? (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  {patchError}
-                </div>
-              ) : null}
+              {patchError ? <InlineAlert tone="danger" className="text-xs">{patchError}</InlineAlert> : null}
 
-              <textarea
+              <TextArea
                 value={patchText}
                 onChange={(e) => setPatchText(e.target.value)}
-                className={cx(
-                  "min-h-[180px] w-full rounded-md border border-border/60 bg-background/40 p-3",
-                  "text-[11px] font-mono leading-relaxed outline-none",
-                  "focus:ring-1 focus:ring-primary/40"
-                )}
+                className="min-h-[180px] font-mono text-[11px] leading-relaxed"
                 spellCheck={false}
               />
             </div>
@@ -807,19 +722,11 @@ export default function AlertsRulesPage() {
                   Dedicated tuning payload stored outside generic patch (with audit trail).
                 </div>
               </div>
-              {tuningError ? (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  {tuningError}
-                </div>
-              ) : null}
-              <textarea
+              {tuningError ? <InlineAlert tone="danger" className="text-xs">{tuningError}</InlineAlert> : null}
+              <TextArea
                 value={tuningText}
                 onChange={(e) => setTuningText(e.target.value)}
-                className={cx(
-                  "min-h-[120px] w-full rounded-md border border-border/60 bg-background/40 p-3",
-                  "text-[11px] font-mono leading-relaxed outline-none",
-                  "focus:ring-1 focus:ring-primary/40"
-                )}
+                className="min-h-[120px] font-mono text-[11px] leading-relaxed"
                 spellCheck={false}
               />
             </div>
@@ -832,19 +739,11 @@ export default function AlertsRulesPage() {
                   <span className="font-mono">until</span>, <span className="font-mono">enabled</span>.
                 </div>
               </div>
-              {suppressionsError ? (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  {suppressionsError}
-                </div>
-              ) : null}
-              <textarea
+              {suppressionsError ? <InlineAlert tone="danger" className="text-xs">{suppressionsError}</InlineAlert> : null}
+              <TextArea
                 value={suppressionsText}
                 onChange={(e) => setSuppressionsText(e.target.value)}
-                className={cx(
-                  "min-h-[140px] w-full rounded-md border border-border/60 bg-background/40 p-3",
-                  "text-[11px] font-mono leading-relaxed outline-none",
-                  "focus:ring-1 focus:ring-primary/40"
-                )}
+                className="min-h-[140px] font-mono text-[11px] leading-relaxed"
                 spellCheck={false}
               />
             </div>
@@ -852,13 +751,9 @@ export default function AlertsRulesPage() {
             <div className="rounded-xl border border-border/60 bg-background/20">
               <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60">
                 <div className="text-sm font-semibold">Governance history</div>
-                <button
-                  type="button"
-                  onClick={() => selected && loadHistory(selected.id)}
-                  className="h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs hover:bg-muted/30"
-                >
+                <Button variant="subtle" size="sm" onClick={() => selected && loadHistory(selected.id)}>
                   Refresh
-                </button>
+                </Button>
               </div>
               {historyError ? (
                 <div className="p-4 text-xs text-destructive">{historyError}</div>
