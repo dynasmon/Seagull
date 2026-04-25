@@ -8,6 +8,7 @@ import EmptyState from "@/shared/components/EmptyState";
 import { MetricCard } from "@/shared/components/MetricCard";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import { Card } from "@/shared/components/Card";
+import { SelectInput } from "@/shared/components/SelectInput";
 import { Table } from "@/shared/components/Table";
 import { Badge } from "@/shared/components/Badge";
 import { getErrorMessage } from "@/shared/lib/errors";
@@ -117,13 +118,13 @@ function MiniSelect({
   return (
     <label className="flex flex-col gap-1">
       <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</span>
-      <select
+      <SelectInput
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-9 rounded-md border border-border/60 bg-background/40 px-2 text-sm"
+        className="h-9 text-sm"
       >
         {children}
-      </select>
+      </SelectInput>
     </label>
   );
 }
@@ -339,13 +340,9 @@ export default function SshInsightsPage() {
     <div className="flex items-center gap-2">
       {refreshing ? <Badge variant="info">Refreshing…</Badge> : null}
       {error ? <Badge variant="high">{error}</Badge> : null}
-      <button
-        type="button"
-        onClick={() => void refresh()}
-        className="h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
-      >
+      <Button variant="subtle" size="md" onClick={() => void refresh()}>
         Refresh
-      </button>
+      </Button>
     </div>
   );
 

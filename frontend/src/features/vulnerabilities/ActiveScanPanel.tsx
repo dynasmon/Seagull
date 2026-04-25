@@ -1,7 +1,10 @@
 import { memo, useMemo } from "react";
 
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
 import { Card } from "@/shared/components/Card";
+import { InlineAlert } from "@/shared/components/InlineAlert";
+import { SelectInput } from "@/shared/components/SelectInput";
 import { cx } from "@/shared/lib/cx";
 import type { AgentPublic } from "@/features/agents/types";
 
@@ -284,16 +287,16 @@ const RecentScansTable = memo(function RecentScansTable({
                     "—"}
                 </td>
                 <td className="px-2 py-1.5 text-right">
-                  <button
-                    type="button"
+                  <Button
+                    variant="subtle"
+                    size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
                       onViewScan(s);
                     }}
-                    className="rounded border border-border/60 bg-background/40 px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:bg-muted/15"
                   >
                     View
-                  </button>
+                  </Button>
                 </td>
               </tr>
             );
@@ -392,54 +395,40 @@ export function ActiveScanPanel({
             <div className="text-xs text-muted-foreground">
               Select an agent and run an immediate vulnerability scan.
             </div>
-            <select
+            <SelectInput
               value={scanTargetAgent}
               onChange={(e) => onAgentChange(e.target.value)}
-              className={cx(
-                "w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-sm font-mono outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              className="w-full font-mono"
             >
               {agents.map((a) => (
                 <option key={a.agent_id} value={a.agent_id}>
                   {a.agent_id}
                 </option>
               ))}
-            </select>
+            </SelectInput>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="lg"
               onClick={onRunScan}
               disabled={scanBusy || !scanTargetAgent}
-              className={cx(
-                "inline-flex h-9 items-center rounded-md border border-border/60 bg-background/40",
-                "px-4 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
-                (scanBusy || !scanTargetAgent) && "opacity-50 cursor-not-allowed"
-              )}
             >
               {scanBusy ? "Queueing…" : "Run Scan Now"}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="subtle"
+              size="lg"
               onClick={onRefreshScans}
               disabled={recentScansBusy || (onlySelectedAgent && !scanTargetAgent)}
-              className={cx(
-                "inline-flex h-9 items-center rounded-md border border-border/60 bg-background/40",
-                "px-4 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
-                (recentScansBusy || (onlySelectedAgent && !scanTargetAgent)) &&
-                  "opacity-50 cursor-not-allowed"
-              )}
             >
               {recentScansBusy ? "Refreshing…" : "Refresh"}
-            </button>
+            </Button>
           </div>
 
-          {scanMsg ? <div className="text-xs text-success">{scanMsg}</div> : null}
-          {scanErr ? <div className="text-xs text-danger">{scanErr}</div> : null}
+          {scanMsg ? <InlineAlert tone="success" className="text-xs">{scanMsg}</InlineAlert> : null}
+          {scanErr ? <InlineAlert tone="danger" className="text-xs">{scanErr}</InlineAlert> : null}
 
           {scan ? (
             <div
@@ -476,13 +465,9 @@ export function ActiveScanPanel({
                     </span>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onViewScan(scan)}
-                  className="rounded border border-border/60 bg-background/40 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:bg-muted/15 flex-none"
-                >
+                <Button variant="subtle" size="sm" onClick={() => onViewScan(scan)} className="flex-none">
                   Details
-                </button>
+                </Button>
               </div>
 
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -588,18 +573,13 @@ export function ActiveScanPanel({
               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
                 Recent scans
               </div>
-              <button
-                type="button"
+              <Button
+                variant={onlySelectedAgent ? "secondary" : "subtle"}
+                size="sm"
                 onClick={onToggleAgentFilter}
-                className={cx(
-                  "rounded border border-border/50 bg-background/40 px-2 py-0.5",
-                  "text-[10px] font-mono uppercase tracking-widest",
-                  onlySelectedAgent ? "text-foreground" : "text-muted-foreground",
-                  "hover:bg-muted/15 hover:text-foreground"
-                )}
               >
                 {onlySelectedAgent ? "Selected agent" : "All agents"}
-              </button>
+              </Button>
             </div>
             <RecentScansTable
               scans={recentScans}

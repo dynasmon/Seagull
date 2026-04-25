@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Drawer from "@/shared/components/Drawer";
+import { Button } from "@/shared/components/Button";
 import { DataPaginationFooter, DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
 import DetectionWorkflowRail from "@/shared/components/DetectionWorkflow";
 import EmptyState from "@/shared/components/EmptyState";
+import { Panel } from "@/shared/components/Panel";
 import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
 import { Badge } from "@/shared/components/Badge";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { TextArea } from "@/shared/components/TextArea";
+import { TextInput } from "@/shared/components/TextInput";
 import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
 import { cx } from "@/shared/lib/cx";
 import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
@@ -1170,20 +1175,10 @@ export default function InvestigationsPage() {
         }
         right={
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => fetchFirst()}
-              className="ui-btn-secondary h-8 px-3 text-xs"
-            >
-              Refresh
-            </button>
-            <button
-              type="button"
-              onClick={() => setCreateOpen((v) => !v)}
-              className="ui-btn h-8 px-3 text-xs"
-            >
+            <Button variant="subtle" size="md" onClick={() => fetchFirst()}>Refresh</Button>
+            <Button variant={createOpen ? "secondary" : "primary"} size="md" onClick={() => setCreateOpen((v) => !v)}>
               {createOpen ? "Hide create" : "New workspace"}
-            </button>
+            </Button>
           </div>
         }
       />
@@ -1207,35 +1202,38 @@ export default function InvestigationsPage() {
         ]}
       />
 
-      <div className="rounded-xl border border-border/60 bg-background/40 p-4 space-y-3">
+      <Panel
+        title="Workspace filters"
+        actions={<span className="text-[10px] font-mono text-muted-foreground">{createOpen ? "create form open" : "filters only"}</span>}
+      >
         <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
-          <select value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value as any }))} className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm">
+          <SelectInput value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value as any }))}>
             <option value="all">All status</option>
             <option value="open">Open</option>
             <option value="contained">Contained</option>
             <option value="resolved">Resolved</option>
             <option value="closed">Closed</option>
-          </select>
+          </SelectInput>
 
-          <select value={filters.severity} onChange={(e) => setFilters((p) => ({ ...p, severity: e.target.value as any }))} className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm">
+          <SelectInput value={filters.severity} onChange={(e) => setFilters((p) => ({ ...p, severity: e.target.value as any }))}>
             <option value="all">All severity</option>
             <option value="low">Low</option>
             <option value="medium">Medium</option>
             <option value="high">High</option>
             <option value="critical">Critical</option>
-          </select>
+          </SelectInput>
 
-          <select value={filters.priority} onChange={(e) => setFilters((p) => ({ ...p, priority: e.target.value as any }))} className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm">
+          <SelectInput value={filters.priority} onChange={(e) => setFilters((p) => ({ ...p, priority: e.target.value as any }))}>
             <option value="all">All priority</option>
             <option value="p1">P1</option>
             <option value="p2">P2</option>
             <option value="p3">P3</option>
             <option value="p4">P4</option>
-          </select>
+          </SelectInput>
 
-          <input value={filters.assignee} onChange={(e) => setFilters((p) => ({ ...p, assignee: e.target.value }))} placeholder="Assignee" className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm" />
-          <input value={filters.agentId} onChange={(e) => setFilters((p) => ({ ...p, agentId: e.target.value }))} placeholder="Primary agent" className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm" />
-          <input value={filters.linkedCaseId} onChange={(e) => setFilters((p) => ({ ...p, linkedCaseId: e.target.value }))} placeholder="Linked case ID" className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm font-mono" />
+          <TextInput value={filters.assignee} onChange={(e) => setFilters((p) => ({ ...p, assignee: e.target.value }))} placeholder="Assignee" />
+          <TextInput value={filters.agentId} onChange={(e) => setFilters((p) => ({ ...p, agentId: e.target.value }))} placeholder="Primary agent" />
+          <TextInput value={filters.linkedCaseId} onChange={(e) => setFilters((p) => ({ ...p, linkedCaseId: e.target.value }))} placeholder="Linked case ID" className="font-mono" />
         </div>
 
         <div className="flex items-center gap-3">
@@ -1245,43 +1243,31 @@ export default function InvestigationsPage() {
             placeholder="Search title, workspace key, description..."
             className="h-9 flex-1"
           />
-          <button
-            type="button"
-            onClick={applyFilters}
-            className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:bg-muted/15 hover:text-foreground"
-          >
-            Apply
-          </button>
+          <Button variant="primary" size="lg" onClick={applyFilters}>Apply</Button>
         </div>
 
         {createOpen ? (
           <div className="rounded-lg border border-border/60 bg-background/20 p-3 grid grid-cols-1 md:grid-cols-4 gap-3">
-            <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Workspace title" className="md:col-span-2 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm" />
-            <select value={newSeverity} onChange={(e) => setNewSeverity(e.target.value as any)} className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm">
+            <TextInput value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Workspace title" className="md:col-span-2" />
+            <SelectInput value={newSeverity} onChange={(e) => setNewSeverity(e.target.value as any)}>
               <option value="low">Low</option>
               <option value="medium">Medium</option>
               <option value="high">High</option>
               <option value="critical">Critical</option>
-            </select>
-            <select value={newPriority} onChange={(e) => setNewPriority(e.target.value as any)} className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm">
+            </SelectInput>
+            <SelectInput value={newPriority} onChange={(e) => setNewPriority(e.target.value as any)}>
               <option value="p1">P1</option>
               <option value="p2">P2</option>
               <option value="p3">P3</option>
               <option value="p4">P4</option>
-            </select>
-            <textarea value={newDescription} onChange={(e) => setNewDescription(e.target.value)} rows={2} placeholder="Description" className="md:col-span-3 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm" />
-            <button type="button" onClick={createWorkspaceInline} className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:bg-muted/15 hover:text-foreground">Create</button>
+            </SelectInput>
+            <TextArea value={newDescription} onChange={(e) => setNewDescription(e.target.value)} rows={2} placeholder="Description" className="md:col-span-3" />
+            <Button type="button" variant="primary" size="lg" onClick={createWorkspaceInline}>Create</Button>
           </div>
         ) : null}
-      </div>
+      </Panel>
 
-      <div className="rounded-xl border border-border/60 bg-background/40">
-        <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-          <div className="text-sm font-semibold">Workspaces</div>
-          <div className="text-xs text-muted-foreground">{summary}</div>
-        </div>
-
-        <div className="p-0">
+      <Panel title="Workspaces" actions={<span className="text-[10px] font-mono text-muted-foreground">{summary}</span>} bodyClassName="p-0">
           {loading && rows.length === 0 ? <Loading label="Loading workspaces" /> : null}
           {!loading && error ? <EmptyState title="Failed" hint={error} /> : null}
           {!loading && !error && rows.length === 0 ? <EmptyState title="No workspaces" hint="Create the first workspace to begin." /> : null}
@@ -1330,16 +1316,16 @@ export default function InvestigationsPage() {
                       <td className="px-3 py-2 text-[12px] font-mono">{fmtTs(ws.updated_at)}</td>
                       <td className="px-3 py-2 text-[12px]">{ws.notes_count} notes · {ws.bookmarks_count} evidence</td>
                       <td className="px-3 py-2 text-right">
-                        <button
-                          type="button"
+                        <Button
+                          variant="subtle"
+                          size="sm"
                           onClick={(e) => {
                             e.stopPropagation();
                             openWorkspaceDrawer(ws.id);
                           }}
-                          className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:bg-muted/15 hover:text-foreground"
                         >
                           Open
-                        </button>
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -1366,8 +1352,7 @@ export default function InvestigationsPage() {
               />
             </div>
           ) : null}
-        </div>
-      </div>
+      </Panel>
 
       <WorkspaceDrawer
         workspaceId={selectedId}

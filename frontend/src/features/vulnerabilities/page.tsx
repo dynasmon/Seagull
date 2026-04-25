@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
 import { Card } from "@/shared/components/Card";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { TextInput } from "@/shared/components/TextInput";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { cx } from "@/shared/lib/cx";
 import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
@@ -154,32 +157,6 @@ function StatItem({
       </div>
       {sub && <div className="mt-0.5 text-[11px] text-muted-foreground">{sub}</div>}
     </div>
-  );
-}
-
-function CtrlBtn({
-  onClick,
-  disabled,
-  children,
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={cx(
-        "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-        "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-        "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
-        disabled && "opacity-50 cursor-not-allowed"
-      )}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -710,11 +687,6 @@ export default function VulnerabilitiesPage() {
     );
   }
 
-  const inputCx = cx(
-    "w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-    "text-sm outline-none focus:ring-2 focus:ring-primary/30"
-  );
-
   return (
     <div className="space-y-6">
       {/* ── Header ── */}
@@ -728,15 +700,10 @@ export default function VulnerabilitiesPage() {
         ]}
         toolbarRight={
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
+            <Button
+              variant="subtle"
+              size="lg"
               onClick={() => setDensity(density === "compact" ? "comfortable" : "compact")}
-              className={cx(
-                "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                "px-3 py-2 text-xs font-mono uppercase tracking-widest",
-                density === "compact" ? "text-foreground" : "text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              )}
             >
               <span
                 className={cx(
@@ -745,20 +712,16 @@ export default function VulnerabilitiesPage() {
                 )}
               />
               {density === "compact" ? "Compact" : "Comfortable"}
-            </button>
+            </Button>
 
-            <button
-              type="button"
+            <Button
+              variant="subtle"
+              size="lg"
               onClick={() => void Promise.all([refreshDashboardNow(), refreshRecentScansNow()])}
               disabled={busy && items.length === 0}
-              className={cx(
-                "inline-flex items-center rounded-md border border-border/60 bg-background/40",
-                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              )}
             >
               Refresh
-            </button>
+            </Button>
           </div>
         }
       />
@@ -1075,88 +1038,88 @@ export default function VulnerabilitiesPage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <div className="text-xs text-muted-foreground">Search</div>
-            <input
+            <TextInput
               value={draft.q}
               onChange={(e) => setDraft((p) => ({ ...p, q: e.target.value }))}
               onKeyDown={(e) => e.key === "Enter" && applyFilters()}
               placeholder="title / CVE / external_id"
-              className={cx(inputCx, "mt-1")}
+              className="mt-1"
             />
           </div>
 
           <div>
             <div className="text-xs text-muted-foreground">Min severity</div>
-            <select
+            <SelectInput
               value={draft.minSeverity}
               onChange={(e) => setDraft((p) => ({ ...p, minSeverity: e.target.value }))}
-              className={cx(inputCx, "mt-1")}
+              className="mt-1"
             >
               <option value="all">All</option>
               <option value="low">Low+</option>
               <option value="medium">Medium+</option>
               <option value="high">High+</option>
               <option value="critical">Critical</option>
-            </select>
+            </SelectInput>
           </div>
 
           <div>
             <div className="text-xs text-muted-foreground">Observation state</div>
-            <select
+            <SelectInput
               value={draft.observationState}
               onChange={(e) => setDraft((p) => ({ ...p, observationState: e.target.value }))}
-              className={cx(inputCx, "mt-1")}
+              className="mt-1"
             >
               <option value="all">All</option>
               <option value="observed">Still observed</option>
               <option value="awaiting_verification">Pending verification</option>
               <option value="resolved">No longer observed</option>
-            </select>
+            </SelectInput>
           </div>
 
           <div>
             <div className="text-xs text-muted-foreground">Disposition</div>
-            <select
+            <SelectInput
               value={draft.disposition}
               onChange={(e) => setDraft((p) => ({ ...p, disposition: e.target.value }))}
-              className={cx(inputCx, "mt-1")}
+              className="mt-1"
             >
               <option value="all">All</option>
               <option value="open">Active</option>
               <option value="accepted_risk">Risk accepted</option>
               <option value="suppressed">Suppressed</option>
-            </select>
+            </SelectInput>
           </div>
 
           <div>
             <div className="text-xs text-muted-foreground">CVE</div>
-            <input
+            <TextInput
               value={draft.cve}
               onChange={(e) => setDraft((p) => ({ ...p, cve: e.target.value }))}
               onKeyDown={(e) => e.key === "Enter" && applyFilters()}
               placeholder="CVE-2024-1234"
-              className={cx(inputCx, "mt-1 font-mono")}
+              className="mt-1 font-mono"
             />
           </div>
 
           <div>
             <div className="text-xs text-muted-foreground">Reporter agent</div>
-            <input
+            <TextInput
               value={draft.reporterAgentId}
               onChange={(e) => setDraft((p) => ({ ...p, reporterAgentId: e.target.value }))}
               onKeyDown={(e) => e.key === "Enter" && applyFilters()}
               placeholder="agent-id"
-              className={cx(inputCx, "mt-1 font-mono")}
+              className="mt-1 font-mono"
             />
           </div>
 
           <div>
             <div className="text-xs text-muted-foreground">Asset agent</div>
-            <input
+            <TextInput
               value={draft.assetAgentId}
               onChange={(e) => setDraft((p) => ({ ...p, assetAgentId: e.target.value }))}
               onKeyDown={(e) => e.key === "Enter" && applyFilters()}
               placeholder="agent-id"
-              className={cx(inputCx, "mt-1 font-mono")}
+              className="mt-1 font-mono"
             />
           </div>
 
@@ -1168,23 +1131,16 @@ export default function VulnerabilitiesPage() {
                 onCommit={(n) => setPageSize(n)}
                 min={1}
                 max={200}
-                className={cx(
-                  "w-20 rounded-md border border-border/60 bg-background/40 px-2 py-2",
-                  "text-sm font-mono text-foreground outline-none focus:ring-2 focus:ring-primary/30"
-                )}
+                className="ui-input h-10 w-20 font-mono"
               />
             </div>
 
             <div className="flex items-end gap-2">
-              <button
-                type="button"
+              <Button
+                variant={draft.includeSuppressed ? "secondary" : "subtle"}
+                size="lg"
                 onClick={() => setDraft((p) => ({ ...p, includeSuppressed: !p.includeSuppressed }))}
-                className={cx(
-                  "mb-0 inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/40",
-                  "px-3 py-2 text-[10px] font-mono uppercase tracking-widest",
-                  draft.includeSuppressed ? "text-foreground" : "text-muted-foreground",
-                  "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                )}
+                className="mb-0"
               >
                 <span
                   className={cx(
@@ -1193,15 +1149,15 @@ export default function VulnerabilitiesPage() {
                   )}
                 />
                 Suppressed
-              </button>
+              </Button>
             </div>
           </div>
         </div>
 
         {/* Filter action row */}
         <div className="mt-3 flex items-center gap-2">
-          <CtrlBtn onClick={applyFilters}>Apply</CtrlBtn>
-          <CtrlBtn onClick={resetFilters}>Reset</CtrlBtn>
+          <Button variant="primary" size="lg" onClick={applyFilters}>Apply</Button>
+          <Button variant="subtle" size="lg" onClick={resetFilters}>Reset</Button>
         </div>
 
         {/* Quick-pivot chips: assets and packages from loaded findings */}
@@ -1282,7 +1238,7 @@ export default function VulnerabilitiesPage() {
             <div className="flex flex-col items-center gap-3">
               <EmptyState title="No findings" description={findingsHint} />
               {activeFilterCount > 0 && (
-                <CtrlBtn onClick={resetFilters}>Clear filters</CtrlBtn>
+                <Button variant="subtle" size="lg" onClick={resetFilters}>Clear filters</Button>
               )}
             </div>
           </div>
@@ -1393,21 +1349,17 @@ export default function VulnerabilitiesPage() {
                       </td>
                       <td className={cx("px-3 font-mono text-[12px]", rowPad)}>{f.occurrences}</td>
                       <td className={cx("px-3 text-right", rowPad)}>
-                        <button
-                          type="button"
+                        <Button
+                          variant="subtle"
+                          size="sm"
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelected(f);
                             setDrawerOpen(true);
                           }}
-                          className={cx(
-                            "inline-flex items-center rounded-md border border-border/60 bg-background/40",
-                            "px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                            "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                          )}
                         >
                           View
-                        </button>
+                        </Button>
                       </td>
                     </tr>
                   );
@@ -1417,19 +1369,14 @@ export default function VulnerabilitiesPage() {
 
             {hasMore && (
               <div className="mt-4 flex justify-center">
-                <button
-                  type="button"
+                <Button
+                  variant="subtle"
+                  size="lg"
                   disabled={busyMore}
                   onClick={() => void loadPage({ reset: false, cursor })}
-                  className={cx(
-                    "rounded-md border border-border/60 bg-background/40 px-4 py-2",
-                    "text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                    "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
-                    busyMore && "opacity-60"
-                  )}
                 >
                   {busyMore ? "Loading…" : "Load more"}
-                </button>
+                </Button>
               </div>
             )}
           </div>

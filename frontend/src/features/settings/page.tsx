@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/features/auth/context";
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
 import { Card } from "@/shared/components/Card";
+import { InlineAlert } from "@/shared/components/InlineAlert";
 import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
 import { Table } from "@/shared/components/Table";
+import { TextInput } from "@/shared/components/TextInput";
 
 import { changeMyPassword, getAdminLoginHistory, getRuntimeConfig, type AdminLoginEvent } from "./api";
 
@@ -192,9 +195,9 @@ export default function SettingsPage() {
         <Card title="Session Controls">
           <div className="space-y-3">
             <div className="text-xs text-muted-foreground">Sign out from the current browser session.</div>
-            <button type="button" onClick={() => logout()} className="ui-btn-secondary h-10 px-4 text-sm">
+            <Button variant="secondary" size="lg" onClick={() => logout()}>
               Sign out
-            </button>
+            </Button>
           </div>
         </Card>
 
@@ -202,7 +205,7 @@ export default function SettingsPage() {
           {runtimeBusy ? (
             <Loading label="Loading runtime security policy..." />
           ) : runtimeError && isAdmin ? (
-            <div className="text-xs text-danger">{runtimeError}</div>
+            <InlineAlert tone="danger" className="text-xs">{runtimeError}</InlineAlert>
           ) : (
             <div className="space-y-2 text-sm">
               <div className="flex flex-wrap items-center gap-2">
@@ -239,36 +242,36 @@ export default function SettingsPage() {
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <label className="space-y-1 md:col-span-2">
               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Current password</div>
-              <input
+              <TextInput
                 value={curPw}
                 onChange={(e) => setCurPw(e.target.value)}
                 type="password"
                 autoComplete="current-password"
-                className="ui-input h-10"
+                className="h-10"
                 placeholder="••••••••••••"
               />
             </label>
 
             <label className="space-y-1">
               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">New password</div>
-              <input
+              <TextInput
                 value={newPw}
                 onChange={(e) => setNewPw(e.target.value)}
                 type="password"
                 autoComplete="new-password"
-                className="ui-input h-10"
+                className="h-10"
                 placeholder="Minimum 12 characters"
               />
             </label>
 
             <label className="space-y-1">
               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Confirm new password</div>
-              <input
+              <TextInput
                 value={newPw2}
                 onChange={(e) => setNewPw2(e.target.value)}
                 type="password"
                 autoComplete="new-password"
-                className="ui-input h-10"
+                className="h-10"
                 placeholder="Repeat new password"
               />
             </label>
@@ -285,18 +288,13 @@ export default function SettingsPage() {
             <PasswordRule ok={policy.confirmMatch} label="Confirmation matches" />
           </div>
 
-          {pwError ? (
-            <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs font-mono text-danger">{pwError}</div>
-          ) : null}
-
-          {pwOk ? (
-            <div className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-xs font-mono text-success">{pwOk}</div>
-          ) : null}
+          {pwError ? <InlineAlert tone="danger" className="text-xs font-mono">{pwError}</InlineAlert> : null}
+          {pwOk ? <InlineAlert tone="success" className="text-xs font-mono">{pwOk}</InlineAlert> : null}
 
           <div className="flex items-center gap-2">
-            <button type="submit" disabled={pwBusy || !canSubmit} className="ui-btn h-10 border-primary/60 bg-primary/90 px-4 text-primary-foreground disabled:opacity-60">
+            <Button type="submit" variant="primary" size="lg" disabled={pwBusy || !canSubmit}>
               {pwBusy ? "Updating..." : "Update password"}
-            </button>
+            </Button>
           </div>
         </form>
       </Card>
