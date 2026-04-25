@@ -15,8 +15,8 @@ import Loading from "@/shared/components/Loading";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 import { useLiveRefresh } from "@/shared/realtime";
+import { MetricCard } from "@/shared/components/MetricCard";
 import InternalRefreshToolbar from "@/features/internal/components/InternalRefreshToolbar";
-import InternalStatTile from "@/features/internal/components/InternalStatTile";
 
 function pretty(v: any) {
   try {
@@ -204,10 +204,10 @@ export default function InternalAgentsInspectorView() {
 
           <Card title="Runtime Snapshot">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <InternalStatTile label="Status" value={statusOfAgent(selectedAgentRow)} />
-              <InternalStatTile label="Last seen" value={fmtDateTime(selectedAgentRow?.last_seen_at)} />
-              <InternalStatTile label="Uptime sec" value={agent?.metrics?.uptime_seconds ?? "-"} />
-              <InternalStatTile label="Events sample" value={events.length} />
+              <MetricCard title="Status" value={statusOfAgent(selectedAgentRow)} />
+              <MetricCard title="Last seen" value={fmtDateTime(selectedAgentRow?.last_seen_at)} />
+              <MetricCard title="Uptime sec" value={agent?.metrics?.uptime_seconds ?? "-"} />
+              <MetricCard title="Events sample" value={events.length} />
             </div>
           </Card>
 
@@ -237,10 +237,10 @@ export default function InternalAgentsInspectorView() {
                 <EmptyState title="No inventory" hint="No latest inventory snapshot for this agent." />
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <InternalStatTile label="Collected at" value={fmtDateTime(latestInventory.collected_at)} />
-                  <InternalStatTile label="Packages" value={latestInventory.packages_count ?? (latestInventory.packages || []).length} />
-                  <InternalStatTile label="Manager" value={latestInventory.manager || "-"} />
-                  <InternalStatTile label="Schema" value={latestInventory.schema_version || "-"} />
+                  <MetricCard title="Collected at" value={fmtDateTime(latestInventory.collected_at)} />
+                  <MetricCard title="Packages" value={latestInventory.packages_count ?? (latestInventory.packages || []).length} />
+                  <MetricCard title="Manager" value={latestInventory.manager || "-"} />
+                  <MetricCard title="Schema" value={latestInventory.schema_version || "-"} />
                 </div>
               )}
             </Card>

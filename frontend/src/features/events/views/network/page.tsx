@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 
 import { useAgentsCatalog } from "@/app/providers";
 import AsyncState from "@/shared/components/AsyncState";
+import { MetricCard } from "@/shared/components/MetricCard";
 import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
@@ -109,15 +110,6 @@ function Section({ title, right, children }: { title: string; right?: any; child
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: any; sub?: any }) {
-  return (
-    <div className="rounded-lg border border-border/60 bg-background/40 p-4">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
-      {sub ? <div className="mt-1 text-xs text-muted-foreground">{sub}</div> : null}
-    </div>
-  );
-}
 
 function TableEmpty({ title, desc }: { title: string; desc?: string }) {
   return <EmptyState title={title} description={desc ?? "No results for the selected scope."} />;
@@ -622,12 +614,12 @@ export default function ProtocolIntelPage() {
 
           <Section title="Coverage" right={data ? `generated ${generatedAt}` : ""}>
             <div className="grid grid-cols-2 gap-3">
-              <Stat label="Total events" value={data ? data.total_events : "-"} sub={`Lookback ${view.since_minutes} min`} />
-              <Stat label="With protocol metadata" value={data ? data.with_proto_metadata : "-"} sub={`Coverage ${coverage}`} />
-              <Stat label="DNS" value={data ? data.dns_events : "-"} />
-              <Stat label="HTTP" value={data ? data.http_events : "-"} />
-              <Stat label="TLS/DTLS/QUIC" value={data ? data.tls_events : "-"} />
-              <Stat label="Last updated" value={lastOkAt ? fmtDateTime(lastOkAt) : "-"} />
+              <MetricCard title="Total events" value={data ? data.total_events : "-"} helper={`Lookback ${view.since_minutes} min`} />
+              <MetricCard title="With protocol metadata" value={data ? data.with_proto_metadata : "-"} helper={`Coverage ${coverage}`} />
+              <MetricCard title="DNS" value={data ? data.dns_events : "-"} />
+              <MetricCard title="HTTP" value={data ? data.http_events : "-"} />
+              <MetricCard title="TLS/DTLS/QUIC" value={data ? data.tls_events : "-"} />
+              <MetricCard title="Last updated" value={lastOkAt ? fmtDateTime(lastOkAt) : "-"} />
             </div>
           </Section>
 
