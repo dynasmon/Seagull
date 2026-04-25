@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Badge } from "@/shared/components/Badge";
+import { JsonBlock } from "@/shared/components/JsonBlock";
 import {
   DataPaginationFooter,
   DataQueryStateBanner,
@@ -1142,9 +1143,7 @@ export default function AlertsQueuePage() {
                   {toDetailNested(selected.details).map((block) => (
                     <div key={block.key} className="rounded-lg border border-border/60 bg-background/35 p-3">
                       <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{block.key}</div>
-                      <pre className="mt-2 max-h-[220px] overflow-auto rounded border border-border/60 bg-background/30 p-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words">
-                        {safeJson(block.value)}
-                      </pre>
+                      <JsonBlock value={block.value} maxHeight="220px" showControls={false} className="mt-2" />
                     </div>
                   ))}
                 </div>
