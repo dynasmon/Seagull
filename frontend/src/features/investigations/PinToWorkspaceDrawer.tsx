@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 
 import Drawer from "@/shared/components/Drawer";
-import { cx } from "@/shared/lib/cx";
+import {
+  InvestigationActionBar,
+  InvestigationActionButton,
+  InvestigationMetaStrip,
+  InvestigationSection,
+  InvestigationShell,
+  InvestigationTabs,
+} from "@/shared/components/investigation";
 
 import { createInvestigationWorkspace, listInvestigationWorkspaces } from "./api";
 import type {
@@ -166,42 +173,35 @@ export default function PinToWorkspaceDrawer({
       title="Pin to workspace"
       description={title}
       widthClassName="w-[620px]"
+      headerLabel="Evidence"
     >
-      <div className="space-y-4">
-        <div className="rounded-lg border border-border/60 bg-background/30 p-3">
-          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Destination</div>
-          <div className="mt-3 flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setMode("existing")}
-              className={cx(
-                "rounded border px-3 py-2 text-[10px] font-mono uppercase tracking-widest",
-                mode === "existing"
-                  ? "border-primary/60 bg-primary/20 text-foreground"
-                  : "border-border/60 bg-background/30 text-muted-foreground hover:text-foreground"
-              )}
-              disabled={existingOptions.length === 0}
-            >
-              Existing workspace
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("create")}
-              className={cx(
-                "rounded border px-3 py-2 text-[10px] font-mono uppercase tracking-widest",
-                mode === "create"
-                  ? "border-primary/60 bg-primary/20 text-foreground"
-                  : "border-border/60 bg-background/30 text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Create new workspace
-            </button>
-          </div>
+      <InvestigationShell>
+        <InvestigationMetaStrip
+          items={[
+            { label: "Source", value: title, variant: "info" },
+            { label: "Mode", value: mode === "existing" ? "existing workspace" : "create workspace" },
+            { label: "Available workspaces", value: String(existingOptions.length) },
+            {
+              label: "Selected workspace",
+              value: existingOptions.find((workspace) => workspace.id === selectedWorkspaceId)?.workspace_key || "-",
+            },
+          ]}
+        />
 
-          {loading ? <div className="mt-3 text-sm text-muted-foreground">Loading workspaces...</div> : null}
+        <InvestigationSection title="Destination" subtitle="Choose an existing workspace or create a new investigation record first.">
+          <InvestigationTabs
+            value={mode}
+            onChange={(next) => setMode(next)}
+            tabs={[
+              { key: "existing", label: "Existing workspace" },
+              { key: "create", label: "Create workspace" },
+            ]}
+          />
+
+          {loading ? <div className="mt-4 text-sm text-muted-foreground">Loading workspaces...</div> : null}
 
           {mode === "existing" ? (
-            <div className="mt-3">
+            <div className="mt-4">
               <select
                 value={selectedWorkspaceId ? String(selectedWorkspaceId) : ""}
                 onChange={(e) => setSelectedWorkspaceId(Number(e.target.value) || null)}
@@ -216,7 +216,7 @@ export default function PinToWorkspaceDrawer({
               </select>
             </div>
           ) : (
-            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="md:col-span-2">
                 <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Title</div>
                 <input
@@ -276,55 +276,45 @@ export default function PinToWorkspaceDrawer({
               </div>
             </div>
           )}
-        </div>
+        </InvestigationSection>
 
-        <div className="rounded-lg border border-border/60 bg-background/30 p-3 space-y-3">
-          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Pin context</div>
-          <div>
-            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Why this evidence matters (optional)</div>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={3}
-              className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
-            />
+        <InvestigationSection title="Pin context" subtitle="Preserve why this artifact matters and how the analyst wants it grouped.">
+          <div className="space-y-3">
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Why this evidence matters (optional)</div>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={3}
+                className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Tags (comma separated)</div>
+              <input
+                value={tagsText}
+                onChange={(e) => setTagsText(e.target.value)}
+                placeholder="ioc, dns, suspicious"
+                className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+              />
+            </div>
           </div>
-          <div>
-            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Tags (comma separated)</div>
-            <input
-              value={tagsText}
-              onChange={(e) => setTagsText(e.target.value)}
-              placeholder="ioc, dns, suspicious"
-              className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
+        </InvestigationSection>
 
         {error ? <div className="text-sm text-danger">{error}</div> : null}
         {success ? <div className="text-sm text-success">{success}</div> : null}
 
-        <div className="flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-border/60 bg-background/30 px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground"
-          >
-            Close
-          </button>
-          <button
-            type="button"
-            onClick={submit}
+        <InvestigationActionBar>
+          <InvestigationActionButton onClick={onClose}>Close</InvestigationActionButton>
+          <InvestigationActionButton
+            onClick={() => void submit()}
             disabled={busy || loading}
-            className={cx(
-              "rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest",
-              "hover:bg-muted/15 hover:text-foreground",
-              (busy || loading) && "opacity-60 cursor-not-allowed"
-            )}
+            tone="primary"
           >
             {busy ? "Pinning..." : "Pin evidence"}
-          </button>
-        </div>
-      </div>
+          </InvestigationActionButton>
+        </InvestigationActionBar>
+      </InvestigationShell>
     </Drawer>
   );
 }

@@ -29,3 +29,21 @@ export function safeJson(value: unknown): string {
     return String(value);
   }
 }
+
+function padTimestampUnit(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+export function formatInvestigationTimestamp(value: string | number | Date | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "-";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  const yyyy = date.getFullYear();
+  const mm = padTimestampUnit(date.getMonth() + 1);
+  const dd = padTimestampUnit(date.getDate());
+  const hh = padTimestampUnit(date.getHours());
+  const mi = padTimestampUnit(date.getMinutes());
+  const ss = padTimestampUnit(date.getSeconds());
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}

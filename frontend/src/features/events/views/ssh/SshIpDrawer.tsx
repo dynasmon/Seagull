@@ -8,28 +8,23 @@ import Loading from "@/shared/components/Loading";
 import { Badge } from "@/shared/components/Badge";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import {
+  InvestigationActionBar,
+  InvestigationActionButton,
+  InvestigationFactCard,
+  InvestigationMetaStrip,
+  InvestigationSection,
+  InvestigationShell,
+  InvestigationSummaryGrid,
+  copyTextToClipboard,
+  formatInvestigationTimestamp,
+} from "@/shared/components/investigation";
 
 import { huntEvents } from "@/features/events/api";
 import EventDrawer from "@/features/events/components/EventDrawer";
 import type { NetEvent, QueryProvenanceMeta } from "@/features/events/types";
 
 import type { SshIpStat } from "./types";
-
-function fmtWhen(iso?: string | null) {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleString();
-}
-
-
-function safeCopy(text: string) {
-  const t = (text || "").trim();
-  if (!t) return;
-  navigator.clipboard?.writeText(t).catch(() => {
-    /* ignore */
-  });
-}
 
 function toEventsLink(params: { agent_id?: string; event_type?: string; search?: string; event_id?: number }): string {
   const q = new URLSearchParams();
@@ -71,6 +66,7 @@ export default function SshIpDrawer({
 
   const [eventDrawerOpen, setEventDrawerOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<NetEvent | null>(null);
+  const [copied, setCopied] = useState<null | "ok" | "fail">(null);
 
   const load = useCallback(async () => {
     if (!srcIp) return;
@@ -102,6 +98,7 @@ export default function SshIpDrawer({
     setEvents([]);
     setQueryMeta(null);
     setError(null);
+    setCopied(null);
     eventsRef.current = [];
     load();
   }, [open, srcIp, load]);
@@ -173,7 +170,7 @@ export default function SshIpDrawer({
         key: "timestamp",
         title: "When",
         width: 180,
-        render: (r: NetEvent) => <span className="font-mono text-xs">{fmtWhen(r.timestamp)}</span>
+        render: (r: NetEvent) => <span className="font-mono text-xs">{formatInvestigationTimestamp(r.timestamp)}</span>
       },
       {
         key: "action",
@@ -241,123 +238,111 @@ export default function SshIpDrawer({
         open={open}
         title={title}
         description={description}
+        headerLabel="SSH intel"
         onClose={onClose}
         widthClassName="w-[980px]"
       >
         {!srcIp ? (
           <EmptyState title="No IP selected" hint="Pick an IP from the tables to open its profile." />
         ) : (
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[12px] font-mono text-muted-foreground">src_ip</span>
-                  <span className="text-base font-semibold font-mono truncate">{srcIp}</span>
-                  {meta.country ? <Badge variant="info">{meta.country}</Badge> : <Badge variant="neutral">no geo</Badge>}
-                  {meta.asn ? <Badge variant="neutral">{meta.asn}</Badge> : null}
-                </div>
-                <div className="mt-2 text-sm text-muted-foreground">
-                  <div className="truncate">{meta.org || "-"}</div>
-                  <div className="mt-0.5 text-[11px] font-mono truncate">{meta.asnOrg || ""}</div>
-                </div>
-              </div>
+          <InvestigationShell>
+            <InvestigationMetaStrip
+              items={[
+                { label: "Source IP", value: srcIp, variant: "info" },
+                { label: "Lookback", value: `${sinceMinutes}m` },
+                { label: "Scoped agent", value: viewAgentId || "all agents" },
+                { label: "Country", value: meta.country || "unknown", variant: meta.country ? "info" : "neutral" },
+                { label: "ASN", value: meta.asn || "-" },
+                { label: "Org", value: meta.org || meta.asnOrg || "-" },
+                { label: "Events loaded", value: String(events.length) },
+                { label: "Last seen", value: formatInvestigationTimestamp(counts.lastSeen) },
+              ]}
+            />
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant="subtle" size="sm" onClick={() => safeCopy(srcIp)} title="Copy IP to clipboard">
-                  Copy IP
-                </Button>
-                <Link
-                  to={toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: srcIp })}
-                  className={cx(
-                    "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                    "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                    "hover:bg-muted/15 hover:text-foreground",
-                    "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  )}
-                >
-                  Open in Events
-                </Link>
-                <Button variant="subtle" size="sm" onClick={load} disabled={loading} title="Reload recent events">
-                  {loading ? "Refreshing…" : "Refresh"}
-                </Button>
-              </div>
-            </div>
-
-            {queryMeta ? (
-              <div
+            <InvestigationActionBar>
+              <InvestigationActionButton
+                onClick={async () => {
+                  const ok = await copyTextToClipboard(srcIp);
+                  setCopied(ok ? "ok" : "fail");
+                  window.setTimeout(() => setCopied(null), 1200);
+                }}
+              >
+                {copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy IP"}
+              </InvestigationActionButton>
+              <InvestigationActionButton onClick={() => void load()} disabled={loading}>
+                {loading ? "Refreshing..." : "Refresh"}
+              </InvestigationActionButton>
+              <Link
+                to={toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: srcIp })}
                 className={cx(
-                  "rounded-lg border px-3 py-2 text-[11px] font-mono",
-                  queryMeta.degraded_reason ? "border-warning/40 bg-warning/10 text-warning" : "border-border/60 bg-background/40 text-muted-foreground"
+                  "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
+                  "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
+                  "hover:bg-muted/15 hover:text-foreground",
+                  "focus:outline-none focus:ring-2 focus:ring-primary/30"
                 )}
               >
-                source {queryMeta.source}
-                {typeof queryMeta.source_freshness_seconds === "number" ? ` · freshness ${queryMeta.source_freshness_seconds}s` : ""}
-                {queryMeta.cache_hit ? " · cache" : ""}
-                {queryMeta.degraded_reason ? ` · ${queryMeta.degraded_reason}` : ""}
-              </div>
-            ) : null}
+                Open in Events
+              </Link>
+            </InvestigationActionBar>
 
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">accepted</div>
-                <div className="mt-1 text-xl font-semibold tracking-tight">{counts.accepted}</div>
-              </div>
-              <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">failed</div>
-                <div className="mt-1 text-xl font-semibold tracking-tight">{counts.failed}</div>
-              </div>
-              <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">invalid</div>
-                <div className="mt-1 text-xl font-semibold tracking-tight">{counts.invalid}</div>
-              </div>
-              <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">other</div>
-                <div className="mt-1 text-xl font-semibold tracking-tight">{counts.other}</div>
-              </div>
-              <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">last seen</div>
-                <div className="mt-1 text-sm font-mono text-foreground truncate">{fmtWhen(counts.lastSeen)}</div>
-              </div>
-            </div>
+            <InvestigationSection title="SSH source overview" subtitle="Recent authentication activity, enrichment, and top identities for this source.">
+              {queryMeta ? (
+                <div
+                  className={cx(
+                    "mb-4 rounded-lg border px-3 py-2 text-[11px] font-mono",
+                    queryMeta.degraded_reason ? "border-warning/40 bg-warning/10 text-warning" : "border-border/60 bg-background/30 text-muted-foreground"
+                  )}
+                >
+                  source {queryMeta.source}
+                  {typeof queryMeta.source_freshness_seconds === "number" ? ` · freshness ${queryMeta.source_freshness_seconds}s` : ""}
+                  {queryMeta.cache_hit ? " · cache" : ""}
+                  {queryMeta.degraded_reason ? ` · ${queryMeta.degraded_reason}` : ""}
+                </div>
+              ) : null}
 
-            {counts.topUsers.length ? (
-              <div className="rounded-xl border border-border/60 bg-background/60 p-4">
-                <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
-                  Top usernames (from recent events)
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {counts.topUsers.map((u) => (
-                    <span
-                      key={u.username}
-                      className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/40 px-3 py-1"
-                    >
-                      <span className="text-xs font-mono">{u.username}</span>
-                      <span className="text-[11px] font-mono text-muted-foreground">{u.count}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : null}
+              <InvestigationSummaryGrid className="xl:grid-cols-4">
+                <InvestigationFactCard label="Accepted" value={String(counts.accepted)} mono />
+                <InvestigationFactCard label="Failed password" value={String(counts.failed)} mono />
+                <InvestigationFactCard label="Invalid user" value={String(counts.invalid)} mono />
+                <InvestigationFactCard label="Other actions" value={String(counts.other)} mono />
+                <InvestigationFactCard label="Total actions" value={String(counts.total)} mono />
+                <InvestigationFactCard label="Geo country" value={meta.country || "-"} />
+                <InvestigationFactCard label="ASN" value={meta.asn || "-"} mono />
+                <InvestigationFactCard label="Last seen" value={formatInvestigationTimestamp(counts.lastSeen)} mono />
+              </InvestigationSummaryGrid>
 
-            <div className="rounded-xl border border-border/60 bg-background/70 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-muted/10">
-                <div className="text-sm font-semibold tracking-tight truncate">Recent SSH events</div>
-                <div className="text-xs text-muted-foreground truncate">
-                  {error ? <span className="text-danger">{error}</span> : `${events.length} rows`}
+              {counts.topUsers.length ? (
+                <div className="mt-4">
+                  <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">
+                    Top usernames
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {counts.topUsers.map((u) => (
+                      <span
+                        key={u.username}
+                        className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/40 px-3 py-1"
+                      >
+                        <span className="text-xs font-mono">{u.username}</span>
+                        <span className="text-[11px] font-mono text-muted-foreground">{u.count}</span>
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="p-4">
-                {loading && events.length === 0 ? <Loading label="Loading recent events…" /> : null}
-                {!loading && events.length === 0 ? (
-                  <EmptyState
-                    title="No SSH events"
-                    hint="No events matched this source IP in the selected lookback window."
-                  />
-                ) : null}
-                {events.length ? <Table columns={cols as any} rows={events} rowKey={(r) => String(r.id)} className="text-sm" /> : null}
-              </div>
-            </div>
-          </div>
+              ) : null}
+            </InvestigationSection>
+
+            <InvestigationSection title="Recent SSH events" subtitle="Server-side hunt results filtered by source IP.">
+              {loading && events.length === 0 ? <Loading label="Loading recent events..." /> : null}
+              {!loading && events.length === 0 ? (
+                <EmptyState
+                  title="No SSH events"
+                  hint="No events matched this source IP in the selected lookback window."
+                />
+              ) : null}
+              {events.length ? <Table columns={cols as any} rows={events} rowKey={(r) => String(r.id)} className="text-sm" /> : null}
+              {error ? <div className="mt-3 text-[12px] text-danger">{error}</div> : null}
+            </InvestigationSection>
+          </InvestigationShell>
         )}
       </Drawer>
 
