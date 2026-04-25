@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
 import Drawer from "@/shared/components/Drawer";
-import EmptyState from "@/shared/components/EmptyState";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
+import EmptyState from "@/shared/components/EmptyState";
+import { InlineAlert } from "@/shared/components/InlineAlert";
 import Loading from "@/shared/components/Loading";
+import { Panel } from "@/shared/components/Panel";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { TextInput } from "@/shared/components/TextInput";
 import { cx } from "@/shared/lib/cx";
 
 import { createCorrelationRule, deleteCorrelationRule, getCorrelationRules, updateCorrelationRule } from "../api";
@@ -288,24 +293,8 @@ export default function CorrelationRulesPage() {
               />
               Show disabled
             </label>
-            <button
-              onClick={load}
-              className={cx(
-                "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-                "hover:bg-muted/30"
-              )}
-            >
-              Refresh
-            </button>
-            <button
-              onClick={openCreate}
-              className={cx(
-                "h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground",
-                "hover:opacity-95"
-              )}
-            >
-              New rule
-            </button>
+            <Button variant="subtle" size="lg" onClick={load}>Refresh</Button>
+            <Button variant="primary" size="lg" onClick={openCreate}>New rule</Button>
           </div>
         }
       />
@@ -329,26 +318,18 @@ export default function CorrelationRulesPage() {
         ]}
       />
 
-      <div className="rounded-xl border border-border/60 bg-background/70 backdrop-blur-md">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-muted/10">
-          <div className="text-sm font-semibold">Rules</div>
-          <div className="text-xs text-muted-foreground">
-            {filtered.length} shown · {rules.length} total
-          </div>
-        </div>
-
-        <div className="min-h-[360px]">
+      <Panel
+        title="Rules"
+        actions={<span className="text-[10px] font-mono text-muted-foreground">{filtered.length} shown · {rules.length} total</span>}
+        className="min-h-[360px]"
+      >
           {loading ? (
-            <div className="p-4">
               <Loading label="Loading rules…" />
-            </div>
           ) : filtered.length === 0 ? (
-            <div className="p-4">
               <EmptyState
                 title="No rules"
                 description="Create a correlation rule to start grouping alerts into incidents."
               />
-            </div>
           ) : (
             <div className="w-full overflow-auto">
               <table className="w-full text-sm">
@@ -410,27 +391,8 @@ export default function CorrelationRulesPage() {
 
                       <td className="px-3 py-2 text-right">
                         <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openEdit(r)}
-                            className={cx(
-                              "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-                              "hover:bg-muted/30"
-                            )}
-                          >
-                            Edit
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => remove(r)}
-                            className={cx(
-                              "h-9 rounded-md border border-destructive/40 bg-destructive/10 px-3 text-sm text-destructive",
-                              "hover:bg-destructive/15"
-                            )}
-                          >
-                            Delete
-                          </button>
+                          <Button variant="subtle" size="sm" onClick={() => openEdit(r)}>Edit</Button>
+                          <Button variant="danger" size="sm" onClick={() => remove(r)}>Delete</Button>
                         </div>
                       </td>
                     </tr>
@@ -439,8 +401,7 @@ export default function CorrelationRulesPage() {
               </table>
             </div>
           )}
-        </div>
-      </div>
+      </Panel>
 
       <Drawer
         open={drawerOpen}
@@ -450,46 +411,42 @@ export default function CorrelationRulesPage() {
         widthClassName="w-[820px]"
       >
         <div className="space-y-4">
-          {error ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </div>
-          ) : null}
+          {error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">Name</label>
-              <input
+              <TextInput
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g., Recon + brute force"
-                className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                className="mt-1 h-10"
               />
             </div>
 
             <div>
               <label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">Severity</label>
-              <select
+              <SelectInput
                 value={severity}
                 onChange={(e) => setSeverity(e.target.value)}
-                className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                className="mt-1 h-10"
               >
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
                 <option value="low">Low</option>
                 <option value="unknown">Unknown</option>
-              </select>
+              </SelectInput>
             </div>
           </div>
 
           <div>
             <label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">Description</label>
-            <input
+            <TextInput
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="(optional) Analyst notes and intent"
-              className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+              className="mt-1 h-10"
             />
           </div>
 
@@ -507,22 +464,22 @@ export default function CorrelationRulesPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">Strategy</label>
-              <select
+              <SelectInput
                 value={strategy}
                 onChange={(e) => setStrategy((e.target.value === "chain" ? "chain" : "burst") as any)}
-                className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                className="mt-1 h-10"
               >
                 <option value="burst">Burst (count threshold)</option>
                 <option value="chain">Chain (stage requirements)</option>
-              </select>
+              </SelectInput>
             </div>
 
             <div>
               <label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">Group by</label>
-              <select
+              <SelectInput
                 value={groupBy}
                 onChange={(e) => setGroupBy(e.target.value)}
-                className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                className="mt-1 h-10"
               >
                 <option value="src_ip">Source IP</option>
                 <option value="dst_ip">Destination IP</option>
@@ -530,7 +487,7 @@ export default function CorrelationRulesPage() {
                 <option value="src_dst">Source → Destination</option>
                 <option value="src_dst_port">Source → Destination:Port</option>
                 <option value="none">All alerts</option>
-              </select>
+              </SelectInput>
             </div>
           </div>
 
@@ -542,7 +499,7 @@ export default function CorrelationRulesPage() {
                 min={30}
                 fallback={600}
                 onCommit={setWindowSeconds}
-                className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                className="ui-input mt-1 h-10"
                 title="Correlation window in seconds"
               />
             </div>
@@ -553,7 +510,7 @@ export default function CorrelationRulesPage() {
                 min={1}
                 fallback={2}
                 onCommit={setMinAlerts}
-                className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                className="ui-input mt-1 h-10"
                 title="Minimum alerts required"
               />
             </div>
@@ -562,20 +519,20 @@ export default function CorrelationRulesPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">Include patterns</label>
-              <input
+              <TextInput
                 value={includeCsv}
                 onChange={(e) => setIncludeCsv(e.target.value)}
                 placeholder="(blank = all) e.g., ssh_* , port_scan_*"
-                className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                className="mt-1 h-10"
               />
             </div>
             <div>
               <label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">Exclude patterns</label>
-              <input
+              <TextInput
                 value={excludeCsv}
                 onChange={(e) => setExcludeCsv(e.target.value)}
                 placeholder="optional, e.g., test_*"
-                className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                className="mt-1 h-10"
               />
             </div>
           </div>
@@ -589,16 +546,13 @@ export default function CorrelationRulesPage() {
                     Each stage must match patterns at least <span className="font-mono">min_count</span> times in the incident.
                   </div>
                 </div>
-                <button
-                  type="button"
+                <Button
+                  variant="subtle"
+                  size="md"
                   onClick={() => setStages((prev) => [...prev, { key: uid(), name: "", patternsCsv: "", min_count: 1 }])}
-                  className={cx(
-                    "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-                    "hover:bg-muted/30"
-                  )}
                 >
                   Add stage
-                </button>
+                </Button>
               </div>
 
               {stages.length === 0 ? (
@@ -611,26 +565,26 @@ export default function CorrelationRulesPage() {
                     <div key={st.key} className="rounded-lg border border-border/60 bg-background/30 p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Stage {idx + 1}</div>
-                        <button
-                          type="button"
+                        <Button
+                          variant="danger"
+                          size="sm"
                           onClick={() => setStages((prev) => prev.filter((x) => x.key !== st.key))}
-                          className="text-xs text-destructive hover:underline"
                         >
                           Remove
-                        </button>
+                        </Button>
                       </div>
 
                       <div className="mt-3 grid grid-cols-2 gap-3">
                         <div>
                           <label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">Name</label>
-                          <input
+                          <TextInput
                             value={st.name}
                             onChange={(e) => {
                               const v = e.target.value;
                               setStages((prev) => prev.map((x) => (x.key === st.key ? { ...x, name: v } : x)));
                             }}
                             placeholder="e.g., Recon"
-                            className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                            className="mt-1 h-10"
                           />
                         </div>
 
@@ -643,7 +597,7 @@ export default function CorrelationRulesPage() {
                             onCommit={(v) => {
                               setStages((prev) => prev.map((x) => (x.key === st.key ? { ...x, min_count: v } : x)));
                             }}
-                            className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                            className="ui-input mt-1 h-10"
                             title="Minimum matches for this stage"
                           />
                         </div>
@@ -651,14 +605,14 @@ export default function CorrelationRulesPage() {
 
                       <div className="mt-3">
                         <label className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">Patterns</label>
-                        <input
+                        <TextInput
                           value={st.patternsCsv}
                           onChange={(e) => {
                             const v = e.target.value;
                             setStages((prev) => prev.map((x) => (x.key === st.key ? { ...x, patternsCsv: v } : x)));
                           }}
                           placeholder="e.g., port_scan_* , horizontal_scan_*"
-                          className="mt-1 w-full h-10 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+                          className="mt-1 h-10"
                         />
                         <div className="mt-1 text-xs text-muted-foreground">
                           Separate multiple patterns with commas.
@@ -672,27 +626,10 @@ export default function CorrelationRulesPage() {
           ) : null}
 
           <div className="flex items-center justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setDrawerOpen(false)}
-              className={cx(
-                "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-                "hover:bg-muted/30"
-              )}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={saving}
-              className={cx(
-                "h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground",
-                "hover:opacity-95 disabled:opacity-60"
-              )}
-            >
+            <Button variant="subtle" size="lg" onClick={() => setDrawerOpen(false)}>Cancel</Button>
+            <Button variant="primary" size="lg" onClick={save} disabled={saving}>
               {saving ? "Saving…" : "Save"}
-            </button>
+            </Button>
           </div>
         </div>
       </Drawer>

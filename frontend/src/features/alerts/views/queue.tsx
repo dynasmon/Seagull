@@ -1,8 +1,8 @@
-import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
 import { JsonBlock } from "@/shared/components/JsonBlock";
 import {
   DataPaginationFooter,
@@ -14,6 +14,8 @@ import {
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
+import { Panel } from "@/shared/components/Panel";
+import { TextInput } from "@/shared/components/TextInput";
 import {
   InvestigationActionBar,
   InvestigationActionButton,
@@ -103,34 +105,6 @@ function persistView(v: ViewCfg) {
   } catch {
     // no-op
   }
-}
-
-function Panel(props: {
-  title: string;
-  right?: ReactNode;
-  children: ReactNode;
-  style?: CSSProperties;
-  scrollY?: boolean;
-  className?: string;
-  bodyClassName?: string;
-  bodyRef?: React.Ref<HTMLDivElement>;
-}) {
-  return (
-    <div className={cx("rounded-md border border-border/80 bg-card/95 shadow-[0_12px_32px_rgb(2_8_20/0.12)] backdrop-blur-md flex flex-col min-h-0", props.className)}>
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border/80 bg-surface-2/70">
-        <div className="text-[12px] font-semibold tracking-tight truncate">{props.title}</div>
-        {props.right ? <div className="text-[10px] text-muted-foreground truncate">{props.right}</div> : null}
-      </div>
-
-      <div
-        ref={props.bodyRef}
-        className={cx("p-4 min-h-0 grow", props.scrollY && "overflow-y-auto", props.bodyClassName)}
-        style={props.style}
-      >
-        {props.children}
-      </div>
-    </div>
-  );
 }
 
 function safeJson(v: any) {
@@ -353,22 +327,17 @@ function AlertsQueueTable(props: {
                 </td>
 
                 <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2")}>
-                  <button
-                    type="button"
+                  <Button
+                    variant="subtle"
+                    size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
                       props.onEdit(a);
                     }}
-                    className={cx(
-                      "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                      "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                      "hover:bg-muted/15 hover:text-foreground",
-                      "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    )}
                     title="Open drawer"
                   >
                     View
-                  </button>
+                  </Button>
                 </td>
               </tr>
             );
@@ -907,50 +876,47 @@ export default function AlertsQueuePage() {
               className="h-9 min-w-[220px] max-w-[360px]"
             />
             <SeverityFilter value={view.severity} onChange={(value) => patch({ severity: value })} />
-            <input
+            <TextInput
               value={view.rule_id}
               onChange={(event) => patch({ rule_id: event.target.value })}
               placeholder="Rule ID (exact)"
-              className={cx(
-                "h-9 w-[210px] rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none",
-                "focus:ring-1 focus:ring-primary/40"
-              )}
+              className="h-9 w-[210px]"
               title="Exact server-side rule filter"
             />
-            <button
+            <Button
+              variant="subtle"
+              size="lg"
               onClick={() => patch({ density: view.density === "comfortable" ? "compact" : "comfortable" })}
-              className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30")}
               title="Toggle row density"
             >
               {view.density === "compact" ? "Compact" : "Comfort"}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant={view.infinite_scroll ? "secondary" : "subtle"}
+              size="lg"
               onClick={() => patch({ infinite_scroll: !view.infinite_scroll })}
-              className={cx(
-                "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-                view.infinite_scroll ? "text-foreground" : "text-muted-foreground",
-                "hover:bg-muted/30"
-              )}
               title="Auto-load older pages when scrolling"
             >
               {view.infinite_scroll ? "Infinite" : "Manual"}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="subtle"
+              size="lg"
               onClick={() => loadHead("merge")}
               disabled={loading}
-              className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30 disabled:opacity-60")}
               title="Refresh queue"
             >
               Refresh
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
+              size="lg"
               onClick={handleRunAll}
               disabled={running}
-              className={cx("h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground", "hover:opacity-95 disabled:opacity-60")}
               title="Run all rules now"
             >
               {running ? "Running…" : "Run rules"}
-            </button>
+            </Button>
           </div>
         }
       />
@@ -984,18 +950,10 @@ export default function AlertsQueuePage() {
           left={<div className="text-xs text-muted-foreground">{selectedRows.length} row(s) selected</div>}
           right={
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={openFirstSelected} className="ui-btn-secondary h-8 px-3 text-xs">
-                Open first evidence
-              </button>
-              <button type="button" onClick={openSelectedRuleEditor} className="ui-btn-secondary h-8 px-3 text-xs">
-                Edit selected rule
-              </button>
-              <button type="button" onClick={pivotSelectedToEvents} className="ui-btn-secondary h-8 px-3 text-xs">
-                Pivot to events
-              </button>
-              <button type="button" onClick={clearSelectedRows} className="ui-btn-secondary h-8 px-3 text-xs">
-                Clear selection
-              </button>
+              <Button variant="subtle" size="md" onClick={openFirstSelected}>Open first evidence</Button>
+              <Button variant="subtle" size="md" onClick={openSelectedRuleEditor}>Edit selected rule</Button>
+              <Button variant="subtle" size="md" onClick={pivotSelectedToEvents}>Pivot to events</Button>
+              <Button variant="subtle" size="md" onClick={clearSelectedRows}>Clear selection</Button>
             </div>
           }
         />
@@ -1003,7 +961,7 @@ export default function AlertsQueuePage() {
 
       <Panel
         title="Queue"
-        right={headerRight}
+        actions={<span className="text-[10px] font-mono text-muted-foreground">{headerRight}</span>}
         scrollY
         className={cx(panelHeightClass)}
         bodyRef={panelBodyRef}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import EmptyState from "@/shared/components/EmptyState";
+import { Button } from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import {
@@ -1398,16 +1399,9 @@ export default function AgentsPage() {
             <div className="text-sm text-muted-foreground">Select an agent to inspect telemetry and configure settings.</div>
           </div>
 
-          <button
-            type="button"
-            onClick={refresh}
-            className={cx(
-              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-              "hover:bg-primary/5"
-            )}
-          >
+          <Button variant="subtle" size="lg" onClick={refresh}>
             Refresh catalog
-          </button>
+          </Button>
         </div>
 
         <div className="grid gap-6 xl:grid-cols-12 min-w-0">
@@ -1451,29 +1445,22 @@ export default function AgentsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
+          <Button
+            variant={compactRows ? "secondary" : "subtle"}
+            size="lg"
             onClick={() => agentTablePrefs.setCompact(!compactRows)}
-            className={cx(
-              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-              compactRows ? "text-foreground" : "text-muted-foreground",
-              "hover:bg-primary/5"
-            )}
           >
             {compactRows ? "Compact rows" : "Comfortable rows"}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="subtle"
+            size="lg"
             onClick={() => {
               void refreshSelectedAgent();
             }}
-            className={cx(
-              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-              "hover:bg-primary/5"
-            )}
           >
             Refresh
-          </button>
+          </Button>
 
           <div className="border border-border/60 bg-background/40 px-3 py-2 flex items-center gap-3">
             <ToggleSwitch checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} label="Auto refresh" />
