@@ -1556,6 +1556,7 @@ export default function AgentsPage() {
         title={`Response action • ${responseActionAgentRow?.display_name || responseActionAgentId || "Select target"}`}
         description="Operator workflow for audited agent-side response execution."
         widthClassName="w-[860px]"
+        headerLabel="Response action"
       >
         {!isAdmin ? (
           <EmptyState title="Access denied" hint="Only administrators can queue response actions." />
@@ -2210,6 +2211,7 @@ export default function AgentsPage() {
         title={`Agent settings • ${agent?.display_name || selectedAgentId}`}
         description="Identity + configuration. Capture-module tuning is applied on next agent restart."
         widthClassName="w-[1200px]"
+        headerLabel="Agent settings"
       >
         {!agent ? (
           <div className="space-y-4">

@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { Badge } from "@/shared/components/Badge";
 import EmptyState from "@/shared/components/EmptyState";
+import { JsonBlock } from "@/shared/components/JsonBlock";
 import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
-import { copyTextToClipboard, safeJson } from "./utils";
+import { copyTextToClipboard } from "./utils";
 
 type BadgeVariant = "critical" | "high" | "medium" | "low" | "info" | "neutral";
 
@@ -28,19 +29,22 @@ export function InvestigationMetaStrip({
   if (rows.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-border/60 bg-background/35 p-3">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {rows.map((item) => (
-          <span key={`${item.label}-${String(item.value)}`} className="inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40 px-2 py-1">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{item.label}</span>
+          <div
+            key={`${item.label}-${String(item.value)}`}
+            className="rounded-lg border border-border/60 bg-background/35 px-3 py-2"
+          >
+            <div className="text-[10px] font-mono uppercase tracking-[0.24em] text-muted-foreground">{item.label}</div>
             {item.variant ? (
-              <Badge variant={item.variant}>{item.value}</Badge>
+              <div className="mt-2">
+                <Badge variant={item.variant}>{item.value}</Badge>
+              </div>
             ) : (
-              <span className="text-[11px] font-mono text-foreground">{item.value}</span>
+              <div className="mt-1 break-words text-[12px] font-mono text-foreground">{item.value}</div>
             )}
-          </span>
+          </div>
         ))}
-      </div>
     </div>
   );
 }
@@ -51,7 +55,7 @@ export function InvestigationActionBar({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-border/60 bg-background/35 p-3">
+    <div className="rounded-xl border border-border/60 bg-background/35 p-2.5">
       <div className="flex flex-wrap items-center gap-2">{children}</div>
     </div>
   );
@@ -139,7 +143,7 @@ export function InvestigationSection({
   className?: string;
 }) {
   return (
-    <section className={cx("rounded-xl border border-border/60 bg-background/50", className)}>
+    <section className={cx("rounded-xl border border-border/60 bg-background/45", className)}>
       <div className="flex items-start justify-between gap-3 border-b border-border/60 px-4 py-3">
         <div className="min-w-0">
           <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">{title}</div>
@@ -167,16 +171,37 @@ export function InvestigationFactCard({
   value,
   hint,
   mono = false,
+  copyValue,
 }: {
   label: string;
   value: ReactNode;
   hint?: ReactNode;
   mono?: boolean;
+  copyValue?: string | null;
 }) {
+  const [copied, setCopied] = useState<null | "ok" | "fail">(null);
+
   return (
     <div className="rounded-lg border border-border/60 bg-background/35 px-3 py-2">
       <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className={cx("mt-1 text-sm text-foreground break-words", mono && "font-mono text-[12px]")}>{value}</div>
+      <div className="mt-1 flex items-start justify-between gap-3">
+        <div className={cx("min-w-0 flex-1 break-words text-sm text-foreground", mono && "font-mono text-[12px]")}>
+          {value}
+        </div>
+        {copyValue ? (
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await copyTextToClipboard(copyValue);
+              setCopied(ok ? "ok" : "fail");
+              window.setTimeout(() => setCopied(null), 1200);
+            }}
+            className="shrink-0 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground"
+          >
+            {copied === "ok" ? "Copied" : copied === "fail" ? "Failed" : "Copy"}
+          </button>
+        ) : null}
+      </div>
       {hint ? <div className="mt-1 text-[11px] text-muted-foreground">{hint}</div> : null}
     </div>
   );
@@ -221,11 +246,113 @@ export function InvestigationKeyValueGrid({
   return (
     <div className="space-y-2">
       {rows.map((item) => (
-        <div key={`${item.key}-${String(item.value)}`} className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background/30 px-3 py-2">
-          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{item.key}</div>
-          <div className="max-w-[70%] text-right font-mono text-[12px] text-foreground break-words">{item.value}</div>
+        <div
+          key={`${item.key}-${String(item.value)}`}
+          className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-background/30 px-3 py-2"
+        >
+          <div className="min-w-0 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{item.key}</div>
+          <div className="max-w-[72%] text-right font-mono text-[12px] text-foreground break-words">{item.value}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+export function InvestigationFieldGroup({
+  title,
+  subtitle,
+  entries,
+  emptyHint = "No evidence fields.",
+  className,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  entries: Array<{ key: string; value: ReactNode }>;
+  emptyHint?: string;
+  className?: string;
+}) {
+  const rows = entries.filter((item) => {
+    if (!item || !item.key) return false;
+    if (item.value === undefined || item.value === null) return false;
+    return String(item.value).trim() !== "";
+  });
+
+  return (
+    <div className={cx("rounded-lg border border-border/60 bg-background/30 p-3", className)}>
+      <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">{title}</div>
+      {subtitle ? <div className="mt-1 text-[12px] text-muted-foreground">{subtitle}</div> : null}
+      <div className="mt-3">
+        {rows.length > 0 ? (
+          <InvestigationKeyValueGrid entries={rows} />
+        ) : (
+          <div className="rounded-md border border-border/60 bg-background/20 px-3 py-2 text-sm text-muted-foreground">
+            {emptyHint}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function InvestigationListItem({
+  title,
+  description,
+  badges,
+  meta,
+  actions,
+  children,
+  active = false,
+  className,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  badges?: Array<{ label: ReactNode; variant?: BadgeVariant }>;
+  meta?: Array<{ label?: ReactNode; value: ReactNode }>;
+  actions?: ReactNode;
+  children?: ReactNode;
+  active?: boolean;
+  className?: string;
+}) {
+  const badgeItems = (badges || []).filter((item) => item && item.label !== undefined && item.label !== null && String(item.label).trim() !== "");
+  const metaItems = (meta || []).filter((item) => item && item.value !== undefined && item.value !== null && String(item.value).trim() !== "");
+
+  return (
+    <div
+      className={cx(
+        "rounded-xl border border-border/60 bg-background/35 p-4",
+        active && "border-primary/60 bg-primary/10",
+        className,
+      )}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-foreground">{title}</div>
+          {description ? <div className="mt-1 break-words text-sm text-muted-foreground">{description}</div> : null}
+          {badgeItems.length > 0 ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {badgeItems.map((item, index) => (
+                <Badge key={`${index}-${String(item.label)}`} variant={item.variant || "neutral"}>
+                  {item.label}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        {actions ? <div className="shrink-0">{actions}</div> : null}
+      </div>
+
+      {metaItems.length > 0 ? (
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] font-mono text-muted-foreground">
+          {metaItems.map((item, index) => (
+            <span key={`${index}-${String(item.value)}`} className="inline-flex items-center gap-2">
+              {item.label ? <span className="uppercase tracking-widest text-muted-foreground/80">{item.label}</span> : null}
+              <span className="text-foreground/90">{item.value}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {children ? <div className="mt-3">{children}</div> : null}
     </div>
   );
 }
@@ -239,34 +366,9 @@ export function InvestigationRawJsonPanel({
   title?: string;
   initialWrap?: boolean;
 }) {
-  const [wrap, setWrap] = useState(initialWrap);
-  const [copied, setCopied] = useState<null | "ok" | "fail">(null);
-  const text = useMemo(() => (typeof value === "string" ? value : safeJson(value)), [value]);
-
   return (
-    <InvestigationSection
-      title={title}
-      right={
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} className="h-4 w-4" />
-            Wrap
-          </label>
-          <InvestigationActionButton
-            onClick={async () => {
-              const ok = await copyTextToClipboard(text);
-              setCopied(ok ? "ok" : "fail");
-              window.setTimeout(() => setCopied(null), 1200);
-            }}
-          >
-            {copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy JSON"}
-          </InvestigationActionButton>
-        </div>
-      }
-    >
-      <pre className={cx("max-h-[360px] overflow-auto rounded-md border border-border/60 bg-background/30 p-3 text-[11px] leading-relaxed", wrap ? "whitespace-pre-wrap break-words" : "whitespace-pre")}>
-        {text}
-      </pre>
+    <InvestigationSection title={title}>
+      <JsonBlock value={value} initialWrap={initialWrap} />
     </InvestigationSection>
   );
 }

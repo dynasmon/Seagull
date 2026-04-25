@@ -1125,6 +1125,7 @@ export default function InventoryPage() {
         description="Investigation-first inventory context with configuration controls."
         onClose={closeDrawer}
         widthClassName="w-[1140px]"
+        headerLabel="Inventory"
       >
         <InvestigationShell>
           {drawerBusy ? <Loading label="Loading agent..." /> : null}

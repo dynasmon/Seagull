@@ -5,6 +5,16 @@ import Drawer from "@/shared/components/Drawer";
 import { JsonBlock } from "@/shared/components/JsonBlock";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
+import {
+  InvestigationActionBar,
+  InvestigationActionButton,
+  InvestigationListItem,
+  InvestigationMetaStrip,
+  InvestigationSection,
+  InvestigationShell,
+  InvestigationTabs,
+  formatInvestigationTimestamp,
+} from "@/shared/components/investigation";
 import { cx } from "@/shared/lib/cx";
 import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
 import {
@@ -63,15 +73,7 @@ type InvestigationWorkflow = {
 };
 
 function fmtTs(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+  return formatInvestigationTimestamp(iso);
 }
 
 function scoreVariant(score: number) {
@@ -215,23 +217,6 @@ function assessCase(payload: AttackChainCaseWithSteps): { verdict: string; hint:
     return { verdict: "Inferred chain", hint: "Evidence exists but remains indirect. Seek direct host and network confirmation." };
   }
   return { verdict: "Weakly inferred chain", hint: "Evidence is sparse or weak. Avoid high-confidence conclusions." };
-}
-
-function TabButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cx(
-        "px-3 py-2 text-xs font-mono uppercase tracking-widest border-b-2",
-        active
-          ? "border-primary text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground hover:border-border/60"
-      )}
-    >
-      {children}
-    </button>
-  );
 }
 
 function WorkflowBadge({ wf }: { wf: InvestigationWorkflow }) {
@@ -552,77 +537,72 @@ export default function AttackChainDrawer({
   function StepRow({ s }: { s: StepView }) {
     const isFocused = focusedStepId === s.id;
     return (
-      <div
-        id={`attack-step-${s.id}`}
-        className={cx(
-          "rounded-xl border border-border/60 bg-background/40 p-4",
-          isFocused && "border-primary/60 bg-primary/10"
-        )}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Badge variant="info">{stageLabel(s.stage)}</Badge>
-              <div className="text-sm font-semibold truncate">{s.title}</div>
-              {s.scoreDelta ? <Badge variant={scoreVariant(Math.max(0, s.scoreDelta))}>+{s.scoreDelta}</Badge> : null}
-              {s.techniqueId ? <Badge variant="neutral">{s.techniqueId}</Badge> : null}
-              <Badge variant={evidenceVariant(s.evidenceClass) as any}>{evidenceLabel(s.evidenceClass)}</Badge>
-              <Badge variant={s.evidenceNature === "direct" ? "info" : "neutral"}>{s.evidenceNature}</Badge>
-              {s.confidence ? <Badge variant={confidenceVariant(s.confidence)}>{confidenceLabel(s.confidence)}</Badge> : null}
+      <div id={`attack-step-${s.id}`}>
+        <InvestigationListItem
+          title={s.title}
+          description={s.description || undefined}
+          active={isFocused}
+          badges={[
+            { label: stageLabel(s.stage), variant: "info" },
+            ...(s.scoreDelta ? [{ label: `+${s.scoreDelta}`, variant: scoreVariant(Math.max(0, s.scoreDelta)) as any }] : []),
+            ...(s.techniqueId ? [{ label: s.techniqueId, variant: "neutral" as const }] : []),
+            { label: evidenceLabel(s.evidenceClass), variant: evidenceVariant(s.evidenceClass) as any },
+            { label: s.evidenceNature, variant: s.evidenceNature === "direct" ? "info" : "neutral" },
+            ...(s.confidence ? [{ label: confidenceLabel(s.confidence), variant: confidenceVariant(s.confidence) as any }] : []),
+          ]}
+          meta={[
+            { label: "time", value: fmtTs(s.at) },
+            { label: "kind", value: s.kind || "-" },
+          ]}
+          actions={
+            <div className="space-y-2 text-right">
+              <button
+                type="button"
+                onClick={() => setPinStepId(s.id)}
+                className={cx(
+                  "rounded-md border border-border/60 bg-background/40",
+                  "px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
+                  "hover:bg-muted/15 hover:text-foreground"
+                )}
+              >
+                Pin step
+              </button>
+              {s.transition.reason ? (
+                <div className="max-w-[220px] text-[10px] text-muted-foreground">{s.transition.reason}</div>
+              ) : null}
             </div>
-            {s.description ? <div className="mt-1 text-sm text-muted-foreground">{s.description}</div> : null}
-            {s.confidenceFactors.length ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {s.confidenceFactors.map((f) => (
-                  <span
-                    key={f}
-                    className="inline-flex items-center rounded-md border border-border/60 bg-background/30 px-2 py-1 text-[10px] text-muted-foreground"
-                  >
-                    {f}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            {s.missingEvidence.length ? (
-              <div className="mt-2 text-xs text-warning">
-                Missing for stronger confidence: {s.missingEvidence.join(" · ")}
-              </div>
-            ) : null}
-            <div className="mt-2 text-[11px] font-mono text-muted-foreground">{fmtTs(s.at)}</div>
-          </div>
-
-          <div className="shrink-0 text-right">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Kind</div>
-            <div className="text-xs font-mono text-foreground">{s.kind || "-"}</div>
-            <button
-              type="button"
-              onClick={() => setPinStepId(s.id)}
-              className={cx(
-                "mt-2 rounded-md border border-border/60 bg-background/40",
-                "px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground"
-              )}
-            >
-              Pin step
-            </button>
-            {s.transition.reason ? (
-              <div className="mt-2 text-[10px] text-muted-foreground max-w-[240px]">{s.transition.reason}</div>
-            ) : null}
-          </div>
-        </div>
-
-        {s.raw?.details ? (
-          <details className="mt-3">
-            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Details (JSON)</summary>
-            <JsonBlock value={s.raw.details} showControls={false} className="mt-2" />
-          </details>
-        ) : null}
+          }
+        >
+          {s.confidenceFactors.length ? (
+            <div className="flex flex-wrap gap-2">
+              {s.confidenceFactors.map((f) => (
+                <span
+                  key={f}
+                  className="inline-flex items-center rounded-md border border-border/60 bg-background/30 px-2 py-1 text-[10px] text-muted-foreground"
+                >
+                  {f}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {s.missingEvidence.length ? (
+            <div className="mt-2 text-xs text-warning">
+              Missing for stronger confidence: {s.missingEvidence.join(" · ")}
+            </div>
+          ) : null}
+          {s.raw?.details ? (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Details (JSON)</summary>
+              <JsonBlock value={s.raw.details} showControls={false} className="mt-2" />
+            </details>
+          ) : null}
+        </InvestigationListItem>
       </div>
     );
   }
 
   return (
-    <Drawer open={open} title={title} description={description} onClose={onClose} widthClassName="w-[920px]">
+    <Drawer open={open} title={title} description={description} onClose={onClose} widthClassName="w-[920px]" headerLabel="Attack chain">
       {loading ? <Loading label="Loading case" /> : null}
 
       {!loading && error ? (
@@ -630,24 +610,35 @@ export default function AttackChainDrawer({
       ) : null}
 
       {!loading && !error && payload ? (
-        <div className="space-y-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={statusVariant(payload.case.status)}>{payload.case.status}</Badge>
-            <Badge variant={scoreVariant(payload.case.score)}>score {payload.case.score}</Badge>
-            <Badge variant="neutral">{stageLabel(payload.case.max_stage)}</Badge>
-            {qualityCounts.observed > 0 ? <Badge variant="high">observed {qualityCounts.observed}</Badge> : null}
-            {qualityCounts.stronglySupported > 0 ? (
-              <Badge variant="medium">strong {qualityCounts.stronglySupported}</Badge>
-            ) : null}
-            {qualityCounts.inferred > 0 ? <Badge variant="low">inferred {qualityCounts.inferred}</Badge> : null}
-            {qualityCounts.weaklyInferred > 0 ? (
-              <Badge variant="neutral">weak {qualityCounts.weaklyInferred}</Badge>
-            ) : null}
-            {workspace ? <WorkflowBadge wf={wf} /> : <Badge variant="neutral">no workspace</Badge>}
-            {workspace?.workspace_key ? <Badge variant="neutral">{workspace.workspace_key}</Badge> : null}
-            {wf.assignee ? <Badge variant="neutral">assigned: {wf.assignee}</Badge> : null}
-            {wf.notes.length ? <Badge variant="neutral">notes: {wf.notes.length}</Badge> : null}
-          </div>
+        <InvestigationShell>
+          <InvestigationMetaStrip
+            items={[
+              { label: "Status", value: payload.case.status, variant: statusVariant(payload.case.status) as any },
+              { label: "Score", value: String(payload.case.score), variant: scoreVariant(payload.case.score) as any },
+              { label: "Max stage", value: stageLabel(payload.case.max_stage) },
+              { label: "Agent", value: payload.case.agent_id },
+              { label: "Suspect", value: payload.case.suspect_ip || "-" },
+              { label: "Observed", value: String(qualityCounts.observed) },
+              { label: "Strong", value: String(qualityCounts.stronglySupported) },
+              { label: "Inferred", value: String(qualityCounts.inferred) },
+              { label: "Workflow", value: workspace ? <WorkflowBadge wf={wf} /> : "no workspace" },
+              { label: "Workspace key", value: workspace?.workspace_key || "-" },
+              { label: "Assignee", value: wf.assignee || "-" },
+              { label: "Notes", value: String(wf.notes.length) },
+            ]}
+          />
+
+          <InvestigationActionBar>
+            <InvestigationActionButton onClick={() => setPinCaseOpen(true)} tone="primary">
+              Pin case
+            </InvestigationActionButton>
+            <InvestigationActionButton
+              onClick={doCloseCase}
+              disabled={!isAdmin || payload.case.status !== "open" || closeBusy}
+            >
+              {closeBusy ? "Closing..." : "Close case"}
+            </InvestigationActionButton>
+          </InvestigationActionBar>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="rounded-xl border border-border/60 bg-background/40 p-4">
@@ -716,35 +707,25 @@ export default function AttackChainDrawer({
           </div>
 
           {assessment ? (
-            <div className="rounded-xl border border-border/60 bg-background/40 p-4">
-              <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Assessment</div>
+            <InvestigationSection title="Assessment">
               <div className="mt-2 flex items-center gap-2 flex-wrap">
                 <Badge variant={scoreVariant(payload.case.score)}>{assessment.verdict}</Badge>
                 <span className="text-sm text-muted-foreground">{assessment.hint}</span>
               </div>
-            </div>
+            </InvestigationSection>
           ) : null}
 
-          <div className="rounded-xl border border-border/60 bg-background/40">
-            <div className="flex items-center gap-2 border-b border-border/60 bg-muted/10 px-4">
-              <TabButton active={tab === "overview"} onClick={() => setTab("overview")}>
-                Overview
-              </TabButton>
-              <TabButton active={tab === "timeline"} onClick={() => setTab("timeline")}>
-                Timeline
-              </TabButton>
-              <TabButton active={tab === "investigation"} onClick={() => setTab("investigation")}>
-                Investigation
-              </TabButton>
-              <div className="flex-1" />
-              {payload.case.status === "open" ? (
-                <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">active</span>
-              ) : (
-                <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">closed</span>
-              )}
-            </div>
+          <InvestigationTabs
+            value={tab}
+            onChange={setTab}
+            tabs={[
+              { key: "overview", label: "Overview" },
+              { key: "timeline", label: "Timeline" },
+              { key: "investigation", label: "Investigation" },
+            ]}
+          />
 
-            <div className="p-4">
+          <div>
               {tab === "overview" ? (
                 <div className="space-y-3">
                   <div className="text-sm text-muted-foreground">
@@ -1134,9 +1115,8 @@ export default function AttackChainDrawer({
                   {closeError ? <div className="text-xs text-danger">{closeError}</div> : null}
                 </div>
               ) : null}
-            </div>
           </div>
-        </div>
+        </InvestigationShell>
       ) : null}
 
       {payload ? (

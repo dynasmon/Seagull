@@ -1,17 +1,19 @@
 import Drawer from "@/shared/components/Drawer";
 import { Badge } from "@/shared/components/Badge";
-import { Card } from "@/shared/components/Card";
+import {
+  InvestigationChipList,
+  InvestigationFactCard,
+  InvestigationFieldGroup,
+  InvestigationMetaStrip,
+  InvestigationRawJsonPanel,
+  InvestigationSection,
+  InvestigationShell,
+  InvestigationSummaryGrid,
+  formatInvestigationTimestamp,
+} from "@/shared/components/investigation";
 
-import { eventSeverity, fmtDateTime } from "../lib";
+import { eventSeverity } from "../lib";
 import type { AuditEvent } from "../types";
-
-function safeJson(v: unknown): string {
-  try {
-    return JSON.stringify(v ?? {}, null, 2);
-  } catch {
-    return "{}";
-  }
-}
 
 export default function AuditEventDrawer({ event, onClose }: { event: AuditEvent | null; onClose: () => void }) {
   const sev = event ? eventSeverity(event) : "neutral";
@@ -20,90 +22,102 @@ export default function AuditEventDrawer({ event, onClose }: { event: AuditEvent
     <Drawer
       open={Boolean(event)}
       onClose={onClose}
-      title={event ? `Audit Event ${event.id}` : "Audit Event"}
-      description={event ? `${event.event_type} · ${event.action} · ${fmtDateTime(event.created_at)}` : ""}
-      widthClassName="w-[900px]"
+      title={event ? `Audit event #${event.id}` : "Audit event"}
+      description={event ? `${event.event_type} · ${event.action} · ${formatInvestigationTimestamp(event.created_at)}` : ""}
+      widthClassName="w-[940px]"
+      headerLabel="Audit"
     >
       {!event ? null : (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Card title="Event">
-              <div className="space-y-1 text-sm">
-                <div><span className="text-muted-foreground">Category:</span> {event.event_type}</div>
-                <div><span className="text-muted-foreground">Action:</span> {event.action}</div>
-                <div><span className="text-muted-foreground">Outcome:</span> {event.outcome}</div>
-                <div><span className="text-muted-foreground">When:</span> {fmtDateTime(event.created_at)}</div>
-                <div className="pt-1"><Badge variant={sev}>severity: {sev}</Badge></div>
-              </div>
-            </Card>
+        <InvestigationShell>
+          <InvestigationMetaStrip
+            items={[
+              { label: "Category", value: event.event_type, variant: "info" },
+              { label: "Action", value: event.action },
+              { label: "Outcome", value: event.outcome || "-", variant: sev },
+              { label: "Recorded", value: formatInvestigationTimestamp(event.created_at) },
+              { label: "Actor", value: event.actor_username || "-" },
+              { label: "Resource", value: event.resource_type || "-" },
+            ]}
+          />
 
-            <Card title="Actor / Origin">
-              <div className="space-y-1 text-sm">
-                <div><span className="text-muted-foreground">Username:</span> {event.actor_username || "-"}</div>
-                <div><span className="text-muted-foreground">User id:</span> {event.actor_user_id ?? "-"}</div>
-                <div><span className="text-muted-foreground">IP:</span> {event.ip || "-"}</div>
-                <div className="break-all"><span className="text-muted-foreground">User agent:</span> {event.user_agent || "-"}</div>
-              </div>
-            </Card>
-          </div>
+          <InvestigationSection title="Audit summary" subtitle="Primary actor, target, request, and severity context.">
+            <InvestigationSummaryGrid className="xl:grid-cols-4">
+              <InvestigationFactCard label="Event ID" value={`#${event.id}`} mono copyValue={String(event.id)} />
+              <InvestigationFactCard label="Severity" value={<Badge variant={sev}>severity {sev}</Badge>} />
+              <InvestigationFactCard label="Actor username" value={event.actor_username || "-"} mono />
+              <InvestigationFactCard label="Actor user ID" value={event.actor_user_id ?? "-"} mono />
+              <InvestigationFactCard label="Origin IP" value={event.ip || "-"} mono />
+              <InvestigationFactCard label="Resource type" value={event.resource_type || "-"} mono />
+              <InvestigationFactCard label="Resource ID" value={event.resource_id || "-"} mono copyValue={event.resource_id || null} />
+              <InvestigationFactCard label="When" value={formatInvestigationTimestamp(event.created_at)} mono />
+            </InvestigationSummaryGrid>
+          </InvestigationSection>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Card title="Resource">
-              <div className="space-y-1 text-sm">
-                <div><span className="text-muted-foreground">Type:</span> {event.resource_type}</div>
-                <div className="break-all"><span className="text-muted-foreground">Resource id:</span> {event.resource_id || "-"}</div>
-                <div><span className="text-muted-foreground">Reason:</span> {event.reason || "-"}</div>
-                <div><span className="text-muted-foreground">Error:</span> {event.error || "-"}</div>
-              </div>
-            </Card>
-
-            <Card title="Request Metadata">
-              <div className="space-y-1 text-sm">
-                <div><span className="text-muted-foreground">Method:</span> {event.method || "-"}</div>
-                <div className="break-all"><span className="text-muted-foreground">Path:</span> {event.path || "-"}</div>
-                <div className="break-all"><span className="text-muted-foreground">Request id:</span> {event.request_id || "-"}</div>
-                <div className="break-all"><span className="text-muted-foreground">Trace id:</span> {event.trace_id || "-"}</div>
-                <div className="break-all"><span className="text-muted-foreground">Operation id:</span> {event.operation_id || "-"}</div>
-              </div>
-            </Card>
-          </div>
-
-          <Card title="Changed Fields">
-            <div className="flex flex-wrap gap-2">
-              {event.changed_fields && event.changed_fields.length > 0 ? (
-                event.changed_fields.map((f) => (
-                  <Badge key={f} variant="neutral">
-                    {f}
-                  </Badge>
-                ))
-              ) : (
-                <div className="text-sm text-muted-foreground">No field-level diff metadata.</div>
-              )}
+          <InvestigationSection title="Actor and request" subtitle="Origin metadata and request correlation preserved from backend audit evidence.">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <InvestigationFieldGroup
+                title="Actor / origin"
+                entries={[
+                  { key: "username", value: event.actor_username || "-" },
+                  { key: "user_id", value: String(event.actor_user_id ?? "-") },
+                  { key: "ip", value: event.ip || "-" },
+                  { key: "user_agent", value: event.user_agent || "-" },
+                ]}
+              />
+              <InvestigationFieldGroup
+                title="Request metadata"
+                entries={[
+                  { key: "method", value: event.method || "-" },
+                  { key: "path", value: event.path || "-" },
+                  { key: "request_id", value: event.request_id || "-" },
+                  { key: "trace_id", value: event.trace_id || "-" },
+                  { key: "operation_id", value: event.operation_id || "-" },
+                ]}
+              />
             </div>
-          </Card>
+          </InvestigationSection>
 
-          <Card title="Integrity Chain">
-            <div className="space-y-1 text-sm">
-              <div className="break-all"><span className="text-muted-foreground">event_hash:</span> {event.event_hash || "-"}</div>
-              <div className="break-all"><span className="text-muted-foreground">prev_event_hash:</span> {event.prev_event_hash || "-"}</div>
-              <div className="text-xs text-muted-foreground">
-                Redacted fields are preserved as provided by backend and are not reconstructed in UI.
-              </div>
+          <InvestigationSection title="Change evidence" subtitle="Field-level diffs, integrity hashes, and backend-supplied reason/error values.">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <InvestigationFieldGroup
+                title="Resource context"
+                entries={[
+                  { key: "reason", value: event.reason || "-" },
+                  { key: "error", value: event.error || "-" },
+                  { key: "resource_type", value: event.resource_type || "-" },
+                  { key: "resource_id", value: event.resource_id || "-" },
+                ]}
+              />
+              <InvestigationFieldGroup
+                title="Integrity chain"
+                entries={[
+                  { key: "event_hash", value: event.event_hash || "-" },
+                  { key: "prev_event_hash", value: event.prev_event_hash || "-" },
+                ]}
+                emptyHint="Integrity data was not attached to this event."
+              />
             </div>
-          </Card>
 
-          <Card title="Before (redacted JSON)">
-            <pre className="max-h-[220px] overflow-auto text-xs leading-relaxed">{safeJson(event.before)}</pre>
-          </Card>
+            <div className="mt-4">
+              <InvestigationChipList
+                title="Changed fields"
+                chips={
+                  event.changed_fields?.length
+                    ? event.changed_fields.map((field) => ({ label: field, variant: "neutral" as const }))
+                    : [{ label: "No field-level diff metadata.", variant: "neutral" as const }]
+                }
+              />
+            </div>
 
-          <Card title="After (redacted JSON)">
-            <pre className="max-h-[220px] overflow-auto text-xs leading-relaxed">{safeJson(event.after)}</pre>
-          </Card>
+            <div className="mt-4 text-[11px] text-muted-foreground">
+              Redacted fields are preserved exactly as provided by the backend and are not reconstructed in the frontend.
+            </div>
+          </InvestigationSection>
 
-          <Card title="Context (JSON)">
-            <pre className="max-h-[220px] overflow-auto text-xs leading-relaxed">{safeJson(event.context)}</pre>
-          </Card>
-        </div>
+          <InvestigationRawJsonPanel value={event.before} title="Before (redacted JSON)" />
+          <InvestigationRawJsonPanel value={event.after} title="After (redacted JSON)" />
+          <InvestigationRawJsonPanel value={event.context} title="Context JSON" />
+        </InvestigationShell>
       )}
     </Drawer>
   );
