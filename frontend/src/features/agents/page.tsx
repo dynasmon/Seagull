@@ -37,8 +37,12 @@ import AgentAtGlancePanel from "@/features/agents/components/AgentAtGlancePanel"
 import AgentEventsWorkbench from "@/features/agents/components/AgentEventsWorkbench";
 import AgentFleetPanel from "@/features/agents/components/AgentFleetPanel";
 import AgentTelemetrySnapshot from "@/features/agents/components/AgentTelemetrySnapshot";
-import { Dot, FieldLabel, Panel, Switch } from "@/features/agents/components/AgentsPageShared";
-import { inputClassName, textAreaClassName } from "@/features/agents/components/AgentFormClassNames";
+import { Panel } from "@/shared/components/Panel";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { TextInput } from "@/shared/components/TextInput";
+import { TextArea } from "@/shared/components/TextArea";
+import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
+import { Dot, FieldLabel } from "@/features/agents/components/AgentsPageShared";
 
 import {
   cancelResponseAction,
@@ -1472,7 +1476,7 @@ export default function AgentsPage() {
           </button>
 
           <div className="border border-border/60 bg-background/40 px-3 py-2 flex items-center gap-3">
-            <Switch checked={autoRefresh} onChange={setAutoRefresh} label="Auto refresh" />
+            <ToggleSwitch checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} label="Auto refresh" />
           </div>
 
           <div className="border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-muted-foreground">
@@ -1643,8 +1647,8 @@ export default function AgentsPage() {
                     <div className="space-y-4">
                       <div>
                         <FieldLabel>Target agent</FieldLabel>
-                        <select
-                          className={inputClassName(responseActionBusy)}
+                        <SelectInput
+                          className="mt-1 font-mono text-[11px]"
                           value={responseActionAgentId}
                           onChange={(e) => {
                             setResponseActionAgentId(e.target.value);
@@ -1659,14 +1663,14 @@ export default function AgentsPage() {
                               {(a.display_name || a.agent_id) + " (" + a.agent_id + ")"}
                             </option>
                           ))}
-                        </select>
+                        </SelectInput>
                       </div>
 
                       <div>
                         <FieldLabel>Expiration (optional)</FieldLabel>
-                        <input
+                        <TextInput
                           type="datetime-local"
-                          className={inputClassName(responseActionBusy)}
+                          className="mt-1 font-mono text-[11px]"
                           value={responseActionExpiresAt}
                           onChange={(e) => {
                             setResponseActionExpiresAt(e.target.value);
@@ -1731,8 +1735,8 @@ export default function AgentsPage() {
                     <div className="space-y-4">
                       <div>
                         <FieldLabel>Action type</FieldLabel>
-                        <select
-                          className={inputClassName(responseActionBusy)}
+                        <SelectInput
+                          className="mt-1 font-mono text-[11px]"
                           value={responseActionType}
                           onChange={(e) => {
                             setResponseActionType(e.target.value);
@@ -1746,7 +1750,7 @@ export default function AgentsPage() {
                               {x.label}
                             </option>
                           ))}
-                        </select>
+                        </SelectInput>
                         <div className="mt-1 text-[11px] text-muted-foreground">{responseActionDefinition.hint}</div>
                       </div>
 
@@ -1768,7 +1772,7 @@ export default function AgentsPage() {
                   </Panel>
                 </div>
 
-                <Panel title="Payload" right={responseActionAdvancedOpen ? "Advanced mode" : "Guided mode"}>
+                <Panel title="Payload" actions={<span className="text-[10px] font-mono text-muted-foreground">{responseActionAdvancedOpen ? "Advanced mode" : "Guided mode"}</span>}>
                   <div className="space-y-3">
                     <div className="rounded border border-border/60 bg-background/30 px-3 py-2 text-[12px] text-muted-foreground">
                       Payload is optional. Guided mode sends defaults from the server-side action schema.
@@ -1791,8 +1795,8 @@ export default function AgentsPage() {
                     </button>
                     {responseActionAdvancedOpen && (
                       <div>
-                        <textarea
-                          className={textAreaClassName(responseActionBusy)}
+                        <TextArea
+                          className="mt-1 font-mono text-[11px]"
                           rows={7}
                           value={responseActionPayloadText}
                           onChange={(e) => {
@@ -1810,7 +1814,7 @@ export default function AgentsPage() {
                   </div>
                 </Panel>
 
-                <Panel title="Execution summary" right="Review before queueing">
+                <Panel title="Execution summary" actions={<span className="text-[10px] font-mono text-muted-foreground">Review before queueing</span>}>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded border border-border/60 bg-background/30 px-3 py-2">
                       <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Agent</div>
@@ -1921,13 +1925,13 @@ export default function AgentsPage() {
 
                 {responseActionTab === "execution" && (
               <div className="space-y-4">
-                <Panel title="Live execution status" right={responseActionLiveLoading ? "Refreshing" : ""}>
+                <Panel title="Live execution status" actions={<span className="text-[10px] font-mono text-muted-foreground">{responseActionLiveLoading ? "Refreshing" : ""}</span>}>
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="min-w-[220px]">
                         <FieldLabel>Action instance</FieldLabel>
-                        <select
-                          className={inputClassName(responseActionBusy)}
+                        <SelectInput
+                          className="mt-1 font-mono text-[11px]"
                           value={responseActionSelectedId ? String(responseActionSelectedId) : ""}
                           onChange={(e) => onSelectResponseAction(Number(e.target.value) || 0, "execution")}
                           disabled={responseActionBusy || responseActionHistoryLoading || responseActionHistory.length === 0}
@@ -1938,7 +1942,7 @@ export default function AgentsPage() {
                               #{x.id} · {x.status}
                             </option>
                           ))}
-                        </select>
+                        </SelectInput>
                       </div>
                       <button
                         type="button"
@@ -2034,13 +2038,13 @@ export default function AgentsPage() {
 
                 {responseActionTab === "result" && (
               <div className="space-y-4">
-                <Panel title="Result viewer" right={responseActionResultLoading ? "Loading" : ""}>
+                <Panel title="Result viewer" actions={<span className="text-[10px] font-mono text-muted-foreground">{responseActionResultLoading ? "Loading" : ""}</span>}>
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="min-w-[220px]">
                         <FieldLabel>Action instance</FieldLabel>
-                        <select
-                          className={inputClassName(responseActionBusy)}
+                        <SelectInput
+                          className="mt-1 font-mono text-[11px]"
                           value={responseActionSelectedId ? String(responseActionSelectedId) : ""}
                           onChange={(e) => onSelectResponseAction(Number(e.target.value) || 0)}
                           disabled={responseActionBusy || responseActionHistory.length === 0}
@@ -2051,7 +2055,7 @@ export default function AgentsPage() {
                               #{x.id} · {x.status}
                             </option>
                           ))}
-                        </select>
+                        </SelectInput>
                       </div>
                     </div>
 
@@ -2140,7 +2144,7 @@ export default function AgentsPage() {
 
                 <Panel
               title="History"
-              right={responseActionHistoryLoading ? "Loading" : responseActionHistory.length ? String(responseActionHistory.length) : "Empty"}
+              actions={<span className="text-[10px] font-mono text-muted-foreground">{responseActionHistoryLoading ? "Loading" : responseActionHistory.length ? String(responseActionHistory.length) : "Empty"}</span>}
             >
               {responseActionHistoryError ? (
                 <div className="text-[11px] text-danger">{responseActionHistoryError}</div>
@@ -2231,8 +2235,8 @@ export default function AgentsPage() {
                 <div className="space-y-4">
                   <div>
                     <FieldLabel>Display name</FieldLabel>
-                    <input
-                      className={inputClassName(saveBusy)}
+                    <TextInput
+                      className="mt-1 font-mono text-[11px]"
                       value={draftName}
                       onChange={(e) => setDraftName(e.target.value)}
                       placeholder="e.g., Web Server - PROD"
@@ -2242,8 +2246,8 @@ export default function AgentsPage() {
 
                   <div>
                     <FieldLabel>Description</FieldLabel>
-                    <input
-                      className={inputClassName(saveBusy)}
+                    <TextInput
+                      className="mt-1 font-mono text-[11px]"
                       value={draftDesc}
                       onChange={(e) => setDraftDesc(e.target.value)}
                       placeholder="Short context about what this agent protects"
@@ -2253,8 +2257,8 @@ export default function AgentsPage() {
 
                   <div>
                     <FieldLabel>Tags</FieldLabel>
-                    <input
-                      className={inputClassName(saveBusy)}
+                    <TextInput
+                      className="mt-1 font-mono text-[11px]"
                       value={draftTags}
                       onChange={(e) => setDraftTags(e.target.value)}
                       placeholder="prod, web, ssh, dmz"
@@ -2265,8 +2269,8 @@ export default function AgentsPage() {
 
                   <div>
                     <FieldLabel>Metadata (JSON)</FieldLabel>
-                    <textarea
-                      className={textAreaClassName(saveBusy)}
+                    <TextArea
+                      className="mt-1 font-mono text-[11px]"
                       rows={6}
                       value={draftMetaText}
                       onChange={(e) => setDraftMetaText(e.target.value)}
@@ -2291,7 +2295,7 @@ export default function AgentsPage() {
                 </div>
               </Panel>
 
-              <Panel title="State" right={agent.is_revoked ? "Disabled" : isOnline(agent.last_seen_at) ? "Online" : "Offline"}>
+              <Panel title="State" actions={<span className="text-[10px] font-mono text-muted-foreground">{agent.is_revoked ? "Disabled" : isOnline(agent.last_seen_at) ? "Online" : "Offline"}</span>}>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="space-y-1 min-w-0">
@@ -2332,15 +2336,15 @@ export default function AgentsPage() {
               <Panel title="DDoS / Backpressure">
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
-                    <Switch
+                    <ToggleSwitch
                       checked={ddosDraft.enabled}
-                      onChange={(v) => setDdosDraft((s) => ({ ...s, enabled: v }))}
+                      onChange={(e) => setDdosDraft((s) => ({ ...s, enabled: e.target.checked }))}
                       disabled={configBusy}
                       label="DDoS module"
                     />
-                    <Switch
+                    <ToggleSwitch
                       checked={ddosDraft.enable_l7}
-                      onChange={(v) => setDdosDraft((s) => ({ ...s, enable_l7: v }))}
+                      onChange={(e) => setDdosDraft((s) => ({ ...s, enable_l7: e.target.checked }))}
                       disabled={configBusy}
                       label="L7 detection"
                     />
@@ -2349,8 +2353,8 @@ export default function AgentsPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <FieldLabel>Interface</FieldLabel>
-                      <input
-                        className={inputClassName(configBusy)}
+                      <TextInput
+                        className="mt-1 font-mono text-[11px]"
                         value={ddosDraft.iface}
                         onChange={(e) => setDdosDraft((s) => ({ ...s, iface: e.target.value }))}
                         placeholder="any / eth0"
@@ -2359,8 +2363,8 @@ export default function AgentsPage() {
                     </div>
                     <div>
                       <FieldLabel>Window</FieldLabel>
-                      <input
-                        className={inputClassName(configBusy)}
+                      <TextInput
+                        className="mt-1 font-mono text-[11px]"
                         value={ddosDraft.window}
                         onChange={(e) => setDdosDraft((s) => ({ ...s, window: e.target.value }))}
                         placeholder="1s"
@@ -2372,8 +2376,8 @@ export default function AgentsPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <FieldLabel>Eval Every</FieldLabel>
-                      <input
-                        className={inputClassName(configBusy)}
+                      <TextInput
+                        className="mt-1 font-mono text-[11px]"
                         value={ddosDraft.eval_every}
                         onChange={(e) => setDdosDraft((s) => ({ ...s, eval_every: e.target.value }))}
                         placeholder="1s"
@@ -2382,8 +2386,8 @@ export default function AgentsPage() {
                     </div>
                     <div>
                       <FieldLabel>Cooldown</FieldLabel>
-                      <input
-                        className={inputClassName(configBusy)}
+                      <TextInput
+                        className="mt-1 font-mono text-[11px]"
                         value={ddosDraft.cooldown}
                         onChange={(e) => setDdosDraft((s) => ({ ...s, cooldown: e.target.value }))}
                         placeholder="30s"
@@ -2395,9 +2399,9 @@ export default function AgentsPage() {
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <FieldLabel>Sustain</FieldLabel>
-                      <input
+                      <TextInput
                         type="number"
-                        className={inputClassName(configBusy)}
+                        className="mt-1 font-mono text-[11px]"
                         value={String(ddosDraft.sustain_windows)}
                         onChange={(e) => setDdosDraft((s) => ({ ...s, sustain_windows: Number(e.target.value) || 1 }))}
                         disabled={configBusy}
@@ -2405,9 +2409,9 @@ export default function AgentsPage() {
                     </div>
                     <div>
                       <FieldLabel>Min Confidence</FieldLabel>
-                      <input
+                      <TextInput
                         type="number"
-                        className={inputClassName(configBusy)}
+                        className="mt-1 font-mono text-[11px]"
                         value={String(ddosDraft.min_confidence)}
                         onChange={(e) => setDdosDraft((s) => ({ ...s, min_confidence: Number(e.target.value) || 1 }))}
                         disabled={configBusy}
@@ -2415,9 +2419,9 @@ export default function AgentsPage() {
                     </div>
                     <div>
                       <FieldLabel>Max Batch</FieldLabel>
-                      <input
+                      <TextInput
                         type="number"
-                        className={inputClassName(configBusy)}
+                        className="mt-1 font-mono text-[11px]"
                         value={String(ddosDraft.max_batch)}
                         onChange={(e) => setDdosDraft((s) => ({ ...s, max_batch: Number(e.target.value) || 1 }))}
                         disabled={configBusy}
@@ -2428,9 +2432,9 @@ export default function AgentsPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <FieldLabel>Min PPS</FieldLabel>
-                      <input
+                      <TextInput
                         type="number"
-                        className={inputClassName(configBusy)}
+                        className="mt-1 font-mono text-[11px]"
                         value={String(ddosDraft.min_pps)}
                         onChange={(e) => setDdosDraft((s) => ({ ...s, min_pps: Number(e.target.value) || 0 }))}
                         disabled={configBusy}
@@ -2438,9 +2442,9 @@ export default function AgentsPage() {
                     </div>
                     <div>
                       <FieldLabel>Min BPS</FieldLabel>
-                      <input
+                      <TextInput
                         type="number"
-                        className={inputClassName(configBusy)}
+                        className="mt-1 font-mono text-[11px]"
                         value={String(ddosDraft.min_bps)}
                         onChange={(e) => setDdosDraft((s) => ({ ...s, min_bps: Number(e.target.value) || 0 }))}
                         disabled={configBusy}
@@ -2451,9 +2455,9 @@ export default function AgentsPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <FieldLabel>Min HTTP RPS</FieldLabel>
-                      <input
+                      <TextInput
                         type="number"
-                        className={inputClassName(configBusy)}
+                        className="mt-1 font-mono text-[11px]"
                         value={String(ddosDraft.min_http_rps)}
                         onChange={(e) => setDdosDraft((s) => ({ ...s, min_http_rps: Number(e.target.value) || 0 }))}
                         disabled={configBusy}
@@ -2461,9 +2465,9 @@ export default function AgentsPage() {
                     </div>
                     <div>
                       <FieldLabel>Min TLS HS RPS</FieldLabel>
-                      <input
+                      <TextInput
                         type="number"
-                        className={inputClassName(configBusy)}
+                        className="mt-1 font-mono text-[11px]"
                         value={String(ddosDraft.min_tls_hs_rps)}
                         onChange={(e) => setDdosDraft((s) => ({ ...s, min_tls_hs_rps: Number(e.target.value) || 0 }))}
                         disabled={configBusy}
@@ -2474,9 +2478,9 @@ export default function AgentsPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <FieldLabel>BP High Watermark</FieldLabel>
-                      <input
+                      <TextInput
                         type="number"
-                        className={inputClassName(configBusy)}
+                        className="mt-1 font-mono text-[11px]"
                         value={String(ddosDraft.backpressure_high_watermark)}
                         onChange={(e) =>
                           setDdosDraft((s) => ({ ...s, backpressure_high_watermark: Number(e.target.value) || 1 }))
@@ -2486,9 +2490,9 @@ export default function AgentsPage() {
                     </div>
                     <div>
                       <FieldLabel>BP Sample Every</FieldLabel>
-                      <input
+                      <TextInput
                         type="number"
-                        className={inputClassName(configBusy)}
+                        className="mt-1 font-mono text-[11px]"
                         value={String(ddosDraft.backpressure_sample_every)}
                         onChange={(e) =>
                           setDdosDraft((s) => ({ ...s, backpressure_sample_every: Number(e.target.value) || 1 }))
@@ -2518,7 +2522,7 @@ export default function AgentsPage() {
                 </div>
               </Panel>
 
-              <Panel title="Timings" right={timingKeys.length ? `${timingKeys.length} keys` : "-"}>
+              <Panel title="Timings" actions={<span className="text-[10px] font-mono text-muted-foreground">{timingKeys.length ? `${timingKeys.length} keys` : "-"}</span>}>
                 {timingKeys.length === 0 ? (
                   <EmptyState title="No timing keys" hint="This agent config does not expose timing-related fields." />
                 ) : (
@@ -2526,9 +2530,9 @@ export default function AgentsPage() {
                     {timingKeys.map((k) => (
                       <div key={k}>
                         <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{k}</div>
-                        <input
+                        <TextInput
                           type="number"
-                          className={inputClassName(configBusy)}
+                          className="mt-1 font-mono text-[11px]"
                           value={String((configObj as any)[k] ?? "")}
                           onChange={(e) => onUpdateTiming(k, Number(e.target.value))}
                           disabled={configBusy}
@@ -2539,7 +2543,7 @@ export default function AgentsPage() {
                 )}
               </Panel>
 
-              <Panel title="Raw config" right={configParseError ? "Invalid" : "JSON"}>
+              <Panel title="Raw config" actions={<span className="text-[10px] font-mono text-muted-foreground">{configParseError ? "Invalid" : "JSON"}</span>}>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <FieldLabel>Config (JSON)</FieldLabel>
@@ -2555,8 +2559,8 @@ export default function AgentsPage() {
                     </button>
                   </div>
 
-                  <textarea
-                    className={textAreaClassName(configBusy)}
+                  <TextArea
+                    className="mt-1 font-mono text-[11px]"
                     rows={14}
                     value={configText}
                     onChange={(e) => onConfigTextChange(e.target.value)}

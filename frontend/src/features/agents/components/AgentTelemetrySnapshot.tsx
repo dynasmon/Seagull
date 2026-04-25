@@ -1,8 +1,7 @@
 import Loading from "@/shared/components/Loading";
+import { Panel } from "@/shared/components/Panel";
 
 import { SimpleTimeSeries } from "@/features/overview/components/Charts";
-
-import { Panel } from "./AgentsPageShared";
 
 export default function AgentTelemetrySnapshot({
   height,

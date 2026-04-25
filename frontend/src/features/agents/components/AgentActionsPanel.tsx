@@ -1,8 +1,7 @@
 import type { AgentDetail } from "@/features/agents/types";
+import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
-import { cx } from "@/shared/lib/cx";
-
-import { Panel } from "./AgentsPageShared";
+import { Panel } from "@/shared/components/Panel";
 
 export default function AgentActionsPanel({
   agent,
@@ -22,7 +21,11 @@ export default function AgentActionsPanel({
   onToggleRevoked: () => void;
 }) {
   return (
-    <Panel title="Response actions" right={agent?.is_revoked ? "Disabled" : "Enabled"} style={{ minHeight: 220 }}>
+    <Panel
+      title="Response actions"
+      actions={<span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">{agent?.is_revoked ? "Disabled" : "Enabled"}</span>}
+      style={{ minHeight: 220 }}
+    >
       {!agent ? (
         <EmptyState title="Agent not loaded" hint="Try refresh or check API connectivity." />
       ) : (
@@ -34,42 +37,25 @@ export default function AgentActionsPanel({
           </div>
 
           <div className="flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={onOpenConfig}
-              className={cx(
-                "w-full min-w-0 border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-center break-words",
-                "hover:bg-primary/5"
-              )}
-            >
+            <Button variant="subtle" size="sm" onClick={onOpenConfig} className="w-full font-mono uppercase tracking-widest">
               Open configuration
-            </button>
+            </Button>
 
             {isAdmin && (
-              <button
-                type="button"
-                onClick={onOpenResponseAction}
-                className={cx(
-                  "w-full min-w-0 border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-center break-words",
-                  "hover:bg-primary/5"
-                )}
-              >
+              <Button variant="subtle" size="sm" onClick={onOpenResponseAction} className="w-full font-mono uppercase tracking-widest">
                 Queue response action
-              </button>
+              </Button>
             )}
 
-            <button
-              type="button"
+            <Button
+              variant="subtle"
+              size="sm"
               onClick={onToggleRevoked}
               disabled={toggleBusy}
-              className={cx(
-                "w-full min-w-0 border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-center break-words",
-                "hover:bg-primary/5",
-                toggleBusy && "opacity-60 cursor-not-allowed"
-              )}
+              className="w-full font-mono uppercase tracking-widest"
             >
               {toggleBusy ? "Working..." : agent.is_revoked ? "Enable agent" : "Disable agent"}
-            </button>
+            </Button>
           </div>
 
           {agentError && <div className="text-[11px] text-danger">{agentError}</div>}
