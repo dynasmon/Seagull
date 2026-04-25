@@ -3,13 +3,15 @@ import type { NetEvent } from "@/features/events/types";
 import DdosDeepDive from "@/features/events/views/ddos/DdosDeepDive";
 import EventDetailsPanel from "@/features/events/components/EventDetailsPanel";
 import EventsTable from "@/features/events/components/EventsTable";
+import { Button } from "@/shared/components/Button";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
-import { cx } from "@/shared/lib/cx";
+import { Panel } from "@/shared/components/Panel";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { TextInput } from "@/shared/components/TextInput";
 
-import { FieldLabel, Panel } from "./AgentsPageShared";
-import { inputClassName } from "./AgentFormClassNames";
+import { FieldLabel } from "./AgentsPageShared";
 
 type EventsCfg = {
   event_type: string;
@@ -66,11 +68,8 @@ export default function AgentEventsWorkbench({
           <div className="space-y-3">
             <div>
               <FieldLabel>Event type</FieldLabel>
-              <select
-                className={cx(
-                  "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-                  "focus:ring-2 focus:ring-primary/30"
-                )}
+              <SelectInput
+                className="mt-1 font-mono text-[11px]"
                 value={eventsCfg.event_type}
                 onChange={(e) => setEventsCfg((p) => ({ ...p, event_type: e.target.value }))}
               >
@@ -80,13 +79,13 @@ export default function AgentEventsWorkbench({
                     {t}
                   </option>
                 ))}
-              </select>
+              </SelectInput>
             </div>
 
             <div>
               <FieldLabel>Search</FieldLabel>
-              <input
-                className={inputClassName(false)}
+              <TextInput
+                className="mt-1 font-mono text-[11px]"
                 value={eventsCfg.search}
                 onChange={(e) => setEventsCfg((p) => ({ ...p, search: e.target.value }))}
                 placeholder="ip, user, rule, port, vector..."
@@ -103,7 +102,7 @@ export default function AgentEventsWorkbench({
                   max={10080}
                   fallback={defaultWindowMinutes}
                   onCommit={(v) => setEventsCfg((p) => ({ ...p, window_minutes: v }))}
-                  className={inputClassName(false)}
+                  className="mt-1 font-mono text-[11px]"
                   title="Lookback window (minutes)"
                 />
               </div>
@@ -116,36 +115,31 @@ export default function AgentEventsWorkbench({
                   max={5000}
                   fallback={defaultEventsLimit}
                   onCommit={(v) => setEventsCfg((p) => ({ ...p, limit: v }))}
-                  className={inputClassName(false)}
+                  className="mt-1 font-mono text-[11px]"
                   title="Max events to fetch"
                 />
               </div>
             </div>
 
             <div className="flex items-center justify-between gap-3 pt-2">
-              <button
-                type="button"
+              <Button
+                variant="subtle"
+                size="sm"
                 onClick={() => setEventsCfg((p) => ({ ...p, event_type: "", search: "" }))}
-                className={cx(
-                  "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                  "hover:bg-primary/5"
-                )}
+                className="font-mono uppercase tracking-widest"
               >
                 Clear filters
-              </button>
+              </Button>
 
-              <button
-                type="button"
+              <Button
+                variant="subtle"
+                size="sm"
                 onClick={onReload}
-                className={cx(
-                  "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                  "hover:bg-primary/5",
-                  eventsLoading && "opacity-60 cursor-not-allowed"
-                )}
                 disabled={eventsLoading || !selectedAgentId}
+                className="font-mono uppercase tracking-widest"
               >
                 {eventsLoading ? "Loading..." : "Reload events"}
-              </button>
+              </Button>
             </div>
           </div>
         </Panel>
@@ -154,11 +148,7 @@ export default function AgentEventsWorkbench({
           <div className="space-y-1">
             <button
               type="button"
-              className={cx(
-                "w-full text-left px-3 py-2 rounded-md border border-border/60 bg-background/30",
-                "hover:bg-muted/10",
-                !eventsCfg.event_type && "bg-primary/10"
-              )}
+              className={`w-full text-left px-3 py-2 rounded-md border border-border/60 hover:bg-muted/10 ${!eventsCfg.event_type ? "bg-primary/10" : "bg-background/30"}`}
               onClick={() => setEventsCfg((p) => ({ ...p, event_type: "" }))}
             >
               <div className="flex items-center justify-between">
@@ -173,11 +163,7 @@ export default function AgentEventsWorkbench({
                 <button
                   key={x.key}
                   type="button"
-                  className={cx(
-                    "w-full text-left px-3 py-2 rounded-md border border-border/60 bg-background/20",
-                    "hover:bg-muted/10",
-                    active && "bg-primary/10"
-                  )}
+                  className={`w-full text-left px-3 py-2 rounded-md border border-border/60 hover:bg-muted/10 ${active ? "bg-primary/10" : "bg-background/20"}`}
                   onClick={() => setEventsCfg((p) => ({ ...p, event_type: x.key }))}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -197,7 +183,12 @@ export default function AgentEventsWorkbench({
 
       <div className="xl:col-span-8 space-y-6 min-h-0 min-w-0">
         {ddosMode && (
-          <Panel title="DDoS deep dive" right={ddosEvents.length ? `${ddosEvents.length} events` : ""} scrollY style={{ height: streamHeight }}>
+          <Panel
+            title="DDoS deep dive"
+            actions={ddosEvents.length ? <span className="text-[10px] font-mono text-muted-foreground">{ddosEvents.length} events</span> : undefined}
+            scrollY
+            style={{ height: streamHeight }}
+          >
             {ddosEvents.length === 0 ? (
               <EmptyState title="No DDoS events" hint="No DDoS-classified telemetry matches the current filters/window." />
             ) : (
@@ -206,7 +197,12 @@ export default function AgentEventsWorkbench({
           </Panel>
         )}
 
-        <Panel title="Recent alerts/events" right={eventsError ? "Error" : `${filteredEvents.length} events`} scrollY style={{ height: streamHeight }}>
+        <Panel
+          title="Recent alerts/events"
+          actions={<span className="text-[10px] font-mono text-muted-foreground">{eventsError ? "Error" : `${filteredEvents.length} events`}</span>}
+          scrollY
+          style={{ height: streamHeight }}
+        >
           {eventsError ? (
             <EmptyState title="Events error" hint={eventsError} />
           ) : eventsLoading && filteredEvents.length === 0 ? (

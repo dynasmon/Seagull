@@ -1,9 +1,11 @@
 import type { AgentPublic } from "@/features/agents/types";
+import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
+import { Panel } from "@/shared/components/Panel";
+import { TextInput } from "@/shared/components/TextInput";
 import { cx } from "@/shared/lib/cx";
 
-import { Dot, Panel } from "./AgentsPageShared";
-import { inputClassName } from "./AgentFormClassNames";
+import { Dot } from "./AgentsPageShared";
 
 export default function AgentFleetPanel({
   agentsFiltered,
@@ -33,26 +35,24 @@ export default function AgentFleetPanel({
   height: number;
 }) {
   return (
-    <Panel title="Fleet overview" right={`${agentsFiltered.length}/${agentsSorted.length}`} scrollY style={{ height }}>
+    <Panel
+      title="Fleet overview"
+      actions={<span className="text-[10px] font-mono text-muted-foreground">{agentsFiltered.length}/{agentsSorted.length}</span>}
+      scrollY
+      style={{ height }}
+    >
       <div className="space-y-3">
-        <input
+        <TextInput
           value={agentQuery}
           onChange={(e) => onAgentQueryChange(e.target.value)}
           placeholder="Search agents (name, id, tags)..."
-          className={inputClassName(false)}
+          className="font-mono text-[11px]"
         />
 
         {showConfigButton && onOpenConfig ? (
-          <button
-            type="button"
-            onClick={onOpenConfig}
-            className={cx(
-              "w-full border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-              "hover:bg-primary/5"
-            )}
-          >
+          <Button variant="subtle" size="sm" onClick={onOpenConfig} className="w-full font-mono uppercase tracking-widest">
             Configure selected agent
-          </button>
+          </Button>
         ) : null}
 
         <div className="space-y-2">
