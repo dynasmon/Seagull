@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import AsyncState from "@/shared/components/AsyncState";
+import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
+import { MetricCard } from "@/shared/components/MetricCard";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import { Card } from "@/shared/components/Card";
 import { Table } from "@/shared/components/Table";
@@ -18,31 +20,6 @@ import { getSshSummary } from "./api";
 import type { SshAuthEvent, SshIpStat, SshLoginEvent, SshSummaryResponse, SshUserStat, SudoEventSummary } from "./types";
 import SshIpDrawer from "./SshIpDrawer";
 
-function ActionButton({
-  children,
-  onClick,
-  disabled,
-  title
-}: {
-  children: any;
-  onClick: () => void;
-  disabled?: boolean;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={
-        "inline-flex items-center justify-center h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
-      }
-    >
-      {children}
-    </button>
-  );
-}
 
 type ViewCfg = {
   agent_id: string; // empty = all agents
@@ -125,15 +102,6 @@ function toEventsLink(params: { agent_id?: string; event_type?: string; search?:
   return s ? `/events?${s}` : "/events";
 }
 
-function StatTile({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
-  return (
-    <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
-      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className="mt-1 text-xl font-semibold tracking-tight">{value}</div>
-      {hint ? <div className="mt-1 text-[11px] text-muted-foreground">{hint}</div> : null}
-    </div>
-  );
-}
 
 function MiniSelect({
   label,
@@ -414,12 +382,12 @@ export default function SshInsightsPage() {
         <div className="lg:col-span-8">
           <Card title="Summary" right={rightHint} className="rounded-xl overflow-hidden">
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              <StatTile label="Accepted" value={totals.success} hint="Total accepted events" />
-              <StatTile label="Failed password" value={totals.failed} hint="Total failed password events" />
-              <StatTile label="Invalid user" value={totals.invalid} hint="Total invalid user events" />
-              <StatTile label="Total actions" value={totals.actions} hint="Accepted + failed + invalid" />
-              <StatTile label="Unique source IPs" value={totals.uniqueIps} hint="Distinct IPs in the selected window" />
-              <StatTile label="Enriched source IPs" value={`${totals.enrichPct}%`} hint={`${totals.enriched}/${totals.uniqueIps} with geo/asn/org`} />
+              <MetricCard title="Accepted" value={totals.success} helper="Total accepted events" />
+              <MetricCard title="Failed password" value={totals.failed} helper="Total failed password events" />
+              <MetricCard title="Invalid user" value={totals.invalid} helper="Total invalid user events" />
+              <MetricCard title="Total actions" value={totals.actions} helper="Accepted + failed + invalid" />
+              <MetricCard title="Unique source IPs" value={totals.uniqueIps} helper="Distinct IPs in the selected window" />
+              <MetricCard title="Enriched source IPs" value={`${totals.enrichPct}%`} helper={`${totals.enriched}/${totals.uniqueIps} with geo/asn/org`} />
             </div>
           </Card>
         </div>
@@ -635,7 +603,7 @@ function RecentAuthEventsCard({
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: search || undefined });
           return (
             <div className="flex items-center gap-2">
-              <ActionButton
+              <Button variant="subtle" size="sm"
                 title="Open IP profile drawer"
                 onClick={() => {
                   const ip = (r.src_ip || "").trim();
@@ -652,7 +620,7 @@ function RecentAuthEventsCard({
                 disabled={!onViewIp || !(r.src_ip || "").trim()}
               >
                 View
-              </ActionButton>
+              </Button>
 
               <Link
                 to={to}
@@ -741,13 +709,13 @@ function IpTableCard({
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: r.src_ip });
           return (
             <div className="flex items-center gap-2">
-              <ActionButton
+              <Button variant="subtle" size="sm"
                 title="Open IP profile drawer"
                 onClick={() => onViewIp?.(r)}
                 disabled={!onViewIp}
               >
                 View
-              </ActionButton>
+              </Button>
 
               <Link
                 to={to}
@@ -882,7 +850,7 @@ function RootLoginsCard({
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search });
           return (
             <div className="flex items-center gap-2">
-              <ActionButton
+              <Button variant="subtle" size="sm"
                 title="Open IP profile drawer"
                 onClick={() => {
                   const ip = (r.src_ip || "").trim();
@@ -899,7 +867,7 @@ function RootLoginsCard({
                 disabled={!onViewIp || !(r.src_ip || "").trim()}
               >
                 View
-              </ActionButton>
+              </Button>
 
               <Link
                 to={to}

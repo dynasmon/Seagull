@@ -9,8 +9,8 @@ import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { useLiveRefresh, usePortalRealtime } from "@/shared/realtime";
 import { Table } from "@/shared/components/Table";
+import { MetricCard } from "@/shared/components/MetricCard";
 import InternalRefreshToolbar from "@/features/internal/components/InternalRefreshToolbar";
-import InternalStatTile from "@/features/internal/components/InternalStatTile";
 
 import { getBackendHealth, getMetricsSnapshot } from "../api";
 import type { MetricsSnapshot } from "../types";
@@ -122,24 +122,24 @@ export default function InternalDebugView() {
       {error ? <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div> : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <InternalStatTile label="Backend" value={backendUp ? "UP" : "DOWN"} tone={backendUp ? "good" : "warn"} />
-        <InternalStatTile
-          label="Realtime"
+        <MetricCard title="Backend" value={backendUp ? "UP" : "DOWN"} tone={backendUp ? "success" : "warning"} />
+        <MetricCard
+          title="Realtime"
           value={`${connection.status}${connection.transport ? `/${connection.transport}` : ""}`}
-          tone={connection.status === "open" && !connection.isFallbackTransport ? "good" : "warn"}
+          tone={connection.status === "open" && !connection.isFallbackTransport ? "success" : "warning"}
         />
-        <InternalStatTile label="Online agents" value={overview?.kpis.online_agents ?? "-"} tone="good" />
-        <InternalStatTile label="Events / 5m" value={overview?.kpis.events_5m ?? "-"} />
-        <InternalStatTile
-          label="Alerts / 60m"
+        <MetricCard title="Online agents" value={overview?.kpis.online_agents ?? "-"} tone="success" />
+        <MetricCard title="Events / 5m" value={overview?.kpis.events_5m ?? "-"} />
+        <MetricCard
+          title="Alerts / 60m"
           value={overview?.kpis.alerts_60m ?? "-"}
-          tone={(overview?.kpis.alerts_60m || 0) > 0 ? "warn" : "default"}
+          tone={(overview?.kpis.alerts_60m || 0) > 0 ? "warning" : "default"}
         />
-        <InternalStatTile label="Storm phase" value={storm?.phase || "ok"} tone={storm?.active ? "warn" : "good"} />
-        <InternalStatTile
-          label="Backlog events"
+        <MetricCard title="Storm phase" value={storm?.phase || "ok"} tone={storm?.active ? "warning" : "success"} />
+        <MetricCard
+          title="Backlog events"
           value={storm?.backlog_events ?? "-"}
-          tone={(storm?.backlog_events || 0) > 0 ? "warn" : "default"}
+          tone={(storm?.backlog_events || 0) > 0 ? "warning" : "default"}
         />
       </div>
 
@@ -184,12 +184,12 @@ export default function InternalDebugView() {
       <div className="grid gap-6 xl:grid-cols-2">
         <Card title="Realtime Diagnostics" right={connection.isFallbackTransport ? "degraded" : (connection.transport || connection.status)}>
           <div className="grid grid-cols-2 gap-3">
-            <InternalStatTile label="Reconnects" value={diagnostics.reconnectCount} tone={diagnostics.reconnectCount > 0 ? "warn" : "default"} />
-            <InternalStatTile label="Fallback polls" value={diagnostics.fallbackPollingActivations} tone={diagnostics.fallbackPollingActivations > 0 ? "warn" : "default"} />
-            <InternalStatTile label="Fallback transport" value={diagnostics.fallbackTransportCount} tone={diagnostics.fallbackTransportCount > 0 ? "warn" : "default"} />
-            <InternalStatTile label="Cursor gaps" value={diagnostics.cursorGapCount} tone={diagnostics.cursorGapCount > 0 ? "warn" : "good"} />
-            <InternalStatTile label="Replay overflow" value={diagnostics.replayOverflowCount} tone={diagnostics.replayOverflowCount > 0 ? "warn" : "good"} />
-            <InternalStatTile label="Malformed envelopes" value={diagnostics.malformedEnvelopeCount} tone={diagnostics.malformedEnvelopeCount > 0 ? "warn" : "good"} />
+            <MetricCard title="Reconnects" value={diagnostics.reconnectCount} tone={diagnostics.reconnectCount > 0 ? "warning" : "default"} />
+            <MetricCard title="Fallback polls" value={diagnostics.fallbackPollingActivations} tone={diagnostics.fallbackPollingActivations > 0 ? "warning" : "default"} />
+            <MetricCard title="Fallback transport" value={diagnostics.fallbackTransportCount} tone={diagnostics.fallbackTransportCount > 0 ? "warning" : "default"} />
+            <MetricCard title="Cursor gaps" value={diagnostics.cursorGapCount} tone={diagnostics.cursorGapCount > 0 ? "warning" : "success"} />
+            <MetricCard title="Replay overflow" value={diagnostics.replayOverflowCount} tone={diagnostics.replayOverflowCount > 0 ? "warning" : "success"} />
+            <MetricCard title="Malformed envelopes" value={diagnostics.malformedEnvelopeCount} tone={diagnostics.malformedEnvelopeCount > 0 ? "warning" : "success"} />
           </div>
           <div className="mt-3 text-xs text-muted-foreground">
             Last failure: {diagnostics.lastFailureKind || "-"} {diagnostics.lastFailureMessage ? `(${diagnostics.lastFailureMessage})` : ""}
@@ -216,16 +216,16 @@ export default function InternalDebugView() {
             <EmptyState title="No ingest status" hint="Ingest status endpoint returned no payload." />
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              <InternalStatTile label="EPS" value={storm.eps} tone={storm.active ? "warn" : "default"} />
-              <InternalStatTile label="Drop %" value={`${storm.drop_percent}%`} tone={storm.drop_percent > 0 ? "warn" : "good"} />
-              <InternalStatTile label="Hot sample" value={`${storm.sample_hot_percent}%`} />
-              <InternalStatTile label="Warm sample" value={`${storm.sample_warm_percent}%`} />
-              <InternalStatTile
-                label="Backlog msgs"
+              <MetricCard title="EPS" value={storm.eps} tone={storm.active ? "warning" : "default"} />
+              <MetricCard title="Drop %" value={`${storm.drop_percent}%`} tone={storm.drop_percent > 0 ? "warning" : "success"} />
+              <MetricCard title="Hot sample" value={`${storm.sample_hot_percent}%`} />
+              <MetricCard title="Warm sample" value={`${storm.sample_warm_percent}%`} />
+              <MetricCard
+                title="Backlog msgs"
                 value={storm.backlog_messages}
-                tone={storm.backlog_messages > 0 ? "warn" : "default"}
+                tone={storm.backlog_messages > 0 ? "warning" : "default"}
               />
-              <InternalStatTile label="Reason" value={storm.reason || "ok"} tone={storm.active ? "warn" : "good"} />
+              <MetricCard title="Reason" value={storm.reason || "ok"} tone={storm.active ? "warning" : "success"} />
             </div>
           )}
         </Card>

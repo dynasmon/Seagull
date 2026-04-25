@@ -3,11 +3,11 @@ import { useCallback, useRef, useState } from "react";
 import { Card } from "@/shared/components/Card";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
+import { MetricCard } from "@/shared/components/MetricCard";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 import { useLiveRefresh } from "@/shared/realtime";
 import InternalRefreshToolbar from "@/features/internal/components/InternalRefreshToolbar";
-import InternalStatTile from "@/features/internal/components/InternalStatTile";
 
 import { getSystemStatus } from "../api";
 import type { SystemStatusResponse } from "../types";
@@ -148,11 +148,11 @@ export default function InternalHealthView() {
         <>
           <Card title="Service">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <InternalStatTile label="Environment" value={snapshot.service.environment} />
-              <InternalStatTile label="Version" value={snapshot.service.version} />
-              <InternalStatTile label="Uptime" value={fmtSeconds(snapshot.service.uptime_seconds)} />
-              <InternalStatTile label="Counters" value={snapshot.observability.counters_total} />
-              <InternalStatTile label="Histograms" value={snapshot.observability.histograms_total} />
+              <MetricCard title="Environment" value={snapshot.service.environment} />
+              <MetricCard title="Version" value={snapshot.service.version} />
+              <MetricCard title="Uptime" value={fmtSeconds(snapshot.service.uptime_seconds)} />
+              <MetricCard title="Counters" value={snapshot.observability.counters_total} />
+              <MetricCard title="Histograms" value={snapshot.observability.histograms_total} />
             </div>
           </Card>
 
@@ -177,23 +177,23 @@ export default function InternalHealthView() {
           <div className="grid gap-6 xl:grid-cols-2">
             <Card title="Fleet Health">
               <div className="grid gap-4 grid-cols-2">
-                <InternalStatTile label="Total agents" value={snapshot.fleet.total_agents} />
-                <InternalStatTile label="Online" value={snapshot.fleet.online_agents} />
-                <InternalStatTile label="Offline" value={snapshot.fleet.offline_agents} />
-                <InternalStatTile label="Revoked" value={snapshot.fleet.revoked_agents} />
-                <InternalStatTile label="Inventory fresh" value={snapshot.fleet.inventory.fresh} />
-                <InternalStatTile label="Inventory stale" value={snapshot.fleet.inventory.stale} />
+                <MetricCard title="Total agents" value={snapshot.fleet.total_agents} />
+                <MetricCard title="Online" value={snapshot.fleet.online_agents} />
+                <MetricCard title="Offline" value={snapshot.fleet.offline_agents} />
+                <MetricCard title="Revoked" value={snapshot.fleet.revoked_agents} />
+                <MetricCard title="Inventory fresh" value={snapshot.fleet.inventory.fresh} />
+                <MetricCard title="Inventory stale" value={snapshot.fleet.inventory.stale} />
               </div>
             </Card>
 
             <Card title="Ingest Status">
               <div className="grid gap-4 grid-cols-2">
-                <InternalStatTile label="Phase" value={snapshot.components.ingest_pressure.storm.phase || "ok"} />
-                <InternalStatTile label="EPS" value={snapshot.components.ingest_pressure.storm.eps} />
-                <InternalStatTile label="Drop %" value={`${snapshot.components.ingest_pressure.storm.drop_percent}%`} />
-                <InternalStatTile label="Backlog events" value={snapshot.components.ingest_pressure.storm.backlog_events} />
-                <InternalStatTile label="Backlog msgs" value={snapshot.components.ingest_pressure.storm.backlog_messages} />
-                <InternalStatTile label="Open alert" value={snapshot.components.ingest_pressure.storm.open_alert_id ?? "-"} />
+                <MetricCard title="Phase" value={snapshot.components.ingest_pressure.storm.phase || "ok"} />
+                <MetricCard title="EPS" value={snapshot.components.ingest_pressure.storm.eps} />
+                <MetricCard title="Drop %" value={`${snapshot.components.ingest_pressure.storm.drop_percent}%`} />
+                <MetricCard title="Backlog events" value={snapshot.components.ingest_pressure.storm.backlog_events} />
+                <MetricCard title="Backlog msgs" value={snapshot.components.ingest_pressure.storm.backlog_messages} />
+                <MetricCard title="Open alert" value={snapshot.components.ingest_pressure.storm.open_alert_id ?? "-"} />
               </div>
             </Card>
           </div>

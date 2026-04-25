@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import AsyncState from "@/shared/components/AsyncState";
+import { JsonBlock } from "@/shared/components/JsonBlock";
 import { Badge } from "@/shared/components/Badge";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
 import Drawer from "@/shared/components/Drawer";
@@ -591,7 +592,9 @@ const still = (out.incidents || []).find((x: CorrelationIncident) => x.id === pr
                 <div className="text-[11px] font-semibold">Raw incident (JSON)</div>
                 <div className="text-[11px] text-muted-foreground font-mono">{selected.id}</div>
               </div>
-              <pre className="p-3 text-[11px] leading-relaxed overflow-auto whitespace-pre-wrap break-words">{detailsJson}</pre>
+              <div className="p-3">
+                <JsonBlock value={selected} showControls={false} />
+              </div>
             </div>
           </div>
         )}

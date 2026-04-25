@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { Button } from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
@@ -21,35 +22,6 @@ function fmtWhen(iso?: string | null) {
   return d.toLocaleString();
 }
 
-function ActionButton({
-  children,
-  onClick,
-  disabled,
-  title
-}: {
-  children: any;
-  onClick: () => void;
-  disabled?: boolean;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={cx(
-        "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-        "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-        "hover:bg-muted/15 hover:text-foreground",
-        "focus:outline-none focus:ring-2 focus:ring-primary/30",
-        disabled && "opacity-60 cursor-not-allowed hover:bg-background/40 hover:text-muted-foreground"
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 function safeCopy(text: string) {
   const t = (text || "").trim();
@@ -235,7 +207,7 @@ export default function SshIpDrawer({
         width: 230,
         render: (r: NetEvent) => (
           <div className="flex items-center gap-2">
-            <ActionButton
+            <Button variant="subtle" size="sm"
               onClick={() => {
                 setSelectedEvent(r);
                 setEventDrawerOpen(true);
@@ -243,7 +215,7 @@ export default function SshIpDrawer({
               title="Open full event drawer"
             >
               View
-            </ActionButton>
+            </Button>
             <Link
               to={toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: srcIp, event_id: r.id })}
               className={cx(
@@ -291,9 +263,9 @@ export default function SshIpDrawer({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <ActionButton onClick={() => safeCopy(srcIp)} title="Copy IP to clipboard">
+                <Button variant="subtle" size="sm" onClick={() => safeCopy(srcIp)} title="Copy IP to clipboard">
                   Copy IP
-                </ActionButton>
+                </Button>
                 <Link
                   to={toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: srcIp })}
                   className={cx(
@@ -305,9 +277,9 @@ export default function SshIpDrawer({
                 >
                   Open in Events
                 </Link>
-                <ActionButton onClick={load} disabled={loading} title="Reload recent events">
+                <Button variant="subtle" size="sm" onClick={load} disabled={loading} title="Reload recent events">
                   {loading ? "Refreshing…" : "Refresh"}
-                </ActionButton>
+                </Button>
               </div>
             </div>
 
