@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/shared/components/Badge";
 import Drawer from "@/shared/components/Drawer";
+import { JsonBlock } from "@/shared/components/JsonBlock";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
@@ -71,14 +72,6 @@ function fmtTs(iso: string) {
   const mi = String(d.getMinutes()).padStart(2, "0");
   const ss = String(d.getSeconds()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
-}
-
-function safeJson(v: any) {
-  try {
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return String(v);
-  }
 }
 
 function scoreVariant(score: number) {
@@ -621,9 +614,7 @@ export default function AttackChainDrawer({
         {s.raw?.details ? (
           <details className="mt-3">
             <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Details (JSON)</summary>
-            <pre className="mt-2 text-[11px] font-mono whitespace-pre-wrap break-words text-muted-foreground bg-background/30 border border-border/60 p-3 rounded-lg">
-              {safeJson(s.raw.details)}
-            </pre>
+            <JsonBlock value={s.raw.details} showControls={false} className="mt-2" />
           </details>
         ) : null}
       </div>
@@ -924,9 +915,7 @@ export default function AttackChainDrawer({
                   {payload.case.context ? (
                     <details>
                       <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">Case context (JSON)</summary>
-                      <pre className="mt-2 text-[11px] font-mono whitespace-pre-wrap break-words text-muted-foreground bg-background/30 border border-border/60 p-3 rounded-lg">
-                        {safeJson(payload.case.context)}
-                      </pre>
+                      <JsonBlock value={payload.case.context} showControls={false} className="mt-2" />
                     </details>
                   ) : null}
                 </div>
