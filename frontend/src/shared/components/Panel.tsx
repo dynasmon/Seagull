@@ -11,6 +11,8 @@ export function Panel({
   scrollY = false,
   className,
   style,
+  bodyClassName,
+  bodyRef,
 }: {
   title?: ReactNode;
   subtitle?: ReactNode;
@@ -20,6 +22,8 @@ export function Panel({
   scrollY?: boolean;
   className?: string;
   style?: CSSProperties;
+  bodyClassName?: string;
+  bodyRef?: React.Ref<HTMLDivElement>;
 }) {
   const hasHeader = Boolean(title || subtitle || actions);
 
@@ -42,7 +46,10 @@ export function Panel({
           ) : null}
         </div>
       )}
-      <div className={cx(compact ? "p-3" : "p-4", "flex-1 min-h-0", scrollY && "overflow-y-auto")}>
+      <div
+        ref={bodyRef}
+        className={cx(compact ? "p-3" : "p-4", "flex-1 min-h-0", scrollY && "overflow-y-auto", bodyClassName)}
+      >
         {children}
       </div>
     </section>

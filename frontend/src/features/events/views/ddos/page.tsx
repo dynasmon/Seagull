@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAgentsCatalog } from "@/app/providers";
+import { Button } from "@/shared/components/Button";
 import { DataPaginationFooter, DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
+import { SelectInput } from "@/shared/components/SelectInput";
 import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
@@ -307,10 +309,10 @@ export default function DdosEventsPage() {
   const rightToolbar =
     query.panel === "deep" ? (
       <div className="flex flex-wrap items-center gap-2">
-        <select
+        <SelectInput
           value={query.agent_id}
           onChange={(e) => setQuery((prev) => ({ ...prev, agent_id: e.target.value, event_id: null }))}
-          className="ui-select h-8 min-w-[180px] text-xs"
+          className="h-8 min-w-[180px] text-xs"
           aria-label="Agent scope"
         >
           <option value="">All agents</option>
@@ -319,12 +321,12 @@ export default function DdosEventsPage() {
               {a.display_name || a.agent_id}
             </option>
           ))}
-        </select>
+        </SelectInput>
 
-        <select
+        <SelectInput
           value={String(query.since_minutes)}
           onChange={(e) => setQuery((prev) => ({ ...prev, since_minutes: clampInt(e.target.value, 1, 60 * 24 * 30, prev.since_minutes), event_id: null }))}
-          className="ui-select h-8 text-xs"
+          className="h-8 text-xs"
           aria-label="Lookback window"
         >
           <option value={60}>1h</option>
@@ -333,23 +335,23 @@ export default function DdosEventsPage() {
           <option value={24 * 60}>24h</option>
           <option value={3 * 24 * 60}>3d</option>
           <option value={7 * 24 * 60}>7d</option>
-        </select>
+        </SelectInput>
 
-        <select
+        <SelectInput
           value={String(query.limit)}
           onChange={(e) => setQuery((prev) => ({ ...prev, limit: clampInt(e.target.value, 25, 500, prev.limit), event_id: null }))}
-          className="ui-select h-8 text-xs"
+          className="h-8 text-xs"
           aria-label="Batch size"
         >
           <option value={100}>100</option>
           <option value={200}>200</option>
           <option value={300}>300</option>
           <option value={500}>500</option>
-        </select>
+        </SelectInput>
 
-        <button type="button" onClick={() => void load()} className="ui-btn-secondary h-8 px-3 text-xs">
+        <Button variant="secondary" size="md" onClick={() => void load()}>
           Refresh
-        </button>
+        </Button>
       </div>
     ) : null;
 
@@ -359,20 +361,12 @@ export default function DdosEventsPage() {
         <DataViewToolbar
           left={
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setQuery((prev) => ({ ...prev, panel: "stream" }))}
-                className="ui-btn-secondary h-8 px-3 text-xs"
-              >
+              <Button variant="secondary" size="md" onClick={() => setQuery((prev) => ({ ...prev, panel: "stream" }))}>
                 Stream
-              </button>
-              <button
-                type="button"
-                onClick={() => setQuery((prev) => ({ ...prev, panel: "deep" }))}
-                className="ui-btn h-8 px-3 text-xs"
-              >
+              </Button>
+              <Button variant="primary" size="md" onClick={() => setQuery((prev) => ({ ...prev, panel: "deep" }))}>
                 Deep Dive
-              </button>
+              </Button>
             </div>
           }
         />
@@ -387,20 +381,12 @@ export default function DdosEventsPage() {
       <DataViewToolbar
         left={
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setQuery((prev) => ({ ...prev, panel: "stream" }))}
-              className="ui-btn h-8 px-3 text-xs"
-            >
+            <Button variant="primary" size="md" onClick={() => setQuery((prev) => ({ ...prev, panel: "stream" }))}>
               Stream
-            </button>
-            <button
-              type="button"
-              onClick={() => setQuery((prev) => ({ ...prev, panel: "deep" }))}
-              className="ui-btn-secondary h-8 px-3 text-xs"
-            >
+            </Button>
+            <Button variant="secondary" size="md" onClick={() => setQuery((prev) => ({ ...prev, panel: "deep" }))}>
               Deep Dive
-            </button>
+            </Button>
           </div>
         }
         right={rightToolbar}
