@@ -1,4 +1,3 @@
-import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Link, useNavigate } from "react-router-dom";
@@ -6,9 +5,12 @@ import { Link, useNavigate } from "react-router-dom";
 import AsyncState from "@/shared/components/AsyncState";
 import { JsonBlock } from "@/shared/components/JsonBlock";
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
+import { Panel } from "@/shared/components/Panel";
+import { SelectInput } from "@/shared/components/SelectInput";
 import { cx } from "@/shared/lib/cx";
 import { getErrorMessage } from "@/shared/lib/errors";
 
@@ -18,37 +20,6 @@ import { runCorrelations } from "../api";
 import type { CorrelationIncident, CorrelationRunOut } from "../types";
 
 type Density = "comfortable" | "compact";
-
-function Panel(props: {
-  title: string;
-  right?: ReactNode;
-  children: ReactNode;
-  style?: CSSProperties;
-  scrollY?: boolean;
-  className?: string;
-  bodyClassName?: string;
-}) {
-  return (
-    <div
-      className={cx(
-        "rounded-md border border-border/80 bg-card/95 shadow-[0_12px_32px_rgb(2_8_20/0.12)] backdrop-blur-md flex flex-col min-h-0",
-        props.className
-      )}
-    >
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border/80 bg-surface-2/70">
-        <div className="text-[12px] font-semibold tracking-tight truncate">{props.title}</div>
-        {props.right ? <div className="text-[10px] text-muted-foreground truncate">{props.right}</div> : null}
-      </div>
-
-      <div
-        className={cx("p-4 min-h-0", props.scrollY && "overflow-y-auto", props.bodyClassName)}
-        style={props.style}
-      >
-        {props.children}
-      </div>
-    </div>
-  );
-}
 
 function fmtTs(iso: string) {
   const d = new Date(iso);
@@ -157,22 +128,17 @@ function FindingsTable(props: {
                 </td>
 
                 <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2")}>
-                  <button
-                    type="button"
+                  <Button
+                    variant="subtle"
+                    size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
                       props.onView(x);
                     }}
-                    className={cx(
-                      "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                      "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                      "hover:bg-muted/15 hover:text-foreground",
-                      "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                    )}
                     title="Open drawer"
                   >
                     View
-                  </button>
+                  </Button>
                 </td>
               </tr>
             );
@@ -337,59 +303,58 @@ const still = (out.incidents || []).find((x: CorrelationIncident) => x.id === pr
               className="h-9 min-w-[220px] max-w-[320px]"
             />
             <SeverityFilter value={severity} onChange={setSeverity} />
-            <select
+            <SelectInput
               value={String(maxAge)}
               onChange={(e) => setMaxAge(Number(e.target.value))}
-              className="h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+              className="h-9"
               title="Lookback window"
             >
               <option value={60}>Last 60m</option>
               <option value={360}>Last 6h</option>
               <option value={1440}>Last 24h</option>
               <option value={10080}>Last 7d</option>
-            </select>
-            <select
+            </SelectInput>
+            <SelectInput
               value={String(limit)}
               onChange={(e) => setLimit(Number(e.target.value))}
-              className="h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+              className="h-9"
               title="Alerts to scan"
             >
               <option value={200}>Scan 200</option>
               <option value={500}>Scan 500</option>
               <option value={1000}>Scan 1,000</option>
               <option value={2000}>Scan 2,000</option>
-            </select>
-            <select
+            </SelectInput>
+            <SelectInput
               value={String(sampleLimit)}
               onChange={(e) => setSampleLimit(Number(e.target.value))}
-              className="h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40"
+              className="h-9"
               title="Sample size per incident"
             >
               <option value={10}>Sample 10</option>
               <option value={25}>Sample 25</option>
               <option value={50}>Sample 50</option>
-            </select>
-            <button
+            </SelectInput>
+            <Button
+              variant="subtle"
+              size="lg"
               onClick={() => setDensity((d) => (d === "comfortable" ? "compact" : "comfortable"))}
-              className={cx("h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm", "hover:bg-muted/30")}
               title="Toggle row density"
             >
               {density === "compact" ? "Compact" : "Comfort"}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
+              size="lg"
               onClick={() => {
                 setRunning(true);
                 run().finally(() => setRunning(false));
               }}
               disabled={running}
-              className={cx(
-                "h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground",
-                "hover:opacity-95 disabled:opacity-60"
-              )}
               title="Run correlations now"
             >
               {running ? "Running…" : "Run correlations"}
-            </button>
+            </Button>
           </div>
         }
       />
@@ -413,7 +378,12 @@ const still = (out.incidents || []).find((x: CorrelationIncident) => x.id === pr
         ]}
       />
 
-      <Panel title="Findings" right={headerRight} scrollY className={cx(panelHeightClass)}>
+      <Panel
+        title="Findings"
+        actions={<span className="text-[10px] font-mono text-muted-foreground">{headerRight}</span>}
+        scrollY
+        className={cx(panelHeightClass)}
+      >
         {loading || !!error ? (
           <AsyncState
             loading={loading}
@@ -479,39 +449,20 @@ const still = (out.incidents || []).find((x: CorrelationIncident) => x.id === pr
               </div>
 
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={pivotToAlertsQueue}
-                  className={cx(
-                    "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-                    "hover:bg-muted/30"
-                  )}
-                  title="Pivot sample rule to alerts queue"
-                >
+                <Button variant="subtle" size="lg" onClick={pivotToAlertsQueue} title="Pivot sample rule to alerts queue">
                   Open in alerts queue
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="subtle"
+                  size="lg"
                   onClick={pivotToInvestigations}
-                  className={cx(
-                    "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-                    "hover:bg-muted/30"
-                  )}
                   title="Open workspace list with this indicator context"
                 >
                   Pivot to investigations
-                </button>
-                <button
-                  type="button"
-                  onClick={copyJson}
-                  className={cx(
-                    "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm",
-                    "hover:bg-muted/30"
-                  )}
-                  title="Copy incident JSON to clipboard"
-                >
+                </Button>
+                <Button variant="subtle" size="lg" onClick={copyJson} title="Copy incident JSON to clipboard">
                   {copied ? "Copied" : "Copy JSON"}
-                </button>
+                </Button>
               </div>
             </div>
 
