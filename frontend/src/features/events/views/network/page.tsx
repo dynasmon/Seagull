@@ -5,12 +5,14 @@ import { useAgentsCatalog } from "@/app/providers";
 import AsyncState from "@/shared/components/AsyncState";
 import { MetricCard } from "@/shared/components/MetricCard";
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
 import { Card } from "@/shared/components/Card";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
+import { SelectInput } from "@/shared/components/SelectInput";
 import { Table, type Column } from "@/shared/components/Table";
-import { cx } from "@/shared/lib/cx";
+import { TextInput } from "@/shared/components/TextInput";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
 import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
@@ -117,18 +119,9 @@ function TableEmpty({ title, desc }: { title: string; desc?: string }) {
 
 function InspectButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cx(
-        "inline-flex items-center rounded-md border border-border/60 bg-background/40",
-        "px-2 py-1 text-xs text-muted-foreground",
-        "hover:bg-muted/15 hover:text-foreground",
-        "focus:outline-none focus:ring-2 focus:ring-primary/30"
-      )}
-    >
+    <Button variant="subtle" size="sm" onClick={onClick}>
       Inspect
-    </button>
+    </Button>
   );
 }
 
@@ -432,32 +425,14 @@ export default function ProtocolIntelPage() {
   const headerRight = (
     <div className="flex flex-wrap items-center justify-end gap-2">
       {isDirty ? (
-        <button
-          type="button"
-          onClick={applyDraft}
-          className={cx(
-            "inline-flex items-center gap-2 rounded-md border border-border/60 bg-primary/15",
-            "px-3 py-2 text-xs font-medium text-primary",
-            "hover:bg-primary/20",
-            "focus:outline-none focus:ring-2 focus:ring-primary/30"
-          )}
-        >
+        <Button variant="primary" size="lg" onClick={applyDraft}>
           Apply
-        </button>
+        </Button>
       ) : null}
 
-      <button
-        type="button"
-        onClick={() => void load()}
-        className={cx(
-          "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-          "px-3 py-2 text-xs font-medium text-muted-foreground",
-          "hover:bg-muted/15 hover:text-foreground",
-          "focus:outline-none focus:ring-2 focus:ring-primary/30"
-        )}
-      >
+      <Button variant="subtle" size="lg" onClick={() => void load()}>
         Refresh
-      </button>
+      </Button>
     </div>
   );
 
@@ -488,7 +463,7 @@ export default function ProtocolIntelPage() {
               <div className="grid grid-cols-1 gap-3">
                 <div>
                   <div className="text-xs text-muted-foreground">Agent</div>
-                  <select
+                  <SelectInput
                     value={draft.agent_id}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -496,7 +471,7 @@ export default function ProtocolIntelPage() {
                       // Agent changes are safe to apply immediately (single click, no typing spam).
                       setView((cur) => ({ ...cur, agent_id: v }));
                     }}
-                    className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                    className="mt-2 w-full"
                   >
                     <option value="">All agents</option>
                     {agentOptions.map((a) => (
@@ -504,13 +479,13 @@ export default function ProtocolIntelPage() {
                         {a.display_name}
                       </option>
                     ))}
-                  </select>
+                  </SelectInput>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <div className="text-xs text-muted-foreground">Lookback (minutes)</div>
-                    <input
+                    <TextInput
                       inputMode="numeric"
                       pattern="[0-9]*"
                       type="text"
@@ -520,14 +495,14 @@ export default function ProtocolIntelPage() {
                         setDraft((s) => ({ ...s, since_minutes: raw }));
                       }}
                       placeholder={String(view.since_minutes)}
-                      className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                      className="mt-2 w-full"
                     />
                     <div className="mt-1 text-[11px] text-muted-foreground">1–43200 (30 days)</div>
                   </div>
 
                   <div>
                     <div className="text-xs text-muted-foreground">Top-N</div>
-                    <input
+                    <TextInput
                       inputMode="numeric"
                       pattern="[0-9]*"
                       type="text"
@@ -537,7 +512,7 @@ export default function ProtocolIntelPage() {
                         setDraft((s) => ({ ...s, top_n: raw }));
                       }}
                       placeholder={String(view.top_n)}
-                      className="mt-2 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                      className="mt-2 w-full"
                     />
                     <div className="mt-1 text-[11px] text-muted-foreground">5–200</div>
                   </div>
@@ -570,32 +545,18 @@ export default function ProtocolIntelPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {isDirty ? (
-                      <button
-                        type="button"
-                        onClick={applyDraft}
-                        className={cx(
-                          "inline-flex items-center gap-2 rounded-md border border-border/60 bg-primary/15",
-                          "px-3 py-2 text-xs font-medium text-primary",
-                          "hover:bg-primary/20",
-                          "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                        )}
-                      >
+                      <Button variant="primary" size="lg" onClick={applyDraft}>
                         Apply
-                      </button>
+                      </Button>
                     ) : null}
-                    <button
-                      type="button"
+                    <Button
+                      variant="subtle"
+                      size="lg"
                       onClick={() => setDraft(draftFromView(view))}
-                      className={cx(
-                        "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                        "px-3 py-2 text-xs font-medium text-muted-foreground",
-                        "hover:bg-muted/15 hover:text-foreground",
-                        "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      )}
                       disabled={!isDirty}
                     >
                       Reset
-                    </button>
+                    </Button>
                   </div>
                 </div>
 

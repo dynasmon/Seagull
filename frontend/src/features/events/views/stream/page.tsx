@@ -1,6 +1,6 @@
-import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "@/shared/components/Button";
 import {
   DataPaginationFooter,
   DataQueryStateBanner,
@@ -9,6 +9,8 @@ import {
   DataViewToolbar,
 } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
+import { Panel } from "@/shared/components/Panel";
+import { SelectInput } from "@/shared/components/SelectInput";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { usePersistentState } from "@/shared/hooks/usePersistentState";
 import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
@@ -145,32 +147,6 @@ function sortRows(rows: NetEvent[], sortKey: string, direction: "asc" | "desc"):
   });
 
   return sorted;
-}
-
-function Panel(props: {
-  title: string;
-  right?: ReactNode;
-  children: ReactNode;
-  style?: CSSProperties;
-  scrollY?: boolean;
-  className?: string;
-  bodyClassName?: string;
-}) {
-  return (
-    <div className={cx("rounded-md border border-border/80 bg-card/95 shadow-[0_12px_32px_rgb(2_8_20/0.12)] backdrop-blur-md flex flex-col min-h-0 min-w-0", props.className)}>
-      <div className="flex min-w-0 items-center justify-between gap-3 px-4 py-3 border-b border-border/80 bg-surface-2/70">
-        <div className="min-w-0 text-[12px] font-semibold tracking-tight truncate">{props.title}</div>
-        {props.right ? <div className="min-w-0 shrink text-[10px] text-muted-foreground truncate text-right">{props.right}</div> : null}
-      </div>
-
-      <div
-        className={cx("p-4 min-h-0 grow", props.scrollY && "overflow-y-auto", props.bodyClassName)}
-        style={props.style}
-      >
-        {props.children}
-      </div>
-    </div>
-  );
 }
 
 function SmallToggle({
@@ -547,12 +523,13 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
 
   const toolbarRight = (
     <div className="flex items-center gap-2">
-      <button type="button" onClick={() => void load()} className="ui-btn-secondary h-8 px-2.5 text-xs" title="Refresh now">
+      <Button variant="subtle" size="md" onClick={() => void load()} title="Refresh now">
         Refresh
-      </button>
+      </Button>
 
-      <button
-        type="button"
+      <Button
+        variant="subtle"
+        size="md"
         onClick={() => {
           setSelectedId(null);
           setEvents([]);
@@ -568,11 +545,10 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
           patchDisplay(DEFAULT_DISPLAY);
           setView(normalizeView({ ...DEFAULTS, event_type: pinnedEventType || "" }, pinnedEventType, ddosScope));
         }}
-        className="ui-btn-secondary h-8 px-2.5 text-xs"
         title="Reset filters and table preferences"
       >
         Reset
-      </button>
+      </Button>
     </div>
   );
 
@@ -610,7 +586,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
         <div className="space-y-4 min-h-0">
           <Panel
             title="Filters"
-            right={view.agent_id ? `Agent: ${agentNameById[view.agent_id] || view.agent_id}` : "All agents"}
+            actions={<span className="text-[10px] font-mono text-muted-foreground">{view.agent_id ? `Agent: ${agentNameById[view.agent_id] || view.agent_id}` : "All agents"}</span>}
           >
             <EventsFilters
               agents={agentOptions}
@@ -622,7 +598,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
             />
           </Panel>
 
-          <Panel title="Display" right={`${uniqAgents} agents`}>
+          <Panel title="Display" actions={<span className="text-[10px] font-mono text-muted-foreground">{uniqAgents} agents</span>}>
             <div className="space-y-3">
               <SmallToggle
                 label="Show details column"
@@ -653,17 +629,13 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
 
                 <div>
                   <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Sort</div>
-                  <select
+                  <SelectInput
                     value={`${tablePrefs.sort?.key || "timestamp"}:${tablePrefs.sort?.direction || "desc"}`}
                     onChange={(e) => {
                       const [key, direction] = e.target.value.split(":");
                       tablePrefs.setSort({ key, direction: direction === "asc" ? "asc" : "desc" });
                     }}
-                    className={cx(
-                      "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
-                      "text-[11px] font-mono text-foreground outline-none",
-                      "focus:ring-2 focus:ring-primary/30"
-                    )}
+                    className="mt-1 w-full text-[11px] font-mono"
                     title="Sort visible rows"
                   >
                     <option value="timestamp:desc">Time (newest first)</option>
@@ -671,14 +643,19 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
                     <option value="event_type:asc">Type (A-Z)</option>
                     <option value="agent_id:asc">Agent (A-Z)</option>
                     <option value="src_ip:asc">Source IP (A-Z)</option>
-                  </select>
+                  </SelectInput>
                 </div>
               </div>
             </div>
           </Panel>
 
           {!pinnedEventType && !ddosScope ? (
-            <Panel title="Explorer" right={view.event_type ? `Type: ${view.event_type}` : "All types"} scrollY style={{ maxHeight: 360 }}>
+            <Panel
+              title="Explorer"
+              actions={<span className="text-[10px] font-mono text-muted-foreground">{view.event_type ? `Type: ${view.event_type}` : "All types"}</span>}
+              scrollY
+              style={{ maxHeight: 360 }}
+            >
               <EventExplorer
                 types={typeCounts}
                 activeType={view.event_type || null}
@@ -687,7 +664,10 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
               />
             </Panel>
           ) : (
-            <Panel title="Explorer" right={ddosScope ? "Locked: DDoS semantic scope" : `Locked: ${pinnedEventType}`}>
+            <Panel
+              title="Explorer"
+              actions={<span className="text-[10px] font-mono text-muted-foreground">{ddosScope ? "Locked: DDoS semantic scope" : `Locked: ${pinnedEventType}`}</span>}
+            >
               <div className="text-[12px] text-muted-foreground">
                 {ddosScope
                   ? "Type explorer is locked for this module to preserve semantic DDoS filtering."
@@ -696,7 +676,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
             </Panel>
           )}
 
-          <Panel title="Top sources" right={topSrc.length ? "" : "No data"}>
+          <Panel title="Top sources" actions={topSrc.length ? undefined : <span className="text-[10px] font-mono text-muted-foreground">No data</span>}>
             <div className="space-y-2">
               {topSrc.slice(0, 6).map((r) => (
                 <button
@@ -719,7 +699,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
             </div>
           </Panel>
 
-          <Panel title="Top destinations" right={topDst.length ? "" : "No data"}>
+          <Panel title="Top destinations" actions={topDst.length ? undefined : <span className="text-[10px] font-mono text-muted-foreground">No data</span>}>
             <div className="space-y-2">
               {topDst.slice(0, 6).map((r) => (
                 <button
@@ -745,7 +725,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
 
         <Panel
           title="Event stream"
-          right={headerRight}
+          actions={<span className="text-[10px] font-mono text-muted-foreground">{headerRight}</span>}
           className="min-w-0 min-h-[620px]"
           scrollY
           bodyClassName="min-w-0 p-0"
@@ -773,9 +753,9 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
               <EmptyState
                 title="Events unavailable"
                 description={
-                  <button type="button" onClick={() => load()} className="ui-btn">
+                  <Button variant="subtle" size="md" onClick={() => load()}>
                     Retry
-                  </button>
+                  </Button>
                 }
               />
             </div>

@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import PageHeader from "@/shared/components/PageHeader";
+import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import Drawer from "@/shared/components/Drawer";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
+import { Panel } from "@/shared/components/Panel";
+import { SelectInput } from "@/shared/components/SelectInput";
 import { Table } from "@/shared/components/Table";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import {
@@ -160,19 +163,6 @@ function Section({ id, title, children, defaultOpen = true }: { id: string; titl
     </div>
   );
 }
-
-function Panel({ title, right, children, scrollY = false, className = "" }: { title: string; right?: any; children: any; scrollY?: boolean; className?: string }) {
-  return (
-    <div className={cx("rounded-md border border-border/80 bg-card/95 shadow-[0_12px_32px_rgb(2_8_20/0.12)] backdrop-blur-sm flex flex-col", className)}>
-      <div className="flex items-center justify-between border-b border-border/80 bg-surface-2/70 px-4 py-3">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">{title}</h3>
-        {right ? <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">{right}</div> : null}
-      </div>
-      <div className={cx("p-4 flex-1 min-h-0", scrollY ? "overflow-y-auto" : "overflow-hidden")}>{children}</div>
-    </div>
-  );
-}
-
 
 function BarGaugeList({
   title,
@@ -538,36 +528,25 @@ export default function InventoryPage() {
 
   const toolbarRight = (
     <div className="flex items-center gap-3">
-      <button
-        type="button"
+      <Button
+        variant="subtle"
+        size="lg"
         onClick={() => inventoryTablePrefs.setCompact(!compactRows)}
-        className={cx(
-          "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-          "text-xs font-mono uppercase tracking-widest",
-          compactRows ? "text-foreground" : "text-muted-foreground",
-          "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-        )}
       >
         {compactRows ? "Compact rows" : "Comfortable rows"}
-      </button>
+      </Button>
       <div className="hidden md:block text-[11px] font-mono text-muted-foreground">
         {live.state.lastUpdatedAt ? `Updated ${fmtDateTime(live.state.lastUpdatedAt.toISOString())}` : ""}
       </div>
 
-      <button
-        type="button"
+      <Button
+        variant="subtle"
+        size="lg"
         onClick={live.refreshNow}
-        className={cx(
-          "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-          "text-xs font-mono uppercase tracking-widest text-muted-foreground",
-          "hover:bg-muted/15 hover:text-foreground",
-          "focus:outline-none focus:ring-2 focus:ring-primary/30",
-          busy && "opacity-60 cursor-not-allowed"
-        )}
         disabled={busy}
       >
         Refresh
-      </button>
+      </Button>
     </div>
   );
 
@@ -685,18 +664,14 @@ export default function InventoryPage() {
           <div className="space-y-4">
             <div>
               <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Agent</div>
-              <select
+              <SelectInput
                 value={agentScope}
                 onChange={(e) => {
                   const v = normAgentId(e.target.value);
                   setAgentScope(v);
                   pushUrl(v);
                 }}
-                className={cx(
-                  "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
-                  "text-[11px] text-foreground outline-none font-mono",
-                  "focus:ring-2 focus:ring-primary/30"
-                )}
+                className="mt-1 w-full text-[11px] font-mono"
               >
                 <option value="__all">All agents</option>
                 {agentsOptions.map((a) => (
@@ -704,7 +679,7 @@ export default function InventoryPage() {
                     {a.display_name ? a.display_name : a.agent_id}
                   </option>
                 ))}
-              </select>
+              </SelectInput>
               <div className="mt-2 text-[11px] font-mono text-muted-foreground">
                 Current scope: <span className="text-foreground/90">{scopeLabel}</span>
               </div>
@@ -810,7 +785,12 @@ export default function InventoryPage() {
             )}
           </Panel>
 
-          <Panel title="Asset pivots" right={`${domainPivotRows.length} agents`} scrollY className="min-h-[360px]">
+          <Panel
+            title="Asset pivots"
+            actions={<span className="text-[10px] font-mono text-muted-foreground">{domainPivotRows.length} agents</span>}
+            scrollY
+            className="min-h-[360px]"
+          >
             {domainPivotRows.length === 0 ? (
               <EmptyState title="No assets" hint="No assets available for this scope." />
             ) : (
@@ -862,7 +842,7 @@ export default function InventoryPage() {
       {(domain === "dashboard" || domain === "system" || domain === "software") ? (
       <Section id="timeseries" title="Activity" defaultOpen>
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <Panel title="Inventory snapshots / minute" right={`${windowMinutes}m window`} className="min-h-[420px]">
+          <Panel title="Inventory snapshots / minute" actions={<span className="text-[10px] font-mono text-muted-foreground">{windowMinutes}m window</span>} className="min-h-[420px]">
             {snapshot ? (
               <SimpleTimeSeries
                 data={snapshot.snapshots_per_minute.data}
@@ -877,7 +857,7 @@ export default function InventoryPage() {
             )}
           </Panel>
 
-          <Panel title="Inventory changes / 10m" right="packages_hash delta" className="min-h-[420px]">
+          <Panel title="Inventory changes / 10m" actions={<span className="text-[10px] font-mono text-muted-foreground">packages_hash delta</span>} className="min-h-[420px]">
             {snapshot ? (
               <SimpleTimeSeries
                 data={snapshot.changes_per_10m.data}
@@ -939,7 +919,7 @@ export default function InventoryPage() {
       <Section id="fleet" title="Fleet health" defaultOpen>
         <Panel
           title="Fleet health"
-          right={snapshot ? `${fleetRows.length} agents` : undefined}
+          actions={snapshot ? <span className="text-[10px] font-mono text-muted-foreground">{fleetRows.length} agents</span> : undefined}
           scrollY
           className="min-h-[520px]"
         >
