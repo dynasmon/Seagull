@@ -1,21 +1,14 @@
 import EmptyState from "@/shared/components/EmptyState";
-import { cx } from "@/shared/lib/cx";
+import { JsonBlock } from "@/shared/components/JsonBlock";
+import {
+  InvestigationFieldGroup,
+} from "@/shared/components/investigation";
 
 import type { NetEvent } from "../types";
-import { fmtDateTime } from "../lib/aggregates";
 import { extractDdosFields, ddosLabel, fmtHumanRate, isDdosEvent } from "../lib/ddos";
 import { normalizeDetails, safeNumber } from "../lib/normalize";
 import { formatProtocolLabel, getEventProtocolIntel } from "../lib/protocol";
-
-function Kv({ k, v }: { k: string; v: any }) {
-  const val = v === undefined || v === null || v === "" ? "-" : String(v);
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{k}</div>
-      <div className="text-[11px] font-mono text-foreground text-right">{val}</div>
-    </div>
-  );
-}
+import { formatInvestigationTimestamp } from "@/shared/components/investigation";
 
 export default function EventDetailsPanel({ event }: { event: NetEvent | null }) {
   if (!event) {
@@ -38,178 +31,155 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3">
-        <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Summary</div>
-        <div className="border border-border/60 bg-background/40 p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{event.event_type}</div>
-              <div className="mt-1 text-sm">
-                <span className="font-mono">{src}</span> → <span className="font-mono">{dst}</span>
-                {protocol.appProto ? (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    ({formatProtocolLabel(protocol.appProto)}
-                    {protocol.transportProto ? ` over ${formatProtocolLabel(protocol.transportProto)}` : ""})
-                  </span>
-                ) : protocol.transportProto ? (
-                  <span className="text-muted-foreground"> ({formatProtocolLabel(protocol.transportProto)})</span>
-                ) : null}
-              </div>
-              <div className="mt-2 text-[11px] text-muted-foreground font-mono">
-                ts={fmtDateTime(new Date(event.timestamp))} · agent={event.agent_id} · schema={event.schema_version} · id={event.id}
-              </div>
-            </div>
-
-            {isDdos && ddos && (
-              <div className="shrink-0 text-right">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Detection</div>
-                <div className="mt-1 text-sm font-mono">{ddosLabel(ddos)}</div>
-                <div
-                  className={cx(
-                    "mt-1 inline-flex items-center gap-2 rounded-md border px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
-                    ddos.severity.toLowerCase() === "critical"
-                      ? "border-severity-critical/60 bg-severity-critical/10 text-severity-critical"
-                      : ddos.severity.toLowerCase() === "high"
-                        ? "border-severity-high/60 bg-severity-high/10 text-severity-high"
-                        : "border-border/60 bg-background/30 text-muted-foreground"
-                  )}
-                >
-                  sev {ddos.severity || "-"}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      <InvestigationFieldGroup
+        title="Core summary"
+        subtitle="Primary path, classification, and collection context."
+        entries={[
+          { key: "event_type", value: event.event_type },
+          { key: "source", value: src },
+          { key: "destination", value: dst },
+          {
+            key: "protocol",
+            value: protocol.appProto
+              ? `${formatProtocolLabel(protocol.appProto)}${protocol.transportProto ? ` over ${formatProtocolLabel(protocol.transportProto)}` : ""}`
+              : protocol.transportProto
+                ? formatProtocolLabel(protocol.transportProto)
+                : "-",
+          },
+          { key: "timestamp", value: formatInvestigationTimestamp(event.timestamp) },
+          { key: "agent_id", value: event.agent_id },
+          { key: "schema_version", value: String(event.schema_version) },
+          { key: "event_id", value: String(event.id) },
+          ...(isDdos && ddos
+            ? [
+                { key: "ddos_kind", value: ddosLabel(ddos) },
+                { key: "ddos_severity", value: ddos.severity || "-" },
+              ]
+            : []),
+        ]}
+      />
 
       {isDdos && ddos && (
-        <div className="space-y-2">
-          <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">DDoS fields</div>
-          <div className="border border-border/60 bg-background/40 p-3 space-y-2">
-            <Kv k="confidence" v={ddos.confidence === null ? "-" : ddos.confidence.toFixed(2)} />
-            <Kv k="pps" v={ddos.pps === null ? "-" : fmtHumanRate(ddos.pps)} />
-            <Kv k="bps" v={ddos.bps === null ? "-" : fmtHumanRate(ddos.bps)} />
-            <Kv k="unique_src_ips" v={ddos.unique_src_ips === null ? "-" : Math.round(ddos.unique_src_ips)} />
-            <Kv k="src_entropy_norm" v={ddos.src_entropy_norm === null ? "-" : ddos.src_entropy_norm.toFixed(3)} />
-            <Kv k="http_rps" v={ddos.http_rps === null ? "-" : fmtHumanRate(ddos.http_rps)} />
-            <Kv k="tls_handshake_rps" v={ddos.tls_handshake_rps === null ? "-" : fmtHumanRate(ddos.tls_handshake_rps)} />
-            <Kv k="tcp_syn_ratio" v={ddos.tcp_syn_ratio === null ? "-" : ddos.tcp_syn_ratio.toFixed(3)} />
-          </div>
-        </div>
+        <InvestigationFieldGroup
+          title="DDoS fields"
+          entries={[
+            { key: "confidence", value: ddos.confidence === null ? "-" : ddos.confidence.toFixed(2) },
+            { key: "pps", value: ddos.pps === null ? "-" : fmtHumanRate(ddos.pps) },
+            { key: "bps", value: ddos.bps === null ? "-" : fmtHumanRate(ddos.bps) },
+            { key: "unique_src_ips", value: ddos.unique_src_ips === null ? "-" : String(Math.round(ddos.unique_src_ips)) },
+            { key: "src_entropy_norm", value: ddos.src_entropy_norm === null ? "-" : ddos.src_entropy_norm.toFixed(3) },
+            { key: "http_rps", value: ddos.http_rps === null ? "-" : fmtHumanRate(ddos.http_rps) },
+            { key: "tls_handshake_rps", value: ddos.tls_handshake_rps === null ? "-" : fmtHumanRate(ddos.tls_handshake_rps) },
+            { key: "tcp_syn_ratio", value: ddos.tcp_syn_ratio === null ? "-" : ddos.tcp_syn_ratio.toFixed(3) },
+          ]}
+        />
       )}
 
       {isDdos && ddos && ddos.top_src.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Top sources</div>
-          <div className="border border-border/60 bg-background/40 p-3 space-y-2">
-            {ddos.top_src.slice(0, 10).map((x, i) => (
-              <div key={`${x.ip || "-"}-${i}`} className="flex items-center justify-between gap-3 text-[11px] font-mono">
-                <div className="text-foreground truncate">{x.ip || "-"}</div>
-                <div className="text-muted-foreground">{safeNumber(x.count) ?? "-"}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <InvestigationFieldGroup
+          title="Top sources"
+          entries={ddos.top_src.slice(0, 10).map((x, i) => ({
+            key: x.ip || `source_${i + 1}`,
+            value: String(safeNumber(x.count) ?? "-"),
+          }))}
+        />
       )}
 
       {isProcExec && (
-        <div className="space-y-2">
-          <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Process execution</div>
-          <div className="border border-border/60 bg-background/40 p-3 space-y-2">
-            <Kv k="pid" v={extra.pid} />
-            <Kv k="ppid" v={extra.ppid} />
-            <Kv k="exe_name" v={extra.exe_name || extra.comm || extra.binary} />
-            <Kv k="exe_path" v={extra.exe_path} />
-            <Kv k="cmdline" v={extra.cmdline} />
-            <Kv k="parent_exe_name" v={extra.parent_exe_name || extra.parent_comm} />
-            <Kv k="uid/euid" v={`${extra.uid ?? "-"} / ${extra.euid ?? "-"}`} />
-            <Kv k="gid/egid" v={`${extra.gid ?? "-"} / ${extra.egid ?? "-"}`} />
-            <Kv k="username" v={extra.username} />
-            <Kv k="cwd" v={extra.cwd} />
-            <Kv k="process_start_time" v={extra.process_start_time} />
-            <Kv k="exe_sha256" v={extra.exe_sha256} />
-            <Kv k="exec_patterns" v={procPatterns} />
-            <Kv k="collection_method" v={extra.collection_method} />
-          </div>
-        </div>
+        <InvestigationFieldGroup
+          title="Process execution"
+          entries={[
+            { key: "pid", value: String(extra.pid ?? "-") },
+            { key: "ppid", value: String(extra.ppid ?? "-") },
+            { key: "exe_name", value: String(extra.exe_name || extra.comm || extra.binary || "-") },
+            { key: "exe_path", value: String(extra.exe_path || "-") },
+            { key: "cmdline", value: String(extra.cmdline || "-") },
+            { key: "parent_exe_name", value: String(extra.parent_exe_name || extra.parent_comm || "-") },
+            { key: "uid/euid", value: `${extra.uid ?? "-"} / ${extra.euid ?? "-"}` },
+            { key: "gid/egid", value: `${extra.gid ?? "-"} / ${extra.egid ?? "-"}` },
+            { key: "username", value: String(extra.username || "-") },
+            { key: "cwd", value: String(extra.cwd || "-") },
+            { key: "process_start_time", value: String(extra.process_start_time || "-") },
+            { key: "exe_sha256", value: String(extra.exe_sha256 || "-") },
+            { key: "exec_patterns", value: procPatterns || "-" },
+            { key: "collection_method", value: String(extra.collection_method || "-") },
+          ]}
+        />
       )}
 
       {isFim && (
-        <div className="space-y-2">
-          <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">FIM / Persistence</div>
-          <div className="border border-border/60 bg-background/40 p-3 space-y-2">
-            <Kv k="path" v={extra.path} />
-            <Kv k="path_category" v={extra.path_category} />
-            <Kv k="action" v={extra.action} />
-            <Kv k="persistence_related" v={extra.persistence_related} />
-            <Kv k="tamper_related" v={extra.tamper_related} />
-            <Kv k="path_from" v={extra.path_from} />
-            <Kv k="path_to" v={extra.path_to} />
-            <Kv k="uid/gid" v={`${extra.uid ?? "-"} / ${extra.gid ?? "-"}`} />
-            <Kv k="mode" v={extra.mode} />
-            <Kv k="digest_before" v={extra.digest_before} />
-            <Kv k="digest_after" v={extra.digest_after} />
-          </div>
-        </div>
+        <InvestigationFieldGroup
+          title="FIM / persistence"
+          entries={[
+            { key: "path", value: String(extra.path || "-") },
+            { key: "path_category", value: String(extra.path_category || "-") },
+            { key: "action", value: String(extra.action || "-") },
+            { key: "persistence_related", value: String(extra.persistence_related ?? "-") },
+            { key: "tamper_related", value: String(extra.tamper_related ?? "-") },
+            { key: "path_from", value: String(extra.path_from || "-") },
+            { key: "path_to", value: String(extra.path_to || "-") },
+            { key: "uid/gid", value: `${extra.uid ?? "-"} / ${extra.gid ?? "-"}` },
+            { key: "mode", value: String(extra.mode || "-") },
+            { key: "digest_before", value: String(extra.digest_before || "-") },
+            { key: "digest_after", value: String(extra.digest_after || "-") },
+          ]}
+        />
       )}
 
       {protocol.hasProtocolIntel && (
-        <div className="space-y-2">
-          <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Protocol intel</div>
-          <div className="border border-border/60 bg-background/40 p-3 space-y-2">
-            <Kv k="transport_proto" v={formatProtocolLabel(protocol.transportProto)} />
-            <Kv k="app_proto" v={formatProtocolLabel(protocol.appProto)} />
-            <Kv k="app_proto_reason" v={protocol.appProtoReason} />
-            <Kv k="app_proto_conf_band" v={protocol.appProtoConfBand} />
-            <Kv k="flow_direction" v={protocol.flowDirection} />
-            <Kv k="dns_qname" v={protocol.dnsQname} />
-            <Kv k="dns_qtype" v={protocol.dnsQtype} />
-            <Kv k="dns_rcode" v={protocol.dnsRcode} />
-            <Kv k="dns_answers" v={protocol.dnsAnswers} />
-            <Kv k="http_method" v={protocol.httpMethod} />
-            <Kv k="http_host" v={protocol.httpHost} />
-            <Kv k="http_path" v={protocol.httpPath} />
-            <Kv k="http_status" v={protocol.httpStatus} />
-            <Kv k="http_user_agent" v={protocol.httpUserAgent} />
-            <Kv k="tls_sni" v={protocol.tlsSni} />
-            <Kv k="tls_alpn_first" v={protocol.tlsAlpnFirst} />
-            <Kv k="tls_version" v={protocol.tlsVersion} />
-            <Kv k="ja3" v={protocol.ja3} />
-            <Kv k="ja4" v={protocol.ja4} />
-            <Kv k="ja4_ptype" v={protocol.ja4Ptype} />
-          </div>
-        </div>
+        <InvestigationFieldGroup
+          title="Protocol intel"
+          entries={[
+            { key: "transport_proto", value: formatProtocolLabel(protocol.transportProto) },
+            { key: "app_proto", value: formatProtocolLabel(protocol.appProto) },
+            { key: "app_proto_reason", value: protocol.appProtoReason || "-" },
+            { key: "app_proto_conf_band", value: protocol.appProtoConfBand || "-" },
+            { key: "flow_direction", value: protocol.flowDirection || "-" },
+            { key: "dns_qname", value: protocol.dnsQname || "-" },
+            { key: "dns_qtype", value: protocol.dnsQtype || "-" },
+            { key: "dns_rcode", value: protocol.dnsRcode || "-" },
+            { key: "dns_answers", value: protocol.dnsAnswers || "-" },
+            { key: "http_method", value: protocol.httpMethod || "-" },
+            { key: "http_host", value: protocol.httpHost || "-" },
+            { key: "http_path", value: protocol.httpPath || "-" },
+            { key: "http_status", value: protocol.httpStatus || "-" },
+            { key: "http_user_agent", value: protocol.httpUserAgent || "-" },
+            { key: "tls_sni", value: protocol.tlsSni || "-" },
+            { key: "tls_alpn_first", value: protocol.tlsAlpnFirst || "-" },
+            { key: "tls_version", value: protocol.tlsVersion || "-" },
+            { key: "ja3", value: protocol.ja3 || "-" },
+            { key: "ja4", value: protocol.ja4 || "-" },
+            { key: "ja4_ptype", value: protocol.ja4Ptype || "-" },
+          ]}
+        />
       )}
 
       {isHeuristic && (
-        <div className="space-y-2">
-          <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Heuristic reasoning</div>
-          <div className="border border-border/60 bg-background/40 p-3 space-y-2">
-            <Kv k="heuristic_name" v={extra.heuristic_name} />
-            <Kv k="heuristic_kind" v={extra.heuristic_kind} />
-            <Kv k="reason_kind" v={extra.reason_kind} />
-            <Kv k="confidence" v={extra.confidence} />
-            <Kv k="sample_count" v={extra.sample_count} />
-            <Kv k="interval_mean_s" v={extra.interval_mean_s} />
-            <Kv k="interval_jitter_cv" v={extra.interval_jitter_cv} />
-            <Kv k="recent_events" v={extra.recent_events} />
-            <Kv k="baseline_events" v={extra.baseline_events} />
-            <Kv k="recent_bytes" v={extra.recent_bytes || extra.bytes_total} />
-            <Kv k="baseline_bytes" v={extra.baseline_bytes} />
-            <Kv k="spike_factor_observed" v={extra.spike_factor_observed} />
-            <Kv k="dst_host" v={extra.dst_host} />
-            <Kv k="app_proto" v={extra.app_proto} />
-            <Kv k="reasons" v={reasons} />
-          </div>
-        </div>
+        <InvestigationFieldGroup
+          title="Heuristic reasoning"
+          entries={[
+            { key: "heuristic_name", value: String(extra.heuristic_name || "-") },
+            { key: "heuristic_kind", value: String(extra.heuristic_kind || "-") },
+            { key: "reason_kind", value: String(extra.reason_kind || "-") },
+            { key: "confidence", value: String(extra.confidence ?? "-") },
+            { key: "sample_count", value: String(extra.sample_count ?? "-") },
+            { key: "interval_mean_s", value: String(extra.interval_mean_s ?? "-") },
+            { key: "interval_jitter_cv", value: String(extra.interval_jitter_cv ?? "-") },
+            { key: "recent_events", value: String(extra.recent_events ?? "-") },
+            { key: "baseline_events", value: String(extra.baseline_events ?? "-") },
+            { key: "recent_bytes", value: String(extra.recent_bytes || extra.bytes_total || "-") },
+            { key: "baseline_bytes", value: String(extra.baseline_bytes ?? "-") },
+            { key: "spike_factor_observed", value: String(extra.spike_factor_observed ?? "-") },
+            { key: "dst_host", value: String(extra.dst_host || "-") },
+            { key: "app_proto", value: String(extra.app_proto || "-") },
+            { key: "reasons", value: reasons || "-" },
+          ]}
+        />
       )}
 
-      <div>
-        <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground mb-2">Extra (raw)</div>
-        <pre className="border border-border/60 bg-background/40 p-3 text-[11px] leading-relaxed overflow-auto">
-          {JSON.stringify(extra, null, 2)}
-        </pre>
+      <div className="rounded-lg border border-border/60 bg-background/30 p-3">
+        <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Extra raw</div>
+        <JsonBlock value={extra} showControls={false} className="mt-3" />
       </div>
     </div>
   );

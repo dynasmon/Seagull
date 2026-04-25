@@ -1,14 +1,21 @@
 import { useMemo } from "react";
 
 import Drawer from "@/shared/components/Drawer";
-import { Badge } from "@/shared/components/Badge";
-import { Card } from "@/shared/components/Card";
 import { JsonBlock } from "@/shared/components/JsonBlock";
+import {
+  InvestigationFactCard,
+  InvestigationMetaStrip,
+  InvestigationRawJsonPanel,
+  InvestigationSection,
+  InvestigationShell,
+  InvestigationSummaryGrid,
+  formatInvestigationTimestamp,
+} from "@/shared/components/investigation";
 import { cx } from "@/shared/lib/cx";
 
 import { PhaseTimeline, ScanStats } from "./ActiveScanPanel";
 import { LiveElapsedText } from "./LiveElapsedText";
-import { fmtSec, fmtWhen, fmtAge, scanLifecycleLabel, scanPhaseLabel, scanTriggerLabel, scanVariant } from "./scanUtils";
+import { fmtSec, fmtAge, scanLifecycleLabel, scanPhaseLabel, scanTriggerLabel, scanVariant } from "./scanUtils";
 import type { VulnScan } from "./types";
 
 function ScanDurationDisplay({ scan }: { scan: VulnScan }) {
@@ -83,119 +90,54 @@ export default function VulnScanDrawer({
       open={open}
       onClose={onClose}
       title={`Scan #${scan.id}`}
-      description={`${scan.tool}${scan.tool_version ? ` v${scan.tool_version}` : ""} • ${scan.scan_uuid}`}
+      description={`${scan.tool}${scan.tool_version ? ` v${scan.tool_version}` : ""} · ${scan.scan_uuid}`}
       widthClassName="w-[1040px]"
+      headerLabel="Vulnerability scan"
     >
-      <div className="space-y-4">
-        <Card title="Overview" className="rounded-xl">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={scanVariant(scan.lifecycle_state)}>{scanLifecycleLabel(scan.lifecycle_state)}</Badge>
-            <Badge variant="neutral">{scanPhaseLabel(scan.current_phase)}</Badge>
-            <span
-              className={cx(
-                "rounded border px-2 py-0.5 text-[10px] font-mono uppercase tracking-widest",
-                scan.trigger_source === "manual"
-                  ? "border-info/30 text-info/70"
-                  : "border-border/40 text-muted-foreground/60"
-              )}
-            >
-              {scanTriggerLabel(scan.trigger_source)}
-            </span>
-            <span className="font-mono text-[11px] text-muted-foreground">
-              {scan.tool}
-              {scan.tool_version ? ` @ ${scan.tool_version}` : ""}
-            </span>
-          </div>
+      <InvestigationShell>
+        <InvestigationMetaStrip
+          items={[
+            { label: "Lifecycle", value: scanLifecycleLabel(scan.lifecycle_state), variant: scanVariant(scan.lifecycle_state) },
+            { label: "Phase", value: scanPhaseLabel(scan.current_phase), variant: "neutral" },
+            { label: "Trigger", value: scanTriggerLabel(scan.trigger_source) },
+            { label: "Tool", value: `${scan.tool}${scan.tool_version ? ` @ ${scan.tool_version}` : ""}` },
+            { label: "Reporter", value: scan.reporter_agent_id || "-" },
+            { label: "Target", value: scan.target || "-" },
+          ]}
+        />
 
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <div className="rounded-lg border border-border/50 bg-background/20 p-3">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                Reporter
-              </div>
-              <div className="mt-2 font-mono text-sm">{scan.reporter_agent_id || "-"}</div>
-            </div>
-            <div className="rounded-lg border border-border/50 bg-background/20 p-3">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                Target
-              </div>
-              <div className="mt-2 truncate font-mono text-sm" title={scan.target || ""}>
-                {scan.target || "-"}
-              </div>
-            </div>
-            <div className="rounded-lg border border-border/50 bg-background/20 p-3">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                Duration
-              </div>
-              <div className="mt-2">
-                <ScanDurationDisplay scan={scan} />
-              </div>
-              <div className="mt-1 text-xs text-muted-foreground">queue wait {queueWaitLabel}</div>
-            </div>
-          </div>
-
-          <dl className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <div>
-              <dt className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                Queued
-              </dt>
-              <dd className="mt-1 font-mono text-[12px] text-muted-foreground">
-                {fmtWhen(scan.queued_at)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                Acknowledged
-              </dt>
-              <dd className="mt-1 font-mono text-[12px] text-muted-foreground">
-                {fmtWhen(scan.acknowledged_at)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                Started
-              </dt>
-              <dd className="mt-1 font-mono text-[12px] text-muted-foreground">
-                {fmtWhen(scan.started_at)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                Finished
-              </dt>
-              <dd className="mt-1 font-mono text-[12px] text-muted-foreground">
-                {fmtWhen(scan.finished_at)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                Last progress
-              </dt>
-              <dd className="mt-1 font-mono text-[12px] text-muted-foreground">
-                {fmtWhen(scan.last_progress_at)}
-                {scan.last_progress_at ? ` · ${fmtAge(scan.last_progress_at)}` : ""}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                Profile
-              </dt>
-              <dd className="mt-1 font-mono text-[12px] text-muted-foreground">
-                {(scan.config as any)?.analysis_profile ||
-                  (scan.scope as any)?.analysis_profile ||
-                  "-"}
-              </dd>
-            </div>
-          </dl>
+        <InvestigationSection title="Execution overview" subtitle="Lifecycle state, timing, scope target, and collection profile.">
+          <InvestigationSummaryGrid className="xl:grid-cols-4">
+            <InvestigationFactCard label="Scan UUID" value={scan.scan_uuid} mono copyValue={scan.scan_uuid} />
+            <InvestigationFactCard label="Reporter" value={scan.reporter_agent_id || "-"} mono />
+            <InvestigationFactCard label="Target" value={scan.target || "-"} mono copyValue={scan.target || null} />
+            <InvestigationFactCard label="Duration" value={<ScanDurationDisplay scan={scan} />} />
+            <InvestigationFactCard label="Queue wait" value={queueWaitLabel} mono />
+            <InvestigationFactCard label="Queued" value={formatInvestigationTimestamp(scan.queued_at)} mono />
+            <InvestigationFactCard label="Acknowledged" value={formatInvestigationTimestamp(scan.acknowledged_at)} mono />
+            <InvestigationFactCard label="Started" value={formatInvestigationTimestamp(scan.started_at)} mono />
+            <InvestigationFactCard label="Finished" value={formatInvestigationTimestamp(scan.finished_at)} mono />
+            <InvestigationFactCard
+              label="Last progress"
+              value={scan.last_progress_at ? `${formatInvestigationTimestamp(scan.last_progress_at)} · ${fmtAge(scan.last_progress_at)}` : "-"}
+              mono
+            />
+            <InvestigationFactCard
+              label="Profile"
+              value={(scan.config as any)?.analysis_profile || (scan.scope as any)?.analysis_profile || "-"}
+              mono
+            />
+          </InvestigationSummaryGrid>
 
           {scan.error_summary ? (
             <div className="mt-4 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
               {scan.error_summary}
             </div>
           ) : null}
-        </Card>
+        </InvestigationSection>
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <Card title="Execution Timeline" className="rounded-xl xl:col-span-2">
+          <InvestigationSection title="Execution timeline" className="xl:col-span-2">
             {hasTimeline ? (
               <PhaseTimeline scan={scan} />
             ) : (
@@ -203,35 +145,33 @@ export default function VulnScanDrawer({
                 No phase transitions have been recorded for this scan yet.
               </div>
             )}
-          </Card>
+          </InvestigationSection>
 
-          <Card title="Pipeline Counters" className="rounded-xl">
+          <InvestigationSection title="Pipeline counters">
             {hasStats ? (
-              <>
+              <div className="space-y-4">
                 <ScanStats stats={scan.stats} />
-                <JsonBlock value={scan.stats} showControls={false} className="mt-4" />
-              </>
+                <JsonBlock value={scan.stats} showControls={false} />
+              </div>
             ) : (
               <div className="text-sm text-muted-foreground">
                 No numeric pipeline counters were reported for this scan.
               </div>
             )}
-          </Card>
+          </InvestigationSection>
         </div>
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <Card title="Scope" className="rounded-xl">
+          <InvestigationSection title="Scope">
             <JsonBlock value={scan.scope} showControls={false} />
-          </Card>
-          <Card title="Config" className="rounded-xl">
+          </InvestigationSection>
+          <InvestigationSection title="Config">
             <JsonBlock value={scan.config} showControls={false} />
-          </Card>
+          </InvestigationSection>
         </div>
 
-        <Card title="Raw" className="rounded-xl">
-          <JsonBlock value={scan} />
-        </Card>
-      </div>
+        <InvestigationRawJsonPanel value={scan} title="Raw scan JSON" />
+      </InvestigationShell>
     </Drawer>
   );
 }

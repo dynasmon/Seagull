@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import Drawer from "@/shared/components/Drawer";
-import { Badge } from "@/shared/components/Badge";
 import { Table, type Column } from "@/shared/components/Table";
 import {
   InvestigationActionBar,
   InvestigationActionButton,
   InvestigationFactCard,
+  InvestigationListItem,
   InvestigationMetaStrip,
   InvestigationSection,
   InvestigationShell,
   InvestigationStateBlock,
   InvestigationSummaryGrid,
   copyTextToClipboard,
+  formatInvestigationTimestamp,
 } from "@/shared/components/investigation";
 import { cx } from "@/shared/lib/cx";
 import { getErrorMessage } from "@/shared/lib/errors";
@@ -234,6 +235,7 @@ export default function ProtocolIndicatorDrawer({
         open={open}
         title={title}
         description={selection?.hint || "Protocol intelligence indicator context and matching evidence."}
+        headerLabel="Protocol intel"
         onClose={() => {
           setItems([]);
           setError(null);
@@ -337,20 +339,19 @@ export default function ProtocolIndicatorDrawer({
                       {!selectedSample ? (
                         <div className="mt-2 text-sm text-muted-foreground">Select a sample row to inspect details.</div>
                       ) : (
-                        <div className="mt-2 space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="info">{selectedSample.event_type}</Badge>
-                            <span className="text-[11px] font-mono text-muted-foreground">#{selectedSample.id}</span>
+                          <div className="mt-2 space-y-2">
+                            <InvestigationListItem
+                              title={`Event #${selectedSample.id}`}
+                              description={`${fmtAddr(selectedSample.src_ip, selectedSample.src_port)} → ${fmtAddr(selectedSample.dst_ip, selectedSample.dst_port)}`}
+                              badges={[
+                                { label: selectedSample.event_type, variant: "info" },
+                              ]}
+                              meta={[
+                                { label: "when", value: formatInvestigationTimestamp(selectedSample.timestamp) },
+                                { label: "agent", value: agentNameById?.[selectedSample.agent_id] || selectedSample.agent_id },
+                              ]}
+                            />
                           </div>
-                          <div className="text-[12px] font-mono text-foreground">
-                            {fmtAddr(selectedSample.src_ip, selectedSample.src_port)} →{" "}
-                            {fmtAddr(selectedSample.dst_ip, selectedSample.dst_port)}
-                          </div>
-                          <div className="text-[11px] text-muted-foreground">
-                            {fmtDateTime(new Date(selectedSample.timestamp))} ·{" "}
-                            {agentNameById?.[selectedSample.agent_id] || selectedSample.agent_id}
-                          </div>
-                        </div>
                       )}
                     </div>
 

@@ -1013,6 +1013,7 @@ export default function AlertsQueuePage() {
         title={selected ? `Alert #${selected.id}` : "Alert"}
         description={selected ? `${selected.rule_id} · ${fmtTs(selected.created_at)}` : undefined}
         widthClassName="w-[980px]"
+        headerLabel="Alert"
       >
         {!selected ? (
           <EmptyState title="No selection" description="Select an alert using the View action in the queue." />

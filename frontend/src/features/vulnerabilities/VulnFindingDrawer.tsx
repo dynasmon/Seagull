@@ -1,11 +1,18 @@
 import { useMemo, useState } from "react";
 
-import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
 import { InlineAlert } from "@/shared/components/InlineAlert";
 import { JsonBlock } from "@/shared/components/JsonBlock";
-import { Panel } from "@/shared/components/Panel";
+import {
+  InvestigationChipList,
+  InvestigationFactCard,
+  InvestigationMetaStrip,
+  InvestigationSection,
+  InvestigationShell,
+  InvestigationSummaryGrid,
+  formatInvestigationTimestamp,
+} from "@/shared/components/investigation";
 
 import { patchVulnFinding } from "./api";
 import {
@@ -20,17 +27,7 @@ import {
   observationVariant,
   sevVariant,
 } from "./findingUtils";
-import { fmtWhen } from "./scanUtils";
 import type { VulnFinding, VulnFindingPatchIn } from "./types";
-
-function MetaItem({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 text-sm text-foreground">{value}</div>
-    </div>
-  );
-}
 
 export default function VulnFindingDrawer(props: {
   open: boolean;
@@ -80,23 +77,25 @@ export default function VulnFindingDrawer(props: {
     <Drawer
       open={props.open}
       title={title}
-      description={f ? `Finding #${f.id} · ${findingAssetLabel(f)} · Last seen ${fmtWhen(f.last_seen_at)}` : ""}
+      description={f ? `Finding #${f.id} · ${findingAssetLabel(f)} · Last seen ${formatInvestigationTimestamp(f.last_seen_at)}` : ""}
       onClose={props.onClose}
-      widthClassName="w-[880px]"
+      widthClassName="w-[920px]"
+      headerLabel="Vulnerability"
     >
       {!f ? (
         <div className="text-sm text-muted-foreground">No finding selected.</div>
       ) : (
-        <div className="space-y-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={sevVariant(f.severity)}>{f.severity}</Badge>
-            <Badge variant={observationVariant(f.observation_state)}>{findingObservationLabel(f)}</Badge>
-            {f.operator_disposition !== "open" ? (
-              <Badge variant={dispositionVariant(f.operator_disposition)}>{findingDispositionLabel(f)}</Badge>
-            ) : null}
-            <span className="text-xs text-muted-foreground">confidence {f.confidence}/100</span>
-            <span className="text-xs text-muted-foreground">priority {Number(f.priority?.score || 0).toFixed(1)}</span>
-          </div>
+        <InvestigationShell>
+          <InvestigationMetaStrip
+            items={[
+              { label: "Severity", value: f.severity, variant: sevVariant(f.severity) },
+              { label: "Observation", value: findingObservationLabel(f), variant: observationVariant(f.observation_state) },
+              { label: "Disposition", value: findingDispositionLabel(f), variant: dispositionVariant(f.operator_disposition) },
+              { label: "Asset", value: findingAssetLabel(f) },
+              { label: "Confidence", value: `${f.confidence}/100` },
+              { label: "Priority", value: Number(f.priority?.score || 0).toFixed(1) },
+            ]}
+          />
 
           <div className="flex flex-wrap gap-2">
             <Button
@@ -152,83 +151,69 @@ export default function VulnFindingDrawer(props: {
 
           {err ? <InlineAlert tone="danger">{err}</InlineAlert> : null}
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <Panel title="Why It Matters">
-              <div className="space-y-3">
-                <div className="text-sm leading-6 text-foreground/90">
-                  {f.risk_summary || f.description || "No additional rationale was provided."}
-                </div>
-                {f.priority?.factors?.length ? (
-                  <div className="flex flex-wrap gap-2">
-                    {f.priority.factors.map((factor) => (
-                      <span
-                        key={factor}
-                        className="inline-flex items-center rounded-md border border-border/60 bg-background/30 px-2 py-1 text-[11px] font-mono text-muted-foreground"
-                      >
-                        {factor}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </Panel>
+          <InvestigationSection title="Finding overview" subtitle="Dense component, exposure, observation, and identifier context in one place.">
+            <InvestigationSummaryGrid className="xl:grid-cols-4">
+              <InvestigationFactCard label="Affected component" value={findingComponentLabel(f)} mono />
+              <InvestigationFactCard label="Component kind" value={f.component?.kind || "-"} mono />
+              <InvestigationFactCard label="Installed version" value={installedVersion || "-"} mono copyValue={installedVersion || null} />
+              <InvestigationFactCard label="Fixed version" value={fixedVersion || "-"} mono copyValue={fixedVersion || null} />
+              <InvestigationFactCard label="Package manager" value={f.component?.manager || "-"} mono />
+              <InvestigationFactCard label="Ecosystem" value={f.component?.ecosystem || "-"} mono />
+              <InvestigationFactCard label="Asset" value={findingAssetLabel(f)} mono copyValue={findingAssetLabel(f)} />
+              <InvestigationFactCard label="Exposure basis" value={findingExposureLabel(f)} />
+              <InvestigationFactCard label="Externally exposed" value={f.exposure?.externally_exposed ? "yes" : "no"} mono />
+              <InvestigationFactCard label="Surface score" value={String(f.exposure?.surface_score ?? 0)} mono />
+              <InvestigationFactCard
+                label="Exposed ports"
+                value={f.exposure?.exposed_ports?.length ? f.exposure.exposed_ports.join(", ") : "-"}
+                mono
+              />
+              <InvestigationFactCard
+                label="Service hints"
+                value={f.exposure?.service_hints?.length ? f.exposure.service_hints.join(", ") : "-"}
+                mono
+              />
+              <InvestigationFactCard label="Observation" value={findingObservationLabel(f)} />
+              <InvestigationFactCard label="Disposition" value={findingDispositionLabel(f)} />
+              <InvestigationFactCard label="First seen" value={formatInvestigationTimestamp(f.first_seen_at)} mono />
+              <InvestigationFactCard label="Last seen" value={formatInvestigationTimestamp(f.last_seen_at)} mono />
+              <InvestigationFactCard label="Repeated observation" value={f.repeated_observation ? "yes" : "no"} mono />
+              <InvestigationFactCard label="Total observations" value={String(f.occurrences)} mono />
+              <InvestigationFactCard label="CVE" value={f.cve || "-"} mono copyValue={f.cve || null} />
+              <InvestigationFactCard label="CWE" value={f.cwe || "-"} mono copyValue={f.cwe || null} />
+              <InvestigationFactCard label="CVSS" value={f.cvss || "-"} mono />
+              <InvestigationFactCard label="Source" value={f.source} mono />
+              <InvestigationFactCard label="External ID" value={f.external_id || "-"} mono copyValue={f.external_id || null} />
+              <InvestigationFactCard label="Fingerprint" value={f.fingerprint} mono copyValue={f.fingerprint} />
+            </InvestigationSummaryGrid>
 
-            <Panel title="Component">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <MetaItem label="Affected component" value={<span className="font-mono text-[12px]">{findingComponentLabel(f)}</span>} />
-                <MetaItem label="Kind" value={<span className="font-mono text-[12px]">{f.component?.kind || "-"}</span>} />
-                <MetaItem label="Installed version" value={<span className="font-mono text-[12px]">{installedVersion || "-"}</span>} />
-                <MetaItem label="Fixed version" value={<span className="font-mono text-[12px]">{fixedVersion || "-"}</span>} />
-                <MetaItem label="Package manager" value={<span className="font-mono text-[12px]">{f.component?.manager || "-"}</span>} />
-                <MetaItem label="Ecosystem" value={<span className="font-mono text-[12px]">{f.component?.ecosystem || "-"}</span>} />
-              </div>
-            </Panel>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <Panel title="Exposure And Asset">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <MetaItem label="Asset" value={<span className="font-mono text-[12px] break-all">{findingAssetLabel(f)}</span>} />
-                <MetaItem label="Exposure basis" value={<span className="text-sm">{findingExposureLabel(f)}</span>} />
-                <MetaItem label="Externally exposed" value={<span className="font-mono text-[12px]">{f.exposure?.externally_exposed ? "yes" : "no"}</span>} />
-                <MetaItem label="Surface score" value={<span className="font-mono text-[12px]">{f.exposure?.surface_score ?? 0}</span>} />
-                <MetaItem
-                  label="Exposed ports"
-                  value={<span className="font-mono text-[12px]">{f.exposure?.exposed_ports?.length ? f.exposure.exposed_ports.join(", ") : "-"}</span>}
-                />
-                <MetaItem
-                  label="Service hints"
-                  value={<span className="font-mono text-[12px]">{f.exposure?.service_hints?.length ? f.exposure.service_hints.join(", ") : "-"}</span>}
+            {f.asset_context?.length ? (
+              <div className="mt-4">
+                <InvestigationChipList
+                  title="Asset context"
+                  chips={f.asset_context.map((item) => ({ label: item, variant: "neutral" as const }))}
                 />
               </div>
-              {f.asset_context?.length ? (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {f.asset_context.map((item) => (
-                    <span
-                      key={item}
-                      className="inline-flex items-center rounded-md border border-border/60 bg-background/30 px-2 py-0.5 text-[11px] font-mono text-muted-foreground"
-                    >
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </Panel>
+            ) : null}
 
-            <Panel title="Observation State">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <MetaItem label="Observation" value={<span className="text-sm">{findingObservationLabel(f)}</span>} />
-                <MetaItem label="Disposition" value={<span className="text-sm">{findingDispositionLabel(f)}</span>} />
-                <MetaItem label="First seen" value={<span className="font-mono text-[12px]">{fmtWhen(f.first_seen_at)}</span>} />
-                <MetaItem label="Last seen" value={<span className="font-mono text-[12px]">{fmtWhen(f.last_seen_at)}</span>} />
-                <MetaItem label="Repeated observation" value={<span className="font-mono text-[12px]">{f.repeated_observation ? "yes" : "no"}</span>} />
-                <MetaItem label="Total observations" value={<span className="font-mono text-[12px]">{f.occurrences}</span>} />
+            {f.priority?.factors?.length ? (
+              <div className="mt-4">
+                <InvestigationChipList
+                  title="Priority factors"
+                  chips={f.priority.factors.map((factor) => ({ label: factor, variant: "neutral" as const }))}
+                />
               </div>
-            </Panel>
-          </div>
+            ) : null}
+          </InvestigationSection>
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <Panel title="Remediation Guidance">
+            <InvestigationSection title="Why it matters">
+              <div className="text-sm leading-6 text-foreground/90">
+                {f.risk_summary || f.description || "No additional rationale was provided."}
+              </div>
+            </InvestigationSection>
+
+            <InvestigationSection title="Remediation guidance">
               <div className="space-y-3">
                 <div className="text-sm leading-6 text-foreground/90">
                   {f.remediation_guidance || "No concrete remediation guidance was provided."}
@@ -239,30 +224,19 @@ export default function VulnFindingDrawer(props: {
                   </InlineAlert>
                 ) : null}
               </div>
-            </Panel>
-
-            <Panel title="Identifiers">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <MetaItem label="CVE" value={<span className="font-mono text-[12px] break-all">{f.cve || "-"}</span>} />
-                <MetaItem label="CWE" value={<span className="font-mono text-[12px] break-all">{f.cwe || "-"}</span>} />
-                <MetaItem label="CVSS" value={<span className="font-mono text-[12px] break-all">{f.cvss || "-"}</span>} />
-                <MetaItem label="Source" value={<span className="font-mono text-[12px] break-all">{f.source}</span>} />
-                <MetaItem label="External id" value={<span className="font-mono text-[12px] break-all">{f.external_id || "-"}</span>} />
-                <MetaItem label="Fingerprint" value={<span className="font-mono text-[12px] break-all">{f.fingerprint}</span>} />
-              </div>
-            </Panel>
+            </InvestigationSection>
           </div>
 
           {f.description ? (
-            <Panel title="Scanner Details">
+            <InvestigationSection title="Scanner details">
               <div className="whitespace-pre-wrap text-sm leading-6 text-foreground/90">{f.description}</div>
-            </Panel>
+            </InvestigationSection>
           ) : null}
 
-          <Panel title="Evidence">
+          <InvestigationSection title="Evidence" subtitle="Backend evidence preserved as structured JSON.">
             <JsonBlock value={f.evidence} showControls={false} />
-          </Panel>
-        </div>
+          </InvestigationSection>
+        </InvestigationShell>
       )}
     </Drawer>
   );

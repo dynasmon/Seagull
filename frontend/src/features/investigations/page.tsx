@@ -12,6 +12,14 @@ import { Badge } from "@/shared/components/Badge";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { TextArea } from "@/shared/components/TextArea";
 import { TextInput } from "@/shared/components/TextInput";
+import {
+  InvestigationListItem,
+  InvestigationMetaStrip,
+  InvestigationSection,
+  InvestigationShell,
+  InvestigationTabs,
+  formatInvestigationTimestamp,
+} from "@/shared/components/investigation";
 import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
 import { cx } from "@/shared/lib/cx";
 import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
@@ -71,10 +79,7 @@ const INVESTIGATIONS_RT_BURST_WINDOW_MS = 1000;
 const INVESTIGATIONS_RT_BURST_LIMIT = 80;
 
 function fmtTs(iso?: string | null) {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  return formatInvestigationTimestamp(iso);
 }
 
 function severityVariant(v: string) {
@@ -599,6 +604,7 @@ function WorkspaceDrawer({
       title={workspace ? `${workspace.title}` : "Workspace"}
       description={workspace ? `Key ${workspace.workspace_key}` : "Workspace details"}
       widthClassName="w-[980px]"
+      headerLabel="Investigation"
     >
       {loading ? <Loading label="Loading workspace" /> : null}
       {!loading && error ? <div className="text-sm text-danger">{error}</div> : null}
@@ -606,68 +612,60 @@ function WorkspaceDrawer({
       {!loading && !error && !workspace ? <EmptyState title="Workspace not found" /> : null}
 
       {!loading && workspace ? (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={statusVariant(workspace.status) as any}>{workspace.status}</Badge>
-            <Badge variant={severityVariant(workspace.severity) as any}>{workspace.severity}</Badge>
-            <Badge variant="neutral">{workspace.priority}</Badge>
-            <Badge variant="neutral">{workspace.triage_state}</Badge>
-            {workspace.assignee ? <Badge variant="neutral">assignee: {workspace.assignee}</Badge> : null}
-            {workspace.linked_attack_chain_case_id ? (
-              <Badge variant="info">linked case #{workspace.linked_attack_chain_case_id}</Badge>
-            ) : null}
-            {workspace.primary_agent_id ? <Badge variant="neutral">agent {workspace.primary_agent_id}</Badge> : null}
-          </div>
+        <InvestigationShell>
+          <InvestigationMetaStrip
+            items={[
+              { label: "Status", value: workspace.status, variant: statusVariant(workspace.status) as any },
+              { label: "Severity", value: workspace.severity, variant: severityVariant(workspace.severity) as any },
+              { label: "Priority", value: workspace.priority },
+              { label: "Triage", value: workspace.triage_state },
+              { label: "Workspace key", value: workspace.workspace_key },
+              { label: "Assignee", value: workspace.assignee || "-" },
+              { label: "Primary agent", value: workspace.primary_agent_id || "-" },
+              {
+                label: "Linked case",
+                value: workspace.linked_attack_chain_case_id ? `#${workspace.linked_attack_chain_case_id}` : "-",
+              },
+            ]}
+          />
 
-          <div className="flex items-center gap-2 border-b border-border/60">
-            {([
-              ["overview", "Overview"],
-              ["notes", "Notes"],
-              ["evidence", "Evidence"],
-              ["timeline", "Timeline"],
-            ] as const).map(([k, label]) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setTab(k)}
-                className={cx(
-                  "px-3 py-2 text-xs font-mono uppercase tracking-widest border-b-2",
-                  tab === k ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <InvestigationTabs
+            value={tab}
+            onChange={setTab}
+            tabs={[
+              { key: "overview", label: "Overview" },
+              { key: "notes", label: "Notes" },
+              { key: "evidence", label: "Evidence" },
+              { key: "timeline", label: "Timeline" },
+            ]}
+          />
 
           {tab === "overview" ? (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
-                <div className="rounded-md border border-border/60 bg-background/30 px-2 py-2">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Notes</div>
-                  <div className="mt-1 text-lg font-semibold font-mono">{workspace.notes_count}</div>
-                </div>
-                <div className="rounded-md border border-border/60 bg-background/30 px-2 py-2">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Evidence</div>
-                  <div className="mt-1 text-lg font-semibold font-mono">{workspace.bookmarks_count}</div>
-                </div>
-                {Object.entries(workspace.evidence_type_counts || {}).map(([k, v]) => (
-                  <div key={k} className="rounded-md border border-border/60 bg-background/30 px-2 py-2">
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground truncate">{k}</div>
-                    <div className="mt-1 text-lg font-semibold font-mono">{v}</div>
+            <div className="space-y-4">
+              <InvestigationSection title="Workspace counts" subtitle="Notes, bookmarks, and evidence mix preserved from the workspace record.">
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-8">
+                  <div className="rounded-md border border-border/60 bg-background/30 px-2 py-2">
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Notes</div>
+                    <div className="mt-1 text-lg font-semibold font-mono">{workspace.notes_count}</div>
                   </div>
-                ))}
-              </div>
-
-              <div className="rounded-lg border border-border/60 bg-background/30 p-3 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Workspace details</div>
-                  <div className="text-[11px] text-muted-foreground font-mono">
-                    Created by {workspace.created_by} · {fmtTs(workspace.created_at)}
+                  <div className="rounded-md border border-border/60 bg-background/30 px-2 py-2">
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Evidence</div>
+                    <div className="mt-1 text-lg font-semibold font-mono">{workspace.bookmarks_count}</div>
                   </div>
+                  {Object.entries(workspace.evidence_type_counts || {}).map(([k, v]) => (
+                    <div key={k} className="rounded-md border border-border/60 bg-background/30 px-2 py-2">
+                      <div className="truncate text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{k}</div>
+                      <div className="mt-1 text-lg font-semibold font-mono">{v}</div>
+                    </div>
+                  ))}
                 </div>
+              </InvestigationSection>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <InvestigationSection
+                title="Workspace details"
+                subtitle={`Created by ${workspace.created_by} · ${fmtTs(workspace.created_at)}`}
+              >
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div>
                     <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Title</div>
                     <input
@@ -753,7 +751,7 @@ function WorkspaceDrawer({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="mt-4 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={saveWorkspaceMetadata}
@@ -791,12 +789,12 @@ function WorkspaceDrawer({
                 </div>
                 {saveError ? <div className="text-sm text-danger">{saveError}</div> : null}
                 {saveSuccess ? <div className="text-sm text-success">{saveSuccess}</div> : null}
-              </div>
+              </InvestigationSection>
             </div>
           ) : null}
 
           {tab === "notes" ? (
-            <div className="space-y-3">
+            <InvestigationSection title="Notes" subtitle="Operator notes remain editable without leaving the drawer.">
               <div className="flex items-start gap-2">
                 <textarea
                   value={noteText}
@@ -815,86 +813,96 @@ function WorkspaceDrawer({
                 </button>
               </div>
 
-              {notes.length === 0 ? <EmptyState title="No notes" hint="Add your first note." /> : null}
-              {notes.map((n) => (
-                <div key={n.id} className="rounded-lg border border-border/60 bg-background/30 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-[11px] text-muted-foreground font-mono">{n.author} · {fmtTs(n.created_at)}{n.edited ? " · edited" : ""}</div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNoteEditId(n.id);
-                        setNoteText(n.body);
-                      }}
-                      className="rounded border border-border/60 bg-background/40 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground"
-                    >
-                      Edit
-                    </button>
-                  </div>
-                  <div className="mt-2 whitespace-pre-wrap break-words text-sm">{n.body}</div>
-                </div>
-              ))}
-            </div>
+              <div className="mt-4 space-y-3">
+                {notes.length === 0 ? <EmptyState title="No notes" hint="Add your first note." /> : null}
+                {notes.map((n) => (
+                  <InvestigationListItem
+                    key={n.id}
+                    title={n.author || "Workspace note"}
+                    description={n.body}
+                    meta={[
+                      { label: "time", value: fmtTs(n.created_at) },
+                      { label: "state", value: n.edited ? "edited" : "created" },
+                    ]}
+                    actions={
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNoteEditId(n.id);
+                          setNoteText(n.body);
+                        }}
+                        className="rounded border border-border/60 bg-background/40 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground"
+                      >
+                        Edit
+                      </button>
+                    }
+                  />
+                ))}
+              </div>
+            </InvestigationSection>
           ) : null}
 
           {tab === "evidence" ? (
-            <div className="space-y-3">
-              {bookmarks.length === 0 ? <EmptyState title="No evidence" hint="Pin evidence from source views." /> : null}
-              {bookmarks.map((b) => (
-                <div key={b.id} className="rounded-lg border border-border/60 bg-background/30 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Badge variant={evidenceVariant(b.evidence_type) as any}>{b.evidence_type}</Badge>
-                      <div className="text-sm font-semibold">{b.title}</div>
+            <InvestigationSection title="Evidence" subtitle="Pinned investigation evidence remains fully visible, including deep links and tags.">
+              <div className="space-y-3">
+                {bookmarks.length === 0 ? <EmptyState title="No evidence" hint="Pin evidence from source views." /> : null}
+                {bookmarks.map((b) => (
+                  <InvestigationListItem
+                    key={b.id}
+                    title={b.title}
+                    description={b.summary || undefined}
+                    badges={[{ label: b.evidence_type, variant: evidenceVariant(b.evidence_type) as any }]}
+                    meta={[
+                      { label: "pinned", value: `${fmtTs(b.created_at)} by ${b.created_by}` },
+                      ...(b.tags.length ? [{ label: "tags", value: b.tags.join(", ") }] : []),
+                    ]}
+                    actions={
+                      <button
+                        type="button"
+                        onClick={() => onDeleteBookmark(b.id)}
+                        className="rounded border border-border/60 bg-background/40 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground"
+                      >
+                        Remove
+                      </button>
+                    }
+                  >
+                    <div className="rounded-md border border-border/50 bg-background/20 p-2">
+                      {renderEvidenceCardContent(b)}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteBookmark(b.id)}
-                      className="rounded border border-border/60 bg-background/40 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground"
-                    >
-                      Remove
-                    </button>
-                  </div>
-
-                  {b.summary ? <div className="mt-1 text-sm text-muted-foreground">{b.summary}</div> : null}
-                  <div className="mt-2 rounded-md border border-border/50 bg-background/20 p-2">{renderEvidenceCardContent(b)}</div>
-
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                    <span>pinned {fmtTs(b.created_at)} by {b.created_by}</span>
-                    {b.tags.length ? <span>tags: {b.tags.join(", ")}</span> : null}
                     {b.payload_snapshot?.deep_link ? (
-                      <a href={String(b.payload_snapshot.deep_link)} className="rounded border border-border/60 px-2 py-1 text-primary hover:underline">
-                        Open source
-                      </a>
+                      <div className="mt-3">
+                        <a href={String(b.payload_snapshot.deep_link)} className="rounded border border-border/60 px-2 py-1 text-primary hover:underline">
+                          Open source
+                        </a>
+                      </div>
                     ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
+                  </InvestigationListItem>
+                ))}
+              </div>
+            </InvestigationSection>
           ) : null}
 
           {tab === "timeline" ? (
-            <div className="space-y-2">
-              {activity.length === 0 ? <EmptyState title="No activity" /> : null}
-              {activity.map((a) => (
-                <div key={a.id} className="rounded-lg border border-border/60 bg-background/30 p-2 text-sm">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant={activityVariant(a.activity_type) as any}>{activityLabel(a.activity_type)}</Badge>
-                    <span className="text-[11px] text-muted-foreground font-mono">{fmtTs(a.created_at)}</span>
-                    <span className="text-[11px] text-muted-foreground font-mono">
-                      {a.actor_username ? `by ${a.actor_username}` : "by system"}
-                    </span>
-                  </div>
-                  <div className="mt-1 break-words">{a.summary}</div>
-                  <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground font-mono">
-                    {a.target_type ? <span>{a.target_type}{a.target_id ? ` #${a.target_id}` : ""}</span> : null}
-                    {a.changed_fields?.length ? <span>fields: {a.changed_fields.slice(0, 4).join(", ")}</span> : null}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <InvestigationSection title="Timeline" subtitle="Workspace activity feed with actor, target, and changed-field context.">
+              <div className="space-y-2">
+                {activity.length === 0 ? <EmptyState title="No activity" /> : null}
+                {activity.map((a) => (
+                  <InvestigationListItem
+                    key={a.id}
+                    title={a.summary}
+                    badges={[{ label: activityLabel(a.activity_type), variant: activityVariant(a.activity_type) as any }]}
+                    meta={[
+                      { label: "time", value: fmtTs(a.created_at) },
+                      { label: "actor", value: a.actor_username ? `by ${a.actor_username}` : "by system" },
+                      ...(a.target_type ? [{ label: "target", value: `${a.target_type}${a.target_id ? ` #${a.target_id}` : ""}` }] : []),
+                      ...(a.changed_fields?.length ? [{ label: "fields", value: a.changed_fields.slice(0, 4).join(", ") }] : []),
+                    ]}
+                  />
+                ))}
+              </div>
+            </InvestigationSection>
           ) : null}
-        </div>
+        </InvestigationShell>
       ) : null}
     </Drawer>
   );

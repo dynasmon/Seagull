@@ -13,13 +13,13 @@ import {
   InvestigationSummaryGrid,
   InvestigationTabs,
   copyTextToClipboard,
+  formatInvestigationTimestamp,
   safeJson,
 } from "@/shared/components/investigation";
 import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
 import { pinEventToWorkspace } from "@/features/investigations/api";
 
 import type { NetEvent } from "../types";
-import { fmtDateTime } from "../lib/aggregates";
 import { formatProtocolLabel, getEventProtocolIntel } from "../lib/protocol";
 import EventDetailsPanel from "./EventDetailsPanel";
 
@@ -65,8 +65,7 @@ export default function EventDrawer({
 
   const desc = useMemo(() => {
     if (!event) return "";
-    const ts = new Date(event.timestamp);
-    const t = Number.isNaN(ts.getTime()) ? event.timestamp : fmtDateTime(ts);
+    const t = formatInvestigationTimestamp(event.timestamp);
     const agent = agentNameById?.[event.agent_id] || event.agent_id;
     return `${t} · ${agent}`;
   }, [event, agentNameById]);
@@ -92,6 +91,7 @@ export default function EventDrawer({
       open={open}
       title={title}
       description={desc}
+      headerLabel="Event"
       onClose={() => {
         setCopied(null);
         onClose();
@@ -106,7 +106,7 @@ export default function EventDrawer({
             items={[
               { label: "Type", value: event.event_type, variant: "info" },
               { label: "Agent", value: agentLabel },
-              { label: "Timestamp", value: fmtDateTime(new Date(event.timestamp)) },
+              { label: "Timestamp", value: formatInvestigationTimestamp(event.timestamp) },
               { label: "Source", value: "events" },
               { label: "Schema", value: String(event.schema_version) },
             ]}
@@ -184,10 +184,10 @@ export default function EventDrawer({
               subtitle="Start with network path, transport protocol, and app-layer classification."
             >
               <InvestigationSummaryGrid>
-                <InvestigationFactCard label="Event ID" value={`#${event.id}`} mono />
-                <InvestigationFactCard label="Agent" value={agentLabel} mono />
+                <InvestigationFactCard label="Event ID" value={`#${event.id}`} mono copyValue={String(event.id)} />
+                <InvestigationFactCard label="Agent" value={agentLabel} mono copyValue={event.agent_id} />
                 <InvestigationFactCard label="Type" value={<Badge variant="info">{event.event_type}</Badge>} />
-                <InvestigationFactCard label="Network path" value={netSummary} mono />
+                <InvestigationFactCard label="Network path" value={netSummary} mono copyValue={netSummary === "-" ? null : netSummary} />
                 <InvestigationFactCard
                   label="Application protocol"
                   value={
@@ -210,17 +210,17 @@ export default function EventDrawer({
                 />
                 {protocol?.hint ? <InvestigationFactCard label="Context" value={protocol.hint} mono /> : null}
                 {protocol?.appProto === "http" && protocol.httpHost ? (
-                  <InvestigationFactCard label="HTTP host" value={protocol.httpHost} mono />
+                  <InvestigationFactCard label="HTTP host" value={protocol.httpHost} mono copyValue={protocol.httpHost} />
                 ) : null}
                 {protocol?.appProto === "http" && protocol.httpMethod ? (
                   <InvestigationFactCard label="HTTP method" value={protocol.httpMethod} mono />
                 ) : null}
                 {protocol?.appProto === "dns" && protocol.dnsQname ? (
-                  <InvestigationFactCard label="DNS qname" value={protocol.dnsQname} mono />
+                  <InvestigationFactCard label="DNS qname" value={protocol.dnsQname} mono copyValue={protocol.dnsQname} />
                 ) : null}
                 {(protocol?.appProto === "tls" || protocol?.appProto === "quic" || protocol?.appProto === "dtls") &&
                 protocol.tlsSni ? (
-                  <InvestigationFactCard label="TLS SNI" value={protocol.tlsSni} mono />
+                  <InvestigationFactCard label="TLS SNI" value={protocol.tlsSni} mono copyValue={protocol.tlsSni} />
                 ) : null}
                 {(protocol?.appProto === "tls" || protocol?.appProto === "quic" || protocol?.appProto === "dtls") &&
                 protocol.tlsAlpnFirst ? (
@@ -228,11 +228,11 @@ export default function EventDrawer({
                 ) : null}
                 {(protocol?.appProto === "tls" || protocol?.appProto === "quic" || protocol?.appProto === "dtls") &&
                 protocol.ja3 ? (
-                  <InvestigationFactCard label="JA3" value={protocol.ja3} mono />
+                  <InvestigationFactCard label="JA3" value={protocol.ja3} mono copyValue={protocol.ja3} />
                 ) : null}
                 {(protocol?.appProto === "tls" || protocol?.appProto === "quic" || protocol?.appProto === "dtls") &&
                 protocol.ja4 ? (
-                  <InvestigationFactCard label="JA4" value={protocol.ja4} mono />
+                  <InvestigationFactCard label="JA4" value={protocol.ja4} mono copyValue={protocol.ja4} />
                 ) : null}
                 <InvestigationFactCard
                   label="Bytes"
