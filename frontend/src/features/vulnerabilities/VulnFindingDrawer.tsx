@@ -1,8 +1,11 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
-import { cx } from "@/shared/lib/cx";
+import { InlineAlert } from "@/shared/components/InlineAlert";
+import { JsonBlock } from "@/shared/components/JsonBlock";
+import { Panel } from "@/shared/components/Panel";
 
 import { patchVulnFinding } from "./api";
 import {
@@ -19,59 +22,6 @@ import {
 } from "./findingUtils";
 import { fmtWhen } from "./scanUtils";
 import type { VulnFinding, VulnFindingPatchIn } from "./types";
-
-function safeJson(v: any): string {
-  try {
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return String(v);
-  }
-}
-
-function ActionButton(props: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  kind?: "primary" | "danger" | "neutral";
-}) {
-  const kind = props.kind ?? "neutral";
-  const base =
-    "inline-flex items-center justify-center rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest";
-  const klass =
-    kind === "primary"
-      ? "text-foreground hover:bg-primary/15 focus:ring-primary/30"
-      : kind === "danger"
-        ? "text-danger hover:bg-danger/10 focus:ring-danger/30"
-        : "text-muted-foreground hover:bg-muted/15 hover:text-foreground focus:ring-primary/30";
-
-  return (
-    <button
-      type="button"
-      disabled={props.disabled}
-      onClick={props.onClick}
-      className={cx(base, klass, "focus:outline-none focus:ring-2", props.disabled && "opacity-60")}
-    >
-      {props.label}
-    </button>
-  );
-}
-
-function Section({
-  title,
-  children,
-  className,
-}: {
-  title: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cx("rounded-xl border border-border/60 bg-background/60 p-4 backdrop-blur-md", className)}>
-      <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">{title}</div>
-      <div className="mt-3">{children}</div>
-    </div>
-  );
-}
 
 function MetaItem({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -149,55 +99,61 @@ export default function VulnFindingDrawer(props: {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <ActionButton
-              label={f.observation_state === "awaiting_verification" ? "Mark Still Observed" : "Mark Pending Verification"}
-              kind="primary"
+            <Button
+              variant="secondary"
+              size="sm"
               disabled={busy}
               onClick={() =>
                 doPatch({
                   observation_state: f.observation_state === "awaiting_verification" ? "observed" : "awaiting_verification",
                 })
               }
-            />
-            <ActionButton
-              label={f.operator_disposition === "accepted_risk" ? "Reopen Review" : "Accept Risk"}
+            >
+              {f.observation_state === "awaiting_verification" ? "Mark Still Observed" : "Mark Pending Verification"}
+            </Button>
+            <Button
+              variant="subtle"
+              size="sm"
               disabled={busy}
               onClick={() =>
                 doPatch({
                   operator_disposition: f.operator_disposition === "accepted_risk" ? "open" : "accepted_risk",
                 })
               }
-            />
-            <ActionButton
-              label={f.operator_disposition === "suppressed" ? "Unsuppress" : "Suppress"}
-              kind={f.operator_disposition === "suppressed" ? "neutral" : "danger"}
+            >
+              {f.operator_disposition === "accepted_risk" ? "Reopen Review" : "Accept Risk"}
+            </Button>
+            <Button
+              variant={f.operator_disposition === "suppressed" ? "subtle" : "danger"}
+              size="sm"
               disabled={busy}
               onClick={() =>
                 doPatch({
                   operator_disposition: f.operator_disposition === "suppressed" ? "open" : "suppressed",
                 })
               }
-            />
-            <ActionButton
-              label={copied ? "Copied" : "Copy Fingerprint"}
+            >
+              {f.operator_disposition === "suppressed" ? "Unsuppress" : "Suppress"}
+            </Button>
+            <Button
+              variant="subtle"
+              size="sm"
               disabled={!f.fingerprint}
               onClick={() => copy(f.fingerprint)}
-            />
+            >
+              {copied ? "Copied" : "Copy Fingerprint"}
+            </Button>
           </div>
 
-          <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+          <InlineAlert tone="info">
             Accepted and suppressed states record analyst disposition only. A finding moves to{" "}
             <span className="text-foreground">No longer observed</span> when a later scan stops seeing it.
-          </div>
+          </InlineAlert>
 
-          {err ? (
-            <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
-              {err}
-            </div>
-          ) : null}
+          {err ? <InlineAlert tone="danger">{err}</InlineAlert> : null}
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <Section title="Why It Matters">
+            <Panel title="Why It Matters">
               <div className="space-y-3">
                 <div className="text-sm leading-6 text-foreground/90">
                   {f.risk_summary || f.description || "No additional rationale was provided."}
@@ -215,9 +171,9 @@ export default function VulnFindingDrawer(props: {
                   </div>
                 ) : null}
               </div>
-            </Section>
+            </Panel>
 
-            <Section title="Component">
+            <Panel title="Component">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <MetaItem label="Affected component" value={<span className="font-mono text-[12px]">{findingComponentLabel(f)}</span>} />
                 <MetaItem label="Kind" value={<span className="font-mono text-[12px]">{f.component?.kind || "-"}</span>} />
@@ -226,11 +182,11 @@ export default function VulnFindingDrawer(props: {
                 <MetaItem label="Package manager" value={<span className="font-mono text-[12px]">{f.component?.manager || "-"}</span>} />
                 <MetaItem label="Ecosystem" value={<span className="font-mono text-[12px]">{f.component?.ecosystem || "-"}</span>} />
               </div>
-            </Section>
+            </Panel>
           </div>
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <Section title="Exposure And Asset">
+            <Panel title="Exposure And Asset">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <MetaItem label="Asset" value={<span className="font-mono text-[12px] break-all">{findingAssetLabel(f)}</span>} />
                 <MetaItem label="Exposure basis" value={<span className="text-sm">{findingExposureLabel(f)}</span>} />
@@ -257,9 +213,9 @@ export default function VulnFindingDrawer(props: {
                   ))}
                 </div>
               ) : null}
-            </Section>
+            </Panel>
 
-            <Section title="Observation State">
+            <Panel title="Observation State">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <MetaItem label="Observation" value={<span className="text-sm">{findingObservationLabel(f)}</span>} />
                 <MetaItem label="Disposition" value={<span className="text-sm">{findingDispositionLabel(f)}</span>} />
@@ -268,24 +224,24 @@ export default function VulnFindingDrawer(props: {
                 <MetaItem label="Repeated observation" value={<span className="font-mono text-[12px]">{f.repeated_observation ? "yes" : "no"}</span>} />
                 <MetaItem label="Total observations" value={<span className="font-mono text-[12px]">{f.occurrences}</span>} />
               </div>
-            </Section>
+            </Panel>
           </div>
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <Section title="Remediation Guidance">
+            <Panel title="Remediation Guidance">
               <div className="space-y-3">
                 <div className="text-sm leading-6 text-foreground/90">
                   {f.remediation_guidance || "No concrete remediation guidance was provided."}
                 </div>
                 {fixedVersion ? (
-                  <div className="rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-sm text-success">
+                  <InlineAlert tone="success">
                     Fix version available: <span className="font-mono">{fixedVersion}</span>
-                  </div>
+                  </InlineAlert>
                 ) : null}
               </div>
-            </Section>
+            </Panel>
 
-            <Section title="Identifiers">
+            <Panel title="Identifiers">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <MetaItem label="CVE" value={<span className="font-mono text-[12px] break-all">{f.cve || "-"}</span>} />
                 <MetaItem label="CWE" value={<span className="font-mono text-[12px] break-all">{f.cwe || "-"}</span>} />
@@ -294,18 +250,18 @@ export default function VulnFindingDrawer(props: {
                 <MetaItem label="External id" value={<span className="font-mono text-[12px] break-all">{f.external_id || "-"}</span>} />
                 <MetaItem label="Fingerprint" value={<span className="font-mono text-[12px] break-all">{f.fingerprint}</span>} />
               </div>
-            </Section>
+            </Panel>
           </div>
 
           {f.description ? (
-            <Section title="Scanner Details">
+            <Panel title="Scanner Details">
               <div className="whitespace-pre-wrap text-sm leading-6 text-foreground/90">{f.description}</div>
-            </Section>
+            </Panel>
           ) : null}
 
-          <Section title="Evidence">
-            <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground">{safeJson(f.evidence)}</pre>
-          </Section>
+          <Panel title="Evidence">
+            <JsonBlock value={f.evidence} showControls={false} />
+          </Panel>
         </div>
       )}
     </Drawer>
