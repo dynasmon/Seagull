@@ -1,0 +1,271 @@
+from __future__ import annotations
+
+
+# ---------------------------------------------------------------------------
+# Node types
+# ---------------------------------------------------------------------------
+
+NODE_TYPE_ASSET = "asset"
+NODE_TYPE_CVE = "cve"
+NODE_TYPE_PACKAGE = "package"
+NODE_TYPE_SERVICE = "service"
+NODE_TYPE_IP = "ip"
+NODE_TYPE_PROCESS = "process"
+NODE_TYPE_FILE = "file"
+NODE_TYPE_ALERT = "alert"
+NODE_TYPE_ATTACK_CHAIN_CASE = "attack_chain_case"
+NODE_TYPE_INVESTIGATION = "investigation"
+
+NODE_TYPES: frozenset[str] = frozenset(
+    [
+        NODE_TYPE_ASSET,
+        NODE_TYPE_CVE,
+        NODE_TYPE_PACKAGE,
+        NODE_TYPE_SERVICE,
+        NODE_TYPE_IP,
+        NODE_TYPE_PROCESS,
+        NODE_TYPE_FILE,
+        NODE_TYPE_ALERT,
+        NODE_TYPE_ATTACK_CHAIN_CASE,
+        NODE_TYPE_INVESTIGATION,
+    ]
+)
+
+# ---------------------------------------------------------------------------
+# Edge types
+# ---------------------------------------------------------------------------
+
+EDGE_TYPE_HAS_CVE = "has_cve"
+EDGE_TYPE_HAS_PACKAGE = "has_package"
+EDGE_TYPE_HAS_SERVICE = "has_service"
+EDGE_TYPE_COMMUNICATES_WITH = "communicates_with"
+EDGE_TYPE_EXECUTED_PROCESS = "executed_process"
+EDGE_TYPE_MODIFIED_FILE = "modified_file"
+EDGE_TYPE_TRIGGERED_ALERT = "triggered_alert"
+EDGE_TYPE_PART_OF_ATTACK_CHAIN = "part_of_attack_chain"
+EDGE_TYPE_PART_OF_INVESTIGATION = "part_of_investigation"
+EDGE_TYPE_LATERAL_MOVEMENT_TO = "lateral_movement_to"
+EDGE_TYPE_EXPLOITED_BY = "exploited_by"
+
+EDGE_TYPES: frozenset[str] = frozenset(
+    [
+        EDGE_TYPE_HAS_CVE,
+        EDGE_TYPE_HAS_PACKAGE,
+        EDGE_TYPE_HAS_SERVICE,
+        EDGE_TYPE_COMMUNICATES_WITH,
+        EDGE_TYPE_EXECUTED_PROCESS,
+        EDGE_TYPE_MODIFIED_FILE,
+        EDGE_TYPE_TRIGGERED_ALERT,
+        EDGE_TYPE_PART_OF_ATTACK_CHAIN,
+        EDGE_TYPE_PART_OF_INVESTIGATION,
+        EDGE_TYPE_LATERAL_MOVEMENT_TO,
+        EDGE_TYPE_EXPLOITED_BY,
+    ]
+)
+
+# ---------------------------------------------------------------------------
+# Finding types
+# ---------------------------------------------------------------------------
+
+FINDING_TYPE_VULNERABILITY = "vulnerability"
+FINDING_TYPE_ALERT = "alert"
+FINDING_TYPE_EVENT = "event"
+FINDING_TYPE_FIM = "fim"
+FINDING_TYPE_PROCESS_EXEC = "process_exec"
+FINDING_TYPE_ATTACK_CHAIN_STEP = "attack_chain_step"
+FINDING_TYPE_ATTACK_CHAIN_CASE = "attack_chain_case"
+FINDING_TYPE_INVENTORY = "inventory"
+FINDING_TYPE_INVESTIGATION = "investigation"
+
+FINDING_TYPES: frozenset[str] = frozenset(
+    [
+        FINDING_TYPE_VULNERABILITY,
+        FINDING_TYPE_ALERT,
+        FINDING_TYPE_EVENT,
+        FINDING_TYPE_FIM,
+        FINDING_TYPE_PROCESS_EXEC,
+        FINDING_TYPE_ATTACK_CHAIN_STEP,
+        FINDING_TYPE_ATTACK_CHAIN_CASE,
+        FINDING_TYPE_INVENTORY,
+        FINDING_TYPE_INVESTIGATION,
+    ]
+)
+
+# ---------------------------------------------------------------------------
+# Severity levels
+# ---------------------------------------------------------------------------
+
+SEVERITY_INFORMATIONAL = "informational"
+SEVERITY_LOW = "low"
+SEVERITY_MEDIUM = "medium"
+SEVERITY_HIGH = "high"
+SEVERITY_CRITICAL = "critical"
+SEVERITY_UNKNOWN = "unknown"
+
+SEVERITY_LEVELS: tuple[str, ...] = (
+    SEVERITY_INFORMATIONAL,
+    SEVERITY_LOW,
+    SEVERITY_MEDIUM,
+    SEVERITY_HIGH,
+    SEVERITY_CRITICAL,
+)
+
+SEVERITY_RANK: dict[str, int] = {
+    SEVERITY_UNKNOWN: 0,
+    SEVERITY_INFORMATIONAL: 1,
+    SEVERITY_LOW: 2,
+    SEVERITY_MEDIUM: 3,
+    SEVERITY_HIGH: 4,
+    SEVERITY_CRITICAL: 5,
+}
+
+# Score bands that define severity (inclusive lower bound)
+SEVERITY_SCORE_BANDS: tuple[tuple[int, str], ...] = (
+    (80, SEVERITY_CRITICAL),
+    (60, SEVERITY_HIGH),
+    (40, SEVERITY_MEDIUM),
+    (20, SEVERITY_LOW),
+    (0, SEVERITY_INFORMATIONAL),
+)
+
+# ---------------------------------------------------------------------------
+# Asset status
+# ---------------------------------------------------------------------------
+
+ASSET_STATUS_ACTIVE = "active"
+ASSET_STATUS_INACTIVE = "inactive"
+ASSET_STATUS_STALE = "stale"
+ASSET_STATUS_UNKNOWN = "unknown"
+
+ASSET_STATUSES: frozenset[str] = frozenset(
+    [ASSET_STATUS_ACTIVE, ASSET_STATUS_INACTIVE, ASSET_STATUS_STALE, ASSET_STATUS_UNKNOWN]
+)
+
+# ---------------------------------------------------------------------------
+# Reason codes
+# ---------------------------------------------------------------------------
+
+RC_EXPOSED_SERVICE = "exposed_service"
+RC_VULNERABLE_PACKAGE = "vulnerable_package"
+RC_CRITICAL_CVE = "critical_cve"
+RC_EXPLOITABILITY_SIGNAL = "exploitability_signal"
+RC_ACTIVE_ALERT = "active_alert"
+RC_BRUTE_FORCE_ACTIVITY = "brute_force_activity"
+RC_LATERAL_MOVEMENT_SIGNAL = "lateral_movement_signal"
+RC_SUSPICIOUS_PROCESS = "suspicious_process"
+RC_SENSITIVE_FILE_CHANGE = "sensitive_file_change"
+RC_PERSISTENCE_SIGNAL = "persistence_signal"
+RC_ATTACK_CHAIN_PROGRESSION = "attack_chain_progression"
+RC_STALE_INVENTORY = "stale_inventory"
+RC_STALE_AGENT = "stale_agent"
+RC_LOW_EVIDENCE_CONFIDENCE = "low_evidence_confidence"
+
+REASON_CODES: frozenset[str] = frozenset(
+    [
+        RC_EXPOSED_SERVICE,
+        RC_VULNERABLE_PACKAGE,
+        RC_CRITICAL_CVE,
+        RC_EXPLOITABILITY_SIGNAL,
+        RC_ACTIVE_ALERT,
+        RC_BRUTE_FORCE_ACTIVITY,
+        RC_LATERAL_MOVEMENT_SIGNAL,
+        RC_SUSPICIOUS_PROCESS,
+        RC_SENSITIVE_FILE_CHANGE,
+        RC_PERSISTENCE_SIGNAL,
+        RC_ATTACK_CHAIN_PROGRESSION,
+        RC_STALE_INVENTORY,
+        RC_STALE_AGENT,
+        RC_LOW_EVIDENCE_CONFIDENCE,
+    ]
+)
+
+# ---------------------------------------------------------------------------
+# Recommendation types
+# ---------------------------------------------------------------------------
+
+REC_TYPE_PATCH = "patch"
+REC_TYPE_ISOLATE = "isolate"
+REC_TYPE_INVESTIGATE = "investigate"
+REC_TYPE_REMEDIATE_ALERT = "remediate_alert"
+REC_TYPE_HARDEN_SERVICE = "harden_service"
+REC_TYPE_REVIEW_PROCESS = "review_process"
+REC_TYPE_CHECK_PERSISTENCE = "check_persistence"
+REC_TYPE_REVIEW_FIM = "review_fim"
+REC_TYPE_UPDATE_AGENT = "update_agent"
+REC_TYPE_REFRESH_INVENTORY = "refresh_inventory"
+
+RECOMMENDATION_TYPES: frozenset[str] = frozenset(
+    [
+        REC_TYPE_PATCH,
+        REC_TYPE_ISOLATE,
+        REC_TYPE_INVESTIGATE,
+        REC_TYPE_REMEDIATE_ALERT,
+        REC_TYPE_HARDEN_SERVICE,
+        REC_TYPE_REVIEW_PROCESS,
+        REC_TYPE_CHECK_PERSISTENCE,
+        REC_TYPE_REVIEW_FIM,
+        REC_TYPE_UPDATE_AGENT,
+        REC_TYPE_REFRESH_INVENTORY,
+    ]
+)
+
+# ---------------------------------------------------------------------------
+# Finding status
+# ---------------------------------------------------------------------------
+
+FINDING_STATUS_OPEN = "open"
+FINDING_STATUS_ACKNOWLEDGED = "acknowledged"
+FINDING_STATUS_RESOLVED = "resolved"
+FINDING_STATUS_SUPPRESSED = "suppressed"
+
+FINDING_STATUSES: frozenset[str] = frozenset(
+    [
+        FINDING_STATUS_OPEN,
+        FINDING_STATUS_ACKNOWLEDGED,
+        FINDING_STATUS_RESOLVED,
+        FINDING_STATUS_SUPPRESSED,
+    ]
+)
+
+# ---------------------------------------------------------------------------
+# Evidence source types
+# ---------------------------------------------------------------------------
+
+EVIDENCE_SOURCE_EVENT = "event"
+EVIDENCE_SOURCE_ALERT = "alert"
+EVIDENCE_SOURCE_VULNERABILITY = "vulnerability"
+EVIDENCE_SOURCE_ATTACK_CHAIN_CASE = "attack_chain_case"
+EVIDENCE_SOURCE_ATTACK_CHAIN_STEP = "attack_chain_step"
+EVIDENCE_SOURCE_INVENTORY = "inventory"
+EVIDENCE_SOURCE_RESPONSE_ACTION = "response_action"
+EVIDENCE_SOURCE_INVESTIGATION = "investigation"
+
+EVIDENCE_SOURCE_TYPES: frozenset[str] = frozenset(
+    [
+        EVIDENCE_SOURCE_EVENT,
+        EVIDENCE_SOURCE_ALERT,
+        EVIDENCE_SOURCE_VULNERABILITY,
+        EVIDENCE_SOURCE_ATTACK_CHAIN_CASE,
+        EVIDENCE_SOURCE_ATTACK_CHAIN_STEP,
+        EVIDENCE_SOURCE_INVENTORY,
+        EVIDENCE_SOURCE_RESPONSE_ACTION,
+        EVIDENCE_SOURCE_INVESTIGATION,
+    ]
+)
+
+# ---------------------------------------------------------------------------
+# Score weights (must sum to 1.0)
+# ---------------------------------------------------------------------------
+
+SCORE_WEIGHT_VULNERABILITY = 0.25
+SCORE_WEIGHT_ACTIVE_THREAT = 0.20
+SCORE_WEIGHT_ATTACK_CHAIN = 0.20
+SCORE_WEIGHT_PERSISTENCE = 0.10
+SCORE_WEIGHT_EXPOSURE = 0.10
+SCORE_WEIGHT_ASSET_CRITICALITY = 0.15
+
+# Stale data penalty ceiling (applied as a downward confidence correction)
+MAX_RELIABILITY_PENALTY = 15
+
+# Minimum confidence below which we attach RC_LOW_EVIDENCE_CONFIDENCE
+LOW_CONFIDENCE_THRESHOLD = 30
