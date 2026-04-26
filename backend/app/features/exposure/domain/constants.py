@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 
-# ---------------------------------------------------------------------------
 # Node types
-# ---------------------------------------------------------------------------
 
 NODE_TYPE_ASSET = "asset"
 NODE_TYPE_CVE = "cve"
 NODE_TYPE_PACKAGE = "package"
 NODE_TYPE_SERVICE = "service"
+NODE_TYPE_PROTOCOL = "protocol"
 NODE_TYPE_IP = "ip"
 NODE_TYPE_PROCESS = "process"
 NODE_TYPE_FILE = "file"
+NODE_TYPE_IDENTITY = "identity"
 NODE_TYPE_ALERT = "alert"
 NODE_TYPE_ATTACK_CHAIN_CASE = "attack_chain_case"
+NODE_TYPE_ATTACK_CHAIN_STEP = "attack_chain_step"
 NODE_TYPE_INVESTIGATION = "investigation"
+NODE_TYPE_RESPONSE_ACTION = "response_action"
 
 NODE_TYPES: frozenset[str] = frozenset(
     [
@@ -22,18 +24,20 @@ NODE_TYPES: frozenset[str] = frozenset(
         NODE_TYPE_CVE,
         NODE_TYPE_PACKAGE,
         NODE_TYPE_SERVICE,
+        NODE_TYPE_PROTOCOL,
         NODE_TYPE_IP,
         NODE_TYPE_PROCESS,
         NODE_TYPE_FILE,
+        NODE_TYPE_IDENTITY,
         NODE_TYPE_ALERT,
         NODE_TYPE_ATTACK_CHAIN_CASE,
+        NODE_TYPE_ATTACK_CHAIN_STEP,
         NODE_TYPE_INVESTIGATION,
+        NODE_TYPE_RESPONSE_ACTION,
     ]
 )
 
-# ---------------------------------------------------------------------------
 # Edge types
-# ---------------------------------------------------------------------------
 
 EDGE_TYPE_HAS_CVE = "has_cve"
 EDGE_TYPE_HAS_PACKAGE = "has_package"
@@ -44,6 +48,7 @@ EDGE_TYPE_MODIFIED_FILE = "modified_file"
 EDGE_TYPE_TRIGGERED_ALERT = "triggered_alert"
 EDGE_TYPE_PART_OF_ATTACK_CHAIN = "part_of_attack_chain"
 EDGE_TYPE_PART_OF_INVESTIGATION = "part_of_investigation"
+EDGE_TYPE_TRIGGERED_RESPONSE_ACTION = "triggered_response_action"
 EDGE_TYPE_LATERAL_MOVEMENT_TO = "lateral_movement_to"
 EDGE_TYPE_EXPLOITED_BY = "exploited_by"
 
@@ -58,14 +63,13 @@ EDGE_TYPES: frozenset[str] = frozenset(
         EDGE_TYPE_TRIGGERED_ALERT,
         EDGE_TYPE_PART_OF_ATTACK_CHAIN,
         EDGE_TYPE_PART_OF_INVESTIGATION,
+        EDGE_TYPE_TRIGGERED_RESPONSE_ACTION,
         EDGE_TYPE_LATERAL_MOVEMENT_TO,
         EDGE_TYPE_EXPLOITED_BY,
     ]
 )
 
-# ---------------------------------------------------------------------------
 # Finding types
-# ---------------------------------------------------------------------------
 
 FINDING_TYPE_VULNERABILITY = "vulnerability"
 FINDING_TYPE_ALERT = "alert"
@@ -91,9 +95,7 @@ FINDING_TYPES: frozenset[str] = frozenset(
     ]
 )
 
-# ---------------------------------------------------------------------------
 # Severity levels
-# ---------------------------------------------------------------------------
 
 SEVERITY_INFORMATIONAL = "informational"
 SEVERITY_LOW = "low"
@@ -128,9 +130,7 @@ SEVERITY_SCORE_BANDS: tuple[tuple[int, str], ...] = (
     (0, SEVERITY_INFORMATIONAL),
 )
 
-# ---------------------------------------------------------------------------
 # Asset status
-# ---------------------------------------------------------------------------
 
 ASSET_STATUS_ACTIVE = "active"
 ASSET_STATUS_INACTIVE = "inactive"
@@ -141,9 +141,7 @@ ASSET_STATUSES: frozenset[str] = frozenset(
     [ASSET_STATUS_ACTIVE, ASSET_STATUS_INACTIVE, ASSET_STATUS_STALE, ASSET_STATUS_UNKNOWN]
 )
 
-# ---------------------------------------------------------------------------
 # Reason codes
-# ---------------------------------------------------------------------------
 
 RC_EXPOSED_SERVICE = "exposed_service"
 RC_VULNERABLE_PACKAGE = "vulnerable_package"
@@ -179,9 +177,7 @@ REASON_CODES: frozenset[str] = frozenset(
     ]
 )
 
-# ---------------------------------------------------------------------------
 # Recommendation types
-# ---------------------------------------------------------------------------
 
 REC_TYPE_PATCH = "patch"
 REC_TYPE_ISOLATE = "isolate"
@@ -193,6 +189,17 @@ REC_TYPE_CHECK_PERSISTENCE = "check_persistence"
 REC_TYPE_REVIEW_FIM = "review_fim"
 REC_TYPE_UPDATE_AGENT = "update_agent"
 REC_TYPE_REFRESH_INVENTORY = "refresh_inventory"
+REC_TYPE_COLLECT_TRIAGE_BUNDLE = "collect_triage_bundle"
+REC_TYPE_OPEN_INVESTIGATION = "open_investigation"
+REC_TYPE_REVIEW_ATTACK_CHAIN = "review_attack_chain"
+REC_TYPE_PATCH_VULNERABLE_PACKAGE = "patch_vulnerable_package"
+REC_TYPE_VERIFY_SERVICE_EXPOSURE = "verify_service_exposure"
+REC_TYPE_INVESTIGATE_PERSISTENCE = "investigate_persistence"
+REC_TYPE_REVIEW_SUSPICIOUS_PROCESS = "review_suspicious_process"
+REC_TYPE_CHECK_AUTHORIZED_KEYS = "check_authorized_keys"
+REC_TYPE_INSPECT_SYSTEMD_UNITS = "inspect_systemd_units"
+REC_TYPE_VALIDATE_AGENT_HEALTH = "validate_agent_health"
+REC_TYPE_SUPPRESS_KNOWN_BENIGN = "suppress_known_benign"
 
 RECOMMENDATION_TYPES: frozenset[str] = frozenset(
     [
@@ -206,12 +213,21 @@ RECOMMENDATION_TYPES: frozenset[str] = frozenset(
         REC_TYPE_REVIEW_FIM,
         REC_TYPE_UPDATE_AGENT,
         REC_TYPE_REFRESH_INVENTORY,
+        REC_TYPE_COLLECT_TRIAGE_BUNDLE,
+        REC_TYPE_OPEN_INVESTIGATION,
+        REC_TYPE_REVIEW_ATTACK_CHAIN,
+        REC_TYPE_PATCH_VULNERABLE_PACKAGE,
+        REC_TYPE_VERIFY_SERVICE_EXPOSURE,
+        REC_TYPE_INVESTIGATE_PERSISTENCE,
+        REC_TYPE_REVIEW_SUSPICIOUS_PROCESS,
+        REC_TYPE_CHECK_AUTHORIZED_KEYS,
+        REC_TYPE_INSPECT_SYSTEMD_UNITS,
+        REC_TYPE_VALIDATE_AGENT_HEALTH,
+        REC_TYPE_SUPPRESS_KNOWN_BENIGN,
     ]
 )
 
-# ---------------------------------------------------------------------------
 # Finding status
-# ---------------------------------------------------------------------------
 
 FINDING_STATUS_OPEN = "open"
 FINDING_STATUS_ACKNOWLEDGED = "acknowledged"
@@ -227,9 +243,7 @@ FINDING_STATUSES: frozenset[str] = frozenset(
     ]
 )
 
-# ---------------------------------------------------------------------------
 # Evidence source types
-# ---------------------------------------------------------------------------
 
 EVIDENCE_SOURCE_EVENT = "event"
 EVIDENCE_SOURCE_ALERT = "alert"
@@ -253,9 +267,7 @@ EVIDENCE_SOURCE_TYPES: frozenset[str] = frozenset(
     ]
 )
 
-# ---------------------------------------------------------------------------
 # Score weights (must sum to 1.0)
-# ---------------------------------------------------------------------------
 
 SCORE_WEIGHT_VULNERABILITY = 0.25
 SCORE_WEIGHT_ACTIVE_THREAT = 0.20

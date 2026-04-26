@@ -143,14 +143,23 @@ class Recommendation:
     title: str
     detail: str
     reason_code: str
+    # safety_level: "safe" | "caution" | "disruptive"
+    safety_level: str = "safe"
+    requires_admin: bool = False
+    related_evidence_refs: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "action": self.rec_type,
+            "reason": self.detail,
             "rec_type": self.rec_type,
             "priority": self.priority,
             "title": self.title,
             "detail": self.detail,
             "reason_code": self.reason_code,
+            "safety_level": self.safety_level,
+            "requires_admin": self.requires_admin,
+            "related_evidence_refs": self.related_evidence_refs,
             "metadata": self.metadata,
         }
