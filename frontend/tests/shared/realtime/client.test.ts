@@ -376,7 +376,7 @@ describe("PortalRealtimeClient", () => {
     client.stop();
   });
 
-  it("uses websocket first for overview subscriptions in auto mode", async () => {
+  it("keeps overview subscriptions on the base SSE transport in auto mode", async () => {
     const tokenProvider = vi.fn(async () => tokenOut("token-overview-auto"));
     const sockets: FakeWebSocket[] = [];
     const sources: FakeEventSource[] = [];
@@ -400,9 +400,41 @@ describe("PortalRealtimeClient", () => {
     client.start();
     await waitForTick(2);
 
+    expect(sources).toHaveLength(1);
+    expect(sources[0]?.url).toContain("/api/realtime/portal?");
+    expect(sockets).toHaveLength(0);
+
+    client.stop();
+  });
+
+  it("does not reconnect just to narrow a visible topic set that is already covered", async () => {
+    const tokenProvider = vi.fn(async () => tokenOut("token-topic-shrink"));
+    const sockets: FakeWebSocket[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      preferredTransport: "ws",
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      reconnectBaseMs: 1,
+      reconnectMaxMs: 1,
+    });
+
+    const unsubscribeEvents = client.subscribe("ui.events.invalidate", vi.fn());
+    client.subscribe("overview.patch", vi.fn());
+
+    client.start();
+    await waitForTick(2);
+    sockets[0]?.emitOpen();
+
+    unsubscribeEvents();
+    await waitForTick(160);
+
+    expect(tokenProvider).toHaveBeenCalledTimes(1);
     expect(sockets).toHaveLength(1);
-    expect(sockets[0]?.url).toContain("/api/realtime/portal/ws?");
-    expect(sources).toHaveLength(0);
+    expect(sockets[0]?.closed).toBe(false);
 
     client.stop();
   });

@@ -84,8 +84,11 @@ export type PortalRealtimeClientOptions = {
 
 const DEFAULT_RECONNECT_BASE_MS = 1000;
 const DEFAULT_RECONNECT_MAX_MS = 15000;
-const DEFAULT_BASE_TOPICS: readonly PortalRealtimeTopic[] = ["agents"];
-const DEFAULT_HOT_TOPICS: readonly PortalRealtimeTopic[] = ["overview", "investigations", "workflows", "events", "ddos"];
+// Keep low-volume operational signals bound all the time so route switches do not
+// force a transport rebind just to start Overview updates.
+const DEFAULT_BASE_TOPICS: readonly PortalRealtimeTopic[] = ["agents", "overview"];
+// Reserve websocket-first transport for genuinely bursty feeds.
+const DEFAULT_HOT_TOPICS: readonly PortalRealtimeTopic[] = ["investigations", "workflows", "events", "ddos"];
 const RECENT_EVENT_KEY_LIMIT = 256;
 const DEFAULT_DIAGNOSTICS: RealtimeDiagnosticsSnapshot = {
   reconnectCount: 0,
@@ -712,6 +715,17 @@ export class PortalRealtimeClient {
     this.topicRebindTimer = null;
   }
 
+  private connectedTopicsCover(topics: readonly PortalRealtimeTopic[]): boolean {
+    if (!this.connectedTopicsCsv) return false;
+    const current = new Set(
+      this.connectedTopicsCsv
+        .split(",")
+        .map((topic) => topic.trim())
+        .filter(Boolean) as PortalRealtimeTopic[],
+    );
+    return topics.every((topic) => current.has(topic));
+  }
+
   private scheduleTopicRebind(): void {
     if (!this.running) return;
     if (this.topicRebindTimer) return;
@@ -727,6 +741,18 @@ export class PortalRealtimeClient {
     const nextCsv = nextTopics.join(",");
     const nextDesiredTransport = nextTopics.length > 0 ? this.computeTransportOrder(nextTopics)[0] ?? null : null;
     if (nextCsv === this.connectedTopicsCsv && nextDesiredTransport === this.desiredTransport) return;
+
+    // Do not churn a healthy visible transport just to narrow the topic set or
+    // downgrade from websocket to SSE on a route change. The current binding is
+    // already a superset of what the UI needs, and avoiding the reconnect keeps
+    // brief yellow "reconnecting" flashes out of the shell.
+    const canKeepCurrentBinding =
+      this.isVisible &&
+      nextTopics.length > 0 &&
+      this.connectedTopicsCover(nextTopics) &&
+      (nextDesiredTransport === this.desiredTransport ||
+        (this.desiredTransport === "ws" && nextDesiredTransport === "sse"));
+    if (canKeepCurrentBinding) return;
 
     this.clearReconnectTimer();
     this.teardownTransport();
