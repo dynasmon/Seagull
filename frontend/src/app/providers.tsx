@@ -31,6 +31,7 @@ type AgentsCtx = {
 const AgentsContext = createContext<AgentsCtx | null>(null);
 
 const SELECTED_AGENT_KEY = "nw_selected_agent_id";
+const RECONNECT_NOTICE_DELAY_MS = 900;
 
 function applyThemeToDom(theme: Theme) {
   const root = document.documentElement;
@@ -172,6 +173,20 @@ function AgentsProvider({ children }: { children: ReactNode }) {
 
 function RealtimeStatusNotice() {
   const { connection, diagnostics } = usePortalRealtime();
+  const [showReconnectNotice, setShowReconnectNotice] = useState(false);
+
+  useEffect(() => {
+    const reconnecting = connection.status === "retrying" || connection.status === "connecting";
+    if (!reconnecting || !diagnostics.lastFailureKind) {
+      setShowReconnectNotice(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setShowReconnectNotice(true);
+    }, RECONNECT_NOTICE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [connection.status, diagnostics.lastFailureKind]);
 
   if (connection.status === "open" && !connection.isFallbackTransport) return null;
   if (connection.status === "stopped" || connection.status === "idle") return null;
@@ -185,6 +200,7 @@ function RealtimeStatusNotice() {
     : "realtime reconnect in progress";
 
   if (connection.status === "retrying" || connection.status === "connecting") {
+    if (!showReconnectNotice) return null;
     return (
       <StatusBanner tone="warning">
         Realtime is reconnecting. Transport: {transportLabel}. Next retry in about {Math.round(diagnostics.lastReconnectDelayMs)} ms. Last signal: {lastFailure}.
