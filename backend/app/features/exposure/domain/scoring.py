@@ -121,6 +121,10 @@ class ScoringInputs:
     # Exposure
     exposed_service_count: int = 0
 
+    # Freshness
+    stale_agent: bool = False
+    stale_inventory: bool = False
+
     # Evidence quality
     evidence_refs: list[EvidenceRef] | None = None
     base_confidence: int = 50
@@ -183,6 +187,10 @@ def compute_reliability_penalty(inputs: ScoringInputs) -> int:
         age_mult = _age_penalty(last_seen)
         if age_mult < 0.5:
             penalty += int((1.0 - age_mult) * 10)
+    if inputs.stale_agent:
+        penalty += 5
+    if inputs.stale_inventory:
+        penalty += 4
     ref_count = len(inputs.evidence_refs) if inputs.evidence_refs else 0
     if ref_count == 0:
         penalty += 5
@@ -248,11 +256,13 @@ def compute_risk_score(
     if inputs.open_attack_chain_count > 0:
         reason_codes.append(RC_ATTACK_CHAIN_PROGRESSION)
 
-    if inputs.asset_last_seen_at is not None:
+    if inputs.stale_inventory:
+        reason_codes.append(RC_STALE_INVENTORY)
+    elif inputs.asset_last_seen_at is not None:
         age_mult = _age_penalty(inputs.asset_last_seen_at)
         if age_mult < 0.3:
             reason_codes.append(RC_STALE_INVENTORY)
-    if inputs.agent_id is None:
+    if inputs.stale_agent or inputs.agent_id is None:
         reason_codes.append(RC_STALE_AGENT)
 
     base_conf = clamp_confidence(inputs.base_confidence)
