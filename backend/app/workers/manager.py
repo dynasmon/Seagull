@@ -58,12 +58,13 @@ class ChildSpec:
     module: str | None = None
     argv: tuple[str, ...] | None = None
     enabled_env: str | None = None
+    enabled_default: bool = False
     required_paths: tuple[str, ...] = ()
 
     def is_enabled(self) -> bool:
         if not self.enabled_env:
             return True
-        return _env_bool(self.enabled_env, False)
+        return _env_bool(self.enabled_env, self.enabled_default)
 
     def command(self) -> list[str]:
         if self.argv:
@@ -102,6 +103,12 @@ GROUPS: dict[str, tuple[ChildSpec, ...]] = {
         ChildSpec(name="ip-intel", module="app.workers.ip_intel"),
         ChildSpec(name="proto-intel", module="app.workers.proto_intel"),
         ChildSpec(name="attack-chain", module="app.workers.attack_chain"),
+        ChildSpec(
+            name="exposure-graph",
+            module="app.workers.exposure",
+            enabled_env="SEAGULL_EXPOSURE_ENABLED",
+            enabled_default=True,
+        ),
     ),
     "maintenance": (
         ChildSpec(name="audit-retention", module="app.workers.audit_retention"),
