@@ -16,6 +16,8 @@ def load_all_models() -> None:
     from app.features.admin import models as _admin  # noqa: F401
     from app.features.auth import models as _auth  # noqa: F401
 
+    from app.features.exposure import models as _exposure  # noqa: F401
+
     # Shared cross-feature models
     from app.shared.enrichment import models as _enrichment  # noqa: F401
     from app.shared.indexing import models as _indexing  # noqa: F401
