@@ -40,9 +40,7 @@ def _has_index(table_name: str, index_name: str) -> bool:
 
 
 def upgrade() -> None:
-    # -----------------------------------------------------------------------
     # exposure_asset_posture
-    # -----------------------------------------------------------------------
     if not _has_table("exposure_asset_posture"):
         op.create_table(
             "exposure_asset_posture",
@@ -81,9 +79,7 @@ def upgrade() -> None:
         op.create_index("ix_exposure_asset_posture_agent_id", "exposure_asset_posture", ["agent_id"])
         op.create_index("ix_exposure_asset_posture_last_seen_at", "exposure_asset_posture", ["last_seen_at"])
 
-    # -----------------------------------------------------------------------
     # exposure_nodes
-    # -----------------------------------------------------------------------
     if not _has_table("exposure_nodes"):
         op.create_table(
             "exposure_nodes",
@@ -111,9 +107,7 @@ def upgrade() -> None:
         op.create_index("ix_exposure_nodes_agent_id", "exposure_nodes", ["agent_id"])
         op.create_index("ix_exposure_nodes_last_seen_at", "exposure_nodes", ["last_seen_at"])
 
-    # -----------------------------------------------------------------------
     # exposure_edges
-    # -----------------------------------------------------------------------
     if not _has_table("exposure_edges"):
         op.create_table(
             "exposure_edges",
@@ -143,9 +137,7 @@ def upgrade() -> None:
         op.create_index("ix_exposure_edges_agent_id", "exposure_edges", ["agent_id"])
         op.create_index("ix_exposure_edges_last_seen_at", "exposure_edges", ["last_seen_at"])
 
-    # -----------------------------------------------------------------------
     # exposure_findings
-    # -----------------------------------------------------------------------
     if not _has_table("exposure_findings"):
         op.create_table(
             "exposure_findings",
@@ -180,9 +172,7 @@ def upgrade() -> None:
         op.create_index("ix_exposure_findings_status", "exposure_findings", ["status"])
         op.create_index("ix_exposure_findings_last_seen_at", "exposure_findings", ["last_seen_at"])
 
-    # -----------------------------------------------------------------------
     # exposure_score_history
-    # -----------------------------------------------------------------------
     if not _has_table("exposure_score_history"):
         op.create_table(
             "exposure_score_history",
