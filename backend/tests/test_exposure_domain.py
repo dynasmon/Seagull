@@ -11,7 +11,6 @@ from app.features.exposure.domain.constants import (
     RC_EXPLOITABILITY_SIGNAL,
     RC_LOW_EVIDENCE_CONFIDENCE,
     RC_STALE_AGENT,
-    RC_STALE_INVENTORY,
     RC_VULNERABLE_PACKAGE,
     SEVERITY_CRITICAL,
     SEVERITY_HIGH,
@@ -39,12 +38,8 @@ from app.features.exposure.domain.normalization import (
 )
 from app.features.exposure.domain.recommendations import generate_recommendations
 from app.features.exposure.domain.scoring import ScoringInputs, compute_risk_score
-from app.features.exposure.domain.types import EvidenceRef
 
-
-# ---------------------------------------------------------------------------
 # Asset key normalization
-# ---------------------------------------------------------------------------
 
 
 def test_normalize_asset_key_agent_takes_priority() -> None:
@@ -85,9 +80,7 @@ def test_validate_asset_key_rejects_bad_forms() -> None:
     assert validate_asset_key("agent:") is False
 
 
-# ---------------------------------------------------------------------------
 # Node / edge key stability
-# ---------------------------------------------------------------------------
 
 
 def test_node_key_is_deterministic() -> None:
@@ -125,9 +118,7 @@ def test_stable_hash_length() -> None:
     assert len(h) == 64
 
 
-# ---------------------------------------------------------------------------
 # Severity mapping
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -176,9 +167,7 @@ def test_normalize_severity_aliases(raw: str, expected: str) -> None:
     assert normalize_severity(raw) == expected
 
 
-# ---------------------------------------------------------------------------
 # Scoring boundaries
-# ---------------------------------------------------------------------------
 
 
 def _base_inputs(**kwargs) -> ScoringInputs:
@@ -268,9 +257,7 @@ def test_exploitability_signal_reason_code() -> None:
     assert RC_EXPLOITABILITY_SIGNAL in codes
 
 
-# ---------------------------------------------------------------------------
 # Evidence normalization
-# ---------------------------------------------------------------------------
 
 _NOW = datetime(2026, 4, 26, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -350,14 +337,12 @@ def test_merge_evidence_refs_deduplicates_by_id() -> None:
     assert merged[0].title == "new"
 
 
-# ---------------------------------------------------------------------------
 # Recommendation generation
-# ---------------------------------------------------------------------------
 
 
 def test_recommendations_for_critical_cve() -> None:
     recs = generate_recommendations([RC_CRITICAL_CVE])
-    assert any(r.rec_type == "patch" for r in recs)
+    assert any(r.rec_type == "patch_vulnerable_package" for r in recs)
 
 
 def test_recommendations_are_prioritized() -> None:
@@ -385,13 +370,10 @@ def test_empty_reason_codes_gives_no_recommendations() -> None:
     assert recs == []
 
 
-# ---------------------------------------------------------------------------
 # Model import compatibility (model_registry)
-# ---------------------------------------------------------------------------
 
 
 def test_model_registry_includes_exposure_import() -> None:
-    import inspect  # noqa: PLC0415
     import importlib  # noqa: PLC0415
 
     # Load the module source without triggering engine creation.
