@@ -79,7 +79,7 @@ def compute_and_upsert_posture(
 
     risk_score, breakdown, confidence, reason_codes = compute_risk_score(scoring_inputs)
     severity = severity_from_score(risk_score)
-    recommendations = generate_recommendations(reason_codes)
+    recommendations = generate_recommendations(reason_codes, evidence_refs=evidence_refs_to_list(refs))
     status = normalize_asset_status(None)
     if last_seen_at:
         from app.features.exposure.domain.normalization import asset_status_from_age  # noqa: PLC0415
