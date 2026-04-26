@@ -91,9 +91,7 @@ x-agent-sensor-base: &agent-sensor-base
 
 services:
 
-  # ---------------------------------------------------------------------------
   # Data layer
-  # ---------------------------------------------------------------------------
 
   postgres:
     image: postgres:16-alpine
@@ -205,9 +203,7 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # ---------------------------------------------------------------------------
   # Backend
-  # ---------------------------------------------------------------------------
 
   seagull-backend:
     build: ./backend
@@ -578,9 +574,7 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # ---------------------------------------------------------------------------
   # Portal
-  # ---------------------------------------------------------------------------
 
   seagull-portal:
     build:
@@ -608,9 +602,7 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # ---------------------------------------------------------------------------
   # Edge (Caddy)
-  # ---------------------------------------------------------------------------
 
   caddy:
     image: caddy:2.10-alpine
@@ -656,9 +648,7 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # ---------------------------------------------------------------------------
   # Agents (core)
-  # ---------------------------------------------------------------------------
 
   seagull-agent-core:
     <<: *agent-core-base
@@ -711,9 +701,7 @@ services:
       - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
       - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
 
-  # ---------------------------------------------------------------------------
   # Agents (optional — profile: extra)
-  # ---------------------------------------------------------------------------
 
   seagull-agent-lateral:
     <<: *agent-sensor-base
@@ -739,9 +727,7 @@ services:
       - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
       - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
 
-  # ---------------------------------------------------------------------------
   # Agents (legacy split — profile: legacy-agents)
-  # ---------------------------------------------------------------------------
 
   seagull-agent-proc:
     <<: *agent-core-base
@@ -832,9 +818,7 @@ services:
       - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
       - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
 
-  # ---------------------------------------------------------------------------
   # Observability (optional — profile: observability)
-  # ---------------------------------------------------------------------------
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.13.4
