@@ -430,9 +430,7 @@ export default function InventoryPage() {
     setSp(next, { replace: true });
   }
 
-  // -----------------------------
   // Drawer state
-  // -----------------------------
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerAgentId, setDrawerAgentId] = useState<string | null>(null);
   const [drawerTab, setDrawerTab] = useState<"overview" | "snapshot" | "history" | "packages" | "configuration">("overview");
