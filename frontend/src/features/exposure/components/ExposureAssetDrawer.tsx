@@ -1,235 +1,544 @@
-import { useCallback, useState } from "react";
-
-import { Button } from "@/shared/components/Button";
-import Drawer from "@/shared/components/Drawer";
+import { useCallback, useMemo, useState } from "react";
 import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
+import Loading from "@/shared/components/Loading";
+import Drawer from "@/shared/components/Drawer";
+import { InlineAlert } from "@/shared/components/InlineAlert";
+import {
+  InvestigationActionBar,
+  InvestigationActionButton,
   InvestigationChipList,
   InvestigationFactCard,
+  InvestigationListItem,
   InvestigationMetaStrip,
   InvestigationSection,
   InvestigationShell,
   InvestigationSummaryGrid,
   InvestigationTabs,
 } from "@/shared/components/investigation";
-import { ExposureAssetDetail, ExposureAssetPosture, ExposureSeverity } from "../types";
+import { copyTextToClipboard } from "@/shared/components/investigation/utils";
+
+import {
+  ExposureAssetDetail,
+  ExposureAssetPosture,
+  ExposureInvestigationResult,
+  ExposureSeverity,
+  ExposureTriageResponseAction,
+} from "../types";
+import {
+  exposureSeverityVariant,
+  formatExposureConfidence,
+  formatExposureScore,
+  formatExposureTimestamp,
+  truncateText,
+} from "../utils";
 import { ExposureRecommendationsPanel } from "./ExposureRecommendationsPanel";
 import { ExposureScoreBreakdown } from "./ExposureScoreBreakdown";
 
-function sevVariant(s: ExposureSeverity) {
-  if (s === "informational") return "info" as const;
-  if (s === "unknown") return "neutral" as const;
-  return s as "critical" | "high" | "medium" | "low";
-}
-
-type Tab = "overview" | "findings" | "evidence" | "recommendations";
+type Tab = "overview" | "findings" | "linked" | "history" | "actions";
 
 type Props = {
   asset: ExposureAssetPosture | null;
   detail: ExposureAssetDetail | null;
   detailLoading?: boolean;
+  detailError?: string | null;
   onClose: () => void;
-  onOpenInvestigation?: (assetKey: string) => void;
-  onCreateTriageAction?: (assetKey: string) => void;
+  onOpenInvestigation?: (assetKey: string) => Promise<ExposureInvestigationResult | void>;
+  onCreateTriageAction?: (assetKey: string) => Promise<ExposureTriageResponseAction | void>;
+  onRefreshAsset?: (assetKey: string) => Promise<void>;
   onViewGraph?: (assetKey: string) => void;
   isAdmin?: boolean;
 };
+
+function severityVariant(value: ExposureSeverity) {
+  return exposureSeverityVariant(value);
+}
+
+function ScoreHistoryChart({ detail }: { detail: ExposureAssetDetail }) {
+  const data = useMemo(
+    () =>
+      detail.recent_score_history.map((point) => ({
+        t: formatExposureTimestamp(point.bucket_ts).slice(11),
+        ts: formatExposureTimestamp(point.bucket_ts),
+        risk: point.risk_score,
+        confidence: point.confidence,
+      })),
+    [detail.recent_score_history],
+  );
+
+  if (data.length < 2) {
+    return <p className="text-sm text-muted-foreground">Insufficient score history for a trend view.</p>;
+  }
+
+  return (
+    <div className="h-[240px] w-full min-w-0">
+      <ResponsiveContainer width="100%" height="100%" debounce={80}>
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+          <XAxis dataKey="t" tick={{ fontSize: 11 }} minTickGap={20} />
+          <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
+          <Tooltip />
+          <Line type="monotone" dataKey="risk" stroke="#ef4444" strokeWidth={2.2} dot={false} isAnimationActive={false} />
+          <Line type="monotone" dataKey="confidence" stroke="#0ea5e9" strokeWidth={1.8} dot={false} isAnimationActive={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
 
 export function ExposureAssetDrawer({
   asset,
   detail,
   detailLoading,
+  detailError,
   onClose,
   onOpenInvestigation,
   onCreateTriageAction,
+  onRefreshAsset,
   onViewGraph,
   isAdmin,
 }: Props) {
   const [tab, setTab] = useState<Tab>("overview");
+  const [actionBusy, setActionBusy] = useState<null | "investigation" | "triage" | "refresh" | "copy">(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const handleClose = useCallback(() => {
+  const posture = detail?.posture ?? asset;
+
+  const resetLocalState = useCallback(() => {
     setTab("overview");
+    setActionBusy(null);
+    setActionMessage(null);
+    setActionError(null);
     onClose();
   }, [onClose]);
 
-  const a = asset;
+  const runAction = useCallback(
+    async <T,>(kind: "investigation" | "triage" | "refresh" | "copy", task: () => Promise<T>, onSuccess: (value: T) => string) => {
+      setActionBusy(kind);
+      setActionError(null);
+      setActionMessage(null);
+      try {
+        const result = await task();
+        setActionMessage(onSuccess(result));
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : "Action failed");
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [],
+  );
+
+  if (!posture) return null;
 
   return (
     <Drawer
-      open={a !== null}
-      title={a?.display_name ?? "Asset"}
-      description={
-        a
-          ? `${a.asset_key} · ${a.asset_type} · Updated ${new Date(a.updated_at).toLocaleString()}`
-          : ""
-      }
-      onClose={handleClose}
-      widthClassName="w-[720px]"
+      open={asset !== null}
+      title={posture.display_name}
+      description={`${posture.asset_key} · ${posture.asset_type} · Updated ${formatExposureTimestamp(detail?.updated_at || posture.updated_at)}`}
+      onClose={resetLocalState}
+      widthClassName="w-[960px]"
       headerLabel="Exposure Asset"
     >
-      {a && (
-        <InvestigationShell>
-          <InvestigationMetaStrip
-            items={[
-              { label: "Severity", value: a.severity, variant: sevVariant(a.severity) },
-              { label: "Risk score", value: String(a.risk_score) },
-              { label: "Confidence", value: `${a.confidence}%` },
-              { label: "Status", value: a.status },
-              { label: "Criticality", value: a.criticality },
-              { label: "Type", value: a.asset_type },
-            ]}
-          />
+      <InvestigationShell>
+        <InvestigationMetaStrip
+          items={[
+            { label: "Severity", value: posture.severity, variant: severityVariant(posture.severity) },
+            { label: "Risk score", value: formatExposureScore(posture.risk_score) },
+            { label: "Confidence", value: formatExposureConfidence(posture.confidence) },
+            { label: "Status", value: posture.status },
+            { label: "Criticality", value: posture.criticality },
+            { label: "Type", value: posture.asset_type },
+          ]}
+        />
 
-          <div className="flex flex-wrap gap-2">
-            <Button variant="ghost" size="sm" onClick={() => onViewGraph?.(a.asset_key)}>
-              View graph
-            </Button>
-            {isAdmin && (
-              <>
-                <Button variant="secondary" size="sm" onClick={() => onOpenInvestigation?.(a.asset_key)}>
-                  Open investigation
-                </Button>
-                <Button variant="subtle" size="sm" onClick={() => onCreateTriageAction?.(a.asset_key)}>
-                  Triage action
-                </Button>
-              </>
-            )}
-          </div>
+        <InvestigationActionBar>
+          {isAdmin ? (
+            <InvestigationActionButton
+              tone="primary"
+              disabled={actionBusy !== null || !onOpenInvestigation}
+              onClick={() =>
+                onOpenInvestigation
+                  ? runAction(
+                      "investigation",
+                      () => onOpenInvestigation(posture.asset_key),
+                      (result) => {
+                        const value = result as ExposureInvestigationResult | void;
+                        if (!value) return "Investigation request submitted";
+                        return value.created
+                          ? `Investigation ${value.workspace_key} created`
+                          : `Investigation ${value.workspace_key} opened`;
+                      },
+                    )
+                  : undefined
+              }
+            >
+              Open/Create Investigation
+            </InvestigationActionButton>
+          ) : null}
 
-          <InvestigationTabs
-            value={tab}
-            onChange={setTab}
-            tabs={[
-              { key: "overview", label: "Overview" },
-              { key: "findings", label: "Findings" },
-              { key: "evidence", label: "Evidence" },
-              { key: "recommendations", label: "Actions" },
-            ]}
-          />
+          {isAdmin ? (
+            <InvestigationActionButton
+              disabled={actionBusy !== null || !onCreateTriageAction || !posture.agent_id}
+              onClick={() =>
+                onCreateTriageAction
+                  ? runAction(
+                      "triage",
+                      () => onCreateTriageAction(posture.asset_key),
+                      (result) => {
+                        const value = result as ExposureTriageResponseAction | void;
+                        return value ? `Safe triage action #${value.action_id} queued` : "Safe triage action queued";
+                      },
+                    )
+                  : undefined
+              }
+            >
+              Trigger Safe Triage Action
+            </InvestigationActionButton>
+          ) : null}
 
-          {detailLoading && (
-            <div className="py-4 text-center font-mono text-[11px] text-muted-foreground">Loading details…</div>
-          )}
+          <InvestigationActionButton
+            disabled={actionBusy !== null || !onRefreshAsset}
+            onClick={() =>
+              onRefreshAsset
+                ? runAction("refresh", () => onRefreshAsset(posture.asset_key), () => "Asset detail refreshed")
+                : undefined
+            }
+          >
+            Refresh Asset
+          </InvestigationActionButton>
 
-          {!detailLoading && tab === "overview" && (
-            <>
-              <InvestigationSection title="Asset details">
-                <InvestigationSummaryGrid>
-                  <InvestigationFactCard label="Asset key" value={a.asset_key} mono copyValue={a.asset_key} />
-                  <InvestigationFactCard label="Type" value={a.asset_type} mono />
-                  {a.hostname && <InvestigationFactCard label="Hostname" value={a.hostname} mono copyValue={a.hostname} />}
-                  {a.environment && <InvestigationFactCard label="Environment" value={a.environment} mono />}
-                  <InvestigationFactCard label="Criticality" value={a.criticality} mono />
-                  {a.agent_id && <InvestigationFactCard label="Agent" value={a.agent_id} mono copyValue={a.agent_id} />}
-                  <InvestigationFactCard label="First seen" value={new Date(a.first_seen_at).toLocaleString()} mono />
-                  <InvestigationFactCard label="Last seen" value={new Date(a.last_seen_at).toLocaleString()} mono />
-                </InvestigationSummaryGrid>
+          <InvestigationActionButton
+            disabled={actionBusy !== null}
+            onClick={() =>
+              runAction(
+                "copy",
+                async () => {
+                  const ok = await copyTextToClipboard(posture.asset_key);
+                  if (!ok) throw new Error("Copy failed");
+                  return ok;
+                },
+                () => "Asset key copied",
+              )
+            }
+          >
+            Copy Asset Key
+          </InvestigationActionButton>
+
+          {onViewGraph ? (
+            <InvestigationActionButton
+              disabled={actionBusy !== null}
+              onClick={() => onViewGraph(posture.asset_key)}
+            >
+              View Graph
+            </InvestigationActionButton>
+          ) : null}
+        </InvestigationActionBar>
+
+        {actionError ? <InlineAlert tone="danger">{actionError}</InlineAlert> : null}
+        {actionMessage ? <InlineAlert tone="success">{actionMessage}</InlineAlert> : null}
+        {detailError && detail ? <InlineAlert tone="warning">{detailError}</InlineAlert> : null}
+        {detailLoading && detail ? <div className="text-[11px] font-mono text-muted-foreground">Refreshing authoritative posture…</div> : null}
+
+        <InvestigationTabs
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { key: "overview", label: "Overview" },
+            { key: "findings", label: "Findings" },
+            { key: "linked", label: "Linked" },
+            { key: "history", label: "History" },
+            { key: "actions", label: "Actions" },
+          ]}
+        />
+
+        {!detail && detailLoading ? <Loading label="Loading exposure asset detail..." /> : null}
+
+        {!detail && detailError ? (
+          <InlineAlert tone="danger">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>{detailError}</span>
+              {onRefreshAsset ? (
+                <InvestigationActionButton onClick={() => void onRefreshAsset(posture.asset_key)}>
+                  Retry Refresh
+                </InvestigationActionButton>
+              ) : null}
+            </div>
+          </InlineAlert>
+        ) : null}
+
+        {tab === "overview" ? (
+          <>
+            <InvestigationSection title="Asset identity">
+              <InvestigationSummaryGrid>
+                <InvestigationFactCard label="Asset key" value={posture.asset_key} mono copyValue={posture.asset_key} />
+                <InvestigationFactCard label="Agent" value={posture.agent_id || "-"} mono copyValue={posture.agent_id || undefined} />
+                <InvestigationFactCard label="Hostname" value={posture.hostname || "-"} mono copyValue={posture.hostname || undefined} />
+                <InvestigationFactCard label="Environment" value={posture.environment || "-"} />
+                <InvestigationFactCard label="First seen" value={formatExposureTimestamp(posture.first_seen_at)} mono />
+                <InvestigationFactCard label="Last seen" value={formatExposureTimestamp(posture.last_seen_at)} mono />
+              </InvestigationSummaryGrid>
+            </InvestigationSection>
+
+            {detail?.reason_codes?.length ? (
+              <InvestigationChipList
+                title="Reason codes"
+                chips={detail.reason_codes.map((code) => ({ label: code, variant: "neutral" as const }))}
+              />
+            ) : posture.reason_codes.length ? (
+              <InvestigationChipList
+                title="Reason codes"
+                chips={posture.reason_codes.map((code) => ({ label: code, variant: "neutral" as const }))}
+              />
+            ) : null}
+
+            {detail ? (
+              <InvestigationSection title="Score breakdown" subtitle={detail.score_explanation.confidence_note || "Authoritative backend score composition"}>
+                <ExposureScoreBreakdown breakdown={detail.score_breakdown} explanation={detail.score_explanation} />
               </InvestigationSection>
+            ) : null}
 
-              {a.reason_codes.length > 0 && (
-                <InvestigationChipList
-                  title="Reason codes"
-                  chips={a.reason_codes.map((c) => ({ label: c, variant: "neutral" as const }))}
-                />
-              )}
+            {detail ? (
+              <InvestigationSection title="Current linkage" subtitle="High-signal linked entities used in exposure prioritization.">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  <InvestigationFactCard label="Findings" value={detail.top_findings.length} />
+                  <InvestigationFactCard label="Attack cases" value={detail.linked_attack_chain_cases.length} />
+                  <InvestigationFactCard label="Vulnerabilities" value={detail.linked_vulnerabilities.length} />
+                  <InvestigationFactCard label="Alerts" value={detail.linked_alerts.length} />
+                  <InvestigationFactCard label="Investigations" value={detail.linked_investigations.length} />
+                </div>
+              </InvestigationSection>
+            ) : null}
+          </>
+        ) : null}
 
-              {detail && (
-                <InvestigationSection title="Score breakdown">
-                  <ExposureScoreBreakdown
-                    breakdown={detail.score_breakdown}
-                    explanation={detail.score_explanation}
+        {tab === "findings" ? (
+          <InvestigationSection
+            title={`Top findings${detail ? ` (${detail.top_findings.length})` : ""}`}
+            subtitle="Highest-score contributing findings for this asset."
+          >
+            {!detail ? (
+              <p className="text-sm text-muted-foreground">Asset detail is required to load findings.</p>
+            ) : detail.top_findings.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No backend findings are attached to this asset.</p>
+            ) : (
+              <div className="space-y-3">
+                {detail.top_findings.map((finding) => (
+                  <InvestigationListItem
+                    key={finding.finding_key}
+                    title={finding.title}
+                    description={finding.summary}
+                    badges={[
+                      { label: finding.severity, variant: exposureSeverityVariant(finding.severity) },
+                      { label: finding.finding_type, variant: "neutral" },
+                      { label: finding.status, variant: "neutral" },
+                    ]}
+                    meta={[
+                      { label: "score", value: finding.score_delta > 0 ? `+${finding.score_delta}` : String(finding.score_delta) },
+                      { label: "confidence", value: formatExposureConfidence(finding.confidence) },
+                      { label: "last seen", value: formatExposureTimestamp(finding.last_seen_at) },
+                    ]}
                   />
-                </InvestigationSection>
-              )}
+                ))}
+              </div>
+            )}
+          </InvestigationSection>
+        ) : null}
 
-              {detail && detail.linked_investigations.length > 0 && (
-                <InvestigationSection title={`Investigations (${detail.linked_investigations.length})`}>
-                  <div className="space-y-2">
-                    {detail.linked_investigations.map((inv) => (
-                      <div key={inv.id} className="rounded-lg border border-border/60 bg-background/35 px-3 py-2">
-                        <div className="text-sm font-medium">{inv.title}</div>
-                        <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
-                          {inv.status} · {inv.severity} · {inv.priority}
-                          {inv.assignee ? ` · ${inv.assignee}` : ""}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </InvestigationSection>
-              )}
-            </>
-          )}
-
-          {!detailLoading && tab === "findings" && detail && (
-            <InvestigationSection title={`Top findings (${detail.top_findings.length})`}>
-              {detail.top_findings.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No top findings.</p>
+        {tab === "linked" ? (
+          <>
+            <InvestigationSection
+              title={`Attack-chain cases${detail ? ` (${detail.linked_attack_chain_cases.length})` : ""}`}
+              subtitle="Linked backend cases and their most recent progression."
+            >
+              {!detail ? (
+                <p className="text-sm text-muted-foreground">Asset detail is required to load linked cases.</p>
+              ) : detail.linked_attack_chain_cases.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No linked attack-chain cases.</p>
               ) : (
-                <div className="space-y-2">
-                  {detail.top_findings.map((f) => (
-                    <div
-                      key={f.finding_key}
-                      className="rounded-lg border border-border/60 bg-background/35 p-3"
+                <div className="space-y-3">
+                  {detail.linked_attack_chain_cases.map((item) => (
+                    <InvestigationListItem
+                      key={item.id}
+                      title={`Case ${item.id} · ${item.max_stage.replaceAll("_", " ")}`}
+                      description={item.suspect_ip ? `Suspect IP ${item.suspect_ip}` : "No suspect IP attached"}
+                      badges={[
+                        { label: item.status, variant: "neutral" },
+                        { label: `score ${item.score}`, variant: "critical" },
+                      ]}
+                      meta={[
+                        { label: "steps", value: item.step_count },
+                        { label: "last seen", value: formatExposureTimestamp(item.last_seen_at) },
+                      ]}
                     >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-[11px] text-danger">+{f.score_delta}</span>
-                        <span className="font-mono text-[11px] text-muted-foreground">{f.finding_type}</span>
-                        <span className="font-mono text-[11px] text-muted-foreground">{f.status}</span>
+                      {item.recent_steps.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {item.recent_steps.map((step) => (
+                            <span key={step.id} className="rounded-sm border border-border/60 bg-background/35 px-2 py-1 text-[11px] text-muted-foreground">
+                              {truncateText(step.label, 64)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </InvestigationListItem>
+                  ))}
+                </div>
+              )}
+            </InvestigationSection>
+
+            <InvestigationSection title={`Linked vulnerabilities${detail ? ` (${detail.linked_vulnerabilities.length})` : ""}`}>
+              {!detail ? (
+                <p className="text-sm text-muted-foreground">Asset detail is required to load vulnerability context.</p>
+              ) : detail.linked_vulnerabilities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No linked vulnerabilities.</p>
+              ) : (
+                <div className="space-y-3">
+                  {detail.linked_vulnerabilities.map((item) => (
+                    <InvestigationListItem
+                      key={item.id}
+                      title={item.cve || item.title}
+                      description={item.description || item.remediation}
+                      badges={[
+                        { label: item.severity, variant: exposureSeverityVariant(item.severity) },
+                        { label: item.observation_state, variant: "neutral" },
+                      ]}
+                      meta={[
+                        { label: "confidence", value: formatExposureConfidence(item.confidence) },
+                        { label: "location", value: item.location || "-" },
+                        { label: "last seen", value: formatExposureTimestamp(item.last_seen_at) },
+                      ]}
+                    />
+                  ))}
+                </div>
+              )}
+            </InvestigationSection>
+
+            <InvestigationSection title={`Linked alerts${detail ? ` (${detail.linked_alerts.length})` : ""}`}>
+              {!detail ? (
+                <p className="text-sm text-muted-foreground">Asset detail is required to load alert context.</p>
+              ) : detail.linked_alerts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No linked alerts.</p>
+              ) : (
+                <div className="space-y-3">
+                  {detail.linked_alerts.map((item) => (
+                    <InvestigationListItem
+                      key={item.id}
+                      title={item.description}
+                      description={item.mitre_tactic || item.mitre_technique || item.rule_id}
+                      badges={[
+                        { label: item.severity, variant: exposureSeverityVariant(item.severity) },
+                        { label: item.rule_id, variant: "neutral" },
+                      ]}
+                      meta={[
+                        { label: "confidence", value: formatExposureConfidence(item.confidence) },
+                        { label: "src", value: item.src_ip || "-" },
+                        { label: "created", value: formatExposureTimestamp(item.created_at) },
+                      ]}
+                    />
+                  ))}
+                </div>
+              )}
+            </InvestigationSection>
+
+            <InvestigationSection title={`Linked investigations${detail ? ` (${detail.linked_investigations.length})` : ""}`}>
+              {!detail ? (
+                <p className="text-sm text-muted-foreground">Asset detail is required to load investigation context.</p>
+              ) : detail.linked_investigations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No linked investigations.</p>
+              ) : (
+                <div className="space-y-3">
+                  {detail.linked_investigations.map((item) => (
+                    <InvestigationListItem
+                      key={item.id}
+                      title={item.title}
+                      description={item.workspace_key}
+                      badges={[
+                        { label: item.status, variant: "neutral" },
+                        { label: item.priority, variant: "neutral" },
+                      ]}
+                      meta={[
+                        { label: "severity", value: item.severity },
+                        { label: "assignee", value: item.assignee || "-" },
+                        { label: "updated", value: formatExposureTimestamp(item.updated_at) },
+                      ]}
+                    />
+                  ))}
+                </div>
+              )}
+            </InvestigationSection>
+
+            <InvestigationSection title={`Linked response actions${detail ? ` (${detail.linked_response_actions.length})` : ""}`} subtitle="Listed actions are historical or queued records. Nothing executes automatically from this drawer.">
+              {!detail ? (
+                <p className="text-sm text-muted-foreground">Asset detail is required to load response context.</p>
+              ) : detail.linked_response_actions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No linked response actions.</p>
+              ) : (
+                <div className="space-y-3">
+                  {detail.linked_response_actions.map((item) => (
+                    <InvestigationListItem
+                      key={item.id}
+                      title={`${item.action_type} #${item.id}`}
+                      description={item.last_error || item.latest_result_status || item.status}
+                      badges={[
+                        { label: item.status, variant: "neutral" },
+                        { label: item.latest_result_status || "no result", variant: "neutral" },
+                      ]}
+                      meta={[
+                        { label: "requested by", value: item.requested_by },
+                        { label: "requested", value: formatExposureTimestamp(item.requested_at) },
+                        { label: "expires", value: formatExposureTimestamp(item.expires_at) },
+                      ]}
+                    />
+                  ))}
+                </div>
+              )}
+            </InvestigationSection>
+          </>
+        ) : null}
+
+        {tab === "history" ? (
+          <InvestigationSection title="Recent score history" subtitle="Backend time-bucketed posture history for this asset.">
+            {!detail ? (
+              <p className="text-sm text-muted-foreground">Asset detail is required to load score history.</p>
+            ) : (
+              <div className="space-y-4">
+                <ScoreHistoryChart detail={detail} />
+                <div className="space-y-2">
+                  {detail.recent_score_history.slice(-8).reverse().map((point) => (
+                    <div key={point.bucket_ts} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border/60 bg-background/30 px-3 py-2 text-[11px]">
+                      <span className="font-mono text-muted-foreground">{formatExposureTimestamp(point.bucket_ts)}</span>
+                      <div className="flex flex-wrap items-center gap-3 font-mono text-foreground">
+                        <span>risk {formatExposureScore(point.risk_score)}</span>
+                        <span>confidence {formatExposureConfidence(point.confidence)}</span>
+                        <span>{point.severity}</span>
                       </div>
-                      <div className="mt-1 text-sm font-medium">{f.title}</div>
-                      {f.summary && (
-                        <div className="mt-0.5 text-[12px] text-muted-foreground">{f.summary}</div>
-                      )}
                     </div>
                   ))}
                 </div>
-              )}
-            </InvestigationSection>
-          )}
+              </div>
+            )}
+          </InvestigationSection>
+        ) : null}
 
-          {!detailLoading && tab === "evidence" && detail && (
-            <InvestigationSection title="Evidence">
-              {Object.entries(a.evidence_counts).length > 0 && (
-                <div className="mb-3 flex flex-wrap gap-2">
-                  {Object.entries(a.evidence_counts).map(([k, v]) => (
-                    <span
-                      key={k}
-                      className="rounded border border-border/60 bg-background/35 px-2 py-0.5 font-mono text-[11px]"
-                    >
-                      {k}: {v}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {detail.linked_vulnerabilities.length > 0 && (
-                <InvestigationChipList
-                  title="Linked vulnerabilities"
-                  chips={detail.linked_vulnerabilities.map((v) => ({
-                    label: v.cve || v.title,
-                    variant: sevVariant(v.severity),
-                  }))}
-                />
-              )}
-              {detail.linked_alerts.length > 0 && (
-                <div className="mt-3">
-                  <InvestigationChipList
-                    title="Linked alerts"
-                    chips={detail.linked_alerts.map((al) => ({
-                      label: al.description,
-                      variant: sevVariant(al.severity),
-                    }))}
-                  />
-                </div>
-              )}
-            </InvestigationSection>
-          )}
-
-          {!detailLoading && tab === "recommendations" && detail && (
-            <InvestigationSection title="Recommendations">
+        {tab === "actions" ? (
+          <InvestigationSection title="Top recommendations" subtitle="Backend-prioritized action guidance only. Analyst review remains required for any operational step.">
+            {!detail ? (
+              <p className="text-sm text-muted-foreground">Asset detail is required to load recommendations.</p>
+            ) : (
               <ExposureRecommendationsPanel recommendations={detail.top_recommendations} />
-            </InvestigationSection>
-          )}
-        </InvestigationShell>
-      )}
+            )}
+          </InvestigationSection>
+        ) : null}
+      </InvestigationShell>
     </Drawer>
   );
 }
