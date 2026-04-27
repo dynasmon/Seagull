@@ -21,6 +21,7 @@ from app.core.db import engine
 from app.core.db_lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import NetEventModel
+from app.features.exposure.realtime import load_recalculation_request
 from app.features.exposure import service as exposure_service
 from app.features.exposure.domain.evidence import build_evidence_ref, evidence_refs_from_list, merge_evidence_refs
 from app.features.exposure.domain.normalization import normalize_asset_key
@@ -61,6 +62,7 @@ from app.features.exposure.worker_runtime import (
 from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
 
 OFFSET_NAME = "exposure_graph_events_v1"
+RECALC_REQUEST_KEY = "seagull:exposure:recalc:request"
 
 setup_logging("worker-exposure-graph")
 logger = logging.getLogger("seagull.worker.exposure_graph")
@@ -625,12 +627,27 @@ def main() -> None:
     last_id = 0
     last_refresh_t = 0.0
     last_idle_log_t = 0.0
+    last_recalc_token = ""
     idle_sleep = 5.0
 
     while True:
         try:
             if last_id == 0:
                 last_id = _get_last_id()
+
+            recalc_request = load_recalculation_request(RECALC_REQUEST_KEY)
+            recalc_token = str((recalc_request or {}).get("requested_at") or "")
+            if recalc_token and recalc_token != last_recalc_token:
+                last_recalc_token = recalc_token
+                last_refresh_t = 0.0
+                log_event(
+                    logger,
+                    "info",
+                    "exposure_graph_recalc_requested",
+                    requested_at=recalc_request.get("requested_at"),
+                    requested_by=recalc_request.get("requested_by"),
+                    mode=recalc_request.get("mode"),
+                )
 
             # Incremental event processing
             events = _fetch_events(last_id, batch_size)
