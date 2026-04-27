@@ -169,10 +169,10 @@ export default function ExposurePage() {
   const [recalculateError, setRecalculateError] = useState<string | null>(null);
 
   const timersRef = useRef<Partial<Record<RealtimeRefreshKey, number>>>({});
-  const didBootstrapRef = useRef(false);
-  const didRunInitialAssetsFetchRef = useRef(false);
 
+  const summaryRef = useRef<ExposureSummary | null>(summary);
   const assetsPageRef = useRef<CursorPage<ExposureAssetPosture> | null>(assetsPage);
+  const pathsPageRef = useRef<CursorPage<ExposureAttackPath> | null>(pathsPage);
   const findingsPageRef = useRef<CursorPage<ExposureFinding> | null>(findingsPage);
   const selectedAssetRef = useRef<ExposureAssetPosture | null>(selectedAsset);
   const graphAssetKeyRef = useRef<string | null>(graphAssetKey);
@@ -181,7 +181,9 @@ export default function ExposurePage() {
   const tabRef = useRef<Tab>(tab);
   const filtersRef = useRef<AssetFilters>(assetFilters);
 
+  summaryRef.current = summary;
   assetsPageRef.current = assetsPage;
+  pathsPageRef.current = pathsPage;
   findingsPageRef.current = findingsPage;
   selectedAssetRef.current = selectedAsset;
   graphAssetKeyRef.current = graphAssetKey;
@@ -227,7 +229,7 @@ export default function ExposurePage() {
   }, []);
 
   const fetchSummary = useCallback(async (signal?: AbortSignal) => {
-    const hasData = summary !== null;
+    const hasData = summaryRef.current !== null;
     if (hasData) setSummaryRefreshing(true);
     else setSummaryLoading(true);
     try {
@@ -243,7 +245,7 @@ export default function ExposurePage() {
       setSummaryLoading(false);
       setSummaryRefreshing(false);
     }
-  }, [summary]);
+  }, []);
 
   const fetchAssets = useCallback(
     async ({
@@ -306,7 +308,7 @@ export default function ExposurePage() {
       signal?: AbortSignal;
       pageSize?: number;
     } = {}) => {
-      const hasData = (pathsPage?.items.length ?? 0) > 0;
+      const hasData = (pathsPageRef.current?.items.length ?? 0) > 0;
       if (cursor) setPathsLoadingMore(true);
       else if (hasData) setPathsRefreshing(true);
       else setPathsLoading(true);
@@ -326,7 +328,7 @@ export default function ExposurePage() {
         setPathsLoadingMore(false);
       }
     },
-    [pathsPage],
+    [],
   );
 
   const fetchFindings = useCallback(
@@ -507,11 +509,19 @@ export default function ExposurePage() {
   }, [isAdmin, recalculateBusy]);
 
   useEffect(() => {
-    if (didBootstrapRef.current) return;
-    didBootstrapRef.current = true;
     const ac = new AbortController();
     void fetchSummary(ac.signal);
+    return () => ac.abort();
+  }, [fetchSummary]);
+
+  useEffect(() => {
+    const ac = new AbortController();
     void fetchAssets({ signal: ac.signal, pageSize: assetTablePrefs.pageSize });
+    return () => ac.abort();
+  }, [assetFilters, assetTablePrefs.pageSize, fetchAssets]);
+
+  useEffect(() => {
+    const ac = new AbortController();
     setAgentsLoading(true);
     listAgents()
       .then((items) => {
@@ -526,20 +536,8 @@ export default function ExposurePage() {
         if (ac.signal.aborted) return;
         setAgentsLoading(false);
       });
-    return () => {
-      ac.abort();
-    };
-  }, [assetTablePrefs.pageSize, fetchAssets, fetchSummary]);
-
-  useEffect(() => {
-    if (!didRunInitialAssetsFetchRef.current) {
-      didRunInitialAssetsFetchRef.current = true;
-      return;
-    }
-    const ac = new AbortController();
-    void fetchAssets({ signal: ac.signal, pageSize: assetTablePrefs.pageSize });
     return () => ac.abort();
-  }, [assetFilters, assetTablePrefs.pageSize, fetchAssets]);
+  }, []);
 
   useEffect(() => {
     if (tab === "paths" && !pathsPage && !pathsLoading) {
