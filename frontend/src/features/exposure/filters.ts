@@ -1,8 +1,12 @@
-import { ExposureAssetSort, ExposureSeverity } from "./types";
+import { ExposureAssetSort, ExposureSeverity, ExposureStatus } from "./types";
 
 export type AssetFilters = {
   q: string;
   severity: ExposureSeverity | "";
+  min_score: number | null;
+  agent_id: string;
+  reason_code: string;
+  status: ExposureStatus | "";
   sort: ExposureAssetSort;
   has_attack_chain: boolean | null;
   has_critical_vuln: boolean | null;
@@ -24,6 +28,10 @@ export type FindingFilters = {
 export const DEFAULT_ASSET_FILTERS: AssetFilters = {
   q: "",
   severity: "",
+  min_score: null,
+  agent_id: "",
+  reason_code: "",
+  status: "",
   sort: "risk_desc",
   has_attack_chain: null,
   has_critical_vuln: null,
@@ -56,6 +64,14 @@ export const SORT_OPTIONS: Array<{ value: ExposureAssetSort; label: string }> = 
   { value: "risk_asc", label: "Lowest risk" },
   { value: "updated_desc", label: "Recently updated" },
   { value: "last_seen_desc", label: "Recently seen" },
+];
+
+export const ASSET_STATUS_OPTIONS: Array<{ value: ExposureStatus | ""; label: string }> = [
+  { value: "", label: "All statuses" },
+  { value: "active", label: "Active" },
+  { value: "stale", label: "Stale" },
+  { value: "inactive", label: "Inactive" },
+  { value: "unknown", label: "Unknown" },
 ];
 
 export const FINDING_STATUS_OPTIONS = [
