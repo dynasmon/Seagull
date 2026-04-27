@@ -11,8 +11,9 @@ export type GraphLayout = {
 };
 
 const NODE_RADIUS = 22;
-const LEVEL_GAP = 140;
-const SIBLING_GAP = 80;
+const LEVEL_GAP = 156;
+const SIBLING_GAP = 132;
+const GRAPH_SIDE_PADDING = 96;
 
 function buildAdjacency(nodes: ExposureGraphNode[], edges: ExposureGraphEdge[]) {
   const adj = new Map<string, Set<string>>();
@@ -57,6 +58,7 @@ export function computeGraphLayout(
   const adj = buildAdjacency(nodes, edges);
   const levels = bfsLevels(rootKey, adj);
 
+  const nodesByKey = new Map(nodes.map((node) => [node.node_key, node]));
   const levelGroups = new Map<number, string[]>();
   for (const n of nodes) {
     const lvl = levels.get(n.node_key) ?? 0;
@@ -66,20 +68,35 @@ export function computeGraphLayout(
 
   const maxLevel = Math.max(...levelGroups.keys());
   const totalHeight = (maxLevel + 1) * LEVEL_GAP + NODE_RADIUS * 2;
+  const widestLevelWidth = Math.max(
+    containerWidth,
+    ...Array.from(levelGroups.values()).map((keys) => keys.length * SIBLING_GAP + GRAPH_SIDE_PADDING * 2),
+  );
 
   const posMap = new Map<string, { x: number; y: number }>();
 
-  for (const [level, keys] of levelGroups.entries()) {
+  for (const [level, keys] of Array.from(levelGroups.entries()).sort((a, b) => a[0] - b[0])) {
+    keys.sort((leftKey, rightKey) => {
+      if (leftKey === rootKey) return -1;
+      if (rightKey === rootKey) return 1;
+      const left = nodesByKey.get(leftKey);
+      const right = nodesByKey.get(rightKey);
+      if (!left || !right) return leftKey.localeCompare(rightKey);
+      if (right.risk_score !== left.risk_score) return right.risk_score - left.risk_score;
+      if (right.confidence !== left.confidence) return right.confidence - left.confidence;
+      if (left.node_type !== right.node_type) return left.node_type.localeCompare(right.node_type);
+      return left.label.localeCompare(right.label);
+    });
     const y = level * LEVEL_GAP + NODE_RADIUS + 20;
     const totalWidth = keys.length * SIBLING_GAP;
-    const startX = (containerWidth - totalWidth) / 2 + SIBLING_GAP / 2;
+    const startX = (widestLevelWidth - totalWidth) / 2 + SIBLING_GAP / 2;
     keys.forEach((key, i) => {
       posMap.set(key, { x: startX + i * SIBLING_GAP, y });
     });
   }
 
   const layoutNodes: LayoutNode[] = nodes.map((n) => {
-    const pos = posMap.get(n.node_key) ?? { x: containerWidth / 2, y: totalHeight / 2 };
+    const pos = posMap.get(n.node_key) ?? { x: widestLevelWidth / 2, y: totalHeight / 2 };
     return { ...n, x: pos.x, y: pos.y, radius: NODE_RADIUS };
   });
 
@@ -92,7 +109,7 @@ export function computeGraphLayout(
     return { ...e, x1: src.x, y1: src.y, x2: tgt.x, y2: tgt.y };
   });
 
-  return { nodes: layoutNodes, edges: layoutEdges, width: containerWidth, height: totalHeight };
+  return { nodes: layoutNodes, edges: layoutEdges, width: widestLevelWidth, height: totalHeight };
 }
 
 export function severityColor(severity: string): string {
