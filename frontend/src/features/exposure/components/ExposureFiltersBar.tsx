@@ -1,90 +1,199 @@
 import { Button } from "@/shared/components/Button";
+import { DataFilterGroup, DataViewFilterBar } from "@/shared/components/DataView";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { TextInput } from "@/shared/components/TextInput";
-import { AssetFilters, SEVERITY_OPTIONS, SORT_OPTIONS } from "../filters";
+
+import {
+  ASSET_STATUS_OPTIONS,
+  AssetFilters,
+  SEVERITY_OPTIONS,
+  SORT_OPTIONS,
+} from "../filters";
+
+type Option = {
+  value: string;
+  label: string;
+};
 
 type Props = {
   filters: AssetFilters;
+  agentOptions: Option[];
+  reasonCodeOptions: Option[];
   onChange: (next: Partial<AssetFilters>) => void;
+  onApply: () => void;
   onReset?: () => void;
+  applying?: boolean;
 };
 
-export function ExposureFiltersBar({ filters, onChange, onReset }: Props) {
-  const hasFilters =
+export function ExposureFiltersBar({
+  filters,
+  agentOptions,
+  reasonCodeOptions,
+  onChange,
+  onApply,
+  onReset,
+  applying,
+}: Props) {
+  const hasFilters = Boolean(
     filters.q ||
-    filters.severity ||
-    filters.has_attack_chain ||
-    filters.has_critical_vuln ||
-    filters.has_persistence_signal;
+      filters.severity ||
+      filters.min_score !== null ||
+      filters.agent_id ||
+      filters.reason_code ||
+      filters.status ||
+      filters.has_attack_chain ||
+      filters.has_critical_vuln ||
+      filters.has_persistence_signal,
+  );
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <TextInput
-        placeholder="Search assets…"
-        value={filters.q}
-        onChange={(e) => onChange({ q: e.target.value })}
-        className="h-8 w-48"
-      />
+    <div className="space-y-3">
+      <DataViewFilterBar>
+        <DataFilterGroup label="Search">
+          <TextInput
+            placeholder="Asset name, key, hostname"
+            value={filters.q}
+            onChange={(event) => onChange({ q: event.target.value })}
+            className="w-full font-mono text-xs"
+          />
+        </DataFilterGroup>
 
-      <SelectInput
-        value={filters.severity}
-        onChange={(e) => onChange({ severity: e.target.value as AssetFilters["severity"] })}
-        className="h-8"
-      >
-        {SEVERITY_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </SelectInput>
+        <DataFilterGroup label="Severity">
+          <SelectInput
+            value={filters.severity}
+            onChange={(event) => onChange({ severity: event.target.value as AssetFilters["severity"] })}
+            className="w-full font-mono text-xs"
+          >
+            {SEVERITY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </SelectInput>
+        </DataFilterGroup>
 
-      <SelectInput
-        value={filters.sort}
-        onChange={(e) => onChange({ sort: e.target.value as AssetFilters["sort"] })}
-        className="h-8"
-      >
-        {SORT_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </SelectInput>
+        <DataFilterGroup label="Min Score">
+          <TextInput
+            type="number"
+            min={0}
+            max={100}
+            step={1}
+            value={filters.min_score ?? ""}
+            onChange={(event) =>
+              onChange({
+                min_score: event.target.value === "" ? null : Number.isFinite(Number(event.target.value)) ? Number(event.target.value) : null,
+              })
+            }
+            className="w-full font-mono text-xs"
+          />
+        </DataFilterGroup>
 
-      <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
-        <input
-          type="checkbox"
-          checked={filters.has_attack_chain === true}
-          onChange={(e) => onChange({ has_attack_chain: e.target.checked ? true : null })}
-          className="h-3 w-3 accent-primary"
-        />
-        Attack chain
-      </label>
+        <DataFilterGroup label="Agent">
+          <SelectInput
+            value={filters.agent_id}
+            onChange={(event) => onChange({ agent_id: event.target.value })}
+            className="w-full font-mono text-xs"
+          >
+            <option value="">All agents</option>
+            {agentOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </SelectInput>
+        </DataFilterGroup>
 
-      <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
-        <input
-          type="checkbox"
-          checked={filters.has_critical_vuln === true}
-          onChange={(e) => onChange({ has_critical_vuln: e.target.checked ? true : null })}
-          className="h-3 w-3 accent-primary"
-        />
-        Critical vuln
-      </label>
+        <DataFilterGroup label="Reason Code">
+          <SelectInput
+            value={filters.reason_code}
+            onChange={(event) => onChange({ reason_code: event.target.value })}
+            className="w-full font-mono text-xs"
+          >
+            <option value="">All reason codes</option>
+            {reasonCodeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </SelectInput>
+        </DataFilterGroup>
 
-      <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
-        <input
-          type="checkbox"
-          checked={filters.has_persistence_signal === true}
-          onChange={(e) => onChange({ has_persistence_signal: e.target.checked ? true : null })}
-          className="h-3 w-3 accent-primary"
-        />
-        Persistence
-      </label>
+        <DataFilterGroup label="Status">
+          <SelectInput
+            value={filters.status}
+            onChange={(event) => onChange({ status: event.target.value as AssetFilters["status"] })}
+            className="w-full font-mono text-xs"
+          >
+            {ASSET_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </SelectInput>
+        </DataFilterGroup>
 
-      {hasFilters && onReset && (
-        <Button variant="ghost" size="sm" onClick={onReset}>
-          Reset
-        </Button>
-      )}
+        <DataFilterGroup label="Sort">
+          <SelectInput
+            value={filters.sort}
+            onChange={(event) => onChange({ sort: event.target.value as AssetFilters["sort"] })}
+            className="w-full font-mono text-xs"
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </SelectInput>
+        </DataFilterGroup>
+
+        <DataFilterGroup label="Signals">
+          <div className="grid gap-2 text-[11px] font-mono uppercase tracking-[0.1em] text-muted-foreground">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={filters.has_attack_chain === true}
+                onChange={(event) => onChange({ has_attack_chain: event.target.checked ? true : null })}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              Has attack chain
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={filters.has_critical_vuln === true}
+                onChange={(event) => onChange({ has_critical_vuln: event.target.checked ? true : null })}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              Critical vulnerability
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={filters.has_persistence_signal === true}
+                onChange={(event) => onChange({ has_persistence_signal: event.target.checked ? true : null })}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              Persistence signal
+            </label>
+          </div>
+        </DataFilterGroup>
+      </DataViewFilterBar>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-[11px] font-mono text-muted-foreground">
+          {hasFilters ? "Custom asset risk filters applied or staged" : "Default asset risk view"}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {onReset ? (
+            <Button variant="ghost" size="sm" onClick={onReset}>
+              Reset
+            </Button>
+          ) : null}
+          <Button variant="secondary" size="sm" onClick={onApply} disabled={applying}>
+            {applying ? "Applying…" : "Apply"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
