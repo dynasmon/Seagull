@@ -56,6 +56,9 @@ _ALLOWED_EVIDENCE: set[str] = {
     "response_action_result",
     "attack_chain_case",
     "attack_chain_step",
+    "alert",
+    "vulnerability",
+    "exposure_finding",
 }
 
 _MAX_SNAPSHOT_BYTES = 64 * 1024

@@ -18,6 +18,9 @@ EvidenceType = Literal[
     "response_action_result",
     "attack_chain_case",
     "attack_chain_step",
+    "alert",
+    "vulnerability",
+    "exposure_finding",
 ]
 
 InvestigationActivityType = Literal[

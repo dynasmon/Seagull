@@ -17,6 +17,7 @@ PORTAL_REALTIME_TOPICS = (
     "overview",
     "alerts",
     "agents",
+    "exposure",
     "investigations",
     "workflows",
     "events",
