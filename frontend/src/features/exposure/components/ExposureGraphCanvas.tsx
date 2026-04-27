@@ -342,6 +342,19 @@ export function ExposureGraphCanvas({ graph, onNodeClick }: Props) {
     });
   }, [viewport.height, viewport.width]);
 
+  const zoomAtPoint = useCallback((localX: number, localY: number, factor: number) => {
+    setTransform((prev) => {
+      const nextScale = clamp(prev.scale * factor, MIN_SCALE, MAX_SCALE);
+      const worldX = (localX - prev.offsetX) / prev.scale;
+      const worldY = (localY - prev.offsetY) / prev.scale;
+      return {
+        scale: nextScale,
+        offsetX: localX - worldX * nextScale,
+        offsetY: localY - worldY * nextScale,
+      };
+    });
+  }, []);
+
   const screenToWorld = useCallback(
     (clientX: number, clientY: number) => {
       const rect = canvasRef.current?.getBoundingClientRect();
@@ -595,26 +608,24 @@ export function ExposureGraphCanvas({ graph, onNodeClick }: Props) {
   }, [pickGraphItem, selectEdge, selectNode]);
 
   const onWheel = useCallback(
-    (event: React.WheelEvent<HTMLCanvasElement>) => {
+    (event: WheelEvent) => {
       event.preventDefault();
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
       const localX = event.clientX - rect.left;
       const localY = event.clientY - rect.top;
       const factor = event.deltaY > 0 ? 0.92 : 1.08;
-      setTransform((prev) => {
-        const nextScale = clamp(prev.scale * factor, MIN_SCALE, MAX_SCALE);
-        const worldX = (localX - prev.offsetX) / prev.scale;
-        const worldY = (localY - prev.offsetY) / prev.scale;
-        return {
-          scale: nextScale,
-          offsetX: localX - worldX * nextScale,
-          offsetY: localY - worldY * nextScale,
-        };
-      });
+      zoomAtPoint(localX, localY, factor);
     },
-    [],
+    [zoomAtPoint],
   );
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [onWheel]);
 
   const matchList = useMemo(
     () =>
@@ -693,7 +704,7 @@ export function ExposureGraphCanvas({ graph, onNodeClick }: Props) {
           ) : (
             <div
               ref={containerRef}
-              className="relative overflow-hidden rounded-lg border border-border/60 bg-background/35"
+              className="relative overflow-hidden overscroll-contain rounded-lg border border-border/60 bg-background/35"
               style={{ minHeight: GRAPH_MIN_HEIGHT }}
             >
               <canvas
@@ -709,7 +720,6 @@ export function ExposureGraphCanvas({ graph, onNodeClick }: Props) {
                 onDoubleClick={() => {
                   if (selectedNode) onNodeClick?.(selectedNode);
                 }}
-                onWheel={onWheel}
               />
             </div>
           )}
