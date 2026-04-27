@@ -11,6 +11,7 @@ export type AppNavIcon =
   | "agents"
   | "inventory"
   | "vulnerabilities"
+  | "exposure"
   | "audit"
   | "settings"
   | "internal";
@@ -73,6 +74,7 @@ export const SOC_NAV_GROUPS: AppNavGroup[] = [
       { id: "agents", label: "Agents", to: "/agents", icon: "agents" },
       { id: "inventory", label: "Inventory", to: "/inventory", icon: "inventory" },
       { id: "vulnerabilities", label: "Vulnerabilities", to: "/vulnerabilities", icon: "vulnerabilities" },
+      { id: "exposure", label: "Exposure Graph", to: "/exposure", icon: "exposure" },
     ],
   },
   {
@@ -234,6 +236,17 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       breadcrumbs: [
         { label: "Assets & Exposure" },
         { label: "Vulnerabilities", to: "/vulnerabilities" },
+      ],
+    },
+  },
+  {
+    path: "/exposure",
+    meta: {
+      title: "Exposure Graph",
+      subtitle: "Asset risk, evidence relationships, and attack-path prioritization.",
+      breadcrumbs: [
+        { label: "Assets & Exposure" },
+        { label: "Exposure Graph", to: "/exposure" },
       ],
     },
   },
