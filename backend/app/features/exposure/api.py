@@ -74,13 +74,6 @@ def list_assets(
         return service.list_assets(db_session, params=params)
 
 
-@router.get("/assets/{asset_key:path}", response_model=ExposureAssetDetailOut)
-def get_asset_detail(asset_key: str, db: Session = Depends(get_db)):
-    with managed_session(db) as db_session:
-        normalized_asset_key = service.decode_and_validate_asset_key(asset_key)
-        return service.get_asset_detail(db_session, asset_key=normalized_asset_key)
-
-
 @router.get("/assets/{asset_key:path}/graph", response_model=ExposureGraphOut)
 def get_asset_graph(
     asset_key: str,
@@ -105,6 +98,13 @@ def get_asset_graph(
     with managed_session(db) as db_session:
         normalized_asset_key = service.decode_and_validate_asset_key(asset_key)
         return service.get_asset_graph(db_session, asset_key=normalized_asset_key, params=params)
+
+
+@router.get("/assets/{asset_key:path}", response_model=ExposureAssetDetailOut)
+def get_asset_detail(asset_key: str, db: Session = Depends(get_db)):
+    with managed_session(db) as db_session:
+        normalized_asset_key = service.decode_and_validate_asset_key(asset_key)
+        return service.get_asset_detail(db_session, asset_key=normalized_asset_key)
 
 
 @router.get("/paths", response_model=CursorPage[ExposureAttackPathOut])

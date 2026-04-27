@@ -25,6 +25,9 @@ from app.features.exposure.schemas import (
     ExposureAssetDetailOut,
     ExposureAssetPostureOut,
     ExposureAssetsQuery,
+    ExposureGraphHealthOut,
+    ExposureGraphLegendOut,
+    ExposureGraphOut,
     ExposureGraphQuery,
     ExposureLinkedAlertOut,
     ExposureLinkedAttackChainCaseOut,
@@ -263,6 +266,48 @@ def test_asset_detail_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["posture"]["asset_key"] == "agent:agent-1"
     assert "score_breakdown" in body
     assert "top_recommendations" in body
+
+
+def test_asset_graph_route_is_not_shadowed_by_asset_detail_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
+
+    called: dict[str, str] = {"detail": "", "graph": ""}
+
+    def fake_detail(_db, *, asset_key: str):
+        called["detail"] = asset_key
+        return _asset_detail_out()
+
+    def fake_graph(_db, *, asset_key: str, params):
+        called["graph"] = asset_key
+        return ExposureGraphOut(
+            root_node_key="asset:root",
+            recommended_focus_node_keys=[],
+            nodes=[],
+            edges=[],
+            legend=ExposureGraphLegendOut(node_types=[], edge_types=[]),
+            graph_health=ExposureGraphHealthOut(
+                depth_applied=params.depth,
+                max_nodes_applied=params.max_nodes,
+                max_edges_applied=params.max_edges,
+                node_count=0,
+                edge_count=0,
+                nodes_truncated=False,
+                edges_truncated=False,
+                posture_updated_at=None,
+                stale_agent=False,
+                stale_inventory=False,
+            ),
+        )
+
+    monkeypatch.setattr(exposure_api.service, "get_asset_detail", fake_detail)
+    monkeypatch.setattr(exposure_api.service, "get_asset_graph", fake_graph)
+
+    with TestClient(app) as client:
+        response = client.get("/exposure/assets/agent:agent-1/graph")
+
+    assert response.status_code == 200
+    assert called["graph"] == "agent:agent-1"
+    assert called["detail"] == ""
 
 
 def test_service_list_assets_paginates(monkeypatch: pytest.MonkeyPatch) -> None:
