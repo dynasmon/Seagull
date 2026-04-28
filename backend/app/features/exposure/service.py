@@ -555,7 +555,7 @@ def list_paths(db: Session, *, params: ExposurePathsQuery) -> CursorPage[Exposur
     )
 
 
-def list_findings(db: Session, *, params: ExposureFindingsQuery) -> CursorPage:
+def list_findings(db: Session, *, params: ExposureFindingsQuery) -> CursorPage[ExposureFindingOut]:
     asset_key = decode_and_validate_asset_key(params.asset_key) if params.asset_key else None
     cursor = parse_cursor_ts_id(params.cursor) if params.cursor else None
     rows = repository.list_findings_page(

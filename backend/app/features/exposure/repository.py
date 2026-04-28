@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Iterable, Sequence
 
 from sqlalchemy import and_, case, exists, func, or_, select
@@ -58,7 +58,7 @@ def upsert_asset_posture(db: Session, posture: PostureInput) -> ExposureAssetPos
             status=posture.status,
             first_seen_at=posture.first_seen_at,
             last_seen_at=posture.last_seen_at,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(timezone.utc),
             score_breakdown=posture.breakdown.to_dict(),
             reason_codes=posture.reason_codes,
             top_recommendations=[r if isinstance(r, dict) else r for r in posture.top_recommendations],
@@ -86,7 +86,7 @@ def upsert_asset_posture(db: Session, posture: PostureInput) -> ExposureAssetPos
                 "reliability_penalty": posture.breakdown.reliability_penalty,
                 "status": posture.status,
                 "last_seen_at": posture.last_seen_at,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
                 "score_breakdown": posture.breakdown.to_dict(),
                 "reason_codes": posture.reason_codes,
                 "top_recommendations": posture.top_recommendations,
@@ -102,43 +102,6 @@ def upsert_asset_posture(db: Session, posture: PostureInput) -> ExposureAssetPos
 def get_asset_posture(db: Session, asset_key: str) -> ExposureAssetPostureModel | None:
     stmt = select(ExposureAssetPostureModel).where(ExposureAssetPostureModel.asset_key == asset_key)
     return db.execute(stmt).scalars().first()
-
-
-def list_asset_postures_page(
-    db: Session,
-    *,
-    page_size: int,
-    agent_id: str | None = None,
-    min_score: int | None = None,
-    severity: str | None = None,
-    status: str | None = None,
-    cursor_parsed: tuple[datetime, int] | None = None,
-) -> list[ExposureAssetPostureModel]:
-    page_size = min(int(page_size), _MAX_PAGE)
-    stmt = select(ExposureAssetPostureModel).order_by(
-        ExposureAssetPostureModel.last_seen_at.desc(),
-        ExposureAssetPostureModel.id.desc(),
-    )
-    if agent_id:
-        stmt = stmt.where(ExposureAssetPostureModel.agent_id == agent_id)
-    if min_score is not None:
-        stmt = stmt.where(ExposureAssetPostureModel.risk_score >= int(min_score))
-    if severity:
-        stmt = stmt.where(ExposureAssetPostureModel.severity == severity)
-    if status:
-        stmt = stmt.where(ExposureAssetPostureModel.status == status)
-    if cursor_parsed:
-        c_ts, c_id = cursor_parsed
-        stmt = stmt.where(
-            or_(
-                ExposureAssetPostureModel.last_seen_at < c_ts,
-                and_(
-                    ExposureAssetPostureModel.last_seen_at == c_ts,
-                    ExposureAssetPostureModel.id < c_id,
-                ),
-            )
-        )
-    return db.execute(stmt.limit(page_size + 1)).scalars().all()
 
 
 def list_assets_page(
@@ -261,7 +224,7 @@ def upsert_node(db: Session, node: NodeInput) -> ExposureNodeModel:
             confidence=node.confidence,
             first_seen_at=node.first_seen_at,
             last_seen_at=node.last_seen_at,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(timezone.utc),
             properties=node.properties,
             source_refs=node.source_refs,
         )
@@ -273,7 +236,7 @@ def upsert_node(db: Session, node: NodeInput) -> ExposureNodeModel:
                 "risk_score": node.risk_score,
                 "confidence": node.confidence,
                 "last_seen_at": node.last_seen_at,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
                 "properties": node.properties,
                 "source_refs": node.source_refs,
             },
@@ -331,7 +294,7 @@ def upsert_edge(db: Session, edge: EdgeInput) -> ExposureEdgeModel:
             confidence=edge.confidence,
             first_seen_at=edge.first_seen_at,
             last_seen_at=edge.last_seen_at,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(timezone.utc),
             properties=edge.properties,
             evidence_refs=edge.evidence_refs,
         )
@@ -341,7 +304,7 @@ def upsert_edge(db: Session, edge: EdgeInput) -> ExposureEdgeModel:
                 "weight": edge.weight,
                 "confidence": edge.confidence,
                 "last_seen_at": edge.last_seen_at,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
                 "properties": edge.properties,
                 "evidence_refs": edge.evidence_refs,
             },
@@ -396,7 +359,7 @@ def upsert_finding(db: Session, finding: FindingInput) -> ExposureFindingModel:
             status=finding.status,
             first_seen_at=finding.first_seen_at,
             last_seen_at=finding.last_seen_at,
-            updated_at=datetime.utcnow(),
+            updated_at=datetime.now(timezone.utc),
             related_node_keys=finding.related_node_keys,
             evidence_refs=[r.to_dict() for r in finding.evidence_refs],
             reason_codes=finding.reason_codes,
@@ -413,7 +376,7 @@ def upsert_finding(db: Session, finding: FindingInput) -> ExposureFindingModel:
                 "summary": finding.summary,
                 "status": finding.status,
                 "last_seen_at": finding.last_seen_at,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
                 "related_node_keys": finding.related_node_keys,
                 "evidence_refs": [r.to_dict() for r in finding.evidence_refs],
                 "reason_codes": finding.reason_codes,
