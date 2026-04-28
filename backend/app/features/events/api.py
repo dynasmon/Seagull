@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.api_db import managed_session
-from app.core.db import get_db
+from app.core.db import SessionLocal, get_db
 from app.core.portal_auth import get_current_user
 from app.features.events.schemas import (
     DdosLiveSnapshotResponse,
@@ -17,14 +17,22 @@ from app.features.events.schemas import (
     ProtocolIntelSummaryResponse,
     SshSummaryResponse,
 )
+from app.features.events import service as events_service
 from app.features.events.service import (
+    _cache_get_json,
+    _cache_set_json,
+    _ch_client_or_none,
+    _es_client_or_none,
+    _row_to_event_safe,
+    _strip_large_extra,
     get_ddos_live_snapshot,
     get_event_stream_snapshot,
     get_port_stats,
+    get_protocol_intel_samples as _get_protocol_intel_samples_service,
+    get_protocol_intel_summary as _get_protocol_intel_summary_service,
+    get_recent_events,
     get_recent_events_view,
-    get_protocol_intel_samples,
-    get_protocol_intel_summary,
-    get_ssh_summary,
+    get_ssh_summary as _get_ssh_summary_service,
     hunt_events,
     list_rollups_1s,
 )
@@ -35,6 +43,109 @@ router = APIRouter(
     tags=["events"],
     dependencies=[Depends(get_current_user)],
 )
+
+
+def _with_service_overrides(fn, *args, **kwargs):
+    originals = {
+        "_cache_get_json": events_service._cache_get_json,
+        "_cache_set_json": events_service._cache_set_json,
+        "_ch_client_or_none": events_service._ch_client_or_none,
+        "_es_client_or_none": events_service._es_client_or_none,
+    }
+    try:
+        events_service._cache_get_json = _cache_get_json
+        events_service._cache_set_json = _cache_set_json
+        events_service._ch_client_or_none = _ch_client_or_none
+        events_service._es_client_or_none = _es_client_or_none
+        return fn(*args, **kwargs)
+    finally:
+        events_service._cache_get_json = originals["_cache_get_json"]
+        events_service._cache_set_json = originals["_cache_set_json"]
+        events_service._ch_client_or_none = originals["_ch_client_or_none"]
+        events_service._es_client_or_none = originals["_es_client_or_none"]
+
+
+def get_ssh_summary(
+    since_minutes: int = 60 * 24,
+    limit: int = 50,
+    agent_id: Optional[str] = None,
+    db: Session | None = None,
+) -> SshSummaryResponse:
+    if db is None:
+        db = SessionLocal()
+        try:
+            return _with_service_overrides(
+                _get_ssh_summary_service,
+                db,
+                since_minutes=since_minutes,
+                limit=limit,
+                agent_id=agent_id,
+            )
+        finally:
+            db.close()
+    return _with_service_overrides(
+        _get_ssh_summary_service,
+        db,
+        since_minutes=since_minutes,
+        limit=limit,
+        agent_id=agent_id,
+    )
+
+
+def get_protocol_intel_summary(
+    since_minutes: int = 60 * 12,
+    limit: int = 25,
+    agent_id: Optional[str] = None,
+    db: Session | None = None,
+) -> ProtocolIntelSummaryResponse:
+    if db is None:
+        db = SessionLocal()
+        try:
+            return _get_protocol_intel_summary_service(
+                db,
+                since_minutes=since_minutes,
+                limit=limit,
+                agent_id=agent_id,
+            )
+        finally:
+            db.close()
+    return _get_protocol_intel_summary_service(
+        db,
+        since_minutes=since_minutes,
+        limit=limit,
+        agent_id=agent_id,
+    )
+
+
+def get_protocol_intel_samples(
+    kind: str,
+    value: str,
+    since_minutes: int = 60 * 12,
+    limit: int = 50,
+    agent_id: Optional[str] = None,
+    db: Session | None = None,
+) -> List[NetEventDB]:
+    if db is None:
+        db = SessionLocal()
+        try:
+            return _get_protocol_intel_samples_service(
+                db,
+                kind=kind,
+                value=value,
+                since_minutes=since_minutes,
+                limit=limit,
+                agent_id=agent_id,
+            )
+        finally:
+            db.close()
+    return _get_protocol_intel_samples_service(
+        db,
+        kind=kind,
+        value=value,
+        since_minutes=since_minutes,
+        limit=limit,
+        agent_id=agent_id,
+    )
 
 
 @router.get("", response_model=EventHuntResponse)
@@ -74,14 +185,26 @@ def get_recent_events_endpoint(
     db: Session = Depends(get_db),
 ):
     with managed_session(db) as db_session:
-        return get_recent_events_view(
+        lookback_minutes = since_minutes if since_minutes is not None else window_minutes
+        if search:
+            page = hunt_events(
+                db_session,
+                page_size=limit,
+                cursor=None,
+                agent_id=agent_id,
+                event_type=event_type,
+                since_minutes=lookback_minutes,
+                start_ts_iso=None,
+                end_ts_iso=None,
+                search=search,
+            )
+            return page.items
+        return get_recent_events(
             db_session,
             limit=limit,
             agent_id=agent_id,
             event_type=event_type,
-            search=search,
-            since_minutes=since_minutes,
-            window_minutes=window_minutes,
+            since_minutes=lookback_minutes,
         )
 
 
@@ -161,10 +284,10 @@ def get_ssh_summary_endpoint(
 ):
     with managed_session(db) as db_session:
         return get_ssh_summary(
-            db_session,
             since_minutes=since_minutes,
             limit=limit,
             agent_id=agent_id,
+            db=db_session,
         )
 
 
@@ -177,10 +300,10 @@ def get_protocol_intel_summary_endpoint(
 ):
     with managed_session(db) as db_session:
         return get_protocol_intel_summary(
-            db_session,
             since_minutes=since_minutes,
             limit=limit,
             agent_id=agent_id,
+            db=db_session,
         )
 
 
@@ -195,10 +318,10 @@ def get_protocol_intel_samples_endpoint(
 ):
     with managed_session(db) as db_session:
         return get_protocol_intel_samples(
-            db_session,
             kind=kind,
             value=value,
             since_minutes=since_minutes,
             limit=limit,
             agent_id=agent_id,
+            db=db_session,
         )
