@@ -82,6 +82,17 @@ function NavIcon({ icon }: { icon: AppNavIcon }) {
           <path d="M9.5 12.5 11 14l3.5-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
+    case "exposure":
+      return (
+        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
+          <circle cx="4" cy="7" r="2" stroke="currentColor" strokeWidth="2" />
+          <circle cx="20" cy="7" r="2" stroke="currentColor" strokeWidth="2" />
+          <circle cx="4" cy="17" r="2" stroke="currentColor" strokeWidth="2" />
+          <circle cx="20" cy="17" r="2" stroke="currentColor" strokeWidth="2" />
+          <path d="M6 8l4 3M18 8l-4 3M6 16l4-3M18 16l-4-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      );
     case "audit":
       return (
         <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
