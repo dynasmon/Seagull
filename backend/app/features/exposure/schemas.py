@@ -434,7 +434,7 @@ class ExposureFindingsQuery(BaseModel):
 
 
 class ExposureGraphQuery(BaseModel):
-    depth: int = Field(default=2, ge=1, le=8)
+    depth: int = Field(default=2, ge=1, le=4)
     node_types: List[str] = Field(default_factory=list)
     edge_types: List[str] = Field(default_factory=list)
     min_confidence: int = Field(default=1, ge=1, le=99)
