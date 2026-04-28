@@ -500,6 +500,75 @@ Responses return:
 
 ---
 
+## Exposure & Attack Path Graph
+
+The Exposure & Attack Path Graph feature computes per-asset risk posture by projecting evidence from agents, vulnerability scans, alerts, attack-chain cases, and response actions into a scored graph model.
+
+### What it does
+
+- Scores every monitored asset on a 0–100 risk scale with severity banding (informational / low / medium / high / critical).
+- Projects asset telemetry into an attack-path graph: asset nodes link to vulnerability nodes, service/package nodes, alert nodes, attack-chain case nodes, investigation nodes, and response-action nodes.
+- Generates findings with reason codes, evidence references, confidence levels, and prioritised remediation recommendations.
+- Maintains per-asset score history so operators can track risk trend over time.
+- Emits realtime SSE/WebSocket events when asset posture or findings change.
+
+### Enabling the worker
+
+The worker runs inside `seagull-intelligence-worker` as the `exposure-graph` child process. It is enabled by default:
+
+```
+SEAGULL_EXPOSURE_ENABLED=true
+```
+
+Set to `false` to disable it without affecting other intelligence workers.
+
+### Key environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SEAGULL_EXPOSURE_ENABLED` | `true` | Enable/disable the worker |
+| `SEAGULL_EXPOSURE_EVERY_SECONDS` | `300` | Full refresh cycle interval |
+| `SEAGULL_EXPOSURE_EVENT_BATCH_SIZE` | `500` | Events processed per incremental pass |
+| `SEAGULL_EXPOSURE_LOOKBACK_HOURS` | `48` | Event window for bootstrap scan |
+| `SEAGULL_EXPOSURE_MAX_FINDINGS_PER_ASSET` | `100` | Max open findings per asset |
+| `SEAGULL_EXPOSURE_SCORE_HISTORY_EVERY_SECONDS` | `3600` | Score history snapshot interval |
+| `SEAGULL_EXPOSURE_STALE_AGENT_MINUTES` | `60` | Agent staleness threshold |
+| `SEAGULL_EXPOSURE_STALE_INVENTORY_HOURS` | `24` | Inventory staleness threshold |
+| `SEAGULL_EXPOSURE_MAX_GRAPH_NODES_PER_ASSET` | `200` | Hard node limit per graph response |
+| `SEAGULL_EXPOSURE_MAX_GRAPH_EDGES_PER_ASSET` | `300` | Hard edge limit per graph response |
+
+### API routes
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/exposure/summary` | user | Fleet-wide risk summary and top reason codes |
+| `GET` | `/exposure/assets` | user | Paginated asset posture list with filters |
+| `GET` | `/exposure/assets/{key}` | user | Full asset detail with linked evidence |
+| `GET` | `/exposure/assets/{key}/graph` | user | Attack-path graph for an asset |
+| `GET` | `/exposure/paths` | user | Paginated attack path list |
+| `GET` | `/exposure/findings` | user | Paginated findings list |
+| `POST` | `/exposure/recalculate` | admin | Trigger a forced full refresh |
+| `POST` | `/exposure/assets/{key}/investigation` | admin | Open an investigation from an asset |
+| `POST` | `/exposure/assets/{key}/response-actions/triage` | admin | Create a triage response action |
+
+Pagination follows the same cursor (keyset) contract as other list endpoints: `items`, `next_cursor`, `has_more`.
+
+### Portal UI
+
+Navigate to **Assets & Exposure → Exposure Graph** (`/exposure`) in the Seagull Portal.
+
+The page provides:
+- Summary cards (critical / high / medium / low asset counts, active findings, attack paths)
+- Filterable asset table with risk score, severity, and reason-code columns
+- Attack-path timeline tab
+- Findings tab
+- Per-asset drawer with score breakdown, recommendations, linked evidence, and score history
+- Interactive attack-path graph canvas
+- Realtime refresh on posture and finding updates
+- Admin-only actions (recalculate, open investigation, create triage response action)
+
+---
+
 ## Roadmap and Future Work
 
 Planned enhancements (not yet implemented):
