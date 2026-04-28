@@ -139,7 +139,7 @@ def normalize_evidence_ref(raw: Any) -> EvidenceRef | None:
     source_id = str(raw.get("source_id") or "").strip()
     if not source_id:
         return None
-    observed_at = _parse_dt(raw.get("observed_at"))
+    observed_at = parse_dt(raw.get("observed_at"))
     if observed_at is None:
         observed_at = datetime.now(tz=timezone.utc)
     title = str(raw.get("title") or "")[:256]
@@ -157,7 +157,7 @@ def normalize_evidence_ref(raw: Any) -> EvidenceRef | None:
     )
 
 
-def _parse_dt(value: Any) -> datetime | None:
+def parse_dt(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
