@@ -35,3 +35,7 @@ secrets/**
 backend/data/geoip/*.mmdb
 backend/data/geoip/*.tar.gz
 backend/data/geoip/*.zip
+
+agent/agent
+backend/test.db
+*.db
