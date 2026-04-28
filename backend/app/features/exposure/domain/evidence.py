@@ -7,7 +7,7 @@ from app.features.exposure.domain.normalization import (
     clamp_confidence,
     normalize_evidence_source_type,
     normalize_severity,
-    _parse_dt,
+    parse_dt,
 )
 from app.features.exposure.domain.types import EvidenceRef
 
@@ -62,7 +62,7 @@ def evidence_refs_from_list(raw: list[Any]) -> list[EvidenceRef]:
         source_id = str(item.get("source_id") or "").strip()
         if not source_id:
             continue
-        observed_at = _parse_dt(item.get("observed_at")) or datetime.now(tz=timezone.utc)
+        observed_at = parse_dt(item.get("observed_at")) or datetime.now(tz=timezone.utc)
         out.append(
             EvidenceRef(
                 source_type=source_type,
