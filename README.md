@@ -324,7 +324,7 @@ AOF recovery (stop Redis first):
 ./seagull ci            # lint + test + build
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint/tests, image build, dependency audit, and secret scanning (`gitleaks`) on push and pull request.
+CI (`.gitlab-ci.yml`) runs lint/tests, image build, dependency audit, and secret scanning (`gitleaks`) on push and merge request pipelines.
 
 ### 12. Database migrations and lifecycle (Alembic)
 
