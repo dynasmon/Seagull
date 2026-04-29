@@ -1,0 +1,85 @@
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+stages:
+  - quality
+  - build
+  - security
+
+variables:
+  GO_VERSION: "1.22.12"
+  NODE_MAJOR: "20"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.cache/npm"
+  GOMODCACHE: "$CI_PROJECT_DIR/.cache/go/pkg/mod"
+  GOCACHE: "$CI_PROJECT_DIR/.cache/go/build"
+
+default:
+  interruptible: true
+  cache:
+    key: "$CI_JOB_NAME"
+    paths:
+      - .cache/pip
+      - .cache/npm
+      - .cache/go/pkg/mod
+      - .cache/go/build
+
+.toolchain:
+  image: python:3.12-bookworm
+  before_script:
+    - export DEBIAN_FRONTEND=noninteractive
+    - apt-get update
+    - apt-get install -y --no-install-recommends bash curl ca-certificates git gnupg libpcap-dev make
+    - curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
+    - apt-get install -y --no-install-recommends nodejs
+    - curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
+    - rm -rf /usr/local/go
+    - tar -C /usr/local -xzf /tmp/go.tgz
+    - export PATH="/usr/local/go/bin:$PATH"
+    - python -m pip install --upgrade pip
+    - python -m pip install -r backend/requirements-dev.txt
+    - npm ci --prefix frontend
+
+quality:
+  stage: quality
+  extends: .toolchain
+  script:
+    - make lint
+    - (cd backend && alembic heads)
+    - make test
+
+build_images:
+  stage: build
+  image: docker:27.5.1-cli
+  services:
+    - name: docker:27.5.1-dind
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    DOCKER_DRIVER: overlay2
+    COMPOSE_DOCKER_CLI_BUILD: "1"
+  needs:
+    - quality
+  before_script:
+    - apk add --no-cache docker-cli-compose
+    - docker info
+    - docker compose version
+  script:
+    - docker compose -f compose.yml build
+
+dependency_audit:
+  stage: security
+  extends: .toolchain
+  script:
+    - make deps-check
+
+secret_scan:
+  stage: security
+  image:
+    name: zricethezav/gitleaks:v8.24.2
+    entrypoint: [""]
+  script:
+    - gitleaks dir --source . --exit-code 1 --no-banner --redact
