@@ -5,9 +5,9 @@ from typing import List
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.agent_auth import AgentPrincipal, get_current_agent
+from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.core.db import get_db
-from app.core.portal_auth import get_current_user, require_admin
+from app.features.auth.session import get_current_user, require_admin
 from app.features.events.schemas import NetEvent
 from app.features.ingest.service import ingest_events, storm_recover, storm_status
 

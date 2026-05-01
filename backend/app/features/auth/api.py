@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit_event  # backward-compatible symbol for tests
-from app.core.api_db import managed_session
-from app.core.db import get_db
-from app.core.portal_auth import PortalPrincipal, get_current_user, require_admin
+from app.core.db.session import managed_session
+from app.core.db import SessionLocal, get_db
+from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 from app.features.auth.schemas import LoginIn, OtpCreateIn, OtpCreateOut, OtpLoginIn, TokenOut, UserOut
 from app.features.auth import service
 

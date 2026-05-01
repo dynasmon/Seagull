@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.portal_auth import PortalPrincipal, require_admin
+from app.features.auth.session import PortalPrincipal, require_admin
 from app.features.correlations.engine import (
     segment_by_window as _segment_by_window,
     stage_requirements_met as _stage_requirements_met,

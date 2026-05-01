@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.observability import incr_counter, observe_hist
-from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
-from app.core.redis_client import get_redis
+from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
+from app.core.cache import get_redis
 from app.features.inventory.repository import (
     create_snapshot_and_upsert_latest,
     fetch_overview_payload,

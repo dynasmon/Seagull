@@ -5,11 +5,11 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.agent_auth import AgentPrincipal, get_current_agent
-from app.core.api_db import managed_session
+from app.features.agents.auth import AgentPrincipal, get_current_agent
+from app.core.db.session import managed_session
 from app.core.audit import write_audit_event
 from app.core.db import get_db
-from app.core.portal_auth import PortalPrincipal, get_current_user, require_admin
+from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 from app.features.agents import service
 from app.features.agents.schemas import (
     AgentBootstrapTokenCreateIn,

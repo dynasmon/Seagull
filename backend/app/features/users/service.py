@@ -6,9 +6,9 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor
-from app.core.identity import canonicalize_username
-from app.core.password_policy import validate_password_policy
-from app.core.portal_auth import PortalPrincipal
+from app.core.security.identity import canonicalize_username
+from app.core.security.password_policy import validate_password_policy
+from app.features.auth.session import PortalPrincipal
 from app.core.security import hash_password
 from app.features.auth.models import PortalUserModel
 from app.features.users import repository

@@ -9,8 +9,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor, write_audit_event
-from app.core.pagination import encode_cursor, make_cursor_ts_id, parse_cursor_ts_id
-from app.core.portal_auth import PortalPrincipal
+from app.core.api.pagination import encode_cursor, make_cursor_ts_id, parse_cursor_ts_id
+from app.features.auth.session import PortalPrincipal
 from app.features.exposure import realtime as exposure_realtime
 from app.features.exposure import repository
 from app.features.exposure.domain.constants import (
@@ -1206,7 +1206,7 @@ def _build_path_stages(detail: ExposureAssetDetailOut) -> list[ExposureAttackPat
 
 
 def _parse_assets_cursor(cursor: str, *, expected_sort: str) -> dict[str, Any]:
-    from app.core.pagination import decode_cursor
+    from app.core.api.pagination import decode_cursor
 
     data = decode_cursor(cursor)
     sort = str(data.get("sort") or "").strip().lower()

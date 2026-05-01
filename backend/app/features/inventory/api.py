@@ -5,10 +5,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.agent_auth import AgentPrincipal, get_current_agent
-from app.core.api_db import managed_session
+from app.features.agents.auth import AgentPrincipal, get_current_agent
+from app.core.db.session import managed_session
 from app.core.db import get_db
-from app.core.portal_auth import get_current_user
+from app.features.auth.session import get_current_user
 from app.features.inventory.schemas import InventorySnapshotIn, InventorySnapshotOut
 from app.features.inventory.service import (
     get_inventory_overview,

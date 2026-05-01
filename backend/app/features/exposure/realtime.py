@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.core.config import settings
-from app.core.redis_client import get_redis
+from app.core.cache import get_redis
 from app.features.realtime.service import publish_realtime
 
 
