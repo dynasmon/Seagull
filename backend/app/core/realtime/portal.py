@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.core.observability import incr_counter, log_event
-from app.core.redis_client import get_redis
-from app.core.env_secrets import getenv_compat
+from app.core.cache import get_redis
+from app.core.config.env_secrets import getenv_compat
 
 
 logger = logging.getLogger("seagull.api.realtime")
