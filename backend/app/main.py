@@ -11,9 +11,9 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.core.db import engine
-from app.core.clickhouse import clickhouse_is_available, clickhouse_is_enabled
-from app.core.es import es_is_available, search_backend_mode
-from app.core.redis_client import get_redis
+from app.core.integrations.clickhouse import clickhouse_is_available, clickhouse_is_enabled
+from app.core.integrations.es import es_is_available, search_backend_mode
+from app.core.cache import get_redis
 from app.features.agents.api import router as agents_router
 from app.features.alerts.api import router as alerts_router
 from app.features.events.api import router as events_router
@@ -21,7 +21,7 @@ from app.features.ingest.api import router as ingest_router
 from app.features.inventory.api import router as inventory_router
 from app.features.investigations.api import router as investigations_router
 from app.features.exposure.api import router as exposure_router
-from app.core.db_lifecycle import ensure_database_ready
+from app.core.db.lifecycle import ensure_database_ready
 from app.features.overview.api import router as overview_router
 from app.features.auth.api import router as auth_router
 from app.features.account.api import router as account_router
@@ -46,8 +46,9 @@ from app.core.observability import (
     setup_logging,
     snapshot_metrics,
 )
-from app.core.portal_bootstrap import bootstrap_portal_admin, bootstrap_correlation_rules
-from app.core.model_registry import load_all_models
+from app.features.auth.bootstrap import bootstrap_portal_admin
+from app.features.correlations.bootstrap import bootstrap_correlation_rules
+from app.core.db.model_registry import load_all_models
 
 
 setup_logging("backend-api")
