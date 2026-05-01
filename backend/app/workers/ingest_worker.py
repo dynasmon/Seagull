@@ -28,17 +28,17 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.dialects.postgresql import insert
 
-from app.core.clickhouse import (
+from app.core.integrations.clickhouse import (
     ensure_clickhouse_events_schema,
     get_clickhouse_client,
     reset_clickhouse_client,
 )
 from app.core.db import engine
 from app.core.config import settings
-from app.core.redis_client import get_redis
-from app.core.db_lifecycle import ensure_database_ready
-from app.core.env_secrets import env_value, getenv_compat
-from app.core.ingest_control import (
+from app.core.cache import get_redis
+from app.core.db.lifecycle import ensure_database_ready
+from app.core.config.env_secrets import env_value, getenv_compat
+from app.features.ingest.control.service import (
     record_sink_runtime_metric,
     record_worker_progress,
     set_sink_queue_depth,

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import engine
-from app.core.db_lifecycle import ensure_database_ready
+from app.core.db.lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import NetEventModel
 from app.features.exposure.realtime import load_recalculation_request
