@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from app.core import ingest_control as ic
+from app.features.ingest.control import backpressure as ic
+from app.features.ingest.control import recovery as recovery_ic
 from app.core.config import settings
 
 
@@ -17,7 +18,7 @@ def test_pressure_state_progression_burst_to_recovery() -> None:
     prev_backlog = 0
 
     # 1) pressure ramps up
-    phase, _ = ic.decide_pressure_phase(
+    phase, _ = recovery_ic.decide_pressure_phase(
         prev_phase=prev,
         eps=1500,
         processed_eps=300,
@@ -31,7 +32,7 @@ def test_pressure_state_progression_burst_to_recovery() -> None:
     prev_backlog = 8000
 
     # 2) hard pressure causes shedding
-    phase, _ = ic.decide_pressure_phase(
+    phase, _ = recovery_ic.decide_pressure_phase(
         prev_phase=prev,
         eps=2200,
         processed_eps=400,
@@ -45,7 +46,7 @@ def test_pressure_state_progression_burst_to_recovery() -> None:
     prev_backlog = 30000
 
     # 3) load drops, still draining backlog
-    phase, _ = ic.decide_pressure_phase(
+    phase, _ = recovery_ic.decide_pressure_phase(
         prev_phase=prev,
         eps=350,
         processed_eps=1200,
@@ -59,7 +60,7 @@ def test_pressure_state_progression_burst_to_recovery() -> None:
     prev_backlog = 9000
 
     # 4) backlog converges
-    phase, _ = ic.decide_pressure_phase(
+    phase, _ = recovery_ic.decide_pressure_phase(
         prev_phase=prev,
         eps=200,
         processed_eps=700,

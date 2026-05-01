@@ -10,14 +10,15 @@ from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.core import portal_bootstrap
+from app.features.auth import bootstrap as portal_bootstrap
 from app.core.config import settings
-from app.core.identity import canonicalize_username
-from app.core.password_policy import validate_password_policy
-from app.core.portal_auth import PortalPrincipal, get_current_user, logout, refresh_access_token
+from app.core.security.identity import canonicalize_username
+from app.core.security.password_policy import validate_password_policy
+from app.features.auth.session import PortalPrincipal, get_current_user, logout, refresh_access_token
 from app.core.security import decode_token, hash_password
 from app.features.account import api as account_api
 from app.features.auth import api as auth_api
+from app.features.auth import service as auth_service
 from app.features.users import api as users_api
 from app.features.auth.models import PortalLoginEventModel
 from app.features.auth.models import PortalOneTimeTokenModel
@@ -76,16 +77,18 @@ def db_factory(monkeypatch: pytest.MonkeyPatch):
     PortalOneTimeTokenModel.__table__.create(bind=engine)
     PortalLoginEventModel.__table__.create(bind=engine)
 
-    monkeypatch.setattr("app.core.portal_auth.SessionLocal", Session)
+    monkeypatch.setattr("app.features.auth.session.SessionLocal", Session)
+    monkeypatch.setattr("app.core.db.session.SessionLocal", Session)
     monkeypatch.setattr("app.features.auth.api.SessionLocal", Session)
     monkeypatch.setattr("app.features.account.api.SessionLocal", Session)
     monkeypatch.setattr("app.features.users.api.SessionLocal", Session)
-    monkeypatch.setattr("app.core.portal_bootstrap.SessionLocal", Session)
+    monkeypatch.setattr("app.features.auth.bootstrap.SessionLocal", Session)
 
     monkeypatch.setattr("app.features.auth.api.write_audit_event", lambda *args, **kwargs: None)
     monkeypatch.setattr("app.features.account.api.write_audit_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.features.account.repository.record_audit_event", lambda *args, **kwargs: None)
     monkeypatch.setattr("app.features.users.api.write_audit_event", lambda *args, **kwargs: None)
-    monkeypatch.setattr("app.core.portal_bootstrap.write_audit_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.features.auth.bootstrap.write_audit_event", lambda *args, **kwargs: None)
     return Session
 
 
@@ -123,7 +126,7 @@ def _seed_user(Session, *, username: str, password: str) -> PortalUserModel:
 
 def test_login_valid_credentials_and_strong_claims(db_factory, monkeypatch: pytest.MonkeyPatch):
     user = _seed_user(db_factory, username="admin", password="ValidPass!123")
-    monkeypatch.setattr(auth_api, "guard_login_rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(auth_service, "guard_login_rate_limit", lambda *args, **kwargs: None)
 
     req = _mk_request(path="/auth/login", headers={"User-Agent": "pytest"})
     res = Response()
@@ -142,7 +145,7 @@ def test_login_valid_credentials_and_strong_claims(db_factory, monkeypatch: pyte
 
 def test_login_invalid_credentials(db_factory, monkeypatch: pytest.MonkeyPatch):
     _seed_user(db_factory, username="admin", password="ValidPass!123")
-    monkeypatch.setattr(auth_api, "guard_login_rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(auth_service, "guard_login_rate_limit", lambda *args, **kwargs: None)
 
     with pytest.raises(HTTPException) as exc:
         auth_api.login_endpoint(LoginIn(username="admin", password="wrong"), _mk_request(path="/auth/login"), Response())
@@ -151,10 +154,10 @@ def test_login_invalid_credentials(db_factory, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_rate_limit_redis_unavailable_uses_local_fallback(monkeypatch: pytest.MonkeyPatch):
-    from app.core import rate_limit as rl
+    from app.core.security import rate_limit as rl
 
     rl._local_state.clear()
-    monkeypatch.setattr("app.core.rate_limit._get_redis", lambda: None)
+    monkeypatch.setattr("app.core.security.rate_limit._get_redis", lambda: None)
     allowed = 0
     blocked = 0
     for _ in range(5):
@@ -169,7 +172,7 @@ def test_rate_limit_redis_unavailable_uses_local_fallback(monkeypatch: pytest.Mo
 
 def test_refresh_rotation_and_replay_revokes_family(db_factory, monkeypatch: pytest.MonkeyPatch):
     _seed_user(db_factory, username="admin", password="ValidPass!123")
-    monkeypatch.setattr(auth_api, "guard_login_rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(auth_service, "guard_login_rate_limit", lambda *args, **kwargs: None)
 
     login_res = Response()
     auth_api.login_endpoint(LoginIn(username="admin", password="ValidPass!123"), _mk_request(path="/auth/login"), login_res)
@@ -211,7 +214,7 @@ def test_refresh_rotation_and_replay_revokes_family(db_factory, monkeypatch: pyt
 
 def test_logout_revokes_refresh_session(db_factory, monkeypatch: pytest.MonkeyPatch):
     _seed_user(db_factory, username="admin", password="ValidPass!123")
-    monkeypatch.setattr(auth_api, "guard_login_rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(auth_service, "guard_login_rate_limit", lambda *args, **kwargs: None)
 
     login_res = Response()
     auth_api.login_endpoint(LoginIn(username="admin", password="ValidPass!123"), _mk_request(path="/auth/login"), login_res)
@@ -231,7 +234,7 @@ def test_logout_revokes_refresh_session(db_factory, monkeypatch: pytest.MonkeyPa
 
 def test_change_password_invalidates_sessions_and_old_access(db_factory, monkeypatch: pytest.MonkeyPatch):
     _seed_user(db_factory, username="admin", password="ValidPass!123")
-    monkeypatch.setattr(auth_api, "guard_login_rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(auth_service, "guard_login_rate_limit", lambda *args, **kwargs: None)
 
     login_res = Response()
     login_out = auth_api.login_endpoint(LoginIn(username="admin", password="ValidPass!123"), _mk_request(path="/auth/login"), login_res)
@@ -315,7 +318,7 @@ def test_password_policy_applied_across_flows(db_factory, monkeypatch: pytest.Mo
 
 
 def test_username_canonicalization_and_login_case_insensitive(db_factory, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(auth_api, "guard_login_rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(auth_service, "guard_login_rate_limit", lambda *args, **kwargs: None)
     admin = _seed_user(db_factory, username="ADMIN", password="ValidPass!123")
     assert admin.username == "admin"
 
@@ -325,7 +328,7 @@ def test_username_canonicalization_and_login_case_insensitive(db_factory, monkey
 
 def test_access_token_rejected_after_token_version_bump(db_factory, monkeypatch: pytest.MonkeyPatch):
     _seed_user(db_factory, username="admin", password="ValidPass!123")
-    monkeypatch.setattr(auth_api, "guard_login_rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(auth_service, "guard_login_rate_limit", lambda *args, **kwargs: None)
 
     login_out = auth_api.login_endpoint(LoginIn(username="admin", password="ValidPass!123"), _mk_request(path="/auth/login"), Response())
     tok = login_out["access_token"]
@@ -346,7 +349,7 @@ def test_access_token_rejected_after_token_version_bump(db_factory, monkeypatch:
 
 def test_logout_all_invalidates_access_and_refresh(db_factory, monkeypatch: pytest.MonkeyPatch):
     _seed_user(db_factory, username="admin", password="ValidPass!123")
-    monkeypatch.setattr(auth_api, "guard_login_rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(auth_service, "guard_login_rate_limit", lambda *args, **kwargs: None)
 
     login_res = Response()
     login_out = auth_api.login_endpoint(LoginIn(username="admin", password="ValidPass!123"), _mk_request(path="/auth/login"), login_res)
@@ -371,7 +374,7 @@ def test_logout_all_invalidates_access_and_refresh(db_factory, monkeypatch: pyte
 
 def test_frontend_restore_session_flow_with_csrf_and_refresh(db_factory, monkeypatch: pytest.MonkeyPatch):
     _seed_user(db_factory, username="admin", password="ValidPass!123")
-    monkeypatch.setattr(auth_api, "guard_login_rate_limit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(auth_service, "guard_login_rate_limit", lambda *args, **kwargs: None)
 
     login_res = Response()
     auth_api.login_endpoint(LoginIn(username="admin", password="ValidPass!123"), _mk_request(path="/auth/login"), login_res)

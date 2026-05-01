@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.core.portal_auth import PortalPrincipal, get_current_user, require_admin
+from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 from app.main import app
 
 

@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.core.agent_auth import AgentPrincipal, get_current_agent
+from app.core.db import get_db
+from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.features.agents import api as agents_api
 from app.main import app
 from app.features.agents.models import AgentModel
@@ -67,6 +68,9 @@ class _PendingDB:
     def commit(self):
         return None
 
+    def refresh(self, obj):
+        return None
+
     def close(self):
         return None
 
@@ -102,15 +106,18 @@ class _ResultDB:
     def commit(self):
         return None
 
+    def refresh(self, obj):
+        return None
+
     def close(self):
         return None
 
 
 def test_agent_pending_response_actions_mark_delivered(monkeypatch) -> None:
     fake_db = _PendingDB()
-    monkeypatch.setattr(agents_api, "SessionLocal", lambda: fake_db)
     audits = []
     monkeypatch.setattr(agents_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
+    app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[get_current_agent] = lambda: AgentPrincipal(id=1, agent_id="agent-1", auth_method="credential")
     try:
         with TestClient(app) as client:
@@ -127,14 +134,15 @@ def test_agent_pending_response_actions_mark_delivered(monkeypatch) -> None:
             assert audits[0]["resource_type"] == "response_action"
             assert audits[0]["resource_id"] == "101"
     finally:
+        app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_agent, None)
 
 
 def test_agent_report_response_action_result_persists(monkeypatch) -> None:
     fake_db = _ResultDB()
-    monkeypatch.setattr(agents_api, "SessionLocal", lambda: fake_db)
     audits = []
     monkeypatch.setattr(agents_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
+    app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[get_current_agent] = lambda: AgentPrincipal(id=1, agent_id="agent-1", auth_method="credential")
     try:
         with TestClient(app) as client:
@@ -159,14 +167,15 @@ def test_agent_report_response_action_result_persists(monkeypatch) -> None:
             assert fake_db.action.finished_at is not None
             assert len(audits) == 0
     finally:
+        app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_agent, None)
 
 
 def test_agent_report_response_action_failure_emits_audit(monkeypatch) -> None:
     fake_db = _ResultDB()
-    monkeypatch.setattr(agents_api, "SessionLocal", lambda: fake_db)
     audits = []
     monkeypatch.setattr(agents_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
+    app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[get_current_agent] = lambda: AgentPrincipal(id=1, agent_id="agent-1", auth_method="credential")
     try:
         with TestClient(app) as client:
@@ -190,13 +199,14 @@ def test_agent_report_response_action_failure_emits_audit(monkeypatch) -> None:
             assert audits[0]["resource_type"] == "response_action"
             assert audits[0]["resource_id"] == "202"
     finally:
+        app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_agent, None)
 
 
 def test_agent_report_response_action_running_sets_started(monkeypatch) -> None:
     fake_db = _ResultDB()
     fake_db.action.status = "delivered"
-    monkeypatch.setattr(agents_api, "SessionLocal", lambda: fake_db)
+    app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[get_current_agent] = lambda: AgentPrincipal(id=1, agent_id="agent-1", auth_method="credential")
     try:
         with TestClient(app) as client:
@@ -214,4 +224,5 @@ def test_agent_report_response_action_running_sets_started(monkeypatch) -> None:
             assert fake_db.action.started_at is not None
             assert fake_db.action.finished_at is None
     finally:
+        app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_agent, None)

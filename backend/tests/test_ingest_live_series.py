@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.core import ingest_control as ic
+from app.core.config import settings
+from app.features.ingest.control import overview_live as ic
+from app.features.ingest.control import queue_keys
 
 
 class _Pipe:
@@ -120,7 +122,13 @@ def test_record_and_read_live_overview_window(monkeypatch) -> None:
 def test_live_overview_caps_event_type_cardinality(monkeypatch) -> None:
     fake = _FakeRedis()
     monkeypatch.setattr(ic, "get_redis", lambda: fake)
-    monkeypatch.setattr(ic.settings, "SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 2, raising=False)
+    monkeypatch.setattr(settings, "SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 2, raising=False)
+    monkeypatch.setattr(queue_keys.settings, "SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND", 2, raising=False)
+    monkeypatch.setattr(
+        ic,
+        "_env_int",
+        lambda name, default: 2 if name == "SEAGULL_OVERVIEW_LIVE_MAX_EVENT_TYPES_PER_SECOND" else queue_keys._env_int(name, default),
+    )
 
     ts = datetime(2026, 4, 5, 12, 1, 0, tzinfo=timezone.utc)
     ic.record_overview_live_telemetry(
