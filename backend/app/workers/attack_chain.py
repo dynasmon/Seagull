@@ -20,7 +20,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.db import engine
 from app.core.config import settings
-from app.core.db_lifecycle import ensure_database_ready
+from app.core.db.lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
 from app.features.attack_chain.worker_runtime import (
     AttackChainAllowlistModel,

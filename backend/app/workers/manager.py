@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Deque, Dict, List, Sequence
 
-from app.core.env_secrets import getenv_compat
+from app.core.config.env_secrets import getenv_compat
 from app.core.observability import log_event, setup_logging
 
 
