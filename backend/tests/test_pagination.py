@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from app.core.pagination import decode_cursor, make_cursor_ts_id
+from app.core.api.pagination import decode_cursor, make_cursor_ts_id
 
 
 def test_cursor_roundtrip_ts_id():

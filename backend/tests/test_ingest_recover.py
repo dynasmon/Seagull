@@ -5,7 +5,7 @@ import os
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.core import ingest_control
+from app.features.ingest.control import recovery as ingest_control
 
 
 class _FakeRedis:

@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.core.portal_auth import PortalPrincipal, require_admin
+from app.core.db import get_db
+from app.features.auth.session import PortalPrincipal, require_admin
 from app.features.response import api as response_api
 from app.features.response.models import ResponseActionModel, ResponseActionResultModel
 from app.main import app
@@ -91,7 +92,7 @@ class _FakeDB:
 
 def test_response_actions_list_and_detail(monkeypatch) -> None:
     fake_db = _FakeDB()
-    monkeypatch.setattr(response_api, "SessionLocal", lambda: fake_db)
+    app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[require_admin] = lambda: PortalPrincipal(id=1, username="root", role="admin")
     try:
         with TestClient(app) as client:
@@ -108,12 +109,13 @@ def test_response_actions_list_and_detail(monkeypatch) -> None:
             assert body["id"] == 401
             assert body["action_type"] == "collect_triage_bundle"
     finally:
+        app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(require_admin, None)
 
 
 def test_response_actions_result_endpoint(monkeypatch) -> None:
     fake_db = _FakeDB()
-    monkeypatch.setattr(response_api, "SessionLocal", lambda: fake_db)
+    app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[require_admin] = lambda: PortalPrincipal(id=1, username="root", role="admin")
     try:
         with TestClient(app) as client:
@@ -124,12 +126,13 @@ def test_response_actions_result_endpoint(monkeypatch) -> None:
             assert body["status"] == "success"
             assert body["result_payload"]["schema_version"] == "v1"
     finally:
+        app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(require_admin, None)
 
 
 def test_response_actions_cancel_pending(monkeypatch) -> None:
     fake_db = _FakeDB()
-    monkeypatch.setattr(response_api, "SessionLocal", lambda: fake_db)
+    app.dependency_overrides[get_db] = lambda: fake_db
     audits = []
     monkeypatch.setattr(response_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
     app.dependency_overrides[require_admin] = lambda: PortalPrincipal(id=1, username="root", role="admin")
@@ -143,4 +146,5 @@ def test_response_actions_cancel_pending(monkeypatch) -> None:
             assert len(audits) == 1
             assert audits[0]["action"] == "response.actions.cancel"
     finally:
+        app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(require_admin, None)

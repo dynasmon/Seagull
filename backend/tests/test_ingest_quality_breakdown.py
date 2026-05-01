@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.core import ingest_control as ic
+from app.features.ingest.control import counters as ic
 
 
 class _Pipe:
@@ -59,4 +59,3 @@ def test_ingest_quality_window_aggregates_percentages(monkeypatch):
     assert by_type["dos_attack"]["drop_percent"] == 0
     assert by_type["flow"]["kept_percent"] == 30
     assert by_type["flow"]["drop_percent"] == 70
-

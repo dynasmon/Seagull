@@ -11,7 +11,7 @@ from sqlalchemy import text
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.core.clickhouse import (
+from app.core.integrations.clickhouse import (
     clickhouse_events_table_ref,
     clickhouse_is_available,
     clickhouse_is_enabled,
@@ -21,7 +21,7 @@ from app.core.clickhouse import (
 )
 from app.core.config import settings
 from app.core.db import engine
-from app.core.portal_auth import PortalPrincipal, get_current_user
+from app.features.auth.session import PortalPrincipal, get_current_user
 from app.main import app
 from app.workers.clickhouse_backfill import run_backfill
 from app.workers.ingest_worker import (

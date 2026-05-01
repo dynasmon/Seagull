@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.exc import OperationalError
 
-from app.core import db_lifecycle
+from app.core.db import lifecycle as db_lifecycle
 
 
 def test_runtime_db_error_for_password_auth_failure() -> None:

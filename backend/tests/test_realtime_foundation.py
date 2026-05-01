@@ -9,6 +9,7 @@ os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.core import realtime as core_realtime
+from app.core.realtime import portal as realtime_portal
 from app.core.observability import snapshot_metrics
 from app.features.realtime import service
 
@@ -71,7 +72,7 @@ def test_realtime_envelope_serialization_contract() -> None:
 
 def test_publish_portal_realtime_message_writes_stream_entry(monkeypatch) -> None:
     fake = _FakeRedis()
-    monkeypatch.setattr(core_realtime, "get_redis", lambda **kwargs: fake)
+    monkeypatch.setattr(realtime_portal, "get_redis", lambda **kwargs: fake)
 
     raw_message = (
         '{"version":2,"topic":"overview","type":"overview.patch","cursor":"0",'

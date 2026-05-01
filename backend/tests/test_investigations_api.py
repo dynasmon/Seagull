@@ -11,7 +11,7 @@ import pytest
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.core.portal_auth import PortalPrincipal, get_current_user
+from app.features.auth.session import PortalPrincipal, get_current_user
 from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
 from app.features.events.models import NetEventModel
 from app.features.inventory.models import AgentInventorySnapshotModel
