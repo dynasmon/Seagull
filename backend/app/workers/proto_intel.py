@@ -36,8 +36,8 @@ from typing import Any, Dict, List
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
-from app.core.db_lifecycle import ensure_database_ready
-from app.core.env_secrets import getenv_compat
+from app.core.db.lifecycle import ensure_database_ready
+from app.core.config.env_secrets import getenv_compat
 from app.core.observability import log_event, setup_logging
 from app.features.events import proto_intel_repository
 from app.shared.protocol_intel import analyze_event
