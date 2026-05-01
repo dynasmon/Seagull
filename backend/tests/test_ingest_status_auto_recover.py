@@ -6,7 +6,7 @@ import time
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.core import ingest_control as ic
+from app.features.ingest.control import recovery as ic
 
 
 class _Pipeline:

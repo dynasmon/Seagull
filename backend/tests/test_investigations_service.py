@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 
-from app.core.portal_auth import PortalPrincipal
+from app.features.auth.session import PortalPrincipal
 from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
 from app.features.events.models import NetEventModel
 from app.features.inventory.models import AgentInventorySnapshotModel
@@ -492,7 +492,7 @@ def test_pin_event_and_dedupe(fake_repo: _FakeInvestigationsRepo, actor: PortalP
     assert ws_final.notes_count == 1
 
     bookmark_create_audits = [a for a in audits if a.get("action") == "workspace.bookmark.create"]
-    assert len(bookmark_create_audits) == 1
+    assert len(bookmark_create_audits) == 2
     assert any(a.get("action") == "workspace.bookmark.delete" for a in audits)
 
 

@@ -12,7 +12,7 @@ os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 os.environ.setdefault("SEAGULL_DB_URL", "postgresql://seagull:test@127.0.0.1:5432/seagull_test")
 
-from app.core.portal_auth import PortalPrincipal, get_current_user, require_admin
+from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 from app.features.exposure import api as exposure_api
 from app.features.exposure import realtime as exposure_realtime
 from app.features.exposure import repository as exposure_repository

@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.core.portal_auth import PortalPrincipal, require_admin
+from app.core.db import get_db
+from app.features.auth.session import PortalPrincipal, require_admin
 from app.features.response import api as response_api
 from app.main import app
 from app.features.agents.models import AgentModel
@@ -61,9 +62,9 @@ class _FakeDB:
 
 def test_response_action_create_emits_request_audit(monkeypatch) -> None:
     fake_db = _FakeDB()
-    monkeypatch.setattr(response_api, "SessionLocal", lambda: fake_db)
     audits = []
     monkeypatch.setattr(response_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
+    app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[require_admin] = lambda: PortalPrincipal(id=9, username="root", role="admin")
     try:
         with TestClient(app) as client:
@@ -88,12 +89,14 @@ def test_response_action_create_emits_request_audit(monkeypatch) -> None:
             assert sorted(audits[0]["context"]["payload_keys"]) == ["collectors", "limits", "redaction"]
             assert "payload" not in audits[0]["context"]
     finally:
+        app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(require_admin, None)
 
 
 def test_response_action_create_refresh_runtime_config(monkeypatch) -> None:
     fake_db = _FakeDB()
-    monkeypatch.setattr(response_api, "SessionLocal", lambda: fake_db)
+    monkeypatch.setattr(response_api, "write_audit_event", lambda *args, **kwargs: None)
+    app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[require_admin] = lambda: PortalPrincipal(id=9, username="root", role="admin")
     try:
         with TestClient(app) as client:
@@ -110,12 +113,14 @@ def test_response_action_create_refresh_runtime_config(monkeypatch) -> None:
             assert body["action_type"] == "refresh_runtime_config"
             assert body["status"] == "pending"
     finally:
+        app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(require_admin, None)
 
 
 def test_response_action_create_trigger_inventory_snapshot_with_limits(monkeypatch) -> None:
     fake_db = _FakeDB()
-    monkeypatch.setattr(response_api, "SessionLocal", lambda: fake_db)
+    monkeypatch.setattr(response_api, "write_audit_event", lambda *args, **kwargs: None)
+    app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[require_admin] = lambda: PortalPrincipal(id=9, username="root", role="admin")
     try:
         with TestClient(app) as client:
@@ -133,4 +138,5 @@ def test_response_action_create_trigger_inventory_snapshot_with_limits(monkeypat
             assert body["payload"]["limits"]["max_processes"] == 120
             assert body["payload"]["limits"]["max_connections"] == 80
     finally:
+        app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(require_admin, None)

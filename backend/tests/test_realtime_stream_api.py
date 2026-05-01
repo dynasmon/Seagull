@@ -15,7 +15,7 @@ os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.core.config import settings
-from app.core.portal_auth import PortalPrincipal, get_current_user
+from app.features.auth.session import PortalPrincipal, get_current_user
 from app.features.realtime import api as realtime_api
 from app.features.realtime import service as realtime_service
 from app.main import app

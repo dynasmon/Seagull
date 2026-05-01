@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from app.core.portal_auth import PortalPrincipal, get_current_user, require_admin
+from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 
 
 class _FakeDB:
@@ -39,8 +39,8 @@ def test_require_admin_blocks_non_admin() -> None:
 
 def test_get_current_user_from_valid_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
     row = SimpleNamespace(id=7, username="evelyn", role="admin", is_active=True, token_version=3)
-    monkeypatch.setattr("app.core.portal_auth.decode_token", lambda _t: {"typ": "access", "sub": "7", "tv": 3})
-    monkeypatch.setattr("app.core.portal_auth.SessionLocal", lambda: _FakeDB(row))
+    monkeypatch.setattr("app.features.auth.session.decode_token", lambda _t: {"typ": "access", "sub": "7", "tv": 3})
+    monkeypatch.setattr("app.features.auth.session.SessionLocal", lambda: _FakeDB(row))
 
     user = get_current_user(_req({"Authorization": "Bearer token-abc"}))
     assert user.id == 7

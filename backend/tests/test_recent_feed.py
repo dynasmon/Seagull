@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from app.core import recent_feed
+from app.features.events import recent_feed
 
 
 class _FakePipeline:
