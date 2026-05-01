@@ -7,8 +7,8 @@ from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor, write_audit_event
-from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
-from app.core.portal_auth import PortalPrincipal
+from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
+from app.features.auth.session import PortalPrincipal
 from app.features.alerts import repository
 from app.features.alerts.models import AlertModel
 from app.features.alerts.models import AlertRuleOverrideModel

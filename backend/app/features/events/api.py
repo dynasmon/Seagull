@@ -5,9 +5,9 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.api_db import managed_session
+from app.core.db.session import managed_session
 from app.core.db import SessionLocal, get_db
-from app.core.portal_auth import get_current_user
+from app.features.auth.session import get_current_user
 from app.features.events.schemas import (
     DdosLiveSnapshotResponse,
     EventHuntResponse,

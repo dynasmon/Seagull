@@ -7,9 +7,9 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.agent_auth import AgentPrincipal
+from app.features.agents.auth import AgentPrincipal
 from app.core.config import settings
-from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
+from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.features.realtime.service import publish_realtime
 from app.features.vuln.domain import (
     lifecycle_state_for_phase,

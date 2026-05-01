@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional
 
-from app.core.redis_client import get_redis
+from app.core.cache import get_redis
 
 
 def _cache_get_json(key: str) -> Optional[Dict[str, Any]]:

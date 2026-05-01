@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.core.clickhouse import clickhouse_events_table_ref
+from app.core.integrations.clickhouse import clickhouse_events_table_ref
 
 
 def _to_ch_ts(ts: Any) -> datetime:

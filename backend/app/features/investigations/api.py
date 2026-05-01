@@ -6,7 +6,7 @@ from fastapi import APIRouter, Body, Depends, Query, Request, status
 
 from app.core.audit import write_audit_event
 from app.core.db import SessionLocal
-from app.core.portal_auth import PortalPrincipal, get_current_user
+from app.features.auth.session import PortalPrincipal, get_current_user
 from app.features.investigations import service
 from app.features.investigations.schemas import (
     InvestigationBookmarkCreateIn,

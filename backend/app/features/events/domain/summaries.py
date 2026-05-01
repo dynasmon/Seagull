@@ -9,9 +9,9 @@ from fastapi import HTTPException
 from sqlalchemy import Integer, String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.clickhouse import clickhouse_events_table_ref
+from app.core.integrations.clickhouse import clickhouse_events_table_ref
 from app.core.config import settings
-from app.core.es import search_backend_mode
+from app.core.integrations.es import search_backend_mode
 from app.core.observability import incr_counter, log_event, observe_hist
 from app.features.events import repository
 from app.features.events.domain.cache import _cache_get_json, _cache_set_json

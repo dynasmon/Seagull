@@ -6,7 +6,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor, write_audit_event
-from app.core.portal_auth import PortalPrincipal
+from app.features.auth.session import PortalPrincipal
 from app.features.settings.models import PlatformSettingModel
 from app.features.settings.repository import (
     add,

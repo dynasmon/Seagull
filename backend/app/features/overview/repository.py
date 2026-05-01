@@ -10,18 +10,18 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import Float, and_, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.clickhouse import (
+from app.core.integrations.clickhouse import (
     clickhouse_events_1m_table_ref,
     clickhouse_events_table_ref,
     clickhouse_is_available,
     clickhouse_is_enabled,
     get_clickhouse_client,
 )
-from app.core.es import es_is_available, get_es_client
-from app.core.recent_feed import fetch_recent_events as fetch_recent_feed_events, recent_feed_health
-from app.core.redis_client import get_redis
+from app.core.integrations.es import es_is_available, get_es_client
+from app.features.events.recent_feed import fetch_recent_events as fetch_recent_feed_events, recent_feed_health
+from app.core.cache import get_redis
 from app.core.config import settings
-from app.core.ingest_control import get_backlog as ingest_get_backlog, read_overview_live_window
+from app.features.ingest.control.service import get_backlog as ingest_get_backlog, read_overview_live_window
 from app.core.observability import incr_counter, log_event, observe_hist
 from app.features.agents.models import AgentModel
 from app.features.alerts.models import AlertModel

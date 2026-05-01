@@ -9,9 +9,9 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.ingest_control import get_storm_status
+from app.features.ingest.control.service import get_storm_status
 from app.core.observability import log_event
-from app.core.recent_feed import fetch_recent_events as fetch_recent_feed_events, recent_feed_health
+from app.features.events.recent_feed import fetch_recent_events as fetch_recent_feed_events, recent_feed_health
 from app.features.events import repository
 from app.features.events.domain.normalizers import (
     _ch_row_to_event,
