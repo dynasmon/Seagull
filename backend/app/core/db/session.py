@@ -6,7 +6,7 @@ from typing import Iterator
 from fastapi.params import Depends as DependsParam
 from sqlalchemy.orm import Session
 
-from app.core.db import SessionLocal
+from .engine import SessionLocal
 
 
 def resolve_session(db: Session | object) -> tuple[Session, bool]:

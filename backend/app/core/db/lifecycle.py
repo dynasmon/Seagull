@@ -10,8 +10,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
 
 from app.core.config import settings
-from app.core.db import engine
-from app.core.schema_bootstrap import bootstrap_schema
+from .engine import engine
+from .schema_bootstrap import bootstrap_schema
 
 
 def _backend_root() -> Path:
