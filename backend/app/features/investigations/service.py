@@ -14,9 +14,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor, write_audit_event
-from app.core.recent_feed import fetch_event_by_id as fetch_recent_feed_event_by_id
-from app.core.pagination import decode_cursor, encode_cursor, make_cursor_ts_id, parse_cursor_ts_id
-from app.core.portal_auth import PortalPrincipal
+from app.features.events.recent_feed import fetch_event_by_id as fetch_recent_feed_event_by_id
+from app.core.api.pagination import decode_cursor, encode_cursor, make_cursor_ts_id, parse_cursor_ts_id
+from app.features.auth.session import PortalPrincipal
 from app.features.investigations import repository
 from app.features.investigations.models import (
     InvestigationEvidenceBookmarkModel,

@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import Integer, String, and_, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.clickhouse import (
+from app.core.integrations.clickhouse import (
     clickhouse_events_table_ref,
     clickhouse_events_1m_table_ref,
     clickhouse_is_available,
@@ -16,9 +16,9 @@ from app.core.clickhouse import (
     get_clickhouse_client,
 )
 from app.core.config import settings
-from app.core.es import es_is_available, get_es_client, search_backend_mode
+from app.core.integrations.es import es_is_available, get_es_client, search_backend_mode
 from app.core.observability import log_event
-from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
+from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.features.events import repository
 from app.features.events.domain.filters import _ch_where, _es_base_filters
 from app.features.events.domain.normalizers import (

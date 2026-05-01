@@ -7,8 +7,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor, write_audit_event
-from app.core.pagination import make_cursor_ts_id, parse_cursor_ts_id
-from app.core.portal_auth import PortalPrincipal
+from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
+from app.features.auth.session import PortalPrincipal
 from app.features.attack_chain import repository
 from app.features.attack_chain.domain.reasoning import build_case_reasoning
 from app.features.attack_chain.domain.types import stage_rank

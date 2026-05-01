@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from app.core.observability import incr_counter
-from app.core.redis_client import get_redis
+from app.core.cache import get_redis
 from app.features.overview.repository import _env_int, get_overview_payload
 
 

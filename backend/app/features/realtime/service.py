@@ -11,7 +11,7 @@ from jose import jwt
 
 from app.core.config import settings
 from app.core.observability import incr_counter, log_event
-from app.core.portal_auth import PortalPrincipal
+from app.features.auth.session import PortalPrincipal
 from app.core.realtime import portal_realtime_topics, publish_portal_realtime_message
 from app.features.realtime.schemas import RealtimeEnvelope
 

@@ -7,9 +7,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.agent_auth import AgentPrincipal
+from app.features.agents.auth import AgentPrincipal
 from app.features.ingest.storm_control import evaluate_storm, stable_sample
-from app.core.ingest_control import (
+from app.features.ingest.control.service import (
     evaluate_backpressure,
     enqueue_ingest_message,
     bump_ingest_counters,
@@ -22,10 +22,10 @@ from app.core.ingest_control import (
     get_storm_status,
     recover_runtime_state,
 )
-from app.core.recent_feed import push_recent_events
-from app.core.redis_client import get_redis
+from app.features.events.recent_feed import push_recent_events
+from app.core.cache import get_redis
 from app.core.config import settings
-from app.core.clickhouse import (
+from app.core.integrations.clickhouse import (
     clickhouse_events_table_ref,
     clickhouse_is_enabled,
     ensure_clickhouse_events_schema,

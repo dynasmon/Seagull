@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor
 from app.core.config import settings
-from app.core.identity import canonicalize_username
-from app.core.portal_auth import (
+from app.core.security.identity import canonicalize_username
+from app.features.auth.session import (
     REFRESH_COOKIE_NAME,
     PortalPrincipal,
     _clear_auth_cookies,
@@ -17,7 +17,7 @@ from app.core.portal_auth import (
     _set_refresh_cookie,
     verify_refresh_csrf,
 )
-from app.core.rate_limit import guard_login_rate_limit, guard_otp_rate_limit
+from app.core.security.rate_limit import guard_login_rate_limit, guard_otp_rate_limit
 from app.core.security import (
     make_access_token,
     new_csrf_token,

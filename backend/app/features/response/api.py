@@ -5,10 +5,10 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.api_db import managed_session
+from app.core.db.session import managed_session
 from app.core.audit import write_audit_event
 from app.core.db import get_db
-from app.core.portal_auth import PortalPrincipal, require_admin
+from app.features.auth.session import PortalPrincipal, require_admin
 from app.features.response.schemas import ResponseActionCreateIn, ResponseActionOut, ResponseActionResultOut
 from app.features.response import service
 

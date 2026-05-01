@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.portal_auth import PortalPrincipal, require_admin
+from app.features.auth.session import PortalPrincipal, require_admin
 from app.features.settings.schemas import PlatformSettingOut, PlatformSettingUpsertIn
 from app.features.settings.service import (
     delete_platform_setting as delete_platform_setting_service,

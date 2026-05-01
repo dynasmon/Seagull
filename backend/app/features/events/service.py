@@ -8,11 +8,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.clickhouse import clickhouse_events_1m_table_ref, clickhouse_events_table_ref
+from app.core.integrations.clickhouse import clickhouse_events_1m_table_ref, clickhouse_events_table_ref
 from app.core.config import settings
-from app.core.es import search_backend_mode
+from app.core.integrations.es import search_backend_mode
 from app.core.observability import incr_counter, log_event, observe_hist
-from app.core.recent_feed import fetch_recent_events as fetch_recent_feed_events, recent_feed_health
+from app.features.events.recent_feed import fetch_recent_events as fetch_recent_feed_events, recent_feed_health
 from app.features.events import repository
 from app.features.events.domain import cache as event_cache
 from app.features.events.domain import live_feed as event_live_feed

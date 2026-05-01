@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from app.core.env_secrets import getenv_compat
+from app.core.config.env_secrets import getenv_compat
 
 
 def _env_int(name: str, default: int) -> int:
