@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
-
-
-class Base(DeclarativeBase):
-    pass
 
 
 def _make_engine():

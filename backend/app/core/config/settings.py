@@ -2,7 +2,7 @@ import json
 from urllib.parse import urlsplit
 from typing import Any, Dict
 
-from app.core.env_secrets import env_value
+from app.core.config.env_secrets import env_value
 
 
 def _env_str(name: str, default: str | None = None) -> str | None:
