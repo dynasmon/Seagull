@@ -10,8 +10,8 @@ from __future__ import annotations
 from alembic import op
 
 from app.core.db import Base
-from app.core.schema_bootstrap import bootstrap_schema
-from app.core.model_registry import load_all_models
+from app.core.db.model_registry import load_all_models
+from app.core.db.schema_bootstrap import bootstrap_schema
 
 
 revision = "20260308_0001"
