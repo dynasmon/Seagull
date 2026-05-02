@@ -1,12 +1,5 @@
-"""Backfill utility for replaying Postgres events into ClickHouse.
-
-This command is intentionally simple and safe to rerun in controlled batches.
-Postgres remains the source of truth; ClickHouse receives an analytics copy.
-"""
-
 from __future__ import annotations
 
-import os
 import time
 import logging
 from typing import Any, Dict, List, Optional

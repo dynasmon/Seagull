@@ -1,9 +1,6 @@
-"""Rollup worker (1-minute buckets) to reduce dashboard load on Postgres."""
-
 from __future__ import annotations
 
 import logging
-import os
 import time
 
 from sqlalchemy import func, select
@@ -60,11 +57,6 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _ensure_bootstrap() -> None:
-    """Ensure the minimal tables this worker depends on exist.
-
-    The backend also runs a bootstrap, but in Docker Compose workers may start first.
-    This keeps the system self-healing and reduces noisy startup failures.
-    """
     ensure_database_ready()
     ensure_offsets([OFFSET_EVENTS, OFFSET_SSH_FAIL])
 
@@ -180,7 +172,6 @@ def main() -> None:
             last_events_id = _get_last_id(OFFSET_EVENTS)
             last_ssh_id = _get_last_id(OFFSET_SSH_FAIL)
 
-            # Keep progress monotonic across both rollups.
             last_id = min(last_events_id, last_ssh_id)
             max_id = _pick_batch_max_id(last_id, max_rows)
 
