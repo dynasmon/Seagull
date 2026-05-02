@@ -7,7 +7,7 @@ registry logic to preserve behavior.
 
 from __future__ import annotations
 
-from app.workers.rules_registry import (
+from app.workers.intelligence.rules.registry import (
     apply_override,
     apply_tuning_and_suppressions,
     fetch_overrides,
