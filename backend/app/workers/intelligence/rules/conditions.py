@@ -7,25 +7,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.sqltypes import Float
 
 from app.features.alerts.models import AlertModel
+from app.features.detections.worker_runtime import SUPPORTED_RUNTIME_EVENT_FIELDS
 from app.features.events.worker_runtime import NetEventModel
 
-_ALLOWED_EVENT_FIELDS = {
-    "agent_id",
-    "event_type",
-    "src_ip",
-    "dst_ip",
-    "dst_port",
-    "src_port",
-    "proto",
-    "bytes",
-    "app_proto",
-    "proc_name",
-    "proc_parent_name",
-    "fim_path",
-    "fim_category",
-    "heuristic_name",
-    "heuristic_confidence",
-}
+_ALLOWED_EVENT_FIELDS = set(SUPPORTED_RUNTIME_EVENT_FIELDS)
 
 
 def _as_float(v: Any, default: float = 0.0) -> float:
