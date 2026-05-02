@@ -1,16 +1,3 @@
-"""Elasticsearch forwarder (async indexing).
-
-Design goals:
-- Keep Postgres as the source of truth.
-- Index events into Elasticsearch for fast hunting / full-text search.
-- Avoid impacting ingest path: this worker polls DB and indexes in batches.
-
-Operational notes:
-- Uses a simple offset table: search_index_offsets(name='events').
-- Indexing uses daily indices: <prefix>-YYYY.MM.DD
-- Mappings are kept stable via an index template (optional bootstrap).
-"""
-
 from __future__ import annotations
 
 import logging
@@ -104,7 +91,6 @@ def load_config() -> ESConfig:
 
 
 def _index_for(prefix: str, ts: datetime) -> str:
-    # Daily indices keep rollover simple and avoid large shards on small clusters.
     return f"{prefix}-{ts.strftime('%Y.%m.%d')}"
 
 
@@ -119,7 +105,6 @@ def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(extra, dict):
         extra = {}
 
-    # Derived/normalized fields (top-level) for fast aggregations.
     def _as_str(v: Any) -> Optional[str]:
         if v is None:
             return None
@@ -156,7 +141,6 @@ def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
         "extra": extra,
     }
 
-    # Protocol intelligence fields
     app_proto = _as_str(extra.get("app_proto"))
     if app_proto:
         doc["app_proto"] = app_proto
@@ -202,13 +186,11 @@ def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
     if ja3:
         doc["ja3"] = ja3
 
-    # Geo/ASN enrichment (if available)
     for k in ["geo_country", "geo_org", "asn", "asn_org"]:
         vv = _as_str(extra.get(k))
         if vv:
             doc[k] = vv
 
-    # SSH enrichment
     if event_type == "ssh_auth":
         ssh_action = _as_str(extra.get("action"))
         if ssh_action:
@@ -217,7 +199,6 @@ def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
         if ssh_username:
             doc["ssh_username"] = ssh_username
 
-    # Sudo enrichment
     if event_type == "sudo_cmd":
         for k_src, k_dst in [
             ("username", "sudo_username"),
@@ -230,9 +211,7 @@ def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
             if vv:
                 doc[k_dst] = vv
 
-    # Remove None fields to reduce payload size.
     return {k: v for k, v in doc.items() if v is not None}
-
 
 
 def _get_last_id() -> int:
@@ -276,7 +255,6 @@ def _build_es_client(cfg: ESConfig):
     }
     if cfg.username and cfg.password:
         kwargs["basic_auth"] = (cfg.username, cfg.password)
-    # TLS knobs: useful if you later enable security (https + CA).
     kwargs["verify_certs"] = cfg.verify_certs
     if cfg.ca_certs:
         kwargs["ca_certs"] = cfg.ca_certs
@@ -285,11 +263,6 @@ def _build_es_client(cfg: ESConfig):
 
 
 def _ensure_index_template(es, cfg: ESConfig) -> None:
-    """Create a composable index template for predictable mappings.
-
-    This is optional (controlled by SEAGULL_ES_BOOTSTRAP).
-    """
-
     name = f"{cfg.index_prefix}-template"
     try:
         exists = es.indices.exists_index_template(name=name)
@@ -322,8 +295,6 @@ def _ensure_index_template(es, cfg: ESConfig) -> None:
                     "src_port": {"type": "integer"},
                     "dst_port": {"type": "integer"},
                     "bytes": {"type": "long"},
-
-                    # Protocol Intel (top-level, normalized)
                     "app_proto": {"type": "keyword"},
                     "dns_qname": {"type": "keyword"},
                     "dns_risk": {"type": "integer"},
@@ -334,26 +305,17 @@ def _ensure_index_template(es, cfg: ESConfig) -> None:
                     "ja4": {"type": "keyword"},
                     "ja4_ptype": {"type": "keyword"},
                     "ja3": {"type": "keyword"},
-
-                    # Enrichment (optional)
                     "geo_country": {"type": "keyword"},
                     "geo_org": {"type": "keyword"},
                     "asn": {"type": "keyword"},
                     "asn_org": {"type": "keyword"},
-
-                    # SSH
                     "ssh_action": {"type": "keyword"},
                     "ssh_username": {"type": "keyword"},
-
-                    # Sudo
                     "sudo_username": {"type": "keyword"},
                     "sudo_target_user": {"type": "keyword"},
                     "sudo_command": {"type": "keyword"},
                     "sudo_tty": {"type": "keyword"},
                     "sudo_pwd": {"type": "keyword"},
-
-                    # Prevent mapping explosions from arbitrary JSON.
-                    # 'flattened' is a good fit for SIEM "extra" payloads.
                     "extra": {"type": "flattened"},
                 },
             },
@@ -372,7 +334,6 @@ def _ensure_index_template(es, cfg: ESConfig) -> None:
 def _bulk_index(es, actions: Iterable[Dict[str, Any]], cfg: ESConfig) -> None:
     from elasticsearch import helpers
 
-    # helpers.bulk returns (success_count, errors)
     success, errors = helpers.bulk(
         es,
         actions,
@@ -382,7 +343,6 @@ def _bulk_index(es, actions: Iterable[Dict[str, Any]], cfg: ESConfig) -> None:
     )
 
     if errors:
-        # Keep logs concise; full error payloads can be huge.
         sample = errors[0]
         log_event(logger, "warning", "es_bulk_partial_success", success=success, errors=len(errors), sample=str(sample)[:500])
     else:
@@ -393,7 +353,6 @@ def main() -> None:
     settings.validate_for_service("worker-es-indexer")
     cfg = load_config()
 
-    # Ensure DB bootstrap changes exist even if this worker starts early.
     ensure_database_ready()
 
     es = _build_es_client(cfg)
@@ -423,7 +382,6 @@ def main() -> None:
                 max_id = max(max_id, doc_id)
                 ts = r.get("timestamp")
                 if not isinstance(ts, datetime):
-                    # Fallback to now if timestamp is missing/invalid.
                     ts = datetime.utcnow()
 
                 actions.append(
@@ -439,7 +397,6 @@ def main() -> None:
             _set_last_id(max_id)
             backoff = 1.0
 
-            # Small pause to avoid monopolizing CPU under continuous load.
             time.sleep(cfg.every_seconds)
 
         except OperationalError as e:

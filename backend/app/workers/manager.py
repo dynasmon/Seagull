@@ -94,24 +94,24 @@ class ChildRuntime:
 
 GROUPS: dict[str, tuple[ChildSpec, ...]] = {
     "ingest": (
-        ChildSpec(name="ingest-worker", module="app.workers.ingest_worker"),
-        ChildSpec(name="es-indexer", module="app.workers.es_indexer"),
-        ChildSpec(name="rollup-1m", module="app.workers.rollup_1m"),
+        ChildSpec(name="ingest-worker", module="app.workers.ingest.main"),
+        ChildSpec(name="es-indexer", module="app.workers.indexing.elasticsearch"),
+        ChildSpec(name="rollup-1m", module="app.workers.analytics.rollup_1m"),
     ),
     "intelligence": (
-        ChildSpec(name="rules-runner", module="app.workers.runner"),
-        ChildSpec(name="ip-intel", module="app.workers.ip_intel"),
-        ChildSpec(name="proto-intel", module="app.workers.proto_intel"),
-        ChildSpec(name="attack-chain", module="app.workers.attack_chain"),
+        ChildSpec(name="rules-runner", module="app.workers.intelligence.rules.runner"),
+        ChildSpec(name="ip-intel", module="app.workers.intelligence.ip_intel.main"),
+        ChildSpec(name="proto-intel", module="app.workers.intelligence.protocol.main"),
+        ChildSpec(name="attack-chain", module="app.workers.intelligence.attack_chain.main"),
         ChildSpec(
             name="exposure-graph",
-            module="app.workers.exposure",
+            module="app.workers.intelligence.exposure.main",
             enabled_env="SEAGULL_EXPOSURE_ENABLED",
             enabled_default=True,
         ),
     ),
     "maintenance": (
-        ChildSpec(name="audit-retention", module="app.workers.audit_retention"),
+        ChildSpec(name="audit-retention", module="app.workers.maintenance.audit_retention"),
         ChildSpec(
             name="bootstrap-rotator",
             argv=(sys.executable, "/scripts/agent_bootstrap_token_rotator.py"),
