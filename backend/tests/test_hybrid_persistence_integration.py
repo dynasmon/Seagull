@@ -23,12 +23,9 @@ from app.core.config import settings
 from app.core.db import engine
 from app.features.auth.session import PortalPrincipal, get_current_user
 from app.main import app
-from app.workers.clickhouse_backfill import run_backfill
-from app.workers.ingest_worker import (
-    _insert_hot_rows_with_pg_ids,
-    _try_bootstrap_clickhouse,
-    _write_clickhouse_events,
-)
+from app.workers.indexing.clickhouse_backfill import run_backfill
+from app.workers.ingest.clickhouse_sink import _try_bootstrap_clickhouse, _write_clickhouse_events
+from app.workers.ingest.hot_store import _insert_hot_rows_with_pg_ids
 
 
 def _flag_enabled(name: str) -> bool:

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Tuple
 
 from app.features.events.schemas import NetEvent
-from app.workers.rules_loader import load_rules
+from app.workers.intelligence.rules.loader import load_rules
 
 
 _ALLOWED_EVENT_FIELDS = {

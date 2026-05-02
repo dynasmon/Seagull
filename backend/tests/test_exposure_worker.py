@@ -34,7 +34,7 @@ from app.features.exposure.worker_runtime import (
     project_event_signals,
     should_write_score_history,
 )
-from app.workers import exposure as exposure_worker
+from app.workers.intelligence.exposure import posture as exposure_worker
 
 _UTC = timezone.utc
 

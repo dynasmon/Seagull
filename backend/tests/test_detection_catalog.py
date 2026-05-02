@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from app.mitre.catalog import TACTIC_LABELS
-from app.workers.rules_loader import load_rules
+from app.workers.intelligence.rules.loader import load_rules
 
 
 _TECHNIQUE_ID_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$")

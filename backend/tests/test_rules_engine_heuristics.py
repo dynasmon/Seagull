@@ -8,7 +8,7 @@ os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.core.config import settings
-from app.workers.rules_engine import _build_beacon_candidates, _build_egress_anomaly_candidates, _build_exfil_candidates
+from app.workers.intelligence.rules.heuristics import _build_beacon_candidates, _build_egress_anomaly_candidates, _build_exfil_candidates
 
 
 class _Rows:
