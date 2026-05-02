@@ -5,7 +5,7 @@ import os
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.workers.ingest_worker import _event_hot_columns
+from app.workers.ingest.parser import _event_hot_columns
 
 
 def test_event_hot_columns_normalizes_protocol_fields() -> None:

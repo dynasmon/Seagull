@@ -3,10 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from app.features.correlations.api import _segment_by_window, _stage_requirements_met
-from app.workers.rules_engine import _evaluate_condition, _is_suppressed, _is_tuning_allowlisted, _normalize_dedup_key
-from app.workers.rules_loader import load_rules
 from app.core.config import settings
+from app.features.correlations.api import _segment_by_window, _stage_requirements_met
+from app.workers.intelligence.rules.conditions import _evaluate_condition
+from app.workers.intelligence.rules.dedup import _normalize_dedup_key
+from app.workers.intelligence.rules.loader import load_rules
+from app.workers.intelligence.rules.suppression import _is_suppressed
+from app.workers.intelligence.rules.tuning import _is_tuning_allowlisted
 
 
 @dataclass
