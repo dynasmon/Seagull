@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.workers import lupe_enricher
+from app.workers.intelligence.ip_intel import ipinfo, normalization, providers
 
 
 def test_env_alias_prefers_ip_intel_names(monkeypatch) -> None:
     monkeypatch.setenv("SEAGULL_IP_INTEL_BATCH_SIZE", "777")
     monkeypatch.setenv("SEAGULL_LUPE_BATCH_SIZE", "123")
-    assert lupe_enricher._env_int(200, "SEAGULL_IP_INTEL_BATCH_SIZE", "SEAGULL_LUPE_BATCH_SIZE") == 777
+    assert normalization._env_int(200, "SEAGULL_IP_INTEL_BATCH_SIZE", "SEAGULL_LUPE_BATCH_SIZE") == 777
 
 
 def test_resolve_provider_auto_prefers_maxmind(tmp_path: Path, monkeypatch) -> None:
@@ -20,8 +20,8 @@ def test_resolve_provider_auto_prefers_maxmind(tmp_path: Path, monkeypatch) -> N
     monkeypatch.setenv("SEAGULL_IP_INTEL_MAXMIND_CITY_DB_PATH", str(city))
     monkeypatch.setenv("SEAGULL_IP_INTEL_MAXMIND_ASN_DB_PATH", str(asn))
     monkeypatch.setenv("SEAGULL_IPINFO_TOKEN", "token-abc")
-    provider, reason = lupe_enricher._resolve_provider(lupe_enricher._provider_config())
-    assert provider == lupe_enricher.GEOIP_PROVIDER_MAXMIND
+    provider, reason = providers._resolve_provider(providers._provider_config())
+    assert provider == providers.GEOIP_PROVIDER_MAXMIND
     assert reason.startswith("auto:")
 
 
@@ -30,13 +30,13 @@ def test_resolve_provider_auto_falls_back_to_ipinfo(monkeypatch) -> None:
     monkeypatch.delenv("SEAGULL_IP_INTEL_MAXMIND_CITY_DB_PATH", raising=False)
     monkeypatch.delenv("SEAGULL_IP_INTEL_MAXMIND_ASN_DB_PATH", raising=False)
     monkeypatch.setenv("SEAGULL_IPINFO_TOKEN", "token-abc")
-    provider, reason = lupe_enricher._resolve_provider(lupe_enricher._provider_config())
-    assert provider == lupe_enricher.GEOIP_PROVIDER_IPINFO
+    provider, reason = providers._resolve_provider(providers._provider_config())
+    assert provider == providers.GEOIP_PROVIDER_IPINFO
     assert reason.startswith("auto:")
 
 
 def test_build_ipinfo_record_parses_asn() -> None:
-    rec = lupe_enricher._build_ipinfo_record(
+    rec = ipinfo._build_ipinfo_record(
         {
             "country": "US",
             "region": "Virginia",
@@ -47,4 +47,4 @@ def test_build_ipinfo_record_parses_asn() -> None:
     )
     assert rec["asn"] == "AS13335"
     assert rec["asn_org"] == "Cloudflare, Inc."
-    assert rec["provider"] == lupe_enricher.GEOIP_PROVIDER_IPINFO
+    assert rec["provider"] == providers.GEOIP_PROVIDER_IPINFO

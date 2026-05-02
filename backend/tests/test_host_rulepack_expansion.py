@@ -7,8 +7,8 @@ from pathlib import Path
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
+from app.workers.intelligence.rules.tuning import _is_tuning_allowlisted, _resolve_tuning_eval
 from tests.detection_rule_harness import evaluate_rule, load_rule_index
-from app.workers.rules_engine import _is_tuning_allowlisted, _resolve_tuning_eval
 
 
 _RULES_DIR = Path(__file__).resolve().parents[2] / "rules"
