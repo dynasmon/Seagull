@@ -1,34 +1,6 @@
-"""Protocol intelligence worker.
-
-This worker performs protocol-aware parsing on net_events to derive:
-- DNS metadata (qname/qtype/rcode/answers)
-- HTTP request metadata (host/method/path/user-agent)
-- TLS fingerprints (JA3 + JA4) and basic TLS fields (SNI/ALPN/version)
-
-The computed fields are stored in net_events.extra so APIs can aggregate quickly.
-
-Important:
-- The current Go agents may not send raw L7 bytes yet. In that case, the worker still
-  populates a conservative app_proto guess based on ports/transport.
-- As agents evolve to send ClientHello or L7 payload samples (base64), this worker will
-  automatically start producing richer metadata.
-
-Environment:
-- SEAGULL_PROTO_INTEL_EVERY_SECONDS (default 1.0)
-- SEAGULL_PROTO_INTEL_IDLE_SLEEP_SECONDS (default 2.0)
-- SEAGULL_PROTO_INTEL_MAX_ROWS (default 5000)
-- SEAGULL_PROTO_INTEL_BATCH_SIZE (default 500)
-- SEAGULL_PROTO_INTEL_PAYLOAD_MAX_BYTES (default 4096)
-- SEAGULL_PROTO_INTEL_PORT_HINTS (optional custom port->protocol hints)
-
-Marker:
-- proto_intel_at (RFC3339 UTC)
-"""
-
 from __future__ import annotations
 
 import logging
-import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List
@@ -80,8 +52,6 @@ def _utc_now_iso() -> str:
 
 
 def _ensure_bootstrap() -> None:
-    """Keep worker boot-safe when running in Compose."""
-
     ensure_database_ready()
     proto_intel_repository.ensure_offset_row(OFFSET_PROTO_INTEL)
 
@@ -130,7 +100,6 @@ def main() -> None:
 
             rows = _fetch_batch(last_id, max_id, batch_size)
             if not rows:
-                # No missing proto_intel markers in this range; advance offset to avoid rescans.
                 _set_last_id(max_id)
                 time.sleep(max(every_s, 0.1))
                 backoff = 1.0

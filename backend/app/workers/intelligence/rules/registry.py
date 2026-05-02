@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.features.alerts.models import AlertRuleOverrideModel
 from app.features.alerts.models import AlertRuleSuppressionModel
 from app.features.alerts.models import AlertRuleTuningModel
-from app.workers.rules_loader import load_rules
+from app.workers.intelligence.rules.loader import load_rules
 
 
 def deep_merge(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:

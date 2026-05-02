@@ -1,31 +1,17 @@
-"""Exposure Graph worker.
-
-Reads net_events incrementally and runs periodic full posture refreshes.
-Projects agent, inventory, vulnerability, alert, attack-chain, and event
-signals into the exposure graph tables.
-"""
-
 from __future__ import annotations
 
 import logging
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import engine
-from app.core.db.lifecycle import ensure_database_ready
-from app.core.observability import log_event, setup_logging
-from app.features.events.worker_runtime import NetEventModel
-from app.features.exposure.realtime import load_recalculation_request
+from app.core.observability import log_event
 from app.features.exposure import service as exposure_service
 from app.features.exposure.domain.evidence import build_evidence_ref, evidence_refs_from_list, merge_evidence_refs
 from app.features.exposure.domain.normalization import normalize_asset_key
-from app.features.exposure.domain.recommendations import generate_recommendations
 from app.features.exposure.domain.scoring import ScoringInputs
 from app.features.exposure.worker_runtime import (
     AgentRecord,
@@ -44,7 +30,6 @@ from app.features.exposure.worker_runtime import (
     build_response_action_nodes_and_edges,
     build_vuln_findings,
     extract_vulnerable_pkg_names,
-    load_agent_record,
     load_agents_for_refresh,
     load_alert_signals,
     load_chain_summary,
@@ -59,190 +44,10 @@ from app.features.exposure.worker_runtime import (
     should_write_score_history,
     sync_asset_graph,
 )
-from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
 
-OFFSET_NAME = "exposure_graph_events_v1"
-RECALC_REQUEST_KEY = "seagull:exposure:recalc:request"
+from .ordering import _as_utc, _order_edges, _order_nodes, _prepare_findings, _utc_now
 
-setup_logging("worker-exposure-graph")
 logger = logging.getLogger("seagull.worker.exposure_graph")
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _as_utc(dt: datetime | None) -> datetime | None:
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
-def _dt_key(dt: datetime | None) -> float:
-    safe = _as_utc(dt) or datetime.min.replace(tzinfo=timezone.utc)
-    return safe.timestamp()
-
-
-def _ensure_bootstrap() -> None:
-    ensure_database_ready()
-    with engine.begin() as conn:
-        ensure_offset(OFFSET_NAME, conn=conn)
-
-
-def _get_last_id() -> int:
-    ensure_offset(OFFSET_NAME)
-    return get_offset(OFFSET_NAME)
-
-
-def _set_last_id(last_id: int) -> None:
-    set_offset(OFFSET_NAME, last_id)
-
-
-def _fetch_events(after_id: int, limit: int) -> list[dict[str, Any]]:
-    event_types = [
-        "ssh_auth",
-        "fim_change",
-        "persistence_systemd",
-        "persistence_cron",
-        "ssh_key_change",
-        "proc_exec",
-        "ebpf_exec",
-        "beacon_suspect",
-        "c2_suspect",
-        "exfil_suspect",
-        "egress_anomaly",
-    ]
-    with engine.begin() as conn:
-        rows = conn.execute(
-            select(
-                NetEventModel.id,
-                NetEventModel.agent_id,
-                NetEventModel.event_type,
-                NetEventModel.timestamp,
-                NetEventModel.src_ip,
-                NetEventModel.dst_ip,
-                NetEventModel.src_port,
-                NetEventModel.dst_port,
-                NetEventModel.proto,
-                NetEventModel.app_proto,
-                NetEventModel.dns_qname,
-                NetEventModel.http_host,
-                NetEventModel.http_method,
-                NetEventModel.tls_sni,
-                NetEventModel.tls_alpn_first,
-                NetEventModel.ja3,
-                NetEventModel.ja4,
-                NetEventModel.ssh_action,
-                NetEventModel.ssh_username,
-                NetEventModel.proc_name,
-                NetEventModel.proc_exe,
-                NetEventModel.proc_parent_name,
-                NetEventModel.fim_path,
-                NetEventModel.fim_category,
-                NetEventModel.heuristic_name,
-                NetEventModel.heuristic_confidence,
-                NetEventModel.extra,
-            )
-            .where(NetEventModel.id > int(after_id), NetEventModel.event_type.in_(event_types))
-            .order_by(NetEventModel.id.asc())
-            .limit(int(limit))
-        ).mappings().all()
-        return [dict(r) for r in rows]
-
-
-def _get_max_event_id() -> int:
-    with engine.begin() as conn:
-        row = conn.execute(select(func.coalesce(func.max(NetEventModel.id), 0))).fetchone()
-        try:
-            return int(row[0] or 0)
-        except Exception:
-            return 0
-
-
-def _order_nodes(nodes: list[Any], *, limit: int) -> list[Any]:
-    by_key = {node.node_key: node for node in nodes}
-    ordered = sorted(
-        by_key.values(),
-        key=lambda row: (row.risk_score, row.confidence, _dt_key(row.last_seen_at)),
-        reverse=True,
-    )
-    return ordered[:limit]
-
-
-def _order_edges(edges: list[Any], *, keep_node_keys: set[str], asset_node_key: str, limit: int) -> list[Any]:
-    allowed_keys = set(keep_node_keys)
-    allowed_keys.add(asset_node_key)
-    by_key = {edge.edge_key: edge for edge in edges}
-    ordered = [
-        edge for edge in sorted(
-            by_key.values(),
-            key=lambda row: (row.confidence, row.weight, _dt_key(row.last_seen_at)),
-            reverse=True,
-        )
-        if edge.source_node_key in allowed_keys and edge.target_node_key in allowed_keys
-    ]
-    return ordered[:limit]
-
-
-def _prepare_findings(findings: list[Any], *, limit: int) -> list[Any]:
-    deduped: dict[str, Any] = {}
-    for finding in findings:
-        finding.recommendations = [
-            rec.to_dict()
-            for rec in generate_recommendations(
-                finding.reason_codes,
-                evidence_refs=[ref.to_dict() for ref in finding.evidence_refs],
-            )
-        ]
-        deduped[finding.finding_key] = finding
-    ordered = sorted(
-        deduped.values(),
-        key=lambda row: (row.score_delta, row.confidence, _dt_key(row.last_seen_at)),
-        reverse=True,
-    )
-    return ordered[:limit]
-
-
-def _process_event_batch(events: list[dict[str, Any]]) -> tuple[int, dict[str, Any]]:
-    if not events:
-        return 0, {"fetched": 0, "agents_touched": 0, "agents_refreshed": 0, "errors": 0}
-
-    now = _utc_now()
-    last_id = int(events[-1].get("id") or 0)
-    agent_events: dict[str, list[dict[str, Any]]] = {}
-    latest_seen: dict[str, datetime] = {}
-    for ev in events:
-        aid = str(ev.get("agent_id") or "").strip()
-        if not aid:
-            continue
-        agent_events.setdefault(aid, []).append(ev)
-        ts = ev.get("timestamp")
-        if isinstance(ts, datetime):
-            latest_seen[aid] = max(ts, latest_seen.get(aid, ts))
-
-    stats = {"fetched": len(events), "agents_touched": len(agent_events), "agents_refreshed": 0, "errors": 0}
-    if not agent_events:
-        return last_id, stats
-
-    for aid, agent_rows in agent_events.items():
-        try:
-            with Session(engine) as db:
-                agent = load_agent_record(db, agent_id=aid, fallback_last_seen_at=latest_seen.get(aid))
-                _refresh_agent_posture(db, agent, now=now, event_rows=agent_rows, resolve_inactive=False)
-            stats["agents_refreshed"] += 1
-        except Exception as exc:
-            stats["errors"] += 1
-            log_event(
-                logger,
-                "warning",
-                "exposure_event_refresh_error",
-                agent_id=aid,
-                error=repr(exc),
-            )
-
-    return last_id, stats
 
 
 def _refresh_agent_posture(
@@ -599,120 +404,3 @@ def _run_posture_refresh() -> dict[str, Any]:
             )
 
     return {"agents_refreshed": agents_refreshed, "errors": errors}
-
-
-def main() -> None:
-    settings.validate_for_service("worker-exposure-graph")
-    if not settings.SEAGULL_EXPOSURE_ENABLED:
-        log_event(logger, "info", "exposure_graph_disabled")
-        return
-
-    _ensure_bootstrap()
-
-    every = float(settings.SEAGULL_EXPOSURE_EVERY_SECONDS)
-    batch_size = int(settings.SEAGULL_EXPOSURE_EVENT_BATCH_SIZE)
-
-    log_event(
-        logger,
-        "info",
-        "exposure_graph_start",
-        every_s=every,
-        batch_size=batch_size,
-        lookback_hours=settings.SEAGULL_EXPOSURE_LOOKBACK_HOURS,
-        stale_agent_minutes=settings.SEAGULL_EXPOSURE_STALE_AGENT_MINUTES,
-        stale_inventory_hours=settings.SEAGULL_EXPOSURE_STALE_INVENTORY_HOURS,
-    )
-
-    backoff = 1.0
-    last_id = 0
-    last_refresh_t = 0.0
-    last_idle_log_t = 0.0
-    last_recalc_token = ""
-    idle_sleep = 5.0
-
-    while True:
-        try:
-            if last_id == 0:
-                last_id = _get_last_id()
-
-            recalc_request = load_recalculation_request(RECALC_REQUEST_KEY)
-            recalc_token = str((recalc_request or {}).get("requested_at") or "")
-            if recalc_token and recalc_token != last_recalc_token:
-                last_recalc_token = recalc_token
-                last_refresh_t = 0.0
-                log_event(
-                    logger,
-                    "info",
-                    "exposure_graph_recalc_requested",
-                    requested_at=recalc_request.get("requested_at"),
-                    requested_by=recalc_request.get("requested_by"),
-                    mode=recalc_request.get("mode"),
-                )
-
-            # Incremental event processing
-            events = _fetch_events(last_id, batch_size)
-            if events:
-                t0 = time.time()
-                new_last, ev_stats = _process_event_batch(events)
-                if new_last and new_last > last_id:
-                    last_id = new_last
-                    _set_last_id(last_id)
-                took_ms = int((time.time() - t0) * 1000)
-                log_event(
-                    logger,
-                    "info",
-                    "exposure_graph_events_ok",
-                    last_id=last_id,
-                    took_ms=took_ms,
-                    **ev_stats,
-                )
-                backoff = 1.0
-            else:
-                now_t = time.time()
-                if (now_t - last_idle_log_t) >= 30.0:
-                    max_id = _get_max_event_id()
-                    lag = max(0, int(max_id) - int(last_id))
-                    log_event(
-                        logger,
-                        "info",
-                        "exposure_graph_idle",
-                        last_id=last_id,
-                        max_id=max_id,
-                        lag=lag,
-                    )
-                    last_idle_log_t = now_t
-
-            # Periodic full posture refresh
-            now_t = time.time()
-            if every > 0 and (now_t - last_refresh_t) >= every:
-                t0 = time.time()
-                refresh_stats = _run_posture_refresh()
-                took_ms = int((time.time() - t0) * 1000)
-                last_refresh_t = time.time()
-                log_event(
-                    logger,
-                    "info",
-                    "exposure_graph_refresh_ok",
-                    took_ms=took_ms,
-                    **refresh_stats,
-                )
-                backoff = 1.0
-
-            time.sleep(idle_sleep)
-
-        except KeyboardInterrupt:
-            raise
-        except OperationalError as e:
-            wait_s = min(backoff, 15.0)
-            log_event(logger, "warning", "exposure_graph_db_not_ready", wait_s=wait_s, error=str(e).splitlines()[0])
-            time.sleep(wait_s)
-            backoff = min(backoff * 2.0, 15.0)
-        except Exception as e:
-            wait_s = min(backoff, 30.0)
-            log_event(logger, "error", "exposure_graph_loop_error", wait_s=wait_s, error=repr(e))
-            time.sleep(wait_s)
-            backoff = min(backoff * 2.0, 30.0)
-
-
-if __name__ == "__main__":
-    main()
