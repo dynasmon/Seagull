@@ -4,6 +4,8 @@ from __future__ import annotations
 DEFAULT_FIELD_OPERATOR = "eq"
 
 OPERATOR_SUFFIXES: tuple[tuple[str, str], ...] = (
+    ("_not_exists", "not_exists"),
+    ("_exists", "exists"),
     ("_not_contains", "not_contains"),
     ("_contains_all", "contains_all"),
     ("_contains", "contains"),
@@ -33,6 +35,8 @@ SUPPORTED_FIELD_OPERATORS = frozenset(
         "not_contains",
         "startswith",
         "endswith",
+        "exists",
+        "not_exists",
     }
 )
 
