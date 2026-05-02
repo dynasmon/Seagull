@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.features.detections.rules.loader import load_rules
+from app.features.detections.rules.loader import load_and_validate_rules, load_rules
 from app.features.detections.rules.registry import (
     SUPPORTED_RUNTIME_EVENT_FIELDS,
     normalize_group_by_fields,
@@ -10,6 +10,7 @@ from app.features.detections.rules.registry import (
 
 __all__ = [
     "SUPPORTED_RUNTIME_EVENT_FIELDS",
+    "load_and_validate_rules",
     "load_rules",
     "normalize_group_by_fields",
     "normalize_match_fields",
