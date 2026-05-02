@@ -68,15 +68,15 @@ Backend modular-monolith boundaries and contribution guardrails are documented i
 
 - **seagull-ingest-pipeline**
   - Runs ingest queue draining, Elasticsearch indexing, and 1-minute rollups in one supervised group.
-  - Child modules: `app.workers.ingest_worker`, `app.workers.es_indexer`, `app.workers.rollup_1m`.
+  - Child modules: `app.workers.ingest.main`, `app.workers.indexing.elasticsearch`, `app.workers.analytics.rollup_1m`.
 
 - **seagull-intelligence-worker**
   - Runs rule evaluation and enrichment/correlation workers in one supervised group.
-  - Child modules: `app.workers.runner`, `app.workers.ip_intel`, `app.workers.proto_intel`, `app.workers.attack_chain`.
+  - Child modules: `app.workers.intelligence.rules.runner`, `app.workers.intelligence.ip_intel.main`, `app.workers.intelligence.protocol.main`, `app.workers.intelligence.attack_chain.main`, `app.workers.intelligence.exposure.main`.
 
 - **seagull-maintenance-worker**
   - Runs administrative maintenance loops.
-  - Child modules: `app.workers.audit_retention` and (in production when enabled) the bootstrap token rotator.
+  - Child modules: `app.workers.maintenance.audit_retention` and (in production when enabled) the bootstrap token rotator.
 
 - **PostgreSQL**
   - Stores raw events in `net_events`.
