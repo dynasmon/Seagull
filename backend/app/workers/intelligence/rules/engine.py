@@ -16,6 +16,7 @@ from app.features.alerts.rule_registry_runtime import (
     load_baseline_rules,
     normalize_rule_list,
 )
+from app.features.detections.rules.compiler import execute_v2_rule
 from app.features.events.worker_runtime import NetEventModel
 from app.shared.taxonomy.catalog import technique_name
 
@@ -183,6 +184,17 @@ def run_rules_once():
 
             rule_id = rule.get("id")
             if not rule_id:
+                continue
+
+            schema_version = int(rule.get("schema_version") or 1)
+
+            if schema_version == 2:
+                try:
+                    v2_alerts = execute_v2_rule(db, rule, now, recent_idx, agent_ctx_map)
+                    for al in v2_alerts:
+                        created_alerts.append(al)
+                except Exception:
+                    pass
                 continue
 
             rule_type = rule.get("type")
