@@ -68,6 +68,10 @@ def build_case_reasoning(*, case: Any, steps: Iterable[Any]) -> Dict[str, Any]:
     context = _safe_dict(getattr(case, "context", None))
     stage_support = _safe_dict(context.get("stage_support_v2"))
     quality_counts = _safe_dict(context.get("evidence_quality_counts_v2"))
+    story_stage_hits = _safe_dict(context.get("story_stage_hits"))
+    matched_story_ids = _norm_list(context.get("matched_story_ids"), max_items=16)
+    matched_story_names = _norm_list(context.get("matched_story_names"), max_items=16)
+    story_reasoning = _norm_list(context.get("story_reasoning"), max_items=12)
 
     aggregated: Dict[str, Dict[str, Any]] = {}
     for raw in steps:
@@ -206,7 +210,7 @@ def build_case_reasoning(*, case: Any, steps: Iterable[Any]) -> Dict[str, Any]:
         verdict = "Weakly inferred chain"
         analyst_hint = "Evidence is sparse or weak; avoid strong conclusions without additional telemetry."
 
-    return {
+    out = {
         "generated_at": _now_iso(),
         "overall": {
             "verdict": verdict,
@@ -221,3 +225,14 @@ def build_case_reasoning(*, case: Any, steps: Iterable[Any]) -> Dict[str, Any]:
         },
         "stages": stage_items,
     }
+
+    if matched_story_ids or matched_story_names or story_stage_hits:
+        out["stories"] = {
+            "matched_story_ids": matched_story_ids,
+            "matched_story_names": matched_story_names,
+            "confidence": _to_int(context.get("story_confidence"), 0),
+            "reasoning": story_reasoning,
+            "stage_hits": story_stage_hits,
+        }
+
+    return out

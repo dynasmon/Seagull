@@ -1,0 +1,75 @@
+schema_version: 1
+id: beaconing_after_persistence_story
+name: Beaconing After Persistence
+description: Persistence activity is followed by beaconing or outbound control behavior on the same host.
+enabled: true
+maturity: stable
+entity:
+  type: agent_id
+  field: agent_id
+maxspan_seconds: 21600
+stages:
+  - id: persistence
+    name: Persistence Activity
+    tactic: persistence
+    technique_id: T1543
+    required: true
+    min_signals: 1
+    after: null
+    within_seconds: null
+    match:
+      rule_ids:
+        - persistence_authorized_keys_change_v1
+        - persistence_systemd_unit_change_v1
+        - persistence_cron_change_v1
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - persistence
+        - sudo_priv_escalation
+      event_types:
+        - fim_change
+        - persistence_systemd
+        - persistence_cron
+        - ssh_key_change
+    score_delta: 5
+    confidence_weight: 1.0
+  - id: outbound_control
+    name: Outbound Control Traffic
+    tactic: command_and_control
+    technique_id: T1071
+    required: true
+    min_signals: 1
+    after: persistence
+    within_seconds: 21600
+    match:
+      rule_ids:
+        - beacon_suspect_heuristic_v1
+        - heuristic_beacon_periodic_v1
+        - outbound_contextual_rare_destination_v1
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - c2
+        - exec_reverse_shell
+      event_types:
+        - beacon_suspect
+        - c2_suspect
+        - egress_anomaly
+    score_delta: 7
+    confidence_weight: 1.3
+scoring:
+  story_match_bonus: 8
+  max_story_score: 20
+attack:
+  summary: Persistence signals are followed by network activity consistent with command-and-control or beaconing.
+  techniques:
+    - T1543
+    - T1071
+  tags:
+    - persistence
+    - command_and_control
+response:
+  summary: Prioritize containment of the host and review outbound destinations for active control channels.
+  recommendations:
+    - Isolate the host if command-and-control traffic is confirmed.
+    - Review persistence artifacts and outbound network sessions together to identify the payload.
+    - Hunt for the same destination or process lineage across other enrolled assets.

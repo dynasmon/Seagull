@@ -1,0 +1,63 @@
+schema_version: 1
+id: ssh_compromise_story
+name: SSH Compromise After Brute Force
+description: Suspicious SSH access is established after repeated brute-force activity from the same suspect IP.
+enabled: true
+maturity: stable
+entity:
+  type: suspect_ip
+  field: suspect_ip
+maxspan_seconds: 1800
+stages:
+  - id: brute_force
+    name: SSH Brute Force
+    tactic: credential_access
+    technique_id: T1110.001
+    required: true
+    min_signals: 1
+    after: null
+    within_seconds: null
+    match:
+      rule_ids:
+        - ssh_bruteforce_authlog_v2
+        - ssh_bruteforce_v1
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - ssh_bruteforce
+      event_types: []
+    score_delta: 4
+    confidence_weight: 1.0
+  - id: accepted_ssh
+    name: Accepted SSH Session
+    tactic: initial_access
+    technique_id: T1078
+    required: true
+    min_signals: 1
+    after: brute_force
+    within_seconds: 1800
+    match:
+      rule_ids: []
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - ssh_bruteforce_success
+      event_types:
+        - ssh_auth
+    score_delta: 6
+    confidence_weight: 1.2
+scoring:
+  story_match_bonus: 8
+  max_story_score: 18
+attack:
+  summary: Brute-force access appears to have transitioned into a successful SSH session.
+  techniques:
+    - T1110.001
+    - T1078
+  tags:
+    - ssh
+    - credential_access
+response:
+  summary: Validate whether the SSH login was expected and inspect immediate host activity from the session.
+  recommendations:
+    - Rotate exposed credentials or keys for the affected account.
+    - Review adjacent sudo, process execution, and persistence signals on the same host.
+    - Restrict or block the suspect source IP if the access was unauthorized.

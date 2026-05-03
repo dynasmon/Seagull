@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from app.core.db import engine
@@ -10,10 +10,12 @@ from app.features.attack_chain.worker_runtime import (
     AttackStage,
     CaseRow,
     StepCandidate,
+    attack_story_maxspan_seconds,
     case_recent_step_exists,
     close_stale_cases,
     detect_steps,
     evaluate_candidate,
+    evaluate_attack_stories,
     find_attachable_case_id,
     get_or_create_open_case_ex,
     insert_step_and_update_case,
@@ -24,11 +26,14 @@ from .repository import (
     _clear_ssh_failures,
     _get_recent_last_access,
     _inc_ssh_failure,
+    _list_case_steps_since,
+    _list_recent_alerts,
+    _list_recent_correlation_incidents,
     _load_case_by_id,
     _open_case_exists,
     _upsert_last_access,
 )
-from .state import _fingerprint, _load_allowlist_rules, _utc_now
+from .state import _fingerprint, _load_allowlist_rules, _load_attack_story_templates, _utc_now
 
 logger = logging.getLogger("seagull.worker.attack_chain")
 
@@ -66,6 +71,9 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
 
     touched_case_ids: set[int] = set()
     allowlist_rules = _load_allowlist_rules(ttl_seconds=10.0)
+    stories, _story_errors = _load_attack_story_templates(ttl_seconds=30.0)
+    story_lookback_seconds = attack_story_maxspan_seconds(stories)
+    story_support_cache: Dict[tuple[int, str, str], Dict[str, List[Dict[str, Any]]]] = {}
 
     with engine.begin() as conn:
         for ev in events:
@@ -269,6 +277,42 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
 
                 merged_context_patch = dict(context_patch or {})
                 merged_context_patch.update(dict(scored.context_patch or {}))
+                story_eval = None
+                story_bundle = None
+                if stories and story_lookback_seconds > 0:
+                    story_key = (int(case.id), agent_id, str(suspect_ip or ""))
+                    story_bundle = story_support_cache.get(story_key)
+                    if story_bundle is None:
+                        since = now - timedelta(seconds=int(story_lookback_seconds))
+                        story_bundle = {
+                            "steps": _list_case_steps_since(conn, case_id=int(case.id), since=since, limit=256),
+                            "alerts": _list_recent_alerts(conn, since=since, suspect_ip=suspect_ip, limit=256),
+                            "incidents": _list_recent_correlation_incidents(
+                                conn,
+                                since=since,
+                                suspect_ip=suspect_ip,
+                                agent_id=agent_id,
+                                limit=128,
+                            ),
+                        }
+                        story_support_cache[story_key] = story_bundle
+
+                    story_eval = evaluate_attack_stories(
+                        stories=stories,
+                        case_context=dict(case.context or {}),
+                        existing_steps=story_bundle["steps"],
+                        alerts=story_bundle["alerts"],
+                        correlation_incidents=story_bundle["incidents"],
+                        candidate=cand,
+                        event=ev,
+                        now=now,
+                        entity_values={
+                            "agent_id": agent_id,
+                            "suspect_ip": str(suspect_ip or (case.context or {}).get("last_ssh_src_ip") or ""),
+                        },
+                        candidate_confidence=int(scored.confidence),
+                    )
+                    merged_context_patch.update(dict((story_eval.context_patch or {})))
 
                 details = dict(cand.details or {})
                 details.setdefault("raw_fingerprint", cand.fingerprint)
@@ -289,6 +333,8 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
                     "reason": str(scored.transition_reason or ""),
                 }
                 details.setdefault("description", getattr(cand, "description", ""))
+                if story_eval and story_eval.detail_patch:
+                    details.update(dict(story_eval.detail_patch))
 
                 step_id, new_score, new_max_stage = insert_step_and_update_case(
                     conn,
@@ -296,7 +342,7 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
                     stage=cand.stage,
                     label=cand.title,
                     fingerprint=fp,
-                    score_delta=int(scored.score_delta),
+                    score_delta=int(scored.score_delta) + int((story_eval.score_delta if story_eval else 0) or 0),
                     now=now,
                     max_score=cfg.max_score,
                     event=ev,
@@ -314,6 +360,20 @@ def _process_batch(events: List[Dict[str, Any]], cfg) -> tuple[int, Dict[str, An
                     step_count=int(case.step_count) + 1,
                     context=merged_case_context,
                 )
+
+                if story_bundle is not None:
+                    story_bundle["steps"].append(
+                        {
+                            "id": int(step_id),
+                            "stage": cand.stage.value,
+                            "label": cand.title,
+                            "event_type": ev.get("event_type"),
+                            "timestamp": ev_ts,
+                            "src_ip": ev.get("src_ip"),
+                            "dst_ip": ev.get("dst_ip"),
+                            "details": details,
+                        }
+                    )
 
                 touched_case_ids.add(int(case.id))
                 stats["inserted"] += 1
