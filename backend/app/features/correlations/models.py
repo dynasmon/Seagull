@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
@@ -38,5 +38,78 @@ class CorrelationRuleModel(Base):
     exclude_patterns = Column(JSONB, nullable=False, default=list)
     stages = Column(JSONB, nullable=False, default=list)
 
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class CorrelationIncidentModel(Base):
+    __tablename__ = "correlation_incidents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    correlation_rule_id = Column(Integer, nullable=True)
+    correlation_rule_name = Column(String(96), nullable=False)
+    status = Column(String(16), nullable=False, default="open")  # open|triaged|closed|suppressed
+    severity = Column(String(16), nullable=False, default="high")
+    risk_score = Column(Integer, nullable=True)
+    confidence = Column(Integer, nullable=True)
+    entity_type = Column(String(32), nullable=True)
+    entity_value = Column(String(256), nullable=True)
+    group_by = Column(String(32), nullable=False, default="src_ip")
+    group_value = Column(String(256), nullable=False, default="")
+    dedup_key = Column(String(512), nullable=False, index=True)
+    started_at = Column(DateTime, nullable=False)
+    last_seen_at = Column(DateTime, nullable=False)
+    closed_at = Column(DateTime, nullable=True)
+    alert_count = Column(Integer, nullable=False, default=0)
+    unique_rules = Column(JSONB, nullable=False, default=list)
+    stage_hits = Column(JSONB, nullable=False, default=dict)
+    summary = Column(Text, nullable=True)
+    context = Column(JSONB, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class CorrelationIncidentEvidenceModel(Base):
+    __tablename__ = "correlation_incident_evidence"
+
+    id = Column(Integer, primary_key=True, index=True)
+    incident_id = Column(Integer, ForeignKey("correlation_incidents.id", ondelete="CASCADE"), nullable=False, index=True)
+    alert_id = Column(Integer, nullable=True, index=True)
+    net_event_id = Column(Integer, nullable=True, index=True)
+    evidence_type = Column(String(32), nullable=False, default="alert")
+    rule_id = Column(String(128), nullable=True)
+    stage = Column(String(64), nullable=True)
+    timestamp = Column(DateTime, nullable=False)
+    src_ip = Column(String(64), nullable=True)
+    dst_ip = Column(String(64), nullable=True)
+    dst_port = Column(Integer, nullable=True)
+    details = Column(JSONB, nullable=False, default=dict)
+
+
+class CorrelationRuleRunModel(Base):
+    __tablename__ = "correlation_rule_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    correlation_rule_id = Column(Integer, nullable=True)
+    started_at = Column(DateTime, nullable=False, index=True)
+    finished_at = Column(DateTime, nullable=True)
+    status = Column(String(16), nullable=False, default="running")  # running|completed|failed
+    scanned_alerts = Column(Integer, nullable=False, default=0)
+    incidents_created = Column(Integer, nullable=False, default=0)
+    incidents_updated = Column(Integer, nullable=False, default=0)
+    error = Column(Text, nullable=True)
+    context = Column(JSONB, nullable=False, default=dict)
+
+
+class CorrelationEntityStateModel(Base):
+    __tablename__ = "correlation_entity_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entity_type = Column(String(32), nullable=False)
+    entity_value = Column(String(256), nullable=False)
+    first_seen_at = Column(DateTime, nullable=False)
+    last_seen_at = Column(DateTime, nullable=False)
+    seen_count = Column(Integer, nullable=False, default=1)
+    last_context = Column(JSONB, nullable=False, default=dict)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
