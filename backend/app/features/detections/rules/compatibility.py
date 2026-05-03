@@ -113,8 +113,9 @@ def resolve_rule_schema_version(raw_rule: dict[str, Any], file_meta: dict[str, A
 
 
 def is_runtime_compatible_rule(rule: dict[str, Any]) -> bool:
+    from app.features.detections.domain.rule_types import SUPPORTED_RUNTIME_RULE_SCHEMA_VERSIONS
     try:
-        return int(rule.get("schema_version") or DEFAULT_RULE_SCHEMA_VERSION) in {V1_RULE_SCHEMA_VERSION}
+        return int(rule.get("schema_version") or DEFAULT_RULE_SCHEMA_VERSION) in SUPPORTED_RUNTIME_RULE_SCHEMA_VERSIONS
     except Exception:
         return False
 
