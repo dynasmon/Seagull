@@ -6,6 +6,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
 from app.features.alerts.models import AlertModel
 from app.features.correlations.models import (
     CorrelationEntityStateModel,
@@ -14,6 +15,9 @@ from app.features.correlations.models import (
     CorrelationRuleModel,
     CorrelationRuleRunModel,
 )
+from app.features.events.models import NetEventModel
+from app.features.exposure.models import ExposureFindingModel
+from app.features.vuln.models import VulnFindingModel
 
 _OPEN_STATUSES = frozenset({"open", "triaged"})
 _VALID_STATUSES = frozenset({"open", "triaged", "closed", "suppressed"})
@@ -41,6 +45,56 @@ def list_recent_alerts(db: Session, *, min_ts: datetime, limit: int) -> list[Ale
         select(AlertModel)
         .where(AlertModel.created_at >= min_ts)
         .order_by(AlertModel.created_at.desc())
+        .limit(limit)
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def list_recent_net_events(db: Session, *, min_ts: datetime, limit: int) -> list[NetEventModel]:
+    stmt = (
+        select(NetEventModel)
+        .where(NetEventModel.timestamp >= min_ts)
+        .order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
+        .limit(limit)
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def list_recent_vuln_findings(db: Session, *, min_ts: datetime, limit: int) -> list[VulnFindingModel]:
+    stmt = (
+        select(VulnFindingModel)
+        .where(VulnFindingModel.last_seen_at >= min_ts)
+        .order_by(VulnFindingModel.last_seen_at.desc(), VulnFindingModel.id.desc())
+        .limit(limit)
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def list_recent_exposure_findings(db: Session, *, min_ts: datetime, limit: int) -> list[ExposureFindingModel]:
+    stmt = (
+        select(ExposureFindingModel)
+        .where(ExposureFindingModel.last_seen_at >= min_ts)
+        .order_by(ExposureFindingModel.last_seen_at.desc(), ExposureFindingModel.id.desc())
+        .limit(limit)
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def list_recent_attack_chain_steps(db: Session, *, min_ts: datetime, limit: int) -> list[AttackChainStepModel]:
+    stmt = (
+        select(AttackChainStepModel)
+        .where(AttackChainStepModel.timestamp >= min_ts)
+        .order_by(AttackChainStepModel.timestamp.desc(), AttackChainStepModel.id.desc())
+        .limit(limit)
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def list_recent_attack_chain_cases(db: Session, *, min_ts: datetime, limit: int) -> list[AttackChainCaseModel]:
+    stmt = (
+        select(AttackChainCaseModel)
+        .where(AttackChainCaseModel.last_seen_at >= min_ts)
+        .order_by(AttackChainCaseModel.last_seen_at.desc(), AttackChainCaseModel.id.desc())
         .limit(limit)
     )
     return db.execute(stmt).scalars().all()
@@ -115,6 +169,14 @@ def get_entity_state(
         .where(CorrelationEntityStateModel.entity_value == entity_value)
     )
     return db.execute(stmt).scalar_one_or_none()
+
+
+def list_entity_states(db: Session, *, entity_types: list[str] | None = None) -> list[CorrelationEntityStateModel]:
+    stmt = select(CorrelationEntityStateModel)
+    if entity_types:
+        stmt = stmt.where(CorrelationEntityStateModel.entity_type.in_(list(entity_types)))
+    stmt = stmt.order_by(CorrelationEntityStateModel.updated_at.desc())
+    return db.execute(stmt).scalars().all()
 
 
 # Generic helpers

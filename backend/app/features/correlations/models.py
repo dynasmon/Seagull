@@ -37,6 +37,11 @@ class CorrelationRuleModel(Base):
     include_patterns = Column(JSONB, nullable=False, default=list)
     exclude_patterns = Column(JSONB, nullable=False, default=list)
     stages = Column(JSONB, nullable=False, default=list)
+    entity = Column(JSONB, nullable=True)
+    strategy_config = Column(JSONB, nullable=True)
+    risk_config = Column(JSONB, nullable=True)
+    evidence_config = Column(JSONB, nullable=True)
+    lifecycle_config = Column(JSONB, nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
