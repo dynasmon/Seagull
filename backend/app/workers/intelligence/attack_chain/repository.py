@@ -3,18 +3,21 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Index, delete, func, select, update
+from sqlalchemy import Index, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.db import engine
 from app.core.db.lifecycle import ensure_database_ready
+from app.features.alerts.models import AlertModel
 from app.features.attack_chain.worker_runtime import (
     AttackChainCaseModel,
     AttackChainLastAccessModel,
     AttackChainLoginBaselineModel,
     AttackChainSshFailureModel,
+    AttackChainStepModel,
     CaseRow,
 )
+from app.features.correlations.models import CorrelationIncidentModel
 from app.features.events.worker_runtime import NetEventModel
 from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
 
@@ -283,3 +286,115 @@ def _load_case_by_id(conn, case_id: int) -> Optional[CaseRow]:
         step_count=int(row.get("step_count") or 0),
         context=ctx,
     )
+
+
+def _list_case_steps_since(conn, *, case_id: int, since: datetime, limit: int = 256) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        select(
+            AttackChainStepModel.id,
+            AttackChainStepModel.stage,
+            AttackChainStepModel.label,
+            AttackChainStepModel.event_type,
+            AttackChainStepModel.timestamp,
+            AttackChainStepModel.src_ip,
+            AttackChainStepModel.dst_ip,
+            AttackChainStepModel.details,
+        )
+        .where(
+            AttackChainStepModel.case_id == int(case_id),
+            AttackChainStepModel.timestamp >= since,
+        )
+        .order_by(AttackChainStepModel.timestamp.asc(), AttackChainStepModel.id.asc())
+        .limit(int(limit))
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def _list_recent_alerts(conn, *, since: datetime, suspect_ip: Optional[str], limit: int = 256) -> List[Dict[str, Any]]:
+    ip = str(suspect_ip or "").strip()
+    if not ip:
+        return []
+
+    rows = conn.execute(
+        select(
+            AlertModel.id,
+            AlertModel.created_at,
+            AlertModel.rule_id,
+            AlertModel.src_ip,
+            AlertModel.dst_ip,
+            AlertModel.dst_port,
+            AlertModel.confidence,
+            AlertModel.description,
+            AlertModel.details,
+        )
+        .where(
+            AlertModel.created_at >= since,
+            or_(AlertModel.src_ip == ip, AlertModel.dst_ip == ip),
+        )
+        .order_by(AlertModel.created_at.asc(), AlertModel.id.asc())
+        .limit(int(limit))
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def _list_recent_correlation_incidents(
+    conn,
+    *,
+    since: datetime,
+    suspect_ip: Optional[str],
+    agent_id: Optional[str],
+    limit: int = 128,
+) -> List[Dict[str, Any]]:
+    entity_values = {
+        str(value).strip()
+        for value in (suspect_ip, agent_id)
+        if str(value or "").strip()
+    }
+    if not entity_values:
+        return []
+
+    conditions = [
+        CorrelationIncidentModel.last_seen_at >= since,
+        CorrelationIncidentModel.status != "suppressed",
+        or_(
+            CorrelationIncidentModel.entity_value.in_(sorted(entity_values)),
+            CorrelationIncidentModel.group_value.in_(sorted(entity_values)),
+            *(
+                [CorrelationIncidentModel.context["agent_id"].astext == str(agent_id).strip()]
+                if str(agent_id or "").strip()
+                else []
+            ),
+            *(
+                [
+                    CorrelationIncidentModel.context["suspect_ip"].astext == str(suspect_ip).strip(),
+                    CorrelationIncidentModel.context["src_ip"].astext == str(suspect_ip).strip(),
+                    CorrelationIncidentModel.context["dst_ip"].astext == str(suspect_ip).strip(),
+                ]
+                if str(suspect_ip or "").strip()
+                else []
+            ),
+        ),
+    ]
+
+    rows = conn.execute(
+        select(
+            CorrelationIncidentModel.id,
+            CorrelationIncidentModel.correlation_rule_id,
+            CorrelationIncidentModel.correlation_rule_name,
+            CorrelationIncidentModel.entity_type,
+            CorrelationIncidentModel.entity_value,
+            CorrelationIncidentModel.group_by,
+            CorrelationIncidentModel.group_value,
+            CorrelationIncidentModel.started_at,
+            CorrelationIncidentModel.last_seen_at,
+            CorrelationIncidentModel.confidence,
+            CorrelationIncidentModel.unique_rules,
+            CorrelationIncidentModel.stage_hits,
+            CorrelationIncidentModel.summary,
+            CorrelationIncidentModel.context,
+        )
+        .where(*conditions)
+        .order_by(CorrelationIncidentModel.last_seen_at.asc(), CorrelationIncidentModel.id.asc())
+        .limit(int(limit))
+    ).mappings().all()
+    return [dict(row) for row in rows]
