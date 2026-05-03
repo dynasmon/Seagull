@@ -1,0 +1,68 @@
+schema_version: 1
+id: recon_to_bruteforce_story
+name: Reconnaissance To SSH Brute Force
+description: Network reconnaissance is followed by SSH brute-force activity from the same source.
+enabled: true
+maturity: stable
+entity:
+  type: suspect_ip
+  field: suspect_ip
+maxspan_seconds: 1800
+stages:
+  - id: recon
+    name: Reconnaissance
+    tactic: discovery
+    technique_id: T1046
+    required: true
+    min_signals: 1
+    after: null
+    within_seconds: null
+    match:
+      rule_ids:
+        - port_scan_pcap_v1
+        - horizontal_scan_pcap_v1
+        - horizontal_scan_ssh_pcap_v1
+        - port_scan_v1
+        - horizontal_scan_v1
+      correlation_rule_ids: []
+      attack_step_kinds: []
+      event_types: []
+    score_delta: 3
+    confidence_weight: 0.9
+  - id: brute_force
+    name: SSH Brute Force
+    tactic: credential_access
+    technique_id: T1110.001
+    required: true
+    min_signals: 1
+    after: recon
+    within_seconds: 1800
+    match:
+      rule_ids:
+        - ssh_bruteforce_authlog_v2
+        - ssh_bruteforce_v1
+        - ssh_invalid_user_burst_v1
+        - ssh_failed_password_burst_target_v1
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - ssh_bruteforce
+      event_types: []
+    score_delta: 6
+    confidence_weight: 1.1
+scoring:
+  story_match_bonus: 8
+  max_story_score: 17
+attack:
+  summary: Reconnaissance likely transitioned into credential-access attempts against SSH.
+  techniques:
+    - T1046
+    - T1110.001
+  tags:
+    - recon
+    - ssh
+response:
+  summary: Treat the source as actively progressing toward unauthorized access.
+  recommendations:
+    - Review additional scanning and authentication activity from the same source.
+    - Tighten SSH exposure, rate limits, and MFA or key-only controls on the targeted asset.
+    - Consider blocking or tarpitting the source if activity is not expected.

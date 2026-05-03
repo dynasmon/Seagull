@@ -1,0 +1,68 @@
+schema_version: 1
+id: privileged_access_after_ssh_story
+name: Privileged Access After Suspicious SSH
+description: Suspicious SSH access is followed by privileged execution or escalation on the same case.
+enabled: true
+maturity: stable
+entity:
+  type: suspect_ip
+  field: suspect_ip
+maxspan_seconds: 3600
+stages:
+  - id: suspicious_ssh
+    name: Suspicious SSH Access
+    tactic: initial_access
+    technique_id: T1078
+    required: true
+    min_signals: 1
+    after: null
+    within_seconds: null
+    match:
+      rule_ids: []
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - ssh_bruteforce_success
+        - ssh_new_source
+      event_types:
+        - ssh_auth
+    score_delta: 4
+    confidence_weight: 1.0
+  - id: privileged_access
+    name: Privileged Access
+    tactic: privilege_escalation
+    technique_id: T1548.003
+    required: true
+    min_signals: 1
+    after: suspicious_ssh
+    within_seconds: 3600
+    match:
+      rule_ids:
+        - privilege_proc_euid_root_nonroot_uid_chain_v1
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - sudo_priv_escalation
+        - exec_priv_escalation
+        - sudo_remote_exec
+      event_types:
+        - sudo_cmd
+        - proc_exec
+        - ebpf_exec
+    score_delta: 6
+    confidence_weight: 1.2
+scoring:
+  story_match_bonus: 8
+  max_story_score: 18
+attack:
+  summary: Access gained through SSH appears to have been used to obtain or exercise elevated privileges.
+  techniques:
+    - T1078
+    - T1548.003
+  tags:
+    - ssh
+    - privilege_escalation
+response:
+  summary: Prioritize host triage for lateral movement, persistence, and credential theft after escalation.
+  recommendations:
+    - Review sudo and process lineage around the accepted SSH session.
+    - Check for persistence changes and outbound control traffic on the same host.
+    - Reset credentials and revoke privileged sessions if access was not authorized.

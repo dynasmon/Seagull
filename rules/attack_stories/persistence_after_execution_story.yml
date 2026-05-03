@@ -1,0 +1,80 @@
+schema_version: 1
+id: persistence_after_execution_story
+name: Persistence Established After Suspicious Execution
+description: Suspicious execution is followed by persistence-oriented changes on the same enrolled host.
+enabled: true
+maturity: stable
+entity:
+  type: agent_id
+  field: agent_id
+maxspan_seconds: 21600
+stages:
+  - id: suspicious_execution
+    name: Suspicious Execution
+    tactic: execution
+    technique_id: T1059
+    required: true
+    min_signals: 1
+    after: null
+    within_seconds: null
+    match:
+      rule_ids:
+        - proc_remote_fetch_exec_v1
+        - proc_service_shell_child_v1
+        - lotl_remote_fetch_pipe_shell_v1
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - exec_remote_fetch
+        - exec_service_shell
+        - exec_lolbin
+        - sudo_remote_exec
+        - sudo_lolbin
+      event_types:
+        - proc_exec
+        - ebpf_exec
+        - sudo_cmd
+    score_delta: 4
+    confidence_weight: 1.0
+  - id: persistence_established
+    name: Persistence Established
+    tactic: persistence
+    technique_id: T1543
+    required: true
+    min_signals: 1
+    after: suspicious_execution
+    within_seconds: 21600
+    match:
+      rule_ids:
+        - persistence_authorized_keys_change_v1
+        - persistence_systemd_unit_change_v1
+        - persistence_cron_change_v1
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - persistence
+        - sudo_priv_escalation
+      event_types:
+        - fim_change
+        - persistence_systemd
+        - persistence_cron
+        - ssh_key_change
+    score_delta: 7
+    confidence_weight: 1.3
+scoring:
+  story_match_bonus: 8
+  max_story_score: 19
+attack:
+  summary: Host execution behavior appears to have transitioned into persistence establishment.
+  techniques:
+    - T1059
+    - T1543
+    - T1098
+    - T1053.003
+  tags:
+    - execution
+    - persistence
+response:
+  summary: Treat this as durable compromise behavior and inspect what artifact or service was changed.
+  recommendations:
+    - Review changed systemd, cron, and SSH authorization paths for malicious modifications.
+    - Preserve process lineage and file timestamps before containment actions.
+    - Search for additional persistence on the same host and nearby identities.
