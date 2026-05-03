@@ -67,8 +67,88 @@ class CorrelationIncidentOut(BaseModel):
 
     sample_alerts: List[CorrelationAlertRef] = Field(default_factory=list)
 
+    # Populated after persistence
+    db_id: Optional[int] = None
+    status: str = "open"
+
 
 class CorrelationRunOut(BaseModel):
     rules_evaluated: int
     alerts_scanned: int
     incidents: List[CorrelationIncidentOut] = Field(default_factory=list)
+
+
+# Durable incident schemas
+
+class CorrelationEvidenceOut(BaseModel):
+    id: int
+    incident_id: int
+    alert_id: Optional[int] = None
+    net_event_id: Optional[int] = None
+    evidence_type: str
+    rule_id: Optional[str] = None
+    stage: Optional[str] = None
+    timestamp: datetime
+    src_ip: Optional[str] = None
+    dst_ip: Optional[str] = None
+    dst_port: Optional[int] = None
+    details: Dict = Field(default_factory=dict)
+
+    class Config:
+        orm_mode = True
+
+
+class CorrelationIncidentListItemOut(BaseModel):
+    id: int
+    correlation_rule_id: Optional[int] = None
+    correlation_rule_name: str
+    status: str
+    severity: str
+    risk_score: Optional[int] = None
+    confidence: Optional[int] = None
+    entity_type: Optional[str] = None
+    entity_value: Optional[str] = None
+    group_by: str
+    group_value: str
+    dedup_key: str
+    started_at: datetime
+    last_seen_at: datetime
+    closed_at: Optional[datetime] = None
+    alert_count: int
+    unique_rules: List[str] = Field(default_factory=list)
+    stage_hits: Dict[str, int] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class CorrelationIncidentDetailOut(CorrelationIncidentListItemOut):
+    summary: Optional[str] = None
+    context: Dict = Field(default_factory=dict)
+    evidence: List[CorrelationEvidenceOut] = Field(default_factory=list)
+
+    class Config:
+        orm_mode = True
+
+
+class CorrelationIncidentStatusIn(BaseModel):
+    status: str = Field(..., description="open | triaged | closed | suppressed")
+    summary: Optional[str] = Field(default=None, max_length=2000)
+
+
+class CorrelationRuleRunOut(BaseModel):
+    id: int
+    correlation_rule_id: Optional[int] = None
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    status: str
+    scanned_alerts: int
+    incidents_created: int
+    incidents_updated: int
+    error: Optional[str] = None
+    context: Dict = Field(default_factory=dict)
+
+    class Config:
+        orm_mode = True
