@@ -30,7 +30,7 @@ def load_rules(
         with_source=with_source,
         rules_dir=rules_dir,
         apply_env_filters=apply_env_filters,
-        include_non_runtime=False,
+        include_non_runtime=True,
     )
 
 
