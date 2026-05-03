@@ -1,0 +1,126 @@
+schema_version: 2
+pack: lab
+category: v2_lab
+pack_version: 1
+maturity: experimental
+environments: ["dev", "lab"]
+
+rules:
+  - schema_version: 2
+    id: v2_lab_ssh_threshold_v1
+    name: "V2 Lab: SSH auth threshold"
+    description: "High volume of SSH auth events from a single source (v2 schema demo)."
+    enabled: false
+    status: disabled
+    maturity: experimental
+    severity: medium
+    confidence: 70
+    logsource:
+      source: ssh_auth
+      event_type: ssh_auth
+    attack:
+      tactic: credential_access
+      technique_id: T1110.001
+      technique: "Brute Force: Password Guessing"
+      confidence: 70
+    detection:
+      selection:
+        event.type: ssh_auth
+        destination.port: 22
+      condition: selection
+    aggregation:
+      type: threshold
+      window: 5m
+      group_by:
+        - source.ip
+        - destination.ip
+      condition:
+        operator: ">="
+        value: 20
+      min_events: 20
+    suppression:
+      cooldown: 15m
+      rules: []
+    tuning: {}
+    response:
+      playbook: Investigate the source IP for repeated SSH activity.
+
+  - schema_version: 2
+    id: v2_lab_port_scan_cardinality_v1
+    name: "V2 Lab: Port scan cardinality"
+    description: "Single source probing many distinct destination ports (v2 schema demo)."
+    enabled: false
+    status: disabled
+    maturity: experimental
+    severity: medium
+    confidence: 65
+    logsource:
+      source: network
+      event_type: scan_probe
+    attack:
+      tactic: discovery
+      technique_id: T1046
+      technique: "Network Service Scanning"
+      confidence: 65
+    detection:
+      selection:
+        event.type: scan_probe
+      condition: selection
+    aggregation:
+      type: cardinality
+      window: 10m
+      group_by:
+        - source.ip
+        - destination.ip
+      field: destination.port
+      condition:
+        operator: ">="
+        value: 15
+      min_events: 30
+    suppression:
+      cooldown: 30m
+      rules: []
+    tuning: {}
+
+  - schema_version: 2
+    id: v2_lab_lateral_multi_cardinality_v1
+    name: "V2 Lab: Lateral movement multi-cardinality"
+    description: "Source combines many distinct targets and ports for lateral movement (v2 schema demo)."
+    enabled: false
+    status: disabled
+    maturity: experimental
+    severity: high
+    confidence: 72
+    logsource:
+      source: network
+      event_type: lateral_conn
+    attack:
+      tactic: lateral_movement
+      technique_id: T1021
+      technique: "Remote Services"
+      confidence: 72
+    detection:
+      selection:
+        event.type: lateral_conn
+        destination.port|in:
+          - 22
+          - 445
+          - 3389
+      condition: selection
+    aggregation:
+      type: multi_cardinality
+      window: 10m
+      group_by:
+        - source.ip
+      min_events: 20
+      distinct_conditions:
+        - field: destination.ip
+          operator: ">="
+          value: 5
+        - field: destination.port
+          operator: ">="
+          value: 2
+    suppression:
+      cooldown: 30m
+      rules: []
+    tuning: {}

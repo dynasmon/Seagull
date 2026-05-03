@@ -370,7 +370,7 @@ def test_duplicate_rule_ids_are_reported_for_cross_version_mix(tmp_path: Path) -
         )
 
 
-def test_worker_loader_remains_backward_compatible_and_skips_v2_runtime(tmp_path: Path) -> None:
+def test_worker_loader_includes_v1_and_v2_rules(tmp_path: Path) -> None:
     _write_v2_rule(
         tmp_path / "packs" / "network" / "mixed_runtime.yml",
         [
@@ -386,17 +386,22 @@ def test_worker_loader_remains_backward_compatible_and_skips_v2_runtime(tmp_path
             "  - schema_version: 2",
             "    id: ssh_count_v2",
             "    name: SSH Count V2",
-            "    description: Should not enter the current runtime path.",
+            "    description: V2 rule routed through the v2 compiler at runtime.",
             "    enabled: true",
-            "    status: draft",
+            "    status: active",
             "    maturity: stable",
             "    severity: low",
+            "    logsource:",
+            "      event_type: ssh_auth",
             "    detection:",
             "      selection:",
             "        event.type: ssh_auth",
             "      condition: selection",
             "    aggregation:",
             "      type: threshold",
+            "      window: 5m",
+            "      group_by: [source.ip]",
+            "      condition: {operator: \">=\", value: 10}",
             "    suppression: {}",
             "    tuning: {}",
             "    response: {}",
@@ -418,9 +423,13 @@ def test_worker_loader_remains_backward_compatible_and_skips_v2_runtime(tmp_path
         apply_env_filters=False,
     )
 
-    assert {rule["id"] for rule in feature_rules} == {"ssh_count_v1", "ssh_count_v2"}
-    assert [rule["id"] for rule in worker_rules] == ["ssh_count_v1"]
-    assert all(int(rule["schema_version"]) == 1 for rule in worker_rules)
+    feature_ids = {rule["id"] for rule in feature_rules}
+    worker_ids = {rule["id"] for rule in worker_rules}
+    assert feature_ids == {"ssh_count_v1", "ssh_count_v2"}
+    # The worker loader now includes both v1 and v2 rules; v2 is executed via the v2 compiler.
+    assert worker_ids == {"ssh_count_v1", "ssh_count_v2"}
+    schema_versions = {int(rule["schema_version"]) for rule in worker_rules}
+    assert schema_versions == {1, 2}
 
 
 def test_existing_rules_still_load_successfully_with_validation_helper() -> None:
