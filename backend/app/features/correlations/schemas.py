@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, conint
 
 
 class CorrelationStage(BaseModel):
+    id: Optional[str] = Field(default=None, min_length=1, max_length=64)
     name: str = Field(..., min_length=1, max_length=64)
     patterns: List[str] = Field(default_factory=list)
+    include_patterns: List[str] = Field(default_factory=list)
+    exclude_patterns: List[str] = Field(default_factory=list)
     min_count: conint(ge=1, le=100000) = 1
+    after: Optional[str] = Field(default=None, max_length=64)
+    within_seconds: Optional[conint(ge=1, le=7 * 24 * 3600)] = None
+    required: bool = True
+    maxspan_seconds: Optional[conint(ge=1, le=7 * 24 * 3600)] = None
 
 
 class CorrelationRuleIn(BaseModel):
@@ -27,6 +34,11 @@ class CorrelationRuleIn(BaseModel):
     include_patterns: List[str] = Field(default_factory=list)
     exclude_patterns: List[str] = Field(default_factory=list)
     stages: List[CorrelationStage] = Field(default_factory=list)
+    entity: Optional[Dict[str, Any]] = None
+    strategy_config: Optional[Dict[str, Any]] = None
+    risk_config: Optional[Dict[str, Any]] = None
+    evidence_config: Optional[Dict[str, Any]] = None
+    lifecycle_config: Optional[Dict[str, Any]] = None
 
 
 class CorrelationRuleOut(CorrelationRuleIn):
@@ -49,6 +61,19 @@ class CorrelationAlertRef(BaseModel):
     description: str
 
 
+class CorrelationEvidenceMatch(BaseModel):
+    evidence_type: str
+    timestamp: datetime
+    alert_id: Optional[int] = None
+    net_event_id: Optional[int] = None
+    rule_id: Optional[str] = None
+    stage: Optional[str] = None
+    src_ip: Optional[str] = None
+    dst_ip: Optional[str] = None
+    dst_port: Optional[int] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
 class CorrelationIncidentOut(BaseModel):
     id: str
     correlation_rule_id: int
@@ -57,6 +82,8 @@ class CorrelationIncidentOut(BaseModel):
 
     group_by: str
     group_value: str
+    entity_type: Optional[str] = None
+    entity_value: Optional[str] = None
 
     started_at: datetime
     ended_at: datetime
@@ -64,8 +91,13 @@ class CorrelationIncidentOut(BaseModel):
     alert_count: int
     unique_rules: List[str] = Field(default_factory=list)
     stage_hits: Dict[str, int] = Field(default_factory=dict)
+    risk_score: Optional[int] = None
+    confidence: Optional[int] = None
+    summary: Optional[str] = None
+    context: Dict[str, Any] = Field(default_factory=dict)
 
     sample_alerts: List[CorrelationAlertRef] = Field(default_factory=list)
+    evidence_items: List[CorrelationEvidenceMatch] = Field(default_factory=list)
 
     # Populated after persistence
     db_id: Optional[int] = None
