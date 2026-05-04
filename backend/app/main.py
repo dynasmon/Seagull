@@ -28,6 +28,7 @@ from app.features.account.api import router as account_router
 from app.features.admin.api import router as admin_router
 from app.features.correlations.api import router as correlations_router
 from app.features.attack_chain.api import router as attack_chain_router
+from app.features.detections.api import router as detections_router
 from app.features.vuln.api import router as vuln_router
 from app.features.users.api import router as users_router
 from app.features.settings.api import router as settings_router
@@ -359,6 +360,7 @@ app.include_router(events_router)
 app.include_router(alerts_router)
 app.include_router(correlations_router)
 app.include_router(attack_chain_router)
+app.include_router(detections_router)
 app.include_router(vuln_router)
 app.include_router(users_router)
 app.include_router(settings_router)
