@@ -1,0 +1,84 @@
+schema_version: 1
+id: suspicious_exec_to_outbound_story
+name: Suspicious Execution Followed by Outbound Control Traffic
+description: Suspicious process execution behavior on a host is followed by outbound beaconing, C2-like, or anomalous egress traffic from the same host, indicating the executed payload established a command channel.
+enabled: true
+maturity: stable
+entity:
+  type: agent_id
+  field: agent_id
+maxspan_seconds: 3600
+stages:
+  - id: suspicious_execution
+    name: Suspicious Execution
+    tactic: execution
+    technique_id: T1059
+    required: true
+    min_signals: 1
+    after: null
+    within_seconds: null
+    match:
+      rule_ids:
+        - proc_remote_fetch_exec_v1
+        - proc_service_shell_child_v1
+        - proc_lolbin_exec_v1
+        - lotl_remote_fetch_pipe_shell_v1
+        - lotl_network_service_shell_spawn_chain_v1
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - exec_remote_fetch
+        - exec_service_shell
+        - exec_lolbin
+        - exec_reverse_shell
+        - sudo_remote_exec
+        - sudo_lolbin
+      event_types:
+        - proc_exec
+    score_delta: 4
+    confidence_weight: 1.0
+  - id: outbound_control
+    name: Outbound Control Traffic
+    tactic: command_and_control
+    technique_id: T1071
+    required: true
+    min_signals: 1
+    after: suspicious_execution
+    within_seconds: 3600
+    match:
+      rule_ids:
+        - beacon_suspect_heuristic_v1
+        - exfil_suspect_heuristic_v1
+        - outbound_contextual_rare_destination_v1
+        - outbound_contextual_bursty_upload_anomaly_v1
+        - tls_ja4_on_http_port_v2
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - c2
+        - exec_reverse_shell
+      event_types:
+        - beacon_suspect
+        - c2_suspect
+        - egress_anomaly
+        - exfil_suspect
+    score_delta: 7
+    confidence_weight: 1.3
+scoring:
+  story_match_bonus: 9
+  max_story_score: 20
+attack:
+  summary: Execution behavior consistent with payload delivery was followed by outbound network patterns consistent with command-and-control or data exfiltration on the same host.
+  techniques:
+    - T1059
+    - T1071
+    - T1048
+  tags:
+    - execution
+    - command_and_control
+    - post_exploitation
+response:
+  summary: Prioritize host containment. The combination of suspicious execution and outbound control traffic is a high-confidence indicator of active compromise.
+  recommendations:
+    - Isolate the host from outbound internet access and preserve memory and process snapshots.
+    - Identify the payload entry point by reviewing parent-child process lineage around the execution event.
+    - Inspect the outbound destination for prior contact history and check for the same destination across other enrolled assets.
+    - Hunt for persistence artifacts that the payload may have installed before the outbound channel was established.
