@@ -189,3 +189,73 @@ rules:
     condition:
       operator: ">="
       value: 12
+
+  - id: ssh_password_spray_distinct_username_v1
+    name: "SSH password spray across distinct usernames"
+    description: "One source tests many distinct usernames against one SSH target, indicating credential spraying rather than single-account brute force."
+    status: "active"
+    source: "ssh_auth"
+    maturity: "stable"
+    risk_score: 72
+    false_positives: "Automated provisioning tools iterating over managed accounts during parallel health checks or user-sync operations."
+    response: "Validate source ownership and inspect the set of targeted usernames for enumeration patterns. Block at perimeter and correlate with any subsequent accepted logins from the same IP. Raise the distinct-username threshold or add the source CIDR to the allowlist for approved management systems."
+    mitre:
+      tactic: "credential_access"
+      technique_id: "T1110.003"
+      technique: "Brute Force: Password Spraying"
+      confidence: 86
+    enabled: true
+    severity: "high"
+    type: "distinct_count"
+    window: "5m"
+    cooldown: "20m"
+    match:
+      event_type: "ssh_auth"
+      dst_port: 22
+      extra_source: "auth.log"
+      extra_action_in: ["failed_password", "invalid_user"]
+      extra_src_port_gte: 1024
+    group_by: ["src_ip", "dst_ip"]
+    distinct_field: "ssh_username"
+    min_events: 10
+    condition:
+      operator: ">="
+      value: 5
+    tuning:
+      allowlist:
+        src_cidrs: []
+        src_ips: []
+
+  - id: ssh_accepted_login_signal_v1
+    name: "SSH accepted login from external source"
+    description: "SSH authentication accepted from a high-port ephemeral source. Low-severity observability signal designed to surface successful logins for correlation with prior brute-force or spray detections from the same IP."
+    status: "active"
+    source: "ssh_auth"
+    maturity: "stable"
+    risk_score: 25
+    false_positives: "All legitimate interactive and automation logins from approved remote management hosts. Expected to fire frequently on internet-exposed bastion hosts."
+    response: "Check for recent brute-force or spray alerts from the same source IP in the preceding 30 minutes. If prior credential-guessing activity is present, treat the login as a likely compromise and escalate. Add known management source CIDRs to the allowlist to reduce signal volume."
+    mitre:
+      tactic: "initial_access"
+      technique_id: "T1078"
+      technique: "Valid Accounts"
+      confidence: 55
+    enabled: true
+    severity: "low"
+    type: "aggregate_count"
+    window: "5m"
+    cooldown: "30m"
+    match:
+      event_type: "ssh_auth"
+      dst_port: 22
+      extra_action: "accepted"
+      extra_src_port_gte: 1024
+    group_by: ["src_ip", "dst_ip", "ssh_username"]
+    min_events: 1
+    condition:
+      operator: ">="
+      value: 1
+    tuning:
+      allowlist:
+        src_cidrs: []
+        src_ips: []
