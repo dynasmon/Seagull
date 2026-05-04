@@ -38,23 +38,39 @@ def test_detection_catalog_schema_and_attack_mapping() -> None:
         assert str(r.get("pack") or "").strip()
         assert str(r.get("category") or "").strip()
         assert str(r.get("severity") or "").strip().lower() in _SEVERITIES
-        assert str(r.get("type") or "").strip() in _RULE_TYPES
 
-        match = r.get("match")
-        assert isinstance(match, dict)
+        schema_version = int(r.get("schema_version") or 1)
 
-        group_by = r.get("group_by")
-        assert isinstance(group_by, (str, list))
+        if schema_version == 1:
+            assert str(r.get("type") or "").strip() in _RULE_TYPES, (
+                f"Rule {rid}: v1 rule must have a type in {_RULE_TYPES}"
+            )
+            match = r.get("match")
+            assert isinstance(match, dict), f"Rule {rid}: v1 rule must have a match dict"
+            group_by = r.get("group_by")
+            assert isinstance(group_by, (str, list)), f"Rule {rid}: v1 rule must have group_by"
 
-        mitre = r.get("mitre")
-        assert isinstance(mitre, dict)
-        tactic = str(mitre.get("tactic") or "").strip().lower()
-        technique_id = str(mitre.get("technique_id") or "").strip()
-        confidence = int(mitre.get("confidence", 0))
-
-        assert tactic in TACTIC_LABELS
-        assert _TECHNIQUE_ID_RE.match(technique_id)
-        assert 0 <= confidence <= 100
+            mitre = r.get("mitre")
+            if mitre is not None:
+                assert isinstance(mitre, dict), f"Rule {rid}: mitre must be a dict"
+                tactic = str(mitre.get("tactic") or "").strip().lower()
+                technique_id = str(mitre.get("technique_id") or "").strip()
+                confidence = int(mitre.get("confidence", 0))
+                assert tactic in TACTIC_LABELS, f"Rule {rid}: unknown tactic '{tactic}'"
+                assert _TECHNIQUE_ID_RE.match(technique_id), (
+                    f"Rule {rid}: invalid technique_id '{technique_id}'"
+                )
+                assert 0 <= confidence <= 100, f"Rule {rid}: confidence out of range"
+        else:
+            # v2 rules use 'attack' instead of 'mitre'
+            attack = r.get("attack")
+            if attack is not None:
+                assert isinstance(attack, dict), f"Rule {rid}: attack must be a dict"
+                tactic = str(attack.get("tactic") or "").strip().lower()
+                if tactic:
+                    assert tactic in TACTIC_LABELS, f"Rule {rid}: unknown tactic '{tactic}'"
+            agg = r.get("aggregation")
+            assert isinstance(agg, dict), f"Rule {rid}: v2 rule must have aggregation dict"
 
 
 def test_detection_catalog_pack_environment_filtering() -> None:

@@ -11,14 +11,30 @@ from app.workers.intelligence.rules.loader import load_rules
 _ALLOWED_EVENT_FIELDS = {
     "agent_id",
     "event_type",
+    "timestamp",
     "src_ip",
+    "src_port",
     "dst_ip",
     "dst_port",
-    "src_port",
     "proto",
     "bytes",
     "app_proto",
+    "app_proto_reason",
+    "app_proto_conf_band",
+    "dns_qname",
+    "http_host",
+    "http_method",
+    "tls_sni",
+    "tls_alpn_first",
+    "ja3",
+    "ja4",
+    "ja4_ptype",
+    "ssh_action",
+    "ssh_username",
+    "proc_pid",
+    "proc_ppid",
     "proc_name",
+    "proc_exe",
     "proc_parent_name",
     "fim_path",
     "fim_category",
@@ -170,15 +186,42 @@ def _hot_fields(event_type: str, extra: Dict[str, Any]) -> Dict[str, Any]:
         extra = {}
     out: Dict[str, Any] = {
         "app_proto": extra.get("app_proto"),
+        "app_proto_reason": extra.get("app_proto_reason"),
+        "app_proto_conf_band": extra.get("app_proto_conf_band"),
+        "dns_qname": str(extra.get("dns_qname") or "").lower() or None,
+        "http_host": str(extra.get("http_host") or "").lower() or None,
+        "http_method": str(extra.get("http_method") or "").upper() or None,
+        "tls_sni": str(extra.get("tls_sni") or "").lower() or None,
+        "tls_alpn_first": str(extra.get("tls_alpn_first") or "").lower() or None,
+        "ja3": extra.get("ja3"),
+        "ja4": extra.get("ja4"),
+        "ja4_ptype": extra.get("ja4_ptype"),
+        "ssh_action": None,
+        "ssh_username": None,
+        "proc_pid": None,
+        "proc_ppid": None,
         "proc_name": None,
+        "proc_exe": None,
         "proc_parent_name": None,
         "fim_path": None,
         "fim_category": None,
         "heuristic_name": None,
         "heuristic_confidence": None,
     }
+    if event_type == "ssh_auth":
+        out["ssh_action"] = extra.get("action")
+        out["ssh_username"] = extra.get("username")
     if event_type == "proc_exec":
         out["proc_name"] = extra.get("exe_name") or extra.get("comm") or extra.get("binary")
+        out["proc_exe"] = extra.get("exe_path")
+        try:
+            out["proc_pid"] = int(extra.get("pid"))
+        except Exception:
+            pass
+        try:
+            out["proc_ppid"] = int(extra.get("ppid"))
+        except Exception:
+            pass
         out["proc_parent_name"] = extra.get("parent_exe_name") or extra.get("parent_comm")
     if event_type in {"fim_change", "persistence_systemd", "persistence_cron", "ssh_key_change"}:
         out["fim_path"] = extra.get("path")
