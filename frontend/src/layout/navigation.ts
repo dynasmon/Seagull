@@ -178,8 +178,19 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       subtitle: "Rule definitions and signal-composition controls.",
       breadcrumbs: [
         { label: "Detection & Investigation" },
-        { label: "Correlations", to: "/correlations/findings" },
+        { label: "Correlations", to: "/correlations/incidents" },
         { label: "Rules", to: "/correlations/rules" },
+      ],
+    },
+  },
+  {
+    path: "/correlations/incidents",
+    meta: {
+      title: "Correlation Incidents",
+      subtitle: "Durable incident queue with lifecycle, evidence, and MITRE context.",
+      breadcrumbs: [
+        { label: "Detection & Investigation" },
+        { label: "Correlations", to: "/correlations/incidents" },
       ],
     },
   },
@@ -187,10 +198,10 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
     path: "/correlations",
     meta: {
       title: "Correlations",
-      subtitle: "Linked findings across detections and telemetry sources.",
+      subtitle: "Durable incident investigations across detections and telemetry sources.",
       breadcrumbs: [
         { label: "Detection & Investigation" },
-        { label: "Correlations", to: "/correlations/findings" },
+        { label: "Correlations", to: "/correlations/incidents" },
       ],
     },
   },

@@ -6,7 +6,7 @@ const FLOW_STEPS = [
   { label: "Alerts Queue", to: "/alerts/queue" },
   { label: "Alert Rules", to: "/alerts/rules" },
   { label: "Attack Chains", to: "/attack-chain" },
-  { label: "Correlation Findings", to: "/correlations/findings" },
+  { label: "Correlation Incidents", to: "/correlations/incidents" },
   { label: "Correlation Rules", to: "/correlations/rules" },
   { label: "Investigations", to: "/investigations" },
 ];
