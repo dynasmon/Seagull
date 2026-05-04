@@ -159,13 +159,50 @@ rules:
       operator: ">="
       value: 1
 
+  - id: proc_lolbin_exec_v1
+    name: "LOLBin pattern process execution"
+    description: "Process execution classified by the agent as a living-off-the-land binary pattern. The procexec collector identifies this independently of the command-line content, catching cases where cmdline is truncated or obfuscated."
+    status: "active"
+    source: "proc_exec"
+    maturity: "stable"
+    risk_score: 55
+    false_positives: "System management scripts legitimately invoking binaries such as curl, wget, nc, or python in expected automation contexts on known hosts."
+    response: "Inspect the full process command line, parent lineage, and any outbound network activity from the same agent around the same time. If the parent is a non-interactive service or the destination is external, escalate. Add the agent_id to the allowlist for known automation hosts."
+    mitre:
+      tactic: "execution"
+      technique_id: "T1218"
+      technique: "System Binary Proxy Execution"
+      confidence: 72
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "8m"
+    cooldown: "20m"
+    match:
+      event_type: "proc_exec"
+      extra_exec_pattern_in: ["lolbin"]
+    group_by: ["agent_id", "proc_name", "proc_parent_name"]
+    min_events: 2
+    condition:
+      operator: ">="
+      value: 2
+    tuning:
+      allowlist:
+        agent_ids: []
+      threshold_scopes:
+        - name: "prod-strict"
+          when:
+            environments: ["prod", "production"]
+          min_events: 1
+          condition: {operator: ">=", value: 1}
+
   - id: beacon_suspect_heuristic_v1
     name: "Beaconing heuristic signal"
-    description: "Derived beaconing signal from periodic low-jitter outbound intervals."
+    description: "Derived beaconing signal from periodic low-jitter outbound intervals. Fires on beacon_suspect events where the heuristic engine confirmed a periodic outbound pattern with sufficient confidence."
     status: "active"
     source: "beacon_suspect"
-    false_positives: "Expected health-check traffic to managed control endpoints."
-    response: "Review destination profile, process lineage, and historical interval pattern."
+    false_positives: "Expected health-check traffic to managed control endpoints with fixed polling intervals."
+    response: "Review destination profile, process lineage, and historical interval pattern. Check heuristic_confidence and interval_mean_s in event details for tune-ability."
     mitre:
       tactic: "command_and_control"
       technique_id: "T1071"
@@ -178,6 +215,7 @@ rules:
     cooldown: "20m"
     match:
       event_type: "beacon_suspect"
+      heuristic_name: "beacon_periodic_outbound"
       extra_confidence_gte: 65
     group_by: ["agent_id", "dst_ip", "dst_port"]
     min_events: 1

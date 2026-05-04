@@ -187,3 +187,49 @@ rules:
     condition:
       operator: ">="
       value: 1
+
+  - schema_version: 2
+    id: tls_ja4_on_http_port_v2
+    name: "TLS ClientHello fingerprint on cleartext HTTP ports"
+    description: "A JA4 TLS fingerprint was captured on destination port 80, 8080, or 8000. These ports normally carry unencrypted HTTP; a TLS ClientHello here indicates deliberate evasion or C2 tunneling over a port that perimeter controls may not decrypt."
+    enabled: true
+    status: active
+    maturity: stable
+    severity: high
+    risk_score: 68
+    confidence: 84
+    logsource:
+      source: l7_flow
+      event_type: l7_flow
+    attack:
+      tactic: command_and_control
+      technique_id: T1071.001
+      technique: "Application Layer Protocol: Web Protocols"
+      confidence: 84
+    detection:
+      selection:
+        event.type: l7_flow
+        tls.ja4|exists: true
+        destination.port|in:
+          - 80
+          - 8080
+          - 8000
+      condition: selection
+    aggregation:
+      type: threshold
+      window: 10m
+      group_by:
+        - agent.id
+        - destination.ip
+        - destination.port
+      condition:
+        operator: ">="
+        value: 2
+      min_events: 2
+    suppression:
+      cooldown: 20m
+      rules: []
+    tuning: {}
+    response:
+      playbook: "Inspect the JA4 fingerprint and destination profile. A TLS ClientHello on port 80 is inconsistent with normal HTTP traffic and may indicate C2 tunneling or deliberate HTTPS-to-HTTP downgrade evasion. Correlate with recent process execution and persistence signals on the same agent."
+      false_positives: "Service mesh or reverse proxy configurations deliberately using mTLS on port 80 for internal traffic. Add the agent.id or destination.ip to allowlist if the behavior is expected and approved."
