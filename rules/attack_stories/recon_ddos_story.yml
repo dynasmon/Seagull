@@ -1,0 +1,83 @@
+schema_version: 1
+id: recon_ddos_story
+name: Reconnaissance Preceding DDoS or L7 Flood Impact
+description: Active scan or reconnaissance activity against a target is followed by a DDoS or L7 flood attack against the same destination, suggesting intentional target selection.
+enabled: true
+maturity: stable
+entity:
+  type: target_ip
+  field: dst_ip
+maxspan_seconds: 7200
+stages:
+  - id: recon
+    name: Reconnaissance and Scanning
+    tactic: discovery
+    technique_id: T1046
+    required: true
+    min_signals: 1
+    after: null
+    within_seconds: null
+    match:
+      rule_ids:
+        - port_scan_pcap_v1
+        - horizontal_scan_pcap_v1
+        - horizontal_scan_ssh_pcap_v1
+        - tcp_vertical_port_scan_v3
+        - udp_vertical_port_scan_v2
+        - admin_surface_horizontal_recon_v1
+        - wide_ssh_recon_v1
+        - high_rate_single_target_probe_v1
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - recon_scan
+        - recon_probe
+      event_types:
+        - scan_probe
+    score_delta: 3
+    confidence_weight: 0.9
+  - id: ddos_impact
+    name: DDoS or L7 Flood Impact
+    tactic: impact
+    technique_id: T1498
+    required: true
+    min_signals: 1
+    after: recon
+    within_seconds: 7200
+    match:
+      rule_ids:
+        - ddos_attack_high_conf_v1
+        - dos_attack_high_conf_v1
+        - l7_http_flood_v1
+        - l7_tls_handshake_flood_v1
+        - ddos_distributed_high_cardinality_v1
+        - ddos_udp_amp_high_conf_v1
+        - ddos_tcp_syn_high_conf_v1
+      correlation_rule_ids: []
+      attack_step_kinds:
+        - ddos
+        - dos
+        - l7_flood
+      event_types:
+        - dos_attack
+    score_delta: 7
+    confidence_weight: 1.2
+scoring:
+  story_match_bonus: 7
+  max_story_score: 17
+attack:
+  summary: The target was actively scanned or probed before a volumetric or application-layer flood attack began, suggesting the attacker verified the target was reachable before launching the campaign.
+  techniques:
+    - T1046
+    - T1498
+    - T1499
+  tags:
+    - recon
+    - ddos
+    - impact
+response:
+  summary: Treat the target as deliberately selected. Recon context adds confidence to the DDoS detection and may indicate a more sophisticated threat actor.
+  recommendations:
+    - Cross-reference the scan source IP with the DDoS source set to determine if the same actor controlled both phases.
+    - Activate upstream scrubbing or null-routing for the targeted IP if the attack is ongoing.
+    - Review whether the scan phase exposed specific open ports or services that were subsequently targeted by the flood.
+    - Retain scan and DDoS pcap samples for threat intelligence reporting.
