@@ -18,6 +18,7 @@ const loadAlertsQueuePage = () => import("@/features/alerts/views/queue");
 const loadAlertsRulesPage = () => import("@/features/alerts/views/rules");
 
 const loadCorrelationsLayout = () => import("@/features/correlations/page");
+const loadCorrelationIncidentsPage = () => import("@/features/correlations/views/incidents");
 const loadCorrelationFindingsPage = () => import("@/features/correlations/views/findings");
 const loadCorrelationRulesPage = () => import("@/features/correlations/views/rules");
 
@@ -56,6 +57,7 @@ const AlertsQueuePage = lazy(loadAlertsQueuePage);
 const AlertsRulesPage = lazy(loadAlertsRulesPage);
 
 const CorrelationsLayout = lazy(loadCorrelationsLayout);
+const CorrelationIncidentsPage = lazy(loadCorrelationIncidentsPage);
 const CorrelationFindingsPage = lazy(loadCorrelationFindingsPage);
 const CorrelationRulesPage = lazy(loadCorrelationRulesPage);
 
@@ -157,7 +159,8 @@ export function Routes() {
             </Route>
 
             <Route path="/correlations" element={<CorrelationsLayout />}>
-              <Route index element={<Navigate to="/correlations/findings" replace />} />
+              <Route index element={<Navigate to="/correlations/incidents" replace />} />
+              <Route path="incidents" element={<CorrelationIncidentsPage />} />
               <Route path="findings" element={<CorrelationFindingsPage />} />
               <Route path="rules" element={<CorrelationRulesPage />} />
             </Route>

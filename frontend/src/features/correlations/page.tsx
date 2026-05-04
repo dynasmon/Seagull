@@ -9,11 +9,9 @@ export default function CorrelationsLayout() {
       <PageHeader
         title="Correlations"
         breadcrumb={["Detection"]}
-        description={
-          "Correlate multiple low-level alerts into higher-level incidents (multi-step attack analysis)."
-        }
+        description="Durable incident investigations built from related detections, evidence, and lifecycle state."
         tabs={[
-          { label: "Findings", to: "/correlations/findings" },
+          { label: "Incidents", to: "/correlations/incidents" },
           { label: "Rules", to: "/correlations/rules" },
         ]}
       />
