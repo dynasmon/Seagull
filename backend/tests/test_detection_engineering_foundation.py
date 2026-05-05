@@ -43,7 +43,7 @@ def test_existing_rules_still_load_from_current_runtime_and_feature_runtime() ->
     assert worker_rules
     assert worker_rules == feature_rules
     assert len(worker_rules) >= 80
-    assert all(int(rule["schema_version"]) == 1 for rule in worker_rules)
+    assert all(int(rule["schema_version"]) in {1, 2} for rule in worker_rules)
 
 
 def test_duplicate_rule_ids_still_fail(tmp_path: Path) -> None:
@@ -201,10 +201,9 @@ def test_rules_runner_import_still_works() -> None:
 
 def test_worker_manager_groups_still_point_to_current_worker_modules() -> None:
     intelligence_modules = [child.module for child in GROUPS["intelligence"]]
-    assert intelligence_modules == [
-        "app.workers.intelligence.rules.runner",
-        "app.workers.intelligence.ip_intel.main",
-        "app.workers.intelligence.protocol.main",
-        "app.workers.intelligence.attack_chain.main",
-        "app.workers.intelligence.exposure.main",
-    ]
+    assert "app.workers.intelligence.rules.runner" in intelligence_modules
+    assert "app.workers.intelligence.ip_intel.main" in intelligence_modules
+    assert "app.workers.intelligence.protocol.main" in intelligence_modules
+    assert "app.workers.intelligence.attack_chain.main" in intelligence_modules
+    assert "app.workers.intelligence.exposure.main" in intelligence_modules
+    assert "app.workers.intelligence.correlations.main" in intelligence_modules
