@@ -109,6 +109,12 @@ GROUPS: dict[str, tuple[ChildSpec, ...]] = {
             enabled_env="SEAGULL_EXPOSURE_ENABLED",
             enabled_default=True,
         ),
+        ChildSpec(
+            name="correlations",
+            module="app.workers.intelligence.correlations.main",
+            enabled_env="SEAGULL_CORRELATIONS_WORKER_ENABLED",
+            enabled_default=True,
+        ),
     ),
     "maintenance": (
         ChildSpec(name="audit-retention", module="app.workers.maintenance.audit_retention"),
