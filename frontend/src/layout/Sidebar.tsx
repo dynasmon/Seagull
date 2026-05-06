@@ -210,9 +210,11 @@ export default function Sidebar({
       >
         <div className={cx("border-b border-border/80 px-4 py-3", condensed && "px-2.5 py-3")}>
           <div className="flex items-center gap-2">
-            <div className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-sky-500 to-sky-600 text-[11px] font-bold tracking-[-0.03em] text-white shadow-[0_10px_22px_rgb(14_165_233/0.32)]">
-              SG
-            </div>
+            <img
+              src="/icon/seagull-icon.png"
+              alt="Seagull"
+              className="h-8 w-8 shrink-0 rounded-lg object-cover shadow-[0_6px_18px_rgb(14_165_233/0.30)] ring-1 ring-white/10"
+            />
             {!condensed ? (
               <div className="min-w-0">
                 <div className="truncate text-[12px] font-semibold text-foreground">Seagull</div>

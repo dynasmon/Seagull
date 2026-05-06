@@ -73,9 +73,16 @@ export default function LoginPage() {
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         <div className="border border-border/60 bg-card/10 backdrop-blur-md">
-          <div className="border-b border-border/60 bg-muted/10 px-5 py-4">
-            <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Seagull Portal</div>
-            <div className="text-lg font-semibold mt-1">Sign in</div>
+          <div className="border-b border-border/60 bg-muted/10 px-5 py-6 flex flex-col items-center gap-4">
+            <img
+              src="/icon/seagull-icon.png"
+              alt="Seagull"
+              className="h-16 w-16 rounded-2xl object-cover shadow-[0_8px_32px_rgb(14_165_233/0.35)] ring-1 ring-white/10"
+            />
+            <div className="text-center">
+              <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Seagull Portal</div>
+              <div className="text-lg font-semibold mt-1">Sign in</div>
+            </div>
           </div>
 
           <div className="p-5 space-y-4">
