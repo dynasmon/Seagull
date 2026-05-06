@@ -10,7 +10,7 @@ os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 from app.features.events import service
 from app.features.events.models import NetEventModel
 from app.features.events.schemas import NetEventDB
-from app.workers import es_indexer
+from app.workers.indexing import elasticsearch as es_indexer
 
 
 def _utc_now() -> datetime:
