@@ -5,6 +5,7 @@ def load_all_models() -> None:
     # Feature-owned models
     from app.features.agents import models as _agents  # noqa: F401
     from app.features.alerts import models as _alerts  # noqa: F401
+    from app.features.detections import models as _detections  # noqa: F401
     from app.features.attack_chain import models as _attack_chain  # noqa: F401
     from app.features.correlations import models as _correlations  # noqa: F401
     from app.features.events import models as _events  # noqa: F401
