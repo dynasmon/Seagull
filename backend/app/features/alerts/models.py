@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, Text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
@@ -27,6 +27,19 @@ class AlertModel(Base):
 
     description = Column(String(255), nullable=False)
     details = Column(JSONB, nullable=False, default=dict)
+
+    # SOC triage lifecycle
+    status = Column(String(16), nullable=False, default="open", index=True)
+    disposition = Column(String(32), nullable=True)
+    priority = Column(Integer, nullable=True)
+    assigned_to = Column(String(64), nullable=True)
+    investigation_id = Column(Integer, nullable=True, index=True)
+    acknowledged_at = Column(DateTime, nullable=True)
+    acknowledged_by = Column(String(64), nullable=True)
+    closed_at = Column(DateTime, nullable=True)
+    closed_by = Column(String(64), nullable=True)
+    triage_notes = Column(Text, nullable=True)
+    risk_score = Column(Integer, nullable=True)
 
 from datetime import datetime
 

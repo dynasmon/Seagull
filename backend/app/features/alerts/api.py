@@ -8,10 +8,11 @@ from sqlalchemy.orm import Session
 from app.core.db.session import managed_session
 from app.core.db import get_db
 from app.features.auth.session import PortalPrincipal, require_admin
-from app.features.alerts.schemas import AlertOut
+from app.features.alerts.schemas import AlertOut, AlertTriageIn
 from app.features.alerts.schemas import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn
 from app.features.alerts.service import (
     delete_alert_rule_override,
+    get_alert,
     get_alert_rule_history,
     get_recent_alerts,
     list_alert_rules,
@@ -23,6 +24,7 @@ from app.features.alerts.service import (
     run_new_hosts_rule,
     run_port_scan_rule,
     run_ssh_bruteforce_rule,
+    triage_alert,
 )
 from app.shared.schemas import CursorPage
 from app.shared.taxonomy.schemas import MitreCoverageResponse
@@ -44,6 +46,7 @@ def list_alerts_endpoint(
     tactic: Optional[str] = Query(None, min_length=1, max_length=64, description="Optional MITRE tactic filter"),
     technique_id: Optional[str] = Query(None, min_length=1, max_length=32, description="Optional MITRE technique id filter"),
     min_confidence: Optional[int] = Query(None, ge=0, le=100, description="Optional minimum confidence (0..100)"),
+    status_filter: Optional[str] = Query(None, alias="status", min_length=1, max_length=16, description="Optional lifecycle status filter"),
     db: Session = Depends(get_db),
 ):
     with managed_session(db) as db_session:
@@ -56,6 +59,7 @@ def list_alerts_endpoint(
             tactic=tactic,
             technique_id=technique_id,
             min_confidence=min_confidence,
+            status=status_filter,
         )
 
 
@@ -202,3 +206,28 @@ def get_alert_rule_history_endpoint(
 ):
     with managed_session(db) as db_session:
         return get_alert_rule_history(db_session, rule_id=rule_id, limit=limit)
+
+
+@router.get("/{alert_id}", response_model=AlertOut)
+def get_alert_endpoint(
+    alert_id: int,
+    db: Session = Depends(get_db),
+):
+    with managed_session(db) as db_session:
+        return get_alert(db_session, alert_id)
+
+
+@router.patch("/{alert_id}/triage", response_model=AlertOut)
+def triage_alert_endpoint(
+    alert_id: int,
+    body: AlertTriageIn,
+    admin: PortalPrincipal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    with managed_session(db) as db_session:
+        return triage_alert(
+            db_session,
+            alert_id=alert_id,
+            body=body,
+            actor_username=admin.username,
+        )

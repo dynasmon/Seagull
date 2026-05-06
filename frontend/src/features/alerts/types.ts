@@ -1,5 +1,15 @@
 export type AlertSeverity = "critical" | "high" | "medium" | "low" | "unknown";
 
+export type AlertStatus = "open" | "acknowledged" | "investigating" | "closed";
+
+export type AlertDisposition =
+  | "true_positive"
+  | "false_positive"
+  | "benign"
+  | "duplicate"
+  | "expected_activity"
+  | "unknown";
+
 export type Alert = {
   id: number;
   rule_id: string;
@@ -14,6 +24,27 @@ export type Alert = {
   description: string;
   details: Record<string, any> | null;
   created_at: string;
+  status: AlertStatus;
+  disposition?: AlertDisposition | null;
+  priority?: number | null;
+  assigned_to?: string | null;
+  investigation_id?: number | null;
+  acknowledged_at?: string | null;
+  acknowledged_by?: string | null;
+  closed_at?: string | null;
+  closed_by?: string | null;
+  triage_notes?: string | null;
+  risk_score?: number | null;
+};
+
+export type AlertTriageIn = {
+  status?: AlertStatus | null;
+  disposition?: AlertDisposition | null;
+  priority?: number | null;
+  assigned_to?: string | null;
+  investigation_id?: number | null;
+  triage_notes?: string | null;
+  risk_score?: number | null;
 };
 
 export type RuleOut = {

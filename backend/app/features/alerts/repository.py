@@ -16,6 +16,10 @@ from app.features.events.models import NetEventModel
 
 # Alert queries
 
+def get_alert_by_id(db: Session, alert_id: int) -> AlertModel | None:
+    return db.get(AlertModel, alert_id)
+
+
 def list_alerts_page(
     db: Session,
     *,
@@ -25,6 +29,7 @@ def list_alerts_page(
     tactic: str | None,
     technique_id: str | None,
     min_confidence: int | None,
+    status: str | None,
     cursor_parsed: tuple[datetime, int] | None,
 ) -> list[AlertModel]:
     stmt = select(AlertModel).order_by(AlertModel.created_at.desc(), AlertModel.id.desc())
@@ -39,6 +44,8 @@ def list_alerts_page(
         stmt = stmt.where(AlertModel.mitre_technique_id == technique_id)
     if min_confidence is not None:
         stmt = stmt.where(AlertModel.confidence >= int(min_confidence))
+    if status:
+        stmt = stmt.where(AlertModel.status == status)
 
     if cursor_parsed:
         c_ts, c_id = cursor_parsed
