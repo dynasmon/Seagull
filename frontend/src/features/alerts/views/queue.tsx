@@ -33,9 +33,9 @@ import { cx } from "@/shared/lib/cx";
 import { usePortalRealtimeSubscription } from "@/shared/realtime";
 import type { PortalRealtimeEventPayloadMap } from "@/shared/realtime";
 
-import { getAlertsPage, runAllRules } from "../api";
+import { getAlertsPage, runAllRules, triageAlert } from "../api";
 import SeverityFilter from "../components/SeverityFilter";
-import type { Alert } from "../types";
+import type { Alert, AlertDisposition, AlertStatus, AlertTriageIn } from "../types";
 
 type Density = "comfortable" | "compact";
 
@@ -237,6 +237,7 @@ function buildAlertFromRealtimeDelta(
     description: String(projected?.description || "Realtime alert"),
     details: null,
     created_at: createdAt,
+    status: "open" as const,
   };
 }
 
@@ -371,8 +372,16 @@ export default function AlertsQueuePage() {
 
   const [selected, setSelected] = useState<Alert | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<"summary" | "evidence" | "raw">("summary");
+  const [drawerTab, setDrawerTab] = useState<"summary" | "evidence" | "triage" | "raw">("summary");
   const [selectedRowIds, setSelectedRowIds] = useState<Set<number>>(() => new Set());
+
+  const [triaging, setTriaging] = useState(false);
+  const [triageError, setTriageError] = useState<string | null>(null);
+  const [triageNotes, setTriageNotes] = useState("");
+  const [triageAssignedTo, setTriageAssignedTo] = useState("");
+  const [triagePriority, setTriagePriority] = useState("");
+  const [triageRiskScore, setTriageRiskScore] = useState("");
+  const [triageCloseDisposition, setTriageCloseDisposition] = useState<AlertDisposition | "">("");
 
   const [copied, setCopied] = useState(false);
 
@@ -765,6 +774,48 @@ export default function AlertsQueuePage() {
     setSelected(a);
     setDrawerTab("summary");
     setDrawerOpen(true);
+    setTriageError(null);
+    setTriageNotes(a.triage_notes ?? "");
+    setTriageAssignedTo(a.assigned_to ?? "");
+    setTriagePriority(a.priority != null ? String(a.priority) : "");
+    setTriageRiskScore(a.risk_score != null ? String(a.risk_score) : "");
+    setTriageCloseDisposition((a.disposition as AlertDisposition) ?? "");
+  }
+
+  async function handleTriage(patch: AlertTriageIn) {
+    if (!selected) return;
+    setTriaging(true);
+    setTriageError(null);
+    try {
+      const updated = await triageAlert(selected.id, patch);
+      setSelected(updated);
+      setAlerts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+      setTriageNotes(updated.triage_notes ?? "");
+      setTriageAssignedTo(updated.assigned_to ?? "");
+      setTriagePriority(updated.priority != null ? String(updated.priority) : "");
+      setTriageRiskScore(updated.risk_score != null ? String(updated.risk_score) : "");
+      setTriageCloseDisposition((updated.disposition as AlertDisposition) ?? "");
+    } catch (e: any) {
+      setTriageError(e?.message || "Triage failed");
+    } finally {
+      setTriaging(false);
+    }
+  }
+
+  function handleTriageFieldsSave() {
+    const body: AlertTriageIn = {};
+    if (triageNotes !== (selected?.triage_notes ?? "")) body.triage_notes = triageNotes || null;
+    if (triageAssignedTo !== (selected?.assigned_to ?? "")) body.assigned_to = triageAssignedTo || null;
+    const p = parseInt(triagePriority, 10);
+    if (triagePriority !== (selected?.priority != null ? String(selected.priority) : "")) {
+      body.priority = triagePriority ? (Number.isFinite(p) ? p : null) : null;
+    }
+    const rs = parseInt(triageRiskScore, 10);
+    if (triageRiskScore !== (selected?.risk_score != null ? String(selected.risk_score) : "")) {
+      body.risk_score = triageRiskScore ? (Number.isFinite(rs) ? rs : null) : null;
+    }
+    if (Object.keys(body).length === 0) return;
+    void handleTriage(body);
   }
 
   function toggleRowSelection(alertId: number, nextChecked: boolean) {
@@ -1022,9 +1073,9 @@ export default function AlertsQueuePage() {
             <InvestigationMetaStrip
               items={[
                 { label: "Severity", value: String(selected.severity || "unknown"), variant: sevVariant(String(selected.severity || "unknown")) },
+                { label: "Status", value: selected.status ?? "open" },
                 { label: "Rule", value: selected.rule_id },
                 { label: "Created", value: fmtTs(selected.created_at) },
-                { label: "Source", value: "alerts" },
                 {
                   label: "ATT&CK",
                   value:
@@ -1053,6 +1104,7 @@ export default function AlertsQueuePage() {
               tabs={[
                 { key: "summary", label: "Summary" },
                 { key: "evidence", label: "Evidence" },
+                { key: "triage", label: "Triage" },
                 { key: "raw", label: "Raw" },
               ]}
             />
@@ -1105,6 +1157,156 @@ export default function AlertsQueuePage() {
                       <JsonBlock value={block.value} maxHeight="220px" showControls={false} className="mt-2" />
                     </div>
                   ))}
+                </div>
+              </InvestigationSection>
+            ) : null}
+
+            {drawerTab === "triage" ? (
+              <InvestigationSection title="Triage" subtitle="Manage alert status, disposition, and analyst notes.">
+                <div className="space-y-5">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground w-20 shrink-0">Status</div>
+                    <span className={cx(
+                      "inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-semibold",
+                      selected.status === "open" && "bg-blue-500/15 text-blue-400",
+                      selected.status === "acknowledged" && "bg-yellow-500/15 text-yellow-400",
+                      selected.status === "investigating" && "bg-orange-500/15 text-orange-400",
+                      selected.status === "closed" && "bg-muted text-muted-foreground",
+                    )}>
+                      {selected.status ?? "open"}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {(selected.status === "open" || selected.status === "acknowledged") && (
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        disabled={triaging}
+                        onClick={() => void handleTriage({ status: "acknowledged" as AlertStatus })}
+                      >
+                        Acknowledge
+                      </Button>
+                    )}
+                    {(selected.status === "open" || selected.status === "acknowledged") && (
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        disabled={triaging}
+                        onClick={() => void handleTriage({ status: "investigating" as AlertStatus })}
+                      >
+                        Investigate
+                      </Button>
+                    )}
+                    {selected.status !== "closed" && (
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={triageCloseDisposition}
+                          onChange={(e) => setTriageCloseDisposition(e.target.value as AlertDisposition | "")}
+                          className="h-8 rounded-md border border-border/60 bg-background px-2 text-xs text-foreground"
+                          aria-label="Disposition for close"
+                        >
+                          <option value="">Select disposition…</option>
+                          <option value="true_positive">True positive</option>
+                          <option value="false_positive">False positive</option>
+                          <option value="benign">Benign</option>
+                          <option value="duplicate">Duplicate</option>
+                          <option value="expected_activity">Expected activity</option>
+                          <option value="unknown">Unknown</option>
+                        </select>
+                        <Button
+                          variant="subtle"
+                          size="sm"
+                          disabled={triaging || !triageCloseDisposition}
+                          onClick={() => void handleTriage({ status: "closed" as AlertStatus, disposition: triageCloseDisposition as AlertDisposition })}
+                        >
+                          Close
+                        </Button>
+                      </div>
+                    )}
+                    {selected.status === "closed" && (
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        disabled={triaging}
+                        onClick={() => void handleTriage({ status: "open" as AlertStatus })}
+                      >
+                        Reopen
+                      </Button>
+                    )}
+                  </div>
+
+                  {triageError && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                      {triageError}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Priority (1–4)</label>
+                      <TextInput
+                        value={triagePriority}
+                        onChange={(e) => setTriagePriority(e.target.value)}
+                        placeholder="1–4"
+                        className="h-8 w-full"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Risk score (0–100)</label>
+                      <TextInput
+                        value={triageRiskScore}
+                        onChange={(e) => setTriageRiskScore(e.target.value)}
+                        placeholder="0–100"
+                        className="h-8 w-full"
+                      />
+                    </div>
+                    <div className="space-y-1.5 col-span-2">
+                      <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Assigned to</label>
+                      <TextInput
+                        value={triageAssignedTo}
+                        onChange={(e) => setTriageAssignedTo(e.target.value)}
+                        placeholder="analyst username"
+                        className="h-8 w-full"
+                      />
+                    </div>
+                    <div className="space-y-1.5 col-span-2">
+                      <label className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Notes</label>
+                      <textarea
+                        value={triageNotes}
+                        onChange={(e) => setTriageNotes(e.target.value)}
+                        rows={4}
+                        placeholder="Analyst notes…"
+                        className="w-full rounded-md border border-border/60 bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={triaging}
+                      onClick={handleTriageFieldsSave}
+                    >
+                      {triaging ? "Saving…" : "Save fields"}
+                    </Button>
+                  </div>
+
+                  {(selected.acknowledged_at || selected.closed_at) && (
+                    <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 space-y-1">
+                      {selected.acknowledged_at && (
+                        <div className="text-xs text-muted-foreground">
+                          Acknowledged {fmtTs(selected.acknowledged_at)}{selected.acknowledged_by ? ` by ${selected.acknowledged_by}` : ""}
+                        </div>
+                      )}
+                      {selected.closed_at && (
+                        <div className="text-xs text-muted-foreground">
+                          Closed {fmtTs(selected.closed_at)}{selected.closed_by ? ` by ${selected.closed_by}` : ""}{selected.disposition ? ` · ${selected.disposition.replace(/_/g, " ")}` : ""}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </InvestigationSection>
             ) : null}

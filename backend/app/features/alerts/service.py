@@ -15,7 +15,14 @@ from app.features.alerts.models import AlertRuleOverrideModel
 from app.features.alerts.models import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
 from app.features.alerts.models import AlertRuleTuningHistoryModel, AlertRuleTuningModel
 from app.features.alerts.realtime import publish_alert_created_from_row
-from app.features.alerts.schemas import AlertOut
+from app.features.alerts.lifecycle import (
+    VALID_DISPOSITIONS,
+    VALID_STATUSES,
+    InvalidTransitionError,
+    MissingDispositionError,
+    apply_triage,
+)
+from app.features.alerts.schemas import AlertOut, AlertTriageIn
 from app.features.alerts.schemas import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn
 from app.features.alerts.rule_runtime import (
     apply_override,
@@ -134,6 +141,58 @@ def _rule_out(
     )
 
 
+def get_alert(db: Session, alert_id: int) -> AlertModel:
+    row = repository.get_alert_by_id(db, alert_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return row
+
+
+def triage_alert(
+    db: Session,
+    *,
+    alert_id: int,
+    body: AlertTriageIn,
+    actor_username: str | None,
+) -> AlertModel:
+    row = repository.get_alert_by_id(db, alert_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    if body.status is not None and body.status not in VALID_STATUSES:
+        raise HTTPException(status_code=422, detail=f"Invalid status '{body.status}'")
+    if body.disposition is not None and body.disposition not in VALID_DISPOSITIONS:
+        raise HTTPException(status_code=422, detail=f"Invalid disposition '{body.disposition}'")
+    if body.priority is not None and not (1 <= body.priority <= 4):
+        raise HTTPException(status_code=422, detail="priority must be between 1 and 4")
+    if body.risk_score is not None and not (0 <= body.risk_score <= 100):
+        raise HTTPException(status_code=422, detail="risk_score must be between 0 and 100")
+
+    fields_set = body.model_fields_set
+    try:
+        apply_triage(
+            row,
+            fields_set=fields_set,
+            status=body.status,
+            disposition=body.disposition,
+            priority=body.priority,
+            assigned_to=body.assigned_to,
+            triage_notes=body.triage_notes,
+            risk_score=body.risk_score,
+            investigation_id=body.investigation_id,
+            actor_username=actor_username,
+            now=datetime.utcnow(),
+        )
+    except InvalidTransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except MissingDispositionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    repository.commit(db)
+    repository.refresh(db, row)
+    return row
+
+
 def list_alerts(
     db: Session,
     *,
@@ -144,6 +203,7 @@ def list_alerts(
     tactic: str | None,
     technique_id: str | None,
     min_confidence: int | None,
+    status: str | None = None,
 ) -> CursorPage[AlertOut]:
     cursor_parsed = parse_cursor_ts_id(cursor) if cursor else None
     rows = repository.list_alerts_page(
@@ -154,6 +214,7 @@ def list_alerts(
         tactic=tactic,
         technique_id=technique_id,
         min_confidence=min_confidence,
+        status=status,
         cursor_parsed=cursor_parsed,
     )
 
