@@ -14,7 +14,6 @@ class AlertOut(BaseModel):
     dst_ip: Optional[str] = None
     dst_port: Optional[int] = None
 
-    # MITRE ATT&CK metadata (optional but first-class)
     mitre_tactic: Optional[str] = None
     mitre_technique_id: Optional[str] = None
     mitre_technique: Optional[str] = None
@@ -23,8 +22,30 @@ class AlertOut(BaseModel):
     description: str
     details: Dict[str, Any] = Field(default_factory=dict)
 
+    status: str = "open"
+    disposition: Optional[str] = None
+    priority: Optional[int] = None
+    assigned_to: Optional[str] = None
+    investigation_id: Optional[int] = None
+    acknowledged_at: Optional[datetime] = None
+    acknowledged_by: Optional[str] = None
+    closed_at: Optional[datetime] = None
+    closed_by: Optional[str] = None
+    triage_notes: Optional[str] = None
+    risk_score: Optional[int] = None
+
     class Config:
         orm_mode = True
+
+
+class AlertTriageIn(BaseModel):
+    status: Optional[str] = None
+    disposition: Optional[str] = None
+    priority: Optional[int] = None
+    assigned_to: Optional[str] = None
+    investigation_id: Optional[int] = None
+    triage_notes: Optional[str] = None
+    risk_score: Optional[int] = None
 
 
 from datetime import datetime
