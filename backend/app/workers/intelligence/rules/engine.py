@@ -1,3 +1,5 @@
+import logging
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -5,6 +7,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
+from app.core.observability import log_event
 from app.features.alerts.models import AlertModel
 from app.features.alerts.realtime import publish_alert_created_from_row
 from app.features.alerts.rule_registry_runtime import (
@@ -16,6 +19,7 @@ from app.features.alerts.rule_registry_runtime import (
     load_baseline_rules,
     normalize_rule_list,
 )
+from app.features.detections.repository import get_rule_health_map
 from app.features.detections.rules.compiler import execute_v2_rule
 from app.features.events.worker_runtime import NetEventModel
 from app.shared.taxonomy.catalog import technique_name
@@ -30,6 +34,7 @@ from .conditions import (
     _safe_col,
 )
 from .dedup import _index_add, _normalize_dedup_key, _recent_alert_index, _recent_alert_last_at
+from .health import RuleExecResult, _content_hash, flush_cycle_health
 from .heuristics import _emit_heuristic_signals
 from .mitre import _extract_mitre_meta
 from .suppression import _is_suppressed, _schedule_allows
@@ -39,6 +44,8 @@ from .tuning import (
     _load_agent_context,
     _resolve_tuning_eval,
 )
+
+logger = logging.getLogger("seagull.worker.rules")
 
 
 def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[AlertModel]) -> List[AlertModel]:
@@ -145,6 +152,7 @@ def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[A
 def run_rules_once():
     now = datetime.utcnow()
     created_alerts: List[AlertModel] = []
+    health_results: List[RuleExecResult] = []
 
     db = SessionLocal()
     try:
@@ -166,38 +174,64 @@ def run_rules_once():
             rules.append(eff)
             try:
                 max_cooldown_s = max(max_cooldown_s, int(_parse_window(eff.get("cooldown") or "0")))
-            except Exception:
-                pass
+            except Exception as exc:
+                log_event(logger, "warning", "rule_cooldown_parse_error", rule_id=eff.get("id"), error=repr(exc))
 
-        # Build a "last alert" index that covers the maximum cooldown horizon.
-        # Keep a sane floor to avoid pathological small horizons.
         horizon = timedelta(seconds=max(120, max_cooldown_s))
         recent_idx = _recent_alert_index(db, horizon)
         agent_ctx_map = _load_agent_context(db)
 
+        existing_health = get_rule_health_map(db)
+
         for rule in rules:
+            rule_id = rule.get("id")
+            if not rule_id:
+                continue
+
             if not rule.get("enabled", True):
+                health_results.append(RuleExecResult(
+                    rule_id=rule_id,
+                    rule_version=int(rule.get("rule_version") or 1),
+                    content_hash=_content_hash(rule),
+                    duration_ms=0,
+                    disabled=True,
+                ))
                 continue
 
             if not _schedule_allows(rule, now):
                 continue
 
-            rule_id = rule.get("id")
-            if not rule_id:
-                continue
-
             schema_version = int(rule.get("schema_version") or 1)
+            t_start = time.monotonic()
 
             if schema_version == 2:
                 try:
                     v2_alerts = execute_v2_rule(db, rule, now, recent_idx, agent_ctx_map)
                     for al in v2_alerts:
                         created_alerts.append(al)
-                except Exception:
-                    pass
+                    health_results.append(RuleExecResult(
+                        rule_id=rule_id,
+                        rule_version=int(rule.get("rule_version") or 1),
+                        content_hash=_content_hash(rule),
+                        duration_ms=int((time.monotonic() - t_start) * 1000),
+                        alerts_created=len(v2_alerts),
+                    ))
+                except Exception as exc:
+                    log_event(logger, "error", "rule_exec_error", rule_id=rule_id, schema_version=2, error=repr(exc))
+                    health_results.append(RuleExecResult(
+                        rule_id=rule_id,
+                        rule_version=int(rule.get("rule_version") or 1),
+                        content_hash=_content_hash(rule),
+                        duration_ms=int((time.monotonic() - t_start) * 1000),
+                        error=exc,
+                    ))
                 continue
 
             rule_type = rule.get("type")
+
+            if rule_type not in ("aggregate_count", "distinct_count", "multi_distinct"):
+                continue
+
             severity = str(rule.get("severity", "low") or "low").strip().lower()
             description = rule.get("description", "")
             mitre = _extract_mitre_meta(rule)
@@ -208,7 +242,8 @@ def run_rules_once():
             try:
                 window = timedelta(seconds=_parse_window(window_s))
                 cooldown = timedelta(seconds=_parse_window(cooldown_s))
-            except Exception:
+            except Exception as exc:
+                log_event(logger, "warning", "rule_window_parse_error", rule_id=rule_id, error=repr(exc))
                 window = timedelta(minutes=5)
                 cooldown = timedelta(minutes=10)
 
@@ -218,422 +253,451 @@ def run_rules_once():
             match = rule.get("match") or {}
             filters = _build_match_filters(match, since, until)
 
-            if rule_type == "aggregate_count":
-                group_by = rule.get("group_by")
-                group_fields = group_by if isinstance(group_by, list) else [group_by] if isinstance(group_by, str) else []
-                group_fields = [f for f in group_fields if isinstance(f, str) and f in _ALLOWED_EVENT_FIELDS]
-                if not group_fields:
-                    continue
+            _alerts_before = len(created_alerts)
+            _events_scanned = 0
+            _suppressions_applied = 0
 
-                group_cols = [_safe_col(f) for f in group_fields]
-                condition = rule.get("condition", {}) or {}
-                min_events = int(rule.get("min_events") or condition.get("min_events") or 0)
+            try:
+                if rule_type == "aggregate_count":
+                    group_by = rule.get("group_by")
+                    group_fields = group_by if isinstance(group_by, list) else [group_by] if isinstance(group_by, str) else []
+                    group_fields = [f for f in group_fields if isinstance(f, str) and f in _ALLOWED_EVENT_FIELDS]
+                    if not group_fields:
+                        continue
 
-                stmt = (
-                    select(
-                        *[c.label(f) for c, f in zip(group_cols, group_fields)],
-                        func.count().label("count"),
-                    )
-                    .where(and_(*filters))
-                    .group_by(*group_cols)
-                )
+                    group_cols = [_safe_col(f) for f in group_fields]
+                    condition = rule.get("condition", {}) or {}
+                    min_events = int(rule.get("min_events") or condition.get("min_events") or 0)
 
-                rows = db.execute(stmt).all()
-
-                for row in rows:
-                    group_key = {f: row._mapping.get(f) for f in group_fields}
-                    count = int(row.count)
-
-                    src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
-
-                    src_ip, dst_ip, enrichment = _enrich_alert_ips(
-                        db,
-                        rule_id,
-                        match or {},
-                        group_key,
-                        since,
-                        until,
-                        src_ip,
-                        dst_ip,
-                        dst_port,
+                    stmt = (
+                        select(
+                            *[c.label(f) for c, f in zip(group_cols, group_fields)],
+                            func.count().label("count"),
+                        )
+                        .where(and_(*filters))
+                        .group_by(*group_cols)
                     )
 
-                    sup_ctx = _build_rule_context(
-                        group_key=group_key,
-                        match=match or {},
-                        rule_id=str(rule_id),
-                        severity=severity,
-                        src_ip=src_ip,
-                        dst_ip=dst_ip,
-                        dst_port=dst_port,
-                        agent_ctx_map=agent_ctx_map,
-                    )
-                    eval_cfg = _resolve_tuning_eval(
-                        rule,
-                        ctx=sup_ctx,
-                        base_min_events=min_events,
-                        base_condition=condition,
-                        base_cooldown_seconds=int(cooldown.total_seconds()),
-                        base_severity=severity,
-                    )
-                    eff_min_events = int(eval_cfg.get("min_events") or 0)
-                    eff_condition = eval_cfg.get("condition") if isinstance(eval_cfg.get("condition"), dict) else condition
-                    eff_cooldown = timedelta(seconds=max(0, int(eval_cfg.get("cooldown_seconds") or 0)))
-                    eff_severity = str(eval_cfg.get("severity") or severity)
-                    sup_ctx["severity"] = eff_severity
+                    rows = db.execute(stmt).all()
 
-                    if eff_min_events and count < eff_min_events:
-                        continue
-                    if not _evaluate_condition(count, eff_condition):
-                        continue
+                    for row in rows:
+                        group_key = {f: row._mapping.get(f) for f in group_fields}
+                        count = int(row.count)
+                        _events_scanned += count
 
-                    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
-                    if last_at and eff_cooldown.total_seconds() > 0 and (now - last_at) < eff_cooldown:
-                        continue
+                        src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
 
-                    allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
-                    if allowlisted:
-                        continue
+                        src_ip, dst_ip, enrichment = _enrich_alert_ips(
+                            db,
+                            rule_id,
+                            match or {},
+                            group_key,
+                            since,
+                            until,
+                            src_ip,
+                            dst_ip,
+                            dst_port,
+                        )
 
-                    suppressed, _ = _is_suppressed(rule, sup_ctx, now)
-                    if suppressed:
-                        continue
+                        sup_ctx = _build_rule_context(
+                            group_key=group_key,
+                            match=match or {},
+                            rule_id=str(rule_id),
+                            severity=severity,
+                            src_ip=src_ip,
+                            dst_ip=dst_ip,
+                            dst_port=dst_port,
+                            agent_ctx_map=agent_ctx_map,
+                        )
+                        eval_cfg = _resolve_tuning_eval(
+                            rule,
+                            ctx=sup_ctx,
+                            base_min_events=min_events,
+                            base_condition=condition,
+                            base_cooldown_seconds=int(cooldown.total_seconds()),
+                            base_severity=severity,
+                        )
+                        eff_min_events = int(eval_cfg.get("min_events") or 0)
+                        eff_condition = eval_cfg.get("condition") if isinstance(eval_cfg.get("condition"), dict) else condition
+                        eff_cooldown = timedelta(seconds=max(0, int(eval_cfg.get("cooldown_seconds") or 0)))
+                        eff_severity = str(eval_cfg.get("severity") or severity)
+                        sup_ctx["severity"] = eff_severity
 
-                    details = {
-                        "type": rule_type,
-                        "group_by": group_fields,
-                        "group_key": group_key,
-                        "count": count,
-                        "window_seconds": int(window.total_seconds()),
-                        "enrichment": enrichment,
-                        "rule_meta": {
-                            "pack": rule.get("pack"),
-                            "category": rule.get("category"),
-                            "rule_version": int(rule.get("rule_version") or 1),
-                        },
-                    }
-                    if eval_cfg.get("applied_scopes"):
-                        details["tuning"] = {
-                            "applied_scopes": list(eval_cfg.get("applied_scopes") or []),
-                            "effective_min_events": eff_min_events,
-                            "effective_condition": eff_condition,
-                            "effective_cooldown_seconds": int(eff_cooldown.total_seconds()),
-                            "effective_severity": eff_severity,
+                        if eff_min_events and count < eff_min_events:
+                            continue
+                        if not _evaluate_condition(count, eff_condition):
+                            continue
+
+                        last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
+                        if last_at and eff_cooldown.total_seconds() > 0 and (now - last_at) < eff_cooldown:
+                            continue
+
+                        allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
+                        if allowlisted:
+                            continue
+
+                        suppressed, _ = _is_suppressed(rule, sup_ctx, now)
+                        if suppressed:
+                            _suppressions_applied += 1
+                            continue
+
+                        details = {
+                            "type": rule_type,
+                            "group_by": group_fields,
+                            "group_key": group_key,
+                            "count": count,
+                            "window_seconds": int(window.total_seconds()),
+                            "enrichment": enrichment,
+                            "rule_meta": {
+                                "pack": rule.get("pack"),
+                                "category": rule.get("category"),
+                                "rule_version": int(rule.get("rule_version") or 1),
+                            },
                         }
-                    # Mirror to root for easier dashboards (optional but useful)
-                    if enrichment.get("src_ips"):
-                        details["src_ips"] = enrichment["src_ips"]
-                        details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
+                        if eval_cfg.get("applied_scopes"):
+                            details["tuning"] = {
+                                "applied_scopes": list(eval_cfg.get("applied_scopes") or []),
+                                "effective_min_events": eff_min_events,
+                                "effective_condition": eff_condition,
+                                "effective_cooldown_seconds": int(eff_cooldown.total_seconds()),
+                                "effective_severity": eff_severity,
+                            }
+                        if enrichment.get("src_ips"):
+                            details["src_ips"] = enrichment["src_ips"]
+                            details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
 
-                    if mitre:
-                        details["mitre"] = mitre
-                    alert = AlertModel(
-                        rule_id=rule_id,
-                        severity=eff_severity,
-                        src_ip=src_ip,
-                        dst_ip=dst_ip,
-                        dst_port=dst_port,
-                        mitre_tactic=mitre.get("tactic"),
-                        mitre_technique_id=mitre.get("technique_id"),
-                        mitre_technique=mitre.get("technique"),
-                        confidence=int(mitre.get("confidence", 50) or 50),
-                        description=description,
-                        details=details,
-                    )
-                    db.add(alert)
-                    created_alerts.append(alert)
-                    _index_add(recent_idx, rule_id, src_ip, dst_ip, dst_port)
+                        if mitre:
+                            details["mitre"] = mitre
+                        alert = AlertModel(
+                            rule_id=rule_id,
+                            severity=eff_severity,
+                            src_ip=src_ip,
+                            dst_ip=dst_ip,
+                            dst_port=dst_port,
+                            mitre_tactic=mitre.get("tactic"),
+                            mitre_technique_id=mitre.get("technique_id"),
+                            mitre_technique=mitre.get("technique"),
+                            confidence=int(mitre.get("confidence", 50) or 50),
+                            description=description,
+                            details=details,
+                        )
+                        db.add(alert)
+                        created_alerts.append(alert)
+                        _index_add(recent_idx, rule_id, src_ip, dst_ip, dst_port)
 
-            elif rule_type == "distinct_count":
-                condition = rule.get("condition", {}) or {}
-                min_events = int(rule.get("min_events") or condition.get("min_events") or 0)
+                elif rule_type == "distinct_count":
+                    condition = rule.get("condition", {}) or {}
+                    min_events = int(rule.get("min_events") or condition.get("min_events") or 0)
 
-                distinct_field = rule.get("distinct_field")
-                if not isinstance(distinct_field, str) or distinct_field not in _ALLOWED_EVENT_FIELDS:
-                    continue
-
-                distinct_col = _safe_col(distinct_field)
-                filters2 = list(filters)
-                filters2.append(distinct_col.is_not(None))
-
-                group_by = rule.get("group_by")
-                group_fields = group_by if isinstance(group_by, list) else [group_by] if isinstance(group_by, str) else []
-                group_fields = [f for f in group_fields if isinstance(f, str) and f in _ALLOWED_EVENT_FIELDS]
-                if not group_fields:
-                    continue
-
-                group_cols = [_safe_col(f) for f in group_fields]
-
-                stmt = (
-                    select(
-                        *[c.label(f) for c, f in zip(group_cols, group_fields)],
-                        func.count(func.distinct(distinct_col)).label("distinct_count"),
-                        func.count().label("event_count"),
-                    )
-                    .where(and_(*filters2))
-                    .group_by(*group_cols)
-                )
-
-                rows = db.execute(stmt).all()
-
-                for row in rows:
-                    group_key = {f: row._mapping.get(f) for f in group_fields}
-                    distinct_count = int(row.distinct_count)
-                    event_count = int(row.event_count)
-
-                    src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
-
-                    src_ip, dst_ip, enrichment = _enrich_alert_ips(
-                        db,
-                        rule_id,
-                        match or {},
-                        group_key,
-                        since,
-                        until,
-                        src_ip,
-                        dst_ip,
-                        dst_port,
-                    )
-
-                    sup_ctx = _build_rule_context(
-                        group_key=group_key,
-                        match=match or {},
-                        rule_id=str(rule_id),
-                        severity=severity,
-                        src_ip=src_ip,
-                        dst_ip=dst_ip,
-                        dst_port=dst_port,
-                        agent_ctx_map=agent_ctx_map,
-                    )
-                    eval_cfg = _resolve_tuning_eval(
-                        rule,
-                        ctx=sup_ctx,
-                        base_min_events=min_events,
-                        base_condition=condition,
-                        base_cooldown_seconds=int(cooldown.total_seconds()),
-                        base_severity=severity,
-                    )
-                    eff_min_events = int(eval_cfg.get("min_events") or 0)
-                    eff_condition = eval_cfg.get("condition") if isinstance(eval_cfg.get("condition"), dict) else condition
-                    eff_cooldown = timedelta(seconds=max(0, int(eval_cfg.get("cooldown_seconds") or 0)))
-                    eff_severity = str(eval_cfg.get("severity") or severity)
-                    sup_ctx["severity"] = eff_severity
-
-                    if eff_min_events and event_count < eff_min_events:
-                        continue
-                    if not _evaluate_condition(distinct_count, eff_condition):
+                    distinct_field = rule.get("distinct_field")
+                    if not isinstance(distinct_field, str) or distinct_field not in _ALLOWED_EVENT_FIELDS:
                         continue
 
-                    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
-                    if last_at and eff_cooldown.total_seconds() > 0 and (now - last_at) < eff_cooldown:
+                    distinct_col = _safe_col(distinct_field)
+                    filters2 = list(filters)
+                    filters2.append(distinct_col.is_not(None))
+
+                    group_by = rule.get("group_by")
+                    group_fields = group_by if isinstance(group_by, list) else [group_by] if isinstance(group_by, str) else []
+                    group_fields = [f for f in group_fields if isinstance(f, str) and f in _ALLOWED_EVENT_FIELDS]
+                    if not group_fields:
                         continue
 
-                    allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
-                    if allowlisted:
-                        continue
+                    group_cols = [_safe_col(f) for f in group_fields]
 
-                    suppressed, _ = _is_suppressed(rule, sup_ctx, now)
-                    if suppressed:
-                        continue
+                    stmt = (
+                        select(
+                            *[c.label(f) for c, f in zip(group_cols, group_fields)],
+                            func.count(func.distinct(distinct_col)).label("distinct_count"),
+                            func.count().label("event_count"),
+                        )
+                        .where(and_(*filters2))
+                        .group_by(*group_cols)
+                    )
 
-                    details = {
-                        "type": rule_type,
-                        "group_by": group_fields,
-                        "group_key": group_key,
-                        "distinct_field": distinct_field,
-                        "distinct_count": distinct_count,
-                        "event_count": event_count,
-                        "window_seconds": int(window.total_seconds()),
-                        "enrichment": enrichment,
-                        "rule_meta": {
-                            "pack": rule.get("pack"),
-                            "category": rule.get("category"),
-                            "rule_version": int(rule.get("rule_version") or 1),
-                        },
-                    }
-                    if eval_cfg.get("applied_scopes"):
-                        details["tuning"] = {
-                            "applied_scopes": list(eval_cfg.get("applied_scopes") or []),
-                            "effective_min_events": eff_min_events,
-                            "effective_condition": eff_condition,
-                            "effective_cooldown_seconds": int(eff_cooldown.total_seconds()),
-                            "effective_severity": eff_severity,
+                    rows = db.execute(stmt).all()
+
+                    for row in rows:
+                        group_key = {f: row._mapping.get(f) for f in group_fields}
+                        distinct_count = int(row.distinct_count)
+                        event_count = int(row.event_count)
+                        _events_scanned += event_count
+
+                        src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
+
+                        src_ip, dst_ip, enrichment = _enrich_alert_ips(
+                            db,
+                            rule_id,
+                            match or {},
+                            group_key,
+                            since,
+                            until,
+                            src_ip,
+                            dst_ip,
+                            dst_port,
+                        )
+
+                        sup_ctx = _build_rule_context(
+                            group_key=group_key,
+                            match=match or {},
+                            rule_id=str(rule_id),
+                            severity=severity,
+                            src_ip=src_ip,
+                            dst_ip=dst_ip,
+                            dst_port=dst_port,
+                            agent_ctx_map=agent_ctx_map,
+                        )
+                        eval_cfg = _resolve_tuning_eval(
+                            rule,
+                            ctx=sup_ctx,
+                            base_min_events=min_events,
+                            base_condition=condition,
+                            base_cooldown_seconds=int(cooldown.total_seconds()),
+                            base_severity=severity,
+                        )
+                        eff_min_events = int(eval_cfg.get("min_events") or 0)
+                        eff_condition = eval_cfg.get("condition") if isinstance(eval_cfg.get("condition"), dict) else condition
+                        eff_cooldown = timedelta(seconds=max(0, int(eval_cfg.get("cooldown_seconds") or 0)))
+                        eff_severity = str(eval_cfg.get("severity") or severity)
+                        sup_ctx["severity"] = eff_severity
+
+                        if eff_min_events and event_count < eff_min_events:
+                            continue
+                        if not _evaluate_condition(distinct_count, eff_condition):
+                            continue
+
+                        last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
+                        if last_at and eff_cooldown.total_seconds() > 0 and (now - last_at) < eff_cooldown:
+                            continue
+
+                        allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
+                        if allowlisted:
+                            continue
+
+                        suppressed, _ = _is_suppressed(rule, sup_ctx, now)
+                        if suppressed:
+                            _suppressions_applied += 1
+                            continue
+
+                        details = {
+                            "type": rule_type,
+                            "group_by": group_fields,
+                            "group_key": group_key,
+                            "distinct_field": distinct_field,
+                            "distinct_count": distinct_count,
+                            "event_count": event_count,
+                            "window_seconds": int(window.total_seconds()),
+                            "enrichment": enrichment,
+                            "rule_meta": {
+                                "pack": rule.get("pack"),
+                                "category": rule.get("category"),
+                                "rule_version": int(rule.get("rule_version") or 1),
+                            },
                         }
-                    if enrichment.get("src_ips"):
-                        details["src_ips"] = enrichment["src_ips"]
-                        details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
+                        if eval_cfg.get("applied_scopes"):
+                            details["tuning"] = {
+                                "applied_scopes": list(eval_cfg.get("applied_scopes") or []),
+                                "effective_min_events": eff_min_events,
+                                "effective_condition": eff_condition,
+                                "effective_cooldown_seconds": int(eff_cooldown.total_seconds()),
+                                "effective_severity": eff_severity,
+                            }
+                        if enrichment.get("src_ips"):
+                            details["src_ips"] = enrichment["src_ips"]
+                            details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
 
-                    if mitre:
-                        details["mitre"] = mitre
-                    alert = AlertModel(
-                        rule_id=rule_id,
-                        severity=eff_severity,
-                        src_ip=src_ip,
-                        dst_ip=dst_ip,
-                        dst_port=dst_port,
-                        mitre_tactic=mitre.get("tactic"),
-                        mitre_technique_id=mitre.get("technique_id"),
-                        mitre_technique=mitre.get("technique"),
-                        confidence=int(mitre.get("confidence", 50) or 50),
-                        description=description,
-                        details=details,
-                    )
-                    db.add(alert)
-                    created_alerts.append(alert)
-                    _index_add(recent_idx, rule_id, src_ip, dst_ip, dst_port)
+                        if mitre:
+                            details["mitre"] = mitre
+                        alert = AlertModel(
+                            rule_id=rule_id,
+                            severity=eff_severity,
+                            src_ip=src_ip,
+                            dst_ip=dst_ip,
+                            dst_port=dst_port,
+                            mitre_tactic=mitre.get("tactic"),
+                            mitre_technique_id=mitre.get("technique_id"),
+                            mitre_technique=mitre.get("technique"),
+                            confidence=int(mitre.get("confidence", 50) or 50),
+                            description=description,
+                            details=details,
+                        )
+                        db.add(alert)
+                        created_alerts.append(alert)
+                        _index_add(recent_idx, rule_id, src_ip, dst_ip, dst_port)
 
-            elif rule_type == "multi_distinct":
-                condition = rule.get("condition", {}) or {}
-                min_events = int(rule.get("min_events") or condition.get("min_events") or 0)
+                elif rule_type == "multi_distinct":
+                    condition = rule.get("condition", {}) or {}
+                    min_events = int(rule.get("min_events") or condition.get("min_events") or 0)
 
-                group_by = rule.get("group_by")
-                group_fields = group_by if isinstance(group_by, list) else [group_by] if isinstance(group_by, str) else []
-                group_fields = [f for f in group_fields if isinstance(f, str) and f in _ALLOWED_EVENT_FIELDS]
-                if not group_fields:
-                    continue
-
-                distinct_conditions = rule.get("distinct_conditions") or []
-                if not isinstance(distinct_conditions, list) or len(distinct_conditions) == 0:
-                    continue
-
-                # Validate distinct fields
-                dcs = []
-                for dc in distinct_conditions:
-                    if not isinstance(dc, dict):
-                        continue
-                    f = dc.get("field")
-                    if not isinstance(f, str) or f not in _ALLOWED_EVENT_FIELDS:
-                        continue
-                    dcs.append(dc)
-                if not dcs:
-                    continue
-
-                group_cols = [_safe_col(f) for f in group_fields]
-                # Build select list
-                sel = [c.label(f) for c, f in zip(group_cols, group_fields)]
-                sel.append(func.count().label("event_count"))
-                for i, dc in enumerate(dcs):
-                    f = dc.get("field")
-                    sel.append(func.count(func.distinct(_safe_col(f))).label(f"d{i}"))
-
-                stmt = select(*sel).where(and_(*filters)).group_by(*group_cols)
-                rows = db.execute(stmt).all()
-
-                for row in rows:
-                    group_key = {f: row._mapping.get(f) for f in group_fields}
-                    event_count = int(row.event_count)
-
-                    src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
-
-                    src_ip, dst_ip, enrichment = _enrich_alert_ips(
-                        db,
-                        rule_id,
-                        match or {},
-                        group_key,
-                        since,
-                        until,
-                        src_ip,
-                        dst_ip,
-                        dst_port,
-                    )
-
-                    sup_ctx = _build_rule_context(
-                        group_key=group_key,
-                        match=match or {},
-                        rule_id=str(rule_id),
-                        severity=severity,
-                        src_ip=src_ip,
-                        dst_ip=dst_ip,
-                        dst_port=dst_port,
-                        agent_ctx_map=agent_ctx_map,
-                    )
-                    eval_cfg = _resolve_tuning_eval(
-                        rule,
-                        ctx=sup_ctx,
-                        base_min_events=min_events,
-                        base_condition=condition,
-                        base_cooldown_seconds=int(cooldown.total_seconds()),
-                        base_severity=severity,
-                    )
-                    eff_min_events = int(eval_cfg.get("min_events") or 0)
-                    eff_cooldown = timedelta(seconds=max(0, int(eval_cfg.get("cooldown_seconds") or 0)))
-                    eff_severity = str(eval_cfg.get("severity") or severity)
-                    sup_ctx["severity"] = eff_severity
-
-                    if eff_min_events and event_count < eff_min_events:
+                    group_by = rule.get("group_by")
+                    group_fields = group_by if isinstance(group_by, list) else [group_by] if isinstance(group_by, str) else []
+                    group_fields = [f for f in group_fields if isinstance(f, str) and f in _ALLOWED_EVENT_FIELDS]
+                    if not group_fields:
                         continue
 
-                    # Evaluate each distinct condition (rule-level for each signal)
-                    distinct_result: Dict[str, int] = {}
-                    ok = True
-                    for i, dc in enumerate(dcs):
-                        value = int(row._mapping.get(f"d{i}") or 0)
+                    distinct_conditions = rule.get("distinct_conditions") or []
+                    if not isinstance(distinct_conditions, list) or len(distinct_conditions) == 0:
+                        continue
+
+                    dcs = []
+                    for dc in distinct_conditions:
+                        if not isinstance(dc, dict):
+                            continue
                         f = dc.get("field")
-                        distinct_result[f] = value
-                        if not _evaluate_condition(value, dc):
-                            ok = False
-                            break
-                    if not ok:
+                        if not isinstance(f, str) or f not in _ALLOWED_EVENT_FIELDS:
+                            continue
+                        dcs.append(dc)
+                    if not dcs:
                         continue
 
-                    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
-                    if last_at and eff_cooldown.total_seconds() > 0 and (now - last_at) < eff_cooldown:
-                        continue
+                    group_cols = [_safe_col(f) for f in group_fields]
+                    sel = [c.label(f) for c, f in zip(group_cols, group_fields)]
+                    sel.append(func.count().label("event_count"))
+                    for i, dc in enumerate(dcs):
+                        f = dc.get("field")
+                        sel.append(func.count(func.distinct(_safe_col(f))).label(f"d{i}"))
 
-                    allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
-                    if allowlisted:
-                        continue
+                    stmt = select(*sel).where(and_(*filters)).group_by(*group_cols)
+                    rows = db.execute(stmt).all()
 
-                    suppressed, _ = _is_suppressed(rule, sup_ctx, now)
-                    if suppressed:
-                        continue
+                    for row in rows:
+                        group_key = {f: row._mapping.get(f) for f in group_fields}
+                        event_count = int(row.event_count)
+                        _events_scanned += event_count
 
-                    details = {
-                        "type": rule_type,
-                        "group_by": group_fields,
-                        "group_key": group_key,
-                        "event_count": event_count,
-                        "distinct": distinct_result,
-                        "window_seconds": int(window.total_seconds()),
-                        "enrichment": enrichment,
-                        "rule_meta": {
-                            "pack": rule.get("pack"),
-                            "category": rule.get("category"),
-                            "rule_version": int(rule.get("rule_version") or 1),
-                        },
-                    }
-                    if eval_cfg.get("applied_scopes"):
-                        details["tuning"] = {
-                            "applied_scopes": list(eval_cfg.get("applied_scopes") or []),
-                            "effective_min_events": eff_min_events,
-                            "effective_condition": condition,
-                            "effective_cooldown_seconds": int(eff_cooldown.total_seconds()),
-                            "effective_severity": eff_severity,
+                        src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match)
+
+                        src_ip, dst_ip, enrichment = _enrich_alert_ips(
+                            db,
+                            rule_id,
+                            match or {},
+                            group_key,
+                            since,
+                            until,
+                            src_ip,
+                            dst_ip,
+                            dst_port,
+                        )
+
+                        sup_ctx = _build_rule_context(
+                            group_key=group_key,
+                            match=match or {},
+                            rule_id=str(rule_id),
+                            severity=severity,
+                            src_ip=src_ip,
+                            dst_ip=dst_ip,
+                            dst_port=dst_port,
+                            agent_ctx_map=agent_ctx_map,
+                        )
+                        eval_cfg = _resolve_tuning_eval(
+                            rule,
+                            ctx=sup_ctx,
+                            base_min_events=min_events,
+                            base_condition=condition,
+                            base_cooldown_seconds=int(cooldown.total_seconds()),
+                            base_severity=severity,
+                        )
+                        eff_min_events = int(eval_cfg.get("min_events") or 0)
+                        eff_cooldown = timedelta(seconds=max(0, int(eval_cfg.get("cooldown_seconds") or 0)))
+                        eff_severity = str(eval_cfg.get("severity") or severity)
+                        sup_ctx["severity"] = eff_severity
+
+                        if eff_min_events and event_count < eff_min_events:
+                            continue
+
+                        distinct_result: Dict[str, int] = {}
+                        ok = True
+                        for i, dc in enumerate(dcs):
+                            value = int(row._mapping.get(f"d{i}") or 0)
+                            f = dc.get("field")
+                            distinct_result[f] = value
+                            if not _evaluate_condition(value, dc):
+                                ok = False
+                                break
+                        if not ok:
+                            continue
+
+                        last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
+                        if last_at and eff_cooldown.total_seconds() > 0 and (now - last_at) < eff_cooldown:
+                            continue
+
+                        allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
+                        if allowlisted:
+                            continue
+
+                        suppressed, _ = _is_suppressed(rule, sup_ctx, now)
+                        if suppressed:
+                            _suppressions_applied += 1
+                            continue
+
+                        details = {
+                            "type": rule_type,
+                            "group_by": group_fields,
+                            "group_key": group_key,
+                            "event_count": event_count,
+                            "distinct": distinct_result,
+                            "window_seconds": int(window.total_seconds()),
+                            "enrichment": enrichment,
+                            "rule_meta": {
+                                "pack": rule.get("pack"),
+                                "category": rule.get("category"),
+                                "rule_version": int(rule.get("rule_version") or 1),
+                            },
                         }
-                    if enrichment.get("src_ips"):
-                        details["src_ips"] = enrichment["src_ips"]
-                        details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
+                        if eval_cfg.get("applied_scopes"):
+                            details["tuning"] = {
+                                "applied_scopes": list(eval_cfg.get("applied_scopes") or []),
+                                "effective_min_events": eff_min_events,
+                                "effective_condition": condition,
+                                "effective_cooldown_seconds": int(eff_cooldown.total_seconds()),
+                                "effective_severity": eff_severity,
+                            }
+                        if enrichment.get("src_ips"):
+                            details["src_ips"] = enrichment["src_ips"]
+                            details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
 
-                    if mitre:
-                        details["mitre"] = mitre
-                    alert = AlertModel(
-                        rule_id=rule_id,
-                        severity=eff_severity,
-                        src_ip=src_ip,
-                        dst_ip=dst_ip,
-                        dst_port=dst_port,
-                        mitre_tactic=mitre.get("tactic"),
-                        mitre_technique_id=mitre.get("technique_id"),
-                        mitre_technique=mitre.get("technique"),
-                        confidence=int(mitre.get("confidence", 50) or 50),
-                        description=description,
-                        details=details,
-                    )
-                    db.add(alert)
-                    created_alerts.append(alert)
-                    _index_add(recent_idx, rule_id, src_ip, dst_ip, dst_port)
-            else:
-                continue
+                        if mitre:
+                            details["mitre"] = mitre
+                        alert = AlertModel(
+                            rule_id=rule_id,
+                            severity=eff_severity,
+                            src_ip=src_ip,
+                            dst_ip=dst_ip,
+                            dst_port=dst_port,
+                            mitre_tactic=mitre.get("tactic"),
+                            mitre_technique_id=mitre.get("technique_id"),
+                            mitre_technique=mitre.get("technique"),
+                            confidence=int(mitre.get("confidence", 50) or 50),
+                            description=description,
+                            details=details,
+                        )
+                        db.add(alert)
+                        created_alerts.append(alert)
+                        _index_add(recent_idx, rule_id, src_ip, dst_ip, dst_port)
+
+                health_results.append(RuleExecResult(
+                    rule_id=rule_id,
+                    rule_version=int(rule.get("rule_version") or 1),
+                    content_hash=_content_hash(rule),
+                    duration_ms=int((time.monotonic() - t_start) * 1000),
+                    alerts_created=len(created_alerts) - _alerts_before,
+                    suppressions_applied=_suppressions_applied,
+                    events_scanned=_events_scanned,
+                ))
+
+            except Exception as exc:
+                log_event(
+                    logger, "error", "rule_exec_error",
+                    rule_id=rule_id, rule_type=rule_type, schema_version=1, error=repr(exc),
+                )
+                health_results.append(RuleExecResult(
+                    rule_id=rule_id,
+                    rule_version=int(rule.get("rule_version") or 1),
+                    content_hash=_content_hash(rule),
+                    duration_ms=int((time.monotonic() - t_start) * 1000),
+                    alerts_created=len(created_alerts) - _alerts_before,
+                    error=exc,
+                ))
 
         try:
             _, heuristic_alerts = _emit_heuristic_signals(db, now)
@@ -641,16 +705,17 @@ def run_rules_once():
                 for al in heuristic_alerts:
                     db.add(al)
                 created_alerts.extend(heuristic_alerts)
-        except Exception:
-            pass
+        except Exception as exc:
+            log_event(logger, "error", "heuristic_signals_error", error=repr(exc))
 
         try:
             correlated = _correlate_ddos_incidents(db, now, created_alerts)
             if correlated:
                 created_alerts.extend(correlated)
-        except Exception:
-            pass
+        except Exception as exc:
+            log_event(logger, "error", "ddos_correlation_error", error=repr(exc))
 
+        flush_cycle_health(db, health_results, existing_health, now)
         db.commit()
         for alert in created_alerts:
             publish_alert_created_from_row(alert)
