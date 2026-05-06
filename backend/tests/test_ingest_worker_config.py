@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.workers import ingest_worker
+from app.workers.ingest import config as ingest_worker
 
 
 def test_ingest_worker_clickhouse_defaults_enabled(monkeypatch) -> None:
