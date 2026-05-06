@@ -103,6 +103,21 @@ Worker group manager entrypoints:
 
 ---
 
+## Detection Engineering
+
+| Document | What it covers |
+|---|---|
+| [docs/detections/architecture.md](docs/detections/architecture.md) | Module boundaries, data flow, import rules, layer responsibilities |
+| [docs/detections/rule_format_v2.md](docs/detections/rule_format_v2.md) | v2 rule schema, detection blocks, aggregation types, tuning, migration from v1 |
+| [docs/detections/canonical_fields.md](docs/detections/canonical_fields.md) | Supported telemetry fields, operators, how to add a new field |
+| [docs/detections/correlation_engine.md](docs/detections/correlation_engine.md) | Correlation strategies, durable incidents, how to write a correlation rule |
+| [docs/detections/attack_stories.md](docs/detections/attack_stories.md) | Kill-chain story templates, stage matching, scoring, how to write a story |
+| [docs/detections/backtesting.md](docs/detections/backtesting.md) | Backtesting via API and Python, YAML unit tests, tuning / suppression |
+| [docs/detections/sigma_import.md](docs/detections/sigma_import.md) | Sigma → v2 importer, supported subset, field mapping, review process |
+| [docs/workers/architecture.md](docs/workers/architecture.md) | Worker groups, manager behaviour, per-worker env vars, import rules |
+
+---
+
 ## Technology Stack
 
 ### Agent
