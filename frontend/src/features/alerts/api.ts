@@ -1,7 +1,7 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/shared/lib/http";
 import type { CursorPage } from "@/shared/types/pagination";
 
-import type { Alert, AlertEvidenceItem, AlertTriageIn, RuleGovernanceHistory, RuleOverrideIn, RuleOut } from "./types";
+import type { Alert, AlertEvidenceItem, AlertTriageIn, RuleGovernanceHistory, RuleOverrideIn, RuleOut, RuleValidationResult } from "./types";
 
 export function getRecentAlerts(params?: { limit?: number }) {
   const q = new URLSearchParams();
@@ -37,6 +37,10 @@ export function getAlertRules() {
 
 export function patchAlertRule(ruleId: string, body: RuleOverrideIn) {
   return apiPatch<RuleOut>(`/api/alerts/rules/${encodeURIComponent(ruleId)}`, body);
+}
+
+export function validateAlertRule(ruleId: string, body: RuleOverrideIn) {
+  return apiPost<RuleValidationResult>(`/api/alerts/rules/${encodeURIComponent(ruleId)}/validate`, body);
 }
 
 export function resetAlertRule(ruleId: string) {
