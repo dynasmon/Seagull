@@ -31,12 +31,13 @@ def main() -> None:
         _env_str("true", "SEAGULL_IP_INTEL_SKIP_PRIVATE", "SEAGULL_LUPE_SKIP_PRIVATE").strip().lower() != "false"
     )
 
+    _ensure_bootstrap(cache_ttl_days)
+
     backoff = 1.0
     last_provider_state: Optional[tuple[str, str]] = None
 
     while True:
         try:
-            _ensure_bootstrap(cache_ttl_days)
 
             cfg = _provider_config()
             provider_name, provider_reason = _resolve_provider(cfg)

@@ -35,6 +35,39 @@ def test_resolve_provider_auto_falls_back_to_ipinfo(monkeypatch) -> None:
     assert reason.startswith("auto:")
 
 
+def test_resolve_provider_auto_falls_back_to_public_ipinfo(monkeypatch) -> None:
+    monkeypatch.setenv("SEAGULL_IP_INTEL_PROVIDER", "auto")
+    monkeypatch.delenv("SEAGULL_IP_INTEL_MAXMIND_CITY_DB_PATH", raising=False)
+    monkeypatch.delenv("SEAGULL_IP_INTEL_MAXMIND_ASN_DB_PATH", raising=False)
+    monkeypatch.delenv("SEAGULL_IPINFO_TOKEN", raising=False)
+    provider, reason = providers._resolve_provider(providers._provider_config())
+    assert provider == providers.GEOIP_PROVIDER_IPINFO
+    assert reason == "auto:ipinfo_public"
+
+
+def test_fetch_ipinfo_omits_empty_token(monkeypatch) -> None:
+    seen = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return b"{}"
+
+    def fake_urlopen(req, timeout):
+        seen["url"] = req.full_url
+        seen["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(ipinfo, "urlopen", fake_urlopen)
+    assert ipinfo._fetch_ipinfo("8.8.8.8", "", 3.5) == {}
+    assert seen == {"url": "https://ipinfo.io/8.8.8.8/json", "timeout": 3.5}
+
+
 def test_build_ipinfo_record_parses_asn() -> None:
     rec = ipinfo._build_ipinfo_record(
         {

@@ -7,10 +7,62 @@ os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.features.events import service
+from app.features.events.domain import summaries
+from app.features.events.schemas import SshIpStat, SshSummaryResponse
 
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+class _Rows:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return self.rows
+
+
+class _GeoCacheDB:
+    def execute(self, _stmt):
+        return _Rows(
+            [
+                {
+                    "ip": "203.0.113.10",
+                    "country": "BR",
+                    "org": "Example ISP",
+                    "asn": "AS64500",
+                    "asn_org": "Example ISP",
+                }
+            ]
+        )
+
+
+def test_ssh_summary_overlay_fills_clickhouse_geo_from_cache() -> None:
+    payload = SshSummaryResponse(
+        generated_at=datetime.now(timezone.utc),
+        since_minutes=60,
+        total_actions=7,
+        unique_source_ips=2,
+        enriched_source_ips=0,
+        recent_auth_events=[],
+        successful_logins=[],
+        failed_attempts=[],
+        invalid_user_attempts=[],
+        most_active_ips=[SshIpStat(src_ip="203.0.113.10", count=7, geo_country="", geo_org="", asn="", asn_org="")],
+        root_logins=[],
+        users_attempted=[],
+        sudo_recent=[],
+    )
+
+    summaries._overlay_ssh_geo_from_cache(_GeoCacheDB(), payload, source_ips={"203.0.113.10", "198.51.100.1"})
+
+    assert payload.enriched_source_ips == 1
+    assert payload.most_active_ips[0].geo_country == "BR"
+    assert payload.most_active_ips[0].asn_org == "Example ISP"
 
 
 def test_ssh_summary_cache_hit_marks_meta(monkeypatch) -> None:

@@ -62,8 +62,10 @@ def _read_env_values(path: Path) -> dict[str, str]:
 
 
 def _file_sha(path_str: str) -> str:
+    if not path_str:
+        return ""
     p = Path(path_str)
-    return sha256(p.read_bytes()).hexdigest() if p.exists() else ""
+    return sha256(p.read_bytes()).hexdigest() if p.exists() and p.is_file() else ""
 
 
 def fingerprint(env_file: Optional[Path] = None) -> str:

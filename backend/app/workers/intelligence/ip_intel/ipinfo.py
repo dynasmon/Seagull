@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from .normalization import GEOIP_PROVIDER_IPINFO, _parse_asn
 
 
 def _fetch_ipinfo(ip: str, token: str, timeout_s: float) -> dict:
-    url = f"https://ipinfo.io/{ip}/json?token={token}"
+    url = f"https://ipinfo.io/{quote(ip, safe='')}/json"
+    if token:
+        url = f"{url}?token={quote(token, safe='')}"
     req = Request(url, headers={"User-Agent": "seagull-lupe/1.0"})
     with urlopen(req, timeout=timeout_s) as resp:
         raw = resp.read().decode("utf-8", errors="replace")
