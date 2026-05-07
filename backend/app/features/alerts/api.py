@@ -9,7 +9,7 @@ from app.core.db.session import managed_session
 from app.core.db import get_db
 from app.features.auth.session import PortalPrincipal, require_admin
 from app.features.alerts.schemas import AlertEvidenceOut, AlertOut, AlertTriageIn
-from app.features.alerts.schemas import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn
+from app.features.alerts.schemas import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn, RuleValidationResult
 from app.features.alerts.service import (
     delete_alert_rule_override,
     get_alert,
@@ -20,6 +20,7 @@ from app.features.alerts.service import (
     list_alerts,
     mitre_coverage,
     patch_alert_rule,
+    preview_rule_override,
     run_all_rules_now,
     run_horizontal_scan_rule,
     run_new_hosts_rule,
@@ -197,6 +198,14 @@ def delete_alert_rule_override_endpoint(
             admin=admin,
         )
         return None
+
+
+@router.post("/rules/{rule_id}/validate", response_model=RuleValidationResult)
+def validate_rule_override_endpoint(
+    rule_id: str,
+    body: RuleOverrideIn,
+):
+    return preview_rule_override(rule_id=rule_id, body=body)
 
 
 @router.get("/rules/{rule_id}/history", response_model=List[RuleGovernanceHistoryOut])

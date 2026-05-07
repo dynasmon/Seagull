@@ -25,7 +25,8 @@ from app.features.alerts.lifecycle import (
 from app.features.alerts.evidence import extract_evidence_specs
 from app.features.alerts.models import AlertEvidenceModel
 from app.features.alerts.schemas import AlertEvidenceOut, AlertOut, AlertTriageIn
-from app.features.alerts.schemas import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn
+from app.features.alerts.schemas import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn, RuleValidationResult
+from app.features.alerts.governance import validate_governance_request
 from app.features.alerts.rule_runtime import (
     apply_override,
     apply_tuning_and_suppressions,
@@ -593,6 +594,13 @@ def patch_alert_rule(
     if not base:
         raise HTTPException(status_code=404, detail="Rule not found")
 
+    governance = validate_governance_request(body, base_rule=base)
+    if not governance.ok:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Rule governance validation failed", "errors": governance.errors},
+        )
+
     row_existing = repository.get_rule_override(db, rule_id)
     row = row_existing
     if row is None:
@@ -753,6 +761,28 @@ def patch_alert_rule(
         override_payload=override_payload,
         has_override=True,
         updated_at=row.updated_at,
+    )
+
+
+def preview_rule_override(
+    *,
+    rule_id: str,
+    body: RuleOverrideIn,
+) -> RuleValidationResult:
+    """Validate an override request without persisting anything.
+
+    Returns the validation result and the provisional effective rule on success.
+    """
+    base_rules = normalize_rule_list(load_baseline_rules(include_disabled=True))
+    base = next((r for r in base_rules if r.get("id") == rule_id), None)
+    if not base:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    result = validate_governance_request(body, base_rule=base)
+    return RuleValidationResult(
+        ok=result.ok,
+        errors=result.errors,
+        effective=result.effective,
     )
 
 
