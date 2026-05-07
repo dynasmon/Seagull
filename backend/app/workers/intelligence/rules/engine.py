@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
 from app.core.observability import log_event
-from app.features.alerts.models import AlertModel
+from app.features.alerts.evidence import extract_evidence_specs
+from app.features.alerts.models import AlertEvidenceModel, AlertModel
 from app.features.alerts.realtime import publish_alert_created_from_row
 from app.features.alerts.rule_registry_runtime import (
     apply_override,
@@ -129,6 +130,7 @@ def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[A
             mitre_technique=(technique_name("T1498") or "Network Denial of Service"),
             confidence=85,
             description="Potential incident: DDoS/DoS correlated with additional hostile activity",
+            detector_type="correlation",
             details={
                 "type": "correlation",
                 "window_seconds": int(horizon.total_seconds()),
@@ -207,7 +209,12 @@ def run_rules_once():
             if schema_version == 2:
                 try:
                     v2_alerts = execute_v2_rule(db, rule, now, recent_idx, agent_ctx_map)
+                    rule_version = int(rule.get("rule_version") or 1)
+                    rule_hash_val = _content_hash(rule)
                     for al in v2_alerts:
+                        al.detector_type = "rule"
+                        al.rule_version = rule_version
+                        al.rule_hash = rule_hash_val
                         created_alerts.append(al)
                     health_results.append(RuleExecResult(
                         rule_id=rule_id,
@@ -380,6 +387,9 @@ def run_rules_once():
                             confidence=int(mitre.get("confidence", 50) or 50),
                             description=description,
                             details=details,
+                            detector_type="rule",
+                            rule_version=int(rule.get("rule_version") or 1),
+                            rule_hash=_content_hash(rule),
                         )
                         db.add(alert)
                         created_alerts.append(alert)
@@ -520,6 +530,9 @@ def run_rules_once():
                             confidence=int(mitre.get("confidence", 50) or 50),
                             description=description,
                             details=details,
+                            detector_type="rule",
+                            rule_version=int(rule.get("rule_version") or 1),
+                            rule_hash=_content_hash(rule),
                         )
                         db.add(alert)
                         created_alerts.append(alert)
@@ -670,6 +683,9 @@ def run_rules_once():
                             confidence=int(mitre.get("confidence", 50) or 50),
                             description=description,
                             details=details,
+                            detector_type="rule",
+                            rule_version=int(rule.get("rule_version") or 1),
+                            rule_hash=_content_hash(rule),
                         )
                         db.add(alert)
                         created_alerts.append(alert)
@@ -703,6 +719,7 @@ def run_rules_once():
             _, heuristic_alerts = _emit_heuristic_signals(db, now)
             if heuristic_alerts:
                 for al in heuristic_alerts:
+                    al.detector_type = "heuristic"
                     db.add(al)
                 created_alerts.extend(heuristic_alerts)
         except Exception as exc:
@@ -714,6 +731,15 @@ def run_rules_once():
                 created_alerts.extend(correlated)
         except Exception as exc:
             log_event(logger, "error", "ddos_correlation_error", error=repr(exc))
+
+        if created_alerts:
+            try:
+                db.flush()
+                for alert in created_alerts:
+                    for spec in extract_evidence_specs(alert):
+                        db.add(AlertEvidenceModel(alert_id=alert.id, **spec))
+            except Exception as exc:
+                log_event(logger, "error", "evidence_flush_error", error=repr(exc))
 
         flush_cycle_health(db, health_results, existing_health, now)
         db.commit()
