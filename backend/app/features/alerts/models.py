@@ -28,6 +28,12 @@ class AlertModel(Base):
     description = Column(String(255), nullable=False)
     details = Column(JSONB, nullable=False, default=dict)
 
+    # Rule provenance — captured at alert creation time
+    detector_type = Column(String(32), nullable=True)
+    rule_version = Column(Integer, nullable=True)
+    rule_hash = Column(String(64), nullable=True)
+    ruleset_version = Column(String(64), nullable=True)
+
     # SOC triage lifecycle
     status = Column(String(16), nullable=False, default="open", index=True)
     disposition = Column(String(32), nullable=True)
@@ -145,3 +151,36 @@ class AlertRuleTuningHistoryModel(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     actor_user_id = Column(Integer, nullable=True)
     actor_username = Column(String(64), nullable=True)
+
+
+from datetime import datetime
+
+from sqlalchemy import Column, DateTime, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
+
+from app.core.db import Base
+
+
+class AlertEvidenceModel(Base):
+    __tablename__ = "alert_evidence"
+
+    id = Column(Integer, primary_key=True, index=True)
+    alert_id = Column(Integer, nullable=False, index=True)
+    event_id = Column(Integer, nullable=True)
+
+    # What kind of evidence this is and its role in the alert
+    evidence_type = Column(String(32), nullable=False)
+    evidence_role = Column(String(16), nullable=False, default="trigger")
+
+    # The entity that matched
+    entity_type = Column(String(64), nullable=True)
+    entity_value = Column(String(255), nullable=True)
+
+    # The specific field and value that triggered the rule
+    matched_field = Column(String(128), nullable=True)
+    matched_value = Column(String(255), nullable=True)
+
+    summary = Column(String(512), nullable=True)
+    raw_context = Column(JSONB, nullable=False, default=dict)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
