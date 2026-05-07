@@ -22,7 +22,9 @@ from app.features.alerts.lifecycle import (
     MissingDispositionError,
     apply_triage,
 )
-from app.features.alerts.schemas import AlertOut, AlertTriageIn
+from app.features.alerts.evidence import extract_evidence_specs
+from app.features.alerts.models import AlertEvidenceModel
+from app.features.alerts.schemas import AlertEvidenceOut, AlertOut, AlertTriageIn
 from app.features.alerts.schemas import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn
 from app.features.alerts.rule_runtime import (
     apply_override,
@@ -105,9 +107,16 @@ def _persist_alerts(db: Session, rows: list[AlertModel]) -> list[AlertModel]:
         repository.add_alert(db, row)
     if rows:
         repository.commit(db)
+        evidence_items: list[AlertEvidenceModel] = []
         for row in rows:
             repository.refresh(db, row)
+            for spec in extract_evidence_specs(row):
+                evidence_items.append(AlertEvidenceModel(alert_id=row.id, **spec))
             publish_alert_created_from_row(row)
+        if evidence_items:
+            for ev in evidence_items:
+                repository.add_alert_evidence(db, ev)
+            repository.commit(db)
     return rows
 
 
@@ -146,6 +155,13 @@ def get_alert(db: Session, alert_id: int) -> AlertModel:
     if row is None:
         raise HTTPException(status_code=404, detail="Alert not found")
     return row
+
+
+def get_alert_evidence(db: Session, alert_id: int) -> list[AlertEvidenceOut]:
+    row = repository.get_alert_by_id(db, alert_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return repository.list_alert_evidence(db, alert_id)
 
 
 def triage_alert(
@@ -307,6 +323,8 @@ def run_ssh_bruteforce_rule(db: Session, *, minutes: int, min_events: int) -> li
                 mitre_technique=(technique_name("T1110.001") or "Brute Force: Password Guessing"),
                 confidence=70,
                 description="Possible SSH brute force or port scanning activity detected",
+                detector_type="inline",
+                rule_version=1,
                 details={
                     "mitre": {
                         "tactic": "credential_access",
@@ -350,6 +368,8 @@ def run_port_scan_rule(db: Session, *, minutes: int, min_distinct_ports: int) ->
                 mitre_technique=(technique_name("T1046") or "Network Service Scanning"),
                 confidence=80,
                 description="Possible TCP vertical port scan detected",
+                detector_type="inline",
+                rule_version=1,
                 details={
                     "mitre": {
                         "tactic": "discovery",
@@ -401,6 +421,8 @@ def run_horizontal_scan_rule(
                 mitre_technique=(technique_name("T1046") or "Network Service Scanning"),
                 confidence=75,
                 description="Possible horizontal scan against multiple targets on the same port",
+                detector_type="inline",
+                rule_version=1,
                 details={
                     "mitre": {
                         "tactic": "discovery",
@@ -446,6 +468,8 @@ def run_new_hosts_rule(db: Session, *, minutes: int, min_events: int) -> list[Al
                 mitre_technique=(technique_name("T1018") or "Remote System Discovery"),
                 confidence=40,
                 description="New source host observed in network events",
+                detector_type="inline",
+                rule_version=1,
                 details={
                     "mitre": {
                         "tactic": "discovery",
@@ -483,6 +507,8 @@ def run_new_hosts_rule(db: Session, *, minutes: int, min_events: int) -> list[Al
                 mitre_technique=(technique_name("T1018") or "Remote System Discovery"),
                 confidence=40,
                 description="New destination host observed in network events",
+                detector_type="inline",
+                rule_version=1,
                 details={
                     "mitre": {
                         "tactic": "discovery",

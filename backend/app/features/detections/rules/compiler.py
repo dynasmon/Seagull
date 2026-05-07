@@ -439,6 +439,8 @@ def execute_v2_rule(
                 confidence=int(mitre.get("confidence", 50) or 50),
                 description=description,
                 details=details,
+                detector_type="rule",
+                rule_version=int(rule.get("rule_version") or 1),
             )
             db.add(alert)
             created.append(alert)
@@ -520,6 +522,8 @@ def execute_v2_rule(
                 confidence=int(mitre.get("confidence", 50) or 50),
                 description=description,
                 details=details,
+                detector_type="rule",
+                rule_version=int(rule.get("rule_version") or 1),
             )
             db.add(alert)
             created.append(alert)
@@ -611,6 +615,8 @@ def execute_v2_rule(
                 confidence=int(mitre.get("confidence", 50) or 50),
                 description=description,
                 details=details,
+                detector_type="rule",
+                rule_version=int(rule.get("rule_version") or 1),
             )
             db.add(alert)
             created.append(alert)

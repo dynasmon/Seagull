@@ -22,6 +22,11 @@ class AlertOut(BaseModel):
     description: str
     details: Dict[str, Any] = Field(default_factory=dict)
 
+    detector_type: Optional[str] = None
+    rule_version: Optional[int] = None
+    rule_hash: Optional[str] = None
+    ruleset_version: Optional[str] = None
+
     status: str = "open"
     disposition: Optional[str] = None
     priority: Optional[int] = None
@@ -33,6 +38,24 @@ class AlertOut(BaseModel):
     closed_by: Optional[str] = None
     triage_notes: Optional[str] = None
     risk_score: Optional[int] = None
+
+    class Config:
+        orm_mode = True
+
+
+class AlertEvidenceOut(BaseModel):
+    id: int
+    alert_id: int
+    event_id: Optional[int] = None
+    evidence_type: str
+    evidence_role: str = "trigger"
+    entity_type: Optional[str] = None
+    entity_value: Optional[str] = None
+    matched_field: Optional[str] = None
+    matched_value: Optional[str] = None
+    summary: Optional[str] = None
+    raw_context: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
 
     class Config:
         orm_mode = True
