@@ -163,12 +163,12 @@ def main() -> None:
     idle_sleep_s = _env_float("SEAGULL_ROLLUP_IDLE_SLEEP_SECONDS", 2.0)
     max_rows = _env_int("SEAGULL_ROLLUP_MAX_ROWS", 5000)
 
+    _ensure_bootstrap()
+
     backoff = 1.0
 
     while True:
         try:
-            _ensure_bootstrap()
-
             last_events_id = _get_last_id(OFFSET_EVENTS)
             last_ssh_id = _get_last_id(OFFSET_SSH_FAIL)
 

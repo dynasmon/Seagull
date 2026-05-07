@@ -84,12 +84,12 @@ def main() -> None:
     batch_size = _env_int("SEAGULL_PROTO_INTEL_BATCH_SIZE", 500)
     payload_max = _env_int("SEAGULL_PROTO_INTEL_PAYLOAD_MAX_BYTES", 4096)
 
+    _ensure_bootstrap()
+
     backoff = 1.0
 
     while True:
         try:
-            _ensure_bootstrap()
-
             last_id = _get_last_id()
             max_id = _pick_batch_max_id(last_id, max_rows)
 

@@ -27,19 +27,6 @@ class _FakeDB:
         return _Rows(self._rows)
 
 
-class _FakeDBSeq:
-    def __init__(self, responses):
-        self._responses = list(responses)
-        self._idx = 0
-
-    def execute(self, _stmt):
-        if self._idx >= len(self._responses):
-            return _Rows([])
-        rows = self._responses[self._idx]
-        self._idx += 1
-        return _Rows(rows)
-
-
 def _row(ts: datetime, *, bytes_sent: int, host: str = "c2.example.test") -> SimpleNamespace:
     return SimpleNamespace(
         agent_id="agent-1",
@@ -61,7 +48,7 @@ def test_build_beacon_candidates_detects_periodic_low_jitter() -> None:
     old_max_rows = settings.SEAGULL_HEUR_MAX_ROWS
     try:
         settings.SEAGULL_HEUR_MAX_ROWS = 1000
-        out = _build_beacon_candidates(_FakeDB(rows), now)
+        out = _build_beacon_candidates(rows, now)
     finally:
         settings.SEAGULL_HEUR_MAX_ROWS = old_max_rows
 
@@ -76,16 +63,16 @@ def test_build_beacon_candidates_detects_periodic_low_jitter() -> None:
 def test_build_exfil_candidates_detects_burst_to_rare_destination() -> None:
     now = datetime.now(timezone.utc)
     baseline = [
-        _row(now - timedelta(seconds=1800), bytes_sent=200),
-        _row(now - timedelta(seconds=1500), bytes_sent=200),
-        _row(now - timedelta(seconds=1200), bytes_sent=200),
+        _row(now - timedelta(seconds=1800), bytes_sent=200_000),
+        _row(now - timedelta(seconds=1500), bytes_sent=200_000),
+        _row(now - timedelta(seconds=1200), bytes_sent=200_000),
     ]
     recent = [
-        _row(now - timedelta(seconds=240), bytes_sent=3200),
-        _row(now - timedelta(seconds=180), bytes_sent=3200),
-        _row(now - timedelta(seconds=120), bytes_sent=3200),
-        _row(now - timedelta(seconds=60), bytes_sent=3200),
-        _row(now - timedelta(seconds=20), bytes_sent=3200),
+        _row(now - timedelta(seconds=240), bytes_sent=3_200_000),
+        _row(now - timedelta(seconds=180), bytes_sent=3_200_000),
+        _row(now - timedelta(seconds=120), bytes_sent=3_200_000),
+        _row(now - timedelta(seconds=60), bytes_sent=3_200_000),
+        _row(now - timedelta(seconds=20), bytes_sent=3_200_000),
     ]
     rows = baseline + recent
 
@@ -106,7 +93,7 @@ def test_build_exfil_candidates_detects_burst_to_rare_destination() -> None:
         settings.SEAGULL_HEUR_EXFIL_MIN_BYTES = 1024
         settings.SEAGULL_HEUR_EXFIL_SPIKE_FACTOR = 2.0
         settings.SEAGULL_HEUR_EXFIL_RARE_BASELINE_EVENTS = 5
-        out = _build_exfil_candidates(_FakeDB(rows), now)
+        out = _build_exfil_candidates(rows, now)
     finally:
         (
             settings.SEAGULL_HEUR_MAX_ROWS,
@@ -181,7 +168,7 @@ def test_build_egress_anomaly_candidates_with_exec_correlation() -> None:
         settings.SEAGULL_HEUR_EGRESS_SPIKE_FACTOR = 1.5
         settings.SEAGULL_HEUR_EGRESS_RARE_BASELINE_EVENTS = 2
         settings.SEAGULL_HEUR_EGRESS_CORRELATION_SECONDS = 1200
-        out = _build_egress_anomaly_candidates(_FakeDBSeq([flow_rows, suspicious_rows]), now)
+        out = _build_egress_anomaly_candidates(_FakeDB(suspicious_rows), flow_rows, now)
     finally:
         (
             settings.SEAGULL_HEUR_MAX_ROWS,
