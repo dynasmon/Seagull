@@ -14,8 +14,8 @@ import { TextArea } from "@/shared/components/TextArea";
 import { TextInput } from "@/shared/components/TextInput";
 import { cx } from "@/shared/lib/cx";
 
-import { getAlertRuleHistory, getAlertRules, patchAlertRule, resetAlertRule } from "../api";
-import type { RuleGovernanceHistory, RuleOut } from "../types";
+import { getAlertRuleHistory, getAlertRules, patchAlertRule, resetAlertRule, validateAlertRule } from "../api";
+import type { RuleGovernanceHistory, RuleOut, RuleValidationResult } from "../types";
 
 function sevVariant(sev: string) {
   const s = String(sev || "").toLowerCase();
@@ -115,6 +115,8 @@ export default function AlertsRulesPage() {
   const [historyRows, setHistoryRows] = useState<RuleGovernanceHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   const reqSeq = useRef(0);
 
@@ -233,6 +235,7 @@ export default function AlertsRulesPage() {
     setPatchError(null);
     setTuningError(null);
     setSuppressionsError(null);
+    setValidationErrors([]);
     loadHistory(selected.id);
   }, [selected]);
 
@@ -265,6 +268,7 @@ export default function AlertsRulesPage() {
     if (!selected) return;
     setSaving(true);
     setError(null);
+    setValidationErrors([]);
 
     const parsedPatch = parseJsonObject(patchText, "Patch");
     const parsedTuning = parseJsonObject(tuningText, "Tuning");
@@ -292,26 +296,31 @@ export default function AlertsRulesPage() {
     const meNum = minEvents.trim() ? Number(minEvents) : null;
     const cvNum = condValue.trim() ? Number(condValue) : null;
 
-    try {
-      await patchAlertRule(selected.id, {
-        enabled,
-        severity,
-        window,
-        cooldown,
-        min_events: typeof meNum === "number" && Number.isFinite(meNum) ? meNum : null,
-        condition:
-          cvNum !== null && Number.isFinite(cvNum)
-            ? {
-                operator: String(condOp || ">="),
-                value: cvNum
-              }
-            : undefined,
-        schedule,
-        patch: parsedPatch.value,
-        tuning: parsedTuning.value,
-        suppressions: parsedSuppressions.value
-      });
+    const overrideBody = {
+      enabled,
+      severity,
+      window,
+      cooldown,
+      min_events: typeof meNum === "number" && Number.isFinite(meNum) ? meNum : null,
+      condition:
+        cvNum !== null && Number.isFinite(cvNum)
+          ? { operator: String(condOp || ">="), value: cvNum }
+          : undefined,
+      schedule,
+      patch: parsedPatch.value,
+      tuning: parsedTuning.value,
+      suppressions: parsedSuppressions.value,
+    };
 
+    try {
+      const validation: RuleValidationResult = await validateAlertRule(selected.id, overrideBody);
+      if (!validation.ok) {
+        setValidationErrors(validation.errors || ["Validation failed — unknown error"]);
+        setSaving(false);
+        return;
+      }
+
+      await patchAlertRule(selected.id, overrideBody);
       await reload();
       await loadHistory(selected.id);
     } catch (e: any) {
@@ -503,6 +512,17 @@ export default function AlertsRulesPage() {
                 </Button>
               </div>
             </div>
+
+            {validationErrors.length > 0 && (
+              <div className="rounded-xl border border-destructive/50 bg-destructive/5 p-4 space-y-2">
+                <div className="text-sm font-semibold text-destructive">Validation errors — fix before saving</div>
+                <ul className="space-y-1">
+                  {validationErrors.map((e, i) => (
+                    <li key={i} className="text-xs font-mono text-destructive leading-relaxed">{e}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="rounded-xl border border-border/60 bg-background/20 p-4 space-y-3">
               <div className="flex items-center justify-between gap-3">
@@ -734,12 +754,28 @@ export default function AlertsRulesPage() {
             <div className="rounded-xl border border-border/60 bg-background/20 p-4 space-y-3">
               <div>
                 <div className="text-sm font-semibold">Suppressions (JSON array)</div>
-                <div className="text-[11px] text-muted-foreground">
-                  Each item can include <span className="font-mono">reason</span>, <span className="font-mono">when</span>,{" "}
-                  <span className="font-mono">until</span>, <span className="font-mono">enabled</span>.
+                <div className="text-[11px] text-muted-foreground space-y-1">
+                  <div>
+                    Each item requires <span className="font-mono">reason</span> (string) and either{" "}
+                    <span className="font-mono">until</span> (ISO datetime) or{" "}
+                    <span className="font-mono">permanent: true</span>.
+                  </div>
+                  <div>
+                    Use <span className="font-mono">when</span> to scope by field (e.g.{" "}
+                    <span className="font-mono">{`{"src_ip": "10.0.0.1"}`}</span>).
+                    Broad suppressions (no <span className="font-mono">when</span>) on high/critical rules
+                    require <span className="font-mono">confirm_high_risk: true</span>.
+                  </div>
                 </div>
               </div>
               {suppressionsError ? <InlineAlert tone="danger" className="text-xs">{suppressionsError}</InlineAlert> : null}
+              {(selected.severity === "high" || selected.severity === "critical") && (
+                <InlineAlert tone="warning" className="text-xs">
+                  This is a <strong>{selected.severity}</strong> rule. Broad suppressions (empty{" "}
+                  <span className="font-mono">when</span>) require{" "}
+                  <span className="font-mono">confirm_high_risk: true</span> on each item.
+                </InlineAlert>
+              )}
               <TextArea
                 value={suppressionsText}
                 onChange={(e) => setSuppressionsText(e.target.value)}
