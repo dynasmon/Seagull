@@ -117,3 +117,9 @@ export type RuleGovernanceHistory = {
   actor_username?: string | null;
   snapshot: Record<string, any>;
 };
+
+export type RuleValidationResult = {
+  ok: boolean;
+  errors: string[];
+  effective: Record<string, any> | null;
+};
