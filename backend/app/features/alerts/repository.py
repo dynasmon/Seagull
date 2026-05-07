@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.features.alerts.models import AlertModel
+from app.features.alerts.models import AlertEvidenceModel, AlertModel
 from app.features.alerts.models import AlertRuleOverrideModel
 from app.features.alerts.rule_registry_runtime import fetch_overrides, fetch_suppressions, fetch_tuning
 from app.features.alerts.models import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
@@ -278,6 +278,21 @@ def list_suppression_history(db: Session, *, rule_id: str, limit: int) -> list[A
         .limit(limit)
         .all()
     )
+
+
+# Alert evidence
+
+def list_alert_evidence(db: Session, alert_id: int) -> list[AlertEvidenceModel]:
+    stmt = (
+        select(AlertEvidenceModel)
+        .where(AlertEvidenceModel.alert_id == alert_id)
+        .order_by(AlertEvidenceModel.id)
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def add_alert_evidence(db: Session, row: AlertEvidenceModel) -> None:
+    db.add(row)
 
 
 # Shared persistence operations
