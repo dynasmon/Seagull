@@ -50,8 +50,83 @@ from app.features.events.schemas import (
     SshUserStat,
     SudoEventSummary,
 )
+from app.shared.enrichment.models import IpEnrichmentCacheModel
 
 logger = logging.getLogger("seagull.api.events")
+
+
+def _ssh_geo_value_present(value: Any) -> bool:
+    if value is None:
+        return False
+    return bool(str(value).strip())
+
+
+def _load_ssh_geo_cache(db: Session, ips: set[str]) -> dict[str, dict[str, str | None]]:
+    clean_ips = sorted({str(ip).strip() for ip in ips if str(ip).strip()})
+    if not clean_ips:
+        return {}
+    rows = (
+        db.execute(
+            select(
+                IpEnrichmentCacheModel.ip,
+                IpEnrichmentCacheModel.country,
+                IpEnrichmentCacheModel.org,
+                IpEnrichmentCacheModel.asn,
+                IpEnrichmentCacheModel.asn_org,
+            )
+            .where(IpEnrichmentCacheModel.ip.in_(clean_ips))
+            .where(or_(IpEnrichmentCacheModel.expires_at.is_(None), IpEnrichmentCacheModel.expires_at > _now_utc()))
+        )
+        .mappings()
+        .all()
+    )
+    out: dict[str, dict[str, str | None]] = {}
+    for row in rows:
+        rec = {
+            "geo_country": row.get("country"),
+            "geo_org": row.get("org"),
+            "asn": row.get("asn"),
+            "asn_org": row.get("asn_org"),
+        }
+        if any(_ssh_geo_value_present(value) for value in rec.values()):
+            out[str(row["ip"])] = rec
+    return out
+
+
+def _overlay_ssh_geo_from_cache(
+    db: Session,
+    payload: SshSummaryResponse,
+    *,
+    source_ips: set[str] | None = None,
+) -> None:
+    groups = [
+        payload.recent_auth_events,
+        payload.successful_logins,
+        payload.failed_attempts,
+        payload.invalid_user_attempts,
+        payload.most_active_ips,
+        payload.root_logins,
+    ]
+    ips = set(source_ips or set())
+    for group in groups:
+        for item in group:
+            src_ip = getattr(item, "src_ip", None)
+            if src_ip:
+                ips.add(str(src_ip))
+    cache = _load_ssh_geo_cache(db, ips)
+    if not cache:
+        return
+    for group in groups:
+        for item in group:
+            rec = cache.get(str(getattr(item, "src_ip", "") or ""))
+            if not rec:
+                continue
+            for field, value in rec.items():
+                if _ssh_geo_value_present(value) and not _ssh_geo_value_present(getattr(item, field, None)):
+                    setattr(item, field, value)
+    count_base = source_ips if source_ips is not None else ips
+    cached_enriched = sum(1 for ip in count_base if ip in cache)
+    payload.enriched_source_ips = max(int(payload.enriched_source_ips or 0), cached_enriched)
 
 
 def get_ssh_summary(
@@ -194,6 +269,18 @@ def get_ssh_summary(
                 f"LIMIT {int(limit)}"
             )
             sudo_recent = [SudoEventSummary(**dict(r)) for r in _ch_query_dicts(ch, sudo_sql, sudo_params)]
+            source_ips_sql = (
+                "SELECT src_ip "
+                f"FROM ({ssh_source_sql}) "
+                "WHERE src_ip IS NOT NULL AND ifNull(ssh_action, '') IN ('accepted','failed_password','invalid_user') "
+                "GROUP BY src_ip "
+                "LIMIT 10000"
+            )
+            source_ips = {
+                str(r.get("src_ip") or "").strip()
+                for r in _ch_query_dicts(ch, source_ips_sql, ssh_params)
+                if str(r.get("src_ip") or "").strip()
+            }
 
             payload = SshSummaryResponse(
                 generated_at=datetime.now(timezone.utc),
@@ -231,6 +318,7 @@ def get_ssh_summary(
                     query_window_end=query_end,
                 ),
             )
+            _overlay_ssh_geo_from_cache(db, payload, source_ips=source_ips)
             _cache_set_json(
                 cache_key,
                 payload.dict(),

@@ -248,3 +248,55 @@ rules:
     condition:
       operator: ">="
       value: 2
+
+  - id: ddos_scan_summary_fanout_v1
+    name: "Distributed probe storm against target"
+    description: "High-volume probe summaries from many source IPs against the same target, consistent with DDoS-style fanout or noisy flood tooling."
+    status: "active"
+    source: "scan_summary"
+    false_positives: "Large authorized distributed scanner jobs and synthetic DDoS tests."
+    response: "Confirm whether the source set is expected, then rate-limit at edge or upstream if traffic is unauthorized."
+    mitre:
+      tactic: "impact"
+      technique_id: "T1498"
+      technique: "Network Denial of Service"
+      confidence: 82
+    enabled: true
+    severity: "high"
+    type: "distinct_count"
+    window: "5m"
+    cooldown: "5m"
+    match:
+      event_type: "scan_summary"
+      extra_total_probes_gte: 1
+    group_by: ["dst_ip", "proto"]
+    distinct_field: "src_ip"
+    min_events: 1200
+    condition:
+      operator: ">="
+      value: 80
+
+  - id: dos_scan_summary_volume_v1
+    name: "High-volume probe storm against target"
+    description: "Large volume of probe summaries against one target within a short window, treated as DoS-impact telemetry when packet DDoS classification is absent."
+    status: "active"
+    source: "scan_summary"
+    false_positives: "Authorized high-rate scanner tests and controlled benchmark traffic."
+    response: "Validate test window and source ownership; if unexpected, apply temporary perimeter filtering."
+    mitre:
+      tactic: "impact"
+      technique_id: "T1498"
+      technique: "Network Denial of Service"
+      confidence: 74
+    enabled: true
+    severity: "medium"
+    type: "aggregate_count"
+    window: "5m"
+    cooldown: "5m"
+    match:
+      event_type: "scan_summary"
+      extra_total_probes_gte: 1
+    group_by: ["dst_ip", "proto"]
+    condition:
+      operator: ">="
+      value: 2500

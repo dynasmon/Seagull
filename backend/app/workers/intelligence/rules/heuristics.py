@@ -20,37 +20,26 @@ from .conditions import (
 )
 
 
-def _build_beacon_candidates(db: Session, now: datetime) -> List[Dict[str, Any]]:
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _build_beacon_candidates(rows: List[Any], now: datetime) -> List[Dict[str, Any]]:
+    now = _as_utc(now)
     win_s = max(300, int(settings.SEAGULL_HEUR_BEACON_WINDOW_SECONDS or 3600))
     min_events = max(4, int(settings.SEAGULL_HEUR_BEACON_MIN_EVENTS or 7))
     min_interval = max(2.0, float(settings.SEAGULL_HEUR_BEACON_MIN_INTERVAL_SECONDS or 8))
     max_interval = max(min_interval, float(settings.SEAGULL_HEUR_BEACON_MAX_INTERVAL_SECONDS or 900))
     max_jitter = max(0.01, min(1.0, float(settings.SEAGULL_HEUR_BEACON_MAX_JITTER or 0.22)))
-    max_rows = max(1000, int(settings.SEAGULL_HEUR_MAX_ROWS or 50000))
 
     since = now - timedelta(seconds=win_s)
-    rows = db.execute(
-        select(
-            NetEventModel.agent_id,
-            NetEventModel.timestamp,
-            NetEventModel.src_ip,
-            NetEventModel.dst_ip,
-            NetEventModel.dst_port,
-            NetEventModel.proto,
-            NetEventModel.bytes,
-            NetEventModel.app_proto,
-            NetEventModel.extra,
-        ).where(
-            NetEventModel.timestamp >= since,
-            NetEventModel.event_type.in_(["flow", "l7_flow"]),
-            NetEventModel.dst_ip.is_not(None),
-        )
-        .order_by(NetEventModel.timestamp.desc())
-        .limit(max_rows)
-    ).all()
 
     groups: Dict[Tuple[str, str, int, str, str], List[Dict[str, Any]]] = {}
     for r in rows:
+        if _as_utc(r.timestamp) < since:
+            continue
         extra = r.extra if isinstance(r.extra, dict) else {}
         if _extra_flow_direction(extra) != "outbound_from_local":
             continue
@@ -65,7 +54,7 @@ def _build_beacon_candidates(db: Session, now: datetime) -> List[Dict[str, Any]]
         key = (agent_id, dst_ip, dst_port, proto, host)
         groups.setdefault(key, []).append(
             {
-                "timestamp": r.timestamp,
+                "timestamp": _as_utc(r.timestamp),
                 "src_ip": src_ip,
                 "dst_ip": dst_ip,
                 "dst_port": dst_port,
@@ -128,39 +117,22 @@ def _build_beacon_candidates(db: Session, now: datetime) -> List[Dict[str, Any]]
     return out
 
 
-def _build_exfil_candidates(db: Session, now: datetime) -> List[Dict[str, Any]]:
+def _build_exfil_candidates(rows: List[Any], now: datetime) -> List[Dict[str, Any]]:
+    now = _as_utc(now)
     baseline_s = max(3600, int(settings.SEAGULL_HEUR_EXFIL_BASELINE_SECONDS or 86400))
     recent_s = max(120, int(settings.SEAGULL_HEUR_EXFIL_WINDOW_SECONDS or 600))
     min_events = max(4, int(settings.SEAGULL_HEUR_EXFIL_MIN_EVENTS or 8))
     min_recent_bytes = max(1024 * 1024, int(settings.SEAGULL_HEUR_EXFIL_MIN_BYTES or 8 * 1024 * 1024))
     spike_factor = max(1.0, float(settings.SEAGULL_HEUR_EXFIL_SPIKE_FACTOR or 3.0))
     rare_baseline_events = max(1, int(settings.SEAGULL_HEUR_EXFIL_RARE_BASELINE_EVENTS or 5))
-    max_rows = max(1000, int(settings.SEAGULL_HEUR_MAX_ROWS or 50000))
 
     since = now - timedelta(seconds=baseline_s)
     recent_since = now - timedelta(seconds=recent_s)
-    rows = db.execute(
-        select(
-            NetEventModel.agent_id,
-            NetEventModel.timestamp,
-            NetEventModel.src_ip,
-            NetEventModel.dst_ip,
-            NetEventModel.dst_port,
-            NetEventModel.proto,
-            NetEventModel.bytes,
-            NetEventModel.app_proto,
-            NetEventModel.extra,
-        ).where(
-            NetEventModel.timestamp >= since,
-            NetEventModel.event_type.in_(["flow", "l7_flow"]),
-            NetEventModel.dst_ip.is_not(None),
-        )
-        .order_by(NetEventModel.timestamp.desc())
-        .limit(max_rows)
-    ).all()
 
     groups: Dict[Tuple[str, str, int, str, str], List[Dict[str, Any]]] = {}
     for r in rows:
+        if _as_utc(r.timestamp) < since:
+            continue
         extra = r.extra if isinstance(r.extra, dict) else {}
         if _extra_flow_direction(extra) != "outbound_from_local":
             continue
@@ -175,7 +147,7 @@ def _build_exfil_candidates(db: Session, now: datetime) -> List[Dict[str, Any]]:
         key = (agent_id, dst_ip, dst_port, proto, host)
         groups.setdefault(key, []).append(
             {
-                "timestamp": r.timestamp,
+                "timestamp": _as_utc(r.timestamp),
                 "src_ip": src_ip,
                 "bytes": max(0, _as_int(r.bytes, 0)),
                 "app_proto": str(r.app_proto or extra.get("app_proto") or "").strip().lower(),
@@ -258,6 +230,7 @@ def _suspicious_activity_by_agent(
     agent_ids: List[str],
     lookback_seconds: int,
 ) -> Dict[str, Dict[str, int]]:
+    now = _as_utc(now)
     out: Dict[str, Dict[str, int]] = {}
     ids = [str(x or "").strip() for x in agent_ids if str(x or "").strip()]
     if not ids:
@@ -307,7 +280,8 @@ def _suspicious_activity_by_agent(
     return out
 
 
-def _build_egress_anomaly_candidates(db: Session, now: datetime) -> List[Dict[str, Any]]:
+def _build_egress_anomaly_candidates(db: Session, rows: List[Any], now: datetime) -> List[Dict[str, Any]]:
+    now = _as_utc(now)
     baseline_s = max(1800, int(settings.SEAGULL_HEUR_EGRESS_BASELINE_SECONDS or 21600))
     recent_s = max(120, int(settings.SEAGULL_HEUR_EGRESS_WINDOW_SECONDS or 900))
     min_events = max(3, int(settings.SEAGULL_HEUR_EGRESS_MIN_EVENTS or 5))
@@ -315,32 +289,14 @@ def _build_egress_anomaly_candidates(db: Session, now: datetime) -> List[Dict[st
     spike_factor = max(1.0, float(settings.SEAGULL_HEUR_EGRESS_SPIKE_FACTOR or 2.5))
     rare_baseline_events = max(1, int(settings.SEAGULL_HEUR_EGRESS_RARE_BASELINE_EVENTS or 3))
     correlation_s = max(120, int(settings.SEAGULL_HEUR_EGRESS_CORRELATION_SECONDS or 900))
-    max_rows = max(1000, int(settings.SEAGULL_HEUR_MAX_ROWS or 50000))
 
     since = now - timedelta(seconds=baseline_s)
     recent_since = now - timedelta(seconds=recent_s)
-    rows = db.execute(
-        select(
-            NetEventModel.agent_id,
-            NetEventModel.timestamp,
-            NetEventModel.src_ip,
-            NetEventModel.dst_ip,
-            NetEventModel.dst_port,
-            NetEventModel.proto,
-            NetEventModel.bytes,
-            NetEventModel.app_proto,
-            NetEventModel.extra,
-        ).where(
-            NetEventModel.timestamp >= since,
-            NetEventModel.event_type.in_(["flow", "l7_flow"]),
-            NetEventModel.dst_ip.is_not(None),
-        )
-        .order_by(NetEventModel.timestamp.desc())
-        .limit(max_rows)
-    ).all()
 
     groups: Dict[Tuple[str, str, int, str, str, str], List[Dict[str, Any]]] = {}
     for r in rows:
+        if _as_utc(r.timestamp) < since:
+            continue
         extra = r.extra if isinstance(r.extra, dict) else {}
         if _extra_flow_direction(extra) != "outbound_from_local":
             continue
@@ -356,7 +312,7 @@ def _build_egress_anomaly_candidates(db: Session, now: datetime) -> List[Dict[st
         key = (agent_id, dst_ip, dst_port, proto, host, app_proto)
         groups.setdefault(key, []).append(
             {
-                "timestamp": r.timestamp,
+                "timestamp": _as_utc(r.timestamp),
                 "src_ip": src_ip,
                 "bytes": max(0, _as_int(r.bytes, 0)),
             }
@@ -453,14 +409,45 @@ def _build_egress_anomaly_candidates(db: Session, now: datetime) -> List[Dict[st
     return out
 
 
+def _fetch_shared_flow_rows(db: Session, now: datetime) -> List[Any]:
+    max_rows = max(1000, int(settings.SEAGULL_HEUR_MAX_ROWS or 50000))
+    beacon_win_s = max(300, int(settings.SEAGULL_HEUR_BEACON_WINDOW_SECONDS or 3600))
+    exfil_baseline_s = max(3600, int(settings.SEAGULL_HEUR_EXFIL_BASELINE_SECONDS or 86400))
+    egress_baseline_s = max(1800, int(settings.SEAGULL_HEUR_EGRESS_BASELINE_SECONDS or 21600))
+    max_window_s = max(beacon_win_s, exfil_baseline_s, egress_baseline_s)
+    since = now - timedelta(seconds=max_window_s)
+    return db.execute(
+        select(
+            NetEventModel.agent_id,
+            NetEventModel.timestamp,
+            NetEventModel.src_ip,
+            NetEventModel.dst_ip,
+            NetEventModel.dst_port,
+            NetEventModel.proto,
+            NetEventModel.bytes,
+            NetEventModel.app_proto,
+            NetEventModel.extra,
+        ).where(
+            NetEventModel.timestamp >= since,
+            NetEventModel.event_type.in_(["flow", "l7_flow"]),
+            NetEventModel.dst_ip.is_not(None),
+        )
+        .order_by(NetEventModel.timestamp.desc())
+        .limit(max_rows)
+    ).all()
+
+
 def _emit_heuristic_signals(db: Session, now: datetime) -> Tuple[List[NetEventModel], List[AlertModel]]:
+    now = _as_utc(now)
     derived_events: List[NetEventModel] = []
     derived_alerts: List[AlertModel] = []
     beacon_cd = max(120, int(settings.SEAGULL_HEUR_BEACON_COOLDOWN_SECONDS or 900))
     exfil_cd = max(120, int(settings.SEAGULL_HEUR_EXFIL_COOLDOWN_SECONDS or 1200))
     egress_cd = max(120, int(settings.SEAGULL_HEUR_EGRESS_COOLDOWN_SECONDS or 1200))
 
-    for cand in _build_beacon_candidates(db, now):
+    shared_rows = _fetch_shared_flow_rows(db, now)
+
+    for cand in _build_beacon_candidates(shared_rows, now):
         fp = f"beacon:{cand['agent_id']}:{cand['dst_ip']}:{cand.get('dst_port') or 0}:{cand['proto']}:{cand.get('host') or '-'}"
         if _netevent_exists_recent(
             db,
@@ -528,7 +515,7 @@ def _emit_heuristic_signals(db: Session, now: datetime) -> Tuple[List[NetEventMo
             )
         )
 
-    for cand in _build_exfil_candidates(db, now):
+    for cand in _build_exfil_candidates(shared_rows, now):
         fp = f"exfil:{cand['agent_id']}:{cand['dst_ip']}:{cand.get('dst_port') or 0}:{cand['proto']}:{cand.get('host') or '-'}"
         if _netevent_exists_recent(
             db,
@@ -595,7 +582,7 @@ def _emit_heuristic_signals(db: Session, now: datetime) -> Tuple[List[NetEventMo
             )
         )
 
-    for cand in _build_egress_anomaly_candidates(db, now):
+    for cand in _build_egress_anomaly_candidates(db, shared_rows, now):
         fp = f"egress:{cand['agent_id']}:{cand['dst_ip']}:{cand.get('dst_port') or 0}:{cand['proto']}:{cand.get('host') or '-'}"
         if _netevent_exists_recent(
             db,

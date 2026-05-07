@@ -176,3 +176,61 @@ def test_ddos_vector_specific_and_generic_rule_separation() -> None:
     assert len(evaluate_rule(icmp_rule, icmp_attack_events, now)) == 1
     # Generic rule should stay quiet for vectors covered by specific detectors.
     assert evaluate_rule(generic_ddos_rule, icmp_attack_events, now) == []
+
+
+def test_ddos_scan_summary_fanout_positive() -> None:
+    rules = load_rule_index(str(_RULES_DIR))
+    rule = rules["ddos_scan_summary_fanout_v1"]
+    now = datetime.now(timezone.utc)
+
+    events = [
+        {
+            "agent_id": "agent-core-1",
+            "event_type": "scan_summary",
+            "timestamp": _ts(now, i % 240),
+            "src_ip": f"198.51.{i % 120}.{(i % 250) + 1}",
+            "dst_ip": "187.127.13.82",
+            "dst_port": None,
+            "proto": "udp",
+            "bytes": 64,
+            "extra": {
+                "total_probes": 8,
+                "window_seconds": 1,
+                "scan_class": "low",
+            },
+        }
+        for i in range(1300)
+    ]
+
+    hits = evaluate_rule(rule, events, now)
+    assert len(hits) == 1
+    assert hits[0]["distinct_count"] >= 80
+
+
+def test_dos_scan_summary_volume_positive() -> None:
+    rules = load_rule_index(str(_RULES_DIR))
+    rule = rules["dos_scan_summary_volume_v1"]
+    now = datetime.now(timezone.utc)
+
+    events = [
+        {
+            "agent_id": "agent-core-1",
+            "event_type": "scan_summary",
+            "timestamp": _ts(now, i % 240),
+            "src_ip": f"203.0.113.{(i % 20) + 1}",
+            "dst_ip": "187.127.13.82",
+            "dst_port": None,
+            "proto": "udp",
+            "bytes": 64,
+            "extra": {
+                "total_probes": 4,
+                "window_seconds": 1,
+                "scan_class": "low",
+            },
+        }
+        for i in range(2600)
+    ]
+
+    hits = evaluate_rule(rule, events, now)
+    assert len(hits) == 1
+    assert hits[0]["count"] >= 2500

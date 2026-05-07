@@ -78,7 +78,7 @@ def _provider_available(name: str, cfg: dict[str, str]) -> tuple[bool, str]:
     if name == GEOIP_PROVIDER_IPINFO:
         if cfg["ipinfo_token"]:
             return True, "ipinfo_token_present"
-        return False, "ipinfo_token_missing"
+        return True, "ipinfo_public"
     return False, "provider_unknown"
 
 
