@@ -146,3 +146,9 @@ class RuleGovernanceHistoryOut(BaseModel):
     actor_user_id: Optional[int] = None
     actor_username: Optional[str] = None
     snapshot: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RuleValidationResult(BaseModel):
+    ok: bool
+    errors: List[str] = Field(default_factory=list)
+    effective: Optional[Dict[str, Any]] = None
