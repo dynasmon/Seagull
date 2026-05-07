@@ -1,7 +1,7 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/shared/lib/http";
 import type { CursorPage } from "@/shared/types/pagination";
 
-import type { Alert, AlertTriageIn, RuleGovernanceHistory, RuleOverrideIn, RuleOut } from "./types";
+import type { Alert, AlertEvidenceItem, AlertTriageIn, RuleGovernanceHistory, RuleOverrideIn, RuleOut } from "./types";
 
 export function getRecentAlerts(params?: { limit?: number }) {
   const q = new URLSearchParams();
@@ -57,4 +57,8 @@ export function getAlert(alertId: number) {
 
 export function triageAlert(alertId: number, body: AlertTriageIn) {
   return apiPatch<Alert>(`/api/alerts/${alertId}/triage`, body);
+}
+
+export function getAlertEvidence(alertId: number) {
+  return apiGet<AlertEvidenceItem[]>(`/api/alerts/${alertId}/evidence`);
 }

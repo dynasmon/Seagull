@@ -24,6 +24,10 @@ export type Alert = {
   description: string;
   details: Record<string, any> | null;
   created_at: string;
+  detector_type?: string | null;
+  rule_version?: number | null;
+  rule_hash?: string | null;
+  ruleset_version?: string | null;
   status: AlertStatus;
   disposition?: AlertDisposition | null;
   priority?: number | null;
@@ -35,6 +39,21 @@ export type Alert = {
   closed_by?: string | null;
   triage_notes?: string | null;
   risk_score?: number | null;
+};
+
+export type AlertEvidenceItem = {
+  id: number;
+  alert_id: number;
+  event_id?: number | null;
+  evidence_type: string;
+  evidence_role: string;
+  entity_type?: string | null;
+  entity_value?: string | null;
+  matched_field?: string | null;
+  matched_value?: string | null;
+  summary?: string | null;
+  raw_context: Record<string, any>;
+  created_at: string;
 };
 
 export type AlertTriageIn = {
