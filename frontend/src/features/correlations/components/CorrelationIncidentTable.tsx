@@ -22,7 +22,7 @@ import {
 function chip(items: string[], fallback = "-") {
   if (items.length === 0) return <span className="text-muted-foreground">{fallback}</span>;
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1">
       {items.slice(0, 3).map((item) => (
         <span
           key={item}
@@ -41,7 +41,7 @@ function stageHitPreview(stageHits: Record<string, number>) {
   const pairs = Object.entries(stageHits || {});
   if (pairs.length === 0) return <span className="text-muted-foreground">-</span>;
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1">
       {pairs.slice(0, 3).map(([key, value]) => (
         <span
           key={key}
@@ -73,104 +73,68 @@ export default function CorrelationIncidentTable({
   const columns = useMemo(
     () => [
       {
-        key: "status",
-        title: "Status",
+        key: "risk",
+        title: "Risk",
         sortable: true,
-        render: (row: CorrelationDurableIncident) => <CorrelationStatusBadge status={row.status} />,
-      },
-      {
-        key: "severity",
-        title: "Severity",
-        sortable: true,
-        render: (row: CorrelationDurableIncident) => (
-          <SeverityPill variant={correlationSeverityVariant(row.severity)}>{row.severity}</SeverityPill>
-        ),
-      },
-      {
-        key: "risk_score",
-        title: "Risk score",
-        sortable: true,
-        render: (row: CorrelationDurableIncident) => <CorrelationRiskBadge score={row.risk_score} />,
-      },
-      {
-        key: "confidence",
-        title: "Confidence",
-        sortable: true,
-        render: (row: CorrelationDurableIncident) => <CorrelationConfidenceBadge confidence={row.confidence} />,
-      },
-      {
-        key: "rule",
-        title: "Rule",
-        sortKey: "correlation_rule_name",
-        sortable: true,
-        className: "min-w-[220px]",
+        sortKey: "risk_score",
         render: (row: CorrelationDurableIncident) => (
           <div className="space-y-1">
-            <div className="font-medium text-foreground">{row.correlation_rule_name}</div>
-            <div className="font-mono text-[11px] text-muted-foreground">
-              #{row.correlation_rule_id ?? "-"} · {row.dedup_key}
+            <div className="flex flex-wrap items-center gap-1">
+              <CorrelationStatusBadge status={row.status} />
+              <SeverityPill variant={correlationSeverityVariant(row.severity)}>{row.severity}</SeverityPill>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <CorrelationRiskBadge score={row.risk_score} />
+              <CorrelationConfidenceBadge confidence={row.confidence} />
             </div>
           </div>
         ),
       },
       {
-        key: "entity",
-        title: "Entity",
+        key: "rule",
+        title: "Rule / Entity",
         sortable: true,
-        className: "min-w-[180px]",
+        sortKey: "correlation_rule_name",
         render: (row: CorrelationDurableIncident) => {
           const entity = correlationEntityLabel(row.entity_type, row.entity_value, row.group_by, row.group_value);
           return (
             <div className="space-y-1">
-              <div className="font-mono text-[12px] text-foreground">{entity.value}</div>
+              <div className="font-medium text-foreground">{row.correlation_rule_name}</div>
+              <div className="font-mono text-[11px] text-muted-foreground break-all">
+                #{row.correlation_rule_id ?? "-"} · {row.dedup_key}
+              </div>
+              <div className="font-mono text-[12px] text-foreground break-all">{entity.value}</div>
               <div className="text-[11px] text-muted-foreground">{entity.type}</div>
             </div>
           );
         },
       },
       {
-        key: "started_at",
-        title: "Started",
+        key: "timeline",
+        title: "Timeline",
         sortable: true,
-        className: "font-mono text-[12px] text-muted-foreground min-w-[150px]",
-        render: (row: CorrelationDurableIncident) => formatInvestigationTimestamp(row.started_at),
+        sortKey: "last_seen_at",
+        className: "font-mono text-[12px] text-muted-foreground",
+        render: (row: CorrelationDurableIncident) => (
+          <div className="space-y-0.5">
+            <div className="text-foreground">{formatInvestigationTimestamp(row.last_seen_at)}</div>
+            <div className="text-[11px]">started {formatInvestigationTimestamp(row.started_at)}</div>
+            <div className="text-[11px]">{row.alert_count} alerts</div>
+          </div>
+        ),
       },
       {
-        key: "last_seen_at",
-        title: "Last seen",
-        sortable: true,
-        className: "font-mono text-[12px] text-muted-foreground min-w-[150px]",
-        render: (row: CorrelationDurableIncident) => formatInvestigationTimestamp(row.last_seen_at),
-      },
-      {
-        key: "alert_count",
-        title: "Alerts",
-        sortable: true,
-        className: "font-mono text-[12px]",
-      },
-      {
-        key: "unique_rules",
-        title: "Unique rules",
-        sortKey: "unique_rules_count",
-        sortable: true,
-        className: "min-w-[170px]",
-        render: (row: CorrelationDurableIncident) => chip(row.unique_rules, "No rule refs"),
-      },
-      {
-        key: "stage_hits",
-        title: "Stage hits",
-        sortKey: "stage_hits_count",
-        sortable: true,
-        className: "min-w-[170px]",
-        render: (row: CorrelationDurableIncident) => stageHitPreview(row.stage_hits),
-      },
-      {
-        key: "mitre",
-        title: "MITRE",
-        className: "min-w-[170px]",
+        key: "intelligence",
+        title: "Intelligence",
         render: (row: CorrelationDurableIncident) => {
-          const preview = correlationMitrePreview(mitreByIncidentId[row.id] || { tactics: [], techniques: [] }, 1);
-          return chip(preview, "-");
+          const mitrePreview = correlationMitrePreview(mitreByIncidentId[row.id] || { tactics: [], techniques: [] }, 1);
+          return (
+            <div className="space-y-1.5">
+              {chip(row.unique_rules, "No rule refs")}
+              {stageHitPreview(row.stage_hits)}
+              {chip(mitrePreview, "-")}
+            </div>
+          );
         },
       },
     ],
