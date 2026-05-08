@@ -899,22 +899,16 @@ function SudoRecentCard({ title, rows, viewAgentId }: { title: string; rows: Sud
   const cols = useMemo(
     () => [
       {
-        key: "timestamp",
-        title: "When",
-        width: 180,
-        render: (r: SudoEventSummary) => <span className="font-mono text-xs">{fmtWhen(r.timestamp)}</span>
-      },
-      {
         key: "who",
         title: "Who",
-        width: 220,
         render: (r: SudoEventSummary) => (
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-mono">{r.username || "-"}</span>
+          <div className="min-w-0 space-y-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <span className="break-all font-mono text-[12px]">{r.username || "-"}</span>
               {r.target_user ? <Badge variant="neutral">as {r.target_user}</Badge> : null}
             </div>
-            <div className="mt-1 text-[11px] font-mono text-muted-foreground truncate">{r.agent_id}</div>
+            <div className="break-all font-mono text-[11px] text-muted-foreground">{fmtWhen(r.timestamp)}</div>
+            <div className="break-all font-mono text-[11px] text-muted-foreground">{r.agent_id}</div>
           </div>
         )
       },
@@ -922,26 +916,25 @@ function SudoRecentCard({ title, rows, viewAgentId }: { title: string; rows: Sud
         key: "command",
         title: "Command",
         render: (r: SudoEventSummary) => (
-          <div className="min-w-0">
-            <div className="font-mono truncate">{r.command || "-"}</div>
-            <div className="mt-0.5 text-[11px] text-muted-foreground font-mono truncate">
-              {r.pwd ? `PWD=${r.pwd}` : ""}
-              {r.tty ? ` • TTY=${r.tty}` : ""}
-            </div>
+          <div className="min-w-0 space-y-1">
+            <div className="break-all font-mono text-[12px]">{r.command || "-"}</div>
+            {r.pwd ? <div className="break-all font-mono text-[11px] text-muted-foreground">PWD={r.pwd}</div> : null}
+            {r.tty ? <div className="break-all font-mono text-[11px] text-muted-foreground">TTY={r.tty}</div> : null}
           </div>
         )
       },
       {
         key: "actions",
-        title: "Actions",
-        width: 130,
+        title: "",
+        width: 72,
+        className: "text-right",
         render: (r: SudoEventSummary) => {
           const search = r.command ? r.command.split(" ")[0] : "sudo";
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "sudo_cmd", search });
           return (
             <Link
               to={to}
-              className="inline-flex items-center justify-center h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
+              className="inline-flex h-8 items-center justify-center rounded-md border border-border/60 bg-background/40 px-2.5 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
             >
               Open
             </Link>
@@ -957,7 +950,15 @@ function SudoRecentCard({ title, rows, viewAgentId }: { title: string; rows: Sud
       {rows.length === 0 ? (
         <EmptyState title="No sudo activity" hint="No sudo commands found in the selected window." />
       ) : (
-        <Table columns={cols} rows={rows} rowKey={(r, i) => `${r.timestamp}-${i}`} className="text-sm" />
+        <div className="max-h-[520px] overflow-y-auto">
+          <Table
+            columns={cols}
+            rows={rows}
+            rowKey={(r, i) => `${r.timestamp}-${i}`}
+            className="text-sm"
+            compact
+          />
+        </div>
       )}
     </Card>
   );

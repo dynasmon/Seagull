@@ -726,10 +726,10 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
         <Panel
           title="Event stream"
           actions={<span className="text-[10px] font-mono text-muted-foreground">{headerRight}</span>}
-          className="min-w-0 min-h-[620px]"
+          className="min-w-0"
           scrollY
           bodyClassName="min-w-0 p-0"
-          style={{ height: "calc(100vh - 260px)" }}
+          style={{ height: "calc(100vh - 80px)" }}
         >
           {queryMeta ? (
             <div className="border-b border-border/60 px-3 py-2">
