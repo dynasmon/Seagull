@@ -135,12 +135,14 @@ export function InvestigationSection({
   right,
   children,
   className,
+  bodyClassName,
 }: {
   title: string;
   subtitle?: ReactNode;
   right?: ReactNode;
   children: ReactNode;
   className?: string;
+  bodyClassName?: string;
 }) {
   return (
     <section className={cx("rounded-xl border border-border/60 bg-background/45", className)}>
@@ -151,7 +153,7 @@ export function InvestigationSection({
         </div>
         {right ? <div className="shrink-0">{right}</div> : null}
       </div>
-      <div className="p-4">{children}</div>
+      <div className={cx("p-4", bodyClassName)}>{children}</div>
     </section>
   );
 }
