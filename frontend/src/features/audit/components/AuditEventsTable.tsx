@@ -104,7 +104,7 @@ export default function AuditEventsTable({
             {
               key: "created_at",
               title: "When",
-              className: "whitespace-nowrap text-xs font-mono",
+              className: "text-xs font-mono",
               sortable: true,
               sortKey: "created_at",
               render: (r) => fmtDateTime(r.created_at),
@@ -114,7 +114,7 @@ export default function AuditEventsTable({
               title: "Event",
               className: "font-mono text-xs",
               render: (r) => (
-                <div className="space-y-1 min-w-[240px]">
+                <div className="space-y-1">
                   <div>{r.event_type}</div>
                   <div className="text-[11px] text-muted-foreground">{r.action}</div>
                 </div>
@@ -125,9 +125,9 @@ export default function AuditEventsTable({
               title: "Resource",
               className: "font-mono text-xs",
               render: (r) => (
-                <div className="space-y-1 min-w-[180px]">
+                <div className="space-y-1">
                   <div>{r.resource_type}</div>
-                  <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">{r.resource_id || "-"}</div>
+                  <div className="text-[11px] text-muted-foreground break-all">{r.resource_id || "-"}</div>
                 </div>
               ),
             },
@@ -143,7 +143,7 @@ export default function AuditEventsTable({
               key: "summary",
               title: "Summary",
               className: "text-xs",
-              render: (r) => <div className="max-w-[320px] truncate">{summarizeEvent(r)}</div>,
+              render: (r) => <div className="line-clamp-2">{summarizeEvent(r)}</div>,
             },
             {
               key: "badges",
