@@ -34,7 +34,7 @@ export function Table<T>({
   rows,
   rowKey,
   className,
-  scrollX = true,
+  scrollX = false,
   stickyHeader = true,
   compact = false,
   selectedRowKey,
@@ -79,8 +79,8 @@ export function Table<T>({
       aria-label="Data table"
       aria-rowcount={rows.length}
     >
-      <div className={cx("min-w-0", scrollX ? "overflow-x-auto overflow-y-hidden" : "overflow-x-hidden")}>
-        <table className={cx("min-w-full text-sm", scrollX && "w-max")}>
+      <div className={cx("min-w-0", scrollX ? "overflow-x-auto" : "overflow-x-hidden")}>
+        <table className={cx("text-sm", scrollX ? "min-w-full w-max" : "w-full")}>
           <thead
             className={cx(
               stickyHeader && "sticky top-0 z-[2]",
@@ -114,7 +114,7 @@ export function Table<T>({
                   <th
                     key={c.key}
                     style={c.width ? { width: c.width } : undefined}
-                    className={cx("whitespace-nowrap font-semibold align-middle", cellPadding, alignClass, c.className || "")}
+                    className={cx("font-semibold align-middle", cellPadding, alignClass, c.className || "")}
                     aria-sort={isActiveSort ? (sort?.direction === "asc" ? "ascending" : "descending") : "none"}
                   >
                     {isSortable ? (
