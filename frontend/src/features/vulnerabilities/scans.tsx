@@ -439,18 +439,15 @@ export default function VulnerabilityScansPage() {
             <EmptyState title="No scans" description="No scan executions were found for the current filters." />
           </div>
         ) : (
-          <div className="w-full overflow-auto">
+          <div className="w-full">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
                 <tr className="border-b border-border/60 text-muted-foreground">
-                  <th className="text-left font-medium px-3 py-2 w-[130px]">State</th>
-                  <th className="text-left font-medium px-3 py-2 w-[120px]">Trigger</th>
-                  <th className="text-left font-medium px-3 py-2 w-[220px]">Started</th>
-                  <th className="text-left font-medium px-3 py-2 w-[120px]">Duration</th>
-                  <th className="text-left font-medium px-3 py-2 w-[240px]">Reporter / Target</th>
-                  <th className="text-left font-medium px-3 py-2 w-[160px]">Tool</th>
+                  <th className="text-left font-medium px-3 py-2">State / Tool</th>
+                  <th className="text-left font-medium px-3 py-2">Timing</th>
+                  <th className="text-left font-medium px-3 py-2">Agent / Target</th>
                   <th className="text-left font-medium px-3 py-2">Stats</th>
-                  <th className="text-right font-medium px-3 py-2 w-[120px]">Actions</th>
+                  <th className="text-right font-medium px-3 py-2">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -486,77 +483,66 @@ export default function VulnerabilityScansPage() {
                       tabIndex={0}
                     >
                       <td className={cx("px-3", rowPad)}>
-                        <div className="flex flex-col gap-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <Badge variant={scanVariant(s.lifecycle_state)}>{scanLifecycleLabel(s.lifecycle_state)}</Badge>
-                          <div className={cx(
-                            "text-[11px]",
-                            live ? "text-primary/80" : "text-muted-foreground"
-                          )}>
-                            {scanPhaseLabel(s.current_phase)}
-                          </div>
+                          <span
+                            className={cx(
+                              "inline-flex rounded border px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-widest",
+                              s.trigger_source === "manual"
+                                ? "border-info/30 text-info/70"
+                                : "border-border/40 text-muted-foreground/60"
+                            )}
+                          >
+                            {scanTriggerLabel(s.trigger_source)}
+                          </span>
                         </div>
-                      </td>
-                      <td className={cx("px-3", rowPad)}>
-                        <span
-                          className={cx(
-                            "inline-flex rounded border px-2 py-0.5 text-[10px] font-mono uppercase tracking-widest",
-                            s.trigger_source === "manual"
-                              ? "border-info/30 text-info/70"
-                              : "border-border/40 text-muted-foreground/60"
-                          )}
-                        >
-                          {scanTriggerLabel(s.trigger_source)}
-                        </span>
+                        <div className="mt-1 font-mono text-[12px]">{s.tool}{s.tool_version ? `@${s.tool_version}` : ""}</div>
+                        <div className={cx("text-[11px]", live ? "text-primary/80" : "text-muted-foreground")}>
+                          {scanPhaseLabel(s.current_phase)}
+                        </div>
                       </td>
                       <td className={cx("px-3 font-mono text-[12px]", rowPad)}>
                         <div className="text-foreground">{fmtWhen(s.started_at || s.queued_at)}</div>
-                        <div className="text-muted-foreground">queued {fmtWhen(s.queued_at)}</div>
+                        <div className="text-muted-foreground">
+                          {live ? (
+                            <LiveElapsedText
+                              startIso={s.started_at ?? s.queued_at}
+                              endIso={s.finished_at}
+                              className="text-primary/90"
+                            />
+                          ) : Number.isFinite(dur) ? (
+                            fmtSec(dur)
+                          ) : (
+                            "—"
+                          )}
+                        </div>
                         <div className="text-muted-foreground">last progress {fmtAge(s.last_progress_at)}</div>
-                      </td>
-                      <td className={cx("px-3 font-mono text-[12px]", rowPad)}>
-                        {live ? (
-                          <LiveElapsedText
-                            startIso={s.started_at ?? s.queued_at}
-                            endIso={s.finished_at}
-                            className="text-primary/90"
-                          />
-                        ) : Number.isFinite(dur) ? (
-                          fmtSec(dur)
-                        ) : (
-                          "-"
-                        )}
                       </td>
                       <td className={cx("px-3", rowPad)}>
                         <div className="font-mono text-[12px]">{s.reporter_agent_id || "-"}</div>
-                        <div className="truncate text-[11px] text-muted-foreground" title={s.target || ""}>
+                        <div className="break-all text-[11px] text-muted-foreground" title={s.target || ""}>
                           {s.target || s.scan_uuid}
                         </div>
                       </td>
                       <td className={cx("px-3", rowPad)}>
-                        <div className="font-mono text-[12px]">{s.tool}{s.tool_version ? `@${s.tool_version}` : ""}</div>
-                        <div className="text-[11px] text-muted-foreground truncate">{s.scan_uuid}</div>
-                      </td>
-                      <td className={cx("px-3", rowPad)}>
                         {hasNumericStats ? <ScanStats stats={s.stats} /> : <span className="text-xs text-muted-foreground">-</span>}
                       </td>
-                      <td className={cx("px-3", rowPad)}>
-                        <div className="flex justify-end">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelected(s);
-                              setDrawerOpen(true);
-                            }}
-                            className={cx(
-                              "rounded-md border border-border/60 bg-background/40 px-3 py-1.5",
-                              "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                              "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                            )}
-                          >
-                            View
-                          </button>
-                        </div>
+                      <td className={cx("px-3 text-right", rowPad)}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelected(s);
+                            setDrawerOpen(true);
+                          }}
+                          className={cx(
+                            "rounded-md border border-border/60 bg-background/40 px-3 py-1.5",
+                            "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
+                            "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          )}
+                        >
+                          View
+                        </button>
                       </td>
                     </tr>
                   );
