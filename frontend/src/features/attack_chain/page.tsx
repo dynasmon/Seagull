@@ -495,16 +495,14 @@ export default function AttackChainPage() {
           ) : null}
 
           {!error && rows.length > 0 ? (
-            <div className="w-full overflow-auto">
+            <div className="w-full">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
                   <tr className="border-b border-border/60 text-muted-foreground">
-                    <th className="text-left font-medium px-3 py-2 w-[110px]">Status</th>
-                    <th className="text-left font-medium px-3 py-2 w-[110px]">Score</th>
-                    <th className="text-left font-medium px-3 py-2 w-[220px]">Stage</th>
-                    <th className="text-left font-medium px-3 py-2 w-[260px]">Suspect</th>
-                    <th className="text-left font-medium px-3 py-2 w-[220px]">Last seen</th>
-                    <th className="text-right font-medium px-3 py-2 w-[220px]">Actions</th>
+                    <th className="text-left font-medium px-3 py-2">Risk</th>
+                    <th className="text-left font-medium px-3 py-2">Stage / Agent</th>
+                    <th className="text-left font-medium px-3 py-2">Suspect / Seen</th>
+                    <th className="text-right font-medium px-3 py-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -518,31 +516,26 @@ export default function AttackChainPage() {
                         role="button"
                         tabIndex={0}
                       >
-                        <td className={cx("px-3", dense ? "py-1.5" : "py-2")}
-                        >
-                          <Badge variant={statusVariant(r.status)}>{r.status}</Badge>
-                        </td>
-                        <td className={cx("px-3", dense ? "py-1.5" : "py-2")}
-                        >
-                          <Badge variant={scoreVariant(r.score)}>{r.score}</Badge>
-                        </td>
-                        <td className={cx("px-3", dense ? "py-1.5" : "py-2")}
-                        >
-                          <div className="text-sm font-semibold truncate">{stageLabel(r.max_stage)}</div>
-                          <div className="text-[11px] text-muted-foreground">{r.step_count} steps · agent {r.agent_id}</div>
-                        </td>
-                        <td className={cx("px-3", dense ? "py-1.5" : "py-2")}
-                        >
-                          <div className="font-mono text-[12px] truncate" title={r.suspect_ip || ""}>
-                            {r.suspect_ip || "-"}
+                        <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant={statusVariant(r.status)}>{r.status}</Badge>
+                            <Badge variant={scoreVariant(r.score)}>{r.score}</Badge>
                           </div>
                         </td>
-                        <td className={cx("px-3 font-mono text-[12px]", dense ? "py-1.5" : "py-2")}
-                        >
-                          {fmtTs(r.last_seen_at)}
+                        <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
+                          <div className="text-sm font-semibold">{stageLabel(r.max_stage)}</div>
+                          <div className="text-[11px] text-muted-foreground">{r.step_count} steps · agent {r.agent_id}</div>
+                        </td>
+                        <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
+                          <div className="font-mono text-[12px] break-all" title={r.suspect_ip || ""}>
+                            {r.suspect_ip || "-"}
+                          </div>
+                          <div className="font-mono text-[11px] text-muted-foreground">
+                            {fmtTs(r.last_seen_at)}
+                          </div>
                         </td>
                         <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2")}>
-                          <div className="flex items-center justify-end gap-2">
+                          <div className="flex flex-wrap items-center justify-end gap-2">
                             <Button
                               variant="subtle"
                               size="sm"
