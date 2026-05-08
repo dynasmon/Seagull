@@ -97,7 +97,7 @@ export const SimpleTimeSeries = memo(function SimpleTimeSeries({
   seriesKeys,
   height = 220,
   minWidth = 720,
-  allowHorizontalScroll = true
+  allowHorizontalScroll = false
 }: {
   data: Array<Record<string, any>>;
   seriesKeys: string[];
