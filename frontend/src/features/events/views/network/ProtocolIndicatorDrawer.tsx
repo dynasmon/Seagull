@@ -28,6 +28,13 @@ import { pinProtocolIntelEventToWorkspace } from "@/features/investigations/api"
 import { getProtocolIntelSamples } from "./api";
 import type { ProtocolIntelIndicatorKind } from "./types";
 
+const btnCls = cx(
+  "inline-flex items-center rounded-md border border-border/60 bg-background/40",
+  "px-2 py-1 text-xs font-medium text-muted-foreground",
+  "hover:bg-muted/25 hover:text-foreground",
+  "focus:outline-none focus:ring-2 focus:ring-primary/30",
+);
+
 function fmtAddr(ip?: string | null, port?: number | null) {
   if (!ip) return "-";
   if (typeof port === "number") return `${ip}:${port}`;
@@ -82,7 +89,7 @@ export default function ProtocolIndicatorDrawer({
   }, [selection, agentId]);
 
   const selectedSample = useMemo(() => {
-    if (!selectedSampleId) return null;
+    if (selectedSampleId === null) return null;
     return items.find((x) => Number(x.id) === Number(selectedSampleId)) || null;
   }, [items, selectedSampleId]);
 
@@ -91,7 +98,7 @@ export default function ProtocolIndicatorDrawer({
       {
         key: "when",
         title: "WHEN",
-        width: 190,
+        width: 160,
         render: (ev) => {
           const ts = new Date(ev.timestamp);
           const when = Number.isNaN(ts.getTime()) ? ev.timestamp : fmtDateTime(ts);
@@ -101,66 +108,41 @@ export default function ProtocolIndicatorDrawer({
       {
         key: "agent",
         title: "AGENT",
-        width: 170,
+        width: 140,
         render: (ev) => <span className="text-[12px]">{agentNameById?.[ev.agent_id] || ev.agent_id}</span>,
       },
       {
         key: "type",
         title: "TYPE",
-        width: 150,
+        width: 120,
         render: (ev) => <span className="font-mono text-[12px]">{ev.event_type}</span>,
       },
       {
         key: "src",
         title: "SRC",
-        width: 170,
+        width: 150,
         render: (ev) => <span className="font-mono text-[12px]">{fmtAddr(ev.src_ip, ev.src_port)}</span>,
       },
       {
         key: "dst",
         title: "DST",
-        width: 170,
+        width: 150,
         render: (ev) => <span className="font-mono text-[12px]">{fmtAddr(ev.dst_ip, ev.dst_port)}</span>,
-      },
-      {
-        key: "inspect",
-        title: "",
-        width: 110,
-        className: "text-right",
-        render: (ev) => (
-          <button
-            type="button"
-            onClick={() => setSelectedSampleId(ev.id)}
-            className={cx(
-              "inline-flex items-center rounded-md border border-border/60 bg-background/40",
-              "px-2 py-1 text-xs font-medium text-muted-foreground",
-              "hover:bg-muted/15 hover:text-foreground",
-              "focus:outline-none focus:ring-2 focus:ring-primary/30",
-            )}
-          >
-            Inspect
-          </button>
-        ),
       },
       {
         key: "open",
         title: "",
-        width: 120,
         className: "text-right",
         render: (ev) => (
           <button
             type="button"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               setSelectedSampleId(ev.id);
               setEventDrawerEvent(ev);
               setEventDrawerOpen(true);
             }}
-            className={cx(
-              "inline-flex items-center rounded-md border border-border/60 bg-background/40",
-              "px-2 py-1 text-xs font-medium text-muted-foreground",
-              "hover:bg-muted/15 hover:text-foreground",
-              "focus:outline-none focus:ring-2 focus:ring-primary/30",
-            )}
+            className={btnCls}
           >
             Full view
           </button>
@@ -169,18 +151,12 @@ export default function ProtocolIndicatorDrawer({
       {
         key: "pin",
         title: "",
-        width: 96,
         className: "text-right",
         render: (ev) => (
           <button
             type="button"
-            onClick={() => setPinEvent(ev)}
-            className={cx(
-              "inline-flex items-center rounded-md border border-border/60 bg-background/40",
-              "px-2 py-1 text-xs font-medium text-muted-foreground",
-              "hover:bg-muted/15 hover:text-foreground",
-              "focus:outline-none focus:ring-2 focus:ring-primary/30",
-            )}
+            onClick={(e) => { e.stopPropagation(); setPinEvent(ev); }}
+            className={btnCls}
           >
             Pin
           </button>
@@ -250,7 +226,7 @@ export default function ProtocolIndicatorDrawer({
         {!selection ? (
           <div className="text-sm text-muted-foreground">No indicator selected.</div>
         ) : (
-          <InvestigationShell>
+          <InvestigationShell className="flex min-h-full flex-col">
             <InvestigationMetaStrip
               items={[
                 { label: "Kind", value: selection.kind, variant: "info" },
@@ -313,7 +289,12 @@ export default function ProtocolIndicatorDrawer({
               </InvestigationSummaryGrid>
             </InvestigationSection>
 
-            <InvestigationSection title="Matching samples" subtitle="Select a row to inspect evidence inline.">
+            <InvestigationSection
+              title="Matching samples"
+              subtitle="Click a row to inspect details. Use Full view for the complete event drawer."
+              className="flex min-h-[520px] flex-1 flex-col"
+              bodyClassName="flex min-h-0 flex-1 flex-col"
+            >
               <InvestigationStateBlock
                 loading={loading}
                 loadingLabel="Loading samples..."
@@ -324,40 +305,43 @@ export default function ProtocolIndicatorDrawer({
               />
 
               {!loading && !error && items.length > 0 ? (
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                  <div className="min-h-0 overflow-auto rounded-lg border border-border/60 bg-background/35">
+                <div className="flex min-h-0 flex-1 flex-col gap-3">
+                  <div className="min-h-[180px] overflow-auto rounded-lg border border-border/60 bg-background/35" style={{ maxHeight: "min(34vh, 360px)" }}>
                     <Table
+                      className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                      scrollX
                       columns={sampleColumns}
                       rows={items}
                       rowKey={(r) => String(r.id)}
+                      selectedRowKey={selectedSampleId !== null ? String(selectedSampleId) : null}
+                      onRowClick={(ev) => setSelectedSampleId(ev.id)}
                     />
                   </div>
 
-                  <div className="space-y-3">
-                    <div className="rounded-lg border border-border/60 bg-background/35 p-3">
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Selected sample</div>
-                      {!selectedSample ? (
-                        <div className="mt-2 text-sm text-muted-foreground">Select a sample row to inspect details.</div>
-                      ) : (
-                          <div className="mt-2 space-y-2">
-                            <InvestigationListItem
-                              title={`Event #${selectedSample.id}`}
-                              description={`${fmtAddr(selectedSample.src_ip, selectedSample.src_port)} → ${fmtAddr(selectedSample.dst_ip, selectedSample.dst_port)}`}
-                              badges={[
-                                { label: selectedSample.event_type, variant: "info" },
-                              ]}
-                              meta={[
-                                { label: "when", value: formatInvestigationTimestamp(selectedSample.timestamp) },
-                                { label: "agent", value: agentNameById?.[selectedSample.agent_id] || selectedSample.agent_id },
-                              ]}
-                            />
-                          </div>
-                      )}
+                  <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-border/60 bg-background/35">
+                    <div className="shrink-0 border-b border-border/50 px-3 pb-2 pt-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                      Selected sample
                     </div>
-
-                    <div className="rounded-lg border border-border/60 bg-background/35 p-3">
-                      <EventDetailsPanel event={selectedSample} />
-                    </div>
+                    {!selectedSample ? (
+                      <div className="p-3 text-sm text-muted-foreground">Click a row above to inspect its details.</div>
+                    ) : (
+                      <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-border/50 xl:grid-cols-2 xl:divide-x xl:divide-y-0">
+                        <div className="p-3">
+                          <InvestigationListItem
+                            title={`Event #${selectedSample.id}`}
+                            description={`${fmtAddr(selectedSample.src_ip, selectedSample.src_port)} → ${fmtAddr(selectedSample.dst_ip, selectedSample.dst_port)}`}
+                            badges={[{ label: selectedSample.event_type, variant: "info" }]}
+                            meta={[
+                              { label: "when", value: formatInvestigationTimestamp(selectedSample.timestamp) },
+                              { label: "agent", value: agentNameById?.[selectedSample.agent_id] || selectedSample.agent_id },
+                            ]}
+                          />
+                        </div>
+                        <div className="min-h-0 overflow-y-auto p-3">
+                          <EventDetailsPanel event={selectedSample} />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : null}

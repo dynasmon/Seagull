@@ -20,18 +20,14 @@ export default function DdosEventsTable({
   onSelect: (e: NetEvent) => void;
 }) {
   return (
-    <div className="overflow-auto border border-border/60 bg-background/40">
+    <div className="border border-border/60 bg-background/40">
       <table className="w-full text-xs">
         <thead className="sticky top-0 bg-background/70 backdrop-blur">
           <tr className="border-b border-border/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-            <th className="px-3 py-2 text-left whitespace-nowrap">time</th>
-            <th className="px-3 py-2 text-left whitespace-nowrap">kind</th>
-            <th className="px-3 py-2 text-left whitespace-nowrap">target</th>
-            <th className="px-3 py-2 text-right whitespace-nowrap">pps</th>
-            <th className="px-3 py-2 text-right whitespace-nowrap">bps</th>
-            <th className="px-3 py-2 text-right whitespace-nowrap">src ips</th>
-            <th className="px-3 py-2 text-right whitespace-nowrap">conf</th>
-            <th className="px-3 py-2 text-left whitespace-nowrap">sev</th>
+            <th className="px-3 py-2 text-left">time / kind</th>
+            <th className="px-3 py-2 text-left">target</th>
+            <th className="px-3 py-2 text-right">traffic</th>
+            <th className="px-3 py-2 text-left">assessment</th>
           </tr>
         </thead>
         <tbody>
@@ -48,14 +44,20 @@ export default function DdosEventsTable({
                   active ? "bg-primary/10" : "hover:bg-muted/10"
                 )}
               >
-                <td className="px-3 py-2 font-mono text-muted-foreground whitespace-nowrap">{fmtDateTime(new Date(e.timestamp))}</td>
-                <td className="px-3 py-2 font-mono text-foreground whitespace-nowrap">{ddosLabel(d)}</td>
-                <td className="px-3 py-2 font-mono text-muted-foreground whitespace-nowrap">{target}</td>
-                <td className="px-3 py-2 font-mono text-right text-foreground whitespace-nowrap">{d.pps === null ? "-" : fmtHumanRate(d.pps)}</td>
-                <td className="px-3 py-2 font-mono text-right text-foreground whitespace-nowrap">{d.bps === null ? "-" : fmtHumanRate(d.bps)}</td>
-                <td className="px-3 py-2 font-mono text-right text-foreground whitespace-nowrap">{num(d.unique_src_ips)}</td>
-                <td className="px-3 py-2 font-mono text-right text-foreground whitespace-nowrap">{d.confidence === null ? "-" : d.confidence.toFixed(2)}</td>
-                <td className="px-3 py-2 font-mono text-muted-foreground whitespace-nowrap">{d.severity || "-"}</td>
+                <td className="px-3 py-2">
+                  <div className="font-mono text-muted-foreground">{fmtDateTime(new Date(e.timestamp))}</div>
+                  <div className="font-mono text-foreground">{ddosLabel(d)}</div>
+                </td>
+                <td className="px-3 py-2 font-mono text-muted-foreground break-all">{target}</td>
+                <td className="px-3 py-2 font-mono text-right">
+                  <div className="text-foreground">{d.pps === null ? "-" : fmtHumanRate(d.pps)} pps</div>
+                  <div className="text-foreground">{d.bps === null ? "-" : fmtHumanRate(d.bps)} bps</div>
+                  <div className="text-muted-foreground">{num(d.unique_src_ips)} src IPs</div>
+                </td>
+                <td className="px-3 py-2 font-mono">
+                  <div className="text-foreground">{d.confidence === null ? "-" : d.confidence.toFixed(2)} conf</div>
+                  <div className="text-muted-foreground">{d.severity || "-"}</div>
+                </td>
               </tr>
             );
           })}
