@@ -1243,21 +1243,15 @@ export default function VulnerabilitiesPage() {
             </div>
           </div>
         ) : (
-          <div className="w-full overflow-auto">
+          <div className="w-full">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-background/60 backdrop-blur">
                 <tr className="border-b border-border/60 text-muted-foreground">
-                  <th className="w-[140px] whitespace-nowrap px-3 py-2 text-left font-medium">Priority</th>
-                  <th className="min-w-[320px] px-3 py-2 text-left font-medium">Finding</th>
-                  <th className="w-[230px] whitespace-nowrap px-3 py-2 text-left font-medium">Asset Context</th>
-                  <th className="w-[220px] whitespace-nowrap px-3 py-2 text-left font-medium">State</th>
-                  <th className="w-[170px] whitespace-nowrap px-3 py-2 text-left font-medium">Seen</th>
-                  <th className="w-[80px] whitespace-nowrap px-3 py-2 text-left font-medium">
-                    Hits
-                  </th>
-                  <th className="w-[100px] whitespace-nowrap px-3 py-2 text-right font-medium">
-                    Actions
-                  </th>
+                  <th className="px-3 py-2 text-left font-medium">Finding</th>
+                  <th className="px-3 py-2 text-left font-medium">Asset / Context</th>
+                  <th className="px-3 py-2 text-left font-medium">Status</th>
+                  <th className="px-3 py-2 text-left font-medium">Seen / Hits</th>
+                  <th className="px-3 py-2 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1282,7 +1276,7 @@ export default function VulnerabilitiesPage() {
                       tabIndex={0}
                     >
                       <td className={cx("px-3", rowPad)}>
-                        <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span
                             className={cx(
                               "inline-flex rounded-md border px-2 py-0.5 font-mono text-[12px]",
@@ -1295,17 +1289,13 @@ export default function VulnerabilitiesPage() {
                           >
                             {fmtRisk(f.priority?.score)}
                           </span>
-                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                            <Badge variant={sevVariant(f.severity)}>{f.severity}</Badge>
-                            <span>conf {f.confidence}</span>
-                          </div>
+                          <Badge variant={sevVariant(f.severity)}>{f.severity}</Badge>
+                          <span className="text-[11px] text-muted-foreground">conf {f.confidence}</span>
                         </div>
-                      </td>
-                      <td className={cx("px-3", rowPad)}>
-                        <div className="truncate font-mono text-[12px]" title={findingComponentLabel(f)}>
+                        <div className="mt-1 font-mono text-[12px] break-all" title={findingComponentLabel(f)}>
                           {findingComponentLabel(f)}
                         </div>
-                        <div className="truncate text-[11px] text-muted-foreground">
+                        <div className="text-[11px] text-muted-foreground">
                           {installedVersion ? `installed ${installedVersion}` : "installed version unknown"}
                           {fixedVersion ? ` · fix ${fixedVersion}` : " · no fix version recorded"}
                           {f.cve ? ` · ${f.cve}` : ""}
@@ -1315,10 +1305,10 @@ export default function VulnerabilitiesPage() {
                         </div>
                       </td>
                       <td className={cx("px-3", rowPad)}>
-                        <div className="truncate font-mono text-[12px]" title={findingAssetLabel(f)}>
+                        <div className="font-mono text-[12px] break-all" title={findingAssetLabel(f)}>
                           {findingAssetLabel(f)}
                         </div>
-                        <div className="truncate text-[11px] text-muted-foreground">
+                        <div className="text-[11px] text-muted-foreground">
                           {findingExposureLabel(f)}
                           {svc.length ? ` · ${svc.join(", ")}` : ""}
                         </div>
@@ -1327,7 +1317,7 @@ export default function VulnerabilitiesPage() {
                         </div>
                       </td>
                       <td className={cx("px-3", rowPad)}>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <Badge variant={observationVariant(f.observation_state)}>
                             {findingObservationLabel(f)}
                           </Badge>
@@ -1343,11 +1333,11 @@ export default function VulnerabilitiesPage() {
                       </td>
                       <td className={cx("px-3 font-mono text-[12px]", rowPad)}>
                         <div title={fmtWhen(f.last_seen_at)}>{fmtAge(f.last_seen_at)}</div>
-                        <div className="mt-1 text-[11px] text-muted-foreground" title={fmtWhen(f.first_seen_at)}>
+                        <div className="text-[11px] text-muted-foreground" title={fmtWhen(f.first_seen_at)}>
                           first {fmtAge(f.first_seen_at)}
                         </div>
+                        <div className="text-[11px] text-muted-foreground">{f.occurrences} hits</div>
                       </td>
-                      <td className={cx("px-3 font-mono text-[12px]", rowPad)}>{f.occurrences}</td>
                       <td className={cx("px-3 text-right", rowPad)}>
                         <Button
                           variant="subtle"
