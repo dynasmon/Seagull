@@ -254,11 +254,11 @@ function AlertsQueueTable(props: {
   const allVisibleSelected = props.rows.length > 0 && props.rows.every((row) => props.selectedRowIds.has(row.id));
 
   return (
-    <div className="w-full overflow-auto">
+    <div className="w-full">
       <table className="w-full text-sm">
         <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
           <tr className="border-b border-border/60 text-muted-foreground">
-            <th className="px-3 py-2 w-[40px]">
+            <th className="px-3 py-2 w-10">
               <input
                 type="checkbox"
                 checked={allVisibleSelected}
@@ -267,13 +267,10 @@ function AlertsQueueTable(props: {
                 className="h-4 w-4"
               />
             </th>
-            <th className="text-left font-medium px-3 py-2 w-[180px]">Time</th>
-            <th className="text-left font-medium px-3 py-2 w-[120px]">Severity</th>
-            <th className="text-left font-medium px-3 py-2 w-[260px]">Rule</th>
-            <th className="text-left font-medium px-3 py-2 w-[180px]">Source</th>
-            <th className="text-left font-medium px-3 py-2 w-[220px]">Destination</th>
+            <th className="text-left font-medium px-3 py-2">Alert</th>
+            <th className="text-left font-medium px-3 py-2">Network</th>
             <th className="text-left font-medium px-3 py-2">Description</th>
-            <th className="text-right font-medium px-3 py-2 w-[120px]">Actions</th>
+            <th className="text-right font-medium px-3 py-2">Actions</th>
           </tr>
         </thead>
 
@@ -304,23 +301,27 @@ function AlertsQueueTable(props: {
                     className="h-4 w-4"
                   />
                 </td>
-                <td className={cx("px-3 font-mono text-[12px] text-muted-foreground", dense ? "py-1.5" : "py-2")}>
-                  {fmtTs(a.created_at)}
-                </td>
 
                 <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
-                  <Badge variant={sevVariant(String(a.severity || "unknown"))}>{String(a.severity || "unknown")}</Badge>
-                </td>
-
-                <td className={cx("px-3 font-mono text-[12px]", dense ? "py-1.5" : "py-2")}>{a.rule_id}</td>
-
-                <td className={cx("px-3 font-mono text-[12px]", dense ? "py-1.5" : "py-2")}>
-                  {a.src_ip || <span className="text-muted-foreground">-</span>}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant={sevVariant(String(a.severity || "unknown"))}>{String(a.severity || "unknown")}</Badge>
+                    <span className="font-mono text-[12px] break-all">{a.rule_id}</span>
+                  </div>
+                  <div className="font-mono text-[11px] text-muted-foreground">{fmtTs(a.created_at)}</div>
                 </td>
 
                 <td className={cx("px-3 font-mono text-[12px]", dense ? "py-1.5" : "py-2")}>
-                  {a.dst_ip ? <span>{a.dst_ip}</span> : <span className="text-muted-foreground">-</span>}
-                  {typeof a.dst_port === "number" ? <span className="text-muted-foreground">:{a.dst_port}</span> : null}
+                  <div>{a.src_ip || <span className="text-muted-foreground">-</span>}</div>
+                  <div className="text-muted-foreground">
+                    {a.dst_ip ? (
+                      <>
+                        <span>{a.dst_ip}</span>
+                        {typeof a.dst_port === "number" ? <span>:{a.dst_port}</span> : null}
+                      </>
+                    ) : (
+                      <span>-</span>
+                    )}
+                  </div>
                 </td>
 
                 <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
