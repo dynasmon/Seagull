@@ -1281,19 +1281,14 @@ export default function InvestigationsPage() {
           {!loading && !error && rows.length === 0 ? <EmptyState title="No workspaces" hint="Create the first workspace to begin." /> : null}
 
           {rows.length > 0 ? (
-            <div className="overflow-auto">
+            <div className="w-full">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-background/60">
                   <tr className="border-b border-border/60 text-muted-foreground">
-                    <th className="text-left px-3 py-2 w-[240px]">Workspace</th>
-                    <th className="text-left px-3 py-2 w-[130px]">Status</th>
-                    <th className="text-left px-3 py-2 w-[120px]">Severity</th>
-                    <th className="text-left px-3 py-2 w-[90px]">Priority</th>
-                    <th className="text-left px-3 py-2 w-[140px]">Assignee</th>
-                    <th className="text-left px-3 py-2 w-[150px]">Linked case</th>
-                    <th className="text-left px-3 py-2 w-[180px]">Updated</th>
-                    <th className="text-left px-3 py-2 w-[160px]">Counts</th>
-                    <th className="text-right px-3 py-2 w-[100px]">Action</th>
+                    <th className="text-left px-3 py-2">Workspace</th>
+                    <th className="text-left px-3 py-2">Assignment</th>
+                    <th className="text-left px-3 py-2">Activity</th>
+                    <th className="text-right px-3 py-2">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1313,16 +1308,24 @@ export default function InvestigationsPage() {
                       }}
                     >
                       <td className="px-3 py-2">
-                        <div className="font-semibold truncate">{ws.title}</div>
-                        <div className="text-[11px] text-muted-foreground font-mono truncate">{ws.workspace_key}</div>
+                        <div className="font-semibold">{ws.title}</div>
+                        <div className="text-[11px] text-muted-foreground font-mono break-all">{ws.workspace_key}</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          <Badge variant={statusVariant(ws.status) as any}>{ws.status}</Badge>
+                          <Badge variant={severityVariant(ws.severity) as any}>{ws.severity}</Badge>
+                          <Badge variant="neutral">{ws.priority}</Badge>
+                        </div>
                       </td>
-                      <td className="px-3 py-2"><Badge variant={statusVariant(ws.status) as any}>{ws.status}</Badge></td>
-                      <td className="px-3 py-2"><Badge variant={severityVariant(ws.severity) as any}>{ws.severity}</Badge></td>
-                      <td className="px-3 py-2"><Badge variant="neutral">{ws.priority}</Badge></td>
-                      <td className="px-3 py-2 text-[12px]">{ws.assignee || "-"}</td>
-                      <td className="px-3 py-2 text-[12px] font-mono">{ws.linked_attack_chain_case_id ? `#${ws.linked_attack_chain_case_id}` : "-"}</td>
-                      <td className="px-3 py-2 text-[12px] font-mono">{fmtTs(ws.updated_at)}</td>
-                      <td className="px-3 py-2 text-[12px]">{ws.notes_count} notes · {ws.bookmarks_count} evidence</td>
+                      <td className="px-3 py-2">
+                        <div className="text-[12px]">{ws.assignee || <span className="text-muted-foreground">Unassigned</span>}</div>
+                        <div className="font-mono text-[11px] text-muted-foreground">
+                          {ws.linked_attack_chain_case_id ? `case #${ws.linked_attack_chain_case_id}` : "no linked case"}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-mono text-[12px]">{fmtTs(ws.updated_at)}</div>
+                        <div className="text-[11px] text-muted-foreground">{ws.notes_count} notes · {ws.bookmarks_count} evidence</div>
+                      </td>
                       <td className="px-3 py-2 text-right">
                         <Button
                           variant="subtle"
