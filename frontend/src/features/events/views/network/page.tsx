@@ -6,12 +6,12 @@ import AsyncState from "@/shared/components/AsyncState";
 import { MetricCard } from "@/shared/components/MetricCard";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
-import { Card } from "@/shared/components/Card";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { Table, type Column } from "@/shared/components/Table";
+import { Tabs } from "@/shared/components/Tabs";
 import { TextInput } from "@/shared/components/TextInput";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
@@ -21,6 +21,8 @@ import { fmtDateTime } from "../../lib/aggregates";
 import { getProtocolIntelSummary } from "./api";
 import ProtocolIndicatorDrawer, { type ProtocolIndicatorSelection } from "./ProtocolIndicatorDrawer";
 import type { ProtocolIntelSummaryResponse, ProtocolIntelIndicatorKind } from "./types";
+
+type IntelTab = "protocols" | "names" | "fingerprints" | "ports";
 
 type ViewState = {
   agent_id: string;
@@ -100,15 +102,15 @@ function RiskPill({ risk }: { risk: number }) {
   return <Badge variant={variant}>{label}</Badge>;
 }
 
-function Section({ title, right, children }: { title: string; right?: any; children: any }) {
+function Section({ title, right, children, padded = true }: { title: string; right?: any; children: any; padded?: boolean }) {
   return (
-    <Card className="rounded-xl overflow-hidden">
+    <div className="ui-card-shell overflow-hidden rounded-xl">
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60 bg-muted/10">
         <div className="text-sm font-semibold tracking-tight">{title}</div>
         {right ? <div className="text-xs text-muted-foreground">{right}</div> : null}
       </div>
-      <div className="p-4">{children}</div>
-    </Card>
+      {padded ? <div className="p-4">{children}</div> : children}
+    </div>
   );
 }
 
@@ -219,6 +221,7 @@ export default function ProtocolIntelPage() {
   const didInitFromUrl = useRef(false);
 
   const [healthOpen, setHealthOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<IntelTab>("protocols");
 
   useEffect(() => {
     if (didInitFromUrl.current) return;
@@ -673,80 +676,92 @@ export default function ProtocolIntelPage() {
             </div>
           ) : null}
 
-          {!hasBlockingState ? <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-            <Section title="Application protocols (L7)" right={`top ${view.top_n}`}>
-              {loading && !data ? <Loading label="Loading..." /> : null}
-              {!loading && data && data.app_protocols.length === 0 ? (
-                <TableEmpty
-                  title="No protocols classified yet"
-                  desc="Plaintext HTTP is labelled HTTP. Encrypted traffic (HTTPS, QUIC) appears as TLS or QUIC unless a handshake was captured."
-                />
-              ) : null}
-              {data && data.app_protocols.length > 0 ? (
-                <div className="overflow-auto space-y-3">
-                  <div className="text-[11px] text-muted-foreground leading-relaxed">
-                    <span className="font-mono">http</span> = plaintext request bytes visible ·{" "}
-                    <span className="font-mono">tls</span>/<span className="font-mono">quic</span>/<span className="font-mono">dtls</span> = encrypted, handshake only
-                  </div>
-                  <Table
-                    columns={[
-                      {
-                        key: "key",
-                        title: "APP PROTO",
-                        render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
-                      },
-                      {
-                        key: "count",
-                        title: "COUNT",
-                        className: "text-right",
-                        width: 120,
-                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
-                      },
-                      {
-                        key: "act",
-                        title: "",
-                        className: "text-right",
-                        width: 110,
-                        render: (r) => (
-                          <InspectButton
-                            onClick={() =>
-                              mkPick("app_proto", r.key, "Application protocol", r.count, "Top application protocol classification")
-                            }
-                          />
-                        )
-                      }
-                    ] satisfies Array<Column<(typeof data.app_protocols)[number]>>}
-                    rows={data.app_protocols}
-                    rowKey={(r) => r.key}
-                  />
-                </div>
-              ) : null}
-            </Section>
+          <Tabs<IntelTab>
+            value={activeTab}
+            onChange={setActiveTab}
+            tabs={[
+              { key: "protocols", label: "Protocols" },
+              { key: "names", label: "Hosts & Names" },
+              { key: "fingerprints", label: "Fingerprints" },
+              { key: "ports", label: "Ports" },
+            ]}
+          />
 
-            <Section title="Transport protocols (L4)" right={`top ${view.top_n}`}>
-              {!loading && data && data.transport_protocols.length === 0 ? <TableEmpty title="No transport protocols" /> : null}
-              {data && data.transport_protocols.length > 0 ? (
-                <div className="overflow-auto">
+          {!hasBlockingState && activeTab === "protocols" ? (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+              <Section title="Application protocols (L7)" right={`top ${view.top_n}`} padded={false}>
+                {loading && !data ? <div className="p-4"><Loading label="Loading..." /></div> : null}
+                {!loading && data && data.app_protocols.length === 0 ? (
+                  <div className="p-4">
+                    <TableEmpty
+                      title="No protocols classified yet"
+                      desc="Plaintext HTTP is labelled HTTP. Encrypted traffic (HTTPS, QUIC) appears as TLS or QUIC unless a handshake was captured."
+                    />
+                  </div>
+                ) : null}
+                {data && data.app_protocols.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="px-4 pt-3 text-[11px] text-muted-foreground leading-relaxed">
+                      <span className="font-mono">http</span> = plaintext request bytes visible ·{" "}
+                      <span className="font-mono">tls</span>/<span className="font-mono">quic</span>/<span className="font-mono">dtls</span> = encrypted, handshake only
+                    </div>
+                    <Table
+                      className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                      columns={[
+                        {
+                          key: "key",
+                          title: "APP PROTO",
+                          render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
+                        },
+                        {
+                          key: "count",
+                          title: "COUNT",
+                          className: "text-right",
+                          width: 80,
+                          render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                        },
+                        {
+                          key: "act",
+                          title: "",
+                          className: "text-right",
+                          render: (r) => (
+                            <InspectButton
+                              onClick={() =>
+                                mkPick("app_proto", r.key, "Application protocol", r.count, "Top application protocol classification")
+                              }
+                            />
+                          )
+                        }
+                      ] satisfies Array<Column<(typeof data.app_protocols)[number]>>}
+                      rows={data.app_protocols}
+                      rowKey={(r) => r.key}
+                    />
+                  </div>
+                ) : null}
+              </Section>
+
+              <Section title="Transport protocols (L4)" right={`top ${view.top_n}`} padded={false}>
+                {!loading && data && data.transport_protocols.length === 0 ? <div className="p-4"><TableEmpty title="No transport protocols" /></div> : null}
+                {data && data.transport_protocols.length > 0 ? (
                   <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
                     columns={[
                       {
                         key: "key",
                         title: "PROTO",
-                        width: 140,
                         render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
                       },
                       {
                         key: "count",
                         title: "COUNT",
                         className: "text-right",
-                        width: 120,
+                        width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
                         className: "text-right",
-                        width: 110,
                         render: (r) => (
                           <InspectButton onClick={() => mkPick("transport", r.key, "Transport protocol", r.count, "Layer-4 protocol mix")} />
                         )
@@ -755,36 +770,68 @@ export default function ProtocolIntelPage() {
                     rows={data.transport_protocols}
                     rowKey={(r) => r.key}
                   />
-                </div>
-              ) : null}
-            </Section>
+                ) : null}
+              </Section>
 
-            <Section title="JA4 ptype distribution" right="q=QUIC · d=DTLS · t=TLS">
-              {!loading && data && data.ja4_ptypes.length === 0 ? (
-                <TableEmpty title="No JA4 ptype data" desc="Populated when TLS, QUIC, or DTLS handshakes are fingerprinted." />
-              ) : null}
-              {data && data.ja4_ptypes.length > 0 ? (
-                <div className="overflow-auto">
+              <Section title="HTTP methods" right="from plaintext HTTP/1 parsing" padded={false}>
+                {!loading && data && data.http_methods.length === 0 ? (
+                  <div className="p-4"><TableEmpty title="No HTTP methods" desc="Requires plaintext HTTP/1 request payloads. Encrypted HTTPS traffic does not contribute here." /></div>
+                ) : null}
+                {data && data.http_methods.length > 0 ? (
                   <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
                     columns={[
                       {
                         key: "key",
-                        title: "PTYPE",
-                        width: 140,
+                        title: "METHOD",
                         render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
                       },
                       {
                         key: "count",
                         title: "COUNT",
                         className: "text-right",
-                        width: 120,
+                        width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
                         className: "text-right",
-                        width: 110,
+                        render: (r) => (
+                          <InspectButton onClick={() => mkPick("http_method", r.key, "HTTP method", r.count, "HTTP request methods")} />
+                        )
+                      }
+                    ] as Array<Column<any>>}
+                    rows={data.http_methods}
+                    rowKey={(r) => r.key}
+                  />
+                ) : null}
+              </Section>
+
+              <Section title="JA4 ptype distribution" right="q=QUIC · d=DTLS · t=TLS" padded={false}>
+                {!loading && data && data.ja4_ptypes.length === 0 ? (
+                  <div className="p-4"><TableEmpty title="No JA4 ptype data" desc="Populated when TLS, QUIC, or DTLS handshakes are fingerprinted." /></div>
+                ) : null}
+                {data && data.ja4_ptypes.length > 0 ? (
+                  <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    columns={[
+                      {
+                        key: "key",
+                        title: "PTYPE",
+                        render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
+                      },
+                      {
+                        key: "count",
+                        title: "COUNT",
+                        className: "text-right",
+                        width: 80,
+                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
+                      },
+                      {
+                        key: "act",
+                        title: "",
+                        className: "text-right",
                         render: (r) => (
                           <InspectButton
                             onClick={() =>
@@ -797,54 +844,16 @@ export default function ProtocolIntelPage() {
                     rows={data.ja4_ptypes}
                     rowKey={(r) => r.key}
                   />
-                </div>
-              ) : null}
-            </Section>
+                ) : null}
+              </Section>
 
-            <Section title="HTTP methods" right="from plaintext HTTP/1 parsing">
-              {!loading && data && data.http_methods.length === 0 ? (
-                <TableEmpty title="No HTTP methods" desc="Requires plaintext HTTP/1 request payloads. Encrypted HTTPS traffic does not contribute here." />
-              ) : null}
-              {data && data.http_methods.length > 0 ? (
-                <div className="overflow-auto">
+              <Section title="Classification reasons" right={`top ${view.top_n}`} padded={false}>
+                {!loading && data && data.app_proto_reasons.length === 0 ? (
+                  <div className="p-4"><TableEmpty title="No classification reasons yet" desc="Reasons appear once the proto-intel worker processes events." /></div>
+                ) : null}
+                {data && data.app_proto_reasons.length > 0 ? (
                   <Table
-                    columns={[
-                      {
-                        key: "key",
-                        title: "METHOD",
-                        render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
-                      },
-                      {
-                        key: "count",
-                        title: "COUNT",
-                        className: "text-right",
-                        width: 120,
-                        render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
-                      },
-                      {
-                        key: "act",
-                        title: "",
-                        className: "text-right",
-                        width: 110,
-                        render: (r) => (
-                          <InspectButton onClick={() => mkPick("http_method", r.key, "HTTP method", r.count, "HTTP request methods")} />
-                        )
-                      }
-                    ] as Array<Column<any>>}
-                    rows={data.http_methods}
-                    rowKey={(r) => r.key}
-                  />
-                </div>
-              ) : null}
-            </Section>
-
-            <Section title="Classification reasons" right={`top ${view.top_n}`}>
-              {!loading && data && data.app_proto_reasons.length === 0 ? (
-                <TableEmpty title="No classification reasons yet" desc="Reasons appear once the proto-intel worker processes events." />
-              ) : null}
-              {data && data.app_proto_reasons.length > 0 ? (
-                <div className="overflow-auto">
-                  <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
                     columns={[
                       {
                         key: "key",
@@ -855,14 +864,13 @@ export default function ProtocolIntelPage() {
                         key: "count",
                         title: "COUNT",
                         className: "text-right",
-                        width: 120,
+                        width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
                         className: "text-right",
-                        width: 110,
                         render: (r) => (
                           <InspectButton
                             onClick={() =>
@@ -875,36 +883,33 @@ export default function ProtocolIntelPage() {
                     rows={data.app_proto_reasons}
                     rowKey={(r) => r.key}
                   />
-                </div>
-              ) : null}
-            </Section>
+                ) : null}
+              </Section>
 
-            <Section title="Confidence bands" right="80-100 · 60-79 · 40-59 · 0-39">
-              {!loading && data && data.app_proto_conf_bands.length === 0 ? (
-                <TableEmpty title="No confidence bands yet" desc="Bands reflect how certain the classifier is: agent evidence scores 99, parsed payloads 98, port guesses 70-90." />
-              ) : null}
-              {data && data.app_proto_conf_bands.length > 0 ? (
-                <div className="overflow-auto">
+              <Section title="Confidence bands" right="80-100 · 60-79 · 40-59 · 0-39" padded={false}>
+                {!loading && data && data.app_proto_conf_bands.length === 0 ? (
+                  <div className="p-4"><TableEmpty title="No confidence bands yet" desc="Bands reflect how certain the classifier is: agent evidence scores 99, parsed payloads 98, port guesses 70-90." /></div>
+                ) : null}
+                {data && data.app_proto_conf_bands.length > 0 ? (
                   <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
                     columns={[
                       {
                         key: "key",
                         title: "BAND",
-                        width: 160,
                         render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
                       },
                       {
                         key: "count",
                         title: "COUNT",
                         className: "text-right",
-                        width: 120,
+                        width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
                         className: "text-right",
-                        width: 110,
                         render: (r) => (
                           <InspectButton
                             onClick={() =>
@@ -917,89 +922,84 @@ export default function ProtocolIntelPage() {
                     rows={data.app_proto_conf_bands}
                     rowKey={(r) => r.key}
                   />
-                </div>
-              ) : null}
-            </Section>
-          </div> : null}
+                ) : null}
+              </Section>
+            </div>
+          ) : null}
 
-          {!hasBlockingState ? (
-          <>
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-            <Section title="Top destination ports" right={`top ${view.top_n} by volume`}>
-              {!loading && data && data.top_dst_ports.length === 0 ? <TableEmpty title="No destination ports" /> : null}
-              {data && data.top_dst_ports.length > 0 ? (
-                <div className="overflow-auto">
+          {!hasBlockingState && activeTab === "ports" ? (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+              <Section title="Top destination ports" right={`top ${view.top_n} by volume`} padded={false}>
+                {!loading && data && data.top_dst_ports.length === 0 ? <div className="p-4"><TableEmpty title="No destination ports" /></div> : null}
+                {data && data.top_dst_ports.length > 0 ? (
                   <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
                     columns={[
                       {
                         key: "key",
                         title: "DST PORT",
-                        width: 160,
                         render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
                       },
                       {
                         key: "count",
                         title: "COUNT",
                         className: "text-right",
-                        width: 120,
+                        width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
                         className: "text-right",
-                        width: 110,
                         render: (r) => <InspectButton onClick={() => mkPick("dst_port", r.key, "Destination port", r.count)} />
                       }
                     ] as Array<Column<any>>}
                     rows={data.top_dst_ports}
                     rowKey={(r) => r.key}
                   />
-                </div>
-              ) : null}
-            </Section>
+                ) : null}
+              </Section>
 
-            <Section title="Top source ports" right={`top ${view.top_n} by volume`}>
-              {!loading && data && data.top_src_ports.length === 0 ? <TableEmpty title="No source ports" /> : null}
-              {data && data.top_src_ports.length > 0 ? (
-                <div className="overflow-auto">
+              <Section title="Top source ports" right={`top ${view.top_n} by volume`} padded={false}>
+                {!loading && data && data.top_src_ports.length === 0 ? <div className="p-4"><TableEmpty title="No source ports" /></div> : null}
+                {data && data.top_src_ports.length > 0 ? (
                   <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
                     columns={[
                       {
                         key: "key",
                         title: "SRC PORT",
-                        width: 160,
                         render: (r) => <span className="font-mono text-[12px]">{r.key}</span>
                       },
                       {
                         key: "count",
                         title: "COUNT",
                         className: "text-right",
-                        width: 120,
+                        width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
                         className: "text-right",
-                        width: 110,
                         render: (r) => <InspectButton onClick={() => mkPick("src_port", r.key, "Source port", r.count)} />
                       }
                     ] as Array<Column<any>>}
                     rows={data.top_src_ports}
                     rowKey={(r) => r.key}
                   />
-                </div>
-              ) : null}
-            </Section>
-          </div>
+                ) : null}
+              </Section>
+            </div>
+          ) : null}
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-            <Section title="Top DNS queries" right={`top ${view.top_n} by volume`}>
-              {!loading && data && data.top_dns_queries.length === 0 ? <TableEmpty title="No DNS evidence" desc="DNS queries require payload evidence." /> : null}
-              {data && data.top_dns_queries.length > 0 ? (
-                <div className="overflow-auto">
+          {!hasBlockingState && activeTab === "names" ? (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+              <Section title="Top DNS queries" right={`top ${view.top_n} by volume`} padded={false}>
+                {!loading && data && data.top_dns_queries.length === 0 ? <div className="p-4"><TableEmpty title="No DNS evidence" desc="DNS queries require payload evidence." /></div> : null}
+                {data && data.top_dns_queries.length > 0 ? (
                   <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
                     columns={[
                       {
                         key: "qname",
@@ -1009,36 +1009,34 @@ export default function ProtocolIntelPage() {
                       {
                         key: "risk",
                         title: "RISK",
-                        width: 120,
+                        width: 80,
                         render: (r) => <RiskPill risk={r.risk} />
                       },
                       {
                         key: "count",
                         title: "COUNT",
                         className: "text-right",
-                        width: 120,
+                        width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
                         className: "text-right",
-                        width: 110,
                         render: (r) => <InspectButton onClick={() => mkPick("dns_qname", r.qname, "DNS qname", r.count, "Top DNS queries")} />
                       }
                     ] as Array<Column<any>>}
                     rows={data.top_dns_queries}
                     rowKey={(r, i) => `${r.qname}-${i}`}
                   />
-                </div>
-              ) : null}
-            </Section>
+                ) : null}
+              </Section>
 
-            <Section title="Top HTTP hosts" right={`top ${view.top_n} by volume`}>
-              {!loading && data && data.top_http_hosts.length === 0 ? <TableEmpty title="No HTTP evidence" desc="HTTP hosts require payload evidence." /> : null}
-              {data && data.top_http_hosts.length > 0 ? (
-                <div className="overflow-auto">
+              <Section title="Top HTTP hosts" right={`top ${view.top_n} by volume`} padded={false}>
+                {!loading && data && data.top_http_hosts.length === 0 ? <div className="p-4"><TableEmpty title="No HTTP evidence" desc="HTTP hosts require payload evidence." /></div> : null}
+                {data && data.top_http_hosts.length > 0 ? (
                   <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
                     columns={[
                       {
                         key: "key",
@@ -1049,31 +1047,27 @@ export default function ProtocolIntelPage() {
                         key: "count",
                         title: "COUNT",
                         className: "text-right",
-                        width: 120,
+                        width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
                         className: "text-right",
-                        width: 110,
                         render: (r) => <InspectButton onClick={() => mkPick("http_host", r.key, "HTTP host", r.count, "Top HTTP Host headers")} />
                       }
                     ] as Array<Column<any>>}
                     rows={data.top_http_hosts}
                     rowKey={(r) => r.key}
                   />
-                </div>
-              ) : null}
-            </Section>
-          </div>
+                ) : null}
+              </Section>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-            <Section title="Top TLS SNI" right={`top ${view.top_n} by volume`}>
-              {!loading && data && data.top_tls_sni.length === 0 ? <TableEmpty title="No SNI" desc="SNI requires TLS ClientHello evidence." /> : null}
-              {data && data.top_tls_sni.length > 0 ? (
-                <div className="overflow-auto">
+              <Section title="Top TLS SNI" right={`top ${view.top_n} by volume`} padded={false}>
+                {!loading && data && data.top_tls_sni.length === 0 ? <div className="p-4"><TableEmpty title="No SNI" desc="SNI requires TLS ClientHello evidence." /></div> : null}
+                {data && data.top_tls_sni.length > 0 ? (
                   <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
                     columns={[
                       {
                         key: "key",
@@ -1084,29 +1078,27 @@ export default function ProtocolIntelPage() {
                         key: "count",
                         title: "COUNT",
                         className: "text-right",
-                        width: 120,
+                        width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
                         className: "text-right",
-                        width: 110,
                         render: (r) => <InspectButton onClick={() => mkPick("tls_sni", r.key, "TLS SNI", r.count, "Top SNI values")} />
                       }
                     ] as Array<Column<any>>}
                     rows={data.top_tls_sni}
                     rowKey={(r) => r.key}
                   />
-                </div>
-              ) : null}
-            </Section>
+                ) : null}
+              </Section>
 
-            <Section title="Top TLS/QUIC ALPN" right={`top ${view.top_n} by volume`}>
-              {!loading && data && data.top_alpn.length === 0 ? <TableEmpty title="No ALPN" desc="ALPN requires TLS ClientHello evidence." /> : null}
-              {data && data.top_alpn.length > 0 ? (
-                <div className="overflow-auto">
+              <Section title="Top TLS/QUIC ALPN" right={`top ${view.top_n} by volume`} padded={false}>
+                {!loading && data && data.top_alpn.length === 0 ? <div className="p-4"><TableEmpty title="No ALPN" desc="ALPN requires TLS ClientHello evidence." /></div> : null}
+                {data && data.top_alpn.length > 0 ? (
                   <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
                     columns={[
                       {
                         key: "key",
@@ -1117,31 +1109,31 @@ export default function ProtocolIntelPage() {
                         key: "count",
                         title: "COUNT",
                         className: "text-right",
-                        width: 120,
+                        width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
                         className: "text-right",
-                        width: 110,
                         render: (r) => <InspectButton onClick={() => mkPick("tls_alpn_first", r.key, "ALPN", r.count, "Top ALPN values")} />
                       }
                     ] as Array<Column<any>>}
                     rows={data.top_alpn}
                     rowKey={(r) => r.key}
                   />
-                </div>
-              ) : null}
-            </Section>
-          </div>
+                ) : null}
+              </Section>
+            </div>
+          ) : null}
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-            <Section title="Top JA4 fingerprints" right={`top ${view.top_n} by volume`}>
-              {!loading && data && data.top_ja4.length === 0 ? <TableEmpty title="No JA4" desc="JA4 requires TLS/DTLS/QUIC fingerprint evidence." /> : null}
-              {data && data.top_ja4.length > 0 ? (
-                <div className="overflow-auto">
+          {!hasBlockingState && activeTab === "fingerprints" ? (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+              <Section title="Top JA4 fingerprints" right={`top ${view.top_n} by volume`} padded={false}>
+                {!loading && data && data.top_ja4.length === 0 ? <div className="p-4"><TableEmpty title="No JA4" desc="JA4 requires TLS/DTLS/QUIC fingerprint evidence." /></div> : null}
+                {data && data.top_ja4.length > 0 ? (
                   <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
                     columns={[
                       {
                         key: "ja4",
@@ -1151,7 +1143,7 @@ export default function ProtocolIntelPage() {
                       {
                         key: "ptype",
                         title: "PTYPE",
-                        width: 110,
+                        width: 80,
                         render: (r) => (
                           <span className="font-mono text-[12px]">
                             <Badge>{r.ptype || "t"}</Badge>
@@ -1162,29 +1154,27 @@ export default function ProtocolIntelPage() {
                         key: "count",
                         title: "COUNT",
                         className: "text-right",
-                        width: 120,
+                        width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
                         className: "text-right",
-                        width: 110,
                         render: (r) => <InspectButton onClick={() => mkPick("ja4", r.ja4, "JA4 fingerprint", r.count, `ptype=${r.ptype}`)} />
                       }
                     ] as Array<Column<any>>}
                     rows={data.top_ja4}
                     rowKey={(r, i) => `${r.ja4}-${r.ptype || "t"}-${i}`}
                   />
-                </div>
-              ) : null}
-            </Section>
+                ) : null}
+              </Section>
 
-            <Section title="Top JA3 fingerprints" right={`top ${view.top_n} by volume`}>
-              {!loading && data && data.top_ja3.length === 0 ? <TableEmpty title="No JA3" desc="JA3 requires TLS ClientHello evidence." /> : null}
-              {data && data.top_ja3.length > 0 ? (
-                <div className="overflow-auto">
+              <Section title="Top JA3 fingerprints" right={`top ${view.top_n} by volume`} padded={false}>
+                {!loading && data && data.top_ja3.length === 0 ? <div className="p-4"><TableEmpty title="No JA3" desc="JA3 requires TLS ClientHello evidence." /></div> : null}
+                {data && data.top_ja3.length > 0 ? (
                   <Table
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
                     columns={[
                       {
                         key: "key",
@@ -1195,29 +1185,26 @@ export default function ProtocolIntelPage() {
                         key: "count",
                         title: "COUNT",
                         className: "text-right",
-                        width: 120,
+                        width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
                         className: "text-right",
-                        width: 110,
                         render: (r) => <InspectButton onClick={() => mkPick("ja3", r.key, "JA3 fingerprint", r.count)} />
                       }
                     ] as Array<Column<any>>}
                     rows={data.top_ja3}
                     rowKey={(r) => r.key}
                   />
-                </div>
-              ) : null}
-            </Section>
-          </div>
-
-          {loading && data ? (
-            <div className="text-xs text-muted-foreground">Refreshing…</div>
+                ) : null}
+              </Section>
+            </div>
           ) : null}
-          </>
+
+          {!hasBlockingState && loading && data ? (
+            <div className="text-xs text-muted-foreground">Refreshing…</div>
           ) : null}
         </div>
       </div>
