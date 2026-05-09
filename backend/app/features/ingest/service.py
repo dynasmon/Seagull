@@ -44,6 +44,7 @@ from app.features.realtime.projectors import (
     project_storm_status_patch,
 )
 from app.features.realtime.service import publish_realtime
+from app.shared.network.ip_enrichment import attach_ip_context
 
 logger = logging.getLogger("seagull.api.ingest")
 
@@ -925,6 +926,7 @@ def ingest_events(
 
     for e in events:
         extra = dict(e.extra or {})
+        attach_ip_context(extra, e.src_ip, e.dst_ip)
         hot_priority = _is_hot_priority_event(e.event_type)
 
         ts = e.timestamp
