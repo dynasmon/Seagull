@@ -11,7 +11,8 @@ from sqlalchemy.exc import OperationalError
 from app.core.config import settings
 from app.core.observability import log_event, setup_logging
 from .cache import _ensure_bootstrap, _fetch_batch, _get_cached_ip, _get_last_id, _patch_event, _pick_batch_max_id, _set_last_id, _upsert_cache
-from .normalization import GEOIP_PROVIDER_NONE, _compact, _env_float, _env_int, _env_str, _is_public_ip, _utc_now
+from app.shared.network.ip_classification import classify_ip
+from .normalization import GEOIP_PROVIDER_NONE, _compact, _env_float, _env_int, _env_str, _utc_now
 from .providers import _provider_config, _resolve_provider, _lookup_ip
 
 setup_logging("worker-lupe")
@@ -90,10 +91,20 @@ def main() -> None:
                     last_done_id = eid
                     continue
 
-                if skip_private and not _is_public_ip(ip):
-                    _patch_event(eid, {**base_patch, "lupe_skipped": True, "lupe_reason": "non_public_ip"})
-                    last_done_id = eid
-                    continue
+                if skip_private:
+                    cls = classify_ip(ip)
+                    if not cls["is_public"]:
+                        _patch_event(eid, {
+                            **base_patch,
+                            "lupe_skipped": True,
+                            "lupe_reason": "non_public_ip",
+                            "src_ip_scope": cls["scope"],
+                            "src_ip_label": cls["label"],
+                            "src_is_internal": cls["is_internal"],
+                            "src_is_public": cls["is_public"],
+                        })
+                        last_done_id = eid
+                        continue
 
                 cached = _get_cached_ip(ip)
                 if cached is None:

@@ -51,6 +51,7 @@ from app.features.events.schemas import (
     SudoEventSummary,
 )
 from app.shared.enrichment.models import IpEnrichmentCacheModel
+from app.shared.network.ip_classification import classify_ip
 
 logger = logging.getLogger("seagull.api.events")
 
@@ -127,6 +128,31 @@ def _overlay_ssh_geo_from_cache(
     count_base = source_ips if source_ips is not None else ips
     cached_enriched = sum(1 for ip in count_base if ip in cache)
     payload.enriched_source_ips = max(int(payload.enriched_source_ips or 0), cached_enriched)
+
+
+def _overlay_ip_classification(payload: SshSummaryResponse) -> None:
+    groups = [
+        payload.recent_auth_events,
+        payload.successful_logins,
+        payload.failed_attempts,
+        payload.invalid_user_attempts,
+        payload.most_active_ips,
+        payload.root_logins,
+    ]
+    seen: dict[str, dict] = {}
+    for group in groups:
+        for item in group:
+            src_ip = getattr(item, "src_ip", None)
+            if not src_ip:
+                continue
+            ip_str = str(src_ip)
+            if ip_str not in seen:
+                seen[ip_str] = classify_ip(ip_str)
+            cls = seen[ip_str]
+            item.src_ip_scope = cls["scope"]
+            item.src_ip_label = cls["label"]
+            item.src_is_internal = cls["is_internal"]
+            item.src_is_public = cls["is_public"]
 
 
 def get_ssh_summary(
@@ -319,6 +345,7 @@ def get_ssh_summary(
                 ),
             )
             _overlay_ssh_geo_from_cache(db, payload, source_ips=source_ips)
+            _overlay_ip_classification(payload)
             _cache_set_json(
                 cache_key,
                 payload.dict(),
@@ -674,6 +701,7 @@ def get_ssh_summary(
                     query_window_end=query_end,
                 ),
             )
+            _overlay_ip_classification(payload)
             _cache_set_json(
                 cache_key,
                 payload.dict(),
@@ -919,6 +947,7 @@ def get_ssh_summary(
             query_window_end=query_end,
         ),
     )
+    _overlay_ip_classification(payload)
     _cache_set_json(
         cache_key,
         payload.dict(),
