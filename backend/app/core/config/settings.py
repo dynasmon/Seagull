@@ -283,6 +283,8 @@ class Settings:
     SEAGULL_HEUR_EGRESS_CORRELATION_SECONDS: int = _env_int("SEAGULL_HEUR_EGRESS_CORRELATION_SECONDS", 900)
     SEAGULL_HEUR_EGRESS_COOLDOWN_SECONDS: int = _env_int("SEAGULL_HEUR_EGRESS_COOLDOWN_SECONDS", 1200)
 
+    SEAGULL_INTERNAL_NETWORK_CIDRS: list[str] = _env_csv("SEAGULL_INTERNAL_NETWORK_CIDRS", "")
+
     @property
     def database_url(self) -> str:
         if self.DB_URL:
