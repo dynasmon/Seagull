@@ -58,6 +58,7 @@ def _compact_extra(extra: Any) -> Dict[str, Any]:
         "confidence",
         "distributed",
         "http_rps",
+        "ip_context",
         "packets",
         "port_distinct",
         "port_entropy_norm",

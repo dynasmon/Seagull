@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
+from app.shared.network.ip_enrichment import attach_ip_context as _attach_ip_context
 from app.features.events.schemas import (
     NetEventDB,
     ProtoCount,
@@ -198,6 +199,7 @@ def _row_to_event_safe(row: Dict[str, Any]) -> NetEventDB | None:
         except Exception:
             extra = {}
     extra = _merge_protocol_fields_into_extra(extra, row)
+    _attach_ip_context(extra, row.get("src_ip"), row.get("dst_ip"))
 
     try:
         return NetEventDB(
@@ -258,6 +260,7 @@ def _hit_to_event(hit: Dict[str, Any]) -> NetEventDB:
     if not isinstance(extra, dict):
         extra = {}
     extra = _merge_protocol_fields_into_extra(extra, src)
+    _attach_ip_context(extra, src.get("src_ip"), src.get("dst_ip"))
 
     return NetEventDB(
         id=row_id,
@@ -299,6 +302,7 @@ def _ch_row_to_event(row: Dict[str, Any]) -> NetEventDB | None:
         except Exception:
             extra = {}
     extra = _merge_protocol_fields_into_extra(extra, row)
+    _attach_ip_context(extra, row.get("src_ip"), row.get("dst_ip"))
 
     try:
         return NetEventDB(
