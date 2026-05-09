@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ipaddress
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
@@ -57,13 +56,8 @@ def _utc_now() -> datetime:
 
 
 def _is_public_ip(ip: str) -> bool:
-    try:
-        obj = ipaddress.ip_address(ip)
-    except Exception:
-        return False
-    if obj.is_private or obj.is_loopback or obj.is_link_local or obj.is_multicast or obj.is_unspecified or obj.is_reserved:
-        return False
-    return True
+    from app.shared.network.ip_classification import classify_ip
+    return classify_ip(ip)["scope"] == "public_internet"
 
 
 def _compact(d: Dict[str, Any]) -> Dict[str, Any]:
