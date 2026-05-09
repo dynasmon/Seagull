@@ -291,14 +291,14 @@ function StatLinkTile({
     <Link
       to={to}
       className={cx(
-        "rounded-xl border border-border/60 bg-background/70 backdrop-blur-md p-4",
+        "rounded-xl border border-border/60 bg-background/70 backdrop-blur-md px-2 py-2",
         "hover:bg-muted/15 transition-colors",
         "focus:outline-none focus:ring-2 focus:ring-primary/30"
       )}
     >
       <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">{label}</div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
-      {description ? <div className="mt-1 text-xs text-muted-foreground">{description}</div> : null}
+      <div className="mt-1 text-sm font-semibold tracking-tight">{value}</div>
+      {description ? <div className="mt-1 text-[10px] text-muted-foreground">{description}</div> : null}
     </Link>
   );
 }
@@ -668,16 +668,17 @@ function OverviewPageView({
 
       <DashboardSection id="ingestion" title="INGESTION & HEALTH" defaultOpen>
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-          <MetricCard title="EVENTS (last 5m)" value={derived.events5m} />
-          <MetricCard title={`EVENTS (${windowLabel})`} value={derived.events1h} />
+          <MetricCard size="sm" title="EVENTS (last 5m)" value={derived.events5m} />
+          <MetricCard size="sm" title={`EVENTS (${windowLabel})`} value={derived.events1h} />
           <MetricCard
+            size="sm"
             title="ACTIVE AGENTS"
             value={derived.onlineAgents}
             helper={`TOTAL: ${derived.totalAgents}`}
             tone={derived.onlineAgents > 0 ? "success" : "warning"}
           />
-          <MetricCard title="LAST EVENT TS" value={derived.lastEventTs} tone={derived.lastEventTs === "-" ? "warning" : "default"} />
-          <MetricCard title="ALERTS (window)" value={derived.alerts1h} tone={derived.alerts1h > 0 ? "warning" : "success"} />
+          <MetricCard size="sm" title="LAST EVENT TS" value={derived.lastEventTs} tone={derived.lastEventTs === "-" ? "warning" : "default"} />
+          <MetricCard size="sm" title="ALERTS (window)" value={derived.alerts1h} tone={derived.alerts1h > 0 ? "warning" : "success"} />
 
           <StatLinkTile
             to="/attack-chain"
@@ -691,6 +692,7 @@ function OverviewPageView({
           />
 
           <MetricCard
+            size="sm"
             title="STORM MODE"
             value={
               storm?.phase === "storm"
@@ -722,6 +724,7 @@ function OverviewPageView({
           />
 
           <MetricCard
+            size="sm"
             title="EPS (ingest)"
             value={storm?.eps ?? 0}
             helper={storm?.phase === "storm" ? "storm window" : "last second"}
@@ -729,6 +732,7 @@ function OverviewPageView({
           />
 
           <MetricCard
+            size="sm"
             title="SAMPLE (hot/warm)"
             value={storm ? `${storm.sample_hot_percent}% / ${storm.sample_warm_percent}%` : "-"}
             helper="hot=Postgres · warm=ES"
@@ -736,6 +740,7 @@ function OverviewPageView({
           />
 
           <MetricCard
+            size="sm"
             title="DROP %"
             value={`${stormDropPercent}%`}
             helper="dropped from raw ingestion"
@@ -743,6 +748,7 @@ function OverviewPageView({
           />
 
           <MetricCard
+            size="sm"
             title="BACKLOG (events)"
             value={stormBacklogEvents}
             helper={`messages: ${stormBacklogMessages}`}
@@ -750,6 +756,7 @@ function OverviewPageView({
           />
 
           <MetricCard
+            size="sm"
             title="EPS (process)"
             value={storm?.process_rate_eps ?? 0}
             helper={storm ? `ingest: ${storm.ingest_rate_eps ?? storm.eps}` : undefined}
@@ -757,6 +764,7 @@ function OverviewPageView({
           />
 
           <MetricCard
+            size="sm"
             title="WORKERS"
             value={storm?.workers_active ?? 0}
             helper={storm?.processed_messages_per_sec ? `msgs/s: ${storm.processed_messages_per_sec}` : undefined}
@@ -764,6 +772,7 @@ function OverviewPageView({
           />
 
           <MetricCard
+            size="sm"
             title="DRAIN TIME"
             value={storm?.phase === "draining" ? `${storm?.draining_seconds ?? 0}s` : "-"}
             helper={storm?.phase === "draining" ? "recovery window" : "not draining"}

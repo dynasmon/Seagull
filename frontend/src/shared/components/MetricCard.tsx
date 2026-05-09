@@ -18,6 +18,7 @@ export function MetricCard({
   helper,
   loading = false,
   tone = "default",
+  size = "default",
   className,
 }: {
   title: string;
@@ -25,14 +26,18 @@ export function MetricCard({
   helper?: ReactNode;
   loading?: boolean;
   tone?: MetricTone;
+  size?: "default" | "sm";
   className?: string;
 }) {
+  const padClass = size === "sm" ? "px-2 py-2" : "px-3 py-3";
+  const valClass = size === "sm" ? "text-sm font-semibold leading-tight" : "text-lg font-semibold leading-tight";
+
   return (
-    <div className={cx("ui-card-shell px-3 py-3", className)}>
+    <div className={cx("ui-card-shell", padClass, className)}>
       <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
         {title}
       </div>
-      <div className={cx("mt-1 text-lg font-semibold leading-tight", toneClasses[tone])}>
+      <div className={cx("mt-1", valClass, toneClasses[tone])}>
         {loading ? (
           <span className="inline-block h-5 w-16 animate-pulse rounded bg-muted/60" aria-label="Loading" />
         ) : value != null ? (
