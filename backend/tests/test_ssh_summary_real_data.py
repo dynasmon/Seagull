@@ -72,6 +72,70 @@ class _FakeDB:
         return None
 
 
+class _FakeDBInternalIP:
+    def __init__(self):
+        now = datetime.now(timezone.utc)
+        self._responses = [
+            {"total_accepted": 0, "total_failed_password": 1, "total_invalid_user": 0, "unique_source_ips": 1, "enriched_source_ips": 0},
+            [
+                {
+                    "timestamp": now,
+                    "agent_id": "agent-1",
+                    "action": "failed_password",
+                    "src_ip": "192.168.1.100",
+                    "username": "root",
+                    "geo_country": None,
+                    "geo_org": None,
+                    "asn": None,
+                    "asn_org": None,
+                }
+            ],
+            [],
+            [{"src_ip": "192.168.1.100", "count": 1, "geo_country": None, "geo_org": None, "asn": None, "asn_org": None}],
+            [],
+            [{"src_ip": "192.168.1.100", "count": 1, "geo_country": None, "geo_org": None, "asn": None, "asn_org": None}],
+            [],
+            [],
+            [],
+        ]
+
+    def execute(self, stmt):
+        if not self._responses:
+            raise AssertionError("unexpected extra query execution")
+        return _FakeResult(self._responses.pop(0))
+
+    def close(self):
+        return None
+
+
+def test_ssh_summary_internal_ip_has_classification_fields(monkeypatch):
+    monkeypatch.setattr(events_api, "_cache_get_json", lambda key: None)
+    monkeypatch.setattr(events_api, "_cache_set_json", lambda key, payload, ttl: None)
+    monkeypatch.setattr(events_api, "_ch_client_or_none", lambda: None)
+    monkeypatch.setattr(events_api, "_es_client_or_none", lambda: None)
+    monkeypatch.setattr(events_api, "SessionLocal", lambda: _FakeDBInternalIP())
+
+    payload = events_api.get_ssh_summary(since_minutes=60, limit=50, agent_id=None)
+
+    assert len(payload.recent_auth_events) == 1
+    evt = payload.recent_auth_events[0]
+    assert evt.src_ip == "192.168.1.100"
+    assert evt.src_ip_scope == "private_address"
+    assert evt.src_ip_label == "Private"
+    assert evt.src_is_internal is True
+    assert evt.src_is_public is False
+
+    assert len(payload.failed_attempts) == 1
+    stat = payload.failed_attempts[0]
+    assert stat.src_ip_scope == "private_address"
+    assert stat.src_is_internal is True
+    assert stat.src_is_public is False
+
+    assert len(payload.most_active_ips) == 1
+    active = payload.most_active_ips[0]
+    assert active.src_ip_scope == "private_address"
+
+
 def test_ssh_summary_returns_real_totals_and_recent_events(monkeypatch):
     monkeypatch.setattr(events_api, "_cache_get_json", lambda key: None)
     monkeypatch.setattr(events_api, "_cache_set_json", lambda key, payload, ttl: None)

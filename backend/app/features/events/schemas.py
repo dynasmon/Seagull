@@ -97,6 +97,10 @@ class SshIpStat(BaseModel):
     geo_org: Optional[str] = None
     asn: Optional[str] = None
     asn_org: Optional[str] = None
+    src_ip_scope: Optional[str] = None
+    src_ip_label: Optional[str] = None
+    src_is_internal: Optional[bool] = None
+    src_is_public: Optional[bool] = None
 
 
 class SshUserStat(BaseModel):
@@ -113,6 +117,10 @@ class SshLoginEvent(BaseModel):
     geo_org: Optional[str] = None
     asn: Optional[str] = None
     asn_org: Optional[str] = None
+    src_ip_scope: Optional[str] = None
+    src_ip_label: Optional[str] = None
+    src_is_internal: Optional[bool] = None
+    src_is_public: Optional[bool] = None
 
 
 class SshAuthEvent(BaseModel):
@@ -125,6 +133,10 @@ class SshAuthEvent(BaseModel):
     geo_org: Optional[str] = None
     asn: Optional[str] = None
     asn_org: Optional[str] = None
+    src_ip_scope: Optional[str] = None
+    src_ip_label: Optional[str] = None
+    src_is_internal: Optional[bool] = None
+    src_is_public: Optional[bool] = None
 
 
 class SudoEventSummary(BaseModel):
