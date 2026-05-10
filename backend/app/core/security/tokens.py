@@ -5,7 +5,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-from jose import jwt
+import jwt
 
 from app.core.config import settings
 
@@ -51,7 +51,7 @@ def decode_token(token: str) -> Dict[str, Any]:
         algorithms=["HS256"],
         audience=settings.SEAGULL_JWT_AUDIENCE,
         issuer=settings.SEAGULL_JWT_ISSUER,
-        options={"require_iat": True, "require_exp": True, "require_sub": True, "require_jti": True},
+        options={"require": ["iat", "exp", "sub", "jti"]},
     )
 
 
