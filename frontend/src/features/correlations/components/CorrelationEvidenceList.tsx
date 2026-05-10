@@ -1,9 +1,11 @@
 import { JsonBlock } from "@/shared/components/JsonBlock";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import {
   InvestigationFieldGroup,
   InvestigationListItem,
   formatInvestigationTimestamp,
 } from "@/shared/components/investigation";
+import { getFlowIpContext } from "@/shared/lib/ipClassification";
 
 import type { CorrelationEvidence } from "../types";
 import {
@@ -11,9 +13,15 @@ import {
   correlationEvidenceTitle,
 } from "./correlationUtils";
 
-function compactNetwork(value?: string | null, port?: number | null) {
-  if (!value) return port ? `:${port}` : "-";
-  return port ? `${value}:${port}` : value;
+function endpoint(item: CorrelationEvidence, side: "src" | "dst") {
+  const ip = side === "src" ? item.src_ip : item.dst_ip;
+  const port = side === "src" ? null : item.dst_port;
+  return (
+    <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
+      <IpAddressPill ip={ip} ipContext={getFlowIpContext(item.details?.ip_context as any, side)} compact />
+      {typeof port === "number" ? <span className="text-muted-foreground">:{port}</span> : null}
+    </span>
+  );
 }
 
 export default function CorrelationEvidenceList({
@@ -53,8 +61,8 @@ export default function CorrelationEvidenceList({
               <InvestigationFieldGroup
                 title="Network"
                 entries={[
-                  { key: "src_ip", value: item.src_ip || "-" },
-                  { key: "dst_ip", value: compactNetwork(item.dst_ip, item.dst_port) },
+                  { key: "src_ip", value: endpoint(item, "src") },
+                  { key: "dst_ip", value: endpoint(item, "dst") },
                   { key: "rule_id", value: item.rule_id || "-" },
                   { key: "stage", value: item.stage || "-" },
                 ]}

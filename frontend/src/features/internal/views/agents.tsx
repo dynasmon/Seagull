@@ -11,9 +11,11 @@ import type { InventorySnapshotOut } from "@/features/inventory/types";
 import { Card } from "@/shared/components/Card";
 import { DebouncedSearchInput } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import Loading from "@/shared/components/Loading";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import { getFlowIpContext } from "@/shared/lib/ipClassification";
 import { useLiveRefresh } from "@/shared/realtime";
 import { MetricCard } from "@/shared/components/MetricCard";
 import InternalRefreshToolbar from "@/features/internal/components/InternalRefreshToolbar";
@@ -278,8 +280,8 @@ export default function InternalAgentsInspectorView() {
                   columns={[
                     { key: "timestamp", title: "Timestamp", className: "font-mono text-xs", render: (r) => fmtDateTime(r.timestamp) },
                     { key: "event_type", title: "Type", className: "font-mono text-xs" },
-                    { key: "src_ip", title: "Source", className: "font-mono text-xs", render: (r) => r.src_ip || "-" },
-                    { key: "dst_ip", title: "Destination", className: "font-mono text-xs", render: (r) => r.dst_ip || "-" },
+                    { key: "src_ip", title: "Source", className: "font-mono text-xs", render: (r) => <IpAddressPill ip={r.src_ip} ipContext={getFlowIpContext(r.extra?.ip_context, "src")} compact /> },
+                    { key: "dst_ip", title: "Destination", className: "font-mono text-xs", render: (r) => <IpAddressPill ip={r.dst_ip} ipContext={getFlowIpContext(r.extra?.ip_context, "dst")} compact /> },
                     { key: "dst_port", title: "Port", className: "font-mono text-xs text-right", render: (r) => r.dst_port ?? "-" }
                   ]}
                 />
