@@ -7,6 +7,10 @@ export type SshIpStat = {
   geo_org?: string | null;
   asn?: string | null;
   asn_org?: string | null;
+  src_ip_scope?: string | null;
+  src_ip_label?: string | null;
+  src_is_internal?: boolean | null;
+  src_is_public?: boolean | null;
 };
 
 export type SshUserStat = {
@@ -23,6 +27,10 @@ export type SshLoginEvent = {
   geo_org?: string | null;
   asn?: string | null;
   asn_org?: string | null;
+  src_ip_scope?: string | null;
+  src_ip_label?: string | null;
+  src_is_internal?: boolean | null;
+  src_is_public?: boolean | null;
 };
 
 export type SshAuthEvent = {
@@ -35,6 +43,10 @@ export type SshAuthEvent = {
   geo_org?: string | null;
   asn?: string | null;
   asn_org?: string | null;
+  src_ip_scope?: string | null;
+  src_ip_label?: string | null;
+  src_is_internal?: boolean | null;
+  src_is_public?: boolean | null;
 };
 
 export type SudoEventSummary = {

@@ -1,4 +1,6 @@
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { cx } from "@/shared/lib/cx";
+import { getFlowIpContext } from "@/shared/lib/ipClassification";
 
 import type { NetEvent } from "../../types";
 import { fmtDateTime } from "../../lib/aggregates";
@@ -34,7 +36,6 @@ export default function DdosEventsTable({
           {rows.map((e, idx) => {
             const active = selectedId === e.id;
             const d = extractDdosFields(e.extra);
-            const target = `${e.dst_ip || "-"}:${e.dst_port ?? "-"}/${e.proto || "-"}`;
             return (
               <tr
                 key={`${e.id ?? "na"}-${e.timestamp || "na"}-${e.agent_id || "na"}-${idx}`}
@@ -48,7 +49,12 @@ export default function DdosEventsTable({
                   <div className="font-mono text-muted-foreground">{fmtDateTime(new Date(e.timestamp))}</div>
                   <div className="font-mono text-foreground">{ddosLabel(d)}</div>
                 </td>
-                <td className="px-3 py-2 font-mono text-muted-foreground break-all">{target}</td>
+                <td className="px-3 py-2 text-muted-foreground break-all">
+                  <span className="inline-flex max-w-full flex-wrap items-center gap-0.5 font-mono">
+                    <IpAddressPill ip={e.dst_ip} ipContext={getFlowIpContext(e.extra?.ip_context, "dst")} compact />
+                    <span className="text-muted-foreground">:{e.dst_port ?? "-"}/{e.proto || "-"}</span>
+                  </span>
+                </td>
                 <td className="px-3 py-2 font-mono text-right">
                   <div className="text-foreground">{d.pps === null ? "-" : fmtHumanRate(d.pps)} pps</div>
                   <div className="text-foreground">{d.bps === null ? "-" : fmtHumanRate(d.bps)} bps</div>

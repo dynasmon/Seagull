@@ -5,6 +5,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import AsyncState from "@/shared/components/AsyncState";
 import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { MetricCard } from "@/shared/components/MetricCard";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import { Card } from "@/shared/components/Card";
@@ -13,6 +14,7 @@ import { Table } from "@/shared/components/Table";
 import { Badge } from "@/shared/components/Badge";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
+import { ipContextFromFlatFields, resolveIpClassification } from "@/shared/lib/ipClassification";
 import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { useAgentsCatalog } from "@/app/providers";
@@ -162,6 +164,14 @@ function ipMeta(r: Pick<SshIpStat, "geo_country" | "geo_org" | "asn" | "asn_org"
     asn: asn || null,
     asnOrg: asnOrg || null
   };
+}
+
+function sshIpContext(r: SshIpStat | SshAuthEvent | SshLoginEvent) {
+  return ipContextFromFlatFields(r, "src");
+}
+
+function ipFallbackLabel(r: SshIpStat | SshAuthEvent | SshLoginEvent) {
+  return resolveIpClassification(r.src_ip, sshIpContext(r)).label;
 }
 
 export default function SshInsightsPage() {
@@ -562,7 +572,7 @@ function RecentAuthEventsCard({
         width: 210,
         render: (r: SshAuthEvent) => (
           <div className="min-w-0">
-            <div className="font-mono truncate">{r.src_ip || "-"}</div>
+            <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />
             <div className="mt-0.5 text-[11px] font-mono text-muted-foreground truncate">{r.agent_id}</div>
           </div>
         )
@@ -581,7 +591,7 @@ function RecentAuthEventsCard({
           return (
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                {meta.country ? <Badge variant="info">{meta.country}</Badge> : <Badge variant="neutral">no geo</Badge>}
+                {meta.country ? <Badge variant="info">{meta.country}</Badge> : <Badge variant="neutral">{ipFallbackLabel(r)}</Badge>}
               </div>
               <div className="mt-1 truncate text-[11px] text-muted-foreground">{meta.org || "-"}</div>
               <div className="mt-0.5 truncate text-[11px] font-mono text-muted-foreground">
@@ -611,7 +621,11 @@ function RecentAuthEventsCard({
                     geo_country: r.geo_country,
                     geo_org: r.geo_org,
                     asn: r.asn,
-                    asn_org: r.asn_org
+                    asn_org: r.asn_org,
+                    src_ip_scope: r.src_ip_scope,
+                    src_ip_label: r.src_ip_label,
+                    src_is_internal: r.src_is_internal,
+                    src_is_public: r.src_is_public
                   });
                 }}
                 disabled={!onViewIp || !(r.src_ip || "").trim()}
@@ -673,8 +687,8 @@ function IpTableCard({
         title: "Source IP",
         width: 200,
         render: (r: SshIpStat) => (
-          <div className="flex items-center gap-2">
-            <span className="font-mono">{r.src_ip}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />
             {(() => {
               const meta = ipMeta(r);
               if (!meta.country) return null;
@@ -812,7 +826,7 @@ function RootLoginsCard({
         key: "src_ip",
         title: "IP",
         width: 180,
-        render: (r: SshLoginEvent) => <span className="font-mono">{r.src_ip || "-"}</span>
+        render: (r: SshLoginEvent) => <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />
       },
       {
         key: "meta",
@@ -825,7 +839,7 @@ function RootLoginsCard({
           return (
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                {country ? <Badge variant="critical">{country}</Badge> : <Badge variant="neutral">no geo</Badge>}
+                {country ? <Badge variant="critical">{country}</Badge> : <Badge variant="neutral">{ipFallbackLabel(r)}</Badge>}
                 <span className="text-xs font-mono text-muted-foreground">{r.agent_id}</span>
               </div>
               <div className="mt-1 text-[11px] text-muted-foreground truncate">
@@ -858,7 +872,11 @@ function RootLoginsCard({
                     geo_country: r.geo_country,
                     geo_org: r.geo_org,
                     asn: r.asn,
-                    asn_org: r.asn_org
+                    asn_org: r.asn_org,
+                    src_ip_scope: r.src_ip_scope,
+                    src_ip_label: r.src_ip_label,
+                    src_is_internal: r.src_is_internal,
+                    src_is_public: r.src_is_public
                   });
                 }}
                 disabled={!onViewIp || !(r.src_ip || "").trim()}

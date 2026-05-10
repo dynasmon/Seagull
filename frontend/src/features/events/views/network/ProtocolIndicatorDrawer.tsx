@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import Drawer from "@/shared/components/Drawer";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { Table, type Column } from "@/shared/components/Table";
 import {
   InvestigationActionBar,
@@ -17,6 +18,7 @@ import {
 } from "@/shared/components/investigation";
 import { cx } from "@/shared/lib/cx";
 import { getErrorMessage } from "@/shared/lib/errors";
+import { getFlowIpContext } from "@/shared/lib/ipClassification";
 
 import type { NetEvent } from "../../types";
 import { fmtDateTime } from "../../lib/aggregates";
@@ -35,10 +37,15 @@ const btnCls = cx(
   "focus:outline-none focus:ring-2 focus:ring-primary/30",
 );
 
-function fmtAddr(ip?: string | null, port?: number | null) {
-  if (!ip) return "-";
-  if (typeof port === "number") return `${ip}:${port}`;
-  return ip;
+function ipEndpoint(ev: NetEvent, side: "src" | "dst") {
+  const ip = side === "src" ? ev.src_ip : ev.dst_ip;
+  const port = side === "src" ? ev.src_port : ev.dst_port;
+  return (
+    <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
+      <IpAddressPill ip={ip} ipContext={getFlowIpContext(ev.extra?.ip_context, side)} compact />
+      {typeof port === "number" ? <span className="text-muted-foreground">:{port}</span> : null}
+    </span>
+  );
 }
 
 export type ProtocolIndicatorSelection = {
@@ -121,13 +128,13 @@ export default function ProtocolIndicatorDrawer({
         key: "src",
         title: "SRC",
         width: 150,
-        render: (ev) => <span className="font-mono text-[12px]">{fmtAddr(ev.src_ip, ev.src_port)}</span>,
+        render: (ev) => <span className="font-mono text-[12px]">{ipEndpoint(ev, "src")}</span>,
       },
       {
         key: "dst",
         title: "DST",
         width: 150,
-        render: (ev) => <span className="font-mono text-[12px]">{fmtAddr(ev.dst_ip, ev.dst_port)}</span>,
+        render: (ev) => <span className="font-mono text-[12px]">{ipEndpoint(ev, "dst")}</span>,
       },
       {
         key: "open",
@@ -329,7 +336,13 @@ export default function ProtocolIndicatorDrawer({
                         <div className="p-3">
                           <InvestigationListItem
                             title={`Event #${selectedSample.id}`}
-                            description={`${fmtAddr(selectedSample.src_ip, selectedSample.src_port)} → ${fmtAddr(selectedSample.dst_ip, selectedSample.dst_port)}`}
+                            description={
+                              <span className="inline-flex max-w-full flex-wrap items-center gap-1.5">
+                                {ipEndpoint(selectedSample, "src")}
+                                <span className="text-muted-foreground">→</span>
+                                {ipEndpoint(selectedSample, "dst")}
+                              </span>
+                            }
                             badges={[{ label: selectedSample.event_type, variant: "info" }]}
                             meta={[
                               { label: "when", value: formatInvestigationTimestamp(selectedSample.timestamp) },

@@ -3,10 +3,12 @@ import type { ReactNode, CSSProperties } from "react";
 import { Link } from "react-router-dom";
 
 import EmptyState from "@/shared/components/EmptyState";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { MetricCard } from "@/shared/components/MetricCard";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import { getFlowIpContext } from "@/shared/lib/ipClassification";
 import type { Alert } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
 import { timeSeriesHasSignal } from "./dashboard_state";
@@ -40,6 +42,24 @@ function normalizeDetails(raw: any): Record<string, any> {
   }
   if (typeof raw === "object") return raw as Record<string, any>;
   return {};
+}
+
+function overviewIpContext(row: any, side: "src" | "dst") {
+  const direct = getFlowIpContext(row?.ip_context, side);
+  if (direct) return direct;
+  const details = normalizeDetails(row?.details);
+  const fromDetails = getFlowIpContext(details.ip_context, side);
+  if (fromDetails) return fromDetails;
+  return getFlowIpContext(row?.extra?.ip_context, side);
+}
+
+function ipWithPort(ip: string | null | undefined, ipContext: any, port?: number | null) {
+  return (
+    <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
+      <IpAddressPill ip={ip} ipContext={ipContext} compact />
+      {typeof port === "number" ? <span className="text-muted-foreground">:{port}</span> : null}
+    </span>
+  );
 }
 
 function toDate(input: unknown): Date | null {
@@ -504,7 +524,7 @@ function OverviewPageView({
 
     const lastDdosAlert = snapshot.ddos_alerts?.[0] || null;
     let ddosLastKind = "-";
-    let ddosLastTarget = "-";
+    let ddosLastTarget: ReactNode = "-";
 
     if (lastDdosAlert) {
       const details: any = normalizeDetails(lastDdosAlert.details);
@@ -512,9 +532,12 @@ function OverviewPageView({
       ddosLastKind = `${attack} / ${vector}`;
 
       const proto = (details.proto || details.protocol || "-") as string;
-      const dstIp = lastDdosAlert.dst_ip || "-";
-      const dstPort = lastDdosAlert.dst_port ? String(lastDdosAlert.dst_port) : "-";
-      ddosLastTarget = `${dstIp}:${dstPort}/${proto}`;
+      ddosLastTarget = (
+        <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
+          {ipWithPort(lastDdosAlert.dst_ip, overviewIpContext(lastDdosAlert, "dst"), lastDdosAlert.dst_port)}
+          <span className="text-muted-foreground">/{proto || "-"}</span>
+        </span>
+      );
     }
 
     return {
@@ -947,13 +970,13 @@ function OverviewPageView({
                       key: "src",
                       title: "SRC",
                       className: "font-mono text-muted-foreground w-32",
-                      render: (r: any) => r.src_ip || r.src || "-"
+                      render: (r: any) => <IpAddressPill ip={r.src_ip || r.src} ipContext={overviewIpContext(r, "src")} compact />
                     },
                     {
                       key: "dst",
                       title: "DST",
                       className: "font-mono text-muted-foreground w-32",
-                      render: (r: any) => r.dst_ip || r.dst || "-"
+                      render: (r: any) => <IpAddressPill ip={r.dst_ip || r.dst} ipContext={overviewIpContext(r, "dst")} compact />
                     },
                     {
                       key: "dst_port",
@@ -1014,7 +1037,7 @@ function OverviewPageView({
                     { key: "severity", title: "SEV", className: "w-20", render: (r: Alert) => <SeverityBadge severity={r.severity} /> },
                     { key: "rule_id", title: "RULE", className: "font-mono text-muted-foreground w-56" },
                     { key: "description", title: "DETECTION", className: "font-mono text-foreground" },
-                    { key: "src_ip", title: "SRC", className: "font-mono text-muted-foreground w-32", render: (r: Alert) => r.src_ip || "-" }
+                    { key: "src_ip", title: "SRC", className: "font-mono text-muted-foreground w-32", render: (r: Alert) => <IpAddressPill ip={r.src_ip} ipContext={overviewIpContext(r, "src")} compact /> }
                   ]}
                   rows={snapshot.recent_alerts}
                   rowKey={(r, i) => `${r.id ?? "na"}-${r.created_at || "na"}-${r.rule_id || "na"}-${i}`}
@@ -1033,7 +1056,7 @@ function OverviewPageView({
               <Table
                 className="text-xs"
                 columns={[
-                  { key: "src_ip", title: "SRC IP", className: "font-mono text-foreground" },
+                  { key: "src_ip", title: "SRC IP", className: "font-mono text-foreground", render: (r: any) => <IpAddressPill ip={r.src_ip} ipContext={overviewIpContext(r, "src")} compact /> },
                   { key: "count", title: "EVENTS", className: "text-right font-mono text-primary w-24" }
                 ]}
                 rows={snapshot.top_sources}
@@ -1089,8 +1112,8 @@ function OverviewPageView({
                   },
                   { key: "agent_id", title: "AGENT", className: "font-mono text-foreground w-32" },
                   { key: "event_type", title: "TYPE", className: "font-mono text-info w-28" },
-                  { key: "src_ip", title: "SRC", className: "font-mono text-muted-foreground w-32", render: (r: any) => r.src_ip || "-" },
-                  { key: "dst_ip", title: "DST", className: "font-mono text-muted-foreground w-32", render: (r: any) => r.dst_ip || "-" },
+                  { key: "src_ip", title: "SRC", className: "font-mono text-muted-foreground w-32", render: (r: any) => <IpAddressPill ip={r.src_ip} ipContext={overviewIpContext(r, "src")} compact /> },
+                  { key: "dst_ip", title: "DST", className: "font-mono text-muted-foreground w-32", render: (r: any) => <IpAddressPill ip={r.dst_ip} ipContext={overviewIpContext(r, "dst")} compact /> },
                   { key: "dst_port", title: "DST PORT", className: "font-mono text-muted-foreground w-24", render: (r: any) => (r.dst_port ?? "-") }
                 ]}
                 rows={snapshot.raw_events}
@@ -1201,8 +1224,8 @@ function OverviewPageView({
                       },
                       { key: "severity", title: "SEV", className: "w-20", render: (r: Alert) => <SeverityBadge severity={r.severity} /> },
                       { key: "rule_id", title: "RULE", className: "font-mono text-muted-foreground w-64" },
-                      { key: "src_ip", title: "SRC", className: "font-mono text-muted-foreground w-32", render: (r: Alert) => r.src_ip || "-" },
-                      { key: "dst_ip", title: "DST", className: "font-mono text-muted-foreground w-32", render: (r: Alert) => r.dst_ip || "-" },
+                      { key: "src_ip", title: "SRC", className: "font-mono text-muted-foreground w-32", render: (r: Alert) => <IpAddressPill ip={r.src_ip} ipContext={overviewIpContext(r, "src")} compact /> },
+                      { key: "dst_ip", title: "DST", className: "font-mono text-muted-foreground w-32", render: (r: Alert) => <IpAddressPill ip={r.dst_ip} ipContext={overviewIpContext(r, "dst")} compact /> },
                       { key: "dst_port", title: "DST PORT", className: "font-mono text-muted-foreground w-24", render: (r: Alert) => (r.dst_port ?? "-") },
                       { key: "description", title: "DESC", className: "font-mono text-foreground" }
                     ]}
