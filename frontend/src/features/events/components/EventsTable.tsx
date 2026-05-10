@@ -1,8 +1,10 @@
 import { useMemo } from "react";
 
 import { Badge } from "@/shared/components/Badge";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { Table, type Column, type TableSortState } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import { getFlowIpContext } from "@/shared/lib/ipClassification";
 
 import { formatProtocolLabel, getEventProtocolIntel } from "../lib/protocol";
 import type { NetEvent } from "../types";
@@ -52,7 +54,7 @@ function summarizeExtra(e: NetEvent) {
 }
 
 function srcLabel(e: NetEvent) {
-  if (e.src_ip) return e.src_ip;
+  if (e.src_ip) return <IpAddressPill ip={e.src_ip} ipContext={getFlowIpContext(e.extra?.ip_context, "src")} compact />;
   const extra = (e.extra || {}) as Record<string, any>;
   if (typeof extra.unique_src_ips === "number" && extra.unique_src_ips > 0) {
     return `many (${extra.unique_src_ips})`;
@@ -166,7 +168,7 @@ export default function EventsTable({
         sortKey: "src_ip",
         sortable: true,
         width: 160,
-        className: "font-mono text-[12px]",
+        className: "text-[12px]",
         render: (e) => srcLabel(e),
       },
       {
@@ -175,12 +177,12 @@ export default function EventsTable({
         sortKey: "dst_ip",
         sortable: true,
         width: 160,
-        className: "font-mono text-[12px]",
+        className: "text-[12px]",
         render: (e) => (
-          <>
-            {e.dst_ip ? <span>{e.dst_ip}</span> : <span className="text-muted-foreground">-</span>}
+          <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
+            <IpAddressPill ip={e.dst_ip} ipContext={getFlowIpContext(e.extra?.ip_context, "dst")} compact />
             {typeof e.dst_port === "number" ? <span className="text-muted-foreground">:{e.dst_port}</span> : null}
-          </>
+          </span>
         ),
       },
     ];

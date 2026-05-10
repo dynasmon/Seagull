@@ -4,10 +4,12 @@ import { Link } from "react-router-dom";
 import { Button } from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import Loading from "@/shared/components/Loading";
 import { Badge } from "@/shared/components/Badge";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import { ipContextFromFlatFields, resolveIpClassification } from "@/shared/lib/ipClassification";
 import {
   InvestigationActionBar,
   InvestigationActionButton,
@@ -52,6 +54,7 @@ export default function SshIpDrawer({
   onClose: () => void;
 }) {
   const srcIp = (ip?.src_ip || "").trim();
+  const srcIpContext = ipContextFromFlatFields(ip, "src");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -248,7 +251,7 @@ export default function SshIpDrawer({
           <InvestigationShell>
             <InvestigationMetaStrip
               items={[
-                { label: "Source IP", value: srcIp, variant: "info" },
+                { label: "Source IP", value: <IpAddressPill ip={srcIp} ipContext={srcIpContext} compact /> },
                 { label: "Lookback", value: `${sinceMinutes}m` },
                 { label: "Scoped agent", value: viewAgentId || "all agents" },
                 { label: "Country", value: meta.country || "unknown", variant: meta.country ? "info" : "neutral" },
@@ -306,6 +309,7 @@ export default function SshIpDrawer({
                 <InvestigationFactCard label="Invalid user" value={String(counts.invalid)} mono />
                 <InvestigationFactCard label="Other actions" value={String(counts.other)} mono />
                 <InvestigationFactCard label="Total actions" value={String(counts.total)} mono />
+                <InvestigationFactCard label="IP scope" value={resolveIpClassification(srcIp, srcIpContext).label} />
                 <InvestigationFactCard label="Geo country" value={meta.country || "-"} />
                 <InvestigationFactCard label="ASN" value={meta.asn || "-"} mono />
                 <InvestigationFactCard label="Last seen" value={formatInvestigationTimestamp(counts.lastSeen)} mono />

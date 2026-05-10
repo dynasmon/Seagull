@@ -2,7 +2,9 @@ import type { ReactNode } from "react";
 import { useMemo } from "react";
 
 import EmptyState from "@/shared/components/EmptyState";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { cx } from "@/shared/lib/cx";
+import { getFlowIpContext } from "@/shared/lib/ipClassification";
 
 import { SimpleTimeSeries } from "@/features/overview/components/Charts";
 
@@ -34,13 +36,15 @@ function MiniPanel({
 function SummaryCard({
   label,
   value,
+  titleValue,
   tone = "default"
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
+  titleValue?: string;
   tone?: "default" | "warn";
 }) {
-  const raw = value;
+  const raw = typeof value === "string" ? value : titleValue || "";
   const compact = raw.length > 26;
   const mid = raw.length > 16;
   const valueSize = compact ? "text-sm" : mid ? "text-lg" : "text-2xl";
@@ -49,11 +53,24 @@ function SummaryCard({
   return (
     <div className="rounded-lg border border-border/60 bg-background/40 px-5 py-5 shadow-sm min-w-0">
       <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className={cx("mt-2 font-mono font-bold tracking-tight leading-none truncate", valueSize, valueClass)} title={raw}>
-        {raw}
+      <div className={cx("mt-2 font-mono font-bold tracking-tight leading-none truncate", valueSize, valueClass)} title={raw || undefined}>
+        {value}
       </div>
     </div>
   );
+}
+
+function targetNode(event: NetEvent) {
+  const raw = `${event.dst_ip || "-"}:${event.dst_port ?? "-"}/${event.proto || "-"}`;
+  return {
+    raw,
+    value: (
+      <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
+        <IpAddressPill ip={event.dst_ip} ipContext={getFlowIpContext(event.extra?.ip_context, "dst")} compact />
+        <span className="text-muted-foreground">:{event.dst_port ?? "-"}/{event.proto || "-"}</span>
+      </span>
+    ),
+  };
 }
 
 function buildMetricSeries(events: NetEvent[], keys: string[]) {
@@ -128,13 +145,14 @@ export default function DdosDeepDive({
   }
 
   const latestFields = latest ? extractDdosFields(latest.extra) : null;
+  const latestTarget = latest ? targetNode(latest) : null;
 
   return (
     <div className="space-y-6 min-w-0">
       {latest && latestFields && (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 min-w-0">
           <SummaryCard label="Latest kind" value={ddosLabel(latestFields)} />
-          <SummaryCard label="Target" value={`${latest.dst_ip || "-"}:${latest.dst_port ?? "-"}/${latest.proto || "-"}`} />
+          <SummaryCard label="Target" value={latestTarget?.value ?? "-"} titleValue={latestTarget?.raw} />
           <SummaryCard label="Unique src IPs" value={`${latestFields.unique_src_ips ?? "-"}`} />
           <SummaryCard
             label="Confidence"
