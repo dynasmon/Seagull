@@ -15,6 +15,7 @@
 		Permissions-Policy "geolocation=(), microphone=(), camera=()"
 		Cross-Origin-Opener-Policy "same-origin"
 		Cross-Origin-Resource-Policy "same-origin"
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
 		Content-Security-Policy "default-src 'self'; frame-ancestors 'none'; base-uri 'self'"
 	}
 
@@ -40,7 +41,6 @@
 
 	handle_path /api/* {
 		reverse_proxy seagull-backend:8000 {
-			# Keep portal auth cookies scoped to the proxied /api/auth path.
 			header_down Set-Cookie "(?i)Path=/auth(;|$)" "Path=/api/auth$1"
 		}
 	}

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Optional
 
-from jose import jwt
+import jwt
 
 from app.core.config import settings
 from app.core.observability import incr_counter, log_event
@@ -246,7 +246,7 @@ def decode_stream_token(stream_token: str) -> StreamPrincipal:
             algorithms=["HS256"],
             audience=_stream_jwt_audience(),
             issuer=settings.SEAGULL_JWT_ISSUER,
-            options={"require_iat": True, "require_exp": True, "require_sub": True, "require_jti": True},
+            options={"require": ["iat", "exp", "sub", "jti"]},
         )
     except Exception as exc:
         raise ValueError("invalid stream token") from exc

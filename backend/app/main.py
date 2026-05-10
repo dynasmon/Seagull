@@ -1,7 +1,7 @@
 import time
 import logging
 
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from starlette import status
@@ -48,6 +48,7 @@ from app.core.observability import (
     snapshot_metrics,
 )
 from app.features.auth.bootstrap import bootstrap_portal_admin
+from app.features.auth.session import require_admin
 from app.features.correlations.bootstrap import bootstrap_correlation_rules
 from app.core.db.model_registry import load_all_models
 
@@ -55,10 +56,14 @@ from app.core.db.model_registry import load_all_models
 setup_logging("backend-api")
 logger = logging.getLogger("seagull.api")
 
+_prod = settings.SEAGULL_ENV in {"prod", "production"}
 app = FastAPI(
     title="Seagull Backend",
     version="0.1.0",
     description="Mini-SIEM for network / Threat Hunting",
+    openapi_url=None if _prod else "/openapi.json",
+    docs_url=None if _prod else "/docs",
+    redoc_url=None if _prod else "/redoc",
 )
 
 if settings.SEAGULL_TRUST_PROXY_HEADERS:
@@ -348,7 +353,7 @@ async def health_ready(response: Response):
 
 
 @app.get("/metrics")
-async def metrics():
+async def metrics(_: object = Depends(require_admin)):
     return snapshot_metrics()
 
 

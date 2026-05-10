@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from jose import jwt
+import jwt
 from starlette.websockets import WebSocketState
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
@@ -154,7 +154,7 @@ def test_stream_token_issuance_for_authenticated_user() -> None:
             body = r.json()
             assert body["token_type"] == "stream"
             assert int(body["expires_in"]) > 0
-            claims = jwt.get_unverified_claims(body["stream_token"])
+            claims = jwt.decode(body["stream_token"], options={"verify_signature": False}, algorithms=["HS256"])
             assert claims["typ"] == realtime_service.STREAM_TOKEN_TYPE
             assert claims["purpose"] == realtime_service.STREAM_TOKEN_PURPOSE
             assert claims["scope"] == realtime_service.STREAM_TOKEN_SCOPE
