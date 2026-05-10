@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { InlineAlert } from "@/shared/components/InlineAlert";
 import Loading from "@/shared/components/Loading";
 import { Button } from "@/shared/components/Button";
@@ -32,6 +33,7 @@ import {
 } from "./CorrelationRiskBadge";
 import CorrelationStatusActions from "./CorrelationStatusActions";
 import { SeverityPill } from "@/shared/components/SeverityPill";
+import { getFlowIpContext } from "@/shared/lib/ipClassification";
 import {
   correlationEntityLabel,
   correlationSeverityVariant,
@@ -41,14 +43,25 @@ import {
 
 type DrawerTab = "overview" | "timeline" | "evidence" | "raw";
 
+function evidenceEndpoint(item: CorrelationEvidence, side: "src" | "dst") {
+  const ip = side === "src" ? item.src_ip : item.dst_ip;
+  const port = side === "src" ? null : item.dst_port;
+  return (
+    <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
+      <IpAddressPill ip={ip} ipContext={getFlowIpContext(item.details?.ip_context as any, side)} compact />
+      {typeof port === "number" ? <span className="text-muted-foreground">:{port}</span> : null}
+    </span>
+  );
+}
+
 function evidenceNetwork(rows: CorrelationEvidence[]) {
   return rows.map((item) => ({
     id: `${item.net_event_id ?? "na"}-${item.timestamp}-${item.evidence_type}`,
     when: formatInvestigationTimestamp(item.timestamp),
     type: String(item.details?.event_type || item.details?.kind || item.evidence_type || "event"),
     agent: String(item.details?.agent_id || item.details?.asset_agent_id || "-"),
-    source: item.src_ip || "-",
-    destination: item.dst_ip ? `${item.dst_ip}${item.dst_port ? `:${item.dst_port}` : ""}` : "-",
+    source: evidenceEndpoint(item, "src"),
+    destination: evidenceEndpoint(item, "dst"),
     stage: item.stage || "-",
   }));
 }
@@ -59,8 +72,8 @@ function evidenceAlerts(rows: CorrelationEvidence[]) {
     when: formatInvestigationTimestamp(item.timestamp),
     severity: String(item.details?.severity || "-"),
     rule: item.rule_id || "-",
-    source: item.src_ip || "-",
-    destination: item.dst_ip ? `${item.dst_ip}${item.dst_port ? `:${item.dst_port}` : ""}` : "-",
+    source: evidenceEndpoint(item, "src"),
+    destination: evidenceEndpoint(item, "dst"),
     description: String(item.details?.description || item.details?.label || "-"),
   }));
 }
