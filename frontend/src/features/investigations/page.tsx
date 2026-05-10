@@ -5,6 +5,7 @@ import { Button } from "@/shared/components/Button";
 import { DataPaginationFooter, DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
 import DetectionWorkflowRail from "@/shared/components/DetectionWorkflow";
 import EmptyState from "@/shared/components/EmptyState";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { Panel } from "@/shared/components/Panel";
 import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
@@ -22,6 +23,7 @@ import {
 } from "@/shared/components/investigation";
 import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
 import { cx } from "@/shared/lib/cx";
+import { getFlowIpContext } from "@/shared/lib/ipClassification";
 import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
 import { usePortalRealtimeSubscription } from "@/shared/realtime";
 
@@ -206,6 +208,19 @@ function str(value: unknown, fallback = "-"): string {
   return String(value);
 }
 
+function renderPayloadEndpoint(payload: Record<string, unknown>, side: "src" | "dst") {
+  const ip = str(payload[`${side}_ip`], "");
+  const port = str(payload[`${side}_port`], "");
+  const extra = asRecord(payload["extra"]);
+  const ipContext = getFlowIpContext((payload["ip_context"] || extra["ip_context"]) as any, side);
+  return (
+    <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
+      <IpAddressPill ip={ip} ipContext={ipContext} compact />
+      {port ? <span className="text-muted-foreground">:{port}</span> : null}
+    </span>
+  );
+}
+
 function renderEvidenceCardContent(b: InvestigationBookmark) {
   const p = asRecord(b.payload_snapshot);
 
@@ -214,7 +229,12 @@ function renderEvidenceCardContent(b: InvestigationBookmark) {
       <div className="text-[11px] text-muted-foreground">
         <div>{fmtTs(str(p["timestamp"], ""))}</div>
         <div>agent {str(p["agent_id"])} · {str(p["event_type"])}</div>
-        <div>{str(p["src_ip"])}:{str(p["src_port"])} → {str(p["dst_ip"])}:{str(p["dst_port"])} · {str(p["proto"])}</div>
+        <div className="inline-flex max-w-full flex-wrap items-center gap-1.5">
+          {renderPayloadEndpoint(p, "src")}
+          <span className="text-muted-foreground">→</span>
+          {renderPayloadEndpoint(p, "dst")}
+          <span className="text-muted-foreground">· {str(p["proto"])}</span>
+        </div>
       </div>
     );
   }

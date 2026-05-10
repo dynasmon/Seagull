@@ -11,6 +11,7 @@ import {
 
 import Loading from "@/shared/components/Loading";
 import Drawer from "@/shared/components/Drawer";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { InlineAlert } from "@/shared/components/InlineAlert";
 import {
   InvestigationActionBar,
@@ -440,7 +441,7 @@ export function ExposureAssetDrawer({
                       ]}
                       meta={[
                         { label: "confidence", value: formatExposureConfidence(item.confidence) },
-                        { label: "src", value: item.src_ip || "-" },
+                        { label: "src", value: <IpAddressPill ip={item.src_ip} compact /> },
                         { label: "created", value: formatExposureTimestamp(item.created_at) },
                       ]}
                     />
