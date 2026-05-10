@@ -1,8 +1,10 @@
 import EmptyState from "@/shared/components/EmptyState";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { JsonBlock } from "@/shared/components/JsonBlock";
 import {
   InvestigationFieldGroup,
 } from "@/shared/components/investigation";
+import { getFlowIpContext } from "@/shared/lib/ipClassification";
 
 import type { NetEvent } from "../types";
 import { extractDdosFields, ddosLabel, fmtHumanRate, isDdosEvent } from "../lib/ddos";
@@ -16,8 +18,18 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
   }
 
   const extra = normalizeDetails(event.extra);
-  const src = event.src_ip ? `${event.src_ip}${event.src_port ? `:${event.src_port}` : ""}` : "-";
-  const dst = event.dst_ip ? `${event.dst_ip}${event.dst_port ? `:${event.dst_port}` : ""}` : "-";
+  const src = (
+    <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
+      <IpAddressPill ip={event.src_ip} ipContext={getFlowIpContext(event.extra?.ip_context, "src")} compact />
+      {typeof event.src_port === "number" ? <span className="text-muted-foreground">:{event.src_port}</span> : null}
+    </span>
+  );
+  const dst = (
+    <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
+      <IpAddressPill ip={event.dst_ip} ipContext={getFlowIpContext(event.extra?.ip_context, "dst")} compact />
+      {typeof event.dst_port === "number" ? <span className="text-muted-foreground">:{event.dst_port}</span> : null}
+    </span>
+  );
 
   const isDdos = isDdosEvent(event);
   const ddos = isDdos ? extractDdosFields(extra) : null;

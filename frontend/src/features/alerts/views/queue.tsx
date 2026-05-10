@@ -13,6 +13,7 @@ import {
 } from "@/shared/components/DataView";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
+import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import Loading from "@/shared/components/Loading";
 import { Panel } from "@/shared/components/Panel";
 import { TextInput } from "@/shared/components/TextInput";
@@ -30,6 +31,7 @@ import {
   copyTextToClipboard,
 } from "@/shared/components/investigation";
 import { cx } from "@/shared/lib/cx";
+import { getFlowIpContext } from "@/shared/lib/ipClassification";
 import { usePortalRealtimeSubscription } from "@/shared/realtime";
 import type { PortalRealtimeEventPayloadMap } from "@/shared/realtime";
 
@@ -136,12 +138,6 @@ function sevVariant(sev: string): "critical" | "high" | "medium" | "low" | "neut
   return "neutral";
 }
 
-function fmtAddr(ip?: string | null, port?: number | null) {
-  if (!ip) return "-";
-  if (typeof port === "number") return `${ip}:${port}`;
-  return ip;
-}
-
 function toDetailEntries(details: Record<string, any> | null | undefined): Array<{ key: string; value: string }> {
   if (!details || typeof details !== "object") return [];
 
@@ -185,6 +181,11 @@ function toDetailEntries(details: Record<string, any> | null | undefined): Array
     if (out.length >= 24) break;
   }
   return out;
+}
+
+function alertIpContext(alert: Alert, side: "src" | "dst") {
+  const details = alert.details && typeof alert.details === "object" ? alert.details : null;
+  return getFlowIpContext(details?.ip_context, side);
 }
 
 function toDetailNested(details: Record<string, any> | null | undefined): Array<{ key: string; value: any }> {
@@ -310,17 +311,15 @@ function AlertsQueueTable(props: {
                   <div className="font-mono text-[11px] text-muted-foreground">{fmtTs(a.created_at)}</div>
                 </td>
 
-                <td className={cx("px-3 font-mono text-[12px]", dense ? "py-1.5" : "py-2")}>
-                  <div>{a.src_ip || <span className="text-muted-foreground">-</span>}</div>
-                  <div className="text-muted-foreground">
-                    {a.dst_ip ? (
-                      <>
-                        <span>{a.dst_ip}</span>
-                        {typeof a.dst_port === "number" ? <span>:{a.dst_port}</span> : null}
-                      </>
-                    ) : (
-                      <span>-</span>
-                    )}
+                <td className={cx("px-3 text-[12px]", dense ? "py-1.5" : "py-2")}>
+                  <div>
+                    <IpAddressPill ip={a.src_ip} ipContext={alertIpContext(a, "src")} compact />
+                  </div>
+                  <div className="mt-1 text-muted-foreground">
+                    <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
+                      <IpAddressPill ip={a.dst_ip} ipContext={alertIpContext(a, "dst")} compact />
+                      {typeof a.dst_port === "number" ? <span>:{a.dst_port}</span> : null}
+                    </span>
                   </div>
                 </td>
 
@@ -1145,8 +1144,19 @@ export default function AlertsQueuePage() {
                     value={typeof selected.confidence === "number" ? String(selected.confidence) : "-"}
                     mono
                   />
-                  <InvestigationFactCard label="Source IP" value={selected.src_ip || "-"} mono />
-                  <InvestigationFactCard label="Destination" value={fmtAddr(selected.dst_ip, selected.dst_port)} mono />
+                  <InvestigationFactCard
+                    label="Source IP"
+                    value={<IpAddressPill ip={selected.src_ip} ipContext={alertIpContext(selected, "src")} compact />}
+                  />
+                  <InvestigationFactCard
+                    label="Destination"
+                    value={
+                      <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
+                        <IpAddressPill ip={selected.dst_ip} ipContext={alertIpContext(selected, "dst")} compact />
+                        {typeof selected.dst_port === "number" ? <span className="text-muted-foreground">:{selected.dst_port}</span> : null}
+                      </span>
+                    }
+                  />
                   <InvestigationFactCard
                     label="ATT&CK"
                     value={
