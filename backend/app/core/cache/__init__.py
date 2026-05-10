@@ -1,3 +1,3 @@
-from .client import get_redis
+from .client import delete_prefixes, get_json, get_redis, set_json
 
-__all__ = ["get_redis"]
+__all__ = ["delete_prefixes", "get_json", "get_redis", "set_json"]
