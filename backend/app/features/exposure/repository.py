@@ -14,6 +14,7 @@ from app.features.exposure.domain.constants import (
     RC_CRITICAL_CVE,
     RC_PERSISTENCE_SIGNAL,
 )
+from app.features.exposure.domain.normalization import extract_inventory_os_context
 from app.features.exposure.domain.types import EdgeInput, FindingInput, NodeInput, PostureInput
 from app.features.exposure.models import (
     ExposureAssetPostureModel,
@@ -22,11 +23,10 @@ from app.features.exposure.models import (
     ExposureNodeModel,
     ExposureScoreHistoryModel,
 )
-from app.features.investigations.models import InvestigationEvidenceBookmarkModel, InvestigationWorkspaceModel
 from app.features.inventory.models import AgentInventoryLatestModel, AgentInventorySnapshotModel
+from app.features.investigations.models import InvestigationEvidenceBookmarkModel, InvestigationWorkspaceModel
 from app.features.response.models import ResponseActionModel, ResponseActionResultModel
 from app.features.vuln.models import VulnFindingModel
-
 
 _MAX_PAGE = 200
 _MAX_GRAPH_FETCH = 1200
@@ -518,24 +518,7 @@ def get_inventory_context(db: Session, *, agent_id: str) -> dict[str, Any]:
     if not latest_row:
         return {}
 
-    os_data = latest_row.get("os") if isinstance(latest_row.get("os"), dict) else {}
-    hostname = str(os_data.get("hostname") or os_data.get("fqdn") or "").strip() or None
-    ip_addresses: list[str] = []
-    raw_addresses = os_data.get("addresses") or os_data.get("ip_addresses") or []
-    if isinstance(raw_addresses, list):
-        for raw in raw_addresses[:32]:
-            value = str(raw or "").strip()
-            if value:
-                ip_addresses.append(value)
-    interfaces = os_data.get("interfaces") or []
-    if isinstance(interfaces, list):
-        for iface in interfaces[:16]:
-            if not isinstance(iface, dict):
-                continue
-            for key in ("ip", "ip_address", "address"):
-                value = str(iface.get(key) or "").strip()
-                if value and value not in ip_addresses:
-                    ip_addresses.append(value)
+    os_context = extract_inventory_os_context(latest_row.get("os"))
 
     packages_count = 0
     snapshot_id = latest_row.get("snapshot_id")
@@ -547,8 +530,8 @@ def get_inventory_context(db: Session, *, agent_id: str) -> dict[str, Any]:
             packages_count = int(snap_row[0] or 0)
 
     return {
-        "hostname": hostname,
-        "ip_addresses": ip_addresses,
+        "hostname": os_context["hostname"],
+        "ip_addresses": os_context["ip_addresses"],
         "collected_at": latest_row.get("collected_at"),
         "updated_at": latest_row.get("updated_at"),
         "packages_count": packages_count,

@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
+from app.core.cache import delete_prefixes as _cache_delete_prefixes
+from app.core.cache import get_json as _cache_get_json
+from app.core.cache import set_json as _cache_set_json
 from app.core.config import settings
 from app.core.observability import incr_counter, observe_hist
-from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
-from app.core.cache import get_redis
 from app.features.inventory.repository import (
     create_snapshot_and_upsert_latest,
     fetch_overview_payload,
@@ -51,52 +52,6 @@ def _floor_dt(dt: datetime, minutes_step: int) -> datetime:
     dt = dt.astimezone(timezone.utc)
     minute = (dt.minute // minutes_step) * minutes_step
     return dt.replace(minute=minute, second=0, microsecond=0)
-
-
-def _cache_get_json(key: str) -> Optional[dict[str, Any]]:
-    r = get_redis()
-    if r is None:
-        return None
-    try:
-        raw = r.get(key)
-        if not raw:
-            return None
-        out = json.loads(raw)
-        return out if isinstance(out, dict) else None
-    except Exception:
-        return None
-
-
-def _cache_set_json(key: str, payload: dict[str, Any], ttl_s: int) -> None:
-    if ttl_s <= 0:
-        return
-    r = get_redis()
-    if r is None:
-        return
-    try:
-        r.setex(key, int(ttl_s), json.dumps(payload, ensure_ascii=True, separators=(",", ":"), default=str))
-    except Exception:
-        return
-
-
-def _cache_delete_prefixes(*prefixes: str) -> None:
-    r = get_redis()
-    if r is None:
-        return
-    for prefix in prefixes:
-        raw_prefix = str(prefix or "").strip()
-        if not raw_prefix:
-            continue
-        try:
-            cursor: int | str = 0
-            while True:
-                cursor, keys = r.scan(cursor=cursor, match=f"{raw_prefix}*", count=200)
-                if keys:
-                    r.delete(*keys)
-                if str(cursor) == "0":
-                    break
-        except Exception:
-            return
 
 
 def invalidate_inventory_overview_cache(*, agent_id: str | None = None) -> None:
