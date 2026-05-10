@@ -61,6 +61,7 @@ from app.features.exposure.domain.evidence import build_evidence_ref, merge_evid
 from app.features.exposure.domain.normalization import (
     clamp_confidence,
     clamp_score,
+    extract_inventory_os_context,
     make_edge_key,
     make_finding_key,
     make_node_key,
@@ -247,34 +248,7 @@ def load_inventory_data(db: Session, agent_id: str) -> Optional[InventoryData]:
     if not row:
         return None
 
-    os_data = row.get("os") if isinstance(row.get("os"), dict) else {}
-    hostname = str(os_data.get("hostname") or os_data.get("fqdn") or "").strip() or None
-    os_name = str(os_data.get("name") or os_data.get("os_name") or "").strip() or None
-    open_ports: list[int] = []
-    ip_addresses: list[str] = []
-    raw_ports = os_data.get("open_ports") or os_data.get("listening_ports") or []
-    if isinstance(raw_ports, list):
-        for p in raw_ports[:64]:
-            try:
-                open_ports.append(int(p))
-            except (TypeError, ValueError):
-                pass
-
-    raw_addresses = os_data.get("addresses") or os_data.get("ip_addresses") or []
-    if isinstance(raw_addresses, list):
-        for raw in raw_addresses[:32]:
-            value = str(raw or "").strip()
-            if value:
-                ip_addresses.append(value)
-    interfaces = os_data.get("interfaces") or []
-    if isinstance(interfaces, list):
-        for iface in interfaces[:16]:
-            if not isinstance(iface, dict):
-                continue
-            for key in ("ip", "ip_address", "address"):
-                value = str(iface.get(key) or "").strip()
-                if value and value not in ip_addresses:
-                    ip_addresses.append(value)
+    os_context = extract_inventory_os_context(row.get("os"))
 
     packages: list[dict[str, Any]] = []
     snapshot_id = row.get("snapshot_id")
@@ -289,12 +263,12 @@ def load_inventory_data(db: Session, agent_id: str) -> Optional[InventoryData]:
     return InventoryData(
         agent_id=agent_id,
         collected_at=row.get("collected_at"),
-        hostname=hostname,
-        os_name=os_name,
+        hostname=os_context["hostname"],
+        os_name=os_context["os_name"],
         packages_count=int(row.get("packages_count") or 0),
         packages=packages,
-        open_ports=open_ports,
-        ip_addresses=ip_addresses,
+        open_ports=os_context["open_ports"],
+        ip_addresses=os_context["ip_addresses"],
     )
 
 

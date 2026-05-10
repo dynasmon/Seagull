@@ -25,7 +25,6 @@ from app.features.exposure.domain.constants import (
 )
 from app.features.exposure.domain.types import EvidenceRef
 
-
 _ASSET_KEY_RE = re.compile(r"^(agent|ip|host|url):[^\s]{1,200}$")
 
 _SEVERITY_ALIASES: dict[str, str] = {
@@ -66,6 +65,46 @@ def normalize_asset_key(agent_id: str | None, *, ip: str | None = None, hostname
 
 def validate_asset_key(key: str) -> bool:
     return bool(_ASSET_KEY_RE.match(key))
+
+
+def extract_inventory_os_context(os_data: Any) -> dict[str, Any]:
+    data = os_data if isinstance(os_data, dict) else {}
+    hostname = str(data.get("hostname") or data.get("fqdn") or "").strip() or None
+    os_name = str(data.get("name") or data.get("os_name") or "").strip() or None
+
+    open_ports: list[int] = []
+    raw_ports = data.get("open_ports") or data.get("listening_ports") or []
+    if isinstance(raw_ports, list):
+        for port in raw_ports[:64]:
+            try:
+                open_ports.append(int(port))
+            except (TypeError, ValueError):
+                continue
+
+    ip_addresses: list[str] = []
+    raw_addresses = data.get("addresses") or data.get("ip_addresses") or []
+    if isinstance(raw_addresses, list):
+        for raw in raw_addresses[:32]:
+            value = str(raw or "").strip()
+            if value:
+                ip_addresses.append(value)
+
+    interfaces = data.get("interfaces") or []
+    if isinstance(interfaces, list):
+        for iface in interfaces[:16]:
+            if not isinstance(iface, dict):
+                continue
+            for key in ("ip", "ip_address", "address"):
+                value = str(iface.get(key) or "").strip()
+                if value and value not in ip_addresses:
+                    ip_addresses.append(value)
+
+    return {
+        "hostname": hostname,
+        "os_name": os_name,
+        "open_ports": open_ports,
+        "ip_addresses": ip_addresses,
+    }
 
 
 def normalize_severity(value: str | None) -> str:
