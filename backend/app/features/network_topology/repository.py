@@ -475,3 +475,12 @@ def mark_all_nodes_stale(db: Session) -> int:
         update(TopologyNodeModel).values(is_stale=1)
     )
     return int(result.rowcount or 0)
+
+
+def count_stale_nodes(db: Session) -> int:
+    return int(
+        db.execute(
+            select(func.count(TopologyNodeModel.id)).where(TopologyNodeModel.is_stale == 1)
+        ).scalar()
+        or 0
+    )
