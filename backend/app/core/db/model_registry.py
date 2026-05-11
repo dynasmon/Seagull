@@ -18,6 +18,7 @@ def load_all_models() -> None:
     from app.features.auth import models as _auth  # noqa: F401
 
     from app.features.exposure import models as _exposure  # noqa: F401
+    from app.features.network_topology import models as _network_topology  # noqa: F401
 
     # Shared cross-feature models
     from app.shared.enrichment import models as _enrichment  # noqa: F401
