@@ -14,7 +14,11 @@ from app.features.alerts.models import AlertModel
 from app.features.alerts.models import AlertRuleOverrideModel
 from app.features.alerts.models import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
 from app.features.alerts.models import AlertRuleTuningHistoryModel, AlertRuleTuningModel
-from app.features.alerts.realtime import publish_alert_created_from_row
+from app.features.alerts.realtime import (
+    build_alert_realtime_payload_from_row,
+    publish_alert_created_from_row,
+    publish_alert_updated_payload,
+)
 from app.features.alerts.lifecycle import (
     VALID_DISPOSITIONS,
     VALID_STATUSES,
@@ -207,6 +211,7 @@ def triage_alert(
 
     repository.commit(db)
     repository.refresh(db, row)
+    publish_alert_updated_payload(build_alert_realtime_payload_from_row(row))
     return row
 
 
