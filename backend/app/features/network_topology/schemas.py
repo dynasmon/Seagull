@@ -119,6 +119,8 @@ class TopologyCoverageOut(BaseModel):
     agents_with_inventory: int = 0
     interfaces_extracted: int = 0
     subnets_inferred: int = 0
+    flow_edges_added: int = 0
+    services_projected: int = 0
     alert_edges_added: int = 0
     exposure_edges_added: int = 0
     stale_nodes_marked: int = 0
