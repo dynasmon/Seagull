@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -13,6 +14,28 @@ from . import compose as _compose
 def _require_cmd(name: str) -> None:
     if not shutil.which(name):
         raise RuntimeError(f"[preflight] missing required command: {name}")
+
+
+def _check_caddyfile_port(caddy_cfg: Path, https_port: int) -> None:
+    if caddy_cfg.is_dir():
+        raise RuntimeError(
+            f"[preflight] SEAGULL_CADDY_CONFIG_FILE is a directory, not a file: {caddy_cfg}"
+        )
+    if not caddy_cfg.exists():
+        raise RuntimeError(
+            f"[preflight] SEAGULL_CADDY_CONFIG_FILE not found: {caddy_cfg}"
+        )
+    if https_port == 443:
+        return
+    text = caddy_cfg.read_text()
+    site_with_port = re.search(rf"(?:^|\s)\S*:{https_port}\s*\{{", text, re.MULTILINE)
+    global_https_port = re.search(rf"https_port\s+{https_port}", text)
+    if not site_with_port and not global_https_port:
+        raise RuntimeError(
+            f"[preflight] {caddy_cfg.name} does not bind HTTPS on port {https_port} "
+            f"(SEAGULL_CADDY_HTTPS_INTERNAL_PORT={https_port}). "
+            f"Set SEAGULL_CADDY_CONFIG_FILE=./infra/caddy/Caddyfile.dev in .env"
+        )
 
 
 def _abs(p: str) -> Path:
@@ -31,6 +54,11 @@ def run() -> None:
         raise RuntimeError("[preflight] docker daemon is not reachable (is Docker running?)")
 
     ev = _env.read
+
+    caddy_cfg = _abs(ev("SEAGULL_CADDY_CONFIG_FILE", "./infra/caddy/Caddyfile"))
+    caddy_https_port = int(ev("SEAGULL_CADDY_HTTPS_INTERNAL_PORT", "8443") or "8443")
+    _check_caddyfile_port(caddy_cfg, caddy_https_port)
+
     tls_cert = ev("SEAGULL_TLS_CERT_FILE", "./secrets/tls/tls.crt")
     tls_key = ev("SEAGULL_TLS_KEY_FILE", "./secrets/tls/tls.key")
     agent_ca = ev("SEAGULL_AGENT_SERVER_CA_FILE", "./secrets/tls/ca.crt")
