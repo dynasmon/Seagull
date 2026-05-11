@@ -9,10 +9,10 @@ from . import compose as _compose
 from . import env as _env
 
 
-ESSENTIAL_DEV = ["postgres", "redis", "seagull-backend"]
+ESSENTIAL_DEV = ["postgres", "redis", "seagull-backend", "caddy"]
 ESSENTIAL_PROD = [
     "postgres", "redis", "elasticsearch",
-    "seagull-backend", "seagull-ingest-pipeline",
+    "seagull-backend", "seagull-ingest-pipeline", "caddy",
 ]
 
 
