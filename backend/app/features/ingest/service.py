@@ -37,6 +37,7 @@ from app.features.events.schemas import NetEvent
 from app.features.events.service import invalidate_live_event_summary_caches
 from app.features.alerts.models import AlertModel
 from app.features.alerts.realtime import publish_alert_created_from_row
+from app.features.network_topology import realtime as topology_realtime
 from app.features.realtime.projectors import (
     project_ddos_live_patch,
     project_events_stream_append,
@@ -207,6 +208,13 @@ def _publish_events_realtime(
             ),
         )
 
+    _publish_topology_invalidation_for_events(
+        agent_id=agent_id,
+        events=events,
+        recent_rows=recent_rows,
+        pressure=pressure,
+    )
+
     ddos_rows = _ddos_recent_rows(recent_rows, limit=18)
     pressure_payload = pressure or {}
     ddos_active = bool(ddos_rows) or bool((pressure_payload or {}).get("active")) or bool((live_summary or {}).get("ddos_samples"))
@@ -223,6 +231,42 @@ def _publish_events_realtime(
                 pressure=pressure_payload,
             ),
         )
+
+
+def _publish_topology_invalidation_for_events(
+    *,
+    agent_id: str,
+    events: List[NetEvent],
+    recent_rows: List[Dict],
+    pressure: Dict[str, object] | None,
+) -> None:
+    event_types: list[str] = []
+    relevant_count = 0
+    for event in events:
+        event_type = str(event.event_type or "").strip().lower()
+        if event_type and event_type not in event_types:
+            event_types.append(event_type)
+        if event.src_ip or event.dst_ip:
+            relevant_count += 1
+    for row in recent_rows:
+        if (row or {}).get("src_ip") or (row or {}).get("dst_ip"):
+            relevant_count += 1
+    if relevant_count <= 0:
+        return
+
+    pressure_payload = pressure or {}
+    phase = str(pressure_payload.get("phase") or "ok")
+    degraded = bool(pressure_payload.get("active")) or phase not in {"ok", "normal"}
+    topology_realtime.publish_topology_invalidate(
+        reason="event_batch_ingested",
+        source="ingest",
+        agent_id=str(agent_id or "").strip(),
+        batch_size=int(len(events)),
+        event_types=event_types,
+        degraded=bool(degraded),
+        sampled=bool(degraded),
+        high_priority=any(t in {"ssh_auth", "dos_attack", "ddos_telemetry"} for t in event_types),
+    )
 
 
 def _degradation_level(*, bp_mode: str, storm_active: bool, backlog_events: int, received: int) -> str:
