@@ -206,4 +206,5 @@ def test_worker_manager_groups_still_point_to_current_worker_modules() -> None:
     assert "app.workers.intelligence.protocol.main" in intelligence_modules
     assert "app.workers.intelligence.attack_chain.main" in intelligence_modules
     assert "app.workers.intelligence.exposure.main" in intelligence_modules
+    assert "app.workers.intelligence.network_topology.main" in intelligence_modules
     assert "app.workers.intelligence.correlations.main" in intelligence_modules

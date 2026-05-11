@@ -110,6 +110,12 @@ GROUPS: dict[str, tuple[ChildSpec, ...]] = {
             enabled_default=True,
         ),
         ChildSpec(
+            name="network-topology",
+            module="app.workers.intelligence.network_topology.main",
+            enabled_env="SEAGULL_NETWORK_TOPOLOGY_ENABLED",
+            enabled_default=True,
+        ),
+        ChildSpec(
             name="correlations",
             module="app.workers.intelligence.correlations.main",
             enabled_env="SEAGULL_CORRELATIONS_WORKER_ENABLED",

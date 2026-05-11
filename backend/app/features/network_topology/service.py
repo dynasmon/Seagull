@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.api.pagination import decode_cursor, make_cursor_ts_id, parse_cursor_ts_id
+from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
+from app.core.config.env_secrets import env_value
 from app.features.auth.session import PortalPrincipal
 from app.features.network_topology import realtime as topo_realtime
 from app.features.network_topology import repository
@@ -39,11 +40,34 @@ from app.shared.schemas import CursorPage
 _UTC = timezone.utc
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = env_value(name, None)
+    if raw is None:
+        return default
+    try:
+        return int(str(raw).strip(), 10)
+    except Exception:
+        return default
+
+
+def _config_window_minutes() -> int:
+    return max(5, _env_int("SEAGULL_NETWORK_TOPOLOGY_WINDOW_MINUTES", 1440))
+
+
+def _config_stale_after_minutes() -> int:
+    return max(1, _env_int("SEAGULL_NETWORK_TOPOLOGY_STALE_AFTER_MINUTES", 15))
+
+
+def _config_max_events_per_run() -> int:
+    return max(100, _env_int("SEAGULL_NETWORK_TOPOLOGY_MAX_EVENTS_PER_RUN", 5000))
+
+
 def get_summary(db: Session) -> TopologySummaryOut:
     metrics = repository.topology_summary_metrics(db)
     by_type: dict[str, int] = metrics.get("by_type", {})
     snapshot = repository.get_latest_snapshot(db)
     last_projected_at = snapshot.created_at if snapshot else None
+    freshness = _freshness_metadata(snapshot)
 
     return TopologySummaryOut(
         total_nodes=metrics["total_nodes"],
@@ -63,6 +87,7 @@ def get_summary(db: Session) -> TopologySummaryOut:
             for k, v in sorted(by_type.items(), key=lambda x: -x[1])
         ],
         last_projected_at=last_projected_at,
+        **freshness,
     )
 
 
@@ -94,6 +119,18 @@ def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
     nodes_truncated = len(nodes) >= node_limit
     edges_truncated = len(edges) >= edge_limit
     snapshot = repository.get_latest_snapshot(db)
+    freshness = _freshness_metadata(snapshot)
+    graph_truncation = dict(freshness.get("truncation") or {})
+    graph_truncation.update(
+        {
+            "nodes_truncated": bool(nodes_truncated),
+            "edges_truncated": bool(edges_truncated),
+            "max_nodes_applied": int(node_limit),
+            "max_edges_applied": int(edge_limit),
+        }
+    )
+    graph_freshness = dict(freshness)
+    graph_freshness["truncation"] = graph_truncation
 
     return TopologyGraphOut(
         nodes=[_node_to_out(n) for n in nodes],
@@ -106,14 +143,23 @@ def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
             nodes_truncated=nodes_truncated,
             edges_truncated=edges_truncated,
             last_projected_at=snapshot.created_at if snapshot else None,
+            **graph_freshness,
         ),
+        **graph_freshness,
     )
 
 
 def get_node_detail(db: Session, node_key: str) -> TopologyNodeDetailOut:
     node = repository.get_node(db, node_key)
     if node is None:
-        raise HTTPException(status_code=404, detail={"code": "node_not_found", "message": "Node not found", "context": {"node_key": node_key}})
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "node_not_found",
+                "message": "Node not found",
+                "context": {"node_key": node_key},
+            },
+        )
 
     observations = repository.list_observations_for_node(db, node_key=node_key, limit=20)
     edges = repository.list_edges_for_node(db, node_key=node_key, limit=50)
@@ -131,7 +177,14 @@ def get_node_detail(db: Session, node_key: str) -> TopologyNodeDetailOut:
 def get_edge_detail(db: Session, edge_key: str) -> TopologyEdgeDetailOut:
     edge = repository.get_edge(db, edge_key)
     if edge is None:
-        raise HTTPException(status_code=404, detail={"code": "edge_not_found", "message": "Edge not found", "context": {"edge_key": edge_key}})
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "edge_not_found",
+                "message": "Edge not found",
+                "context": {"edge_key": edge_key},
+            },
+        )
 
     observations = repository.list_observations_for_node(db, node_key=edge.source_node_key, limit=10)
     src_node = repository.get_node(db, edge.source_node_key)
@@ -205,14 +258,60 @@ def list_observations(db: Session, params: TopologyObservationQuery) -> CursorPa
 
 def request_recalculate(db: Session, *, admin: PortalPrincipal) -> TopologyRecalculateOut:
     requested_at = datetime.now(_UTC)
-    t0 = time.perf_counter()
+    snapshot = repository.get_latest_snapshot(db)
+    topo_realtime.request_recalculation(
+        requested_at=requested_at,
+        requested_by=admin.username,
+        request_id=None,
+        reason="manual_recalculate",
+        mode="full",
+        debounce_seconds=0,
+    )
+    topo_realtime.publish_topology_invalidate(
+        reason="manual_recalculate_requested",
+        source="api",
+        high_priority=True,
+        schedule_recalculation=False,
+    )
 
-    coverage = project_topology(db)
+    coverage = TopologyCoverageOut(**(snapshot.coverage if snapshot and isinstance(snapshot.coverage, dict) else {}))
+    return TopologyRecalculateOut(
+        accepted=True,
+        projected_nodes=int(snapshot.node_count if snapshot else 0),
+        projected_edges=int(snapshot.edge_count if snapshot else 0),
+        duration_ms=0.0,
+        requested_at=requested_at,
+        coverage=coverage,
+    )
+
+
+def run_recalculation(
+    db: Session,
+    *,
+    projected_by: str,
+    reason: str = "worker",
+    window_minutes: int | None = None,
+    max_events_per_run: int | None = None,
+) -> TopologyRecalculateOut:
+    requested_at = datetime.now(_UTC)
+    t0 = time.perf_counter()
+    window = max(5, int(window_minutes or _config_window_minutes()))
+    max_events = max(100, int(max_events_per_run or _config_max_events_per_run()))
+
+    coverage = project_topology(db, window_minutes=window, max_events_per_run=max_events)
     db.flush()
 
     metrics = repository.topology_summary_metrics(db)
     node_count = metrics["total_nodes"]
     edge_count = metrics["total_edges"]
+    snapshot_metrics = _build_snapshot_metrics(
+        coverage=coverage,
+        projected_by=projected_by,
+        reason=reason,
+        requested_at=requested_at,
+        window_minutes=window,
+        max_events_per_run=max_events,
+    )
 
     repository.upsert_snapshot(
         db,
@@ -222,16 +321,37 @@ def request_recalculate(db: Session, *, admin: PortalPrincipal) -> TopologyRecal
         agent_count=metrics.get("by_type", {}).get("agent", 0),
         subnet_count=metrics.get("by_type", {}).get("subnet", 0),
         external_ip_count=metrics.get("by_type", {}).get("external_ip", 0),
-        coverage=coverage.dict(),
-        metrics={"projected_by": admin.username},
+        coverage=_model_dict(coverage),
+        metrics=snapshot_metrics,
     )
     db.commit()
 
     duration_ms = (time.perf_counter() - t0) * 1000.0
+    snapshot = repository.get_latest_snapshot(db)
+    freshness = _freshness_metadata(snapshot)
 
     topo_realtime.publish_topology_updated(
         projected_nodes=node_count,
         projected_edges=edge_count,
+    )
+    topo_realtime.publish_summary_patch(
+        generated_at=freshness["generated_at"],
+        projected_at=freshness["projected_at"],
+        total_nodes=node_count,
+        total_edges=edge_count,
+        agent_count=metrics.get("by_type", {}).get("agent", 0),
+        subnet_count=metrics.get("by_type", {}).get("subnet", 0),
+        external_ip_count=metrics.get("by_type", {}).get("external_ip", 0),
+        freshness_seconds=freshness["freshness_seconds"],
+        stale=bool(freshness["stale"]),
+        source_coverage=freshness["source_coverage"],
+        truncation=freshness["truncation"],
+    )
+    topo_realtime.publish_topology_invalidate(
+        reason="projection_updated",
+        source="network_topology",
+        projected_at=freshness["projected_at"],
+        schedule_recalculation=False,
     )
 
     return TopologyRecalculateOut(
@@ -242,6 +362,127 @@ def request_recalculate(db: Session, *, admin: PortalPrincipal) -> TopologyRecal
         requested_at=requested_at,
         coverage=coverage,
     )
+
+
+def _freshness_metadata(snapshot) -> dict[str, Any]:
+    generated_at = datetime.now(_UTC)
+    projected_at = _to_utc(snapshot.created_at) if snapshot else None
+    freshness_seconds: int | None = None
+    if projected_at is not None:
+        freshness_seconds = max(0, int((generated_at - projected_at).total_seconds()))
+    stale_after_seconds = _config_stale_after_minutes() * 60
+    stale = projected_at is None or freshness_seconds is None or freshness_seconds > stale_after_seconds
+
+    metrics = snapshot.metrics if snapshot and isinstance(snapshot.metrics, dict) else {}
+    data_window = metrics.get("data_window") if isinstance(metrics.get("data_window"), dict) else None
+    if data_window is None:
+        data_window = _default_data_window(generated_at)
+
+    source_coverage = metrics.get("source_coverage") if isinstance(metrics.get("source_coverage"), dict) else None
+    if source_coverage is None:
+        source_coverage = snapshot.coverage if snapshot and isinstance(snapshot.coverage, dict) else {}
+
+    truncation = metrics.get("truncation") if isinstance(metrics.get("truncation"), dict) else {}
+
+    return {
+        "generated_at": generated_at,
+        "projected_at": projected_at,
+        "data_window": data_window,
+        "freshness_seconds": freshness_seconds,
+        "stale": bool(stale),
+        "source_coverage": source_coverage,
+        "truncation": truncation,
+    }
+
+
+def _default_data_window(now: datetime) -> dict[str, Any]:
+    window = _config_window_minutes()
+    start = now - timedelta(minutes=window)
+    return {
+        "window_minutes": int(window),
+        "start_at": start.isoformat(),
+        "end_at": now.isoformat(),
+    }
+
+
+def _build_snapshot_metrics(
+    *,
+    coverage: TopologyCoverageOut,
+    projected_by: str,
+    reason: str,
+    requested_at: datetime,
+    window_minutes: int,
+    max_events_per_run: int,
+) -> dict[str, Any]:
+    now = datetime.now(_UTC)
+    coverage_dict = _model_dict(coverage)
+    warnings = [str(x) for x in coverage.warnings]
+    ingest_pressure = _ingest_pressure_snapshot()
+    source_coverage = {
+        "projection": coverage_dict,
+        "agents": {"projected": int(coverage.agents_projected)},
+        "inventory": {"agents_with_inventory": int(coverage.agents_with_inventory)},
+        "flows": {"edges_added": int(coverage.flow_edges_added), "window_minutes": int(window_minutes)},
+        "alerts": {"edges_added": int(coverage.alert_edges_added), "window_minutes": int(window_minutes)},
+        "exposure": {"edges_added": int(coverage.exposure_edges_added)},
+        "ingest_pressure": ingest_pressure,
+    }
+    truncation = {
+        "max_events_per_run": int(max_events_per_run),
+        "warnings": warnings,
+        "agents_truncated": "agent_limit_reached" in warnings,
+        "inventory_truncated": "inventory_limit_reached" in warnings,
+        "flows_truncated": "flow_edge_limit_reached" in warnings,
+        "alerts_truncated": "alert_limit_reached" in warnings,
+        "exposure_truncated": "exposure_limit_reached" in warnings,
+        "sampled": bool((ingest_pressure or {}).get("sampled")),
+    }
+    return {
+        "projected_by": str(projected_by or "worker"),
+        "reason": str(reason or "worker"),
+        "requested_at": requested_at.isoformat(),
+        "data_window": {
+            "window_minutes": int(window_minutes),
+            "start_at": (now - timedelta(minutes=int(window_minutes))).isoformat(),
+            "end_at": now.isoformat(),
+        },
+        "source_coverage": source_coverage,
+        "truncation": truncation,
+    }
+
+
+def _model_dict(model: Any) -> dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
+
+
+def _ingest_pressure_snapshot() -> dict[str, Any]:
+    try:
+        from app.features.ingest.control.service import get_storm_status
+
+        raw = get_storm_status()
+    except Exception:
+        raw = None
+    if not isinstance(raw, dict):
+        return {"sampled": False, "phase": "unknown"}
+    phase = str(raw.get("phase") or "ok")
+    sample_hot = raw.get("sample_hot_percent")
+    sample_warm = raw.get("sample_warm_percent")
+    try:
+        hot_i = int(sample_hot)
+    except Exception:
+        hot_i = 100
+    sampled = bool(raw.get("active")) or phase not in {"ok", "normal"} or hot_i < 100
+    return {
+        "sampled": bool(sampled),
+        "phase": phase,
+        "reason": str(raw.get("reason") or "ok"),
+        "backlog_events": int(raw.get("backlog_events") or 0),
+        "backlog_messages": int(raw.get("backlog_messages") or 0),
+        "sample_hot_percent": hot_i,
+        "sample_warm_percent": int(sample_warm or 0),
+    }
 
 
 def _node_to_out(node: TopologyNodeModel) -> TopologyNodeOut:
