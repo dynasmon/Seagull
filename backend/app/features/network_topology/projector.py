@@ -33,19 +33,46 @@ _MAX_EXPOSURE_ROWS = 1000
 _STALE_AGENT_HOURS = 24 * 7
 
 
-def project_topology(db: Session) -> TopologyCoverageOut:
+def project_topology(
+    db: Session,
+    *,
+    window_minutes: int | None = None,
+    max_events_per_run: int | None = None,
+) -> TopologyCoverageOut:
     """Full topology projection from agents, inventory, events, alerts, and exposure."""
     coverage = TopologyCoverageOut()
     cidrs = settings.SEAGULL_INTERNAL_NETWORK_CIDRS or None
     now = datetime.now(timezone.utc)
+    window = max(5, int(window_minutes or (_FLOW_WINDOW_HOURS * 60)))
+    max_events = max(100, int(max_events_per_run or _MAX_FLOW_ROWS))
+    max_flow_rows = min(max_events, _MAX_FLOW_ROWS)
+    max_alert_rows = min(max_events, _MAX_ALERT_ROWS)
 
     repository.mark_all_nodes_stale(db)
 
     agent_nodes = _project_agents(db, now=now, coverage=coverage)
     _project_inventory(db, now=now, cidrs=cidrs, coverage=coverage, agent_nodes=agent_nodes)
-    _project_flow_edges(db, now=now, cidrs=cidrs, coverage=coverage)
-    _project_alert_edges(db, now=now, cidrs=cidrs, coverage=coverage)
+    _project_flow_edges(db, now=now, cidrs=cidrs, coverage=coverage, window_minutes=window, max_flow_rows=max_flow_rows)
+    _project_alert_edges(
+        db,
+        now=now,
+        cidrs=cidrs,
+        coverage=coverage,
+        window_minutes=window,
+        max_alert_rows=max_alert_rows,
+    )
     _project_exposure_graph(db, now=now, coverage=coverage, agent_nodes=agent_nodes)
+
+    if coverage.agents_projected >= _MAX_AGENT_ROWS:
+        coverage.warnings.append("agent_limit_reached")
+    if coverage.agents_with_inventory >= _MAX_AGENT_ROWS:
+        coverage.warnings.append("inventory_limit_reached")
+    if coverage.flow_edges_added >= max_flow_rows:
+        coverage.warnings.append("flow_edge_limit_reached")
+    if coverage.alert_edges_added >= max_alert_rows:
+        coverage.warnings.append("alert_limit_reached")
+    if coverage.exposure_edges_added >= _MAX_EXPOSURE_ROWS:
+        coverage.warnings.append("exposure_limit_reached")
 
     coverage.stale_nodes_marked = repository.count_stale_nodes(db)
     return coverage
@@ -453,8 +480,12 @@ def _project_flow_edges(
     now: datetime,
     cidrs: list[str] | None,
     coverage: TopologyCoverageOut,
+    window_minutes: int | None = None,
+    max_flow_rows: int | None = None,
 ) -> None:
-    since = now - timedelta(hours=_FLOW_WINDOW_HOURS)
+    window = max(5, int(window_minutes or (_FLOW_WINDOW_HOURS * 60)))
+    limit = max(1, min(int(max_flow_rows or _MAX_FLOW_ROWS), _MAX_FLOW_ROWS))
+    since = now - timedelta(minutes=window)
 
     flow_rows = db.execute(
         select(
@@ -480,7 +511,7 @@ def _project_flow_edges(
             NetEventModel.proto,
         )
         .order_by(func.count(NetEventModel.id).desc())
-        .limit(_MAX_FLOW_ROWS)
+        .limit(limit)
     ).all()
 
     for row in flow_rows:
@@ -600,8 +631,12 @@ def _project_alert_edges(
     now: datetime,
     cidrs: list[str] | None,
     coverage: TopologyCoverageOut,
+    window_minutes: int | None = None,
+    max_alert_rows: int | None = None,
 ) -> None:
-    since = now - timedelta(hours=_ALERT_WINDOW_HOURS)
+    window = max(5, int(window_minutes or (_ALERT_WINDOW_HOURS * 60)))
+    limit = max(1, min(int(max_alert_rows or _MAX_ALERT_ROWS), _MAX_ALERT_ROWS))
+    since = now - timedelta(minutes=window)
     alerts = db.execute(
         select(
             AlertModel.src_ip,
@@ -616,7 +651,7 @@ def _project_alert_edges(
             AlertModel.dst_ip.isnot(None),
         )
         .order_by(AlertModel.created_at.desc())
-        .limit(_MAX_ALERT_ROWS)
+        .limit(limit)
     ).all()
 
     for row in alerts:
