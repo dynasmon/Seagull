@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, validator
-
 
 TopologySeverity = str
 TopologyNodeType = str
@@ -72,12 +71,26 @@ class TopologyGraphHealthOut(BaseModel):
     nodes_truncated: bool = False
     edges_truncated: bool = False
     last_projected_at: Optional[datetime] = None
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    projected_at: Optional[datetime] = None
+    data_window: Dict[str, Any] = Field(default_factory=dict)
+    freshness_seconds: Optional[int] = None
+    stale: bool = True
+    source_coverage: Dict[str, Any] = Field(default_factory=dict)
+    truncation: Dict[str, Any] = Field(default_factory=dict)
 
 
 class TopologyGraphOut(BaseModel):
     nodes: List[TopologyNodeOut] = Field(default_factory=list)
     edges: List[TopologyEdgeOut] = Field(default_factory=list)
     graph_health: TopologyGraphHealthOut
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    projected_at: Optional[datetime] = None
+    data_window: Dict[str, Any] = Field(default_factory=dict)
+    freshness_seconds: Optional[int] = None
+    stale: bool = True
+    source_coverage: Dict[str, Any] = Field(default_factory=dict)
+    truncation: Dict[str, Any] = Field(default_factory=dict)
 
 
 class TopologyNodeDetailOut(BaseModel):
@@ -142,6 +155,13 @@ class TopologySummaryOut(BaseModel):
     exposure_edge_count: int
     node_type_breakdown: List[TopologyNodeTypeStat] = Field(default_factory=list)
     last_projected_at: Optional[datetime] = None
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    projected_at: Optional[datetime] = None
+    data_window: Dict[str, Any] = Field(default_factory=dict)
+    freshness_seconds: Optional[int] = None
+    stale: bool = True
+    source_coverage: Dict[str, Any] = Field(default_factory=dict)
+    truncation: Dict[str, Any] = Field(default_factory=dict)
 
 
 class TopologyRecalculateOut(BaseModel):
@@ -157,6 +177,44 @@ class TopologyErrorOut(BaseModel):
     code: str
     message: str
     context: Dict[str, Any] = Field(default_factory=dict)
+
+
+class NetworkTopologyInvalidatePayload(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=64)
+    scope: str = Field(default="network_topology", min_length=1, max_length=64)
+    source: Optional[str] = Field(default=None, max_length=64)
+    agent_id: Optional[str] = Field(default=None, max_length=64)
+    alert_id: Optional[int] = None
+    batch_size: Optional[int] = None
+    event_types: List[str] = Field(default_factory=list)
+    degraded: bool = False
+    sampled: bool = False
+    high_priority: bool = False
+    requested_at: Optional[str] = None
+    projected_at: Optional[str] = None
+
+
+class NetworkTopologySummaryPatchPayload(BaseModel):
+    generated_at: str
+    projected_at: Optional[str] = None
+    total_nodes: int
+    total_edges: int
+    agent_count: int
+    subnet_count: int
+    external_ip_count: int
+    freshness_seconds: Optional[int] = None
+    stale: bool
+    source_coverage: Dict[str, Any] = Field(default_factory=dict)
+    truncation: Dict[str, Any] = Field(default_factory=dict)
+
+
+class NetworkTopologyGraphPatchPayload(BaseModel):
+    generated_at: str
+    projected_at: Optional[str] = None
+    nodes: List[Dict[str, Any]] = Field(default_factory=list)
+    edges: List[Dict[str, Any]] = Field(default_factory=list)
+    graph_health: Dict[str, Any] = Field(default_factory=dict)
+    requires_reconcile: bool = False
 
 
 class TopologyGraphQuery(BaseModel):

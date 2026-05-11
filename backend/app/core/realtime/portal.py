@@ -24,6 +24,7 @@ PORTAL_REALTIME_TOPICS = (
     "ddos",
     "inventory",
     "vulnerabilities",
+    "network_topology",
 )
 PORTAL_REALTIME_STREAM_KEY = "seagull:portal:realtime:v3:stream"
 PORTAL_REALTIME_CURSOR_KEY = "seagull:portal:realtime:v3:cursor"

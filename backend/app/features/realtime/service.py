@@ -46,6 +46,9 @@ REALTIME_EVENT_POLICIES: dict[str, dict[str, str]] = {
     "ui.ddos.live.invalidate": {"topic": "ddos", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
     "ui.ddos.live.patch": {"topic": "ddos", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
     "ui.inventory.invalidate": {"topic": "inventory", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
+    "ui.network_topology.invalidate": {"topic": "network_topology", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
+    "ui.network_topology.summary.patch": {"topic": "network_topology", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
+    "ui.network_topology.graph.patch": {"topic": "network_topology", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
     "ui.vulnerabilities.invalidate": {"topic": "vulnerabilities", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE_ADMIN},
     "ui.vulnerabilities.finding.patch": {"topic": "vulnerabilities", "mode": "patch", "scope": STREAM_TOKEN_SCOPE_ADMIN},
     "ui.vulnerabilities.scan.lifecycle": {"topic": "vulnerabilities", "mode": "patch", "scope": STREAM_TOKEN_SCOPE_ADMIN},
@@ -70,6 +73,7 @@ TOPIC_REQUIRED_SCOPE: dict[str, str] = {
     "events": STREAM_TOKEN_SCOPE,
     "ddos": STREAM_TOKEN_SCOPE,
     "inventory": STREAM_TOKEN_SCOPE,
+    "network_topology": STREAM_TOKEN_SCOPE,
     "vulnerabilities": STREAM_TOKEN_SCOPE_ADMIN,
 }
 TOPIC_INVALIDATE_EVENT: dict[str, str] = {
@@ -82,6 +86,7 @@ TOPIC_INVALIDATE_EVENT: dict[str, str] = {
     "events": "ui.events.invalidate",
     "ddos": "ui.ddos.live.invalidate",
     "inventory": "ui.inventory.invalidate",
+    "network_topology": "ui.network_topology.invalidate",
     "vulnerabilities": "ui.vulnerabilities.invalidate",
 }
 TOPIC_COALESCED_INVALIDATES: frozenset[str] = frozenset(
@@ -95,6 +100,7 @@ TOPIC_COALESCED_INVALIDATES: frozenset[str] = frozenset(
         "events",
         "ddos",
         "inventory",
+        "network_topology",
         "vulnerabilities",
     }
 )
