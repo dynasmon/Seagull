@@ -28,6 +28,7 @@ const loadInvestigationsPage = () => import("@/features/investigations/page");
 const loadVulnerabilitiesPage = () => import("@/features/vulnerabilities/page");
 const loadVulnerabilityScansPage = () => import("@/features/vulnerabilities/scans");
 const loadExposurePage = () => import("@/features/exposure/page");
+const loadNetworkTopologyPage = () => import("@/features/network_topology/page");
 
 const loadInventoryPage = () => import("@/features/inventory/page");
 const loadSettingsPage = () => import("@/features/settings/page");
@@ -67,6 +68,7 @@ const InvestigationsPage = lazy(loadInvestigationsPage);
 const VulnerabilitiesPage = lazy(loadVulnerabilitiesPage);
 const VulnerabilityScansPage = lazy(loadVulnerabilityScansPage);
 const ExposurePage = lazy(loadExposurePage);
+const NetworkTopologyPage = lazy(loadNetworkTopologyPage);
 
 const InventoryPage = lazy(loadInventoryPage);
 const SettingsPage = lazy(loadSettingsPage);
@@ -88,6 +90,7 @@ const routeWarmers: Array<() => Promise<unknown>> = [
   loadAlertsLayout,
   loadVulnerabilitiesPage,
   loadExposurePage,
+  loadNetworkTopologyPage,
   loadInventoryPage,
   loadAuditLayout,
   loadAuditAdminActionsPage,
@@ -171,6 +174,7 @@ export function Routes() {
             <Route path="/vulnerabilities" element={<VulnerabilitiesPage />} />
             <Route path="/vulnerabilities/scans" element={<VulnerabilityScansPage />} />
             <Route path="/exposure" element={<ExposurePage />} />
+            <Route path="/network-topology" element={<NetworkTopologyPage />} />
 
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/settings" element={<SettingsPage />} />
