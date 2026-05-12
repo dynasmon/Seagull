@@ -12,6 +12,7 @@ export type AppNavIcon =
   | "inventory"
   | "vulnerabilities"
   | "exposure"
+  | "network_topology"
   | "audit"
   | "settings"
   | "internal";
@@ -75,6 +76,7 @@ export const SOC_NAV_GROUPS: AppNavGroup[] = [
       { id: "inventory", label: "Inventory", to: "/inventory", icon: "inventory" },
       { id: "vulnerabilities", label: "Vulnerabilities", to: "/vulnerabilities", icon: "vulnerabilities" },
       { id: "exposure", label: "Exposure Graph", to: "/exposure", icon: "exposure" },
+      { id: "network-topology", label: "Network Topology", to: "/network-topology", icon: "network_topology" },
     ],
   },
   {
@@ -258,6 +260,17 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       breadcrumbs: [
         { label: "Assets & Exposure" },
         { label: "Exposure Graph", to: "/exposure" },
+      ],
+    },
+  },
+  {
+    path: "/network-topology",
+    meta: {
+      title: "Network Topology",
+      subtitle: "Internal network map, observed flows, services, and security context.",
+      breadcrumbs: [
+        { label: "Assets & Exposure" },
+        { label: "Network Topology", to: "/network-topology" },
       ],
     },
   },
