@@ -21,5 +21,13 @@ describe("shell navigation metadata", () => {
     expect(groupIds).toContain("assets-exposure");
     expect(groupIds).toContain("governance-platform");
   });
-});
 
+  it("registers Network Topology metadata and assets navigation", () => {
+    const meta = resolveRouteMeta("/network-topology");
+    const assets = SOC_NAV_GROUPS.find((group) => group.id === "assets-exposure");
+
+    expect(meta.title).toBe("Network Topology");
+    expect(meta.subtitle).toBe("Internal network map, observed flows, services, and security context.");
+    expect(assets?.items.some((item) => item.to === "/network-topology" && item.icon === "network_topology")).toBe(true);
+  });
+});
