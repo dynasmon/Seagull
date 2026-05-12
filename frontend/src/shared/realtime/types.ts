@@ -9,6 +9,7 @@ export const PORTAL_REALTIME_TOPICS = [
   "inventory",
   "vulnerabilities",
   "exposure",
+  "network_topology",
 ] as const;
 
 export type PortalRealtimeTopic = (typeof PORTAL_REALTIME_TOPICS)[number];
@@ -46,6 +47,9 @@ export const PORTAL_REALTIME_EVENT_TYPES = [
   "exposure.summary.updated",
   "exposure.asset.updated",
   "exposure.finding.updated",
+  "ui.network_topology.invalidate",
+  "ui.network_topology.summary.patch",
+  "ui.network_topology.graph.patch",
   "overview.invalidate",
   "overview.patch",
   "storm.status",
@@ -82,6 +86,9 @@ export const PORTAL_REALTIME_EVENT_TOPIC: Record<PortalRealtimeEventType, Portal
   "exposure.summary.updated": "exposure",
   "exposure.asset.updated": "exposure",
   "exposure.finding.updated": "exposure",
+  "ui.network_topology.invalidate": "network_topology",
+  "ui.network_topology.summary.patch": "network_topology",
+  "ui.network_topology.graph.patch": "network_topology",
   "overview.invalidate": "overview",
   "overview.patch": "overview",
   "storm.status": "overview",
@@ -116,6 +123,9 @@ export const PORTAL_REALTIME_EVENT_MODE: Record<PortalRealtimeEventType, PortalR
   "exposure.summary.updated": "patch",
   "exposure.asset.updated": "patch",
   "exposure.finding.updated": "patch",
+  "ui.network_topology.invalidate": "invalidate",
+  "ui.network_topology.summary.patch": "patch",
+  "ui.network_topology.graph.patch": "patch",
   "overview.invalidate": "invalidate",
   "overview.patch": "patch",
   "storm.status": "replace",
@@ -150,6 +160,9 @@ export const PORTAL_REALTIME_EVENT_SCOPE: Record<PortalRealtimeEventType, string
   "exposure.summary.updated": "portal:realtime",
   "exposure.asset.updated": "portal:realtime",
   "exposure.finding.updated": "portal:realtime",
+  "ui.network_topology.invalidate": "portal:realtime",
+  "ui.network_topology.summary.patch": "portal:realtime",
+  "ui.network_topology.graph.patch": "portal:realtime",
   "overview.invalidate": "portal:realtime",
   "overview.patch": "portal:realtime",
   "storm.status": "portal:realtime",
@@ -577,6 +590,41 @@ export type PortalRealtimeEventPayloadMap = {
     scope?: string;
     resume_from_cursor?: string;
     resume_to_cursor?: string;
+  };
+  "ui.network_topology.invalidate": {
+    reason?: string;
+    scope?: string;
+    source?: string;
+    agent_id?: string;
+    alert_id?: number;
+    batch_size?: number;
+    event_types?: string[];
+    degraded?: boolean;
+    sampled?: boolean;
+    high_priority?: boolean;
+    requested_at?: string;
+    projected_at?: string;
+  };
+  "ui.network_topology.summary.patch": {
+    generated_at?: string;
+    projected_at?: string | null;
+    total_nodes?: number;
+    total_edges?: number;
+    agent_count?: number;
+    subnet_count?: number;
+    external_ip_count?: number;
+    freshness_seconds?: number | null;
+    stale?: boolean;
+    source_coverage?: Record<string, unknown>;
+    truncation?: Record<string, unknown>;
+  };
+  "ui.network_topology.graph.patch": {
+    generated_at?: string;
+    projected_at?: string | null;
+    nodes?: Array<Record<string, unknown>>;
+    edges?: Array<Record<string, unknown>>;
+    graph_health?: Record<string, unknown>;
+    requires_reconcile?: boolean;
   };
 };
 
