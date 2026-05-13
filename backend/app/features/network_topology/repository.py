@@ -3,10 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from app.features.alerts.models import AlertModel
+from app.features.attack_chain.models import AttackChainCaseModel
+from app.features.events.models import NetEventModel
+from app.features.exposure.models import ExposureFindingModel
 from app.features.network_topology.models import (
     TopologyEdgeModel,
     TopologyNodeModel,
@@ -35,42 +39,56 @@ def upsert_node(
     first_seen_at: datetime,
     last_seen_at: datetime,
     extra_data: dict[str, Any],
+    event_count: int | None = None,
+    alert_count: int | None = None,
+    observation_count: int | None = None,
 ) -> TopologyNodeModel:
     now = datetime.now(timezone.utc)
+    values = {
+        "node_key": node_key,
+        "node_type": node_type,
+        "label": label,
+        "agent_id": agent_id,
+        "ip": ip,
+        "cidr": cidr,
+        "port": port,
+        "protocol": protocol,
+        "severity": severity,
+        "risk_score": risk_score,
+        "confidence": confidence,
+        "is_stale": 0,
+        "first_seen_at": first_seen_at,
+        "last_seen_at": last_seen_at,
+        "updated_at": now,
+        "extra_data": extra_data,
+    }
+    update_values = {
+        "label": label,
+        "ip": ip,
+        "cidr": cidr,
+        "severity": severity,
+        "risk_score": risk_score,
+        "confidence": confidence,
+        "is_stale": 0,
+        "last_seen_at": last_seen_at,
+        "updated_at": now,
+        "extra_data": extra_data,
+    }
+    if event_count is not None:
+        values["event_count"] = int(event_count)
+        update_values["event_count"] = func.greatest(TopologyNodeModel.event_count, int(event_count))
+    if alert_count is not None:
+        values["alert_count"] = int(alert_count)
+        update_values["alert_count"] = func.greatest(TopologyNodeModel.alert_count, int(alert_count))
+    if observation_count is not None:
+        values["observation_count"] = int(observation_count)
+        update_values["observation_count"] = func.greatest(TopologyNodeModel.observation_count, int(observation_count))
     stmt = (
         pg_insert(TopologyNodeModel)
-        .values(
-            node_key=node_key,
-            node_type=node_type,
-            label=label,
-            agent_id=agent_id,
-            ip=ip,
-            cidr=cidr,
-            port=port,
-            protocol=protocol,
-            severity=severity,
-            risk_score=risk_score,
-            confidence=confidence,
-            is_stale=0,
-            first_seen_at=first_seen_at,
-            last_seen_at=last_seen_at,
-            updated_at=now,
-            extra_data=extra_data,
-        )
+        .values(**values)
         .on_conflict_do_update(
             index_elements=["node_key"],
-            set_={
-                "label": label,
-                "ip": ip,
-                "cidr": cidr,
-                "severity": severity,
-                "risk_score": risk_score,
-                "confidence": confidence,
-                "is_stale": 0,
-                "last_seen_at": last_seen_at,
-                "updated_at": now,
-                "extra_data": extra_data,
-            },
+            set_=update_values,
         )
         .returning(TopologyNodeModel)
     )
@@ -93,36 +111,46 @@ def upsert_edge(
     first_seen_at: datetime,
     last_seen_at: datetime,
     extra_data: dict[str, Any],
+    event_count: int | None = None,
+    alert_count: int | None = None,
 ) -> TopologyEdgeModel:
     now = datetime.now(timezone.utc)
+    values = {
+        "edge_key": edge_key,
+        "source_node_key": source_node_key,
+        "target_node_key": target_node_key,
+        "edge_type": edge_type,
+        "agent_id": agent_id,
+        "weight": weight,
+        "confidence": confidence,
+        "severity": severity,
+        "port": port,
+        "protocol": protocol,
+        "first_seen_at": first_seen_at,
+        "last_seen_at": last_seen_at,
+        "updated_at": now,
+        "extra_data": extra_data,
+    }
+    update_values = {
+        "weight": weight,
+        "confidence": confidence,
+        "severity": severity,
+        "last_seen_at": last_seen_at,
+        "updated_at": now,
+        "extra_data": extra_data,
+    }
+    if event_count is not None:
+        values["event_count"] = int(event_count)
+        update_values["event_count"] = func.greatest(TopologyEdgeModel.event_count, int(event_count))
+    if alert_count is not None:
+        values["alert_count"] = int(alert_count)
+        update_values["alert_count"] = func.greatest(TopologyEdgeModel.alert_count, int(alert_count))
     stmt = (
         pg_insert(TopologyEdgeModel)
-        .values(
-            edge_key=edge_key,
-            source_node_key=source_node_key,
-            target_node_key=target_node_key,
-            edge_type=edge_type,
-            agent_id=agent_id,
-            weight=weight,
-            confidence=confidence,
-            severity=severity,
-            port=port,
-            protocol=protocol,
-            first_seen_at=first_seen_at,
-            last_seen_at=last_seen_at,
-            updated_at=now,
-            extra_data=extra_data,
-        )
+        .values(**values)
         .on_conflict_do_update(
             index_elements=["edge_key"],
-            set_={
-                "weight": weight,
-                "confidence": confidence,
-                "severity": severity,
-                "last_seen_at": last_seen_at,
-                "updated_at": now,
-                "extra_data": extra_data,
-            },
+            set_=update_values,
         )
         .returning(TopologyEdgeModel)
     )
@@ -390,6 +418,261 @@ def list_observations_for_node(
     return db.execute(stmt).scalars().all()
 
 
+def list_observations_for_edge(
+    db: Session,
+    *,
+    edge_key: str,
+    limit: int = 20,
+) -> list[TopologyObservationModel]:
+    limit = min(int(limit), _MAX_PAGE)
+    stmt = (
+        select(TopologyObservationModel)
+        .where(TopologyObservationModel.edge_key == edge_key)
+        .order_by(TopologyObservationModel.observed_at.desc(), TopologyObservationModel.id.desc())
+        .limit(limit)
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def count_observations_for_node(db: Session, *, node_key: str) -> int:
+    return int(
+        db.execute(
+            select(func.count(TopologyObservationModel.id)).where(TopologyObservationModel.node_key == node_key)
+        ).scalar()
+        or 0
+    )
+
+
+def count_observations_for_edge(db: Session, *, edge_key: str) -> int:
+    return int(
+        db.execute(
+            select(func.count(TopologyObservationModel.id)).where(TopologyObservationModel.edge_key == edge_key)
+        ).scalar()
+        or 0
+    )
+
+
+def evidence_sources_for_node(db: Session, *, node_key: str, limit: int = 12) -> list[tuple[str, int, datetime | None]]:
+    stmt = (
+        select(
+            TopologyObservationModel.source_type,
+            func.count(TopologyObservationModel.id),
+            func.max(TopologyObservationModel.observed_at),
+        )
+        .where(TopologyObservationModel.node_key == node_key)
+        .group_by(TopologyObservationModel.source_type)
+        .order_by(func.count(TopologyObservationModel.id).desc(), func.max(TopologyObservationModel.observed_at).desc())
+        .limit(min(int(limit), 50))
+    )
+    return [(str(row[0]), int(row[1] or 0), row[2]) for row in db.execute(stmt).all()]
+
+
+def evidence_sources_for_edge(db: Session, *, edge_key: str, limit: int = 12) -> list[tuple[str, int, datetime | None]]:
+    stmt = (
+        select(
+            TopologyObservationModel.source_type,
+            func.count(TopologyObservationModel.id),
+            func.max(TopologyObservationModel.observed_at),
+        )
+        .where(TopologyObservationModel.edge_key == edge_key)
+        .group_by(TopologyObservationModel.source_type)
+        .order_by(func.count(TopologyObservationModel.id).desc(), func.max(TopologyObservationModel.observed_at).desc())
+        .limit(min(int(limit), 50))
+    )
+    return [(str(row[0]), int(row[1] or 0), row[2]) for row in db.execute(stmt).all()]
+
+
+def list_related_flows_for_node(db: Session, *, node: TopologyNodeModel, limit: int = 10) -> list[NetEventModel]:
+    conditions = _flow_conditions_for_node(node)
+    if not conditions:
+        return []
+    stmt = (
+        select(NetEventModel)
+        .where(*conditions)
+        .order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
+        .limit(min(int(limit), 50))
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def list_related_flows_for_edge(
+    db: Session,
+    *,
+    edge: TopologyEdgeModel,
+    source_node: TopologyNodeModel | None,
+    target_node: TopologyNodeModel | None,
+    limit: int = 10,
+) -> list[NetEventModel]:
+    conditions = _flow_conditions_for_edge(edge, source_node, target_node)
+    if not conditions:
+        return []
+    stmt = (
+        select(NetEventModel)
+        .where(*conditions)
+        .order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
+        .limit(min(int(limit), 50))
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def edge_flow_metrics(
+    db: Session,
+    *,
+    edge: TopologyEdgeModel,
+    source_node: TopologyNodeModel | None,
+    target_node: TopologyNodeModel | None,
+    app_proto_limit: int = 12,
+) -> tuple[int, list[str]]:
+    conditions = _flow_conditions_for_edge(edge, source_node, target_node)
+    if not conditions:
+        return 0, []
+
+    total_bytes = int(
+        db.execute(
+            select(func.coalesce(func.sum(NetEventModel.bytes), 0)).where(*conditions)
+        ).scalar()
+        or 0
+    )
+
+    proto_expr = func.lower(NetEventModel.app_proto)
+    rows = db.execute(
+        select(proto_expr, func.count(NetEventModel.id))
+        .where(
+            *conditions,
+            NetEventModel.app_proto.is_not(None),
+            NetEventModel.app_proto != "",
+        )
+        .group_by(proto_expr)
+        .order_by(func.count(NetEventModel.id).desc(), proto_expr.asc())
+        .limit(min(int(app_proto_limit), 50))
+    ).all()
+
+    protocols: list[str] = []
+    seen: set[str] = set()
+    for raw, _count in rows:
+        proto = _clean_text(raw).lower()
+        if not proto or proto in seen:
+            continue
+        seen.add(proto)
+        protocols.append(proto)
+    return total_bytes, protocols
+
+
+def list_related_alerts_for_node(db: Session, *, node: TopologyNodeModel, limit: int = 10) -> list[AlertModel]:
+    conditions = _alert_conditions_for_node(node)
+    if not conditions:
+        return []
+    stmt = (
+        select(AlertModel)
+        .where(*conditions)
+        .order_by(AlertModel.created_at.desc(), AlertModel.id.desc())
+        .limit(min(int(limit), 50))
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def list_related_alerts_for_edge(
+    db: Session,
+    *,
+    edge: TopologyEdgeModel,
+    source_node: TopologyNodeModel | None,
+    target_node: TopologyNodeModel | None,
+    limit: int = 10,
+) -> list[AlertModel]:
+    conditions = _alert_conditions_for_edge(edge, source_node, target_node)
+    if not conditions:
+        return []
+    stmt = (
+        select(AlertModel)
+        .where(*conditions)
+        .order_by(AlertModel.created_at.desc(), AlertModel.id.desc())
+        .limit(min(int(limit), 50))
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def list_related_exposure_findings_for_node(
+    db: Session,
+    *,
+    node: TopologyNodeModel,
+    limit: int = 10,
+) -> list[ExposureFindingModel]:
+    conditions = _exposure_conditions_for_node(node)
+    if not conditions:
+        return []
+    stmt = (
+        select(ExposureFindingModel)
+        .where(or_(*conditions))
+        .order_by(ExposureFindingModel.last_seen_at.desc(), ExposureFindingModel.id.desc())
+        .limit(min(int(limit), 50))
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def list_related_exposure_findings_for_edge(
+    db: Session,
+    *,
+    source_node: TopologyNodeModel | None,
+    target_node: TopologyNodeModel | None,
+    limit: int = 10,
+) -> list[ExposureFindingModel]:
+    conditions: list[Any] = []
+    for node in (source_node, target_node):
+        if node is None:
+            continue
+        conditions.extend(_exposure_conditions_for_node(node))
+    if not conditions:
+        return []
+    stmt = (
+        select(ExposureFindingModel)
+        .where(or_(*conditions))
+        .order_by(ExposureFindingModel.last_seen_at.desc(), ExposureFindingModel.id.desc())
+        .limit(min(int(limit), 50))
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def list_related_attack_chain_cases_for_node(
+    db: Session,
+    *,
+    node: TopologyNodeModel,
+    limit: int = 10,
+) -> list[AttackChainCaseModel]:
+    conditions = _attack_chain_conditions_for_node(node)
+    if not conditions:
+        return []
+    stmt = (
+        select(AttackChainCaseModel)
+        .where(or_(*conditions))
+        .order_by(AttackChainCaseModel.last_seen_at.desc(), AttackChainCaseModel.id.desc())
+        .limit(min(int(limit), 50))
+    )
+    return db.execute(stmt).scalars().all()
+
+
+def list_related_attack_chain_cases_for_edge(
+    db: Session,
+    *,
+    source_node: TopologyNodeModel | None,
+    target_node: TopologyNodeModel | None,
+    limit: int = 10,
+) -> list[AttackChainCaseModel]:
+    conditions: list[Any] = []
+    for node in (source_node, target_node):
+        if node is None:
+            continue
+        conditions.extend(_attack_chain_conditions_for_node(node))
+    if not conditions:
+        return []
+    stmt = (
+        select(AttackChainCaseModel)
+        .where(or_(*conditions))
+        .order_by(AttackChainCaseModel.last_seen_at.desc(), AttackChainCaseModel.id.desc())
+        .limit(min(int(limit), 50))
+    )
+    return db.execute(stmt).scalars().all()
+
+
 def list_subnet_nodes_page(
     db: Session,
     *,
@@ -423,6 +706,130 @@ def list_subnet_nodes_page(
             )
         )
     return db.execute(stmt.limit(page_size + 1)).scalars().all()
+
+
+def _clean_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _flow_conditions_for_node(node: TopologyNodeModel) -> list[Any]:
+    ip = _clean_text(node.ip)
+    agent_id = _clean_text(node.agent_id)
+    node_type = _clean_text(node.node_type)
+    conditions: list[Any] = []
+
+    if node_type == "service":
+        if ip:
+            conditions.append(NetEventModel.dst_ip == ip)
+        if node.port is not None:
+            conditions.append(NetEventModel.dst_port == int(node.port))
+        if _clean_text(node.protocol):
+            conditions.append(func.lower(NetEventModel.proto) == _clean_text(node.protocol).lower())
+        if agent_id:
+            conditions.append(NetEventModel.agent_id == agent_id)
+        return conditions
+
+    if ip:
+        conditions.append(or_(NetEventModel.src_ip == ip, NetEventModel.dst_ip == ip))
+        if agent_id and node_type in {"host", "interface", "docker_network"}:
+            conditions.append(NetEventModel.agent_id == agent_id)
+        return conditions
+
+    if agent_id:
+        conditions.append(NetEventModel.agent_id == agent_id)
+    return conditions
+
+
+def _flow_conditions_for_edge(
+    edge: TopologyEdgeModel,
+    source_node: TopologyNodeModel | None,
+    target_node: TopologyNodeModel | None,
+) -> list[Any]:
+    src_ip = _clean_text(getattr(source_node, "ip", None))
+    dst_ip = _clean_text(getattr(target_node, "ip", None))
+    conditions: list[Any] = []
+
+    if src_ip and dst_ip:
+        if edge.edge_type == "observed_flow":
+            conditions.append(and_(NetEventModel.src_ip == src_ip, NetEventModel.dst_ip == dst_ip))
+        else:
+            conditions.append(
+                or_(
+                    and_(NetEventModel.src_ip == src_ip, NetEventModel.dst_ip == dst_ip),
+                    and_(NetEventModel.src_ip == dst_ip, NetEventModel.dst_ip == src_ip),
+                )
+            )
+    elif src_ip or dst_ip:
+        ip = src_ip or dst_ip
+        conditions.append(or_(NetEventModel.src_ip == ip, NetEventModel.dst_ip == ip))
+
+    if edge.port is not None:
+        conditions.append(NetEventModel.dst_port == int(edge.port))
+    if _clean_text(edge.protocol):
+        conditions.append(func.lower(NetEventModel.proto) == _clean_text(edge.protocol).lower())
+    if _clean_text(edge.agent_id):
+        conditions.append(NetEventModel.agent_id == _clean_text(edge.agent_id))
+    return conditions
+
+
+def _alert_conditions_for_node(node: TopologyNodeModel) -> list[Any]:
+    ip = _clean_text(node.ip)
+    agent_id = _clean_text(node.agent_id)
+    conditions: list[Any] = []
+    if ip:
+        conditions.append(or_(AlertModel.src_ip == ip, AlertModel.dst_ip == ip))
+        return conditions
+    if agent_id:
+        conditions.append(AlertModel.details["agent_id"].astext == agent_id)
+    return conditions
+
+
+def _alert_conditions_for_edge(
+    edge: TopologyEdgeModel,
+    source_node: TopologyNodeModel | None,
+    target_node: TopologyNodeModel | None,
+) -> list[Any]:
+    src_ip = _clean_text(getattr(source_node, "ip", None))
+    dst_ip = _clean_text(getattr(target_node, "ip", None))
+    conditions: list[Any] = []
+    if src_ip and dst_ip:
+        conditions.append(
+            or_(
+                and_(AlertModel.src_ip == src_ip, AlertModel.dst_ip == dst_ip),
+                and_(AlertModel.src_ip == dst_ip, AlertModel.dst_ip == src_ip),
+            )
+        )
+    elif src_ip or dst_ip:
+        ip = src_ip or dst_ip
+        conditions.append(or_(AlertModel.src_ip == ip, AlertModel.dst_ip == ip))
+    if edge.port is not None:
+        conditions.append(AlertModel.dst_port == int(edge.port))
+    if _clean_text(edge.agent_id):
+        conditions.append(AlertModel.details["agent_id"].astext == _clean_text(edge.agent_id))
+    return conditions
+
+
+def _exposure_conditions_for_node(node: TopologyNodeModel) -> list[Any]:
+    metadata = node.extra_data if isinstance(node.extra_data, dict) else {}
+    asset_key = _clean_text(metadata.get("exposure_asset_key"))
+    agent_id = _clean_text(node.agent_id)
+    conditions: list[Any] = []
+    if asset_key:
+        conditions.append(ExposureFindingModel.asset_key == asset_key)
+    if agent_id:
+        conditions.append(ExposureFindingModel.agent_id == agent_id)
+    return conditions
+
+
+def _attack_chain_conditions_for_node(node: TopologyNodeModel) -> list[Any]:
+    ip = _clean_text(node.ip)
+    agent_id = _clean_text(node.agent_id)
+    conditions: list[Any] = []
+    if ip:
+        conditions.append(AttackChainCaseModel.suspect_ip == ip)
+    if agent_id:
+        conditions.append(AttackChainCaseModel.agent_id == agent_id)
+    return conditions
 
 
 def topology_summary_metrics(db: Session) -> dict[str, Any]:

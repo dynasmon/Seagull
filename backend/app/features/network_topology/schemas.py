@@ -60,7 +60,72 @@ class TopologyObservationOut(BaseModel):
     source_id: Optional[str] = None
     observed_at: datetime
     summary: str
+    confidence: int = 50
     raw_context: Dict[str, Any] = Field(default_factory=dict)
+
+
+class TopologyEvidencePageMetaOut(BaseModel):
+    limit: int
+    total: int
+    omitted: int = 0
+
+
+class TopologyEvidenceSourceOut(BaseModel):
+    source_type: str
+    count: int
+    latest_observed_at: Optional[datetime] = None
+
+
+class TopologyRelatedAlertOut(BaseModel):
+    id: int
+    created_at: datetime
+    rule_id: str
+    severity: str
+    status: str
+    confidence: int
+    description: str
+    src_ip: Optional[str] = None
+    dst_ip: Optional[str] = None
+    dst_port: Optional[int] = None
+
+
+class TopologyRelatedFlowOut(BaseModel):
+    id: int
+    timestamp: datetime
+    agent_id: str
+    event_type: str
+    src_ip: Optional[str] = None
+    dst_ip: Optional[str] = None
+    src_port: Optional[int] = None
+    dst_port: Optional[int] = None
+    protocol: Optional[str] = None
+    bytes: Optional[int] = None
+    app_proto: Optional[str] = None
+
+
+class TopologyRelatedExposureFindingOut(BaseModel):
+    finding_key: str
+    asset_key: str
+    agent_id: Optional[str] = None
+    finding_type: str
+    severity: str
+    status: str
+    confidence: int
+    title: str
+    summary: str
+    last_seen_at: datetime
+
+
+class TopologyRelatedAttackChainCaseOut(BaseModel):
+    id: int
+    agent_id: str
+    suspect_ip: Optional[str] = None
+    status: str
+    score: int
+    max_stage: str
+    step_count: int
+    first_seen_at: datetime
+    last_seen_at: datetime
 
 
 class TopologyGraphHealthOut(BaseModel):
@@ -96,15 +161,30 @@ class TopologyGraphOut(BaseModel):
 class TopologyNodeDetailOut(BaseModel):
     node: TopologyNodeOut
     observations: List[TopologyObservationOut] = Field(default_factory=list)
+    evidence_meta: TopologyEvidencePageMetaOut = Field(default_factory=lambda: TopologyEvidencePageMetaOut(limit=0, total=0, omitted=0))
+    evidence_sources: List[TopologyEvidenceSourceOut] = Field(default_factory=list)
     connected_nodes: List[TopologyNodeOut] = Field(default_factory=list)
     edges: List[TopologyEdgeOut] = Field(default_factory=list)
+    related_alerts: List[TopologyRelatedAlertOut] = Field(default_factory=list)
+    related_flows: List[TopologyRelatedFlowOut] = Field(default_factory=list)
+    related_services: List[TopologyNodeOut] = Field(default_factory=list)
+    related_exposure_findings: List[TopologyRelatedExposureFindingOut] = Field(default_factory=list)
+    related_attack_chain_cases: List[TopologyRelatedAttackChainCaseOut] = Field(default_factory=list)
 
 
 class TopologyEdgeDetailOut(BaseModel):
     edge: TopologyEdgeOut
     observations: List[TopologyObservationOut] = Field(default_factory=list)
+    evidence_meta: TopologyEvidencePageMetaOut = Field(default_factory=lambda: TopologyEvidencePageMetaOut(limit=0, total=0, omitted=0))
+    evidence_sources: List[TopologyEvidenceSourceOut] = Field(default_factory=list)
     source_node: Optional[TopologyNodeOut] = None
     target_node: Optional[TopologyNodeOut] = None
+    related_alerts: List[TopologyRelatedAlertOut] = Field(default_factory=list)
+    related_flows: List[TopologyRelatedFlowOut] = Field(default_factory=list)
+    related_exposure_findings: List[TopologyRelatedExposureFindingOut] = Field(default_factory=list)
+    related_attack_chain_cases: List[TopologyRelatedAttackChainCaseOut] = Field(default_factory=list)
+    application_protocols: List[str] = Field(default_factory=list)
+    total_bytes: int = 0
 
 
 class TopologySubnetOut(BaseModel):
