@@ -99,6 +99,7 @@ def _make_alert(
     severity: str = "high",
 ) -> AlertModel:
     a = AlertModel()
+    a.id = 1
     a.src_ip = src_ip
     a.dst_ip = dst_ip
     a.dst_port = dst_port
@@ -206,10 +207,10 @@ def _run_alerts(alerts, *, cidrs=None, now=None):
     coverage_mock = MagicMock()
     coverage_mock.alert_edges_added = 0
 
-    # Build fake rows as tuples (src_ip, dst_ip, dst_port, severity, created_at)
+    # Build fake rows as tuples matching the alert projection select.
     rows = [
-        (a.src_ip, a.dst_ip, a.dst_port, a.severity, a.created_at)
-        for a in alerts
+        (idx + 1, a.src_ip, a.dst_ip, a.dst_port, a.severity, a.created_at)
+        for idx, a in enumerate(alerts)
     ]
 
     db = MagicMock()
