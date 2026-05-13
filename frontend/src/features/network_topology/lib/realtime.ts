@@ -28,7 +28,7 @@ export function createTopologyInvalidationScheduler(
   let currentCallback = callback;
 
   const cancel = () => {
-    if (!timer) return;
+    if (timer === null) return;
     clearTimer(timer);
     timer = null;
   };
