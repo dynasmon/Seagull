@@ -4,6 +4,7 @@ import { SeverityPill } from "@/shared/components/SeverityPill";
 
 import { TopologyIpScopeBadge } from "./TopologyIpScopeBadge";
 import { formatTopologyTimestamp, topologySeverityVariant } from "../lib/labels";
+import { observationPivotUrl } from "../lib/pivots";
 import type { TopologyObservation, TopologySubnet } from "../types";
 
 export function NetworkTopologyEvidencePanel({
@@ -34,12 +35,24 @@ export function NetworkTopologyEvidencePanel({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <Badge>{obs.source_type}</Badge>
+                    {obs.source_id ? <span className="break-all font-mono text-[11px] text-muted-foreground">{obs.source_id}</span> : null}
                     {obs.agent_id ? <span className="font-mono text-[11px] text-muted-foreground">{obs.agent_id}</span> : null}
                   </div>
                   <span className="text-[11px] text-muted-foreground">{formatTopologyTimestamp(obs.observed_at)}</span>
                 </div>
                 <div className="mt-2 text-sm text-foreground">{obs.summary}</div>
-                <div className="mt-1 break-all font-mono text-[11px] text-muted-foreground">{obs.node_key}</div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="break-all font-mono text-[11px] text-muted-foreground">{obs.node_key}</span>
+                  <Badge>{obs.confidence}% confidence</Badge>
+                  {observationPivotUrl(obs) ? (
+                    <a
+                      href={observationPivotUrl(obs) || undefined}
+                      className="text-[11px] font-mono uppercase tracking-widest text-primary hover:text-primary/80"
+                    >
+                      Open source
+                    </a>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>

@@ -128,7 +128,72 @@ export type TopologyObservation = {
   source_id: string | null;
   observed_at: string;
   summary: string;
+  confidence: number;
   raw_context: Record<string, unknown>;
+};
+
+export type TopologyEvidencePageMeta = {
+  limit: number;
+  total: number;
+  omitted: number;
+};
+
+export type TopologyEvidenceSource = {
+  source_type: string;
+  count: number;
+  latest_observed_at: string | null;
+};
+
+export type TopologyRelatedAlert = {
+  id: number;
+  created_at: string;
+  rule_id: string;
+  severity: TopologySeverity;
+  status: string;
+  confidence: number;
+  description: string;
+  src_ip: string | null;
+  dst_ip: string | null;
+  dst_port: number | null;
+};
+
+export type TopologyRelatedFlow = {
+  id: number;
+  timestamp: string;
+  agent_id: string;
+  event_type: string;
+  src_ip: string | null;
+  dst_ip: string | null;
+  src_port: number | null;
+  dst_port: number | null;
+  protocol: string | null;
+  bytes: number | null;
+  app_proto: string | null;
+};
+
+export type TopologyRelatedExposureFinding = {
+  finding_key: string;
+  asset_key: string;
+  agent_id: string | null;
+  finding_type: string;
+  severity: TopologySeverity;
+  status: string;
+  confidence: number;
+  title: string;
+  summary: string;
+  last_seen_at: string;
+};
+
+export type TopologyRelatedAttackChainCase = {
+  id: number;
+  agent_id: string;
+  suspect_ip: string | null;
+  status: string;
+  score: number;
+  max_stage: string;
+  step_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
 };
 
 export type TopologyGraphHealth = TopologyFreshness & {
@@ -149,15 +214,30 @@ export type TopologyGraph = TopologyFreshness & {
 export type TopologyNodeDetail = {
   node: TopologyNode;
   observations: TopologyObservation[];
+  evidence_meta: TopologyEvidencePageMeta;
+  evidence_sources: TopologyEvidenceSource[];
   connected_nodes: TopologyNode[];
   edges: TopologyEdge[];
+  related_alerts: TopologyRelatedAlert[];
+  related_flows: TopologyRelatedFlow[];
+  related_services: TopologyNode[];
+  related_exposure_findings: TopologyRelatedExposureFinding[];
+  related_attack_chain_cases: TopologyRelatedAttackChainCase[];
 };
 
 export type TopologyEdgeDetail = {
   edge: TopologyEdge;
   observations: TopologyObservation[];
+  evidence_meta: TopologyEvidencePageMeta;
+  evidence_sources: TopologyEvidenceSource[];
   source_node: TopologyNode | null;
   target_node: TopologyNode | null;
+  related_alerts: TopologyRelatedAlert[];
+  related_flows: TopologyRelatedFlow[];
+  related_exposure_findings: TopologyRelatedExposureFinding[];
+  related_attack_chain_cases: TopologyRelatedAttackChainCase[];
+  application_protocols: string[];
+  total_bytes: number;
 };
 
 export type TopologySubnet = {
