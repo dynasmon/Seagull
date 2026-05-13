@@ -18,12 +18,14 @@ export function getAlertsPage(params?: {
   cursor?: string | null;
   severity?: string;
   rule_id?: string;
+  status?: string;
 }) {
   const q = new URLSearchParams();
   q.set("page_size", String(params?.page_size ?? 200));
   if (params?.cursor) q.set("cursor", params.cursor);
   if (params?.severity) q.set("severity", params.severity);
   if (params?.rule_id) q.set("rule_id", params.rule_id);
+  if (params?.status) q.set("status", params.status);
   return apiGet<CursorPage<Alert>>(`/api/alerts?${q.toString()}`);
 }
 
