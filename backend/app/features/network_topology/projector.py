@@ -115,6 +115,17 @@ def _project_agents(
             last_seen_at=last_seen,
             extra_data={"is_stale_agent": is_stale},
         )
+        _record_observation(
+            db,
+            node_key=node_key,
+            edge_key=None,
+            agent_id=agent.agent_id,
+            source_type="agent",
+            source_id=agent.agent_id,
+            observed_at=last_seen,
+            summary=f"Agent {agent.display_name or agent.agent_id} was seen by Seagull.",
+            confidence=95,
+        )
         agent_nodes[agent.agent_id] = node_key
 
     return agent_nodes
@@ -238,6 +249,19 @@ def _project_network_context_interfaces(
                 "is_link_local": is_link_local,
                 "ips": ips[:10],
             },
+            observation_count=1,
+        )
+        _record_observation(
+            db,
+            node_key=iface_node_key,
+            edge_key=None,
+            agent_id=agent_id,
+            source_type="inventory",
+            source_id=str(agent_id),
+            observed_at=last_seen,
+            summary=f"Inventory reported interface {iface_name} with primary IP {primary_ip}.",
+            confidence=iface_conf,
+            context={"interface_name": iface_name, "ip": primary_ip, "ip_count": len(ips)},
         )
         coverage.interfaces_extracted += 1
 
@@ -259,6 +283,19 @@ def _project_network_context_interfaces(
             first_seen_at=first_seen,
             last_seen_at=last_seen,
             extra_data={"hostname": hostname, "interface_name": iface_name},
+            observation_count=1,
+        )
+        _record_observation(
+            db,
+            node_key=host_node_key,
+            edge_key=None,
+            agent_id=agent_id,
+            source_type="inventory",
+            source_id=str(agent_id),
+            observed_at=last_seen,
+            summary=f"Inventory associated host {hostname} with IP {primary_ip}.",
+            confidence=90,
+            context={"hostname": hostname, "ip": primary_ip, "interface_name": iface_name},
         )
 
         if agent_node_key:
@@ -279,9 +316,10 @@ def _project_network_context_interfaces(
                 extra_data={},
             )
 
+        owns_edge_key = _edge_key("owns_interface", host_node_key, iface_node_key)
         repository.upsert_edge(
             db,
-            edge_key=_edge_key("owns_interface", host_node_key, iface_node_key),
+            edge_key=owns_edge_key,
             source_node_key=host_node_key,
             target_node_key=iface_node_key,
             edge_type="owns_interface",
@@ -294,6 +332,17 @@ def _project_network_context_interfaces(
             first_seen_at=last_seen,
             last_seen_at=last_seen,
             extra_data={},
+        )
+        _record_observation(
+            db,
+            node_key=host_node_key,
+            edge_key=owns_edge_key,
+            agent_id=agent_id,
+            source_type="inventory",
+            source_id=str(agent_id),
+            observed_at=last_seen,
+            summary=f"Inventory shows host {hostname} owns interface {iface_name}.",
+            confidence=85,
         )
 
         if is_loopback or is_link_local:
@@ -325,9 +374,10 @@ def _project_network_context_interfaces(
                 extra_data={},
             )
 
+        subnet_edge_key = _edge_key("member_of_subnet", iface_node_key, _node_key("subnet", cidr_key))
         repository.upsert_edge(
             db,
-            edge_key=_edge_key("member_of_subnet", iface_node_key, _node_key("subnet", cidr_key)),
+            edge_key=subnet_edge_key,
             source_node_key=iface_node_key,
             target_node_key=_node_key("subnet", cidr_key),
             edge_type="member_of_subnet",
@@ -340,6 +390,18 @@ def _project_network_context_interfaces(
             first_seen_at=last_seen,
             last_seen_at=last_seen,
             extra_data={},
+        )
+        _record_observation(
+            db,
+            node_key=iface_node_key,
+            edge_key=subnet_edge_key,
+            agent_id=agent_id,
+            source_type="inventory",
+            source_id=str(agent_id),
+            observed_at=last_seen,
+            summary=f"Interface {iface_name} belongs to subnet {cidr_key}.",
+            confidence=75,
+            context={"interface_name": iface_name, "cidr": cidr_key},
         )
 
 
@@ -373,6 +435,19 @@ def _project_ip_addresses_fallback(
         first_seen_at=first_seen,
         last_seen_at=last_seen,
         extra_data={"hostname": hostname, "ip_addresses": ip_addresses[:20]},
+        observation_count=1,
+    )
+    _record_observation(
+        db,
+        node_key=host_node_key,
+        edge_key=None,
+        agent_id=agent_id,
+        source_type="inventory",
+        source_id=str(agent_id),
+        observed_at=last_seen,
+        summary=f"Inventory associated host {hostname} with {len(ip_addresses)} IP address(es).",
+        confidence=85,
+        context={"hostname": hostname, "ip_count": len(ip_addresses)},
     )
 
     if agent_node_key:
@@ -414,6 +489,19 @@ def _project_ip_addresses_fallback(
             first_seen_at=last_seen,
             last_seen_at=last_seen,
             extra_data={"ip_scope": ip_info.get("scope"), "node_class": ip_info.get("node_class")},
+            observation_count=1,
+        )
+        _record_observation(
+            db,
+            node_key=iface_node_key,
+            edge_key=None,
+            agent_id=agent_id,
+            source_type="inventory",
+            source_id=str(agent_id),
+            observed_at=last_seen,
+            summary=f"Inventory reported host IP {ip}.",
+            confidence=75,
+            context={"ip": ip, "ip_scope": ip_info.get("scope")},
         )
 
         repository.upsert_edge(
@@ -456,9 +544,10 @@ def _project_ip_addresses_fallback(
             )
 
         if cidr:
+            subnet_edge_key = _edge_key("member_of_subnet", iface_node_key, _node_key("subnet", cidr))
             repository.upsert_edge(
                 db,
-                edge_key=_edge_key("member_of_subnet", iface_node_key, _node_key("subnet", cidr)),
+                edge_key=subnet_edge_key,
                 source_node_key=iface_node_key,
                 target_node_key=_node_key("subnet", cidr),
                 edge_type="member_of_subnet",
@@ -471,6 +560,18 @@ def _project_ip_addresses_fallback(
                 first_seen_at=last_seen,
                 last_seen_at=last_seen,
                 extra_data={},
+            )
+            _record_observation(
+                db,
+                node_key=iface_node_key,
+                edge_key=subnet_edge_key,
+                agent_id=agent_id,
+                source_type="inventory",
+                source_id=str(agent_id),
+                observed_at=last_seen,
+                summary=f"IP {ip} was inferred to belong to subnet {cidr}.",
+                confidence=70,
+                context={"ip": ip, "cidr": cidr},
             )
 
 
@@ -541,6 +642,8 @@ def _project_flow_edges(
             first_seen_at=flow_first,
             last_seen_at=edge_ts,
             extra_data={"ip_scope": src_info.get("scope")},
+            event_count=int(flow_count),
+            observation_count=1,
         )
 
         repository.upsert_node(
@@ -559,6 +662,8 @@ def _project_flow_edges(
             first_seen_at=flow_first,
             last_seen_at=edge_ts,
             extra_data={"ip_scope": dst_info.get("scope")},
+            event_count=int(flow_count),
+            observation_count=1,
         )
 
         flow_edge_key = _flow_edge_key(src_key, dst_key, dst_port, proto)
@@ -577,6 +682,25 @@ def _project_flow_edges(
             first_seen_at=flow_first,
             last_seen_at=edge_ts,
             extra_data={"flow_count": int(flow_count)},
+            event_count=int(flow_count),
+        )
+        _record_observation(
+            db,
+            node_key=src_key,
+            edge_key=flow_edge_key,
+            agent_id=agent_id_str,
+            source_type="flow",
+            source_id=None,
+            observed_at=edge_ts,
+            summary=f"Observed {int(flow_count)} {proto or 'network'} flow(s) from {src_ip} to {dst_ip}{':' + str(dst_port) if dst_port else ''}.",
+            confidence=70,
+            context={
+                "flow_count": int(flow_count),
+                "src_ip": src_ip,
+                "dst_ip": dst_ip,
+                "dst_port": dst_port,
+                "protocol": proto,
+            },
         )
         coverage.flow_edges_added += 1
 
@@ -605,10 +729,13 @@ def _project_flow_edges(
                 first_seen_at=flow_first,
                 last_seen_at=edge_ts,
                 extra_data={"flow_count": int(flow_count)},
+                event_count=int(flow_count),
+                observation_count=1,
             )
+            service_edge_key = _edge_key("listens_on", dst_key, svc_node_key)
             repository.upsert_edge(
                 db,
-                edge_key=_edge_key("listens_on", dst_key, svc_node_key),
+                edge_key=service_edge_key,
                 source_node_key=dst_key,
                 target_node_key=svc_node_key,
                 edge_type="listens_on",
@@ -621,6 +748,19 @@ def _project_flow_edges(
                 first_seen_at=flow_first,
                 last_seen_at=edge_ts,
                 extra_data={},
+                event_count=int(flow_count),
+            )
+            _record_observation(
+                db,
+                node_key=svc_node_key,
+                edge_key=service_edge_key,
+                agent_id=agent_id_str,
+                source_type="flow",
+                source_id=None,
+                observed_at=edge_ts,
+                summary=f"Traffic indicates {dst_ip}:{dst_port}/{proto or 'tcp'} is accepting connections.",
+                confidence=70,
+                context={"flow_count": int(flow_count), "dst_ip": dst_ip, "dst_port": dst_port, "protocol": proto},
             )
             coverage.services_projected += 1
 
@@ -639,6 +779,7 @@ def _project_alert_edges(
     since = now - timedelta(minutes=window)
     alerts = db.execute(
         select(
+            AlertModel.id,
             AlertModel.src_ip,
             AlertModel.dst_ip,
             AlertModel.dst_port,
@@ -655,7 +796,7 @@ def _project_alert_edges(
     ).all()
 
     for row in alerts:
-        src_ip, dst_ip, dst_port, severity, created_at = row
+        alert_id, src_ip, dst_ip, dst_port, severity, created_at = row
         src_info = classify_topology_ip(src_ip, internal_cidrs=cidrs)
         dst_info = classify_topology_ip(dst_ip, internal_cidrs=cidrs)
         src_key = _ip_node_key(src_ip, src_info)
@@ -680,11 +821,14 @@ def _project_alert_edges(
                 first_seen_at=alert_ts,
                 last_seen_at=alert_ts,
                 extra_data={"ip_scope": info.get("scope")},
+                alert_count=1,
+                observation_count=1,
             )
 
+        alert_edge_key = _edge_key("alert_related", src_key, dst_key)
         repository.upsert_edge(
             db,
-            edge_key=_edge_key("alert_related", src_key, dst_key),
+            edge_key=alert_edge_key,
             source_node_key=src_key,
             target_node_key=dst_key,
             edge_type="alert_related",
@@ -697,6 +841,19 @@ def _project_alert_edges(
             first_seen_at=alert_ts,
             last_seen_at=alert_ts,
             extra_data={},
+            alert_count=1,
+        )
+        _record_observation(
+            db,
+            node_key=src_key,
+            edge_key=alert_edge_key,
+            agent_id=None,
+            source_type="alert",
+            source_id=str(alert_id),
+            observed_at=alert_ts,
+            summary=f"{sev.title()} alert linked {src_ip} to {dst_ip}{':' + str(dst_port) if dst_port else ''}.",
+            confidence=75,
+            context={"alert_id": int(alert_id), "severity": sev, "src_ip": src_ip, "dst_ip": dst_ip, "dst_port": dst_port},
         )
         coverage.alert_edges_added += 1
 
@@ -750,11 +907,13 @@ def _project_exposure_graph(
             first_seen_at=ts,
             last_seen_at=ts,
             extra_data={"exposure_asset_key": str(asset_key)},
+            observation_count=1,
         )
 
+        exposure_edge_key = _edge_key("exposure_related", agent_node_key, exposure_node_key)
         repository.upsert_edge(
             db,
-            edge_key=_edge_key("exposure_related", agent_node_key, exposure_node_key),
+            edge_key=exposure_edge_key,
             source_node_key=agent_node_key,
             target_node_key=exposure_node_key,
             edge_type="exposure_related",
@@ -767,6 +926,18 @@ def _project_exposure_graph(
             first_seen_at=ts,
             last_seen_at=ts,
             extra_data={"risk_score": int(risk_score or 0)},
+        )
+        _record_observation(
+            db,
+            node_key=exposure_node_key,
+            edge_key=exposure_edge_key,
+            agent_id=str(agent_id),
+            source_type="exposure",
+            source_id=str(asset_key),
+            observed_at=ts,
+            summary=f"Exposure posture linked asset {label} to agent {agent_id}.",
+            confidence=int(confidence or 80),
+            context={"asset_key": str(asset_key), "risk_score": int(risk_score or 0), "severity": sev},
         )
         coverage.exposure_edges_added += 1
 
@@ -842,4 +1013,32 @@ def _sev_to_score(severity: str) -> int:
 def _sev_weight(severity: str) -> float:
     return {"critical": 3.0, "high": 2.0, "medium": 1.5, "low": 1.0, "informational": 0.5}.get(
         str(severity or "").lower(), 1.0
+    )
+
+
+def _record_observation(
+    db: Session,
+    *,
+    node_key: str,
+    edge_key: str | None,
+    agent_id: str | None,
+    source_type: str,
+    source_id: str | None,
+    observed_at: datetime,
+    summary: str,
+    confidence: int,
+    context: dict[str, Any] | None = None,
+) -> None:
+    raw_context = dict(context or {})
+    raw_context["confidence"] = max(0, min(100, int(confidence or 0)))
+    repository.insert_observation(
+        db,
+        node_key=node_key,
+        edge_key=edge_key,
+        agent_id=agent_id,
+        source_type=source_type,
+        source_id=source_id,
+        observed_at=observed_at,
+        summary=summary[:512],
+        raw_context=raw_context,
     )
