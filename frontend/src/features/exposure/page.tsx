@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { listAgents } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
@@ -50,6 +50,24 @@ import { toTitleCase } from "./utils";
 
 type Tab = "assets" | "paths" | "graph" | "findings";
 type RealtimeRefreshKey = "summary" | "assets" | "selectedAsset" | "graph" | "findings";
+
+function parseExposureTab(value: string | null): Tab {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "paths" || raw === "graph" || raw === "findings") return raw;
+  return "assets";
+}
+
+function initialAssetFiltersFromQuery(searchParams: URLSearchParams): AssetFilters {
+  const assetKey = String(searchParams.get("asset_key") || "").trim();
+  const q = String(searchParams.get("q") || "").trim() || assetKey;
+  return {
+    ...DEFAULT_ASSET_FILTERS,
+    q,
+    agent_id: String(searchParams.get("agent_id") || "").trim(),
+    severity: String(searchParams.get("severity") || "").trim().toLowerCase() as AssetFilters["severity"],
+    status: String(searchParams.get("status") || "").trim().toLowerCase() as AssetFilters["status"],
+  };
+}
 
 function normalizeError(error: unknown): string {
   const candidate = error as {
@@ -106,6 +124,7 @@ function mergeAssetIntoPage(
 
 export default function ExposurePage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const isAdmin = (user?.role || "").toLowerCase() === "admin";
 
@@ -117,9 +136,10 @@ export default function ExposurePage() {
     defaultCompact: true,
   });
 
-  const [tab, setTab] = useState<Tab>("assets");
-  const [draftFilters, setDraftFilters] = useState<AssetFilters>(DEFAULT_ASSET_FILTERS);
-  const [assetFilters, setAssetFilters] = useState<AssetFilters>(DEFAULT_ASSET_FILTERS);
+  const initialAssetFilters = useMemo(() => initialAssetFiltersFromQuery(searchParams), [searchParams]);
+  const [tab, setTab] = useState<Tab>(() => parseExposureTab(searchParams.get("tab")));
+  const [draftFilters, setDraftFilters] = useState<AssetFilters>(initialAssetFilters);
+  const [assetFilters, setAssetFilters] = useState<AssetFilters>(initialAssetFilters);
 
   const [agents, setAgents] = useState<AgentPublic[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
@@ -180,6 +200,11 @@ export default function ExposurePage() {
   const assetDetailRef = useRef<ExposureAssetDetail | null>(assetDetail);
   const tabRef = useRef<Tab>(tab);
   const filtersRef = useRef<AssetFilters>(assetFilters);
+  const findingQueryRef = useRef({
+    asset_key: String(searchParams.get("asset_key") || "").trim(),
+    q: String(searchParams.get("finding_key") || searchParams.get("q") || "").trim(),
+  });
+  const deepLinkHandledRef = useRef<string | null>(null);
 
   summaryRef.current = summary;
   assetsPageRef.current = assetsPage;
@@ -191,6 +216,10 @@ export default function ExposurePage() {
   assetDetailRef.current = assetDetail;
   tabRef.current = tab;
   filtersRef.current = assetFilters;
+  findingQueryRef.current = {
+    asset_key: String(searchParams.get("asset_key") || "").trim(),
+    q: String(searchParams.get("finding_key") || searchParams.get("q") || "").trim(),
+  };
 
   const agentOptions = useMemo(
     () =>
@@ -346,9 +375,12 @@ export default function ExposurePage() {
       else if (hasData) setFindingsRefreshing(true);
       else setFindingsLoading(true);
       try {
+        const routeFilters = findingQueryRef.current;
         const data = await listExposureFindings({
           page_size: pageSize ?? (cursor ? 50 : refreshFindingsPageSize()),
           cursor,
+          asset_key: routeFilters.asset_key || undefined,
+          q: routeFilters.q || undefined,
           signal,
         });
         if (signal?.aborted) return;
@@ -513,6 +545,35 @@ export default function ExposurePage() {
     void fetchSummary(ac.signal);
     return () => ac.abort();
   }, [fetchSummary]);
+
+  useEffect(() => {
+    const nextTab = parseExposureTab(searchParams.get("tab"));
+    setTab(nextTab);
+
+    const assetKey = String(searchParams.get("asset_key") || "").trim();
+    const findingKey = String(searchParams.get("finding_key") || "").trim();
+    const nextAssetFilters = initialAssetFiltersFromQuery(searchParams);
+    if (nextAssetFilters.q || nextAssetFilters.agent_id || nextAssetFilters.severity || nextAssetFilters.status) {
+      setDraftFilters(nextAssetFilters);
+      setAssetFilters(nextAssetFilters);
+    }
+
+    const deepLinkKey = `${nextTab}:${assetKey}:${findingKey}`;
+    if (deepLinkHandledRef.current === deepLinkKey) return;
+    deepLinkHandledRef.current = deepLinkKey;
+
+    if (assetKey && nextTab !== "findings") {
+      setSelectedAsset(null);
+      setAssetDetailError(null);
+      void loadAssetDetail(assetKey, { preserveDetail: false });
+    }
+    if (findingKey || (assetKey && nextTab === "findings")) {
+      setTab("findings");
+      setFindingsPage(null);
+      setFindingsCursor(null);
+      void fetchFindings({ pageSize: refreshFindingsPageSize() });
+    }
+  }, [fetchFindings, loadAssetDetail, refreshFindingsPageSize, searchParams]);
 
   useEffect(() => {
     const ac = new AbortController();

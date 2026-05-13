@@ -16,6 +16,7 @@ import EmptyState from "@/shared/components/EmptyState";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import Loading from "@/shared/components/Loading";
 import { Panel } from "@/shared/components/Panel";
+import { SelectInput } from "@/shared/components/SelectInput";
 import { TextInput } from "@/shared/components/TextInput";
 import {
   InvestigationActionBar,
@@ -44,6 +45,7 @@ type Density = "comfortable" | "compact";
 type ViewCfg = {
   // Backend filters (reduce payload)
   severity: string; // "all" | critical | high | ...
+  status: string; // "all" | open | acknowledged | investigating | closed
   rule_id: string; // exact match (optional)
 
   // Local-only
@@ -62,6 +64,7 @@ const LS_KEY = "nw_alerts_queue_view_v1";
 
 const DEFAULTS: ViewCfg = {
   severity: "all",
+  status: "all",
   rule_id: "",
   search: "",
   page_size: 200,
@@ -88,6 +91,7 @@ function safeLoadView(): ViewCfg {
       ...DEFAULTS,
       ...parsed,
       severity: String(parsed.severity ?? DEFAULTS.severity),
+      status: String((parsed as Partial<ViewCfg>).status ?? DEFAULTS.status),
       rule_id: String(parsed.rule_id ?? "").trim(),
       search: String(parsed.search ?? ""),
       page_size: clampInt(parsed.page_size, 10, 200, DEFAULTS.page_size),
@@ -417,6 +421,7 @@ export default function AlertsQueuePage() {
     setView((prev) => {
       const merged: ViewCfg = { ...prev, ...next };
       merged.severity = String(merged.severity || "all");
+      merged.status = String(merged.status || "all");
       merged.rule_id = String(merged.rule_id || "").trim();
       merged.search = String(merged.search || "");
       merged.page_size = clampInt(merged.page_size, 10, 200, DEFAULTS.page_size);
@@ -433,10 +438,12 @@ export default function AlertsQueuePage() {
     const ruleId = String(searchParams.get("rule_id") || "").trim();
     const search = String(searchParams.get("search") || "").trim();
     const severity = String(searchParams.get("severity") || "").trim().toLowerCase();
+    const status = String(searchParams.get("status") || "").trim().toLowerCase();
     const next: Partial<ViewCfg> = {};
     if (ruleId) next.rule_id = ruleId;
     if (search) next.search = search;
     if (severity) next.severity = severity;
+    if (status) next.status = status;
     if (Object.keys(next).length > 0) patch(next);
   }, [patch, searchParams]);
 
@@ -446,6 +453,7 @@ export default function AlertsQueuePage() {
     setError(null);
 
     const severity = viewRef.current.severity;
+    const status = viewRef.current.status;
     const rule_id = viewRef.current.rule_id;
     const page_size = viewRef.current.page_size;
 
@@ -453,6 +461,7 @@ export default function AlertsQueuePage() {
       const page = await getAlertsPage({
         page_size,
         severity: severity && severity !== "all" ? severity : undefined,
+        status: status && status !== "all" ? status : undefined,
         rule_id: rule_id ? rule_id : undefined
       });
       if (reqSeq.current !== mySeq) return;
@@ -506,6 +515,7 @@ export default function AlertsQueuePage() {
     setError(null);
 
     const severity = viewRef.current.severity;
+    const status = viewRef.current.status;
     const rule_id = viewRef.current.rule_id;
     const page_size = viewRef.current.page_size;
 
@@ -514,6 +524,7 @@ export default function AlertsQueuePage() {
         page_size,
         cursor,
         severity: severity && severity !== "all" ? severity : undefined,
+        status: status && status !== "all" ? status : undefined,
         rule_id: rule_id ? rule_id : undefined
       });
       if (moreSeq.current !== mySeq) return;
@@ -547,7 +558,8 @@ export default function AlertsQueuePage() {
 
     const severityFilter = String(viewRef.current.severity || "all").toLowerCase();
     const ruleFilter = String(viewRef.current.rule_id || "").trim().toLowerCase();
-    if (severityFilter !== "all" || ruleFilter) {
+    const statusFilter = String(viewRef.current.status || "all").toLowerCase();
+    if (severityFilter !== "all" || statusFilter !== "all" || ruleFilter) {
       scheduleRealtimeInvalidateRefresh();
       return;
     }
@@ -661,7 +673,7 @@ export default function AlertsQueuePage() {
     setLastRefresh(null);
     loadHead("reset");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view.severity, view.rule_id, view.page_size]);
+  }, [view.severity, view.status, view.rule_id, view.page_size]);
 
   // Optional infinite scroll for older pages.
   useEffect(() => {
@@ -949,6 +961,18 @@ export default function AlertsQueuePage() {
               className="h-9 min-w-[220px] max-w-[360px]"
             />
             <SeverityFilter value={view.severity} onChange={(value) => patch({ severity: value })} />
+            <SelectInput
+              value={view.status}
+              onChange={(event) => patch({ status: event.target.value })}
+              className="h-9 w-[150px] font-mono text-xs"
+              title="Alert lifecycle status"
+            >
+              <option value="all">All status</option>
+              <option value="open">Open</option>
+              <option value="acknowledged">Acknowledged</option>
+              <option value="investigating">Investigating</option>
+              <option value="closed">Closed</option>
+            </SelectInput>
             <TextInput
               value={view.rule_id}
               onChange={(event) => patch({ rule_id: event.target.value })}
@@ -1011,6 +1035,7 @@ export default function AlertsQueuePage() {
           { label: "Medium/Low", value: severityBreakdown.medium + severityBreakdown.low },
           { label: "Unknown", value: severityBreakdown.unknown },
           { label: "Severity filter", value: view.severity },
+          { label: "Status filter", value: view.status },
           { label: "Rule filter", value: view.rule_id || "-" },
           { label: "Density", value: view.density },
           { label: "Selected", value: selectedRows.length },
