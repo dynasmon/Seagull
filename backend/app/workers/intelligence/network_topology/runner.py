@@ -86,7 +86,7 @@ def run_once(cfg: NetworkTopologyWorkerConfig, state: NetworkTopologyWorkerState
 
     now_t = time.time()
     periodic_due = state.last_refresh_t <= 0 or (now_t - state.last_refresh_t) >= cfg.refresh_seconds
-    trigger_interval = max(10.0, min(cfg.refresh_seconds, 60.0))
+    trigger_interval = max(60.0, min(cfg.refresh_seconds, 600.0))
     trigger_due = bool(state.pending_recalc_token) and (
         state.last_refresh_t <= 0 or (now_t - state.last_refresh_t) >= trigger_interval
     )

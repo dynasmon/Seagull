@@ -26,7 +26,7 @@ def main() -> None:
     ensure_database_ready()
     state = NetworkTopologyWorkerState()
     backoff = 1.0
-    idle_sleep = 5.0
+    idle_sleep = 15.0
 
     log_event(
         logger,
