@@ -6,7 +6,6 @@ from typing import Any, Dict, Literal
 
 from pydantic import BaseModel, Field, validator
 
-
 RealtimeMode = Literal["patch", "append", "replace", "invalidate"]
 
 

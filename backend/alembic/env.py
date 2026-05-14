@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from alembic import context
 from app.core.config import settings
 from app.core.db import Base
 from app.core.db.model_registry import load_all_models

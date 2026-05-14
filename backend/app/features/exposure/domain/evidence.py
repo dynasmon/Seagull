@@ -6,11 +6,9 @@ from typing import Any
 from app.features.exposure.domain.normalization import (
     clamp_confidence,
     normalize_evidence_source_type,
-    normalize_severity,
     parse_dt,
 )
 from app.features.exposure.domain.types import EvidenceRef
-
 
 _MAX_EVIDENCE_REFS = 32
 

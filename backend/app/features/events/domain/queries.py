@@ -5,20 +5,20 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import Integer, String, and_, cast, func, or_, select
+from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
+from app.core.config import settings
 from app.core.integrations.clickhouse import (
-    clickhouse_events_table_ref,
     clickhouse_events_1m_table_ref,
+    clickhouse_events_table_ref,
     clickhouse_is_available,
     clickhouse_is_enabled,
     get_clickhouse_client,
 )
-from app.core.config import settings
 from app.core.integrations.es import es_is_available, get_es_client, search_backend_mode
 from app.core.observability import log_event
-from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.features.events import repository
 from app.features.events.domain.filters import _ch_where, _es_base_filters
 from app.features.events.domain.normalizers import (
@@ -648,7 +648,7 @@ def get_port_stats(
             return [{"port": bucket.get("key"), "count": bucket.get("doc_count", 0)} for bucket in buckets]
         except Exception as exc:
             if not _es_failover_allowed():
-                raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(exc).__name__}")
+                raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(exc).__name__}") from None
 
     stmt = (
         select(
@@ -878,7 +878,7 @@ def get_protocol_intel_samples(
                     error=str(fallback_exc)[:300],
                 )
             if not _es_failover_allowed():
-                raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(exc).__name__}")
+                raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(exc).__name__}") from None
 
     kind_map_pg = {
         "app_proto": func.coalesce(NetEventModel.app_proto, NetEventModel.extra["app_proto"].astext),

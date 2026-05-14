@@ -6,9 +6,9 @@ import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import jwt
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-import jwt
 from starlette.websockets import WebSocketState
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")

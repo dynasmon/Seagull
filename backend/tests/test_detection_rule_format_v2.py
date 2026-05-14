@@ -13,10 +13,11 @@ from app.features.detections.domain.validation import DetectionRuleValidationErr
 from app.features.detections.rules.compatibility import normalize_v1_rule_to_v2
 from app.features.detections.rules.loader import (
     load_and_validate_rules,
+)
+from app.features.detections.rules.loader import (
     load_rules as load_detection_rules,
 )
 from app.workers.intelligence.rules.loader import load_rules as load_worker_rules
-
 
 _RULES_DIR = Path(__file__).resolve().parents[2] / "rules"
 

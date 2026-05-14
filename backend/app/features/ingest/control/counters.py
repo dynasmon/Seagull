@@ -9,13 +9,11 @@ from sqlalchemy.dialects.postgresql import insert
 from app.core.cache import get_redis
 from app.core.db import engine
 from app.features.events.models import IngestStats1sModel
-from app.features.ingest.control.backpressure import _update_events_per_msg_avg, get_backlog
+from app.features.ingest.control.backpressure import get_backlog
 from app.features.ingest.control.queue_keys import (
     _as_int,
-    _env_int,
     _eps_key,
     _flush_lock_key,
-    _overview_live_key,
     _quality_key,
     _stats_key,
 )

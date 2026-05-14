@@ -9,8 +9,8 @@ from fastapi import HTTPException
 from sqlalchemy import Integer, String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.integrations.clickhouse import clickhouse_events_table_ref
 from app.core.config import settings
+from app.core.integrations.clickhouse import clickhouse_events_table_ref
 from app.core.integrations.es import search_backend_mode
 from app.core.observability import incr_counter, log_event, observe_hist
 from app.features.events import repository
@@ -716,7 +716,7 @@ def get_ssh_summary(
             return payload
         except Exception as exc:
             if not _es_failover_allowed():
-                raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(exc).__name__}")
+                raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(exc).__name__}") from None
             degraded_reason = f"elasticsearch_fallback:{type(exc).__name__}"[:200]
 
     attempted_sources.append("postgres")
@@ -1549,7 +1549,7 @@ def get_protocol_intel_summary(
             return payload
         except Exception as exc:
             if not _es_failover_allowed():
-                raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(exc).__name__}")
+                raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(exc).__name__}") from None
             degraded_reason = f"elasticsearch_fallback:{type(exc).__name__}"[:200]
 
     attempted_sources.append("postgres")

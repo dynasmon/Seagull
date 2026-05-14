@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator, validator
 
-
 WorkspaceStatus = Literal["open", "contained", "resolved", "closed"]
 WorkspaceSeverity = Literal["low", "medium", "high", "critical"]
 WorkspacePriority = Literal["p1", "p2", "p3", "p4"]

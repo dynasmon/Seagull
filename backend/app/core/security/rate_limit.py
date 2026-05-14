@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 import time
-from typing import Optional
+from dataclasses import dataclass
 from threading import Lock
+from typing import Optional
 
 import redis
 from fastapi import HTTPException, Request, status
 
 from app.core.config import settings
-
 
 _redis_client: Optional[redis.Redis] = None
 _redis_unavailable_until: float = 0.0

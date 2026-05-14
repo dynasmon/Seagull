@@ -7,9 +7,9 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.features.agents.auth import AgentPrincipal
-from app.core.config import settings
 from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
+from app.core.config import settings
+from app.features.agents.auth import AgentPrincipal
 from app.features.realtime.service import publish_realtime
 from app.features.vuln.domain import (
     lifecycle_state_for_phase,
@@ -26,9 +26,9 @@ from app.features.vuln.repository import (
     add_vuln_scan,
     commit,
     get_agent_by_agent_id,
+    get_findings_by_ids,
     get_latest_live_manual_scan_for_agent,
     get_scan_by_uuid,
-    get_findings_by_ids,
     list_scans_page,
     upsert_scan_metadata,
 )

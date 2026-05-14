@@ -5,18 +5,12 @@ from typing import Any
 
 from app.features.exposure.domain.constants import (
     EDGE_TYPE_HAS_CVE,
-    EDGE_TYPE_HAS_PACKAGE,
-    EDGE_TYPE_HAS_SERVICE,
     EDGE_TYPE_PART_OF_ATTACK_CHAIN,
-    EDGE_TYPE_PART_OF_INVESTIGATION,
     EDGE_TYPE_TRIGGERED_ALERT,
     NODE_TYPE_ALERT,
     NODE_TYPE_ASSET,
     NODE_TYPE_ATTACK_CHAIN_CASE,
     NODE_TYPE_CVE,
-    NODE_TYPE_INVESTIGATION,
-    NODE_TYPE_PACKAGE,
-    NODE_TYPE_SERVICE,
 )
 from app.features.exposure.domain.normalization import (
     clamp_confidence,

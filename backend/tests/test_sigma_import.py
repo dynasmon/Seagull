@@ -7,9 +7,8 @@ os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 os.environ.setdefault("SEAGULL_DB_URL", "postgresql://seagull:seagull@127.0.0.1:5432/seagull")
 
-import yaml
-
 import pytest
+import yaml
 
 from app.features.detections.domain.validation import DetectionRuleValidationError
 from app.features.detections.rules.sigma_import import (

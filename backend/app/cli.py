@@ -5,9 +5,9 @@ from datetime import datetime
 
 from app.core.config import settings
 from app.core.db import SessionLocal
+from app.core.security import hash_password, verify_password
 from app.core.security.identity import canonicalize_username
 from app.core.security.password_policy import validate_password_policy
-from app.core.security import hash_password, verify_password
 from app.features.auth.models import PortalUserModel
 
 

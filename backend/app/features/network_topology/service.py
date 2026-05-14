@@ -28,16 +28,16 @@ from app.features.network_topology.schemas import (
     TopologyGraphOut,
     TopologyGraphQuery,
     TopologyInsightOut,
-    TopologyRelatedAlertOut,
-    TopologyRelatedAttackChainCaseOut,
-    TopologyRelatedExposureFindingOut,
-    TopologyRelatedFlowOut,
     TopologyNodeDetailOut,
     TopologyNodeOut,
     TopologyNodeTypeStat,
     TopologyObservationOut,
     TopologyObservationQuery,
     TopologyRecalculateOut,
+    TopologyRelatedAlertOut,
+    TopologyRelatedAttackChainCaseOut,
+    TopologyRelatedExposureFindingOut,
+    TopologyRelatedFlowOut,
     TopologySubnetOut,
     TopologySubnetQuery,
     TopologySummaryOut,
@@ -100,9 +100,8 @@ def get_summary(db: Session) -> TopologySummaryOut:
     snapshot_coverage: dict[str, Any] = {}
     if snapshot and isinstance(snapshot.coverage, dict):
         snapshot_coverage = snapshot.coverage
-    snapshot_metric_data: dict[str, Any] = {}
     if snapshot and isinstance(snapshot.metrics, dict):
-        snapshot_metric_data = snapshot.metrics
+        pass
 
     insights = _compute_insights(insight_metrics, window_minutes=window_minutes)
     visibility = _compute_visibility(

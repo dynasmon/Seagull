@@ -3,14 +3,13 @@ from __future__ import annotations
 import pytest
 
 from app.features.network_topology.classification import (
-    NODE_TYPES,
     EDGE_TYPES,
-    classify_topology_ip,
+    NODE_TYPES,
     classify_topology_flow,
+    classify_topology_ip,
     infer_subnet_cidr,
 )
-from app.shared.network.ip_classification import classify_ip, classify_flow
-
+from app.shared.network.ip_classification import classify_flow, classify_ip
 
 # ---- Reuse assertion: classify_topology_ip delegates to classify_ip ----------------
 

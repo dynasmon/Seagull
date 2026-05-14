@@ -8,10 +8,9 @@ from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from app.core.observability import incr_counter
 from app.core.cache import get_redis
+from app.core.observability import incr_counter
 from app.features.overview.repository import _env_int, get_overview_payload
-
 
 _overview_cache_lock = threading.Lock()
 _overview_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}

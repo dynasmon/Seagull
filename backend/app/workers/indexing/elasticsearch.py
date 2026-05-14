@@ -10,9 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
+from app.core.config.env_secrets import env_value
 from app.core.db import engine
 from app.core.db.lifecycle import ensure_database_ready
-from app.core.config.env_secrets import env_value
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import NetEventModel
 from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset

@@ -1,6 +1,6 @@
 import json
-from urllib.parse import urlsplit
 from typing import Any, Dict
+from urllib.parse import urlsplit
 
 from app.core.config.env_secrets import env_value
 

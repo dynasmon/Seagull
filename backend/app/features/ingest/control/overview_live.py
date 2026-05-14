@@ -16,7 +16,6 @@ from app.features.ingest.control.queue_keys import (
     _safe_text,
 )
 
-
 logger = logging.getLogger("seagull.ingest.control")
 
 
@@ -150,7 +149,7 @@ def read_overview_live_window(*, now_s: Optional[int] = None, seconds: int = 900
 
     rows: List[Dict[str, Any]] = []
     last_data_s: Optional[int] = None
-    for ts, raw in zip(points, rows_raw):
+    for ts, raw in zip(points, rows_raw, strict=False):
         if not raw:
             continue
         parsed: Dict[str, Any] = {

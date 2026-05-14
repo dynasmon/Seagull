@@ -12,17 +12,10 @@ os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 os.environ.setdefault("SEAGULL_DB_URL", "postgresql://seagull:seagull@127.0.0.1:5432/seagull")
 
-from app.features.correlations.engine import (
-    build_incidents,
-    group_value,
-    passes_filter,
-    segment_by_window,
-)
 from app.features.correlations.models import (
     CorrelationEntityStateModel,
     CorrelationIncidentEvidenceModel,
     CorrelationIncidentModel,
-    CorrelationRuleModel,
     CorrelationRuleRunModel,
 )
 from app.features.correlations.schemas import (
@@ -40,7 +33,6 @@ from app.features.correlations.service import (
     run_correlations,
     update_incident_status,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -444,7 +436,7 @@ def test_update_incident_status_changes_status():
         patch("app.features.correlations.service.get_correlation_incident") as mock_detail,
     ):
         mock_detail.return_value = MagicMock(status="triaged")
-        result = update_incident_status(
+        update_incident_status(
             db, incident_id=1, payload=payload, request=request, admin=admin
         )
 
@@ -656,7 +648,6 @@ def test_new_models_importable():
         CorrelationEntityStateModel,
         CorrelationIncidentEvidenceModel,
         CorrelationIncidentModel,
-        CorrelationRuleRunModel,
     )
     assert CorrelationIncidentModel.__tablename__ == "correlation_incidents"
     assert CorrelationIncidentEvidenceModel.__tablename__ == "correlation_incident_evidence"
@@ -666,11 +657,7 @@ def test_new_models_importable():
 
 def test_new_schemas_importable():
     from app.features.correlations.schemas import (
-        CorrelationEvidenceOut,
-        CorrelationIncidentDetailOut,
-        CorrelationIncidentListItemOut,
         CorrelationIncidentStatusIn,
-        CorrelationRuleRunOut,
     )
     s = CorrelationIncidentStatusIn(status="triaged")
     assert s.status == "triaged"

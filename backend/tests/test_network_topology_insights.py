@@ -9,8 +9,8 @@ os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 os.environ.setdefault("SEAGULL_DB_URL", "postgresql://seagull:test@127.0.0.1:5432/seagull_test")
 
-from app.features.network_topology.service import _compute_insights, _compute_visibility
 from app.features.network_topology.schemas import TopologyInsightOut, TopologyVisibilityOut
+from app.features.network_topology.service import _compute_insights, _compute_visibility
 
 _UTC = timezone.utc
 
@@ -256,9 +256,10 @@ class TestComputeVisibility:
 class TestSummaryApiIncludesInsights:
     def test_summary_endpoint_includes_insights_and_visibility(self, monkeypatch: pytest.MonkeyPatch):
         from fastapi.testclient import TestClient
-        from app.features.network_topology.schemas import TopologySummaryOut, TopologyNodeTypeStat
+
         from app.features.auth.session import PortalPrincipal, get_current_user
         from app.features.network_topology import api as topo_api
+        from app.features.network_topology.schemas import TopologyNodeTypeStat, TopologySummaryOut
         from app.main import app
 
         app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="test", role="admin")

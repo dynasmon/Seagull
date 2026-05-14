@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -20,7 +19,6 @@ from app.core.security import (
     token_hash,
 )
 from app.features.auth.models import PortalRefreshSessionModel, PortalUserModel
-
 
 REFRESH_COOKIE_NAME = "nw_refresh"
 CSRF_COOKIE_NAME = "nw_csrf"
@@ -64,7 +62,7 @@ def get_current_user(request: Request) -> PortalPrincipal:
     try:
         payload = decode_token(token)
     except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token") from None
 
     if (payload.get("typ") or "") != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
@@ -78,7 +76,7 @@ def get_current_user(request: Request) -> PortalPrincipal:
     try:
         token_version = int(token_version_raw)
     except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token") from None
 
     db = SessionLocal()
     try:

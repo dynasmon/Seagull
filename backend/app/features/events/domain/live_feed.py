@@ -9,15 +9,12 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.features.ingest.control.service import get_storm_status
 from app.core.observability import log_event
-from app.features.events.recent_feed import fetch_recent_events as fetch_recent_feed_events, recent_feed_health
 from app.features.events import repository
 from app.features.events.domain.normalizers import (
     _ch_row_to_event,
     _event_obj_to_event_safe,
     _feed_row_to_event,
-    _freshness_seconds,
     _hit_to_event,
     _meta,
 )
@@ -35,11 +32,14 @@ from app.features.events.domain.queries import (
     clickhouse_events_table_ref,
 )
 from app.features.events.models import NetEventModel
+from app.features.events.recent_feed import fetch_recent_events as fetch_recent_feed_events
+from app.features.events.recent_feed import recent_feed_health
 from app.features.events.schemas import (
     DdosLiveSnapshotResponse,
     EventStreamSnapshotResponse,
     NetEventDB,
 )
+from app.features.ingest.control.service import get_storm_status
 
 logger = logging.getLogger("seagull.api.events")
 
@@ -215,7 +215,7 @@ def get_recent_events(
             return _merge_recent_events(primary=feed_events, secondary=out, limit=int(limit))
         except Exception as e:
             if not _es_failover_allowed():
-                raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(e).__name__}")
+                raise HTTPException(status_code=503, detail=f"Elasticsearch error: {type(e).__name__}") from None
 
     # Postgres fallback
     # Deterministic ordering avoids flicker when many events share the same timestamp.

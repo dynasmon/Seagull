@@ -7,11 +7,11 @@ Create Date: 2026-04-21
 
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 revision = "20260421_0014"
 down_revision = "20260419_0013"

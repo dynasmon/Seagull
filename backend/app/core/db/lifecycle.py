@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, OperationalError
+
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError, OperationalError
-
 from app.core.config import settings
+
 from .engine import engine
 from .schema_bootstrap import bootstrap_schema
 

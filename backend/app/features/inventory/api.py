@@ -5,9 +5,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.features.agents.auth import AgentPrincipal, get_current_agent
-from app.core.db.session import managed_session
 from app.core.db import get_db
+from app.core.db.session import managed_session
+from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.features.auth.session import get_current_user
 from app.features.inventory.schemas import InventorySnapshotIn, InventorySnapshotOut
 from app.features.inventory.service import (
@@ -18,7 +18,6 @@ from app.features.inventory.service import (
     list_inventory_history_page,
 )
 from app.shared.schemas import CursorPage
-
 
 router = APIRouter(
     prefix="/inventory",

@@ -9,7 +9,6 @@ os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from tests.detection_rule_harness import evaluate_rule, load_rule_index
 
-
 _RULES_DIR = Path(__file__).resolve().parents[2] / "rules"
 
 

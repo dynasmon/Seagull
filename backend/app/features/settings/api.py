@@ -8,10 +8,13 @@ from app.features.auth.session import PortalPrincipal, require_admin
 from app.features.settings.schemas import PlatformSettingOut, PlatformSettingUpsertIn
 from app.features.settings.service import (
     delete_platform_setting as delete_platform_setting_service,
+)
+from app.features.settings.service import (
     list_platform_settings as list_platform_settings_service,
+)
+from app.features.settings.service import (
     upsert_platform_setting as upsert_platform_setting_service,
 )
-
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 

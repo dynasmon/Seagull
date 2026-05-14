@@ -18,7 +18,6 @@ from app.features.detections.testing.yaml_tests import (
 )
 from app.features.events.worker_runtime import NetEventModel
 
-
 DEFAULT_SAMPLE_LIMIT = 5
 
 
@@ -114,7 +113,7 @@ def backtest_detection_rule(
         hit = {
             "matched_at": event["timestamp"],
             "severity": spec.severity,
-            "group_key": dict(zip(spec.group_fields, group_key)),
+            "group_key": dict(zip(spec.group_fields, group_key, strict=False)),
             "sample_events": [_sample_event(sample) for sample in window_rows[-max(1, sample_limit) :]],
         }
         hit.update(result)

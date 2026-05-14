@@ -67,7 +67,7 @@ def decode_cursor(token: str, secret: str | None = None) -> Dict[str, Any]:
         payload = _b64url_decode(p_b64)
         sig = _b64url_decode(s_b64)
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid cursor")
+        raise HTTPException(status_code=400, detail="Invalid cursor") from None
 
     expected = _hmac_sha256(payload, secret or settings.token_pepper())
     if not hmac.compare_digest(sig, expected):
@@ -76,7 +76,7 @@ def decode_cursor(token: str, secret: str | None = None) -> Dict[str, Any]:
     try:
         obj = json.loads(payload.decode("utf-8"))
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid cursor")
+        raise HTTPException(status_code=400, detail="Invalid cursor") from None
 
     if not isinstance(obj, dict):
         raise HTTPException(status_code=400, detail="Invalid cursor")
@@ -97,7 +97,7 @@ def parse_cursor_ts_id(token: str, *, ts_key: str = "ts", id_key: str = "id") ->
     try:
         ts = datetime.fromisoformat(ts_raw)
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid cursor")
+        raise HTTPException(status_code=400, detail="Invalid cursor") from None
 
     return ts, int(id_raw)
 

@@ -10,7 +10,6 @@ from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.observability import log_event, setup_logging
 
-
 setup_logging("worker-audit-retention")
 logger = logging.getLogger("seagull.worker.audit_retention")
 

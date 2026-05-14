@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from app.shared.network.ip_enrichment import attach_ip_context as _attach_ip_context
 from app.features.events.schemas import (
     NetEventDB,
     ProtoCount,
     QueryProvenanceMeta,
     QuerySource,
 )
+from app.shared.network.ip_enrichment import attach_ip_context as _attach_ip_context
 
 _PROTO_EXTRA_NORMALIZERS: dict[str, tuple[bool, bool, str | None]] = {
     "app_proto": (False, False, None),
@@ -66,7 +66,7 @@ def _coerce_utc_iso(value: str | None) -> datetime | None:
             s = s[:-1] + "+00:00"
         dt = datetime.fromisoformat(s)
     except Exception:
-        raise HTTPException(status_code=422, detail="Invalid timestamp format; use ISO-8601")
+        raise HTTPException(status_code=422, detail="Invalid timestamp format; use ISO-8601") from None
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)

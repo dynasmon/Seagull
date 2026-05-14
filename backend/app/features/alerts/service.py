@@ -6,19 +6,11 @@ from typing import Any, Optional
 from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app.core.audit import audit_actor, write_audit_event
 from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
-from app.features.auth.session import PortalPrincipal
+from app.core.audit import audit_actor, write_audit_event
 from app.features.alerts import repository
-from app.features.alerts.models import AlertModel
-from app.features.alerts.models import AlertRuleOverrideModel
-from app.features.alerts.models import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
-from app.features.alerts.models import AlertRuleTuningHistoryModel, AlertRuleTuningModel
-from app.features.alerts.realtime import (
-    build_alert_realtime_payload_from_row,
-    publish_alert_created_from_row,
-    publish_alert_updated_payload,
-)
+from app.features.alerts.evidence import extract_evidence_specs
+from app.features.alerts.governance import validate_governance_request
 from app.features.alerts.lifecycle import (
     VALID_DISPOSITIONS,
     VALID_STATUSES,
@@ -26,11 +18,20 @@ from app.features.alerts.lifecycle import (
     MissingDispositionError,
     apply_triage,
 )
-from app.features.alerts.evidence import extract_evidence_specs
-from app.features.alerts.models import AlertEvidenceModel
-from app.features.alerts.schemas import AlertEvidenceOut, AlertOut, AlertTriageIn
-from app.features.alerts.schemas import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn, RuleValidationResult
-from app.features.alerts.governance import validate_governance_request
+from app.features.alerts.models import (
+    AlertEvidenceModel,
+    AlertModel,
+    AlertRuleOverrideModel,
+    AlertRuleSuppressionHistoryModel,
+    AlertRuleSuppressionModel,
+    AlertRuleTuningHistoryModel,
+    AlertRuleTuningModel,
+)
+from app.features.alerts.realtime import (
+    build_alert_realtime_payload_from_row,
+    publish_alert_created_from_row,
+    publish_alert_updated_payload,
+)
 from app.features.alerts.rule_runtime import (
     apply_override,
     apply_tuning_and_suppressions,
@@ -38,6 +39,16 @@ from app.features.alerts.rule_runtime import (
     normalize_rule_list,
     run_all_rules,
 )
+from app.features.alerts.schemas import (
+    AlertEvidenceOut,
+    AlertOut,
+    AlertTriageIn,
+    RuleGovernanceHistoryOut,
+    RuleOut,
+    RuleOverrideIn,
+    RuleValidationResult,
+)
+from app.features.auth.session import PortalPrincipal
 from app.shared.schemas import CursorPage
 from app.shared.taxonomy.catalog import technique_name
 from app.shared.taxonomy.schemas import MitreCoverageResponse, MitreTacticCoverage, MitreTechniqueStat
@@ -205,9 +216,9 @@ def triage_alert(
             now=datetime.utcnow(),
         )
     except InvalidTransitionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except MissingDispositionError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     repository.commit(db)
     repository.refresh(db, row)

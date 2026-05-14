@@ -98,7 +98,7 @@ def test_load_rules_duplicate_id_raises(tmp_path) -> None:
 
     try:
         load_rules(include_disabled=True, rules_dir=tmp_path)
-        assert False, "expected duplicate rule id error"
+        raise AssertionError("expected duplicate rule id error")
     except RuntimeError as e:
         assert "Duplicate rule id" in str(e)
 

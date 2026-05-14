@@ -6,9 +6,9 @@ SQLAlchemy queries against NetEventModel and returns AlertModel instances.
 
 from __future__ import annotations
 
+import operator as _py_op
 from datetime import datetime, timedelta
 from functools import reduce
-import operator as _py_op
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import and_, case, func, not_, or_, select
@@ -377,7 +377,7 @@ def execute_v2_rule(
     if agg_type == "threshold":
         stmt = (
             select(
-                *[c.label(f) for c, f in zip(group_cols, group_fields)],
+                *[c.label(f) for c, f in zip(group_cols, group_fields, strict=False)],
                 func.count().label("count"),
             )
             .where(and_(*filters))
@@ -456,7 +456,7 @@ def execute_v2_rule(
 
         stmt = (
             select(
-                *[c.label(f) for c, f in zip(group_cols, group_fields)],
+                *[c.label(f) for c, f in zip(group_cols, group_fields, strict=False)],
                 func.count(func.distinct(distinct_col)).label("distinct_count"),
                 func.count().label("event_count"),
             )
@@ -541,7 +541,7 @@ def execute_v2_rule(
         if not dcs:
             return []
 
-        sel = [c.label(f) for c, f in zip(group_cols, group_fields)]
+        sel = [c.label(f) for c, f in zip(group_cols, group_fields, strict=False)]
         sel.append(func.count().label("event_count"))
         for i, dc in enumerate(dcs):
             sel.append(func.count(func.distinct(_safe_col(dc["field"]))).label(f"d{i}"))

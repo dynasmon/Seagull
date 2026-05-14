@@ -1,19 +1,22 @@
 from __future__ import annotations
 
-import time
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 
-from app.core.integrations.clickhouse import clickhouse_events_table_ref, ensure_clickhouse_events_schema, get_clickhouse_client
 from app.core.config import settings
+from app.core.config.env_secrets import getenv_compat
 from app.core.db import engine
 from app.core.db.lifecycle import ensure_database_ready
-from app.core.config.env_secrets import getenv_compat
+from app.core.integrations.clickhouse import (
+    clickhouse_events_table_ref,
+    ensure_clickhouse_events_schema,
+    get_clickhouse_client,
+)
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import NetEventModel, write_clickhouse_events
-
 
 setup_logging("worker-clickhouse-backfill")
 logger = logging.getLogger("seagull.worker.clickhouse_backfill")

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
-import re
 from typing import Any
 
 from app.features.detections.domain.validation import (

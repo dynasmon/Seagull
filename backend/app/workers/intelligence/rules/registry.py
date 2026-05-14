@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.features.alerts.models import AlertRuleOverrideModel
-from app.features.alerts.models import AlertRuleSuppressionModel
-from app.features.alerts.models import AlertRuleTuningModel
+from app.features.alerts.models import AlertRuleOverrideModel, AlertRuleSuppressionModel, AlertRuleTuningModel
 from app.workers.intelligence.rules.loader import load_rules
 
 

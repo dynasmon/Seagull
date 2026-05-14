@@ -22,7 +22,6 @@ from app.features.events.models import NetEventModel
 from app.workers.intelligence.rules.loader import load_rules as load_worker_rules
 from app.workers.manager import GROUPS
 
-
 _RULES_DIR = Path(__file__).resolve().parents[2] / "rules"
 
 

@@ -6,7 +6,6 @@ from typing import Any, Mapping
 from app.features.events.schemas import NetEvent
 from app.features.events.worker_runtime import NetEventModel
 
-
 _HOT_EVENT_FIELDS = frozenset(
     {
         "app_proto",

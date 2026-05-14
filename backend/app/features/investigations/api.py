@@ -9,10 +9,10 @@ from app.core.db import SessionLocal
 from app.features.auth.session import PortalPrincipal, get_current_user
 from app.features.investigations import service
 from app.features.investigations.schemas import (
+    InvestigationActivityOut,
     InvestigationBookmarkCreateIn,
     InvestigationBookmarkCreateResult,
     InvestigationBookmarkOut,
-    InvestigationActivityOut,
     InvestigationNoteCreateIn,
     InvestigationNoteOut,
     InvestigationNoteUpdateIn,
@@ -22,7 +22,6 @@ from app.features.investigations.schemas import (
     InvestigationWorkspaceUpdateIn,
 )
 from app.shared.schemas import CursorPage
-
 
 router = APIRouter(
     prefix="/investigations",

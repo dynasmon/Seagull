@@ -12,10 +12,9 @@ The API can be configured via SEAGULL_SEARCH_BACKEND:
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from app.core.config import settings
-
 
 _es_client = None
 _last_ping_at: float = 0.0

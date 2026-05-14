@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from app.core.config import settings
 from app.features.ingest.control import backpressure as ic
 from app.features.ingest.control import recovery as recovery_ic
-from app.core.config import settings
 
 
 def _set_thresholds() -> None:

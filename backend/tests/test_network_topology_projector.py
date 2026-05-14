@@ -20,12 +20,10 @@ os.environ.setdefault("SEAGULL_DB_URL", "postgresql://seagull:test@127.0.0.1:543
 
 from app.features.agents.models import AgentModel
 from app.features.alerts.models import AlertModel
-from app.features.events.models import NetEventModel
 from app.features.exposure.models import ExposureAssetPostureModel
 from app.features.inventory.models import AgentInventoryLatestModel
 from app.features.network_topology import projector as proj
 from app.features.network_topology import repository as repo
-
 
 _UTC = timezone.utc
 

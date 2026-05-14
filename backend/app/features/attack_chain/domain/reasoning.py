@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable
 
 from app.features.attack_chain.domain.types import STAGE_ORDER, stage_rank
 

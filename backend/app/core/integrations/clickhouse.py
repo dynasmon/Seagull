@@ -12,7 +12,6 @@ from typing import Any, Optional
 
 from app.core.config import settings
 
-
 _ch_client: Optional[Any] = None
 _last_ping_at: float = 0.0
 _last_ping_ok: bool = False

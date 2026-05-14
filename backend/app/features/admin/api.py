@@ -7,11 +7,9 @@ from fastapi.params import Depends as DependsParam
 from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal, get_db
-from app.features.auth.session import PortalPrincipal, require_admin
-from app.features.admin.schemas import AdminAuditQueryOut
-from app.features.admin.schemas import LoginEventOut, RuntimeConfigOut
 from app.features.admin import service
-
+from app.features.admin.schemas import AdminAuditQueryOut, LoginEventOut, RuntimeConfigOut
+from app.features.auth.session import PortalPrincipal, require_admin
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

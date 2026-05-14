@@ -9,20 +9,17 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.audit import audit_actor, write_audit_event
+from app.core.config import settings
+from app.core.observability import incr_counter
+from app.features.agents import repository
 from app.features.agents.auth import (
     AgentPrincipal,
     generate_agent_credential,
     generate_bootstrap_token,
     hash_bootstrap_token,
 )
-from app.core.audit import audit_actor, write_audit_event
-from app.core.config import settings
-from app.core.observability import incr_counter
-from app.features.auth.session import PortalPrincipal
-from app.features.agents import repository
 from app.features.agents.models import AgentBootstrapTokenModel, AgentCredentialModel, AgentModel
-from app.features.realtime.projectors import project_agent_presence_patch
-from app.features.realtime.service import publish_realtime
 from app.features.agents.schemas import (
     AgentBootstrapTokenCreateIn,
     AgentBootstrapTokenOut,
@@ -35,6 +32,9 @@ from app.features.agents.schemas import (
     AgentPublic,
     AgentUpdateIn,
 )
+from app.features.auth.session import PortalPrincipal
+from app.features.realtime.projectors import project_agent_presence_patch
+from app.features.realtime.service import publish_realtime
 from app.features.response.models import ResponseActionModel, ResponseActionResultModel
 from app.features.response.realtime import publish_response_action_lifecycle
 from app.features.response.schemas import AgentResponseActionResultIn

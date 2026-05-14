@@ -22,7 +22,6 @@ from app.features.network_topology.schemas import (
 )
 from app.shared.schemas import CursorPage
 
-
 router = APIRouter(
     prefix="/network-topology",
     tags=["network-topology"],

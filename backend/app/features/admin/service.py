@@ -6,14 +6,14 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.core.audit import AuditActor, write_audit_event
-from app.core.integrations.clickhouse import clickhouse_is_available, clickhouse_is_enabled, get_clickhouse_client
-from app.core.config import settings
-from app.core.integrations.es import get_es_client, search_backend_mode
-from app.features.ingest.control.service import get_storm_status
-from app.core.observability import snapshot_metrics
 from app.core.cache import get_redis
+from app.core.config import settings
+from app.core.integrations.clickhouse import clickhouse_is_available, clickhouse_is_enabled, get_clickhouse_client
+from app.core.integrations.es import get_es_client, search_backend_mode
+from app.core.observability import snapshot_metrics
 from app.features.admin import repository
 from app.features.admin.schemas import AdminAuditEventOut, AdminAuditQueryOut, LoginEventOut
+from app.features.ingest.control.service import get_storm_status
 
 _STARTED_AT_MONO = time.monotonic()
 

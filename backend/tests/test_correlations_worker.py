@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 
 def test_correlations_worker_runtime_imports() -> None:
     from app.features.correlations.worker_runtime import (  # noqa: F401
@@ -69,9 +67,9 @@ def test_correlations_worker_disabled_via_manager(monkeypatch) -> None:
 
 
 def test_correlations_worker_cycle_calls_service(monkeypatch) -> None:
+    import app.workers.intelligence.correlations.runner as runner_mod
     from app.features.correlations.worker_runtime import CorrelationsWorkerConfig
     from app.workers.intelligence.correlations.state import CorrelationsWorkerState
-    import app.workers.intelligence.correlations.runner as runner_mod
 
     call_log: dict = {"cycles": 0, "rule_calls": 0}
 
@@ -107,9 +105,9 @@ def test_correlations_worker_cycle_calls_service(monkeypatch) -> None:
 
 
 def test_correlations_worker_idle_when_no_rules(monkeypatch) -> None:
+    import app.workers.intelligence.correlations.runner as runner_mod
     from app.features.correlations.worker_runtime import CorrelationsWorkerConfig
     from app.workers.intelligence.correlations.state import CorrelationsWorkerState
-    import app.workers.intelligence.correlations.runner as runner_mod
 
     monkeypatch.setattr(runner_mod, "load_enabled_rules", lambda: [])
 

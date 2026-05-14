@@ -10,11 +10,13 @@ os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 os.environ.setdefault("SEAGULL_DB_URL", "postgresql://seagull:seagull@127.0.0.1:5432/seagull")
 
 from app.features.alerts.models import AlertModel
-from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
 from app.features.correlations.engine import build_incidents
 from app.features.correlations.engines import CorrelationDataset
-from app.features.correlations.models import CorrelationEntityStateModel, CorrelationIncidentEvidenceModel, CorrelationIncidentModel
-from app.features.correlations.schemas import CorrelationEvidenceMatch
+from app.features.correlations.models import (
+    CorrelationEntityStateModel,
+    CorrelationIncidentEvidenceModel,
+    CorrelationIncidentModel,
+)
 from app.features.correlations.service import _upsert_evidence, _upsert_incident
 from app.features.exposure.models import ExposureFindingModel
 

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Integer, String, func, SmallInteger
+from sqlalchemy import Column, DateTime, Integer, SmallInteger, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base

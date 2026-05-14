@@ -13,10 +13,10 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.audit import audit_actor, write_audit_event
-from app.features.events.recent_feed import fetch_event_by_id as fetch_recent_feed_event_by_id
 from app.core.api.pagination import decode_cursor, encode_cursor, make_cursor_ts_id, parse_cursor_ts_id
+from app.core.audit import audit_actor, write_audit_event
 from app.features.auth.session import PortalPrincipal
+from app.features.events.recent_feed import fetch_event_by_id as fetch_recent_feed_event_by_id
 from app.features.investigations import repository
 from app.features.investigations.models import (
     InvestigationEvidenceBookmarkModel,
@@ -36,12 +36,12 @@ from app.features.investigations.schemas import (
     InvestigationWorkspaceCreateIn,
     InvestigationWorkspaceOut,
     InvestigationWorkspaceUpdateIn,
-    WorkspacePriority,
-    WorkspaceSeverity,
     WorkspaceStatus,
-    WorkspaceTriageState,
 )
-from app.features.realtime.projectors import project_investigation_timeline_append, project_investigation_workspace_patch
+from app.features.realtime.projectors import (
+    project_investigation_timeline_append,
+    project_investigation_workspace_patch,
+)
 from app.features.realtime.service import publish_realtime
 from app.shared.schemas import CursorPage
 
@@ -95,7 +95,7 @@ def _parse_activity_cursor(cursor: str) -> tuple[datetime, str]:
     try:
         ts = datetime.fromisoformat(ts_raw)
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid cursor")
+        raise HTTPException(status_code=400, detail="Invalid cursor") from None
     row_id = id_raw.strip()
     if not row_id:
         raise HTTPException(status_code=400, detail="Invalid cursor")
@@ -1312,7 +1312,7 @@ def _activity_out(row, *, workspace_id: int) -> InvestigationActivityOut:
         activity_type=activity_type,
         action=action,
         actor_username=getattr(row, "actor_username", None),
-        created_at=getattr(row, "created_at"),
+        created_at=row.created_at,
         outcome=str(getattr(row, "outcome", "success") or "success"),
         target_type=target_type,
         target_id=(target_id if target_id else None),
@@ -1674,7 +1674,7 @@ def _create_bookmark(
         )
         if existing:
             return InvestigationBookmarkCreateResult(created=False, duplicate_of_id=int(existing.id), bookmark=_bookmark_out(existing))
-        raise HTTPException(status_code=409, detail="Evidence already pinned in this workspace")
+        raise HTTPException(status_code=409, detail="Evidence already pinned in this workspace") from None
 
     workspace.updated_by = _clip_text(actor.username, max_len=64) or workspace.updated_by
     repository.save_workspace(db, workspace)

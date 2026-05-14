@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.shared.network.ip_classification import classify_ip, classify_flow, parse_internal_cidrs
-
+from app.shared.network.ip_classification import classify_flow, classify_ip, parse_internal_cidrs
 
 # ---- Output shape ---------------------------------------------------------------
 

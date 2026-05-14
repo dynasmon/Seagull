@@ -12,7 +12,6 @@ from app.core.db.session import managed_session
 from app.features.auth.session import PortalPrincipal, require_admin
 from app.features.detections.testing import run_detection_backtest, validate_detection_content
 
-
 MAX_BACKTEST_LIMIT = 5000
 MAX_BACKTEST_SAMPLE_LIMIT = 10
 MAX_BACKTEST_RANGE_DAYS = 31

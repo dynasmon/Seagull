@@ -5,8 +5,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.core.db import get_db
+from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.features.auth.session import require_admin
 from app.features.vuln.schemas import (
     VulnFindingOut,
@@ -30,7 +30,6 @@ from app.features.vuln.service import (
     trigger_manual_scan,
 )
 from app.shared.schemas import CursorPage
-
 
 router = APIRouter(
     prefix="/vuln",

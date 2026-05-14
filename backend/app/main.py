@@ -1,5 +1,5 @@
-import time
 import logging
+import time
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import JSONResponse
@@ -10,32 +10,13 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from app.core.cache import get_redis
+from app.core.config import settings
 from app.core.db import engine
+from app.core.db.lifecycle import ensure_database_ready
+from app.core.db.model_registry import load_all_models
 from app.core.integrations.clickhouse import clickhouse_is_available, clickhouse_is_enabled
 from app.core.integrations.es import es_is_available, search_backend_mode
-from app.core.cache import get_redis
-from app.features.agents.api import router as agents_router
-from app.features.alerts.api import router as alerts_router
-from app.features.events.api import router as events_router
-from app.features.ingest.api import router as ingest_router
-from app.features.inventory.api import router as inventory_router
-from app.features.investigations.api import router as investigations_router
-from app.features.exposure.api import router as exposure_router
-from app.features.network_topology.api import router as network_topology_router
-from app.core.db.lifecycle import ensure_database_ready
-from app.features.overview.api import router as overview_router
-from app.features.auth.api import router as auth_router
-from app.features.account.api import router as account_router
-from app.features.admin.api import router as admin_router
-from app.features.correlations.api import router as correlations_router
-from app.features.attack_chain.api import router as attack_chain_router
-from app.features.detections.api import router as detections_router
-from app.features.vuln.api import router as vuln_router
-from app.features.users.api import router as users_router
-from app.features.settings.api import router as settings_router
-from app.features.response.api import router as response_router
-from app.features.realtime.api import router as realtime_router
-from app.core.config import settings
 from app.core.observability import (
     clear_request_context,
     incr_counter,
@@ -48,11 +29,29 @@ from app.core.observability import (
     setup_logging,
     snapshot_metrics,
 )
+from app.features.account.api import router as account_router
+from app.features.admin.api import router as admin_router
+from app.features.agents.api import router as agents_router
+from app.features.alerts.api import router as alerts_router
+from app.features.attack_chain.api import router as attack_chain_router
+from app.features.auth.api import router as auth_router
 from app.features.auth.bootstrap import bootstrap_portal_admin
 from app.features.auth.session import require_admin
+from app.features.correlations.api import router as correlations_router
 from app.features.correlations.bootstrap import bootstrap_correlation_rules
-from app.core.db.model_registry import load_all_models
-
+from app.features.detections.api import router as detections_router
+from app.features.events.api import router as events_router
+from app.features.exposure.api import router as exposure_router
+from app.features.ingest.api import router as ingest_router
+from app.features.inventory.api import router as inventory_router
+from app.features.investigations.api import router as investigations_router
+from app.features.network_topology.api import router as network_topology_router
+from app.features.overview.api import router as overview_router
+from app.features.realtime.api import router as realtime_router
+from app.features.response.api import router as response_router
+from app.features.settings.api import router as settings_router
+from app.features.users.api import router as users_router
+from app.features.vuln.api import router as vuln_router
 
 setup_logging("backend-api")
 logger = logging.getLogger("seagull.api")

@@ -30,7 +30,6 @@ from app.features.network_topology.schemas import (
 from app.main import app
 from app.shared.schemas import CursorPage
 
-
 _UTC = timezone.utc
 
 

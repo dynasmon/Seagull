@@ -3,19 +3,19 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.db.session import managed_session
 from app.core.audit import write_audit_event
 from app.core.db import get_db
+from app.core.db.session import managed_session
 from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 from app.features.exposure import service
 from app.features.exposure.schemas import (
     ExposureAssetDetailOut,
     ExposureAssetPostureOut,
-    ExposureAttackPathOut,
     ExposureAssetsQuery,
+    ExposureAttackPathOut,
     ExposureErrorOut,
-    ExposureFindingsQuery,
     ExposureFindingOut,
+    ExposureFindingsQuery,
     ExposureGraphOut,
     ExposureGraphQuery,
     ExposureInvestigationResultOut,
@@ -25,7 +25,6 @@ from app.features.exposure.schemas import (
     ExposureTriageResponseActionOut,
 )
 from app.shared.schemas import CursorPage
-
 
 router = APIRouter(
     prefix="/exposure",

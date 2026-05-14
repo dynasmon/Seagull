@@ -21,7 +21,6 @@ from app.features.settings.repository import (
 )
 from app.features.settings.schemas import PlatformSettingOut, PlatformSettingUpsertIn
 
-
 _KEY_RE = re.compile(r"^[a-z][a-z0-9_.-]{1,63}$")
 _DENY_SENSITIVE_KEY_RE = re.compile(r"(password|secret|token|private|credential|jwt|pepper|key)", re.IGNORECASE)
 
