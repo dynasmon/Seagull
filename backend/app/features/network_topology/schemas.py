@@ -220,6 +220,27 @@ class TopologyCoverageOut(BaseModel):
     warnings: List[str] = Field(default_factory=list)
 
 
+class TopologyInsightOut(BaseModel):
+    id: str
+    group: str
+    severity: str
+    title: str
+    detail: str
+    count: Optional[int] = None
+
+
+class TopologyVisibilityOut(BaseModel):
+    inventory_coverage: float = 0.0
+    flow_coverage: bool = False
+    alert_coverage: bool = False
+    protocol_coverage: bool = False
+    exposure_coverage: bool = False
+    last_inventory_at: Optional[datetime] = None
+    last_event_at: Optional[datetime] = None
+    last_alert_at: Optional[datetime] = None
+    known_limitations: List[str] = Field(default_factory=list)
+
+
 class TopologySummaryOut(BaseModel):
     total_nodes: int
     total_edges: int
@@ -234,6 +255,8 @@ class TopologySummaryOut(BaseModel):
     alert_edge_count: int
     exposure_edge_count: int
     node_type_breakdown: List[TopologyNodeTypeStat] = Field(default_factory=list)
+    insights: List[TopologyInsightOut] = Field(default_factory=list)
+    visibility: Optional[TopologyVisibilityOut] = None
     last_projected_at: Optional[datetime] = None
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     projected_at: Optional[datetime] = None
