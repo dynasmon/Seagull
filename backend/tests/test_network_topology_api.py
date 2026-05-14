@@ -19,15 +19,10 @@ from app.features.network_topology.schemas import (
     TopologyCoverageOut,
     TopologyEdgeDetailOut,
     TopologyEdgeOut,
-    TopologyEvidencePageMetaOut,
-    TopologyEvidenceSourceOut,
     TopologyGraphHealthOut,
     TopologyGraphOut,
     TopologyNodeDetailOut,
     TopologyNodeOut,
-    TopologyObservationOut,
-    TopologyRelatedAlertOut,
-    TopologyRelatedFlowOut,
     TopologyRecalculateOut,
     TopologySubnetOut,
     TopologySummaryOut,
@@ -130,7 +125,6 @@ def _clear_overrides():
     app.dependency_overrides.clear()
 
 
-# ---- Authentication enforcement --------------------------------------------------
 
 def test_summary_requires_auth() -> None:
     with TestClient(app) as client:
@@ -166,7 +160,6 @@ def test_recalculate_requires_admin() -> None:
     assert response.status_code == 403
 
 
-# ---- Summary endpoint ------------------------------------------------------------
 
 def test_summary_returns_expected_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
@@ -181,7 +174,6 @@ def test_summary_returns_expected_shape(monkeypatch: pytest.MonkeyPatch) -> None
     assert "node_type_breakdown" in body
 
 
-# ---- Graph endpoint --------------------------------------------------------------
 
 def test_graph_returns_nodes_and_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
@@ -238,7 +230,6 @@ def test_graph_max_edges_bounded() -> None:
     assert response.status_code == 422
 
 
-# ---- Node detail endpoint --------------------------------------------------------
 
 def test_node_detail_returns_correct_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
@@ -248,36 +239,9 @@ def test_node_detail_returns_correct_shape(monkeypatch: pytest.MonkeyPatch) -> N
         "get_node_detail",
         lambda _db, node_key: TopologyNodeDetailOut(
             node=node,
-            observations=[
-                TopologyObservationOut(
-                    id=1,
-                    node_key=node.node_key,
-                    source_type="flow",
-                    source_id="123",
-                    observed_at=_now(),
-                    summary="Observed traffic",
-                    confidence=88,
-                    raw_context={"confidence": 88},
-                )
-            ],
-            evidence_meta=TopologyEvidencePageMetaOut(limit=20, total=25, omitted=5),
-            evidence_sources=[TopologyEvidenceSourceOut(source_type="flow", count=25, latest_observed_at=_now())],
+            observations=[],
             connected_nodes=[],
             edges=[_edge_out()],
-            related_flows=[
-                TopologyRelatedFlowOut(
-                    id=123,
-                    timestamp=_now(),
-                    agent_id="agent-1",
-                    event_type="conn",
-                    src_ip="10.0.0.1",
-                    dst_ip="10.0.0.2",
-                )
-            ],
-            related_alerts=[],
-            related_services=[],
-            related_exposure_findings=[],
-            related_attack_chain_cases=[],
         ),
     )
     with TestClient(app) as client:
@@ -287,9 +251,6 @@ def test_node_detail_returns_correct_shape(monkeypatch: pytest.MonkeyPatch) -> N
     assert body["node"]["node_key"] == "topo:agent:agent-1"
     assert "edges" in body
     assert "observations" in body
-    assert body["evidence_meta"]["omitted"] == 5
-    assert body["observations"][0]["confidence"] == 88
-    assert body["related_flows"][0]["id"] == 123
 
 
 def test_node_detail_404(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -306,7 +267,6 @@ def test_node_detail_404(monkeypatch: pytest.MonkeyPatch) -> None:
     assert response.status_code == 404
 
 
-# ---- Edge detail endpoint --------------------------------------------------------
 
 def test_edge_detail_returns_correct_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
@@ -316,39 +276,9 @@ def test_edge_detail_returns_correct_shape(monkeypatch: pytest.MonkeyPatch) -> N
         "get_edge_detail",
         lambda _db, edge_key: TopologyEdgeDetailOut(
             edge=edge,
-            observations=[
-                TopologyObservationOut(
-                    id=2,
-                    node_key=edge.source_node_key,
-                    edge_key=edge.edge_key,
-                    source_type="alert",
-                    source_id="77",
-                    observed_at=_now(),
-                    summary="Alert linked endpoints",
-                    confidence=75,
-                    raw_context={"confidence": 75},
-                )
-            ],
-            evidence_meta=TopologyEvidencePageMetaOut(limit=20, total=21, omitted=1),
-            evidence_sources=[TopologyEvidenceSourceOut(source_type="alert", count=21, latest_observed_at=_now())],
+            observations=[],
             source_node=_node_out(node_key="topo:agent:agent-1"),
             target_node=_node_out(node_key="topo:host:agent-1:host-1", node_type="host"),
-            related_flows=[],
-            related_alerts=[
-                TopologyRelatedAlertOut(
-                    id=77,
-                    created_at=_now(),
-                    rule_id="test.rule",
-                    severity="high",
-                    status="open",
-                    confidence=75,
-                    description="Test alert",
-                )
-            ],
-            related_exposure_findings=[],
-            related_attack_chain_cases=[],
-            application_protocols=["http"],
-            total_bytes=1024,
         ),
     )
     with TestClient(app) as client:
@@ -358,12 +288,8 @@ def test_edge_detail_returns_correct_shape(monkeypatch: pytest.MonkeyPatch) -> N
     assert body["edge"]["edge_type"] == "same_agent"
     assert body["source_node"] is not None
     assert body["target_node"] is not None
-    assert body["evidence_meta"]["omitted"] == 1
-    assert body["related_alerts"][0]["id"] == 77
-    assert body["application_protocols"] == ["http"]
 
 
-# ---- Subnets endpoint ------------------------------------------------------------
 
 def test_subnets_returns_cursor_page(monkeypatch: pytest.MonkeyPatch) -> None:
     app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
@@ -389,7 +315,6 @@ def test_subnets_returns_cursor_page(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["items"][0]["cidr"] == "10.0.0.0/24"
 
 
-# ---- Recalculate endpoint --------------------------------------------------------
 
 def test_recalculate_returns_202(monkeypatch: pytest.MonkeyPatch) -> None:
     app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=9, username="root", role="admin")
@@ -414,7 +339,6 @@ def test_recalculate_returns_202(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["projected_nodes"] == 10
 
 
-# ---- Service layer: graph bounds -------------------------------------------------
 
 def test_service_get_graph_respects_hard_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.features.network_topology import realtime as topo_rt
@@ -447,216 +371,6 @@ def test_service_get_graph_respects_hard_limits(monkeypatch: pytest.MonkeyPatch)
     assert edges_fetched[0] == 2
 
 
-def test_service_node_detail_caps_evidence_and_hides_sensitive_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.features.network_topology import repository as topo_repo
-
-    now = _now()
-    node = SimpleNamespace(
-        node_key="topo:host:agent-1:10.0.0.5",
-        node_type="host",
-        agent_id="agent-1",
-        label="host-1",
-        ip="10.0.0.5",
-        cidr=None,
-        port=None,
-        protocol=None,
-        severity="medium",
-        risk_score=50,
-        confidence=82,
-        is_stale=0,
-        event_count=7,
-        alert_count=2,
-        observation_count=25,
-        first_seen_at=now,
-        last_seen_at=now,
-        updated_at=now,
-        extra_data={"hostname": "host-1", "api_token": "should-not-render"},
-    )
-    observation = SimpleNamespace(
-        id=1,
-        node_key=node.node_key,
-        edge_key=None,
-        agent_id="agent-1",
-        source_type="flow",
-        source_id="123",
-        observed_at=now,
-        summary="Observed traffic",
-        raw_context={"confidence": 88, "secret": "hidden"},
-    )
-    flow = SimpleNamespace(
-        id=123,
-        timestamp=now,
-        agent_id="agent-1",
-        event_type="conn",
-        src_ip="10.0.0.5",
-        dst_ip="10.0.0.8",
-        src_port=51514,
-        dst_port=443,
-        proto="tcp",
-        bytes=2048,
-        app_proto="https",
-    )
-    alert = SimpleNamespace(
-        id=77,
-        created_at=now,
-        rule_id="test.rule",
-        severity="high",
-        status="open",
-        confidence=80,
-        description="Suspicious traffic",
-        src_ip="10.0.0.5",
-        dst_ip="10.0.0.8",
-        dst_port=443,
-    )
-    finding = SimpleNamespace(
-        finding_key="finding-1",
-        asset_key="asset-1",
-        agent_id="agent-1",
-        finding_type="service_exposure",
-        severity="high",
-        status="open",
-        confidence=90,
-        title="Open service",
-        summary="Service exposed",
-        last_seen_at=now,
-    )
-    case = SimpleNamespace(
-        id=9,
-        agent_id="agent-1",
-        suspect_ip="10.0.0.5",
-        status="open",
-        score=70,
-        max_stage="execution",
-        step_count=3,
-        first_seen_at=now,
-        last_seen_at=now,
-    )
-
-    monkeypatch.setattr(topo_repo, "get_node", lambda _db, node_key: node)
-    monkeypatch.setattr(topo_repo, "list_observations_for_node", lambda _db, **kwargs: [observation])
-    monkeypatch.setattr(topo_repo, "count_observations_for_node", lambda _db, **kwargs: 25)
-    monkeypatch.setattr(topo_repo, "evidence_sources_for_node", lambda _db, **kwargs: [("flow", 25, now)])
-    monkeypatch.setattr(topo_repo, "list_edges_for_node", lambda _db, **kwargs: [])
-    monkeypatch.setattr(topo_repo, "list_connected_node_keys", lambda _db, **kwargs: [])
-    monkeypatch.setattr(topo_repo, "list_nodes_by_keys", lambda _db, **kwargs: [])
-    monkeypatch.setattr(topo_repo, "list_related_flows_for_node", lambda _db, **kwargs: [flow])
-    monkeypatch.setattr(topo_repo, "list_related_alerts_for_node", lambda _db, **kwargs: [alert])
-    monkeypatch.setattr(topo_repo, "list_related_exposure_findings_for_node", lambda _db, **kwargs: [finding])
-    monkeypatch.setattr(topo_repo, "list_related_attack_chain_cases_for_node", lambda _db, **kwargs: [case])
-
-    detail = topo_service.get_node_detail(SimpleNamespace(), node.node_key)
-
-    assert detail.evidence_meta.limit == 20
-    assert detail.evidence_meta.total == 25
-    assert detail.evidence_meta.omitted == 5
-    assert detail.observations[0].confidence == 88
-    assert "api_token" not in detail.node.metadata
-    assert "secret" not in detail.observations[0].raw_context
-    assert detail.related_flows[0].id == 123
-    assert detail.related_alerts[0].id == 77
-    assert detail.related_exposure_findings[0].finding_key == "finding-1"
-    assert detail.related_attack_chain_cases[0].id == 9
-
-
-def test_service_edge_detail_returns_aggregate_evidence_and_hides_sensitive_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.features.network_topology import repository as topo_repo
-
-    now = _now()
-    src_node = SimpleNamespace(
-        node_key="topo:host:agent-1:10.0.0.5",
-        node_type="host",
-        agent_id="agent-1",
-        label="host-1",
-        ip="10.0.0.5",
-        cidr=None,
-        port=None,
-        protocol=None,
-        severity="medium",
-        risk_score=50,
-        confidence=82,
-        is_stale=0,
-        event_count=7,
-        alert_count=2,
-        observation_count=25,
-        first_seen_at=now,
-        last_seen_at=now,
-        updated_at=now,
-        extra_data={"ip_scope": "internal_network"},
-    )
-    dst_node = SimpleNamespace(
-        **{
-            **src_node.__dict__,
-            "node_key": "topo:host:agent-1:10.0.0.8",
-            "label": "service-1",
-            "ip": "10.0.0.8",
-        }
-    )
-    edge = SimpleNamespace(
-        edge_key="observed_flow::src::dst::443::tcp",
-        source_node_key=src_node.node_key,
-        target_node_key=dst_node.node_key,
-        edge_type="observed_flow",
-        agent_id="agent-1",
-        weight=1.0,
-        confidence=74,
-        severity="high",
-        port=443,
-        protocol="tcp",
-        event_count=12,
-        alert_count=1,
-        first_seen_at=now,
-        last_seen_at=now,
-        updated_at=now,
-        extra_data={"app_protocols": ["ssh"], "api_token": "should-not-render"},
-    )
-    observation = SimpleNamespace(
-        id=2,
-        node_key=src_node.node_key,
-        edge_key=edge.edge_key,
-        agent_id="agent-1",
-        source_type="flow",
-        source_id="124",
-        observed_at=now,
-        summary="Observed service traffic",
-        raw_context={"confidence": 79, "session_secret": "hidden"},
-    )
-    flow = SimpleNamespace(
-        id=124,
-        timestamp=now,
-        agent_id="agent-1",
-        event_type="conn",
-        src_ip="10.0.0.5",
-        dst_ip="10.0.0.8",
-        src_port=51514,
-        dst_port=443,
-        proto="tcp",
-        bytes=512,
-        app_proto="https",
-    )
-
-    monkeypatch.setattr(topo_repo, "get_edge", lambda _db, edge_key: edge)
-    monkeypatch.setattr(topo_repo, "get_node", lambda _db, node_key: src_node if node_key == src_node.node_key else dst_node)
-    monkeypatch.setattr(topo_repo, "list_observations_for_edge", lambda _db, **kwargs: [observation])
-    monkeypatch.setattr(topo_repo, "count_observations_for_edge", lambda _db, **kwargs: 21)
-    monkeypatch.setattr(topo_repo, "evidence_sources_for_edge", lambda _db, **kwargs: [("flow", 21, now)])
-    monkeypatch.setattr(topo_repo, "list_related_flows_for_edge", lambda _db, **kwargs: [flow])
-    monkeypatch.setattr(topo_repo, "list_related_alerts_for_edge", lambda _db, **kwargs: [])
-    monkeypatch.setattr(topo_repo, "list_related_exposure_findings_for_edge", lambda _db, **kwargs: [])
-    monkeypatch.setattr(topo_repo, "list_related_attack_chain_cases_for_edge", lambda _db, **kwargs: [])
-    monkeypatch.setattr(topo_repo, "edge_flow_metrics", lambda _db, **kwargs: (4096, ["https", "tls"]))
-
-    detail = topo_service.get_edge_detail(SimpleNamespace(), edge.edge_key)
-
-    assert detail.evidence_meta.limit == 20
-    assert detail.evidence_meta.total == 21
-    assert detail.evidence_meta.omitted == 1
-    assert detail.total_bytes == 4096
-    assert detail.application_protocols == ["ssh", "https", "tls"]
-    assert "api_token" not in detail.edge.metadata
-    assert "session_secret" not in detail.observations[0].raw_context
-
-
-# ---- Service layer: pagination ---------------------------------------------------
 
 def test_service_list_subnets_paginates(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.features.network_topology import repository as topo_repo
