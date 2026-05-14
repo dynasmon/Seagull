@@ -7,17 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.features.auth.session import PortalPrincipal, require_admin
-from app.features.correlations.engine import (
-    segment_by_window as _segment_by_window,
-    stage_requirements_met as _stage_requirements_met,
-)
 from app.features.correlations.schemas import (
     CorrelationIncidentDetailOut,
     CorrelationIncidentListItemOut,
     CorrelationIncidentStatusIn,
-    CorrelationRunOut,
     CorrelationRuleIn,
     CorrelationRuleOut,
+    CorrelationRunOut,
 )
 from app.features.correlations.service import (
     create_correlation_rule,
@@ -29,7 +25,6 @@ from app.features.correlations.service import (
     update_correlation_rule,
     update_incident_status,
 )
-
 
 router = APIRouter(
     prefix="/correlations",

@@ -8,7 +8,6 @@ from app.features.correlations.engines.base import (
     CorrelationMatch,
     build_evidence_item,
     dedupe_alert_rows,
-    match_any,
     norm_patterns,
     passes_filter,
     record_timestamp,
@@ -69,7 +68,7 @@ def _select_stage_slice(rows: list[Any], stage: dict[str, Any], *, dataset: Corr
             continue
         candidates.append(row)
 
-    for idx, row in enumerate(candidates):
+    for idx, _ in enumerate(candidates):
         window = candidates[idx:idx + min_count]
         if len(window) < min_count:
             break

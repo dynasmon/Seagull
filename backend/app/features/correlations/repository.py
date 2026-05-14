@@ -6,14 +6,13 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
 from app.features.alerts.models import AlertModel
+from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
 from app.features.correlations.models import (
     CorrelationEntityStateModel,
     CorrelationIncidentEvidenceModel,
     CorrelationIncidentModel,
     CorrelationRuleModel,
-    CorrelationRuleRunModel,
 )
 from app.features.events.models import NetEventModel
 from app.features.exposure.models import ExposureFindingModel

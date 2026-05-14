@@ -10,22 +10,24 @@ from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.features.auth import bootstrap as portal_bootstrap
 from app.core.config import settings
+from app.core.security import decode_token, hash_password
 from app.core.security.identity import canonicalize_username
 from app.core.security.password_policy import validate_password_policy
-from app.features.auth.session import PortalPrincipal, get_current_user, logout, refresh_access_token
-from app.core.security import decode_token, hash_password
 from app.features.account import api as account_api
-from app.features.auth import api as auth_api
-from app.features.auth import service as auth_service
-from app.features.users import api as users_api
-from app.features.auth.models import PortalLoginEventModel
-from app.features.auth.models import PortalOneTimeTokenModel
-from app.features.auth.models import PortalRefreshSessionModel
-from app.features.auth.models import PortalUserModel
 from app.features.account.schemas import ChangePasswordIn
+from app.features.auth import api as auth_api
+from app.features.auth import bootstrap as portal_bootstrap
+from app.features.auth import service as auth_service
+from app.features.auth.models import (
+    PortalLoginEventModel,
+    PortalOneTimeTokenModel,
+    PortalRefreshSessionModel,
+    PortalUserModel,
+)
 from app.features.auth.schemas import LoginIn, OtpLoginIn
+from app.features.auth.session import PortalPrincipal, get_current_user, logout, refresh_access_token
+from app.features.users import api as users_api
 from app.features.users.schemas import AdminUserCreateIn, AdminUserUpdateIn
 
 

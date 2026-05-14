@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from datetime import datetime
 import uuid
+from datetime import datetime
 
 from fastapi import Request
 from sqlalchemy.orm import Session
 
 from app.core.audit import AuditActor, write_audit_event
-from app.features.auth.models import PortalLoginEventModel, PortalOneTimeTokenModel, PortalRefreshSessionModel, PortalUserModel
+from app.features.auth.models import (
+    PortalLoginEventModel,
+    PortalOneTimeTokenModel,
+    PortalRefreshSessionModel,
+    PortalUserModel,
+)
 
 
 def get_user_by_username(db: Session, username: str) -> PortalUserModel | None:

@@ -4,7 +4,13 @@ import time
 
 from app.core.cache import get_redis
 from app.features.ingest.control.backpressure import _update_events_per_msg_avg
-from app.features.ingest.control.queue_keys import _env_int, _overview_live_key, _worker_eps_key, _worker_hb_key, _worker_msgs_key
+from app.features.ingest.control.queue_keys import (
+    _env_int,
+    _overview_live_key,
+    _worker_eps_key,
+    _worker_hb_key,
+    _worker_msgs_key,
+)
 
 
 def record_worker_progress(*, processed_events: int, processed_messages: int) -> None:

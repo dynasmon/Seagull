@@ -6,11 +6,11 @@ from fastapi import HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor
-from app.core.security.password_policy import validate_password_policy
-from app.features.auth.session import PortalPrincipal, _clear_auth_cookies
 from app.core.security import hash_password, verify_password
+from app.core.security.password_policy import validate_password_policy
 from app.features.account import repository
 from app.features.account.schemas import ChangePasswordIn
+from app.features.auth.session import PortalPrincipal, _clear_auth_cookies
 
 
 def change_password(

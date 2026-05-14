@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import time
 import zlib
@@ -10,6 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import Float, and_, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.cache import get_redis
+from app.core.config import settings
 from app.core.integrations.clickhouse import (
     clickhouse_events_1m_table_ref,
     clickhouse_events_table_ref,
@@ -18,14 +19,21 @@ from app.core.integrations.clickhouse import (
     get_clickhouse_client,
 )
 from app.core.integrations.es import es_is_available, get_es_client
-from app.features.events.recent_feed import fetch_recent_events as fetch_recent_feed_events, recent_feed_health
-from app.core.cache import get_redis
-from app.core.config import settings
-from app.features.ingest.control.service import get_backlog as ingest_get_backlog, read_overview_live_window
 from app.core.observability import incr_counter, log_event, observe_hist
 from app.features.agents.models import AgentModel
 from app.features.alerts.models import AlertModel
-from app.features.events.models import EventRollup1mModel, IngestStats1sModel, NetEventModel, NetEventRollup1sModel, SshFailRollup1mModel
+from app.features.events.models import (
+    EventRollup1mModel,
+    IngestStats1sModel,
+    NetEventModel,
+    NetEventRollup1sModel,
+    SshFailRollup1mModel,
+)
+from app.features.events.recent_feed import fetch_recent_events as fetch_recent_feed_events
+from app.features.events.recent_feed import recent_feed_health
+from app.features.ingest.control.service import get_backlog as ingest_get_backlog
+from app.features.ingest.control.service import read_overview_live_window
+
 logger = logging.getLogger("seagull.api.overview")
 
 

@@ -4,8 +4,14 @@ from pathlib import Path
 
 from app.features.detections.rules.compatibility import (
     apply_env_overrides as _apply_env_overrides,
+)
+from app.features.detections.rules.compatibility import (
     deep_merge as _deep_merge,
+)
+from app.features.detections.rules.compatibility import (
     env_aliases as _env_aliases,
+)
+from app.features.detections.rules.compatibility import (
     parse_rule_version as _parse_rule_version,
 )
 from app.features.detections.rules.loader import (
@@ -13,7 +19,11 @@ from app.features.detections.rules.loader import (
     _iter_rules_from_file,
     _norm_set,
     _rules_dir_path,
+)
+from app.features.detections.rules.loader import (
     load_and_validate_rules as _load_and_validate_rules,
+)
+from app.features.detections.rules.loader import (
     load_rules as _load_rules,
 )
 

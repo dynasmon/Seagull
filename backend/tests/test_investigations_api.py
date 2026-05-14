@@ -5,14 +5,14 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.features.auth.session import PortalPrincipal, get_current_user
 from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
+from app.features.auth.session import PortalPrincipal, get_current_user
 from app.features.events.models import NetEventModel
 from app.features.inventory.models import AgentInventorySnapshotModel
 from app.features.investigations import api as investigations_api

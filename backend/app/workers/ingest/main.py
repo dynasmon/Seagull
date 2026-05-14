@@ -217,7 +217,7 @@ def main() -> None:
                 for raw in items:
                     pipe.lrem(cfg.processing_key, 1, raw)
                 results = pipe.execute() or []
-                for raw, removed in zip(items, results):
+                for raw, removed in zip(items, results, strict=False):
                     if int(removed or 0) > 0:
                         removed_received += received_by_raw.get(str(raw), 0)
                         removed_messages += 1

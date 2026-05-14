@@ -5,11 +5,17 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.db.session import managed_session
 from app.core.db import get_db
-from app.features.auth.session import PortalPrincipal, require_admin
-from app.features.alerts.schemas import AlertEvidenceOut, AlertOut, AlertTriageIn
-from app.features.alerts.schemas import RuleGovernanceHistoryOut, RuleOut, RuleOverrideIn, RuleValidationResult
+from app.core.db.session import managed_session
+from app.features.alerts.schemas import (
+    AlertEvidenceOut,
+    AlertOut,
+    AlertTriageIn,
+    RuleGovernanceHistoryOut,
+    RuleOut,
+    RuleOverrideIn,
+    RuleValidationResult,
+)
 from app.features.alerts.service import (
     delete_alert_rule_override,
     get_alert,
@@ -28,9 +34,9 @@ from app.features.alerts.service import (
     run_ssh_bruteforce_rule,
     triage_alert,
 )
+from app.features.auth.session import PortalPrincipal, require_admin
 from app.shared.schemas import CursorPage
 from app.shared.taxonomy.schemas import MitreCoverageResponse
-
 
 router = APIRouter(
     prefix="/alerts",

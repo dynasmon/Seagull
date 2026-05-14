@@ -6,13 +6,17 @@ from typing import Any
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.features.alerts.models import AlertEvidenceModel, AlertModel
-from app.features.alerts.models import AlertRuleOverrideModel
+from app.features.alerts.models import (
+    AlertEvidenceModel,
+    AlertModel,
+    AlertRuleOverrideModel,
+    AlertRuleSuppressionHistoryModel,
+    AlertRuleSuppressionModel,
+    AlertRuleTuningHistoryModel,
+    AlertRuleTuningModel,
+)
 from app.features.alerts.rule_registry_runtime import fetch_overrides, fetch_suppressions, fetch_tuning
-from app.features.alerts.models import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
-from app.features.alerts.models import AlertRuleTuningHistoryModel, AlertRuleTuningModel
 from app.features.events.models import NetEventModel
-
 
 # Alert queries
 

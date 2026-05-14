@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from pathlib import Path
-import json
 from typing import Any, Mapping
 
 from app.features.detections.domain.canonical_fields import CANONICAL_FIELD_MAP

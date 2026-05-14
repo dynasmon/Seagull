@@ -11,7 +11,6 @@ from app.features.detections.domain.operators import (
 )
 from app.features.detections.domain.validation import DetectionRuleValidationError, ensure_field_operator
 
-
 SUPPORTED_RUNTIME_EVENT_FIELDS = frozenset(
     {
         "agent_id",

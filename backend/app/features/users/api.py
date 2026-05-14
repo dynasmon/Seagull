@@ -3,13 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.audit import write_audit_event  # backward-compatible symbol for tests
+from app.core.db import get_db
 from app.core.db.session import managed_session
-from app.core.db import SessionLocal, get_db
 from app.features.auth.session import PortalPrincipal, require_admin
-from app.features.users.schemas import AdminUserCreateIn, AdminUserOut, AdminUserUpdateIn
 from app.features.users import service
-
+from app.features.users.schemas import AdminUserCreateIn, AdminUserOut, AdminUserUpdateIn
 
 router = APIRouter(prefix="/users", tags=["users"])
 

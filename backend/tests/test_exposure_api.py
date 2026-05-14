@@ -4,9 +4,9 @@ import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-import pytest
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
@@ -17,11 +17,13 @@ from app.features.exposure import api as exposure_api
 from app.features.exposure import realtime as exposure_realtime
 from app.features.exposure import repository as exposure_repository
 from app.features.exposure import service as exposure_service
-from app.features.investigations import repository as investigations_repository
-from app.features.investigations import service as investigations_service
-from app.features.exposure.models import ExposureAssetPostureModel, ExposureEdgeModel, ExposureFindingModel, ExposureNodeModel
+from app.features.exposure.models import (
+    ExposureAssetPostureModel,
+    ExposureEdgeModel,
+    ExposureFindingModel,
+    ExposureNodeModel,
+)
 from app.features.exposure.schemas import (
-    EvidenceRefOut,
     ExposureAssetDetailOut,
     ExposureAssetPostureOut,
     ExposureAssetsQuery,
@@ -29,18 +31,15 @@ from app.features.exposure.schemas import (
     ExposureGraphLegendOut,
     ExposureGraphOut,
     ExposureGraphQuery,
-    ExposureLinkedAlertOut,
-    ExposureLinkedAttackChainCaseOut,
-    ExposureLinkedResponseActionOut,
-    ExposureLinkedVulnerabilityOut,
     ExposureRecalculateOut,
     RecommendationOut,
     ScoreBreakdownOut,
     ScoreExplanationOut,
 )
+from app.features.investigations import repository as investigations_repository
+from app.features.investigations import service as investigations_service
 from app.main import app
 from app.shared.schemas import CursorPage
-
 
 _UTC = timezone.utc
 

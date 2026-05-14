@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, Mapping, Sequence
 
 from .story_schemas import AttackStoryStage, AttackStoryTemplate
 from .types import StepCandidate
@@ -441,7 +441,7 @@ def _select_stage_records(
     required_count = int(stage.min_signals)
     for index in range(0, len(matching) - required_count + 1):
         window = matching[index:index + required_count]
-        first_seen_at = min(item.first_seen_at for item in window)
+        min(item.first_seen_at for item in window)
         matched_at = max(item.timestamp for item in window)
         if after_ts is not None and stage.within_seconds is not None:
             if matched_at > (after_ts + timedelta(seconds=int(stage.within_seconds))):

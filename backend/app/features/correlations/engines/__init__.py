@@ -19,7 +19,6 @@ from app.features.correlations.engines.sequence import SequenceEngine
 from app.features.correlations.engines.temporal_join import TemporalJoinEngine
 from app.features.correlations.engines.threshold import ThresholdEngine
 
-
 _ENGINE_BY_STRATEGY = {
     "threshold": ThresholdEngine(),
     "burst": ThresholdEngine(compatibility_mode=True),

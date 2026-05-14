@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from app.core.db.session import managed_session
 from app.core.audit import write_audit_event
 from app.core.db import get_db
-from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
+from app.core.db.session import managed_session
 from app.features.attack_chain import service
 from app.features.attack_chain.schemas import (
     AttackChainAllowlistCreate,
@@ -19,8 +17,8 @@ from app.features.attack_chain.schemas import (
     AttackChainCaseWithSteps,
     AttackChainStepDB,
 )
+from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 from app.shared.schemas import CursorPage
-
 
 router = APIRouter(
     prefix="/attack-chain",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from sqlalchemy import select
 
@@ -24,8 +24,6 @@ from app.features.ingest.control.queue_keys import (
     _worker_eps_key,
     _worker_msgs_key,
     backlog_events_key,
-    processing_key,
-    queue_key,
     storm_active_key,
     storm_alert_id_key,
     storm_session_key,

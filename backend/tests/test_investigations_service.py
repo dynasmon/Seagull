@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 
-from app.features.auth.session import PortalPrincipal
 from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
+from app.features.auth.session import PortalPrincipal
 from app.features.events.models import NetEventModel
 from app.features.inventory.models import AgentInventorySnapshotModel
 from app.features.investigations import service

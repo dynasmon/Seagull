@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 from urllib.parse import unquote
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.audit import audit_actor, write_audit_event
 from app.core.api.pagination import encode_cursor, make_cursor_ts_id, parse_cursor_ts_id
+from app.core.audit import audit_actor, write_audit_event
 from app.features.auth.session import PortalPrincipal
 from app.features.exposure import realtime as exposure_realtime
 from app.features.exposure import repository
@@ -30,15 +30,14 @@ from app.features.exposure.domain.constants import (
     RC_SUSPICIOUS_PROCESS,
     RC_VULNERABLE_PACKAGE,
 )
-from app.features.exposure.domain.explain import explain_score
 from app.features.exposure.domain.evidence import (
     count_evidence_by_source,
     derive_aggregate_confidence,
     evidence_refs_to_list,
 )
+from app.features.exposure.domain.explain import explain_score
 from app.features.exposure.domain.normalization import (
     asset_status_from_age,
-    normalize_asset_key,
     normalize_evidence_ref,
     normalize_finding_status,
     normalize_finding_type,
@@ -64,8 +63,8 @@ from app.features.exposure.schemas import (
     ExposureAttackPathOut,
     ExposureAttackPathStageOut,
     ExposureCountOut,
-    ExposureFindingsQuery,
     ExposureFindingOut,
+    ExposureFindingsQuery,
     ExposureGraphEdgeOut,
     ExposureGraphHealthOut,
     ExposureGraphLegendOut,
@@ -95,7 +94,6 @@ from app.features.response import service as response_service
 from app.features.response.schemas import ResponseActionCreateIn
 from app.shared.indexing.offset_store import set_offset
 from app.shared.schemas import CursorPage
-
 
 _UTC = timezone.utc
 _OFFSET_NAME = "exposure_graph_events_v1"

@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import argparse
+import re
 from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
-import re
 from typing import Any
 
 import yaml
 
 from app.features.detections.domain.rule_types import V2_RULE_SCHEMA_VERSION
-from app.features.detections.domain.validation import DetectionRuleValidationError, ensure_mapping, ensure_non_empty_string
+from app.features.detections.domain.validation import (
+    DetectionRuleValidationError,
+    ensure_mapping,
+    ensure_non_empty_string,
+)
 from app.features.detections.rules.validator import validate_rule_document
-
 
 DEFAULT_SIGMA_IMPORT_WINDOW = "5m"
 DEFAULT_SIGMA_IMPORT_COOLDOWN = "10m"

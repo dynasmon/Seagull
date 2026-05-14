@@ -9,11 +9,11 @@ os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.core.db import get_db
+from app.features.agents.models import AgentModel
 from app.features.auth.session import PortalPrincipal, require_admin
 from app.features.response import api as response_api
-from app.main import app
-from app.features.agents.models import AgentModel
 from app.features.response.models import ResponseActionModel
+from app.main import app
 
 
 class _FakeQuery:

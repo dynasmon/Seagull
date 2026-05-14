@@ -21,8 +21,6 @@ from app.features.correlations.models import CorrelationIncidentModel
 from app.features.events.worker_runtime import NetEventModel
 from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
 
-from .state import _utc_now
-
 OFFSET_NAME = "attack_chain_v1"
 
 

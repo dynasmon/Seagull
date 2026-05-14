@@ -6,7 +6,6 @@ from pathlib import Path
 from app.mitre.catalog import TACTIC_LABELS
 from app.workers.intelligence.rules.loader import load_rules
 
-
 _TECHNIQUE_ID_RE = re.compile(r"^T\d{4}(?:\.\d{3})?$")
 _SEVERITIES = {"low", "medium", "high", "critical"}
 _RULE_TYPES = {"aggregate_count", "distinct_count", "multi_distinct"}

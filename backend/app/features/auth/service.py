@@ -1,23 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 import uuid
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor
 from app.core.config import settings
-from app.core.security.identity import canonicalize_username
-from app.features.auth.session import (
-    REFRESH_COOKIE_NAME,
-    PortalPrincipal,
-    _clear_auth_cookies,
-    _set_csrf_cookie,
-    _set_refresh_cookie,
-    verify_refresh_csrf,
-)
-from app.core.security.rate_limit import guard_login_rate_limit, guard_otp_rate_limit
 from app.core.security import (
     make_access_token,
     new_csrf_token,
@@ -26,9 +16,19 @@ from app.core.security import (
     token_hash,
     verify_and_upgrade_password,
 )
+from app.core.security.identity import canonicalize_username
+from app.core.security.rate_limit import guard_login_rate_limit, guard_otp_rate_limit
 from app.features.auth import repository
 from app.features.auth.models import PortalRefreshSessionModel, PortalUserModel
 from app.features.auth.schemas import LoginIn, OtpCreateIn, OtpLoginIn
+from app.features.auth.session import (
+    REFRESH_COOKIE_NAME,
+    PortalPrincipal,
+    _clear_auth_cookies,
+    _set_csrf_cookie,
+    _set_refresh_cookie,
+    verify_refresh_csrf,
+)
 
 
 def _client_meta(request: Request) -> tuple[str, str]:

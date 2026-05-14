@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from math import log2
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 
 def _read_u16(b: bytes, i: int) -> Tuple[int, int]:
@@ -28,18 +28,17 @@ def _decode_name(b: bytes, i: int, depth: int = 0) -> Tuple[str, int]:
         return "", i
 
     labels: List[str] = []
-    start = i
 
     while i < len(b):
-        l = b[i]
-        if l == 0:
+        label_len = b[i]
+        if label_len == 0:
             i += 1
             break
 
-        if _is_pointer(l):
+        if _is_pointer(label_len):
             if i + 1 >= len(b):
                 return "", i + 1
-            ptr = ((l & 0x3F) << 8) | b[i + 1]
+            ptr = ((label_len & 0x3F) << 8) | b[i + 1]
             name, _ = _decode_name(b, ptr, depth + 1)
             if name:
                 labels.append(name)
@@ -47,13 +46,13 @@ def _decode_name(b: bytes, i: int, depth: int = 0) -> Tuple[str, int]:
             break
 
         i += 1
-        if i + l > len(b):
+        if i + label_len > len(b):
             return "", i
         try:
-            labels.append(b[i : i + l].decode("ascii", "ignore"))
+            labels.append(b[i : i + label_len].decode("ascii", "ignore"))
         except Exception:
             labels.append("")
-        i += l
+        i += label_len
 
     # If we consumed a pointer, i already advanced. For question section, the caller
     # needs to advance using the original bytes. We return i (current offset).

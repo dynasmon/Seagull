@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextvars
 import uuid
 
-
 _REQUEST_ID = contextvars.ContextVar("seagull_request_id", default="")
 _TRACE_ID = contextvars.ContextVar("seagull_trace_id", default="")
 _SERVICE = contextvars.ContextVar("seagull_service", default="seagull")

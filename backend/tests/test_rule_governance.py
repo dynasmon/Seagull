@@ -223,9 +223,7 @@ def test_patch_overwriting_detection_block_rejected() -> None:
 
 
 def test_patch_without_detection_on_v2_rule_accepted() -> None:
-    from app.features.detections.domain.condition_ast import (
-        DetectionBlock, DetectionCondition, SelectionReference
-    )
+    from app.features.detections.domain.condition_ast import DetectionBlock, DetectionCondition, SelectionReference
     detection = DetectionBlock(
         selections=(),
         condition=DetectionCondition(raw="dummy", expression=SelectionReference(name="dummy")),

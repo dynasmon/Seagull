@@ -6,7 +6,6 @@ from typing import Any, Dict, Tuple
 
 from .context import service_name
 
-
 _METRIC_LOCK = threading.Lock()
 _COUNTERS: dict[Tuple[str, Tuple[Tuple[str, str], ...]], float] = defaultdict(float)
 _HIST: dict[Tuple[str, Tuple[Tuple[str, str], ...]], dict[str, float]] = defaultdict(

@@ -36,10 +36,8 @@ from app.features.exposure.domain.constants import (
 from app.features.exposure.domain.normalization import (
     clamp_confidence,
     clamp_score,
-    severity_from_score,
 )
 from app.features.exposure.domain.types import EvidenceRef, ScoreBreakdown
-
 
 _CRITICALITY_MULTIPLIER: dict[str, float] = {
     "critical": 1.0,

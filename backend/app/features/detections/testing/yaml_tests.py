@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-import json
 from typing import Any, Mapping
 
 from app.features.detections.domain.condition_ast import (
@@ -238,7 +238,7 @@ def _stable_json(value: Any) -> str:
 
 
 def _as_group_dict(group_fields: tuple[str, ...], group_key: tuple[Any, ...]) -> dict[str, Any]:
-    return dict(zip(group_fields, group_key))
+    return dict(zip(group_fields, group_key, strict=False))
 
 
 def build_rule_execution_spec(rule: Mapping[str, Any]) -> RuleExecutionSpec:

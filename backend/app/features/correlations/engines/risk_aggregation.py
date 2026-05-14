@@ -13,9 +13,9 @@ from app.features.correlations.engines.base import (
     filter_records,
     record_timestamp,
     resolve_entity,
-    to_utc_naive,
     severity_score,
     summarize_timedelta_seconds,
+    to_utc_naive,
 )
 
 
@@ -65,7 +65,7 @@ def _score_window(rows: list[Any], cfg: dict[str, Any]) -> tuple[int, dict[str, 
     total = 0
     selected: list[Any] = []
     contributions: list[dict[str, Any]] = []
-    ordered = sorted(per_dedup.values(), key=lambda item: to_utc_naive(getattr(item[1], "created_at")))
+    ordered = sorted(per_dedup.values(), key=lambda item: to_utc_naive(item[1].created_at))
 
     for weighted, alert in ordered:
         rule_id = str(getattr(alert, "rule_id", "") or "")

@@ -10,7 +10,6 @@ from app.core.db import get_db
 from app.features.auth.session import get_current_user
 from app.features.overview.service import get_overview
 
-
 router = APIRouter(
     prefix="",
     tags=["overview"],

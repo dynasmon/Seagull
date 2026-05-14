@@ -20,7 +20,6 @@ from app.features.exposure.domain.constants import (
 )
 from app.features.exposure.domain.types import ScoreBreakdown
 
-
 _RC_HUMAN: dict[str, str] = {
     RC_EXPOSED_SERVICE: "Exposed network service detected",
     RC_VULNERABLE_PACKAGE: "Vulnerable software packages present",

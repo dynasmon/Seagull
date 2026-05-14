@@ -8,11 +8,11 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.features.agents.auth import AgentPrincipal
-from app.core.config import settings
 from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
-from app.features.vuln.presentation import serialize_finding
+from app.core.config import settings
+from app.features.agents.auth import AgentPrincipal
 from app.features.vuln.models import VulnScanModel
+from app.features.vuln.presentation import serialize_finding
 from app.features.vuln.repository import (
     bulk_upsert_findings,
     get_finding_by_id,
@@ -21,7 +21,6 @@ from app.features.vuln.repository import (
 )
 from app.features.vuln.schemas import VulnFindingIn, VulnFindingOut
 from app.shared.schemas import CursorPage
-
 
 SEVERITY_RANK: dict[str, int] = {
     "unknown": 0,

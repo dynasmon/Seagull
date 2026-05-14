@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-
 MIN_PASSWORD_LENGTH = 12
 
 

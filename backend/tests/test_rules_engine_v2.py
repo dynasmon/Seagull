@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
@@ -17,16 +16,13 @@ import pytest
 
 from app.features.detections.domain.condition_ast import parse_detection_block
 from app.features.detections.domain.rule_types import V2_RULE_SCHEMA_VERSION
-from app.features.detections.rules.compatibility import normalize_v1_rule_to_v2
 from app.features.detections.rules.compiler import (
-    _predicate_to_sqla,
     _v2_mitre_meta,
     _v2_resolve_params,
     _v2_suppressions,
     compile_detection_filters,
     execute_v2_rule,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
