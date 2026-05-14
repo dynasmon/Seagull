@@ -61,6 +61,9 @@ build_images:
     DOCKER_TLS_CERTDIR: ""
     DOCKER_DRIVER: overlay2
     COMPOSE_DOCKER_CLI_BUILD: "1"
+    POSTGRES_PASSWORD: "ci"
+    SEAGULL_JWT_SECRET: "ci-jwt-secret"
+    SEAGULL_BOOTSTRAP_ADMIN_PASSWORD: "ci-admin"
   needs:
     - quality
   before_script:
@@ -69,6 +72,10 @@ build_images:
     - docker compose version
   script:
     - docker compose -f compose.yml build
+    - docker compose -f compose.yml up --wait postgres redis elasticsearch clickhouse seagull-backend
+    - docker compose -f compose.yml ps
+  after_script:
+    - docker compose -f compose.yml down -v --remove-orphans || true
 
 dependency_audit:
   stage: security
