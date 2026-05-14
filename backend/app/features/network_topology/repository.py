@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, exists, func, not_, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -910,6 +910,42 @@ def topology_insight_metrics(db: Session, *, since: datetime) -> dict[str, Any]:
         ).scalar() or 0
     )
 
+    nodes_with_exposure_findings = int(
+        db.execute(
+            select(func.count(TopologyNodeModel.id)).where(
+                TopologyNodeModel.node_type.not_in(["subnet"]),
+                exists(
+                    select(TopologyEdgeModel.id).where(
+                        TopologyEdgeModel.edge_type == "exposure_related",
+                        or_(
+                            TopologyEdgeModel.source_node_key == TopologyNodeModel.node_key,
+                            TopologyEdgeModel.target_node_key == TopologyNodeModel.node_key,
+                        ),
+                    )
+                ),
+            )
+        ).scalar() or 0
+    )
+
+    isolated_nodes = int(
+        db.execute(
+            select(func.count(TopologyNodeModel.id)).where(
+                TopologyNodeModel.is_stale == 0,
+                TopologyNodeModel.node_type.not_in(["subnet"]),
+                not_(
+                    exists(
+                        select(TopologyEdgeModel.id).where(
+                            or_(
+                                TopologyEdgeModel.source_node_key == TopologyNodeModel.node_key,
+                                TopologyEdgeModel.target_node_key == TopologyNodeModel.node_key,
+                            )
+                        )
+                    )
+                ),
+            )
+        ).scalar() or 0
+    )
+
     last_flow_at = db.execute(
         select(func.max(TopologyEdgeModel.last_seen_at)).where(TopologyEdgeModel.edge_type == "observed_flow")
     ).scalar()
@@ -933,6 +969,8 @@ def topology_insight_metrics(db: Session, *, since: datetime) -> dict[str, Any]:
         "stale_other": stale_other,
         "noisy_nodes": noisy_nodes,
         "nodes_with_alerts": nodes_with_alerts,
+        "nodes_with_exposure_findings": nodes_with_exposure_findings,
+        "isolated_nodes": isolated_nodes,
         "docker_node_count": docker_node_count,
         "last_flow_at": last_flow_at,
         "last_alert_at": last_alert_at,

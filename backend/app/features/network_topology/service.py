@@ -486,6 +486,17 @@ def _compute_insights(
             count=nodes_with_alerts,
         ))
 
+    nodes_with_exposure = int(insight_metrics.get("nodes_with_exposure_findings", 0))
+    if nodes_with_exposure > 0:
+        insights.append(TopologyInsightOut(
+            id="nodes_with_exposure_findings",
+            group="needs_attention",
+            severity="high" if nodes_with_exposure >= 3 else "medium",
+            title=f"{nodes_with_exposure} host{'s' if nodes_with_exposure != 1 else ''} with exposure findings",
+            detail="These hosts are linked to open exposure findings. Review the Exposure panel for remediation steps.",
+            count=nodes_with_exposure,
+        ))
+
     exposed_services = int(insight_metrics.get("exposed_services", 0))
     if exposed_services > 0:
         insights.append(TopologyInsightOut(
@@ -604,6 +615,17 @@ def _compute_insights(
             title=f"{stale_other} stale topology node{'s' if stale_other != 1 else ''}",
             detail="Non-agent nodes (hosts, interfaces, services) that have not been refreshed. Their data may be outdated.",
             count=stale_other,
+        ))
+
+    isolated_nodes = int(insight_metrics.get("isolated_nodes", 0))
+    if isolated_nodes > 0:
+        insights.append(TopologyInsightOut(
+            id="isolated_nodes",
+            group="visibility_gaps",
+            severity="info",
+            title=f"{isolated_nodes} isolated node{'s' if isolated_nodes != 1 else ''} with no connections",
+            detail="Nodes discovered from inventory or alerts but with no observed flows or topology edges. They may represent agents or hosts with incomplete coverage.",
+            count=isolated_nodes,
         ))
 
     docker_count = int(insight_metrics.get("docker_node_count", 0))
