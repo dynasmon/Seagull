@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import String, and_, cast, exists, func, or_, select
 from sqlalchemy.orm import Session
@@ -10,12 +9,12 @@ from app.features.admin.models import AdminAuditEventModel
 from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
 from app.features.events.models import NetEventModel
 from app.features.inventory.models import AgentInventorySnapshotModel
-from app.features.response.models import ResponseActionModel, ResponseActionResultModel
 from app.features.investigations.models import (
     InvestigationEvidenceBookmarkModel,
     InvestigationNoteModel,
     InvestigationWorkspaceModel,
 )
+from app.features.response.models import ResponseActionModel, ResponseActionResultModel
 
 
 def list_workspaces_page(

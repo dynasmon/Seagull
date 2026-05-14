@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 DEFAULT_FIELD_OPERATOR = "eq"
 
 OPERATOR_SUFFIXES: tuple[tuple[str, str], ...] = (

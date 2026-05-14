@@ -6,7 +6,7 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable
 
 from fastapi import Request
 from sqlalchemy.orm import Session
@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.observability import request_id
 from app.features.admin.models import AdminAuditEventModel
-
 
 _SENSITIVE_TOKENS = (
     "password",
@@ -77,7 +76,7 @@ def _sanitize(obj: Any, *, depth: int = 0, max_depth: int = 8) -> Any:
         if len(items) > 200:
             items = items[:200]
         return [_sanitize(x, depth=depth + 1, max_depth=max_depth) for x in items]
-    if hasattr(obj, "dict") and callable(getattr(obj, "dict")):
+    if hasattr(obj, "dict") and callable(obj.dict):
         try:
             return _sanitize(obj.dict(), depth=depth + 1, max_depth=max_depth)
         except Exception:

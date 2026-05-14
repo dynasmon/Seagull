@@ -8,26 +8,38 @@ Table creation is handled by Alembic migrations (upgrade head).
 """
 
 from sqlalchemy import Index, func, inspect
-from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import Connection, Engine
 
-from app.features.agents.models import AgentModel
 from app.features.admin.models import AdminAuditEventModel
-from app.features.alerts.models import AlertRuleOverrideModel
-from app.features.alerts.models import AlertRuleSuppressionHistoryModel, AlertRuleSuppressionModel
-from app.features.alerts.models import AlertRuleTuningHistoryModel, AlertRuleTuningModel
-from app.features.alerts.models import AlertModel
+from app.features.agents.models import AgentModel
+from app.features.alerts.models import (
+    AlertModel,
+    AlertRuleOverrideModel,
+    AlertRuleSuppressionHistoryModel,
+    AlertRuleSuppressionModel,
+    AlertRuleTuningHistoryModel,
+    AlertRuleTuningModel,
+)
 from app.features.attack_chain.models import AttackChainAllowlistModel, AttackChainCaseModel, AttackChainStepModel
-from app.features.events.models import EventRollup1mModel, IngestStats1sModel, NetEventModel, NetEventRollup1sModel, SshFailRollup1mModel
+from app.features.auth.models import (
+    PortalLoginEventModel,
+    PortalOneTimeTokenModel,
+    PortalRefreshSessionModel,
+    PortalUserModel,
+)
+from app.features.events.models import (
+    EventRollup1mModel,
+    IngestStats1sModel,
+    NetEventModel,
+    NetEventRollup1sModel,
+    SshFailRollup1mModel,
+)
 from app.features.inventory.models import AgentInventoryLatestModel, AgentInventorySnapshotModel
-from app.shared.enrichment.models import IpEnrichmentCacheModel
-from app.features.auth.models import PortalLoginEventModel
-from app.features.auth.models import PortalOneTimeTokenModel
-from app.features.auth.models import PortalRefreshSessionModel
-from app.features.auth.models import PortalUserModel
 from app.features.settings.models import PlatformSettingModel
-from app.shared.indexing.models import SearchIndexOffsetModel
 from app.features.vuln.models import VulnFindingModel, VulnScanModel
+from app.shared.enrichment.models import IpEnrichmentCacheModel
+from app.shared.indexing.models import SearchIndexOffsetModel
 
 
 def _ensure_indexes(conn) -> None:

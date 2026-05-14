@@ -40,7 +40,8 @@ def _alpn_tag(first_proto: bytes) -> str:
     # First and last ASCII alphanumeric characters.
     a = first_proto[0]
     z = first_proto[-1]
-    is_alnum = lambda c: (0x30 <= c <= 0x39) or (0x41 <= c <= 0x5A) or (0x61 <= c <= 0x7A)
+    def is_alnum(c):
+        return 48 <= c <= 57 or 65 <= c <= 90 or 97 <= c <= 122
 
     if is_alnum(a) and is_alnum(z):
         try:
@@ -214,11 +215,11 @@ def parse_tls_client_hello(payload: bytes, extra: Optional[Dict[str, Any]] = Non
         if is_dtls:
             if len(b) < 13:
                 return out
-            legacy_record_version = int.from_bytes(b[1:3], "big")
+            int.from_bytes(b[1:3], "big")
             record_len = int.from_bytes(b[11:13], "big")
             rec = b[13 : 13 + record_len]
         else:
-            legacy_record_version = int.from_bytes(b[1:3], "big")
+            int.from_bytes(b[1:3], "big")
             record_len = int.from_bytes(b[3:5], "big")
             rec = b[5 : 5 + record_len]
 

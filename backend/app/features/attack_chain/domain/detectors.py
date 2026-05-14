@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 from app.features.attack_chain.domain.config import AttackChainConfig
 from app.features.attack_chain.domain.types import AttackStage, StepCandidate

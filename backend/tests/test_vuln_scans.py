@@ -7,6 +7,7 @@ import sqlalchemy
 os.environ.setdefault("SEAGULL_DB_URL", "sqlite+pysqlite:///:memory:")
 sqlalchemy.create_engine = lambda *args, **kwargs: SimpleNamespace()
 
+from app.features.vuln.models import VulnScanModel
 from app.features.vuln.scans import trigger_manual_scan
 from app.features.vuln.schemas import VulnManualScanIn
 

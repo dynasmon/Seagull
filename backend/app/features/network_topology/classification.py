@@ -3,7 +3,7 @@ from __future__ import annotations
 import ipaddress
 from typing import Any
 
-from app.shared.network.ip_classification import classify_ip, classify_flow
+from app.shared.network.ip_classification import classify_flow, classify_ip
 
 _DOCKER_BRIDGE_DEFAULT = ipaddress.IPv4Network("172.17.0.0/16")
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
+
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings

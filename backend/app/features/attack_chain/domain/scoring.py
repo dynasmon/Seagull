@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, Sequence, Tuple
 
-from app.features.attack_chain.domain.types import stage_rank, StepCandidate
-
+from app.features.attack_chain.domain.types import StepCandidate, stage_rank
 
 EVIDENCE_CLASSES = ("observed", "strongly_supported", "inferred", "weakly_inferred")
 

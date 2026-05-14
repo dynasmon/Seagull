@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict
-
-import re
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -57,7 +56,7 @@ def _as_int(v: Any, field: str, *, min_value: int, max_value: int) -> int:
     try:
         n = int(v)
     except Exception:
-        raise HTTPException(status_code=422, detail=f"{field} must be an integer")
+        raise HTTPException(status_code=422, detail=f"{field} must be an integer") from None
     if n < min_value or n > max_value:
         raise HTTPException(status_code=422, detail=f"{field} must be between {min_value} and {max_value}")
     return n

@@ -1,7 +1,7 @@
 import logging
 import time
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
@@ -22,7 +22,6 @@ from app.features.alerts.rule_registry_runtime import (
 )
 from app.features.detections.repository import get_rule_health_map
 from app.features.detections.rules.compiler import execute_v2_rule
-from app.features.events.worker_runtime import NetEventModel
 from app.shared.taxonomy.catalog import technique_name
 
 from .conditions import (
@@ -34,7 +33,7 @@ from .conditions import (
     _parse_window,
     _safe_col,
 )
-from .dedup import _index_add, _normalize_dedup_key, _recent_alert_index, _recent_alert_last_at
+from .dedup import _index_add, _recent_alert_index, _recent_alert_last_at
 from .health import RuleExecResult, _content_hash, flush_cycle_health
 from .heuristics import _emit_heuristic_signals
 from .mitre import _extract_mitre_meta
@@ -278,7 +277,7 @@ def run_rules_once():
 
                     stmt = (
                         select(
-                            *[c.label(f) for c, f in zip(group_cols, group_fields)],
+                            *[c.label(f) for c, f in zip(group_cols, group_fields, strict=False)],
                             func.count().label("count"),
                         )
                         .where(and_(*filters))
@@ -417,7 +416,7 @@ def run_rules_once():
 
                     stmt = (
                         select(
-                            *[c.label(f) for c, f in zip(group_cols, group_fields)],
+                            *[c.label(f) for c, f in zip(group_cols, group_fields, strict=False)],
                             func.count(func.distinct(distinct_col)).label("distinct_count"),
                             func.count().label("event_count"),
                         )
@@ -564,7 +563,7 @@ def run_rules_once():
                         continue
 
                     group_cols = [_safe_col(f) for f in group_fields]
-                    sel = [c.label(f) for c, f in zip(group_cols, group_fields)]
+                    sel = [c.label(f) for c, f in zip(group_cols, group_fields, strict=False)]
                     sel.append(func.count().label("event_count"))
                     for i, dc in enumerate(dcs):
                         f = dc.get("field")

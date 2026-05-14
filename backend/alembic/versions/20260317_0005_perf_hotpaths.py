@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+from alembic import op
 
 revision = "20260317_0005"
 down_revision = "20260313_0004"

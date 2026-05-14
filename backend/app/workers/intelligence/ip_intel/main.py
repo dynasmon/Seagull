@@ -10,10 +10,20 @@ from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
 from app.core.observability import log_event, setup_logging
-from .cache import _ensure_bootstrap, _fetch_batch, _get_cached_ip, _get_last_id, _patch_event, _pick_batch_max_id, _set_last_id, _upsert_cache
 from app.shared.network.ip_classification import classify_ip
+
+from .cache import (
+    _ensure_bootstrap,
+    _fetch_batch,
+    _get_cached_ip,
+    _get_last_id,
+    _patch_event,
+    _pick_batch_max_id,
+    _set_last_id,
+    _upsert_cache,
+)
 from .normalization import GEOIP_PROVIDER_NONE, _compact, _env_float, _env_int, _env_str, _utc_now
-from .providers import _provider_config, _resolve_provider, _lookup_ip
+from .providers import _lookup_ip, _provider_config, _resolve_provider
 
 setup_logging("worker-lupe")
 logger = logging.getLogger("seagull.worker.lupe")

@@ -9,16 +9,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket
 from fastapi.responses import StreamingResponse
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
+from app.core.cache import get_redis
 from app.core.config import settings
 from app.core.observability import incr_counter, log_event
-from app.features.auth.session import PortalPrincipal, get_current_user
 from app.core.realtime import (
     PORTAL_REALTIME_REPLAY_MAX_EVENTS,
     PortalRealtimeStreamEntry,
     load_portal_realtime_replay_window,
     read_portal_realtime_stream,
 )
-from app.core.cache import get_redis
+from app.features.auth.session import PortalPrincipal, get_current_user
 from app.features.realtime.schemas import RealtimeEnvelope, StreamTokenOut
 from app.features.realtime.service import (
     StreamPrincipal,

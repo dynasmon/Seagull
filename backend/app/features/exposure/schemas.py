@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, validator
 
-
 ExposureSeverity = Literal["informational", "low", "medium", "high", "critical", "unknown"]
 ExposureStatus = Literal["active", "inactive", "stale", "unknown"]
 ExposureFindingStatus = Literal["open", "acknowledged", "resolved", "suppressed"]

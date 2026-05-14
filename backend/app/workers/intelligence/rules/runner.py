@@ -3,10 +3,9 @@ import time
 
 from sqlalchemy.exc import OperationalError
 
-from app.core.observability import log_event, setup_logging
 from app.core.config import settings
+from app.core.observability import log_event, setup_logging
 from app.features.alerts.rule_runtime import run_all_rules
-
 
 setup_logging("worker-rules")
 logger = logging.getLogger("seagull.worker.rules")

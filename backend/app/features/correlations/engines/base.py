@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from fnmatch import fnmatchcase
-import json
 from typing import Any, Iterable, List, Mapping, Optional, Sequence
 
 from app.features.alerts.models import AlertModel
@@ -344,17 +344,17 @@ def select_records(dataset: CorrelationDataset, source: str) -> list[Any]:
 def record_timestamp(record: Any, source: str, dataset: CorrelationDataset) -> datetime:
     normalized = str(source or "alerts").strip().lower()
     if normalized in {"alerts", "alert"}:
-        return to_utc_naive(getattr(record, "created_at"))
+        return to_utc_naive(record.created_at)
     if normalized in {"net_events", "net_event", "events", "event"}:
-        return to_utc_naive(getattr(record, "timestamp"))
+        return to_utc_naive(record.timestamp)
     if normalized in {"vuln_findings", "vulnerabilities", "vulnerability"}:
-        return to_utc_naive(getattr(record, "last_seen_at"))
+        return to_utc_naive(record.last_seen_at)
     if normalized in {"exposure_findings", "exposure", "exposures"}:
-        return to_utc_naive(getattr(record, "last_seen_at"))
+        return to_utc_naive(record.last_seen_at)
     if normalized in {"attack_chain_steps", "attack_steps", "steps"}:
-        return to_utc_naive(getattr(record, "timestamp"))
+        return to_utc_naive(record.timestamp)
     if normalized in {"attack_chain_cases", "attack_cases", "cases"}:
-        return to_utc_naive(getattr(record, "last_seen_at"))
+        return to_utc_naive(record.last_seen_at)
     return datetime.utcnow()
 
 

@@ -5,9 +5,10 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.db.session import managed_session
 from app.core.db import SessionLocal, get_db
+from app.core.db.session import managed_session
 from app.features.auth.session import get_current_user
+from app.features.events import service as events_service
 from app.features.events.schemas import (
     DdosLiveSnapshotResponse,
     EventHuntResponse,
@@ -17,26 +18,27 @@ from app.features.events.schemas import (
     ProtocolIntelSummaryResponse,
     SshSummaryResponse,
 )
-from app.features.events import service as events_service
 from app.features.events.service import (
     _cache_get_json,
     _cache_set_json,
     _ch_client_or_none,
     _es_client_or_none,
-    _row_to_event_safe,
-    _strip_large_extra,
     get_ddos_live_snapshot,
     get_event_stream_snapshot,
     get_port_stats,
-    get_protocol_intel_samples as _get_protocol_intel_samples_service,
-    get_protocol_intel_summary as _get_protocol_intel_summary_service,
     get_recent_events,
-    get_recent_events_view,
-    get_ssh_summary as _get_ssh_summary_service,
     hunt_events,
     list_rollups_1s,
 )
-
+from app.features.events.service import (
+    get_protocol_intel_samples as _get_protocol_intel_samples_service,
+)
+from app.features.events.service import (
+    get_protocol_intel_summary as _get_protocol_intel_summary_service,
+)
+from app.features.events.service import (
+    get_ssh_summary as _get_ssh_summary_service,
+)
 
 router = APIRouter(
     prefix="/events",

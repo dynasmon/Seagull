@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 # Node types
 
 NODE_TYPE_ASSET = "asset"

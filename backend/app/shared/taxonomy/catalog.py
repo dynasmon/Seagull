@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-
 TACTIC_LABELS: Dict[str, str] = {
     "initial_access": "Initial Access",
     "execution": "Execution",

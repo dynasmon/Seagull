@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from passlib.context import CryptContext
 
-
 # Support legacy bcrypt hashes and migrate to argon2 on successful login.
 pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 

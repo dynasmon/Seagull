@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.workers.intelligence.ip_intel.normalization import _is_public_ip
 from app.shared.network.ip_classification import classify_ip
+from app.workers.intelligence.ip_intel.normalization import _is_public_ip
 
 
 @pytest.mark.parametrize("ip", ["10.0.0.1", "172.16.1.1", "192.168.1.1"])

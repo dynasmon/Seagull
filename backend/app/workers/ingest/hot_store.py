@@ -29,7 +29,7 @@ def _insert_hot_rows_with_pg_ids(conn, hot_rows: List[Dict[str, Any]]) -> List[D
             ids = [int(r[0]) for r in (res.fetchall() or [])]
             if len(ids) != len(hot_rows):
                 raise RuntimeError(f"returning mismatch ids={len(ids)} rows={len(hot_rows)}")
-            for row, eid in zip(hot_rows, ids):
+            for row, eid in zip(hot_rows, ids, strict=False):
                 rr = dict(row)
                 rr["pg_event_id"] = int(eid)
                 inserted_hot_rows.append(rr)

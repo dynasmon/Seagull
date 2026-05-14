@@ -7,8 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.features.admin.models import AdminAuditEventModel
-from app.features.alerts.models import AlertRuleSuppressionHistoryModel
-from app.features.alerts.models import AlertRuleTuningHistoryModel
+from app.features.alerts.models import AlertRuleSuppressionHistoryModel, AlertRuleTuningHistoryModel
 from app.features.auth.models import PortalLoginEventModel
 
 

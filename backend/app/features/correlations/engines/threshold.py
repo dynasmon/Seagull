@@ -4,8 +4,8 @@ from typing import Any
 
 from app.features.correlations.engines.base import (
     BaseCorrelationEngine,
-    CorrelationMatch,
     CorrelationDataset,
+    CorrelationMatch,
     build_evidence_item,
     dedupe_alert_rows,
     filter_records,

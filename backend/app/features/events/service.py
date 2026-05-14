@@ -2,17 +2,16 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.integrations.clickhouse import clickhouse_events_1m_table_ref, clickhouse_events_table_ref
 from app.core.config import settings
+from app.core.integrations.clickhouse import clickhouse_events_1m_table_ref, clickhouse_events_table_ref
 from app.core.integrations.es import search_backend_mode
 from app.core.observability import incr_counter, log_event, observe_hist
-from app.features.events.recent_feed import fetch_recent_events as fetch_recent_feed_events, recent_feed_health
 from app.features.events import repository
 from app.features.events.domain import cache as event_cache
 from app.features.events.domain import live_feed as event_live_feed
@@ -20,6 +19,8 @@ from app.features.events.domain import normalizers as event_normalizers
 from app.features.events.domain import queries as event_queries
 from app.features.events.domain import summaries as event_summaries
 from app.features.events.domain.filters import _search_tokens
+from app.features.events.recent_feed import fetch_recent_events as fetch_recent_feed_events
+from app.features.events.recent_feed import recent_feed_health
 from app.features.events.schemas import (
     DdosLiveSnapshotResponse,
     EventHuntResponse,
@@ -28,16 +29,8 @@ from app.features.events.schemas import (
     NetEventRollup1s,
     ProtocolIntelSummaryResponse,
     ProtoCount,
-    ProtoDnsQueryStat,
-    ProtoJa4Stat,
-    QueryProvenanceMeta,
     QuerySource,
-    SshAuthEvent,
-    SshIpStat,
-    SshLoginEvent,
     SshSummaryResponse,
-    SshUserStat,
-    SudoEventSummary,
 )
 from app.shared.schemas import CursorPage
 

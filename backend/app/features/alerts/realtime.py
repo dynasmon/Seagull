@@ -91,7 +91,7 @@ def build_alert_realtime_payload(
 
 def build_alert_realtime_payload_from_row(row: Any) -> Dict[str, Any]:
     return build_alert_realtime_payload(
-        alert_id=int(getattr(row, "id")),
+        alert_id=int(row.id),
         created_at=getattr(row, "created_at", None),
         rule_id=getattr(row, "rule_id", None),
         severity=getattr(row, "severity", None),

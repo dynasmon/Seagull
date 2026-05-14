@@ -8,13 +8,12 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
+from app.core.config.env_secrets import getenv_compat
 from app.core.db import engine
 from app.core.db.lifecycle import ensure_database_ready
-from app.core.config.env_secrets import getenv_compat
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import EventRollup1mModel, NetEventModel, SshFailRollup1mModel
 from app.shared.indexing.offset_store import ensure_offsets, get_offset, set_offset
-
 
 setup_logging("worker-rollup")
 logger = logging.getLogger("seagull.worker.rollup")

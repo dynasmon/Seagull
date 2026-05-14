@@ -4,7 +4,6 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
-
 _FIXED_VERSION_RE = re.compile(r">=\s*([^\s,;]+)")
 _LOC_VERSION_RE = re.compile(r"@([^@\s]+)$")
 _SENSITIVE_SCAN_SCOPE_KEYS = {"request_token", "trigger_token", "scan_now_token", "host_root"}

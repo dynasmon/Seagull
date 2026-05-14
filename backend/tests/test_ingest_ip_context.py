@@ -6,14 +6,13 @@ import os
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from app.shared.network.ip_enrichment import attach_ip_context
 from app.features.events.domain.normalizers import (
     _ch_row_to_event,
     _hit_to_event,
     _row_to_event_safe,
 )
 from app.features.events.recent_feed import _compact_extra
-
+from app.shared.network.ip_enrichment import attach_ip_context
 
 # ---- attach_ip_context ----------------------------------------------------------
 

@@ -29,10 +29,9 @@ from app.features.correlations.repository import (
     get_evidence_alert_ids,
     get_incident_by_id,
     get_rule_by_id,
-    list_entity_states,
     list_enabled_rules,
+    list_entity_states,
     list_evidence_for_incident,
-    list_incidents as _list_incidents,
     list_recent_alerts,
     list_recent_attack_chain_cases,
     list_recent_attack_chain_steps,
@@ -42,9 +41,11 @@ from app.features.correlations.repository import (
     list_rules,
     refresh,
 )
+from app.features.correlations.repository import (
+    list_incidents as _list_incidents,
+)
 from app.features.correlations.schemas import (
     CorrelationIncidentDetailOut,
-    CorrelationIncidentListItemOut,
     CorrelationIncidentStatusIn,
     CorrelationRuleIn,
     CorrelationRunOut,

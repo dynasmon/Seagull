@@ -8,9 +8,8 @@ from __future__ import annotations
 
 from typing import Generic, List, Optional, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 from pydantic.generics import GenericModel
-
 
 T = TypeVar("T")
 

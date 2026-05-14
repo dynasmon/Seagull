@@ -20,12 +20,10 @@ from pathlib import Path
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-import pytest
 
-from app.features.detections.rules.compatibility import normalize_rule_document
 from app.features.detections.rules.loader import load_and_validate_rules
-from app.workers.intelligence.rules.loader import load_rules
 from app.features.detections.rules.registry import SUPPORTED_RUNTIME_EVENT_FIELDS
+from app.workers.intelligence.rules.loader import load_rules
 from tests.detection_rule_harness import evaluate_rule, load_rule_index
 
 _RULES_DIR = Path(__file__).resolve().parents[2] / "rules"

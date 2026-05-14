@@ -8,14 +8,10 @@ os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 os.environ.setdefault("SEAGULL_DB_URL", "postgresql://seagull:seagull@127.0.0.1:5432/seagull")
 
-from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
 from app.features.alerts.evidence import (
-    _extract_inline_evidence,
     build_aggregate_evidence,
     build_distinct_evidence,
     build_multi_distinct_evidence,

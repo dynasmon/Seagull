@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any
 
-from app.core.observability import incr_counter, log_event
 from app.core.cache import get_redis
 from app.core.config.env_secrets import getenv_compat
-
+from app.core.observability import incr_counter, log_event
 
 logger = logging.getLogger("seagull.api.realtime")
 
