@@ -27,6 +27,7 @@ import {
 } from "./components/NetworkTopologyDetailDrawer";
 import { NetworkTopologyEvidencePanel } from "./components/NetworkTopologyEvidencePanel";
 import { NetworkTopologyFiltersBar } from "./components/NetworkTopologyFiltersBar";
+import { NetworkTopologyInsightsPanel } from "./components/NetworkTopologyInsightsPanel";
 import { NetworkTopologySummaryCards } from "./components/NetworkTopologySummaryCards";
 import { NetworkTopologyVisibilityBanner } from "./components/NetworkTopologyVisibilityBanner";
 import { useNetworkTopologyFilters } from "./hooks/useNetworkTopologyFilters";
@@ -290,6 +291,12 @@ export default function NetworkTopologyPage() {
           </div>
         </Panel>
       </div>
+
+      <NetworkTopologyInsightsPanel
+        insights={summary?.insights ?? []}
+        visibility={summary?.visibility ?? null}
+        loading={loading}
+      />
 
       <NetworkTopologyEvidencePanel observations={observations} subnets={subnets} loading={loading} />
 

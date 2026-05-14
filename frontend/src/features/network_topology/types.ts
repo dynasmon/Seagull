@@ -255,6 +255,30 @@ export type TopologySubnet = {
   metadata: Record<string, unknown>;
 };
 
+export type TopologyInsightGroup = "needs_attention" | "normal_activity" | "visibility_gaps";
+export type TopologyInsightSeverity = "critical" | "high" | "medium" | "low" | "info" | "ok";
+
+export type TopologyInsight = {
+  id: string;
+  group: TopologyInsightGroup;
+  severity: TopologyInsightSeverity;
+  title: string;
+  detail: string;
+  count: number | null;
+};
+
+export type TopologyVisibility = {
+  inventory_coverage: number;
+  flow_coverage: boolean;
+  alert_coverage: boolean;
+  protocol_coverage: boolean;
+  exposure_coverage: boolean;
+  last_inventory_at: string | null;
+  last_event_at: string | null;
+  last_alert_at: string | null;
+  known_limitations: string[];
+};
+
 export type TopologySummary = TopologyFreshness & {
   total_nodes: number;
   total_edges: number;
@@ -269,6 +293,8 @@ export type TopologySummary = TopologyFreshness & {
   alert_edge_count: number;
   exposure_edge_count: number;
   node_type_breakdown: TopologyNodeTypeStat[];
+  insights: TopologyInsight[];
+  visibility: TopologyVisibility | null;
 };
 
 export type TopologyRecalculateResult = {
