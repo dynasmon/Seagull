@@ -121,6 +121,8 @@ def _project_inventory(
         extra_data = inv.extra or {}
         netctx = extra_data.get("network_context") or {}
         interfaces: list[dict[str, Any]] = netctx.get("interfaces") or []
+        neighbors: list[dict[str, Any]] = netctx.get("neighbors") or []
+        routes: list[dict[str, Any]] = netctx.get("routes") or []
 
         if interfaces:
             _project_network_context_interfaces(
@@ -134,6 +136,17 @@ def _project_inventory(
                 last_seen=last_seen,
                 subnet_seen=subnet_seen,
                 coverage=coverage,
+            )
+            _project_network_context_neighbors_and_routes(
+                db,
+                agent_id=agent_id,
+                interfaces=interfaces,
+                neighbors=neighbors,
+                routes=routes,
+                cidrs=cidrs,
+                first_seen=first_seen,
+                last_seen=last_seen,
+                subnet_seen=subnet_seen,
             )
         else:
             ip_addresses = [
@@ -153,6 +166,158 @@ def _project_inventory(
                 subnet_seen=subnet_seen,
                 coverage=coverage,
             )
+
+
+def _project_network_context_neighbors_and_routes(
+    db: Session,
+    *,
+    agent_id: str,
+    interfaces: list[dict[str, Any]],
+    neighbors: list[dict[str, Any]],
+    routes: list[dict[str, Any]],
+    cidrs: list[str] | None,
+    first_seen: datetime,
+    last_seen: datetime,
+    subnet_seen: set[str],
+) -> None:
+    interface_keys = {
+        str(iface.get("name") or "unknown"): _node_key("interface", agent_id, str(iface.get("name") or "unknown"))
+        for iface in interfaces
+    }
+
+    for neighbor in neighbors[:512]:
+        ip = str(neighbor.get("ip") or "").strip()
+        iface_name = str(neighbor.get("interface") or "").strip()
+        if not _is_valid_ip(ip):
+            continue
+
+        ip_info = classify_topology_ip(ip, internal_cidrs=cidrs)
+        neighbor_key = _ip_node_key(ip, ip_info)
+        repository.upsert_node(
+            db,
+            node_key=neighbor_key,
+            node_type=ip_info.get("node_class", "unknown"),
+            label=ip,
+            agent_id=None,
+            ip=ip,
+            cidr=None,
+            port=None,
+            protocol=None,
+            severity="unknown",
+            risk_score=0,
+            confidence=80,
+            first_seen_at=first_seen,
+            last_seen_at=last_seen,
+            extra_data={
+                "ip_scope": ip_info.get("scope"),
+                "neighbor_state": str(neighbor.get("state") or "").strip() or None,
+                "neighbor_mac": str(neighbor.get("mac") or "").strip() or None,
+                "observed_by_agent_id": agent_id,
+            },
+        )
+
+        iface_key = interface_keys.get(iface_name)
+        if iface_key:
+            repository.upsert_edge(
+                db,
+                edge_key=_edge_key("inferred_relationship", iface_key, neighbor_key),
+                source_node_key=iface_key,
+                target_node_key=neighbor_key,
+                edge_type="inferred_relationship",
+                agent_id=agent_id,
+                weight=0.6,
+                confidence=80,
+                severity="unknown",
+                port=None,
+                protocol=None,
+                first_seen_at=last_seen,
+                last_seen_at=last_seen,
+                extra_data={"evidence": "arp_neighbor"},
+            )
+
+        neighbor_cidr = _matching_interface_network_cidr(interfaces, ip)
+        if neighbor_cidr:
+            if neighbor_cidr not in subnet_seen:
+                subnet_seen.add(neighbor_cidr)
+                repository.upsert_node(
+                    db,
+                    node_key=_node_key("subnet", neighbor_cidr),
+                    node_type="subnet",
+                    label=neighbor_cidr,
+                    agent_id=None,
+                    ip=None,
+                    cidr=neighbor_cidr,
+                    port=None,
+                    protocol=None,
+                    severity="unknown",
+                    risk_score=0,
+                    confidence=75,
+                    first_seen_at=last_seen,
+                    last_seen_at=last_seen,
+                    extra_data={},
+                )
+            repository.upsert_edge(
+                db,
+                edge_key=_edge_key("member_of_subnet", neighbor_key, _node_key("subnet", neighbor_cidr)),
+                source_node_key=neighbor_key,
+                target_node_key=_node_key("subnet", neighbor_cidr),
+                edge_type="member_of_subnet",
+                agent_id=agent_id,
+                weight=0.7,
+                confidence=75,
+                severity="unknown",
+                port=None,
+                protocol=None,
+                first_seen_at=last_seen,
+                last_seen_at=last_seen,
+                extra_data={"evidence": "arp_neighbor"},
+            )
+
+    for route in routes[:256]:
+        gateway = str(route.get("gateway") or "").strip()
+        iface_name = str(route.get("interface") or "").strip()
+        destination = str(route.get("destination") or "").strip()
+        if not _is_valid_ip(gateway) or gateway in {"0.0.0.0", "::"}:
+            continue
+        iface_key = interface_keys.get(iface_name)
+        if not iface_key:
+            continue
+
+        gateway_key = _node_key("gateway", gateway)
+        gateway_info = classify_topology_ip(gateway, internal_cidrs=cidrs)
+        repository.upsert_node(
+            db,
+            node_key=gateway_key,
+            node_type="gateway",
+            label=gateway,
+            agent_id=None,
+            ip=gateway,
+            cidr=None,
+            port=None,
+            protocol=None,
+            severity="unknown",
+            risk_score=0,
+            confidence=80,
+            first_seen_at=first_seen,
+            last_seen_at=last_seen,
+            extra_data={"ip_scope": gateway_info.get("scope"), "observed_by_agent_id": agent_id},
+        )
+        repository.upsert_edge(
+            db,
+            edge_key=_edge_key("route_next_hop", iface_key, gateway_key),
+            source_node_key=iface_key,
+            target_node_key=gateway_key,
+            edge_type="route_next_hop",
+            agent_id=agent_id,
+            weight=0.8,
+            confidence=80,
+            severity="unknown",
+            port=None,
+            protocol=None,
+            first_seen_at=last_seen,
+            last_seen_at=last_seen,
+            extra_data={"destination": destination, "family": str(route.get("family") or "").strip()},
+        )
 
 
 def _project_network_context_interfaces(
@@ -760,6 +925,30 @@ def _flow_edge_key(src: str, dst: str, port: int | None, proto: str | None) -> s
         return raw
     digest = hashlib.sha256(raw.encode()).hexdigest()[:24]
     return f"observed_flow::{digest}"
+
+
+def _is_valid_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(str(value or "").strip())
+        return True
+    except Exception:
+        return False
+
+
+def _matching_interface_network_cidr(interfaces: list[dict[str, Any]], ip: str) -> str | None:
+    try:
+        addr = ipaddress.ip_address(ip)
+    except Exception:
+        return None
+    for iface in interfaces:
+        for raw_cidr in iface.get("cidrs") or []:
+            try:
+                network = ipaddress.ip_interface(str(raw_cidr)).network
+            except Exception:
+                continue
+            if addr in network:
+                return str(network)
+    return None
 
 
 def _ip_node_key(ip: str, ip_info: dict[str, Any]) -> str:
