@@ -1,4 +1,5 @@
 import type { TopologyEdge, TopologyGraph, TopologyNode } from "../types";
+import { resolveServiceInfo } from "./services";
 
 export type TopologyLayoutNode = TopologyNode & {
   x: number;
@@ -32,6 +33,9 @@ const COLUMN_X: Record<string, number> = {
   unknown: 560,
 };
 
+// When total service nodes exceed this, collapse them into per-agent cluster nodes.
+const SERVICE_CLUSTER_THRESHOLD = 8;
+
 function columnFor(node: TopologyNode): number {
   return COLUMN_X[node.node_type] ?? COLUMN_X.unknown;
 }
@@ -40,6 +44,76 @@ function radiusFor(node: TopologyNode): number {
   const score = Math.max(0, Math.min(100, Number(node.risk_score || 0)));
   const confidence = Math.max(0, Math.min(100, Number(node.confidence || 0)));
   return 18 + Math.round(score / 20) + Math.round(confidence / 35);
+}
+
+// Collapse service nodes into per-agent cluster nodes when there are too many.
+// Each cluster retains the highest-risk service's node_key so existing edges resolve naturally.
+function collapseServicesIfNeeded(nodes: TopologyLayoutNode[]): TopologyLayoutNode[] {
+  const serviceNodes = nodes.filter((n) => n.node_type === "service");
+  if (serviceNodes.length <= SERVICE_CLUSTER_THRESHOLD) return nodes;
+
+  const agentYById = new Map<string, number>();
+  for (const n of nodes) {
+    if ((n.node_type === "agent" || n.node_type === "gateway") && n.agent_id) {
+      agentYById.set(n.agent_id, n.y);
+    }
+  }
+
+  const byAgent = new Map<string, TopologyLayoutNode[]>();
+  for (const s of serviceNodes) {
+    const key = s.agent_id ?? "__none__";
+    const bucket = byAgent.get(key) ?? [];
+    bucket.push(s);
+    byAgent.set(key, bucket);
+  }
+
+  const collapsed = new Set<string>();
+  const clusters: TopologyLayoutNode[] = [];
+
+  for (const [agentId, group] of byAgent) {
+    for (const s of group) collapsed.add(s.node_key);
+
+    const sorted = [...group].sort(
+      (a, b) => Number(b.risk_score || 0) - Number(a.risk_score || 0),
+    );
+    const rep = sorted[0];
+    const agentY = agentId !== "__none__" ? agentYById.get(agentId) : undefined;
+
+    const ports = group
+      .map((s) => s.port)
+      .filter((p): p is number => p != null)
+      .sort((a, b) => a - b)
+      .filter((p, i, arr) => arr.indexOf(p) === i)
+      .slice(0, 6);
+
+    const protocols = [
+      ...new Set(group.map((s) => s.protocol).filter((p): p is string => p != null)),
+    ].slice(0, 3);
+
+    // Resolve service names for display in canvas chips
+    const serviceNames = [
+      ...new Set(
+        group
+          .sort((a, b) => Number(b.event_count || 0) - Number(a.event_count || 0))
+          .map((s) => resolveServiceInfo(s.port, s.protocol, s.metadata).name),
+      ),
+    ].slice(0, 5);
+
+    clusters.push({
+      ...rep,
+      y: agentY ?? rep.y,
+      metadata: {
+        ...rep.metadata,
+        _is_service_cluster: true,
+        _cluster_count: group.length,
+        _cluster_ports: ports,
+        _cluster_protocols: protocols,
+        _cluster_service_names: serviceNames,
+      },
+    });
+  }
+
+  return [...nodes.filter((n) => !collapsed.has(n.node_key)), ...clusters];
 }
 
 export function computeTopologyLayout(graph: TopologyGraph | null): TopologyLayout {
@@ -74,11 +148,12 @@ export function computeTopologyLayout(graph: TopologyGraph | null): TopologyLayo
     });
   }
 
-  const nodeByKey = new Map(layoutNodes.map((node) => [node.node_key, node]));
+  const finalNodes = collapseServicesIfNeeded(layoutNodes);
+  const nodeByKey = new Map(finalNodes.map((node) => [node.node_key, node]));
   return {
     width: WIDTH,
     height: HEIGHT,
-    nodes: layoutNodes,
+    nodes: finalNodes,
     edges: graph.edges.map((edge) => ({
       ...edge,
       source: nodeByKey.get(edge.source_node_key) ?? null,

@@ -21,7 +21,14 @@ const NODE_COLOR: Record<string, { stroke: string; fill: string }> = {
   unknown:        { stroke: "#9CA3AF", fill: "rgba(156,163,175,0.08)" },
 };
 
-function colorFor(t: string) {
+// Offline agents get a distinct orange instead of just fading like other stale nodes.
+const OFFLINE_AGENT_COLOR = { stroke: "#F97316", fill: "rgba(249,115,22,0.13)" };
+
+function colorFor(node: { node_type: string; is_stale?: boolean } | string) {
+  if (typeof node !== "string" && node.node_type === "agent" && node.is_stale) {
+    return OFFLINE_AGENT_COLOR;
+  }
+  const t = typeof node === "string" ? node : node.node_type;
   return NODE_COLOR[t] ?? NODE_COLOR.unknown;
 }
 
@@ -128,6 +135,21 @@ function ServerIcon() {
   );
 }
 
+function ServerClusterIcon() {
+  return (
+    <>
+      {/* Three compact stacked server racks to signal "group" */}
+      <rect x="-10" y="-9.5" width="14" height="5" rx="1" fill="none" strokeWidth="1.2" />
+      <rect x="-10" y="-3.5" width="14" height="5" rx="1" fill="none" strokeWidth="1.2" />
+      <rect x="-10" y="2.5"  width="14" height="5" rx="1" fill="none" strokeWidth="1.2" />
+      {/* LED column */}
+      <circle cx="6.5" cy="-7"  r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="6.5" cy="-1"  r="1.3" fill="currentColor" stroke="none" opacity="0.7" />
+      <circle cx="6.5" cy="5"   r="1.3" fill="currentColor" stroke="none" opacity="0.45" />
+    </>
+  );
+}
+
 function CloudIcon() {
   return (
     <path
@@ -179,18 +201,64 @@ function UnknownIcon() {
   );
 }
 
-function DeviceIcon({ nodeType }: { nodeType: string }) {
+function DeviceIcon({ nodeType, isCluster }: { nodeType: string; isCluster?: boolean }) {
   switch (nodeType) {
     case "agent":
     case "gateway":        return <RouterIcon />;
     case "host":           return <HostIcon />;
     case "interface":      return <InterfaceIcon />;
     case "subnet":         return <SwitchIcon />;
-    case "service":        return <ServerIcon />;
+    case "service":        return isCluster ? <ServerClusterIcon /> : <ServerIcon />;
     case "external_ip":    return <CloudIcon />;
     case "docker_network": return <ContainerIcon />;
     default:               return <UnknownIcon />;
   }
+}
+
+// ─── Service name chips rendered below a service cluster node ─────────────────
+
+function ServiceNameChips({ names, extra, y }: { names: string[]; extra: number; y: number }) {
+  const shown = names.slice(0, 3);
+  const chipH = 10, gap = 2;
+  // Dynamic chip width based on text length (approx 5.5px per char + 8px padding)
+  const chipWidths = shown.map((n) => Math.max(28, Math.min(52, n.length * 5.5 + 8)));
+  const totalW = chipWidths.reduce((s, w) => s + w, 0) + (shown.length - 1) * gap;
+  const startX = -totalW / 2;
+
+  let curX = startX;
+  return (
+    <g transform={`translate(0 ${y})`}>
+      {shown.map((name, i) => {
+        const cw = chipWidths[i];
+        const x = curX;
+        curX += cw + gap;
+        return (
+          <g key={name}>
+            <rect
+              x={x} y={-chipH / 2}
+              width={cw} height={chipH} rx="2.5"
+              fill="rgba(124,58,237,0.18)" stroke="#8B5CF6" strokeWidth="0.6"
+            />
+            <text
+              x={x + cw / 2} textAnchor="middle" y="3.5"
+              fontSize="6.5" fill="#C084FC"
+              className="pointer-events-none select-none">
+              {name.length > 8 ? name.slice(0, 7) + "…" : name}
+            </text>
+          </g>
+        );
+      })}
+      {extra > 0 && (
+        <text
+          x={curX + 2}
+          textAnchor="start" y="3.5"
+          fontSize="7" fill="rgba(192,132,252,0.55)"
+          className="pointer-events-none select-none">
+          +{extra}
+        </text>
+      )}
+    </g>
+  );
 }
 
 // ─── Legend labels ─────────────────────────────────────────────────────────────
@@ -240,6 +308,7 @@ export function NetworkTopologyCanvas({
   }
 
   const presentTypes = [...new Set(layout.nodes.map((n) => n.node_type))];
+  const hasOfflineAgents = layout.nodes.some((n) => n.node_type === "agent" && n.is_stale);
 
   return (
     <div className="min-w-0 overflow-hidden rounded-md border border-border/70 bg-background/40">
@@ -330,9 +399,19 @@ export function NetworkTopologyCanvas({
           {/* ── Nodes ─────────────────────────────────────────── */}
           {layout.nodes.map((node) => {
             const isSel = selected?.kind === "node" && selected.key === node.node_key;
-            const { stroke, fill } = colorFor(node.node_type);
+            const { stroke, fill } = colorFor(node);
             const stale = node.is_stale;
+            const isOfflineAgent = node.node_type === "agent" && stale;
+            const isCluster = node.node_type === "service" && Boolean(node.metadata?._is_service_cluster);
+            const clusterCount = isCluster ? Number(node.metadata!._cluster_count) : 0;
+            const clusterNames = isCluster ? ((node.metadata!._cluster_service_names as string[]) ?? []) : [];
+            const clusterExtra = Math.max(0, clusterCount - clusterNames.length);
             const hasAlert = node.alert_count > 0;
+
+            // Stale fading applies to non-agent stale nodes; offline agents stay full opacity (color is the signal).
+            const backdropOpacity = stale && !isOfflineAgent ? 0.4 : 1;
+            const iconOpacity = stale && !isOfflineAgent ? 0.5 : 1;
+
             const IW = 16, IH = 14; // icon backdrop half-dimensions
 
             return (
@@ -358,21 +437,45 @@ export function NetworkTopologyCanvas({
                   style={{ fill }}
                   stroke={stroke}
                   strokeWidth={isSel ? "1.8" : "1"}
-                  opacity={stale ? 0.4 : 1}
+                  opacity={backdropOpacity}
                 />
 
                 {/* Device icon — stroke via currentColor */}
-                <g stroke={stroke} fill="none" opacity={stale ? 0.5 : 1}>
-                  <DeviceIcon nodeType={node.node_type} />
+                <g stroke={stroke} fill="none" opacity={iconOpacity}>
+                  <DeviceIcon nodeType={node.node_type} isCluster={isCluster} />
                 </g>
 
-                {/* Alert dot */}
-                {hasAlert && !stale && (
-                  <circle cx={IW - 4} cy={-(IH - 4)} r="4.5" fill="#F87171" stroke="none" />
-                )}
-                {/* Stale dot */}
-                {stale && (
-                  <circle cx={IW - 4} cy={-(IH - 4)} r="4.5" fill="#6B7280" stroke="none" />
+                {/*
+                  Top-right corner indicator — priority:
+                    1. Service cluster count badge
+                    2. Offline agent indicator (orange) or alert dot (red) if agent has alerts
+                    3. Alert dot for normal nodes with alerts
+                    4. Gray stale dot for other stale nodes
+                */}
+                {isCluster ? (
+                  <g transform={`translate(${IW - 3} ${-(IH - 4)})`}>
+                    <circle r="7" fill="#7C3AED" stroke="rgba(0,0,0,0.35)" strokeWidth="0.7" />
+                    <text
+                      textAnchor="middle" y="3" fontSize="8" fontWeight="bold" fill="white"
+                      className="pointer-events-none select-none">
+                      {clusterCount > 99 ? "99+" : clusterCount}
+                    </text>
+                  </g>
+                ) : isOfflineAgent ? (
+                  <circle
+                    cx={IW - 4} cy={-(IH - 4)} r="4.5"
+                    fill={hasAlert ? "#F87171" : "#F97316"}
+                    stroke="none"
+                  />
+                ) : (
+                  <>
+                    {hasAlert && !stale && (
+                      <circle cx={IW - 4} cy={-(IH - 4)} r="4.5" fill="#F87171" stroke="none" />
+                    )}
+                    {stale && (
+                      <circle cx={IW - 4} cy={-(IH - 4)} r="4.5" fill="#6B7280" stroke="none" />
+                    )}
+                  </>
                 )}
 
                 {/* Transparent click target */}
@@ -388,7 +491,7 @@ export function NetworkTopologyCanvas({
                   aria-label={`Inspect ${node.label}`}
                 />
 
-                {/* Label */}
+                {/* Labels */}
                 <text y={IH + 13} textAnchor="middle"
                   fontSize="10.5" fontWeight="600"
                   fill={stroke}
@@ -398,8 +501,15 @@ export function NetworkTopologyCanvas({
                 <text y={IH + 24} textAnchor="middle"
                   fontSize="9" fill="rgba(148,163,184,0.75)"
                   className="pointer-events-none select-none">
-                  {nodeSubtitle(node).slice(0, 24)}
+                  {isCluster
+                    ? `${clusterCount} service${clusterCount !== 1 ? "s" : ""}`
+                    : nodeSubtitle(node).slice(0, 24)}
                 </text>
+
+                {/* Service name chips for clusters */}
+                {isCluster && clusterNames.length > 0 && (
+                  <ServiceNameChips names={clusterNames} extra={clusterExtra} y={IH + 34} />
+                )}
               </g>
             );
           })}
@@ -420,6 +530,15 @@ export function NetworkTopologyCanvas({
             </div>
           );
         })}
+
+        {/* Extra legend entries for states that override node-type colors */}
+        {hasOfflineAgents && (
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="h-2 w-2 shrink-0 rounded-full bg-[#F97316]" />
+            Offline Agent
+          </div>
+        )}
+
         <div className="ml-auto flex shrink-0 items-center gap-3 text-[10px] text-muted-foreground/55">
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-px w-5 bg-[#60A5FA] opacity-80" />
