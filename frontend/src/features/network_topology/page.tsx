@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { listAgents } from "@/features/agents/api";
+import { createResponseAction, getResponseActionResult, listAgents, listResponseActions } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
 import { useAuth } from "@/features/auth/context";
 import { Button } from "@/shared/components/Button";
@@ -25,6 +25,7 @@ import {
   NetworkTopologyDetailDrawer,
   type NetworkTopologyDetailSelection,
 } from "./components/NetworkTopologyDetailDrawer";
+import { NetworkTopologyDiscoveryPanel } from "./components/NetworkTopologyDiscoveryPanel";
 import { NetworkTopologyEvidencePanel } from "./components/NetworkTopologyEvidencePanel";
 import { NetworkTopologyFiltersBar } from "./components/NetworkTopologyFiltersBar";
 import { NetworkTopologyInsightsPanel } from "./components/NetworkTopologyInsightsPanel";
@@ -49,6 +50,10 @@ function firstRejectedMessage(results: PromiseSettledResult<unknown>[]): string 
   return null;
 }
 
+function isTerminalDiscoveryActionStatus(status: string) {
+  return ["success", "failed", "cancelled", "expired"].includes(status);
+}
+
 export default function NetworkTopologyPage() {
   const { user } = useAuth();
   const isAdmin = String(user?.role || "").toLowerCase() === "admin";
@@ -71,11 +76,21 @@ export default function NetworkTopologyPage() {
   const [error, setError] = useState<string | null>(null);
   const [recalculateBusy, setRecalculateBusy] = useState(false);
   const [recalculateMessage, setRecalculateMessage] = useState<string | null>(null);
+  const [selectedDiscoveryAgentId, setSelectedDiscoveryAgentId] = useState("");
+  const [discoveryConfirmationText, setDiscoveryConfirmationText] = useState("");
+  const [discoveryBusy, setDiscoveryBusy] = useState(false);
+  const [latestDiscoveryAction, setLatestDiscoveryAction] = useState<{
+    id: number;
+    status: string;
+    requested_at: string;
+    result?: Record<string, unknown> | null;
+  } | null>(null);
   const [detailSelection, setDetailSelection] = useState<NetworkTopologyDetailSelection>(null);
 
   const filtersRef = useRef(appliedFilters);
   const loadedOnceRef = useRef(false);
   const detailSeqRef = useRef(0);
+  const discoveryActionSeqRef = useRef(0);
 
   const agentOptions = useMemo(
     () =>
@@ -87,6 +102,29 @@ export default function NetworkTopologyPage() {
   );
 
   const visibleGraph = useMemo(() => filterTopologyGraph(graph, appliedFilters), [appliedFilters, graph]);
+  const selectedDiscoveryAgent = useMemo(
+    () => agents.find((agent) => agent.agent_id === selectedDiscoveryAgentId) ?? null,
+    [agents, selectedDiscoveryAgentId],
+  );
+  const discoveryMetrics = useMemo(() => {
+    const outer = selectedDiscoveryAgent?.metrics ?? {};
+    const nested = outer && typeof outer === "object" ? (outer as Record<string, unknown>).metrics : null;
+    return nested && typeof nested === "object" ? (nested as Record<string, unknown>) : {};
+  }, [selectedDiscoveryAgent]);
+  const discoveryAllowedCidrs = Array.isArray(discoveryMetrics.topology_active_discovery_allowed_cidrs)
+    ? discoveryMetrics.topology_active_discovery_allowed_cidrs.map((value) => String(value))
+    : [];
+  const discoveryWarnings = Array.isArray(discoveryMetrics.topology_active_discovery_last_warnings)
+    ? discoveryMetrics.topology_active_discovery_last_warnings.map((value) => String(value))
+    : [];
+  const discoveryDiscoveredHosts = Array.isArray(discoveryMetrics.topology_active_discovery_last_discovered_hosts)
+    ? discoveryMetrics.topology_active_discovery_last_discovered_hosts.map((value) => String(value))
+    : [];
+  const discoveryObservedHosts = Array.isArray(discoveryMetrics.topology_active_discovery_last_observed_hosts)
+    ? discoveryMetrics.topology_active_discovery_last_observed_hosts.map((value) => String(value))
+    : [];
+  const discoveryMode =
+    discoveryMetrics.topology_active_discovery_mode === "active_enabled" ? "active_enabled" : "passive_only";
 
   const refreshTopology = useCallback(async ({ signal }: { signal: AbortSignal }) => {
     const activeFilters = filtersRef.current;
@@ -99,17 +137,19 @@ export default function NetworkTopologyPage() {
       getTopologyGraph({ ...resolveTopologyGraphParams(activeFilters, now), signal }),
       listTopologySubnets({ ...resolveTopologySubnetParams(activeFilters, now), signal }),
       listTopologyObservations({ ...resolveTopologyObservationParams(activeFilters, now), signal }),
+      listAgents({ signal }),
     ]);
 
     if (signal.aborted) return;
 
-    const [summaryResult, graphResult, subnetResult, observationResult] = requests;
+    const [summaryResult, graphResult, subnetResult, observationResult, agentsResult] = requests;
     if (summaryResult.status === "fulfilled") setSummary(summaryResult.value);
     if (graphResult.status === "fulfilled") setGraph(graphResult.value);
     if (subnetResult.status === "fulfilled") setSubnets(subnetResult.value.items);
     if (observationResult.status === "fulfilled") setObservations(observationResult.value.items);
+    if (agentsResult.status === "fulfilled") setAgents(agentsResult.value || []);
 
-    const message = firstRejectedMessage(requests);
+    const message = firstRejectedMessage(requests.slice(0, 4));
     setError(message);
     loadedOnceRef.current = true;
     setLoading(false);
@@ -135,16 +175,65 @@ export default function NetworkTopologyPage() {
   }, [appliedFilters, appliedKey, invalidate]);
 
   useEffect(() => {
-    const ac = new AbortController();
-    listAgents()
-      .then((items) => {
-        if (!ac.signal.aborted) setAgents(items || []);
-      })
-      .catch(() => {
-        if (!ac.signal.aborted) setAgents([]);
-      });
-    return () => ac.abort();
-  }, []);
+    if (!selectedDiscoveryAgentId && agents.length > 0) {
+      setSelectedDiscoveryAgentId(agents[0].agent_id);
+    }
+  }, [agents, selectedDiscoveryAgentId]);
+
+  const loadLatestDiscoveryAction = useCallback(async () => {
+    const seq = discoveryActionSeqRef.current + 1;
+    discoveryActionSeqRef.current = seq;
+    if (!isAdmin || !selectedDiscoveryAgentId) {
+      setLatestDiscoveryAction(null);
+      return;
+    }
+    try {
+      const actions = await listResponseActions({ agent_id: selectedDiscoveryAgentId, limit: 20 });
+      const latest = actions.find((action) => action.action_type === "trigger_topology_discovery");
+      if (!latest) {
+        if (discoveryActionSeqRef.current === seq) setLatestDiscoveryAction(null);
+        return;
+      }
+      let result: Record<string, unknown> | null = null;
+      if (latest.status === "success" || latest.status === "failed") {
+        try {
+          const payload = await getResponseActionResult(latest.id);
+          result = payload.result_payload ?? null;
+        } catch {
+          result = null;
+        }
+      }
+      if (discoveryActionSeqRef.current === seq) {
+        setLatestDiscoveryAction({
+          id: latest.id,
+          status: latest.status,
+          requested_at: latest.requested_at,
+          result,
+        });
+      }
+    } catch {
+      if (discoveryActionSeqRef.current === seq) setLatestDiscoveryAction(null);
+    }
+  }, [isAdmin, selectedDiscoveryAgentId]);
+
+  useEffect(() => {
+    void loadLatestDiscoveryAction();
+  }, [liveState.lastUpdatedAt, loadLatestDiscoveryAction]);
+
+  useEffect(() => {
+    if (
+      !latestDiscoveryAction ||
+      isTerminalDiscoveryActionStatus(latestDiscoveryAction.status) ||
+      !isAdmin ||
+      !selectedDiscoveryAgentId
+    ) {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      void loadLatestDiscoveryAction();
+    }, 5000);
+    return () => window.clearTimeout(timeout);
+  }, [isAdmin, latestDiscoveryAction, loadLatestDiscoveryAction, selectedDiscoveryAgentId]);
 
   const handleSelectNode = useCallback(async (node: { node_key: string }) => {
     const seq = detailSeqRef.current + 1;
@@ -203,6 +292,31 @@ export default function NetworkTopologyPage() {
     }
   }, [isAdmin, invalidate, recalculateBusy]);
 
+  const handleTriggerDiscovery = useCallback(async () => {
+    if (!isAdmin || !selectedDiscoveryAgentId || discoveryBusy || discoveryConfirmationText.trim() !== "DISCOVER") {
+      return;
+    }
+    setDiscoveryBusy(true);
+    try {
+      const action = await createResponseAction({
+        action_type: "trigger_topology_discovery",
+        agent_id: selectedDiscoveryAgentId,
+        payload: { reason: "network_topology_manual_request" },
+      });
+      setLatestDiscoveryAction({
+        id: action.id,
+        status: action.status,
+        requested_at: action.requested_at,
+        result: null,
+      });
+      setDiscoveryConfirmationText("");
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to request active discovery"));
+    } finally {
+      setDiscoveryBusy(false);
+    }
+  }, [discoveryBusy, discoveryConfirmationText, isAdmin, selectedDiscoveryAgentId]);
+
   return (
     <div className="min-w-0 space-y-6 overflow-x-hidden">
       <PageHeader
@@ -234,6 +348,34 @@ export default function NetworkTopologyPage() {
       />
 
       {recalculateMessage ? <DataQueryStateBanner tone="success" message={recalculateMessage} /> : null}
+
+      <NetworkTopologyDiscoveryPanel
+        isAdmin={isAdmin}
+        agents={agentOptions.map((agent) => ({ agent_id: agent.value, label: agent.label }))}
+        selectedAgentId={selectedDiscoveryAgentId}
+        mode={discoveryMode}
+        allowedCidrs={discoveryAllowedCidrs}
+        lastRunAt={
+          typeof discoveryMetrics.topology_active_discovery_last_run_at === "string"
+            ? discoveryMetrics.topology_active_discovery_last_run_at
+            : null
+        }
+        discoveredHosts={discoveryDiscoveredHosts}
+        observedHosts={discoveryObservedHosts}
+        lastError={
+          typeof discoveryMetrics.topology_active_discovery_last_error === "string" &&
+          discoveryMetrics.topology_active_discovery_last_error.trim()
+            ? discoveryMetrics.topology_active_discovery_last_error
+            : null
+        }
+        warnings={discoveryWarnings}
+        confirmationText={discoveryConfirmationText}
+        busy={discoveryBusy}
+        latestAction={latestDiscoveryAction}
+        onSelectAgent={setSelectedDiscoveryAgentId}
+        onConfirmationTextChange={setDiscoveryConfirmationText}
+        onTrigger={() => void handleTriggerDiscovery()}
+      />
 
       <NetworkTopologyFiltersBar
         filters={draftFilters}
