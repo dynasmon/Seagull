@@ -146,8 +146,11 @@ def recalculate(
 def _parse_dt(value: str | None):
     if not value:
         return None
-    from datetime import datetime
+    from datetime import datetime, timezone
     try:
-        return datetime.fromisoformat(str(value).strip().rstrip("Z"))
+        dt = datetime.fromisoformat(str(value).strip().rstrip("Zz"))
     except Exception:
         return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt

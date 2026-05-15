@@ -371,6 +371,35 @@ def test_service_get_graph_respects_hard_limits(monkeypatch: pytest.MonkeyPatch)
 
 
 
+def test_parse_dt_z_suffix_returns_utc_aware() -> None:
+    from app.features.network_topology.api import _parse_dt
+    from datetime import timezone
+
+    result = _parse_dt("2026-05-12T10:00:00.000Z")
+    assert result is not None
+    assert result.tzinfo is not None
+    assert result.utcoffset().total_seconds() == 0
+    assert result.year == 2026
+    assert result.hour == 10
+
+
+def test_parse_dt_naive_string_gets_utc() -> None:
+    from app.features.network_topology.api import _parse_dt
+
+    result = _parse_dt("2026-05-12T10:00:00")
+    assert result is not None
+    assert result.tzinfo is not None
+    assert result.utcoffset().total_seconds() == 0
+
+
+def test_parse_dt_none_returns_none() -> None:
+    from app.features.network_topology.api import _parse_dt
+
+    assert _parse_dt(None) is None
+    assert _parse_dt("") is None
+    assert _parse_dt("not-a-date") is None
+
+
 def test_service_list_subnets_paginates(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.features.network_topology import repository as topo_repo
     from app.features.network_topology.schemas import TopologySubnetQuery
