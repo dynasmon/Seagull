@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
-from sqlalchemy import and_, exists, func, not_, or_, select
+from sqlalchemy import and_, exists, func, not_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -1064,11 +1064,7 @@ def topology_summary_metrics(db: Session) -> dict[str, Any]:
 
 
 def mark_all_nodes_stale(db: Session) -> int:
-    """Mark all existing nodes as stale before re-projection. Returns row count."""
-    from sqlalchemy import update
-    result = db.execute(
-        update(TopologyNodeModel).values(is_stale=1)
-    )
+    result = db.execute(update(TopologyNodeModel).values(is_stale=1))
     return int(result.rowcount or 0)
 
 

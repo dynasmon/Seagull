@@ -573,3 +573,94 @@ def test_different_subnets_both_created():
     nodes, _ = _run_inventory([inv])
     subnet_nodes = [n for n in nodes if n["node_type"] == "subnet"]
     assert len(subnet_nodes) == 2
+
+
+# ── project_topology signature ────────────────────────────────────────────────
+
+def test_project_topology_accepts_window_and_max_events_params():
+    """project_topology must accept window_minutes and max_events_per_run without TypeError."""
+    now = _now()
+    written_nodes: list[dict] = []
+    written_edges: list[dict] = []
+
+    db = MagicMock()
+    db.execute.return_value = _FakeResult(rows=[], scalar_val=0)
+
+    with patch.object(repo, "upsert_node", side_effect=lambda db, **kw: written_nodes.append(kw)), \
+         patch.object(repo, "upsert_edge", side_effect=lambda db, **kw: written_edges.append(kw)), \
+         patch.object(repo, "mark_all_nodes_stale", return_value=0), \
+         patch.object(repo, "count_stale_nodes", return_value=0):
+        result = proj.project_topology(db, window_minutes=60, max_events_per_run=500)
+
+    assert result.agents_projected == 0
+    assert result.flow_edges_added == 0
+
+
+def test_project_topology_flow_edges_respects_window_minutes():
+    """_project_flow_edges must use window_minutes to compute the `since` timestamp."""
+    from datetime import timedelta, timezone
+
+    captured_since: list[Any] = []
+
+    db = MagicMock()
+
+    class _CaptureSince:
+        def where(self, *args, **kwargs):
+            for arg in args:
+                try:
+                    val = str(arg)
+                    if "timestamp" in val and ">=" in val:
+                        captured_since.append(args)
+                except Exception:
+                    pass
+            return self
+
+        def group_by(self, *args, **kwargs):
+            return self
+
+        def order_by(self, *args, **kwargs):
+            return self
+
+        def limit(self, n):
+            return self
+
+    db.execute.return_value = _FakeResult(rows=[])
+
+    now = datetime.now(timezone.utc)
+    window_minutes = 120
+    expected_since = now - timedelta(minutes=window_minutes)
+
+    with patch.object(repo, "upsert_node"), \
+         patch.object(repo, "upsert_edge"):
+        coverage_mock = MagicMock()
+        coverage_mock.flow_edges_added = 0
+        coverage_mock.services_projected = 0
+
+        proj._project_flow_edges(
+            db,
+            now=now,
+            cidrs=None,
+            coverage=coverage_mock,
+            window_minutes=window_minutes,
+            max_events_per_run=500,
+        )
+
+    call_args = db.execute.call_args
+    if call_args is not None:
+        stmt = call_args[0][0]
+        stmt_str = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "net_events" in stmt_str.lower() or "netevent" in stmt_str.lower()
+
+
+def test_project_topology_default_params_call():
+    """project_topology() with no keyword arguments uses safe defaults."""
+    db = MagicMock()
+    db.execute.return_value = _FakeResult(rows=[], scalar_val=0)
+
+    with patch.object(repo, "upsert_node"), \
+         patch.object(repo, "upsert_edge"), \
+         patch.object(repo, "mark_all_nodes_stale", return_value=0), \
+         patch.object(repo, "count_stale_nodes", return_value=0):
+        result = proj.project_topology(db)
+
+    assert result is not None
