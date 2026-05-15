@@ -180,10 +180,26 @@ def _validate_trigger_inventory_snapshot_payload(raw_payload: Dict[str, Any]) ->
     }
 
 
+def _validate_trigger_topology_discovery_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
+    payload = _as_dict(raw_payload, "payload")
+    allowed_root = {"reason"}
+    unknown = sorted([k for k in payload.keys() if k not in allowed_root])
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"payload has unsupported keys: {', '.join(unknown)}",
+        )
+    reason = str(payload.get("reason") or "").strip()
+    if len(reason) > 160:
+        raise HTTPException(status_code=422, detail="payload.reason must be at most 160 characters")
+    return {"reason": reason} if reason else {}
+
+
 _ACTION_PAYLOAD_VALIDATORS: dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {
     "collect_triage_bundle": _validate_collect_triage_bundle_payload,
     "refresh_runtime_config": _validate_refresh_runtime_config_payload,
     "trigger_inventory_snapshot": _validate_trigger_inventory_snapshot_payload,
+    "trigger_topology_discovery": _validate_trigger_topology_discovery_payload,
 }
 
 
