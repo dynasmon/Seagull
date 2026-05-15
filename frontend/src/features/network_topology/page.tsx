@@ -28,6 +28,7 @@ import {
 import { NetworkTopologyDiscoveryPanel } from "./components/NetworkTopologyDiscoveryPanel";
 import { NetworkTopologyEvidencePanel } from "./components/NetworkTopologyEvidencePanel";
 import { NetworkTopologyFiltersBar } from "./components/NetworkTopologyFiltersBar";
+import { NetworkTopologyServicesPanel } from "./components/NetworkTopologyServicesPanel";
 import { NetworkTopologyInsightsPanel } from "./components/NetworkTopologyInsightsPanel";
 import { NetworkTopologySummaryCards } from "./components/NetworkTopologySummaryCards";
 import { NetworkTopologyVisibilityBanner } from "./components/NetworkTopologyVisibilityBanner";
@@ -433,6 +434,13 @@ export default function NetworkTopologyPage() {
           </div>
         </Panel>
       </div>
+
+      <NetworkTopologyServicesPanel
+        graph={visibleGraph}
+        loading={loading}
+        selectedKey={detailSelection?.key ?? null}
+        onSelectService={handleSelectNode}
+      />
 
       <NetworkTopologyInsightsPanel
         insights={summary?.insights ?? []}
