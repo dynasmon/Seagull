@@ -19,7 +19,7 @@ export type TopologyLayout = {
 };
 
 const WIDTH = 1120;
-const HEIGHT = 560;
+const HEIGHT = 640;
 const COLUMN_X: Record<string, number> = {
   agent: 100,
   host: 250,
