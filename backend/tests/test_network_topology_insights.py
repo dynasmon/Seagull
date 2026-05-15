@@ -33,6 +33,8 @@ def _base_metrics() -> dict:
         "stale_other": 0,
         "noisy_nodes": 0,
         "nodes_with_alerts": 0,
+        "nodes_with_exposure_findings": 0,
+        "isolated_nodes": 0,
         "docker_node_count": 0,
         "last_flow_at": None,
         "last_alert_at": None,
@@ -165,6 +167,67 @@ class TestComputeInsights:
         assert item is not None
         assert item.group == "visibility_gaps"
         assert item.count == 7
+
+    def test_nodes_with_exposure_findings_needs_attention(self):
+        metrics = {**_base_metrics(), "nodes_with_exposure_findings": 2}
+        insights = _compute_insights(metrics, window_minutes=1440)
+        item = next((i for i in insights if i.id == "nodes_with_exposure_findings"), None)
+        assert item is not None
+        assert item.group == "needs_attention"
+        assert item.count == 2
+        assert item.severity == "medium"
+
+    def test_nodes_with_exposure_findings_high_severity_for_large_count(self):
+        metrics = {**_base_metrics(), "nodes_with_exposure_findings": 5}
+        insights = _compute_insights(metrics, window_minutes=1440)
+        item = next(i for i in insights if i.id == "nodes_with_exposure_findings")
+        assert item.severity == "high"
+
+    def test_isolated_nodes_visibility_gap(self):
+        metrics = {**_base_metrics(), "isolated_nodes": 4}
+        insights = _compute_insights(metrics, window_minutes=1440)
+        item = next((i for i in insights if i.id == "isolated_nodes"), None)
+        assert item is not None
+        assert item.group == "visibility_gaps"
+        assert item.count == 4
+        assert item.severity == "info"
+
+    def test_no_exposure_findings_produces_no_insight(self):
+        insights = _compute_insights(_base_metrics(), window_minutes=1440)
+        assert not any(i.id == "nodes_with_exposure_findings" for i in insights)
+
+    def test_no_isolated_nodes_produces_no_insight(self):
+        insights = _compute_insights(_base_metrics(), window_minutes=1440)
+        assert not any(i.id == "isolated_nodes" for i in insights)
+
+    def test_stale_data_scenario_all_coverage_flags_present(self):
+        metrics = {
+            **_base_metrics(),
+            "stale_agents": 3,
+            "stale_other": 5,
+            "isolated_nodes": 2,
+        }
+        insights = _compute_insights(metrics, window_minutes=1440)
+        groups = {i.group for i in insights}
+        assert "needs_attention" in groups
+        assert "visibility_gaps" in groups
+        stale_ids = {i.id for i in insights}
+        assert "stale_agents" in stale_ids
+        assert "stale_topology_segments" in stale_ids
+        assert "isolated_nodes" in stale_ids
+
+    def test_partial_data_scenario_exposure_and_alerts(self):
+        metrics = {
+            **_base_metrics(),
+            "nodes_with_alerts": 1,
+            "nodes_with_exposure_findings": 1,
+            "flow_edge_count": 0,
+        }
+        insights = _compute_insights(metrics, window_minutes=1440)
+        attention_ids = {i.id for i in insights if i.group == "needs_attention"}
+        assert "nodes_with_alerts" in attention_ids
+        assert "nodes_with_exposure_findings" in attention_ids
+        assert any(i.id == "no_flow_data" for i in insights)
 
 
 class TestComputeVisibility:
