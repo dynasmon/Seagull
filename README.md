@@ -584,6 +584,97 @@ The page provides:
 
 ---
 
+## Network Topology
+
+The Network Topology feature builds a live network graph from agent telemetry — no additional containers, no network scanners, and no unsafe active probing by default.
+
+### What it does
+
+- Builds a graph of **nodes** (agents, hosts, subnets, interfaces, services, external IPs, Docker networks) and **edges** (subnet membership, observed flows, listening services, DNS resolutions, alerts, exposure paths) directly from the data Seagull already collects.
+- Projects topology incrementally on a configurable schedule and on-demand via `POST /network-topology/recalculate` (admin).
+- Scores every node with a severity band and confidence level derived from associated alerts and exposure findings.
+- Exposes cursor-paginated subnet and observation lists and a bounded graph endpoint with optional filters (agent, node types, edge types, IP scope, time window, confidence floor).
+- Emits realtime SSE/WebSocket invalidation events when the projected graph changes.
+
+### Data sources
+
+| Source | What it contributes |
+|---|---|
+| Agent inventory (`netcontext`) | Agent node, host nodes, interface nodes, subnet nodes, ARP neighbors, routes, resolvers |
+| `net_events` flow table | `observed_flow` edges between hosts for the configured time window |
+| Alert table | `alert_related` edges from source/destination IPs referenced in active alerts |
+| Exposure posture | `exposure_related` edges from assets with open high/critical findings |
+| Docker network metadata | `docker_network` nodes and membership edges |
+
+### What topology cannot know
+
+Without SNMP/LLDP/CDP polling or MAC address table access, the topology graph has inherent gaps:
+
+- **L2/physical topology** — switch-to-switch links, port assignments, trunk/access VLAN membership
+- **MAC address tables** — which physical port a host is actually connected to
+- **VLAN segmentation** — hosts on the same IP subnet but different VLANs appear identical
+- **MPLS/SD-WAN paths** — overlay routing topology is invisible to passive flow analysis
+- **NAT internals** — connections that traverse NAT appear as flows to/from the NAT gateway IP
+
+These are logged as known limitations; the graph is still operationally useful for east-west flow visibility, subnet mapping, and correlated alert evidence.
+
+### Passive vs active discovery
+
+| Mode | Trigger | What happens |
+|---|---|---|
+| **Passive** (default) | Always on | Topology is built from existing telemetry — agent check-ins, flow events, alerts, inventory. Zero additional network traffic. |
+| **Active** | Opt-in per agent | Agent performs ARP sweeps and port probes on the local subnet. Must be explicitly enabled in agent runtime config. |
+
+Active discovery is disabled by default and requires setting `topology_active_discovery_mode = "active_enabled"` in the agent's runtime config. It never runs unless explicitly configured; there is no fallback activation.
+
+### Key environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SEAGULL_NETWORK_TOPOLOGY_ENABLED` | `true` | Enable/disable the topology worker |
+| `SEAGULL_NETWORK_TOPOLOGY_REFRESH_SECONDS` | `300` | Full projection cycle interval |
+| `SEAGULL_NETWORK_TOPOLOGY_WINDOW_MINUTES` | `1440` | Flow event lookback window (minutes) |
+| `SEAGULL_NETWORK_TOPOLOGY_STALE_AFTER_MINUTES` | `60` | Minutes after which a node is marked stale |
+| `SEAGULL_NETWORK_TOPOLOGY_MAX_EVENTS_PER_RUN` | `5000` | Max flow rows processed per projection run |
+| `SEAGULL_NETWORK_TOPOLOGY_GRAPH_PATCH_MAX_NODES` | `50` | Max nodes per realtime graph patch |
+
+### API routes
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/network-topology/summary` | user | Counts by node type, stale nodes, alert/exposure edges |
+| `GET` | `/network-topology/graph` | user | Bounded graph (nodes + edges + health metadata) |
+| `GET` | `/network-topology/nodes/{node_key}` | user | Node detail with connected nodes, edges, observations |
+| `GET` | `/network-topology/edges/{edge_key}` | user | Edge detail with source/target nodes and observations |
+| `GET` | `/network-topology/subnets` | user | Cursor-paginated subnet list |
+| `GET` | `/network-topology/observations` | user | Cursor-paginated raw observation list |
+| `POST` | `/network-topology/recalculate` | admin | Trigger a forced full projection |
+
+Graph query parameters: `max_nodes` (1–2000, default 200), `max_edges` (1–3000, default 300), `min_confidence` (1–99), `agent_id`, `node_types`, `edge_types`, `ip_scope`, `since`, `until`, `include_stale`.
+
+### Portal UI
+
+Navigate to **Assets & Exposure → Network Topology** (`/network-topology`) in the Seagull Portal.
+
+The page provides:
+- Summary cards (node counts by type, stale nodes, alert-related and exposure-related edges)
+- Interactive graph canvas with node/edge filtering and detail drawers
+- Subnet list with cursor pagination
+- IP classification legend: internal / loopback / link-local / docker / public / unknown
+- Edge type legend: observed\_flow / same\_agent / member\_of\_subnet / listens\_on / resolved\_dns / alert\_related / exposure\_related / inferred\_relationship
+- Staleness indicators — nodes/edges that have not been re-observed in the configured window are visually dimmed
+- Realtime refresh on graph changes (debounced, bounded patch size)
+- Admin-only recalculate action
+
+### Safety notes
+
+- Passive mode adds zero network traffic; only agent telemetry already flowing into Seagull is used.
+- Active mode requires explicit per-agent opt-in (`topology_active_discovery_mode = active_enabled`) and only probes the local subnet of the agent.
+- No new container, no external scanner process, and no root/CAP_NET_RAW requirement beyond what the agent already holds.
+- The hard graph limits (`max_nodes`, `max_edges`) and realtime patch caps prevent unbounded memory use even on large networks.
+
+---
+
 ## Roadmap and Future Work
 
 Planned enhancements (not yet implemented):

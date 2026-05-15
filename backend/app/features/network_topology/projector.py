@@ -24,16 +24,18 @@ from app.features.network_topology.schemas import TopologyCoverageOut
 
 logger = logging.getLogger("seagull.network_topology.projector")
 
-_ALERT_WINDOW_HOURS = 48
-_FLOW_WINDOW_HOURS = 24
 _MAX_ALERT_ROWS = 2000
 _MAX_AGENT_ROWS = 500
-_MAX_FLOW_ROWS = 5000
 _MAX_EXPOSURE_ROWS = 1000
 _STALE_AGENT_HOURS = 24 * 7
 
 
-def project_topology(db: Session) -> TopologyCoverageOut:
+def project_topology(
+    db: Session,
+    *,
+    window_minutes: int = 1440,
+    max_events_per_run: int = 5000,
+) -> TopologyCoverageOut:
     """Full topology projection from agents, inventory, events, alerts, and exposure."""
     coverage = TopologyCoverageOut()
     cidrs = settings.SEAGULL_INTERNAL_NETWORK_CIDRS or None
@@ -43,8 +45,8 @@ def project_topology(db: Session) -> TopologyCoverageOut:
 
     agent_nodes = _project_agents(db, now=now, coverage=coverage)
     _project_inventory(db, now=now, cidrs=cidrs, coverage=coverage, agent_nodes=agent_nodes)
-    _project_flow_edges(db, now=now, cidrs=cidrs, coverage=coverage)
-    _project_alert_edges(db, now=now, cidrs=cidrs, coverage=coverage)
+    _project_flow_edges(db, now=now, cidrs=cidrs, coverage=coverage, window_minutes=window_minutes, max_events_per_run=max_events_per_run)
+    _project_alert_edges(db, now=now, cidrs=cidrs, coverage=coverage, window_minutes=window_minutes)
     _project_exposure_graph(db, now=now, coverage=coverage, agent_nodes=agent_nodes)
 
     coverage.stale_nodes_marked = repository.count_stale_nodes(db)
@@ -618,8 +620,11 @@ def _project_flow_edges(
     now: datetime,
     cidrs: list[str] | None,
     coverage: TopologyCoverageOut,
+    window_minutes: int = 1440,
+    max_events_per_run: int = 5000,
 ) -> None:
-    since = now - timedelta(hours=_FLOW_WINDOW_HOURS)
+    since = now - timedelta(minutes=window_minutes)
+    max_rows = max(100, int(max_events_per_run))
 
     flow_rows = db.execute(
         select(
@@ -645,7 +650,7 @@ def _project_flow_edges(
             NetEventModel.proto,
         )
         .order_by(func.count(NetEventModel.id).desc())
-        .limit(_MAX_FLOW_ROWS)
+        .limit(max_rows)
     ).all()
 
     for row in flow_rows:
@@ -765,8 +770,10 @@ def _project_alert_edges(
     now: datetime,
     cidrs: list[str] | None,
     coverage: TopologyCoverageOut,
+    window_minutes: int = 1440,
 ) -> None:
-    since = now - timedelta(hours=_ALERT_WINDOW_HOURS)
+    alert_window_minutes = max(window_minutes, 2 * 60)
+    since = now - timedelta(minutes=alert_window_minutes)
     alerts = db.execute(
         select(
             AlertModel.src_ip,
