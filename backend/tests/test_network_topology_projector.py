@@ -78,13 +78,22 @@ def _make_inventory(
     hostname: str = "host-1",
     ip_addresses: list[str] | None = None,
     interfaces: list[dict] | None = None,
+    neighbors: list[dict] | None = None,
+    routes: list[dict] | None = None,
 ) -> AgentInventoryLatestModel:
     inv = AgentInventoryLatestModel()
     inv.agent_id = agent_id
     inv.os = {"hostname": hostname, "ip_addresses": ip_addresses or []}
     inv.extra = {}
     if interfaces is not None:
-        inv.extra = {"network_context": {"interfaces": interfaces, "source": "host_observed"}}
+        inv.extra = {
+            "network_context": {
+                "interfaces": interfaces,
+                "neighbors": neighbors or [],
+                "routes": routes or [],
+                "source": "host_observed",
+            }
+        }
     inv.updated_at = _now()
     inv.collected_at = _now()
     return inv
@@ -328,6 +337,34 @@ def test_network_context_member_of_subnet_edge():
     _, edges = _run_inventory([inv])
     types = [e["edge_type"] for e in edges]
     assert "member_of_subnet" in types
+
+
+def test_network_context_neighbor_projects_host_and_edge():
+    inv = _make_inventory(
+        agent_id="agent-1",
+        hostname="host-1",
+        interfaces=[{"name": "eth0", "ips": ["10.0.1.5"], "cidrs": ["10.0.1.5/24"]}],
+        neighbors=[{"ip": "10.0.1.20", "mac": "aa:bb:cc:dd:ee:ff", "interface": "eth0", "state": "reachable"}],
+    )
+    nodes, edges = _run_inventory([inv])
+    assert any(n["node_key"] == "topo:host:10.0.1.20" for n in nodes)
+    assert any(e["edge_type"] == "inferred_relationship" for e in edges)
+    assert any(
+        e["edge_type"] == "member_of_subnet" and e["source_node_key"] == "topo:host:10.0.1.20"
+        for e in edges
+    )
+
+
+def test_network_context_route_projects_gateway_edge():
+    inv = _make_inventory(
+        agent_id="agent-1",
+        hostname="host-1",
+        interfaces=[{"name": "eth0", "ips": ["10.0.1.5"], "cidrs": ["10.0.1.5/24"]}],
+        routes=[{"destination": "0.0.0.0/0", "gateway": "10.0.1.1", "interface": "eth0", "family": "ipv4"}],
+    )
+    nodes, edges = _run_inventory([inv])
+    assert any(n["node_key"] == "topo:gateway:10.0.1.1" for n in nodes)
+    assert any(e["edge_type"] == "route_next_hop" for e in edges)
 
 
 # ── Inventory: ip_addresses fallback path ────────────────────────────────────

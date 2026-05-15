@@ -140,3 +140,30 @@ def test_response_action_create_trigger_inventory_snapshot_with_limits(monkeypat
     finally:
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(require_admin, None)
+
+
+def test_response_action_create_trigger_topology_discovery_is_audited(monkeypatch) -> None:
+    fake_db = _FakeDB()
+    audits = []
+    monkeypatch.setattr(response_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
+    app.dependency_overrides[get_db] = lambda: fake_db
+    app.dependency_overrides[require_admin] = lambda: PortalPrincipal(id=9, username="root", role="admin")
+    try:
+        with TestClient(app) as client:
+            r = client.post(
+                "/response/actions",
+                json={
+                    "action_type": "trigger_topology_discovery",
+                    "agent_id": "agent-1",
+                    "payload": {"reason": "network_topology_manual_request"},
+                },
+            )
+            assert r.status_code == 201
+            body = r.json()
+            assert body["action_type"] == "trigger_topology_discovery"
+            assert body["payload"]["reason"] == "network_topology_manual_request"
+            assert audits[0]["action"] == "response.actions.create"
+            assert audits[0]["resource_type"] == "response_action"
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(require_admin, None)
