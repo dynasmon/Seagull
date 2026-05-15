@@ -9,8 +9,8 @@ import type {
   ResponseActionResultOut
 } from "./types";
 
-export function listAgents() {
-  return apiGet<AgentPublic[]>("/api/agents");
+export function listAgents(opts?: ApiGetOptions) {
+  return apiGet<AgentPublic[]>("/api/agents", opts);
 }
 
 export function getAgent(agentId: string, opts?: ApiGetOptions) {
