@@ -12,6 +12,11 @@ from app.core.config.env_secrets import env_value
 from app.features.auth.session import PortalPrincipal
 from app.features.network_topology import realtime as topo_realtime
 from app.features.network_topology import repository
+from app.features.network_topology.grouping import (
+    apply_exclusive_focus,
+    build_groups,
+    compute_facets,
+)
 from app.features.network_topology.models import (
     TopologyEdgeModel,
     TopologyNodeModel,
@@ -24,9 +29,13 @@ from app.features.network_topology.schemas import (
     TopologyEdgeOut,
     TopologyEvidencePageMetaOut,
     TopologyEvidenceSourceOut,
+    TopologyFacetsOut,
     TopologyGraphHealthOut,
     TopologyGraphOut,
     TopologyGraphQuery,
+    TopologyGroupDetailOut,
+    TopologyGroupEdgeOut,
+    TopologyGroupOut,
     TopologyInsightOut,
     TopologyNodeDetailOut,
     TopologyNodeOut,
@@ -135,6 +144,11 @@ def get_summary(db: Session) -> TopologySummaryOut:
     )
 
 
+_GROUP_DETAIL_MEMBER_LIMIT = 30
+_GROUP_DETAIL_SERVICES_LIMIT = 20
+_GROUP_DETAIL_EDGE_LIMIT = 50
+
+
 def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
     node_limit = min(int(params.max_nodes), topo_realtime.graph_nodes_hard_limit())
     edge_limit = min(int(params.max_edges), topo_realtime.graph_edges_hard_limit())
@@ -160,6 +174,27 @@ def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
         limit=edge_limit,
     )
 
+    should_group = bool(params.view_mode == "location" or params.group_by)
+    group_strategy = str(params.group_by or "auto")
+
+    raw_groups: list[dict[str, Any]] = []
+    raw_group_edges: list[dict[str, Any]] = []
+    if should_group or params.focused_group_key:
+        raw_groups, raw_group_edges = build_groups(nodes, edges, strategy=group_strategy)
+
+    focus_applied = False
+    if params.focused_group_key and params.exclusive_focus:
+        nodes, edges, focus_applied = apply_exclusive_focus(
+            nodes,
+            edges,
+            focused_group_key=params.focused_group_key,
+            groups=raw_groups,
+        )
+        if focus_applied:
+            raw_groups, raw_group_edges = build_groups(nodes, edges, strategy=group_strategy)
+
+    facets_data = compute_facets(nodes, edges, raw_groups)
+
     nodes_truncated = len(nodes) >= node_limit
     edges_truncated = len(edges) >= edge_limit
     snapshot = repository.get_latest_snapshot(db)
@@ -173,12 +208,26 @@ def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
             "max_edges_applied": int(edge_limit),
         }
     )
+    if params.focused_group_key:
+        graph_truncation["focused_group_key"] = params.focused_group_key
+        graph_truncation["exclusive_focus_applied"] = focus_applied
+
     graph_freshness = dict(freshness)
     graph_freshness["truncation"] = graph_truncation
+
+    groups_out: list[TopologyGroupOut] | None = None
+    group_edges_out: list[TopologyGroupEdgeOut] | None = None
+    if should_group:
+        groups_out = [TopologyGroupOut(**g) for g in raw_groups]
+        group_edges_out = [TopologyGroupEdgeOut(**ge) for ge in raw_group_edges]
 
     return TopologyGraphOut(
         nodes=[_node_to_out(n) for n in nodes],
         edges=[_edge_to_out(e) for e in edges],
+        groups=groups_out,
+        group_edges=group_edges_out,
+        facets=TopologyFacetsOut(**facets_data),
+        group_strategy=group_strategy if should_group else None,
         graph_health=TopologyGraphHealthOut(
             max_nodes_applied=node_limit,
             max_edges_applied=edge_limit,
@@ -190,6 +239,90 @@ def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
             **graph_freshness,
         ),
         **graph_freshness,
+    )
+
+
+def get_group_detail(db: Session, group_key: str, params: TopologyGraphQuery) -> TopologyGroupDetailOut:
+    node_limit = min(int(params.max_nodes), topo_realtime.graph_nodes_hard_limit())
+    edge_limit = min(int(params.max_edges), topo_realtime.graph_edges_hard_limit())
+
+    nodes = repository.list_nodes(
+        db,
+        agent_id=params.agent_id,
+        min_confidence=params.min_confidence,
+        include_stale=params.include_stale,
+        since=params.since,
+        until=params.until,
+        limit=node_limit,
+    )
+    edges = repository.list_edges(
+        db,
+        agent_id=params.agent_id,
+        min_confidence=params.min_confidence,
+        since=params.since,
+        until=params.until,
+        limit=edge_limit,
+    )
+
+    strategy = str(params.group_by or "auto")
+    raw_groups, _ = build_groups(nodes, edges, strategy=strategy)
+
+    group = next((g for g in raw_groups if g["group_key"] == group_key), None)
+    if not group:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "group_not_found",
+                "message": "Group not found",
+                "context": {"group_key": group_key},
+            },
+        )
+
+    member_keys: set[str] = set(group["child_node_keys"])
+    member_nodes = [n for n in nodes if n.node_key in member_keys]
+
+    def _sort_key(n: Any) -> tuple[int, int, int, int]:
+        sev_w = {"critical": 5, "high": 4, "medium": 3, "low": 2, "informational": 1}.get(
+            str(n.severity or "").lower(), 0
+        )
+        return (-sev_w, -int(n.risk_score or 0), -int(n.alert_count or 0), -int(n.event_count or 0))
+
+    member_nodes.sort(key=_sort_key)
+    top_members = member_nodes[:_GROUP_DETAIL_MEMBER_LIMIT]
+    top_services = [n for n in member_nodes if str(n.node_type or "") == "service"][:_GROUP_DETAIL_SERVICES_LIMIT]
+
+    neighbor_keys: set[str] = set()
+    for edge in edges:
+        if edge.source_node_key in member_keys:
+            neighbor_keys.add(edge.target_node_key)
+        if edge.target_node_key in member_keys:
+            neighbor_keys.add(edge.source_node_key)
+    neighbor_keys -= member_keys
+    visible_keys = member_keys | neighbor_keys
+
+    related_edges = [
+        e for e in edges
+        if e.source_node_key in visible_keys and e.target_node_key in visible_keys
+    ][:_GROUP_DETAIL_EDGE_LIMIT]
+
+    return TopologyGroupDetailOut(
+        group_key=group["group_key"],
+        group_type=group["group_type"],
+        label=group["label"],
+        node_count=group["node_count"],
+        edge_count=group["edge_count"],
+        alert_count=group["alert_count"],
+        highest_severity=group["highest_severity"],
+        risk_score=group["risk_score"],
+        confidence=group["confidence"],
+        is_stale=group["is_stale"],
+        first_seen=group["first_seen"],
+        last_seen=group["last_seen"],
+        top_member_nodes=[_node_to_out(n) for n in top_members],
+        top_services=[_node_to_out(n) for n in top_services],
+        related_edges=[_edge_to_out(e) for e in related_edges],
+        child_node_keys_truncated=group["child_node_keys_truncated"],
+        metadata=group["metadata"],
     )
 
 
