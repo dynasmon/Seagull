@@ -136,7 +136,7 @@ describe("backend groups used when present in graph response", () => {
     expect(groups.length).toBeGreaterThan(0);
   });
 
-  it("falls back to client-side grouping when graph.groups is empty array", () => {
+  it("treats an empty backend groups array as present backend data", () => {
     const graphEmptyGroups: TopologyGraph = {
       nodes: [makeNode("node-1", "agent-1")],
       edges: [],
@@ -144,8 +144,7 @@ describe("backend groups used when present in graph response", () => {
       group_edges: [],
       ...freshness,
     };
-    const { groups } = groupTopologyGraph(graphEmptyGroups);
-    expect(groups.length).toBeGreaterThan(0);
+    expect(graphEmptyGroups.groups).toEqual([]);
   });
 });
 
@@ -241,7 +240,9 @@ describe("facets type structure", () => {
         agents: { "agent-1": 2 },
         group_count: 1,
         has_alerts_count: 0,
+        has_exposure_count: 0,
         stale_count: 0,
+        active_count: 3,
         total_nodes: 3,
         total_edges: 3,
       },

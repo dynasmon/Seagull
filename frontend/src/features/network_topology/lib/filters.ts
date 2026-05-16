@@ -286,7 +286,7 @@ export function filterTopologyGraph(graph: TopologyGraph | null, filters: Topolo
   for (const node of graph.nodes) {
     const severityOk = !severities.length || severities.includes(String(node.severity || "").toLowerCase());
     const alertsOk = !hasAlerts || node.alert_count > 0;
-    const exposureOk = !hasExposure || Boolean(node.metadata?.has_exposure_findings);
+    const exposureOk = !hasExposure || Boolean(node.metadata?.has_exposure_findings || node.metadata?.exposure_asset_key);
     if (severityOk && alertsOk && exposureOk && nodeMatchesSearch(node, needle)) {
       visibleNodeKeys.add(node.node_key);
     }

@@ -575,6 +575,7 @@ def test_service_get_graph_with_location_mode_returns_groups(monkeypatch: pytest
     monkeypatch.setattr(topo_rt, "graph_nodes_hard_limit", lambda: 200)
     monkeypatch.setattr(topo_rt, "graph_edges_hard_limit", lambda: 300)
     monkeypatch.setattr(topo_repo, "get_latest_snapshot", lambda _db: None)
+    monkeypatch.setattr(topo_service, "_load_agent_labels", lambda _db: {"agent-1": "Agent One"})
 
     n = TopologyNodeModel()
     n.id = 1
@@ -605,6 +606,7 @@ def test_service_get_graph_with_location_mode_returns_groups(monkeypatch: pytest
     assert result.groups is not None
     assert len(result.groups) == 1
     assert result.groups[0].group_key == "agent:agent-1"
+    assert result.groups[0].label == "Agent One"
     assert result.facets is not None
     assert result.group_strategy == "auto"
 
@@ -641,3 +643,94 @@ def test_service_get_group_detail_raises_404_for_missing(monkeypatch: pytest.Mon
     with pytest.raises(HTTPException) as exc_info:
         topo_service.get_group_detail(SimpleNamespace(), "agent:nonexistent", params)
     assert exc_info.value.status_code == 404
+
+
+def test_service_get_group_detail_uses_agent_display_label_and_keeps_related_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.features.network_topology import realtime as topo_rt
+    from app.features.network_topology import repository as topo_repo
+    from app.features.network_topology.models import TopologyEdgeModel, TopologyNodeModel
+    from app.features.network_topology.schemas import TopologyGraphQuery
+
+    monkeypatch.setattr(topo_rt, "graph_nodes_hard_limit", lambda: 200)
+    monkeypatch.setattr(topo_rt, "graph_edges_hard_limit", lambda: 300)
+    monkeypatch.setattr(topo_service, "_load_agent_labels", lambda _db: {"agent-1": "Agent One"})
+
+    def node(
+        *,
+        row_id: int,
+        node_key: str,
+        node_type: str,
+        agent_id: str,
+        label: str,
+    ) -> TopologyNodeModel:
+        n = TopologyNodeModel()
+        n.id = row_id
+        n.node_key = node_key
+        n.node_type = node_type
+        n.label = label
+        n.ip = None
+        n.cidr = None
+        n.port = None
+        n.protocol = None
+        n.agent_id = agent_id
+        n.severity = "unknown"
+        n.risk_score = 0
+        n.confidence = 80
+        n.is_stale = 0
+        n.event_count = 0
+        n.alert_count = 0
+        n.observation_count = 0
+        n.first_seen_at = _now()
+        n.last_seen_at = _now()
+        n.updated_at = _now()
+        n.extra_data = {}
+        return n
+
+    def edge(
+        *,
+        row_id: int,
+        edge_key: str,
+        source_node_key: str,
+        target_node_key: str,
+    ) -> TopologyEdgeModel:
+        e = TopologyEdgeModel()
+        e.id = row_id
+        e.edge_key = edge_key
+        e.source_node_key = source_node_key
+        e.target_node_key = target_node_key
+        e.edge_type = "observed_flow"
+        e.agent_id = None
+        e.weight = 1.0
+        e.confidence = 80
+        e.severity = "unknown"
+        e.port = None
+        e.protocol = None
+        e.event_count = 0
+        e.alert_count = 0
+        e.first_seen_at = _now()
+        e.last_seen_at = _now()
+        e.updated_at = _now()
+        e.extra_data = {}
+        return e
+
+    nodes = [
+        node(row_id=1, node_key="agent-node", node_type="agent", agent_id="agent-1", label="agent-1"),
+        node(row_id=2, node_key="service-node", node_type="service", agent_id="agent-1", label="svc"),
+        node(row_id=3, node_key="neighbor-node", node_type="host", agent_id="agent-2", label="neighbor"),
+    ]
+    edges = [
+        edge(row_id=1, edge_key="member-edge", source_node_key="agent-node", target_node_key="service-node"),
+        edge(row_id=2, edge_key="neighbor-edge", source_node_key="service-node", target_node_key="neighbor-node"),
+    ]
+
+    monkeypatch.setattr(topo_repo, "list_nodes", lambda _db, **kwargs: nodes)
+    monkeypatch.setattr(topo_repo, "list_edges", lambda _db, **kwargs: edges)
+
+    params = TopologyGraphQuery(max_nodes=200, max_edges=300, group_by="agent")
+    result = topo_service.get_group_detail(SimpleNamespace(), "agent:agent-1", params)
+
+    assert result.label == "Agent One"
+    assert [n.node_key for n in result.top_services] == ["service-node"]
+    assert {e.edge_key for e in result.related_edges} == {"member-edge", "neighbor-edge"}

@@ -47,6 +47,11 @@ def _ip_scope(node: Any) -> str:
     return _clean(extra.get("ip_scope", "")).lower()
 
 
+def _has_exposure(node: Any) -> bool:
+    extra = node.extra_data if isinstance(node.extra_data, dict) else {}
+    return bool(_clean(extra.get("exposure_asset_key", "")))
+
+
 def _node_group_key(node: Any, subnet_by_node_key: dict[str, str], strategy: str) -> str:
     if strategy == "agent":
         agent = _clean(node.agent_id)
@@ -236,7 +241,9 @@ def compute_facets(
     ip_scopes: dict[str, int] = {}
     agents: dict[str, int] = {}
     has_alerts_count = 0
+    has_exposure_count = 0
     stale_count = 0
+    active_count = 0
 
     for node in nodes:
         nt = _clean(node.node_type) or "unknown"
@@ -244,14 +251,18 @@ def compute_facets(
         sev = _clean(node.severity) or "unknown"
         severities[sev] = severities.get(sev, 0) + 1
         scope = _ip_scope(node)
-        if scope:
-            ip_scopes[scope] = ip_scopes.get(scope, 0) + 1
+        bucket = scope if scope else "unknown"
+        ip_scopes[bucket] = ip_scopes.get(bucket, 0) + 1
         if node.agent_id:
             agents[node.agent_id] = agents.get(node.agent_id, 0) + 1
         if int(node.alert_count or 0) > 0:
             has_alerts_count += 1
+        if _has_exposure(node):
+            has_exposure_count += 1
         if int(node.is_stale or 0) != 0:
             stale_count += 1
+        else:
+            active_count += 1
 
     edge_types: dict[str, int] = {}
     for edge in edges:
@@ -266,7 +277,9 @@ def compute_facets(
         "agents": agents,
         "group_count": len(groups),
         "has_alerts_count": has_alerts_count,
+        "has_exposure_count": has_exposure_count,
         "stale_count": stale_count,
+        "active_count": active_count,
         "total_nodes": len(nodes),
         "total_edges": len(edges),
     }

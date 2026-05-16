@@ -246,7 +246,9 @@ export type TopologyFacets = {
   agents: Record<string, number>;
   group_count: number;
   has_alerts_count: number;
+  has_exposure_count: number;
   stale_count: number;
+  active_count: number;
   total_nodes: number;
   total_edges: number;
 };
