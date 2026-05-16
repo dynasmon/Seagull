@@ -19,6 +19,7 @@ import { pinAttackChainCaseToWorkspace, pinEventToWorkspace } from "@/features/i
 
 import { TopologyIpScopeBadge } from "./TopologyIpScopeBadge";
 import { formatTopologyTimestamp, toTitleLabel, topologySeverityVariant } from "../lib/labels";
+import { severityColor } from "../lib/visuals";
 import {
   alertPivotUrl,
   attackChainCasePivotUrl,
@@ -37,6 +38,7 @@ import {
 import type {
   TopologyEdge,
   TopologyEdgeDetail,
+  TopologyGroup,
   TopologyNode,
   TopologyNodeDetail,
   TopologyObservation,
@@ -49,6 +51,7 @@ import type {
 export type NetworkTopologyDetailSelection =
   | { kind: "node"; key: string; detail: TopologyNodeDetail | null; loading: boolean; error: string | null }
   | { kind: "edge"; key: string; detail: TopologyEdgeDetail | null; loading: boolean; error: string | null }
+  | { kind: "group"; key: string; group: TopologyGroup; memberNodes: TopologyNode[]; onExploreInConnection: () => void }
   | null;
 
 type PinTarget =
@@ -602,6 +605,49 @@ export function NetworkTopologyEdgeDetailContent({
   );
 }
 
+function NetworkTopologyGroupDetailContent({
+  group,
+  memberNodes,
+  onExploreInConnection,
+}: {
+  group: TopologyGroup;
+  memberNodes: TopologyNode[];
+  onExploreInConnection: () => void;
+}) {
+  const sev = group.highest_severity ?? null;
+
+  return (
+    <InvestigationShell>
+      <InvestigationSummaryGrid>
+        <InvestigationFactCard label="Group type" value={group.group_type === "agent" ? "Agent" : group.group_type === "subnet" ? "Subnet" : group.group_type === "scope" ? "IP Scope" : "Ungrouped"} />
+        <InvestigationFactCard label="Nodes" value={String(group.node_count)} />
+        <InvestigationFactCard label="Alert count" value={String(group.alert_count)} />
+        {sev && <InvestigationFactCard label="Highest severity" value={<span style={{ color: severityColor(sev), textTransform: "capitalize" }}>{sev}</span>} />}
+        {group.risk_score != null && <InvestigationFactCard label="Risk score" value={String(group.risk_score)} />}
+        {group.cidr && <InvestigationFactCard label="CIDR" value={group.cidr} />}
+      </InvestigationSummaryGrid>
+
+      <InvestigationActionBar>
+        <InvestigationActionButton onClick={onExploreInConnection}>
+          Explore in Connection view
+        </InvestigationActionButton>
+      </InvestigationActionBar>
+
+      {memberNodes.length > 0 && (
+        <InvestigationSection title="Member nodes" subtitle={`Showing ${memberNodes.length} of ${group.node_count}`}>
+          {memberNodes.map((node) => (
+            <InvestigationListItem
+              key={node.node_key}
+              title={node.label || node.node_key}
+              meta={[{ value: [node.ip ?? node.cidr, node.node_type].filter(Boolean).join(" · ") }]}
+            />
+          ))}
+        </InvestigationSection>
+      )}
+    </InvestigationShell>
+  );
+}
+
 export function NetworkTopologyDetailDrawer({
   selection,
   onClose,
@@ -616,13 +662,22 @@ export function NetworkTopologyDetailDrawer({
       ? selection.detail?.node.label ?? selection.key
       : selection?.kind === "edge"
         ? toTitleLabel(selection.detail?.edge.edge_type ?? selection.key)
-        : "Topology Detail";
+        : selection?.kind === "group"
+          ? selection.group.label || selection.key
+          : "Topology Detail";
+
+  const description =
+    selection?.kind === "group"
+      ? "Group summary, member nodes, and connection view drill-down."
+      : selection?.kind === "node"
+        ? "Node evidence, relationships, and investigation pivots."
+        : "Relationship evidence, endpoints, and investigation pivots.";
 
   return (
     <Drawer
       open={open}
       title={title}
-      description={selection?.kind === "node" ? "Node evidence, relationships, and investigation pivots." : "Relationship evidence, endpoints, and investigation pivots."}
+      description={description}
       onClose={() => {
         setPinTarget(null);
         onClose();
@@ -630,7 +685,13 @@ export function NetworkTopologyDetailDrawer({
       headerLabel="Network Topology"
       widthClassName="w-[980px]"
     >
-      {!selection ? null : selection.loading ? (
+      {!selection ? null : selection.kind === "group" ? (
+        <NetworkTopologyGroupDetailContent
+          group={selection.group}
+          memberNodes={selection.memberNodes}
+          onExploreInConnection={selection.onExploreInConnection}
+        />
+      ) : selection.loading ? (
         <div className="rounded-md border border-border/70 bg-background/35 p-4 text-sm text-muted-foreground">Loading detail...</div>
       ) : selection.error ? (
         <div className="rounded-md border border-danger/45 bg-danger/10 p-4 text-sm text-danger">{selection.error}</div>
