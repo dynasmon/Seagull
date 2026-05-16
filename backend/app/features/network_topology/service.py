@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.config.env_secrets import env_value
+from app.features.agents.repository import list_agents
 from app.features.auth.session import PortalPrincipal
 from app.features.network_topology import realtime as topo_realtime
 from app.features.network_topology import repository
@@ -95,6 +96,10 @@ def _config_max_events_per_run() -> int:
     return max(100, _env_int("SEAGULL_NETWORK_TOPOLOGY_MAX_EVENTS_PER_RUN", 5000))
 
 
+def _load_agent_labels(db: Session) -> dict[str, str]:
+    return {a.agent_id: (a.display_name or a.agent_id) for a in list_agents(db)}
+
+
 def get_summary(db: Session) -> TopologySummaryOut:
     metrics = repository.topology_summary_metrics(db)
     by_type: dict[str, int] = metrics.get("by_type", {})
@@ -176,11 +181,12 @@ def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
 
     should_group = bool(params.view_mode == "location" or params.group_by)
     group_strategy = str(params.group_by or "auto")
+    agent_labels = _load_agent_labels(db) if nodes and (should_group or params.focused_group_key) else {}
 
     raw_groups: list[dict[str, Any]] = []
     raw_group_edges: list[dict[str, Any]] = []
     if should_group or params.focused_group_key:
-        raw_groups, raw_group_edges = build_groups(nodes, edges, strategy=group_strategy)
+        raw_groups, raw_group_edges = build_groups(nodes, edges, strategy=group_strategy, agent_labels=agent_labels)
 
     focus_applied = False
     if params.focused_group_key and params.exclusive_focus:
@@ -191,7 +197,7 @@ def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
             groups=raw_groups,
         )
         if focus_applied:
-            raw_groups, raw_group_edges = build_groups(nodes, edges, strategy=group_strategy)
+            raw_groups, raw_group_edges = build_groups(nodes, edges, strategy=group_strategy, agent_labels=agent_labels)
 
     facets_data = compute_facets(nodes, edges, raw_groups)
 
@@ -265,7 +271,8 @@ def get_group_detail(db: Session, group_key: str, params: TopologyGraphQuery) ->
     )
 
     strategy = str(params.group_by or "auto")
-    raw_groups, _ = build_groups(nodes, edges, strategy=strategy)
+    agent_labels = _load_agent_labels(db) if nodes else {}
+    raw_groups, _ = build_groups(nodes, edges, strategy=strategy, agent_labels=agent_labels)
 
     group = next((g for g in raw_groups if g["group_key"] == group_key), None)
     if not group:
@@ -292,16 +299,21 @@ def get_group_detail(db: Session, group_key: str, params: TopologyGraphQuery) ->
     top_services = [n for n in member_nodes if str(n.node_type or "") == "service"][:_GROUP_DETAIL_SERVICES_LIMIT]
 
     neighbor_keys: set[str] = set()
+    candidate_edges: list[Any] = []
     for edge in edges:
-        if edge.source_node_key in member_keys:
+        src_in = edge.source_node_key in member_keys
+        tgt_in = edge.target_node_key in member_keys
+        if src_in:
             neighbor_keys.add(edge.target_node_key)
-        if edge.target_node_key in member_keys:
+        if tgt_in:
             neighbor_keys.add(edge.source_node_key)
+        if src_in or tgt_in:
+            candidate_edges.append(edge)
     neighbor_keys -= member_keys
     visible_keys = member_keys | neighbor_keys
 
     related_edges = [
-        e for e in edges
+        e for e in candidate_edges
         if e.source_node_key in visible_keys and e.target_node_key in visible_keys
     ][:_GROUP_DETAIL_EDGE_LIMIT]
 

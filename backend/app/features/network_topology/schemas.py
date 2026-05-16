@@ -186,7 +186,9 @@ class TopologyFacetsOut(BaseModel):
     agents: Dict[str, int] = Field(default_factory=dict)
     group_count: int = 0
     has_alerts_count: int = 0
+    has_exposure_count: int = 0
     stale_count: int = 0
+    active_count: int = 0
     total_nodes: int = 0
     total_edges: int = 0
 

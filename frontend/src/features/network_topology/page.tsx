@@ -122,7 +122,7 @@ export default function NetworkTopologyPage() {
   const visibleGraph = useMemo(() => filterTopologyGraph(graph, appliedFilters), [appliedFilters, graph]);
 
   const { groups, edges: groupEdges } = useMemo((): { groups: TopologyGroup[]; edges: TopologyGroupEdge[] } => {
-    if (visibleGraph?.groups?.length) {
+    if (visibleGraph?.groups) {
       const backendGroups: TopologyGroup[] = visibleGraph.groups.map((g) => ({
         group_key: g.group_key,
         group_type: g.group_type as TopologyGroup["group_type"],
@@ -558,6 +558,7 @@ export default function NetworkTopologyPage() {
             agentOptions={agentOptions}
             dirty={isDirty}
             applying={liveState.isRefreshing}
+            facets={visibleGraph?.facets ?? undefined}
             onChange={(patch) => setDraftFilters((current) => ({ ...current, ...patch }))}
             onApply={applyFilters}
             onReset={resetFilters}
