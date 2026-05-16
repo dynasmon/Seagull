@@ -3,21 +3,28 @@ import type {
   TopologyFilters,
   TopologyGraph,
   TopologyGraphParams,
+  TopologyIpScope,
   TopologyNode,
   TopologyObservationParams,
+  TopologySeverity,
   TopologySubnetParams,
   TopologyTimeWindowMinutes,
+  TopologyViewMode,
 } from "../types";
 
 export const DEFAULT_TOPOLOGY_FILTERS: TopologyFilters = {
   agent_id: "",
   window_minutes: 1440,
-  node_type: "",
-  edge_type: "",
-  ip_scope: "",
+  node_types: [],
+  edge_types: [],
+  ip_scopes: [],
   min_confidence: 30,
-  severity: "",
+  severities: [],
   q: "",
+  view_mode: "location",
+  include_stale: false,
+  has_alerts: false,
+  has_exposure: false,
 };
 
 export const TOPOLOGY_TIME_WINDOWS: Array<{ value: TopologyTimeWindowMinutes; label: string }> = [
@@ -29,46 +36,42 @@ export const TOPOLOGY_TIME_WINDOWS: Array<{ value: TopologyTimeWindowMinutes; la
 ];
 
 export const TOPOLOGY_NODE_TYPE_OPTIONS = [
-  { value: "", label: "All node types" },
-  { value: "agent", label: "Agents" },
-  { value: "host", label: "Hosts" },
-  { value: "interface", label: "Interfaces" },
-  { value: "subnet", label: "Subnets" },
-  { value: "service", label: "Services" },
-  { value: "external_ip", label: "External IPs" },
-  { value: "gateway", label: "Gateways" },
-  { value: "docker_network", label: "Docker networks" },
+  { value: "agent", label: "Agent" },
+  { value: "host", label: "Host" },
+  { value: "interface", label: "Interface" },
+  { value: "subnet", label: "Subnet" },
+  { value: "service", label: "Service" },
+  { value: "external_ip", label: "External IP" },
+  { value: "gateway", label: "Gateway" },
+  { value: "docker_network", label: "Docker Network" },
   { value: "unknown", label: "Unknown" },
 ];
 
 export const TOPOLOGY_EDGE_TYPE_OPTIONS = [
-  { value: "", label: "All edge types" },
-  { value: "observed_flow", label: "Observed flows" },
-  { value: "listens_on", label: "Listening services" },
-  { value: "owns_interface", label: "Owns interface" },
-  { value: "member_of_subnet", label: "Subnet membership" },
-  { value: "alert_related", label: "Alert context" },
-  { value: "exposure_related", label: "Exposure context" },
-  { value: "same_agent", label: "Same agent" },
-  { value: "route_next_hop", label: "Next hop" },
+  { value: "observed_flow", label: "Observed Flow" },
+  { value: "listens_on", label: "Listening Service" },
+  { value: "owns_interface", label: "Owns Interface" },
+  { value: "member_of_subnet", label: "Subnet Member" },
+  { value: "alert_related", label: "Alert Context" },
+  { value: "exposure_related", label: "Exposure Context" },
+  { value: "same_agent", label: "Same Agent" },
+  { value: "route_next_hop", label: "Next Hop" },
   { value: "inferred_relationship", label: "Inferred" },
 ];
 
 export const TOPOLOGY_IP_SCOPE_OPTIONS = [
-  { value: "", label: "All IP scopes" },
   { value: "internal_network", label: "Internal" },
   { value: "private_address", label: "Private" },
   { value: "public_internet", label: "Public" },
   { value: "link_local", label: "Link-local" },
   { value: "loopback", label: "Loopback" },
-  { value: "unique_local", label: "Unique local" },
+  { value: "unique_local", label: "Unique Local" },
   { value: "cgnat", label: "CGNAT" },
-  { value: "reserved", label: "Reserved/Test" },
+  { value: "reserved", label: "Reserved" },
   { value: "unknown", label: "Unknown" },
 ];
 
 export const TOPOLOGY_SEVERITY_OPTIONS = [
-  { value: "", label: "All severities" },
   { value: "critical", label: "Critical" },
   { value: "high", label: "High" },
   { value: "medium", label: "Medium" },
@@ -94,31 +97,72 @@ function parseWindow(value: unknown): TopologyTimeWindowMinutes {
     : DEFAULT_TOPOLOGY_FILTERS.window_minutes;
 }
 
+function parseList(csv: string): string[] {
+  return csv
+    .split(",")
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function parseViewMode(value: string | null): TopologyViewMode {
+  return value === "connection" ? "connection" : "location";
+}
+
 export function parseTopologyFilters(sp: URLSearchParams): TopologyFilters {
+  const nodeTypes = [
+    ...sp.getAll("node_types"),
+    ...parseList(sp.get("node_type") ?? ""),
+  ].map((v) => v.toLowerCase()).filter(Boolean);
+
+  const edgeTypes = [
+    ...sp.getAll("edge_types"),
+    ...parseList(sp.get("edge_type") ?? ""),
+  ].map((v) => v.toLowerCase()).filter(Boolean);
+
+  const ipScopes = [
+    ...sp.getAll("ip_scopes"),
+    ...parseList(sp.get("ip_scope") ?? ""),
+  ].map((v) => v.toLowerCase()).filter(Boolean) as TopologyIpScope[];
+
+  const severities = [
+    ...sp.getAll("severities"),
+    ...parseList(sp.get("severity") ?? ""),
+  ].map((v) => v.toLowerCase()).filter(Boolean) as TopologySeverity[];
+
   return {
     agent_id: clean(sp.get("agent")),
     window_minutes: parseWindow(sp.get("window")),
-    node_type: clean(sp.get("node_type")).toLowerCase(),
-    edge_type: clean(sp.get("edge_type")).toLowerCase(),
-    ip_scope: clean(sp.get("ip_scope")).toLowerCase(),
+    node_types: [...new Set(nodeTypes)],
+    edge_types: [...new Set(edgeTypes)],
+    ip_scopes: [...new Set(ipScopes)],
     min_confidence: clampInt(sp.get("min_confidence"), 1, 99, DEFAULT_TOPOLOGY_FILTERS.min_confidence),
-    severity: clean(sp.get("severity")).toLowerCase(),
+    severities: [...new Set(severities)],
     q: clean(sp.get("q")),
+    view_mode: parseViewMode(sp.get("mode")),
+    include_stale: sp.get("include_stale") === "1",
+    has_alerts: sp.get("has_alerts") === "1",
+    has_exposure: sp.get("has_exposure") === "1",
   };
 }
 
 export function serializeTopologyFilters(filters: TopologyFilters): URLSearchParams {
   const sp = new URLSearchParams();
   if (filters.agent_id) sp.set("agent", filters.agent_id);
-  if (filters.window_minutes !== DEFAULT_TOPOLOGY_FILTERS.window_minutes) sp.set("window", String(filters.window_minutes));
-  if (filters.node_type) sp.set("node_type", filters.node_type);
-  if (filters.edge_type) sp.set("edge_type", filters.edge_type);
-  if (filters.ip_scope) sp.set("ip_scope", filters.ip_scope);
+  if (filters.window_minutes !== DEFAULT_TOPOLOGY_FILTERS.window_minutes) {
+    sp.set("window", String(filters.window_minutes));
+  }
+  for (const nt of filters.node_types) sp.append("node_types", nt);
+  for (const et of filters.edge_types) sp.append("edge_types", et);
+  for (const is of filters.ip_scopes) sp.append("ip_scopes", is);
   if (filters.min_confidence !== DEFAULT_TOPOLOGY_FILTERS.min_confidence) {
     sp.set("min_confidence", String(filters.min_confidence));
   }
-  if (filters.severity) sp.set("severity", filters.severity);
+  for (const sv of filters.severities) sp.append("severities", sv);
   if (filters.q) sp.set("q", filters.q);
+  if (filters.view_mode !== DEFAULT_TOPOLOGY_FILTERS.view_mode) sp.set("mode", filters.view_mode);
+  if (filters.include_stale) sp.set("include_stale", "1");
+  if (filters.has_alerts) sp.set("has_alerts", "1");
+  if (filters.has_exposure) sp.set("has_exposure", "1");
   return sp;
 }
 
@@ -127,7 +171,24 @@ export function topologyFilterKey(filters: TopologyFilters): string {
 }
 
 export function hasActiveTopologyFilters(filters: TopologyFilters): boolean {
-  return topologyFilterKey(filters) !== "";
+  const f = { ...filters, view_mode: "location" as TopologyViewMode };
+  return topologyFilterKey(f) !== "";
+}
+
+export function activeFilterCount(filters: TopologyFilters): number {
+  let count = 0;
+  if (filters.agent_id) count++;
+  if (filters.window_minutes !== DEFAULT_TOPOLOGY_FILTERS.window_minutes) count++;
+  count += filters.node_types.length;
+  count += filters.edge_types.length;
+  count += filters.ip_scopes.length;
+  count += filters.severities.length;
+  if (filters.min_confidence !== DEFAULT_TOPOLOGY_FILTERS.min_confidence) count++;
+  if (filters.q) count++;
+  if (filters.include_stale) count++;
+  if (filters.has_alerts) count++;
+  if (filters.has_exposure) count++;
+  return count;
 }
 
 function windowBounds(filters: TopologyFilters, now: Date): { since: string; until: string } {
@@ -143,10 +204,10 @@ export function resolveTopologyGraphParams(filters: TopologyFilters, now = new D
     max_edges: 650,
     min_confidence: filters.min_confidence,
     agent_id: filters.agent_id || undefined,
-    node_types: filters.node_type ? [filters.node_type] : undefined,
-    edge_types: filters.edge_type ? [filters.edge_type] : undefined,
-    ip_scope: filters.ip_scope || undefined,
-    include_stale: false,
+    node_types: filters.node_types.length > 0 ? filters.node_types : undefined,
+    edge_types: filters.edge_types.length > 0 ? filters.edge_types : undefined,
+    ip_scope: filters.ip_scopes[0] || undefined,
+    include_stale: filters.include_stale || false,
     ...bounds,
   };
 }
@@ -202,23 +263,31 @@ function edgeMatchesSearch(edge: TopologyEdge, nodeByKey: Map<string, TopologyNo
 
 export function filterTopologyGraph(graph: TopologyGraph | null, filters: TopologyFilters): TopologyGraph | null {
   if (!graph) return null;
-  const severity = String(filters.severity || "").toLowerCase();
+
+  const severities = filters.severities.map((s) => String(s || "").toLowerCase()).filter(Boolean);
   const needle = filters.q.trim().toLowerCase();
-  if (!severity && !needle) return graph;
+  const hasAlerts = filters.has_alerts;
+  const hasExposure = filters.has_exposure;
+
+  if (!severities.length && !needle && !hasAlerts && !hasExposure) return graph;
 
   const nodeByKey = new Map(graph.nodes.map((node) => [node.node_key, node]));
   const visibleNodeKeys = new Set<string>();
 
   for (const node of graph.nodes) {
-    const severityOk = !severity || String(node.severity || "").toLowerCase() === severity;
-    if (severityOk && nodeMatchesSearch(node, needle)) visibleNodeKeys.add(node.node_key);
+    const severityOk = !severities.length || severities.includes(String(node.severity || "").toLowerCase());
+    const alertsOk = !hasAlerts || node.alert_count > 0;
+    const exposureOk = !hasExposure || Boolean(node.metadata?.has_exposure_findings);
+    if (severityOk && alertsOk && exposureOk && nodeMatchesSearch(node, needle)) {
+      visibleNodeKeys.add(node.node_key);
+    }
   }
 
   const edges = graph.edges.filter((edge) => {
-    const severityOk = !severity || String(edge.severity || "").toLowerCase() === severity;
+    const severityOk = !severities.length || severities.includes(String(edge.severity || "").toLowerCase());
     const searchOk = edgeMatchesSearch(edge, nodeByKey, needle);
     const endpointOk = visibleNodeKeys.has(edge.source_node_key) || visibleNodeKeys.has(edge.target_node_key);
-    if ((severity || needle) && severityOk && searchOk && endpointOk) {
+    if (severityOk && searchOk && endpointOk) {
       visibleNodeKeys.add(edge.source_node_key);
       visibleNodeKeys.add(edge.target_node_key);
       return true;
