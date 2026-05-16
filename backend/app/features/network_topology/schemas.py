@@ -213,6 +213,40 @@ class TopologyGroupDetailOut(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class TopologySubnetDetailTruncationOut(BaseModel):
+    member_nodes: TopologyEvidencePageMetaOut = Field(default_factory=lambda: TopologyEvidencePageMetaOut(limit=0, total=0, omitted=0))
+    gateway_candidates: TopologyEvidencePageMetaOut = Field(default_factory=lambda: TopologyEvidencePageMetaOut(limit=0, total=0, omitted=0))
+    exposed_or_public_nodes: TopologyEvidencePageMetaOut = Field(default_factory=lambda: TopologyEvidencePageMetaOut(limit=0, total=0, omitted=0))
+    listening_services: TopologyEvidencePageMetaOut = Field(default_factory=lambda: TopologyEvidencePageMetaOut(limit=0, total=0, omitted=0))
+    external_destinations: TopologyEvidencePageMetaOut = Field(default_factory=lambda: TopologyEvidencePageMetaOut(limit=0, total=0, omitted=0))
+    related_edges: TopologyEvidencePageMetaOut = Field(default_factory=lambda: TopologyEvidencePageMetaOut(limit=0, total=0, omitted=0))
+    recent_observations: TopologyEvidencePageMetaOut = Field(default_factory=lambda: TopologyEvidencePageMetaOut(limit=0, total=0, omitted=0))
+
+
+class TopologySubnetDetailOut(BaseModel):
+    cidr: str
+    label: str
+    ip_scope: Optional[str] = None
+    node_count: int = 0
+    active_node_count: int = 0
+    stale_node_count: int = 0
+    alert_count: int = 0
+    highest_severity: str = "unknown"
+    risk_score: Optional[int] = None
+    confidence: Optional[int] = None
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+    gateway_candidates: List[TopologyNodeOut] = Field(default_factory=list)
+    member_nodes: List[TopologyNodeOut] = Field(default_factory=list)
+    exposed_or_public_nodes: List[TopologyNodeOut] = Field(default_factory=list)
+    listening_services: List[TopologyNodeOut] = Field(default_factory=list)
+    external_destinations: List[TopologyNodeOut] = Field(default_factory=list)
+    related_edges: List[TopologyEdgeOut] = Field(default_factory=list)
+    recent_observations: List[TopologyObservationOut] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    truncation: TopologySubnetDetailTruncationOut = Field(default_factory=TopologySubnetDetailTruncationOut)
+
+
 class TopologyGraphOut(BaseModel):
     nodes: List[TopologyNodeOut] = Field(default_factory=list)
     edges: List[TopologyEdgeOut] = Field(default_factory=list)

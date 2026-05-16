@@ -61,6 +61,9 @@ function GroupContent({ group }: { group: TopologyGroup }) {
         <Row label="Severity" value={<span style={{ color: severityColor(sev) }}>{sev}</span>} />
         {group.risk_score > 0 && <Row label="Risk" value={group.risk_score} />}
         {group.cidr && <Row label="CIDR" value={group.cidr} />}
+        {group.group_type === "subnet" && group.gateway_candidate_count != null && (
+          <Row label="Gateways" value={group.gateway_candidate_count} />
+        )}
       </div>
       <div className="mt-1.5 text-[9px] italic text-muted-foreground/45">
         Double-click to explore

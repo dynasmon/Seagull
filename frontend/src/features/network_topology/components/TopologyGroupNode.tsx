@@ -56,7 +56,7 @@ function TopologyGroupNode({ data: rawData }: NodeProps) {
         <div className="mt-0.5 text-[9px]" style={{ color: "rgba(148,163,184,0.65)" }}>
           {group.group_type === "agent" && "Agent group"}
           {group.group_type === "subnet" && (group.cidr ?? "Subnet")}
-          {group.group_type === "scope" && "IP scope"}
+          {(group.group_type === "scope" || group.group_type === "ip_scope") && "IP scope"}
           {group.group_type === "ungrouped" && "Ungrouped"}
         </div>
       </div>

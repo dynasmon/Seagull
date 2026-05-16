@@ -145,6 +145,11 @@ export function TopologyFilterRail({
             </button>
           ))}
         </div>
+        {facets ? (
+          <div className="mt-2 text-[10px] text-muted-foreground/60">
+            {facets.group_count} groups · {facets.node_types.subnet ?? 0} subnet{(facets.node_types.subnet ?? 0) === 1 ? "" : "s"}
+          </div>
+        ) : null}
       </div>
 
       <div className="border-b border-border/30 px-3 py-2.5">

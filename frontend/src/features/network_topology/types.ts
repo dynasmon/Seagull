@@ -273,6 +273,40 @@ export type TopologyGroupDetail = {
   metadata: Record<string, unknown>;
 };
 
+export type TopologySubnetDetailTruncation = {
+  member_nodes: TopologyEvidencePageMeta;
+  gateway_candidates: TopologyEvidencePageMeta;
+  exposed_or_public_nodes: TopologyEvidencePageMeta;
+  listening_services: TopologyEvidencePageMeta;
+  external_destinations: TopologyEvidencePageMeta;
+  related_edges: TopologyEvidencePageMeta;
+  recent_observations: TopologyEvidencePageMeta;
+};
+
+export type TopologySubnetDetail = {
+  cidr: string;
+  label: string;
+  ip_scope: TopologyIpScope | null;
+  node_count: number;
+  active_node_count: number;
+  stale_node_count: number;
+  alert_count: number;
+  highest_severity: TopologySeverity;
+  risk_score: number | null;
+  confidence: number | null;
+  first_seen: string | null;
+  last_seen: string | null;
+  gateway_candidates: TopologyNode[];
+  member_nodes: TopologyNode[];
+  exposed_or_public_nodes: TopologyNode[];
+  listening_services: TopologyNode[];
+  external_destinations: TopologyNode[];
+  related_edges: TopologyEdge[];
+  recent_observations: TopologyObservation[];
+  metadata: Record<string, unknown>;
+  truncation: TopologySubnetDetailTruncation;
+};
+
 export type TopologyGraph = TopologyFreshness & {
   nodes: TopologyNode[];
   edges: TopologyEdge[];
@@ -420,7 +454,7 @@ export type TopologyViewMode = "location" | "connection";
 
 export type TopologyGroup = {
   group_key: string;
-  group_type: "agent" | "subnet" | "scope" | "ungrouped";
+  group_type: "agent" | "subnet" | "scope" | "ip_scope" | "ungrouped";
   label: string;
   node_keys: string[];
   node_count: number;
@@ -430,6 +464,7 @@ export type TopologyGroup = {
   is_stale: boolean;
   agent_id: string | null;
   cidr: string | null;
+  gateway_candidate_count?: number | null;
 };
 
 export type TopologyGroupEdge = {

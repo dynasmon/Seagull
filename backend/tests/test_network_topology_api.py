@@ -24,6 +24,8 @@ from app.features.network_topology.schemas import (
     TopologyNodeDetailOut,
     TopologyNodeOut,
     TopologyRecalculateOut,
+    TopologySubnetDetailOut,
+    TopologySubnetDetailTruncationOut,
     TopologySubnetOut,
     TopologySummaryOut,
 )
@@ -117,6 +119,30 @@ def _summary_out() -> TopologySummaryOut:
     )
 
 
+def _subnet_detail_out() -> TopologySubnetDetailOut:
+    return TopologySubnetDetailOut(
+        cidr="10.0.0.0/24",
+        label="10.0.0.0/24",
+        ip_scope="private_address",
+        node_count=2,
+        active_node_count=1,
+        stale_node_count=1,
+        alert_count=2,
+        highest_severity="high",
+        risk_score=72,
+        confidence=85,
+        first_seen=_now(),
+        last_seen=_now(),
+        gateway_candidates=[_node_out(node_key="topo:gateway:10.0.0.1", node_type="gateway")],
+        member_nodes=[_node_out(node_key="topo:host:10.0.0.5", node_type="host")],
+        listening_services=[],
+        external_destinations=[],
+        related_edges=[_edge_out()],
+        recent_observations=[],
+        truncation=TopologySubnetDetailTruncationOut(),
+    )
+
+
 @pytest.fixture(autouse=True)
 def _clear_overrides():
     app.dependency_overrides.clear()
@@ -140,6 +166,12 @@ def test_graph_requires_auth() -> None:
 def test_subnets_requires_auth() -> None:
     with TestClient(app) as client:
         response = client.get("/network-topology/subnets")
+    assert response.status_code == 401
+
+
+def test_subnet_detail_requires_auth() -> None:
+    with TestClient(app) as client:
+        response = client.get("/network-topology/subnets/detail", params={"cidr": "10.0.0.0/24"})
     assert response.status_code == 401
 
 
@@ -312,6 +344,33 @@ def test_subnets_returns_cursor_page(monkeypatch: pytest.MonkeyPatch) -> None:
     body = response.json()
     assert len(body["items"]) == 1
     assert body["items"][0]["cidr"] == "10.0.0.0/24"
+
+
+def test_subnet_detail_returns_expected_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
+    monkeypatch.setattr(topo_api.service, "get_subnet_detail", lambda _db, cidr: _subnet_detail_out())
+    with TestClient(app) as client:
+        response = client.get("/network-topology/subnets/detail", params={"cidr": "10.0.0.0/24"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["cidr"] == "10.0.0.0/24"
+    assert body["node_count"] == 2
+    assert body["gateway_candidates"][0]["node_type"] == "gateway"
+    assert "truncation" in body
+
+
+def test_subnet_detail_returns_404_for_missing_cidr(monkeypatch: pytest.MonkeyPatch) -> None:
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
+    monkeypatch.setattr(
+        topo_api.service,
+        "get_subnet_detail",
+        lambda _db, cidr: (_ for _ in ()).throw(
+            HTTPException(status_code=404, detail={"code": "subnet_not_found", "message": "Subnet not found", "context": {}})
+        ),
+    )
+    with TestClient(app) as client:
+        response = client.get("/network-topology/subnets/detail", params={"cidr": "10.0.99.0/24"})
+    assert response.status_code == 404
 
 
 
