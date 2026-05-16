@@ -205,10 +205,80 @@ export type TopologyGraphHealth = TopologyFreshness & {
   edges_truncated: boolean;
 };
 
+export type TopologyGroupBackend = {
+  group_key: string;
+  group_type: "agent" | "subnet" | "ip_scope" | "ungrouped" | (string & {});
+  label: string;
+  node_count: number;
+  edge_count: number;
+  alert_count: number;
+  highest_severity: TopologySeverity;
+  risk_score: number;
+  confidence: number;
+  is_stale: boolean;
+  first_seen: string | null;
+  last_seen: string | null;
+  child_node_keys: string[];
+  child_node_keys_truncated: boolean;
+  metadata: Record<string, unknown>;
+};
+
+export type TopologyGroupEdgeBackend = {
+  edge_key: string;
+  source_group_key: string;
+  target_group_key: string;
+  edge_type: string;
+  weight: number;
+  alert_count: number;
+  confidence: number;
+  highest_severity: TopologySeverity;
+  edge_count: number;
+  first_seen: string | null;
+  last_seen: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type TopologyFacets = {
+  node_types: Record<string, number>;
+  edge_types: Record<string, number>;
+  severities: Record<string, number>;
+  ip_scopes: Record<string, number>;
+  agents: Record<string, number>;
+  group_count: number;
+  has_alerts_count: number;
+  stale_count: number;
+  total_nodes: number;
+  total_edges: number;
+};
+
+export type TopologyGroupDetail = {
+  group_key: string;
+  group_type: string;
+  label: string;
+  node_count: number;
+  edge_count: number;
+  alert_count: number;
+  highest_severity: TopologySeverity;
+  risk_score: number;
+  confidence: number;
+  is_stale: boolean;
+  first_seen: string | null;
+  last_seen: string | null;
+  top_member_nodes: TopologyNode[];
+  top_services: TopologyNode[];
+  related_edges: TopologyEdge[];
+  child_node_keys_truncated: boolean;
+  metadata: Record<string, unknown>;
+};
+
 export type TopologyGraph = TopologyFreshness & {
   nodes: TopologyNode[];
   edges: TopologyEdge[];
   graph_health: TopologyGraphHealth;
+  groups?: TopologyGroupBackend[];
+  group_edges?: TopologyGroupEdgeBackend[];
+  facets?: TopologyFacets;
+  group_strategy?: string;
 };
 
 export type TopologyNodeDetail = {
@@ -317,6 +387,10 @@ export type TopologyGraphParams = {
   since?: string;
   until?: string;
   include_stale?: boolean;
+  view_mode?: string;
+  group_by?: string;
+  focused_group_key?: string;
+  exclusive_focus?: boolean;
   signal?: AbortSignal;
 };
 
