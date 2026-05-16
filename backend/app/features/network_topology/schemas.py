@@ -145,10 +145,80 @@ class TopologyGraphHealthOut(BaseModel):
     truncation: Dict[str, Any] = Field(default_factory=dict)
 
 
+class TopologyGroupOut(BaseModel):
+    group_key: str
+    group_type: str
+    label: str
+    node_count: int = 0
+    edge_count: int = 0
+    alert_count: int = 0
+    highest_severity: str = "unknown"
+    risk_score: int = 0
+    confidence: int = 0
+    is_stale: bool = False
+    first_seen: Optional[str] = None
+    last_seen: Optional[str] = None
+    child_node_keys: List[str] = Field(default_factory=list)
+    child_node_keys_truncated: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class TopologyGroupEdgeOut(BaseModel):
+    edge_key: str
+    source_group_key: str
+    target_group_key: str
+    edge_type: str = "observed_flow"
+    weight: float = 1.0
+    alert_count: int = 0
+    confidence: int = 0
+    highest_severity: str = "unknown"
+    edge_count: int = 1
+    first_seen: Optional[str] = None
+    last_seen: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class TopologyFacetsOut(BaseModel):
+    node_types: Dict[str, int] = Field(default_factory=dict)
+    edge_types: Dict[str, int] = Field(default_factory=dict)
+    severities: Dict[str, int] = Field(default_factory=dict)
+    ip_scopes: Dict[str, int] = Field(default_factory=dict)
+    agents: Dict[str, int] = Field(default_factory=dict)
+    group_count: int = 0
+    has_alerts_count: int = 0
+    stale_count: int = 0
+    total_nodes: int = 0
+    total_edges: int = 0
+
+
+class TopologyGroupDetailOut(BaseModel):
+    group_key: str
+    group_type: str
+    label: str
+    node_count: int = 0
+    edge_count: int = 0
+    alert_count: int = 0
+    highest_severity: str = "unknown"
+    risk_score: int = 0
+    confidence: int = 0
+    is_stale: bool = False
+    first_seen: Optional[str] = None
+    last_seen: Optional[str] = None
+    top_member_nodes: List[TopologyNodeOut] = Field(default_factory=list)
+    top_services: List[TopologyNodeOut] = Field(default_factory=list)
+    related_edges: List[TopologyEdgeOut] = Field(default_factory=list)
+    child_node_keys_truncated: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class TopologyGraphOut(BaseModel):
     nodes: List[TopologyNodeOut] = Field(default_factory=list)
     edges: List[TopologyEdgeOut] = Field(default_factory=list)
     graph_health: TopologyGraphHealthOut
+    groups: Optional[List[TopologyGroupOut]] = None
+    group_edges: Optional[List[TopologyGroupEdgeOut]] = None
+    facets: Optional[TopologyFacetsOut] = None
+    group_strategy: Optional[str] = None
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     projected_at: Optional[datetime] = None
     data_window: Dict[str, Any] = Field(default_factory=dict)
@@ -331,6 +401,10 @@ class TopologyGraphQuery(BaseModel):
     since: Optional[datetime] = None
     until: Optional[datetime] = None
     include_stale: bool = False
+    view_mode: Optional[str] = Field(default=None, max_length=16)
+    group_by: Optional[str] = Field(default=None, max_length=16)
+    focused_group_key: Optional[str] = Field(default=None, max_length=256)
+    exclusive_focus: bool = False
 
     @validator("node_types", "edge_types", pre=True)
     def _normalize_list(cls, v: Any) -> List[str]:
