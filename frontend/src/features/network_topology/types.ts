@@ -340,13 +340,44 @@ export type TopologyObservationParams = {
   signal?: AbortSignal;
 };
 
+export type TopologyViewMode = "location" | "connection";
+
+export type TopologyGroup = {
+  group_key: string;
+  group_type: "agent" | "subnet" | "scope" | "ungrouped";
+  label: string;
+  node_keys: string[];
+  node_count: number;
+  alert_count: number;
+  highest_severity: TopologySeverity;
+  risk_score: number;
+  is_stale: boolean;
+  agent_id: string | null;
+  cidr: string | null;
+};
+
+export type TopologyGroupEdge = {
+  edge_key: string;
+  source_group_key: string;
+  target_group_key: string;
+  edge_types: TopologyEdgeType[];
+  weight: number;
+  event_count: number;
+  alert_count: number;
+  severity: TopologySeverity;
+};
+
 export type TopologyFilters = {
   agent_id: string;
   window_minutes: TopologyTimeWindowMinutes;
-  node_type: string;
-  edge_type: string;
-  ip_scope: TopologyIpScope;
+  node_types: string[];
+  edge_types: string[];
+  ip_scopes: TopologyIpScope[];
   min_confidence: number;
-  severity: TopologySeverity | "";
+  severities: TopologySeverity[];
   q: string;
+  view_mode: TopologyViewMode;
+  include_stale: boolean;
+  has_alerts: boolean;
+  has_exposure: boolean;
 };
