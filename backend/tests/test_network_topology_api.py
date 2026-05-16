@@ -429,3 +429,215 @@ def test_service_list_subnets_paginates(monkeypatch: pytest.MonkeyPatch) -> None
     assert len(page.items) == 2
     assert page.has_more is True
     assert page.next_cursor is not None
+
+
+def test_graph_backward_compat_no_new_params(monkeypatch: pytest.MonkeyPatch) -> None:
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
+    monkeypatch.setattr(topo_api.service, "get_graph", lambda _db, params: _graph_out())
+    with TestClient(app) as client:
+        response = client.get("/network-topology/graph")
+    assert response.status_code == 200
+    body = response.json()
+    assert "nodes" in body
+    assert "edges" in body
+    assert "graph_health" in body
+
+
+def test_graph_view_mode_location_param(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+
+    def _capture(_db, params):
+        captured["params"] = params
+        return _graph_out()
+
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
+    monkeypatch.setattr(topo_api.service, "get_graph", _capture)
+    with TestClient(app) as client:
+        client.get("/network-topology/graph", params={"view_mode": "location", "group_by": "agent"})
+    assert captured["params"].view_mode == "location"
+    assert captured["params"].group_by == "agent"
+
+
+def test_graph_focused_group_key_param(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+
+    def _capture(_db, params):
+        captured["params"] = params
+        return _graph_out()
+
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
+    monkeypatch.setattr(topo_api.service, "get_graph", _capture)
+    with TestClient(app) as client:
+        client.get(
+            "/network-topology/graph",
+            params={"focused_group_key": "agent:a1", "exclusive_focus": "true"},
+        )
+    assert captured["params"].focused_group_key == "agent:a1"
+    assert captured["params"].exclusive_focus is True
+
+
+def test_graph_includes_facets_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.features.network_topology.schemas import TopologyFacetsOut
+
+    graph_with_facets = _graph_out()
+    graph_with_facets.facets = TopologyFacetsOut(total_nodes=1, total_edges=1, node_types={"agent": 1})
+
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
+    monkeypatch.setattr(topo_api.service, "get_graph", lambda _db, params: graph_with_facets)
+    with TestClient(app) as client:
+        response = client.get("/network-topology/graph")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["facets"] is not None
+    assert body["facets"]["total_nodes"] == 1
+
+
+def test_graph_includes_groups_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.features.network_topology.schemas import TopologyGroupEdgeOut, TopologyGroupOut
+
+    graph_with_groups = _graph_out()
+    graph_with_groups.groups = [
+        TopologyGroupOut(
+            group_key="agent:a1",
+            group_type="agent",
+            label="Agent A1",
+            node_count=1,
+        )
+    ]
+    graph_with_groups.group_edges = []
+    graph_with_groups.group_strategy = "auto"
+
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
+    monkeypatch.setattr(topo_api.service, "get_graph", lambda _db, params: graph_with_groups)
+    with TestClient(app) as client:
+        response = client.get("/network-topology/graph", params={"view_mode": "location"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["groups"] is not None
+    assert len(body["groups"]) == 1
+    assert body["groups"][0]["group_key"] == "agent:a1"
+    assert body["group_strategy"] == "auto"
+
+
+def test_group_detail_returns_404_for_missing_group(monkeypatch: pytest.MonkeyPatch) -> None:
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
+    monkeypatch.setattr(
+        topo_api.service,
+        "get_group_detail",
+        lambda _db, group_key, params: (_ for _ in ()).throw(
+            HTTPException(status_code=404, detail={"code": "group_not_found", "message": "Group not found", "context": {}})
+        ),
+    )
+    with TestClient(app) as client:
+        response = client.get("/network-topology/groups/agent:missing")
+    assert response.status_code == 404
+
+
+def test_group_detail_returns_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.features.network_topology.schemas import TopologyGroupDetailOut
+
+    detail = TopologyGroupDetailOut(
+        group_key="agent:a1",
+        group_type="agent",
+        label="Agent A1",
+        node_count=2,
+        edge_count=1,
+        alert_count=0,
+        highest_severity="unknown",
+        top_member_nodes=[_node_out()],
+        top_services=[],
+        related_edges=[_edge_out()],
+    )
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
+    monkeypatch.setattr(topo_api.service, "get_group_detail", lambda _db, group_key, params: detail)
+    with TestClient(app) as client:
+        response = client.get("/network-topology/groups/agent:a1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["group_key"] == "agent:a1"
+    assert body["group_type"] == "agent"
+    assert len(body["top_member_nodes"]) == 1
+    assert len(body["related_edges"]) == 1
+
+
+def test_group_detail_requires_auth() -> None:
+    with TestClient(app) as client:
+        response = client.get("/network-topology/groups/agent:a1")
+    assert response.status_code == 401
+
+
+def test_service_get_graph_with_location_mode_returns_groups(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.features.network_topology import realtime as topo_rt
+    from app.features.network_topology import repository as topo_repo
+    from app.features.network_topology.models import TopologyNodeModel
+    from app.features.network_topology.schemas import TopologyGraphQuery
+
+    monkeypatch.setattr(topo_rt, "graph_nodes_hard_limit", lambda: 200)
+    monkeypatch.setattr(topo_rt, "graph_edges_hard_limit", lambda: 300)
+    monkeypatch.setattr(topo_repo, "get_latest_snapshot", lambda _db: None)
+
+    n = TopologyNodeModel()
+    n.id = 1
+    n.node_key = "topo:agent:agent-1"
+    n.node_type = "agent"
+    n.label = "agent-1"
+    n.ip = "10.0.0.1"
+    n.cidr = None
+    n.agent_id = "agent-1"
+    n.severity = "unknown"
+    n.risk_score = 0
+    n.confidence = 80
+    n.is_stale = 0
+    n.event_count = 0
+    n.alert_count = 0
+    n.observation_count = 0
+    n.first_seen_at = _now()
+    n.last_seen_at = _now()
+    n.updated_at = _now()
+    n.extra_data = {}
+
+    monkeypatch.setattr(topo_repo, "list_nodes", lambda _db, **kwargs: [n])
+    monkeypatch.setattr(topo_repo, "list_edges", lambda _db, **kwargs: [])
+
+    params = TopologyGraphQuery(max_nodes=200, max_edges=300, view_mode="location")
+    result = topo_service.get_graph(SimpleNamespace(), params)
+
+    assert result.groups is not None
+    assert len(result.groups) == 1
+    assert result.groups[0].group_key == "agent:agent-1"
+    assert result.facets is not None
+    assert result.group_strategy == "auto"
+
+
+def test_service_get_graph_default_has_no_groups(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.features.network_topology import realtime as topo_rt
+    from app.features.network_topology import repository as topo_repo
+    from app.features.network_topology.schemas import TopologyGraphQuery
+
+    monkeypatch.setattr(topo_rt, "graph_nodes_hard_limit", lambda: 200)
+    monkeypatch.setattr(topo_rt, "graph_edges_hard_limit", lambda: 300)
+    monkeypatch.setattr(topo_repo, "get_latest_snapshot", lambda _db: None)
+    monkeypatch.setattr(topo_repo, "list_nodes", lambda _db, **kwargs: [])
+    monkeypatch.setattr(topo_repo, "list_edges", lambda _db, **kwargs: [])
+
+    params = TopologyGraphQuery(max_nodes=200, max_edges=300)
+    result = topo_service.get_graph(SimpleNamespace(), params)
+
+    assert result.groups is None
+    assert result.facets is not None
+
+
+def test_service_get_group_detail_raises_404_for_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.features.network_topology import realtime as topo_rt
+    from app.features.network_topology import repository as topo_repo
+    from app.features.network_topology.schemas import TopologyGraphQuery
+
+    monkeypatch.setattr(topo_rt, "graph_nodes_hard_limit", lambda: 200)
+    monkeypatch.setattr(topo_rt, "graph_edges_hard_limit", lambda: 300)
+    monkeypatch.setattr(topo_repo, "list_nodes", lambda _db, **kwargs: [])
+    monkeypatch.setattr(topo_repo, "list_edges", lambda _db, **kwargs: [])
+
+    params = TopologyGraphQuery(max_nodes=200, max_edges=300)
+    with pytest.raises(HTTPException) as exc_info:
+        topo_service.get_group_detail(SimpleNamespace(), "agent:nonexistent", params)
+    assert exc_info.value.status_code == 404

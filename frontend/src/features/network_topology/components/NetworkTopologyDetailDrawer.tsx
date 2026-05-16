@@ -39,6 +39,7 @@ import type {
   TopologyEdge,
   TopologyEdgeDetail,
   TopologyGroup,
+  TopologyGroupDetail,
   TopologyNode,
   TopologyNodeDetail,
   TopologyObservation,
@@ -51,7 +52,16 @@ import type {
 export type NetworkTopologyDetailSelection =
   | { kind: "node"; key: string; detail: TopologyNodeDetail | null; loading: boolean; error: string | null }
   | { kind: "edge"; key: string; detail: TopologyEdgeDetail | null; loading: boolean; error: string | null }
-  | { kind: "group"; key: string; group: TopologyGroup; memberNodes: TopologyNode[]; onExploreInConnection: () => void }
+  | {
+      kind: "group";
+      key: string;
+      group: TopologyGroup;
+      memberNodes: TopologyNode[];
+      backendDetail: TopologyGroupDetail | null;
+      backendDetailLoading: boolean;
+      backendDetailError: string | null;
+      onExploreInConnection: () => void;
+    }
   | null;
 
 type PinTarget =
@@ -605,26 +615,57 @@ export function NetworkTopologyEdgeDetailContent({
   );
 }
 
+function GroupTypeLabel({ groupType }: { groupType: string }) {
+  if (groupType === "agent") return <>Agent</>;
+  if (groupType === "subnet") return <>Subnet</>;
+  if (groupType === "ip_scope") return <>IP Scope</>;
+  return <>Ungrouped</>;
+}
+
 function NetworkTopologyGroupDetailContent({
   group,
   memberNodes,
+  backendDetail,
+  backendDetailLoading,
+  backendDetailError,
   onExploreInConnection,
 }: {
   group: TopologyGroup;
   memberNodes: TopologyNode[];
+  backendDetail: TopologyGroupDetail | null;
+  backendDetailLoading: boolean;
+  backendDetailError: string | null;
   onExploreInConnection: () => void;
 }) {
-  const sev = group.highest_severity ?? null;
+  const sev = backendDetail?.highest_severity ?? group.highest_severity ?? null;
+  const nodeCount = backendDetail?.node_count ?? group.node_count;
+  const alertCount = backendDetail?.alert_count ?? group.alert_count;
+  const riskScore = backendDetail?.risk_score ?? group.risk_score;
+  const displayNodes: TopologyNode[] = backendDetail?.top_member_nodes ?? memberNodes;
+  const displayEdges = backendDetail?.related_edges ?? [];
 
   return (
     <InvestigationShell>
+      {backendDetailLoading && (
+        <div className="rounded-md border border-border/70 bg-background/35 px-3 py-2 text-sm text-muted-foreground">
+          Loading group detail...
+        </div>
+      )}
+      {backendDetailError && !backendDetail && (
+        <div className="rounded-md border border-border/40 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
+          Backend detail unavailable — showing client summary.
+        </div>
+      )}
+
       <InvestigationSummaryGrid>
-        <InvestigationFactCard label="Group type" value={group.group_type === "agent" ? "Agent" : group.group_type === "subnet" ? "Subnet" : group.group_type === "scope" ? "IP Scope" : "Ungrouped"} />
-        <InvestigationFactCard label="Nodes" value={String(group.node_count)} />
-        <InvestigationFactCard label="Alert count" value={String(group.alert_count)} />
+        <InvestigationFactCard label="Group type" value={<GroupTypeLabel groupType={group.group_type} />} />
+        <InvestigationFactCard label="Nodes" value={String(nodeCount)} />
+        <InvestigationFactCard label="Alert count" value={String(alertCount)} />
         {sev && <InvestigationFactCard label="Highest severity" value={<span style={{ color: severityColor(sev), textTransform: "capitalize" }}>{sev}</span>} />}
-        {group.risk_score != null && <InvestigationFactCard label="Risk score" value={String(group.risk_score)} />}
+        {riskScore != null && <InvestigationFactCard label="Risk score" value={String(riskScore)} />}
         {group.cidr && <InvestigationFactCard label="CIDR" value={group.cidr} />}
+        {backendDetail?.first_seen && <InvestigationFactCard label="First seen" value={formatTopologyTimestamp(backendDetail.first_seen)} mono />}
+        {backendDetail?.last_seen && <InvestigationFactCard label="Last seen" value={formatTopologyTimestamp(backendDetail.last_seen)} mono />}
       </InvestigationSummaryGrid>
 
       <InvestigationActionBar>
@@ -633,13 +674,28 @@ function NetworkTopologyGroupDetailContent({
         </InvestigationActionButton>
       </InvestigationActionBar>
 
-      {memberNodes.length > 0 && (
-        <InvestigationSection title="Member nodes" subtitle={`Showing ${memberNodes.length} of ${group.node_count}`}>
-          {memberNodes.map((node) => (
+      {displayNodes.length > 0 && (
+        <InvestigationSection
+          title="Member nodes"
+          subtitle={`Showing ${displayNodes.length} of ${nodeCount}${backendDetail?.child_node_keys_truncated ? " (list capped)" : ""}`}
+        >
+          {displayNodes.map((node) => (
             <InvestigationListItem
               key={node.node_key}
               title={node.label || node.node_key}
               meta={[{ value: [node.ip ?? node.cidr, node.node_type].filter(Boolean).join(" · ") }]}
+            />
+          ))}
+        </InvestigationSection>
+      )}
+
+      {displayEdges.length > 0 && (
+        <InvestigationSection title="Related connections" subtitle="Edges among group members and first-hop neighbors.">
+          {displayEdges.slice(0, 10).map((edge) => (
+            <InvestigationListItem
+              key={edge.edge_key}
+              title={`${edge.source_node_key.split(":").pop() ?? edge.source_node_key} → ${edge.target_node_key.split(":").pop() ?? edge.target_node_key}`}
+              meta={[{ value: toTitleLabel(edge.edge_type) }]}
             />
           ))}
         </InvestigationSection>
@@ -689,6 +745,9 @@ export function NetworkTopologyDetailDrawer({
         <NetworkTopologyGroupDetailContent
           group={selection.group}
           memberNodes={selection.memberNodes}
+          backendDetail={selection.backendDetail}
+          backendDetailLoading={selection.backendDetailLoading}
+          backendDetailError={selection.backendDetailError}
           onExploreInConnection={selection.onExploreInConnection}
         />
       ) : selection.loading ? (

@@ -197,8 +197,13 @@ function windowBounds(filters: TopologyFilters, now: Date): { since: string; unt
   return { since: since.toISOString(), until: until.toISOString() };
 }
 
-export function resolveTopologyGraphParams(filters: TopologyFilters, now = new Date()): TopologyGraphParams {
+export function resolveTopologyGraphParams(
+  filters: TopologyFilters,
+  now = new Date(),
+  opts: { focused_group_key?: string } = {},
+): TopologyGraphParams {
   const bounds = windowBounds(filters, now);
+  const focusedGroupKey = opts.focused_group_key || undefined;
   return {
     max_nodes: 350,
     max_edges: 650,
@@ -208,6 +213,10 @@ export function resolveTopologyGraphParams(filters: TopologyFilters, now = new D
     edge_types: filters.edge_types.length > 0 ? filters.edge_types : undefined,
     ip_scope: filters.ip_scopes[0] || undefined,
     include_stale: filters.include_stale || false,
+    view_mode: filters.view_mode,
+    group_by: filters.view_mode === "location" ? "auto" : undefined,
+    focused_group_key: focusedGroupKey,
+    exclusive_focus: focusedGroupKey ? filters.view_mode === "connection" : undefined,
     ...bounds,
   };
 }

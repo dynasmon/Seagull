@@ -11,6 +11,7 @@ import { useLiveRefresh } from "@/shared/realtime";
 import {
   getTopologyEdgeDetail,
   getTopologyGraph,
+  getTopologyGroupDetail,
   getTopologyNodeDetail,
   getTopologySummary,
   listTopologyObservations,
@@ -45,7 +46,7 @@ import {
 } from "./lib/graphTransform";
 import { groupTopologyGraph } from "./lib/grouping";
 import { searchTopologyGraph } from "./lib/search";
-import type { TopologyGraph, TopologyObservation, TopologySubnet, TopologySummary } from "./types";
+import type { TopologyGraph, TopologyGroup, TopologyGroupEdge, TopologyObservation, TopologySubnet, TopologySummary } from "./types";
 
 function firstRejectedMessage(results: PromiseSettledResult<unknown>[]): string | null {
   for (const result of results) {
@@ -99,6 +100,7 @@ export default function NetworkTopologyPage() {
   const [secondaryOpen, setSecondaryOpen] = useState(false);
 
   const filtersRef = useRef(appliedFilters);
+  const focusedGroupKeyRef = useRef<string | null>(null);
   const loadedOnceRef = useRef(false);
   const detailSeqRef = useRef(0);
   const discoveryActionSeqRef = useRef(0);
@@ -119,10 +121,35 @@ export default function NetworkTopologyPage() {
 
   const visibleGraph = useMemo(() => filterTopologyGraph(graph, appliedFilters), [appliedFilters, graph]);
 
-  const { groups, edges: groupEdges } = useMemo(
-    () => (visibleGraph ? groupTopologyGraph(visibleGraph, agentLabelById) : { groups: [], edges: [] }),
-    [visibleGraph, agentLabelById],
-  );
+  const { groups, edges: groupEdges } = useMemo((): { groups: TopologyGroup[]; edges: TopologyGroupEdge[] } => {
+    if (visibleGraph?.groups?.length) {
+      const backendGroups: TopologyGroup[] = visibleGraph.groups.map((g) => ({
+        group_key: g.group_key,
+        group_type: g.group_type as TopologyGroup["group_type"],
+        label: g.label,
+        node_keys: g.child_node_keys,
+        node_count: g.node_count,
+        alert_count: g.alert_count,
+        highest_severity: g.highest_severity,
+        risk_score: g.risk_score,
+        is_stale: g.is_stale,
+        agent_id: (g.metadata?.agent_id as string | null) ?? null,
+        cidr: (g.metadata?.cidr as string | null) ?? null,
+      }));
+      const backendGroupEdges: TopologyGroupEdge[] = (visibleGraph.group_edges ?? []).map((ge) => ({
+        edge_key: ge.edge_key,
+        source_group_key: ge.source_group_key,
+        target_group_key: ge.target_group_key,
+        edge_types: [ge.edge_type],
+        weight: ge.weight,
+        event_count: ge.edge_count,
+        alert_count: ge.alert_count,
+        severity: ge.highest_severity,
+      }));
+      return { groups: backendGroups, edges: backendGroupEdges };
+    }
+    return visibleGraph ? groupTopologyGraph(visibleGraph, agentLabelById) : { groups: [], edges: [] };
+  }, [visibleGraph, agentLabelById]);
 
   const focusedGroup = useMemo(
     () => (workspace.focusedGroupKey ? groups.find((g) => g.group_key === workspace.focusedGroupKey) ?? null : null),
@@ -228,12 +255,16 @@ export default function NetworkTopologyPage() {
 
   const refreshTopology = useCallback(async ({ signal }: { signal: AbortSignal }) => {
     const activeFilters = filtersRef.current;
+    const activeFocusedGroupKey = focusedGroupKeyRef.current;
     const now = new Date();
     if (!loadedOnceRef.current) setLoading(true);
 
     const requests = await Promise.allSettled([
       getTopologySummary(signal),
-      getTopologyGraph({ ...resolveTopologyGraphParams(activeFilters, now), signal }),
+      getTopologyGraph({
+        ...resolveTopologyGraphParams(activeFilters, now, { focused_group_key: activeFocusedGroupKey ?? undefined }),
+        signal,
+      }),
       listTopologySubnets({ ...resolveTopologySubnetParams(activeFilters, now), signal }),
       listTopologyObservations({ ...resolveTopologyObservationParams(activeFilters, now), signal }),
       listAgents({ signal }),
@@ -271,6 +302,12 @@ export default function NetworkTopologyPage() {
     if (!loadedOnceRef.current) return;
     invalidate("dependency", { immediate: true, supersede: true });
   }, [appliedFilters, appliedKey, invalidate]);
+
+  useEffect(() => {
+    focusedGroupKeyRef.current = workspace.focusedGroupKey;
+    if (!loadedOnceRef.current) return;
+    invalidate("dependency", { immediate: true, supersede: true });
+  }, [workspace.focusedGroupKey, invalidate]);
 
   useEffect(() => {
     if (!selectedDiscoveryAgentId && agents.length > 0) {
@@ -346,8 +383,29 @@ export default function NetworkTopologyPage() {
             key: id,
             group,
             memberNodes,
+            backendDetail: null,
+            backendDetailLoading: true,
+            backendDetailError: null,
             onExploreInConnection: () => handleExploreGroupInConnection(id),
           });
+          const seq = detailSeqRef.current + 1;
+          detailSeqRef.current = seq;
+          try {
+            const backendDetail = await getTopologyGroupDetail(id);
+            if (detailSeqRef.current !== seq) return;
+            setDetailSelection((prev) =>
+              prev?.kind === "group" && prev.key === id
+                ? { ...prev, backendDetail, backendDetailLoading: false }
+                : prev,
+            );
+          } catch (err) {
+            if (detailSeqRef.current !== seq) return;
+            setDetailSelection((prev) =>
+              prev?.kind === "group" && prev.key === id
+                ? { ...prev, backendDetailLoading: false, backendDetailError: getErrorMessage(err, "Failed to load group detail") }
+                : prev,
+            );
+          }
         }
         return;
       }
