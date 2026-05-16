@@ -3,10 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createResponseAction, getResponseActionResult, listAgents, listResponseActions } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
 import { useAuth } from "@/features/auth/context";
-import { Button } from "@/shared/components/Button";
 import { DataQueryStateBanner } from "@/shared/components/DataView";
-import PageHeader from "@/shared/components/PageHeader";
-import { Panel } from "@/shared/components/Panel";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { isAbortError } from "@/shared/lib/http";
 import { useLiveRefresh } from "@/shared/realtime";
@@ -20,27 +17,35 @@ import {
   listTopologySubnets,
   requestTopologyRecalculate,
 } from "./api";
-import { NetworkTopologyCanvas } from "./components/NetworkTopologyCanvas";
 import {
   NetworkTopologyDetailDrawer,
   type NetworkTopologyDetailSelection,
 } from "./components/NetworkTopologyDetailDrawer";
 import { NetworkTopologyDiscoveryPanel } from "./components/NetworkTopologyDiscoveryPanel";
 import { NetworkTopologyEvidencePanel } from "./components/NetworkTopologyEvidencePanel";
-import { NetworkTopologyFiltersBar } from "./components/NetworkTopologyFiltersBar";
-import { NetworkTopologyServicesPanel } from "./components/NetworkTopologyServicesPanel";
 import { NetworkTopologyInsightsPanel } from "./components/NetworkTopologyInsightsPanel";
-import { NetworkTopologySummaryCards } from "./components/NetworkTopologySummaryCards";
-import { NetworkTopologyVisibilityBanner } from "./components/NetworkTopologyVisibilityBanner";
+import { NetworkTopologyServicesPanel } from "./components/NetworkTopologyServicesPanel";
+import TopologyCanvas from "./components/TopologyCanvas";
+import { TopologyFilterRail } from "./components/TopologyFilterRail";
+import { TopologyTopBar } from "./components/TopologyTopBar";
 import { useNetworkTopologyFilters } from "./hooks/useNetworkTopologyFilters";
 import { useNetworkTopologyRealtimeInvalidation } from "./hooks/useNetworkTopologyRealtimeInvalidation";
+import { useTopologyWorkspaceState } from "./hooks/useTopologyWorkspaceState";
 import {
   filterTopologyGraph,
   resolveTopologyGraphParams,
   resolveTopologyObservationParams,
   resolveTopologySubnetParams,
 } from "./lib/filters";
-import type { TopologyEdge, TopologyGraph, TopologyObservation, TopologySubnet, TopologySummary } from "./types";
+import {
+  computeHighlightedKeys,
+  graphToConnectionView,
+  graphToLocationView,
+  type TopologyFocusState,
+} from "./lib/graphTransform";
+import { groupTopologyGraph } from "./lib/grouping";
+import { searchTopologyGraph } from "./lib/search";
+import type { TopologyGraph, TopologyObservation, TopologySubnet, TopologySummary } from "./types";
 
 function firstRejectedMessage(results: PromiseSettledResult<unknown>[]): string | null {
   for (const result of results) {
@@ -58,15 +63,19 @@ function isTerminalDiscoveryActionStatus(status: string) {
 export default function NetworkTopologyPage() {
   const { user } = useAuth();
   const isAdmin = String(user?.role || "").toLowerCase() === "admin";
+
   const {
     appliedFilters,
     draftFilters,
     setDraftFilters,
     applyFilters,
+    applyWith,
     resetFilters,
     isDirty,
     appliedKey,
   } = useNetworkTopologyFilters();
+
+  const workspace = useTopologyWorkspaceState();
 
   const [agents, setAgents] = useState<AgentPublic[]>([]);
   const [summary, setSummary] = useState<TopologySummary | null>(null);
@@ -87,6 +96,7 @@ export default function NetworkTopologyPage() {
     result?: Record<string, unknown> | null;
   } | null>(null);
   const [detailSelection, setDetailSelection] = useState<NetworkTopologyDetailSelection>(null);
+  const [secondaryOpen, setSecondaryOpen] = useState(false);
 
   const filtersRef = useRef(appliedFilters);
   const loadedOnceRef = useRef(false);
@@ -102,16 +112,105 @@ export default function NetworkTopologyPage() {
     [agents],
   );
 
+  const agentLabelById = useMemo(
+    () => new Map(agents.map((a) => [a.agent_id, a.display_name ?? a.agent_id])),
+    [agents],
+  );
+
   const visibleGraph = useMemo(() => filterTopologyGraph(graph, appliedFilters), [appliedFilters, graph]);
+
+  const { groups, edges: groupEdges } = useMemo(
+    () => (visibleGraph ? groupTopologyGraph(visibleGraph, agentLabelById) : { groups: [], edges: [] }),
+    [visibleGraph, agentLabelById],
+  );
+
+  const focusedGroup = useMemo(
+    () => (workspace.focusedGroupKey ? groups.find((g) => g.group_key === workspace.focusedGroupKey) ?? null : null),
+    [workspace.focusedGroupKey, groups],
+  );
+
+  const focusedGroupLabel = focusedGroup?.label ?? null;
+
+  const focusState = useMemo((): TopologyFocusState | undefined => {
+    if (!focusedGroup || appliedFilters.view_mode !== "connection") return undefined;
+    return { focusedNodeKeys: new Set(focusedGroup.node_keys) };
+  }, [focusedGroup, appliedFilters.view_mode]);
+
+  useEffect(() => {
+    if (workspace.focusedGroupKey && !focusedGroup) {
+      workspace.clearFocusedGroup();
+    }
+  }, [workspace.focusedGroupKey, focusedGroup, workspace.clearFocusedGroup, workspace]);
+
+  const highlightedKeys = useMemo(
+    () =>
+      computeHighlightedKeys(
+        visibleGraph,
+        groups,
+        workspace.selection?.key ?? null,
+        workspace.selection?.kind ?? null,
+      ),
+    [visibleGraph, groups, workspace.selection],
+  );
+
+  const selState = useMemo(
+    () => ({
+      selectedKey: workspace.selection?.key ?? null,
+      selectedKind: workspace.selection?.kind ?? null,
+      highlightedKeys,
+    }),
+    [workspace.selection, highlightedKeys],
+  );
+
+  const searchResult = useMemo(
+    () => searchTopologyGraph(visibleGraph, groups, workspace.searchQuery),
+    [visibleGraph, groups, workspace.searchQuery],
+  );
+
+  const searchState = useMemo(() => {
+    if (!workspace.searchQuery.trim()) return undefined;
+    return {
+      matchedNodeKeys: searchResult.matchedNodeKeys,
+      matchedGroupKeys: searchResult.matchedGroupKeys,
+      activeMatchKey: null as string | null,
+    };
+  }, [workspace.searchQuery, searchResult]);
+
+  const activeMatchKey = useMemo(() => {
+    if (!workspace.searchQuery.trim()) return null;
+    if (appliedFilters.view_mode === "location") {
+      return searchResult.orderedGroupKeys[workspace.searchMatchIndex] ?? null;
+    }
+    return searchResult.orderedNodeKeys[workspace.searchMatchIndex] ?? null;
+  }, [workspace.searchQuery, workspace.searchMatchIndex, appliedFilters.view_mode, searchResult]);
+
+  const searchStateWithActive = useMemo(() => {
+    if (!searchState) return undefined;
+    return { ...searchState, activeMatchKey };
+  }, [searchState, activeMatchKey]);
+
+  const searchTotal = appliedFilters.view_mode === "location"
+    ? searchResult.orderedGroupKeys.length
+    : searchResult.orderedNodeKeys.length;
+
+  const { nodes: rfNodes, edges: rfEdges } = useMemo(() => {
+    if (appliedFilters.view_mode === "location") {
+      return graphToLocationView(groups, groupEdges, selState, searchStateWithActive);
+    }
+    return graphToConnectionView(visibleGraph, selState, searchStateWithActive, focusState);
+  }, [appliedFilters.view_mode, groups, groupEdges, visibleGraph, selState, searchStateWithActive, focusState]);
+
   const selectedDiscoveryAgent = useMemo(
     () => agents.find((agent) => agent.agent_id === selectedDiscoveryAgentId) ?? null,
     [agents, selectedDiscoveryAgentId],
   );
+
   const discoveryMetrics = useMemo(() => {
     const outer = selectedDiscoveryAgent?.metrics ?? {};
     const nested = outer && typeof outer === "object" ? (outer as Record<string, unknown>).metrics : null;
     return nested && typeof nested === "object" ? (nested as Record<string, unknown>) : {};
   }, [selectedDiscoveryAgent]);
+
   const discoveryAllowedCidrs = Array.isArray(discoveryMetrics.topology_active_discovery_allowed_cidrs)
     ? discoveryMetrics.topology_active_discovery_allowed_cidrs.map((value) => String(value))
     : [];
@@ -130,8 +229,7 @@ export default function NetworkTopologyPage() {
   const refreshTopology = useCallback(async ({ signal }: { signal: AbortSignal }) => {
     const activeFilters = filtersRef.current;
     const now = new Date();
-    const hasData = loadedOnceRef.current;
-    if (!hasData) setLoading(true);
+    if (!loadedOnceRef.current) setLoading(true);
 
     const requests = await Promise.allSettled([
       getTopologySummary(signal),
@@ -150,8 +248,7 @@ export default function NetworkTopologyPage() {
     if (observationResult.status === "fulfilled") setObservations(observationResult.value.items);
     if (agentsResult.status === "fulfilled") setAgents(agentsResult.value || []);
 
-    const message = firstRejectedMessage(requests.slice(0, 4));
-    setError(message);
+    setError(firstRejectedMessage(requests.slice(0, 4)));
     loadedOnceRef.current = true;
     setLoading(false);
   }, []);
@@ -205,12 +302,7 @@ export default function NetworkTopologyPage() {
         }
       }
       if (discoveryActionSeqRef.current === seq) {
-        setLatestDiscoveryAction({
-          id: latest.id,
-          status: latest.status,
-          requested_at: latest.requested_at,
-          result,
-        });
+        setLatestDiscoveryAction({ id: latest.id, status: latest.status, requested_at: latest.requested_at, result });
       }
     } catch {
       if (discoveryActionSeqRef.current === seq) setLatestDiscoveryAction(null);
@@ -222,59 +314,92 @@ export default function NetworkTopologyPage() {
   }, [liveState.lastUpdatedAt, loadLatestDiscoveryAction]);
 
   useEffect(() => {
-    if (
-      !latestDiscoveryAction ||
-      isTerminalDiscoveryActionStatus(latestDiscoveryAction.status) ||
-      !isAdmin ||
-      !selectedDiscoveryAgentId
-    ) {
-      return;
-    }
-    const timeout = window.setTimeout(() => {
-      void loadLatestDiscoveryAction();
-    }, 5000);
+    if (!latestDiscoveryAction || isTerminalDiscoveryActionStatus(latestDiscoveryAction.status) || !isAdmin || !selectedDiscoveryAgentId) return;
+    const timeout = window.setTimeout(() => void loadLatestDiscoveryAction(), 5000);
     return () => window.clearTimeout(timeout);
   }, [isAdmin, latestDiscoveryAction, loadLatestDiscoveryAction, selectedDiscoveryAgentId]);
 
-  const handleSelectNode = useCallback(async (node: { node_key: string }) => {
-    const seq = detailSeqRef.current + 1;
-    detailSeqRef.current = seq;
-    setDetailSelection({ kind: "node", key: node.node_key, detail: null, loading: true, error: null });
-    try {
-      const detail = await getTopologyNodeDetail(node.node_key);
-      if (detailSeqRef.current !== seq) return;
-      setDetailSelection({ kind: "node", key: node.node_key, detail, loading: false, error: null });
-    } catch (err) {
-      if (detailSeqRef.current !== seq) return;
-      setDetailSelection({
-        kind: "node",
-        key: node.node_key,
-        detail: null,
-        loading: false,
-        error: getErrorMessage(err, "Failed to load node detail"),
-      });
-    }
-  }, []);
+  const handleExploreGroupInConnection = useCallback(
+    (groupKey: string) => {
+      const group = groups.find((g) => g.group_key === groupKey);
+      if (!group) return;
+      applyWith({ ...appliedFilters, view_mode: "connection" });
+      workspace.setFocusedGroupKey(groupKey);
+      workspace.setSearchQuery("");
+      setDetailSelection(null);
+      workspace.clearSelection();
+    },
+    [groups, appliedFilters, applyWith, workspace],
+  );
 
-  const handleSelectEdge = useCallback(async (edge: TopologyEdge) => {
-    const seq = detailSeqRef.current + 1;
-    detailSeqRef.current = seq;
-    setDetailSelection({ kind: "edge", key: edge.edge_key, detail: null, loading: true, error: null });
-    try {
-      const detail = await getTopologyEdgeDetail(edge.edge_key);
-      if (detailSeqRef.current !== seq) return;
-      setDetailSelection({ kind: "edge", key: edge.edge_key, detail, loading: false, error: null });
-    } catch (err) {
-      if (detailSeqRef.current !== seq) return;
-      setDetailSelection({
-        kind: "edge",
-        key: edge.edge_key,
-        detail: null,
-        loading: false,
-        error: getErrorMessage(err, "Failed to load edge detail"),
-      });
-    }
-  }, []);
+  const handleNodeClick = useCallback(
+    async (id: string, kind: "node" | "group") => {
+      if (kind === "group") {
+        workspace.selectGroup(id);
+        const group = groups.find((g) => g.group_key === id) ?? null;
+        if (group) {
+          const memberNodes = (visibleGraph?.nodes ?? [])
+            .filter((n) => group.node_keys.includes(n.node_key))
+            .slice(0, 20);
+          setDetailSelection({
+            kind: "group",
+            key: id,
+            group,
+            memberNodes,
+            onExploreInConnection: () => handleExploreGroupInConnection(id),
+          });
+        }
+        return;
+      }
+      workspace.selectNode(id);
+      const seq = detailSeqRef.current + 1;
+      detailSeqRef.current = seq;
+      setDetailSelection({ kind: "node", key: id, detail: null, loading: true, error: null });
+      try {
+        const detail = await getTopologyNodeDetail(id);
+        if (detailSeqRef.current !== seq) return;
+        setDetailSelection({ kind: "node", key: id, detail, loading: false, error: null });
+      } catch (err) {
+        if (detailSeqRef.current !== seq) return;
+        setDetailSelection({ kind: "node", key: id, detail: null, loading: false, error: getErrorMessage(err, "Failed to load node detail") });
+      }
+    },
+    [workspace, groups, visibleGraph, handleExploreGroupInConnection],
+  );
+
+  const handleEdgeClick = useCallback(
+    async (id: string) => {
+      workspace.selectEdge(id);
+      const seq = detailSeqRef.current + 1;
+      detailSeqRef.current = seq;
+      setDetailSelection({ kind: "edge", key: id, detail: null, loading: true, error: null });
+      try {
+        const detail = await getTopologyEdgeDetail(id);
+        if (detailSeqRef.current !== seq) return;
+        setDetailSelection({ kind: "edge", key: id, detail, loading: false, error: null });
+      } catch (err) {
+        if (detailSeqRef.current !== seq) return;
+        setDetailSelection({ kind: "edge", key: id, detail: null, loading: false, error: getErrorMessage(err, "Failed to load edge detail") });
+      }
+    },
+    [workspace],
+  );
+
+  const handleGroupDoubleClick = useCallback(
+    (id: string) => {
+      handleExploreGroupInConnection(id);
+    },
+    [handleExploreGroupInConnection],
+  );
+
+  const handlePaneClick = useCallback(() => {
+    workspace.clearSelection();
+    setDetailSelection(null);
+  }, [workspace]);
+
+  const handleClearFocus = useCallback(() => {
+    workspace.clearFocusedGroup();
+  }, [workspace]);
 
   const handleRecalculate = useCallback(async () => {
     if (!isAdmin || recalculateBusy) return;
@@ -283,7 +408,7 @@ export default function NetworkTopologyPage() {
     try {
       const result = await requestTopologyRecalculate();
       setRecalculateMessage(
-        `Recalculation accepted: latest snapshot has ${result.projected_nodes} nodes and ${result.projected_edges} edges.`,
+        `Recalculation accepted: ${result.projected_nodes} nodes, ${result.projected_edges} edges.`,
       );
       invalidate("manual", { immediate: true, supersede: false });
     } catch (err) {
@@ -294,9 +419,7 @@ export default function NetworkTopologyPage() {
   }, [isAdmin, invalidate, recalculateBusy]);
 
   const handleTriggerDiscovery = useCallback(async () => {
-    if (!isAdmin || !selectedDiscoveryAgentId || discoveryBusy || discoveryConfirmationText.trim() !== "DISCOVER") {
-      return;
-    }
+    if (!isAdmin || !selectedDiscoveryAgentId || discoveryBusy || discoveryConfirmationText.trim() !== "DISCOVER") return;
     setDiscoveryBusy(true);
     try {
       const action = await createResponseAction({
@@ -304,12 +427,7 @@ export default function NetworkTopologyPage() {
         agent_id: selectedDiscoveryAgentId,
         payload: { reason: "network_topology_manual_request" },
       });
-      setLatestDiscoveryAction({
-        id: action.id,
-        status: action.status,
-        requested_at: action.requested_at,
-        result: null,
-      });
+      setLatestDiscoveryAction({ id: action.id, status: action.status, requested_at: action.requested_at, result: null });
       setDiscoveryConfirmationText("");
     } catch (err) {
       setError(getErrorMessage(err, "Failed to request active discovery"));
@@ -318,143 +436,183 @@ export default function NetworkTopologyPage() {
     }
   }, [discoveryBusy, discoveryConfirmationText, isAdmin, selectedDiscoveryAgentId]);
 
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (workspace.focusedGroupKey) {
+          workspace.clearFocusedGroup();
+          return;
+        }
+        if (workspace.searchQuery) {
+          workspace.setSearchQuery("");
+          return;
+        }
+        workspace.clearSelection();
+        setDetailSelection(null);
+        detailSeqRef.current += 1;
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [workspace]);
+
   return (
-    <div className="min-w-0 space-y-6 overflow-x-hidden">
-      <PageHeader
-        title="Network Topology"
-        breadcrumb={["Assets & Exposure", "Network Topology"]}
-        description="Internal network map, observed flows, services, and security context."
-        toolbarRight={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" size="lg" onClick={() => void refreshNow()} disabled={liveState.isRefreshing}>
-              {liveState.isRefreshing ? "Refreshing..." : "Refresh"}
-            </Button>
-            {isAdmin ? (
-              <Button variant="subtle" size="lg" onClick={() => void handleRecalculate()} disabled={recalculateBusy}>
-                {recalculateBusy ? "Recalculating..." : "Recalculate"}
-              </Button>
-            ) : null}
-          </div>
-        }
-      />
-
-      <NetworkTopologySummaryCards summary={summary} loading={loading} />
-
-      <NetworkTopologyVisibilityBanner
+    <div
+      className="flex min-w-0 flex-col overflow-hidden"
+      style={{ height: "calc(100vh - 88px)" }}
+    >
+      <TopologyTopBar
         summary={summary}
-        graph={graph}
-        error={error}
-        refreshing={liveState.isRefreshing}
-        onRefresh={() => void refreshNow()}
-      />
-
-      {recalculateMessage ? <DataQueryStateBanner tone="success" message={recalculateMessage} /> : null}
-
-      <NetworkTopologyDiscoveryPanel
+        graph={visibleGraph}
+        filters={appliedFilters}
+        liveState={liveState}
         isAdmin={isAdmin}
-        agents={agentOptions.map((agent) => ({ agent_id: agent.value, label: agent.label }))}
-        selectedAgentId={selectedDiscoveryAgentId}
-        mode={discoveryMode}
-        allowedCidrs={discoveryAllowedCidrs}
-        lastRunAt={
-          typeof discoveryMetrics.topology_active_discovery_last_run_at === "string"
-            ? discoveryMetrics.topology_active_discovery_last_run_at
-            : null
-        }
-        discoveredHosts={discoveryDiscoveredHosts}
-        observedHosts={discoveryObservedHosts}
-        lastError={
-          typeof discoveryMetrics.topology_active_discovery_last_error === "string" &&
-          discoveryMetrics.topology_active_discovery_last_error.trim()
-            ? discoveryMetrics.topology_active_discovery_last_error
-            : null
-        }
-        warnings={discoveryWarnings}
-        confirmationText={discoveryConfirmationText}
-        busy={discoveryBusy}
-        latestAction={latestDiscoveryAction}
-        onSelectAgent={setSelectedDiscoveryAgentId}
-        onConfirmationTextChange={setDiscoveryConfirmationText}
-        onTrigger={() => void handleTriggerDiscovery()}
+        filterRailOpen={workspace.filterRailOpen}
+        recalculateBusy={recalculateBusy}
+        isFullscreen={workspace.isFullscreen}
+        searchQuery={workspace.searchQuery}
+        searchTotal={searchTotal}
+        searchMatchIndex={workspace.searchMatchIndex}
+        focusedGroupLabel={focusedGroupLabel}
+        onRefresh={() => void refreshNow()}
+        onRecalculate={() => void handleRecalculate()}
+        onToggleFilterRail={() => workspace.setFilterRailOpen((prev) => !prev)}
+        onToggleFullscreen={workspace.toggleFullscreen}
+        onSearchChange={(q) => {
+          workspace.setSearchQuery(q);
+          workspace.setSearchMatchIndex(0);
+        }}
+        onPrevMatch={() => workspace.prevSearchMatch(searchTotal)}
+        onNextMatch={() => workspace.nextSearchMatch(searchTotal)}
+        onClearFocus={handleClearFocus}
       />
 
-      <NetworkTopologyFiltersBar
-        filters={draftFilters}
-        agentOptions={agentOptions}
-        dirty={isDirty}
-        applying={liveState.isRefreshing}
-        onChange={(patch) => setDraftFilters((current) => ({ ...current, ...patch }))}
-        onApply={applyFilters}
-        onReset={resetFilters}
-      />
+      {recalculateMessage && (
+        <DataQueryStateBanner tone="success" message={recalculateMessage} />
+      )}
 
-      <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_340px]">
-        <Panel
-          title="Topology Canvas"
-          subtitle="Agents, inventory, flows, alerts, and exposure signals."
-          className="min-w-0"
-          bodyClassName="min-w-0"
-        >
-          <NetworkTopologyCanvas
-            graph={visibleGraph}
-            loading={loading}
-            selected={
-              detailSelection
-                ? { kind: detailSelection.kind, key: detailSelection.key }
-                : null
-            }
-            onSelectNode={handleSelectNode}
-            onSelectEdge={handleSelectEdge}
+      {error && <DataQueryStateBanner tone="danger" message={error} />}
+
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {workspace.filterRailOpen && (
+          <TopologyFilterRail
+            filters={draftFilters}
+            agentOptions={agentOptions}
+            dirty={isDirty}
+            applying={liveState.isRefreshing}
+            onChange={(patch) => setDraftFilters((current) => ({ ...current, ...patch }))}
+            onApply={applyFilters}
+            onReset={resetFilters}
           />
-        </Panel>
+        )}
 
-        <Panel
-          title="Visible Scope"
-          subtitle="Current projection bounds and displayed subset."
-          className="min-w-0"
-        >
-          <div className="space-y-3 text-sm">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-md border border-border/70 bg-background/35 p-3">
-                <div className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">Shown Nodes</div>
-                <div className="mt-1 text-lg font-semibold">{visibleGraph?.nodes.length ?? 0}</div>
-              </div>
-              <div className="rounded-md border border-border/70 bg-background/35 p-3">
-                <div className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">Shown Edges</div>
-                <div className="mt-1 text-lg font-semibold">{visibleGraph?.edges.length ?? 0}</div>
-              </div>
-            </div>
-            <div className="rounded-md border border-border/70 bg-background/35 p-3 text-[12px] text-muted-foreground">
-              Agent, time window, type, IP scope, confidence, search, and severity filters are active in this view.
-            </div>
-            <div className="rounded-md border border-border/70 bg-background/35 p-3 text-[12px] text-muted-foreground">
-              Realtime status: <span className="font-semibold text-foreground">{liveState.realtimeStatus}</span>
-              {liveState.lastUpdatedAt ? ` · updated ${liveState.lastUpdatedAt.toLocaleTimeString()}` : ""}
-            </div>
-          </div>
-        </Panel>
+        <div className="min-h-0 min-w-0 flex-1">
+          <TopologyCanvas
+            nodes={rfNodes}
+            edges={rfEdges}
+            viewMode={appliedFilters.view_mode}
+            graph={visibleGraph}
+            groups={groups}
+            groupEdges={groupEdges}
+            summary={summary}
+            filters={appliedFilters}
+            loading={loading}
+            isFullscreen={workspace.isFullscreen}
+            activeMatchKey={activeMatchKey}
+            searchQuery={workspace.searchQuery}
+            searchTotal={searchTotal}
+            searchMatchIndex={workspace.searchMatchIndex}
+            focusedGroupLabel={focusedGroupLabel}
+            realtimeStatus={liveState.realtimeStatus}
+            isRefreshing={liveState.isRefreshing}
+            onNodeClick={handleNodeClick}
+            onGroupDoubleClick={handleGroupDoubleClick}
+            onEdgeClick={handleEdgeClick}
+            onPaneClick={handlePaneClick}
+            onClearFocus={handleClearFocus}
+            onPrevMatch={() => workspace.prevSearchMatch(searchTotal)}
+            onNextMatch={() => workspace.nextSearchMatch(searchTotal)}
+          />
+        </div>
       </div>
 
-      <NetworkTopologyServicesPanel
-        graph={visibleGraph}
-        loading={loading}
-        selectedKey={detailSelection?.key ?? null}
-        onSelectService={handleSelectNode}
-      />
+      <div className="shrink-0 border-t border-border/30">
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 bg-background/40 px-4 py-2 text-left"
+          onClick={() => setSecondaryOpen((prev) => !prev)}
+        >
+          <span className={`text-[10px] transition-transform ${secondaryOpen ? "rotate-90" : ""}`}>▶</span>
+          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            Operational Details
+          </span>
+          <span className="ml-auto text-[10px] text-muted-foreground/50">
+            Services · Insights · Evidence{isAdmin ? " · Discovery" : ""}
+          </span>
+        </button>
 
-      <NetworkTopologyInsightsPanel
-        insights={summary?.insights ?? []}
-        visibility={summary?.visibility ?? null}
-        loading={loading}
-      />
+        {secondaryOpen && (
+          <div className="max-h-[480px] overflow-y-auto border-t border-border/30 bg-background/30 px-4 py-4">
+            <div className="space-y-4">
+              {isAdmin && (
+                <NetworkTopologyDiscoveryPanel
+                  isAdmin={isAdmin}
+                  agents={agentOptions.map((a) => ({ agent_id: a.value, label: a.label }))}
+                  selectedAgentId={selectedDiscoveryAgentId}
+                  mode={discoveryMode}
+                  allowedCidrs={discoveryAllowedCidrs}
+                  lastRunAt={
+                    typeof discoveryMetrics.topology_active_discovery_last_run_at === "string"
+                      ? discoveryMetrics.topology_active_discovery_last_run_at
+                      : null
+                  }
+                  discoveredHosts={discoveryDiscoveredHosts}
+                  observedHosts={discoveryObservedHosts}
+                  lastError={
+                    typeof discoveryMetrics.topology_active_discovery_last_error === "string" &&
+                    discoveryMetrics.topology_active_discovery_last_error.trim()
+                      ? discoveryMetrics.topology_active_discovery_last_error
+                      : null
+                  }
+                  warnings={discoveryWarnings}
+                  confirmationText={discoveryConfirmationText}
+                  busy={discoveryBusy}
+                  latestAction={latestDiscoveryAction}
+                  onSelectAgent={setSelectedDiscoveryAgentId}
+                  onConfirmationTextChange={setDiscoveryConfirmationText}
+                  onTrigger={() => void handleTriggerDiscovery()}
+                />
+              )}
 
-      <NetworkTopologyEvidencePanel observations={observations} subnets={subnets} loading={loading} />
+              <NetworkTopologyServicesPanel
+                graph={visibleGraph}
+                loading={loading}
+                selectedKey={workspace.selection?.key ?? null}
+                onSelectService={(node) => void handleNodeClick(node.node_key, "node")}
+              />
+
+              <NetworkTopologyInsightsPanel
+                insights={summary?.insights ?? []}
+                visibility={summary?.visibility ?? null}
+                loading={loading}
+              />
+
+              <NetworkTopologyEvidencePanel
+                observations={observations}
+                subnets={subnets}
+                loading={loading}
+              />
+            </div>
+          </div>
+        )}
+      </div>
 
       <NetworkTopologyDetailDrawer
         selection={detailSelection}
         onClose={() => {
           detailSeqRef.current += 1;
           setDetailSelection(null);
+          workspace.clearSelection();
         }}
       />
     </div>
