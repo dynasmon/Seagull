@@ -12,6 +12,7 @@ from app.features.network_topology.schemas import (
     TopologyErrorOut,
     TopologyGraphOut,
     TopologyGraphQuery,
+    TopologyGroupDetailOut,
     TopologyNodeDetailOut,
     TopologyObservationOut,
     TopologyObservationQuery,
@@ -47,6 +48,10 @@ def get_graph(
     since: str | None = Query(None),
     until: str | None = Query(None),
     include_stale: bool = Query(False),
+    view_mode: str | None = Query(None, max_length=16),
+    group_by: str | None = Query(None, max_length=16),
+    focused_group_key: str | None = Query(None, max_length=256),
+    exclusive_focus: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     params = TopologyGraphQuery(
@@ -60,6 +65,10 @@ def get_graph(
         since=_parse_dt(since),
         until=_parse_dt(until),
         include_stale=include_stale,
+        view_mode=view_mode,
+        group_by=group_by,
+        focused_group_key=focused_group_key,
+        exclusive_focus=exclusive_focus,
     )
     with managed_session(db) as db_session:
         return service.get_graph(db_session, params)
@@ -83,6 +92,37 @@ def get_node_detail(node_key: str, db: Session = Depends(get_db)):
 def get_edge_detail(edge_key: str, db: Session = Depends(get_db)):
     with managed_session(db) as db_session:
         return service.get_edge_detail(db_session, edge_key)
+
+
+@router.get(
+    "/groups/{group_key:path}",
+    response_model=TopologyGroupDetailOut,
+    responses={404: {"model": TopologyErrorOut}},
+)
+def get_group_detail(
+    group_key: str,
+    max_nodes: int = Query(200, ge=1, le=2000),
+    max_edges: int = Query(300, ge=1, le=3000),
+    min_confidence: int = Query(1, ge=1, le=99),
+    agent_id: str | None = Query(None, min_length=1, max_length=64),
+    group_by: str | None = Query(None, max_length=16),
+    since: str | None = Query(None),
+    until: str | None = Query(None),
+    include_stale: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    params = TopologyGraphQuery(
+        max_nodes=max_nodes,
+        max_edges=max_edges,
+        min_confidence=min_confidence,
+        agent_id=agent_id,
+        group_by=group_by,
+        since=_parse_dt(since),
+        until=_parse_dt(until),
+        include_stale=include_stale,
+    )
+    with managed_session(db) as db_session:
+        return service.get_group_detail(db_session, group_key, params)
 
 
 @router.get("/subnets", response_model=CursorPage[TopologySubnetOut])
