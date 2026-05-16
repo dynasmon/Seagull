@@ -29,6 +29,10 @@ export function useNetworkTopologyFilters() {
     draftFilters,
     setDraftFilters,
     applyFilters: () => setAppliedFilters(draftFilters),
+    applyWith: (nextFilters: TopologyFilters) => {
+      setDraftFilters(nextFilters);
+      setAppliedFilters(nextFilters);
+    },
     resetFilters: () => {
       setDraftFilters(DEFAULT_TOPOLOGY_FILTERS);
       setAppliedFilters(DEFAULT_TOPOLOGY_FILTERS);
