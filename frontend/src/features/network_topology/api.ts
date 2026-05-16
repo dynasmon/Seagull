@@ -5,6 +5,7 @@ import type {
   TopologyEdgeDetail,
   TopologyGraph,
   TopologyGraphParams,
+  TopologyGroupDetail,
   TopologyNodeDetail,
   TopologyObservation,
   TopologyObservationParams,
@@ -47,6 +48,10 @@ export function buildTopologyGraphPath(params: TopologyGraphParams = {}): string
   appendOptional(q, "since", params.since);
   appendOptional(q, "until", params.until);
   appendOptional(q, "include_stale", params.include_stale);
+  appendOptional(q, "view_mode", params.view_mode);
+  appendOptional(q, "group_by", params.group_by);
+  appendOptional(q, "focused_group_key", params.focused_group_key);
+  appendOptional(q, "exclusive_focus", params.exclusive_focus);
   return withQuery(`${BASE}/graph`, q);
 }
 
@@ -97,6 +102,10 @@ export function listTopologyObservations(params: TopologyObservationParams = {})
     cacheMs: 0,
     signal: params.signal,
   });
+}
+
+export function getTopologyGroupDetail(groupKey: string, signal?: AbortSignal) {
+  return apiGet<TopologyGroupDetail>(`${BASE}/groups/${encodeURIComponent(groupKey)}`, { cacheMs: 0, signal });
 }
 
 export function requestTopologyRecalculate() {
