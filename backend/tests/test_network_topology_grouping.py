@@ -217,6 +217,11 @@ class TestAutoGrouping:
         groups_invalid, _ = build_groups(nodes, [], strategy="INVALID")
         assert groups_auto[0]["group_key"] == groups_invalid[0]["group_key"]
 
+    def test_auto_no_location_site_metadata(self) -> None:
+        nodes = [_node(node_key="n1", agent_id="a1", extra_data={})]
+        groups, _ = build_groups(nodes, [], strategy="auto")
+        assert groups[0]["group_key"] == "agent:a1"
+
 
 class TestGroupEdgeAggregation:
     def test_inter_group_edges_aggregated(self) -> None:
@@ -310,6 +315,14 @@ class TestComputeFacets:
         facets = compute_facets(nodes, [], [])
         assert facets["has_alerts_count"] == 1
 
+    def test_facet_has_exposure_count(self) -> None:
+        nodes = [
+            _node(node_key="n1", extra_data={"exposure_asset_key": "asset-1"}),
+            _node(node_key="n2", extra_data={}),
+        ]
+        facets = compute_facets(nodes, [], [])
+        assert facets["has_exposure_count"] == 1
+
     def test_facet_stale_count(self) -> None:
         nodes = [
             _node(node_key="n1", is_stale=1),
@@ -317,6 +330,15 @@ class TestComputeFacets:
         ]
         facets = compute_facets(nodes, [], [])
         assert facets["stale_count"] == 1
+
+    def test_facet_active_count(self) -> None:
+        nodes = [
+            _node(node_key="n1", is_stale=0),
+            _node(node_key="n2", is_stale=1),
+            _node(node_key="n3", is_stale=0),
+        ]
+        facets = compute_facets(nodes, [], [])
+        assert facets["active_count"] == 2
 
     def test_facet_group_count(self) -> None:
         nodes = [
@@ -326,6 +348,20 @@ class TestComputeFacets:
         raw_groups, _ = build_groups(nodes, [], strategy="agent")
         facets = compute_facets(nodes, [], raw_groups)
         assert facets["group_count"] == 2
+
+    def test_ip_scope_unknown_bucket_for_missing_scope(self) -> None:
+        nodes = [
+            _node(node_key="n1", extra_data={}),
+            _node(node_key="n2", extra_data={"ip_scope": "private_address"}),
+        ]
+        facets = compute_facets(nodes, [], [])
+        assert facets["ip_scopes"].get("unknown", 0) == 1
+        assert facets["ip_scopes"].get("private_address", 0) == 1
+
+    def test_ip_scope_all_missing_goes_to_unknown(self) -> None:
+        nodes = [_node(node_key=f"n{i}", extra_data={}) for i in range(3)]
+        facets = compute_facets(nodes, [], [])
+        assert facets["ip_scopes"].get("unknown", 0) == 3
 
 
 class TestApplyExclusiveFocus:
@@ -353,12 +389,56 @@ class TestApplyExclusiveFocus:
     def test_returns_false_when_group_not_found(self) -> None:
         nodes = [_node(node_key="n1", agent_id="a1")]
         raw_groups, _ = build_groups(nodes, [], strategy="agent")
-        _, _, applied = apply_exclusive_focus(
+        returned_nodes, returned_edges, applied = apply_exclusive_focus(
             nodes, [], focused_group_key="agent:nonexistent", groups=raw_groups
         )
         assert applied is False
+        assert returned_nodes is nodes
+        assert returned_edges == []
 
     def test_edges_filtered_to_visible_keys(self) -> None:
+        nodes = [
+            _node(node_key="n1", agent_id="a1"),
+            _node(node_key="n2", agent_id="a2"),
+            _node(node_key="n3", agent_id="a3"),
+        ]
+        edges = [
+            _edge(edge_key="e1", source_node_key="n2", target_node_key="n3"),
+        ]
+        raw_groups, _ = build_groups(nodes, edges, strategy="agent")
+        _, filtered_edges, applied = apply_exclusive_focus(
+            nodes, edges, focused_group_key="agent:a1", groups=raw_groups
+        )
+        assert applied is True
+        assert len(filtered_edges) == 0
+
+    def test_intra_group_member_edge_included(self) -> None:
+        nodes = [
+            _node(node_key="n1", agent_id="a1"),
+            _node(node_key="n2", agent_id="a1"),
+        ]
+        edges = [_edge(edge_key="e1", source_node_key="n1", target_node_key="n2")]
+        raw_groups, _ = build_groups(nodes, edges, strategy="agent")
+        _, filtered_edges, applied = apply_exclusive_focus(
+            nodes, edges, focused_group_key="agent:a1", groups=raw_groups
+        )
+        assert applied is True
+        assert len(filtered_edges) == 1
+
+    def test_member_to_neighbor_edge_included(self) -> None:
+        nodes = [
+            _node(node_key="n1", agent_id="a1"),
+            _node(node_key="n2", agent_id="a2"),
+        ]
+        edges = [_edge(edge_key="e1", source_node_key="n1", target_node_key="n2")]
+        raw_groups, _ = build_groups(nodes, edges, strategy="agent")
+        _, filtered_edges, applied = apply_exclusive_focus(
+            nodes, edges, focused_group_key="agent:a1", groups=raw_groups
+        )
+        assert applied is True
+        assert len(filtered_edges) == 1
+
+    def test_outside_to_outside_edge_excluded(self) -> None:
         nodes = [
             _node(node_key="n1", agent_id="a1"),
             _node(node_key="n2", agent_id="a2"),

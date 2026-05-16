@@ -17,7 +17,7 @@ import {
   TOPOLOGY_TIME_WINDOWS,
 } from "../lib/filters";
 import { nodeVisualByType } from "../lib/visuals";
-import type { TopologyFilters, TopologyIpScope, TopologySeverity, TopologyViewMode } from "../types";
+import type { TopologyFacets, TopologyFilters, TopologyIpScope, TopologySeverity, TopologyViewMode } from "../types";
 
 const SEVERITY_DOT: Record<string, string> = {
   critical:      "#F87171",
@@ -71,6 +71,7 @@ type Props = {
   agentOptions: AgentOption[];
   dirty: boolean;
   applying: boolean;
+  facets?: TopologyFacets;
   onChange: (patch: Partial<TopologyFilters>) => void;
   onApply: () => void;
   onReset: () => void;
@@ -81,6 +82,7 @@ export function TopologyFilterRail({
   agentOptions,
   dirty,
   applying,
+  facets,
   onChange,
   onApply,
   onReset,
@@ -156,22 +158,28 @@ export function TopologyFilterRail({
 
       <FilterSection title="Severity">
         <div className="space-y-1.5">
-          {TOPOLOGY_SEVERITY_OPTIONS.map(({ value, label }) => (
-            <CheckboxField
-              key={value}
-              label={
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ background: SEVERITY_DOT[value] ?? "#9CA3AF" }}
-                  />
-                  <span className="text-[12px]">{label}</span>
-                </span>
-              }
-              checked={filters.severities.includes(value as TopologySeverity)}
-              onChange={() => handleSeverity(value as TopologySeverity)}
-            />
-          ))}
+          {TOPOLOGY_SEVERITY_OPTIONS.map(({ value, label }) => {
+            const count = facets?.severities[value];
+            return (
+              <CheckboxField
+                key={value}
+                label={
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ background: SEVERITY_DOT[value] ?? "#9CA3AF" }}
+                    />
+                    <span className="text-[12px]">{label}</span>
+                    {count != null && (
+                      <span className="ml-auto text-[10px] text-muted-foreground/60">{count}</span>
+                    )}
+                  </span>
+                }
+                checked={filters.severities.includes(value as TopologySeverity)}
+                onChange={() => handleSeverity(value as TopologySeverity)}
+              />
+            );
+          })}
         </div>
       </FilterSection>
 
@@ -179,6 +187,7 @@ export function TopologyFilterRail({
         <div className="space-y-1.5">
           {TOPOLOGY_NODE_TYPE_OPTIONS.map(({ value, label }) => {
             const visual = nodeVisualByType(value);
+            const count = facets?.node_types[value];
             return (
               <CheckboxField
                 key={value}
@@ -189,6 +198,9 @@ export function TopologyFilterRail({
                       style={{ background: visual.stroke }}
                     />
                     <span className="text-[12px]">{label}</span>
+                    {count != null && (
+                      <span className="ml-auto text-[10px] text-muted-foreground/60">{count}</span>
+                    )}
                   </span>
                 }
                 checked={filters.node_types.includes(value)}
@@ -201,44 +213,64 @@ export function TopologyFilterRail({
 
       <FilterSection title="Edge Type" defaultOpen={false}>
         <div className="space-y-1.5">
-          {TOPOLOGY_EDGE_TYPE_OPTIONS.map(({ value, label }) => (
-            <CheckboxField
-              key={value}
-              label={<span className="text-[12px]">{label}</span>}
-              checked={filters.edge_types.includes(value)}
-              onChange={() => handleEdgeType(value)}
-            />
-          ))}
+          {TOPOLOGY_EDGE_TYPE_OPTIONS.map(({ value, label }) => {
+            const count = facets?.edge_types[value];
+            return (
+              <CheckboxField
+                key={value}
+                label={
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-[12px]">{label}</span>
+                    {count != null && (
+                      <span className="ml-auto text-[10px] text-muted-foreground/60">{count}</span>
+                    )}
+                  </span>
+                }
+                checked={filters.edge_types.includes(value)}
+                onChange={() => handleEdgeType(value)}
+              />
+            );
+          })}
         </div>
       </FilterSection>
 
       <FilterSection title="IP Scope" defaultOpen={false}>
         <div className="space-y-1.5">
-          {TOPOLOGY_IP_SCOPE_OPTIONS.map(({ value, label }) => (
-            <CheckboxField
-              key={value}
-              label={<span className="text-[12px]">{label}</span>}
-              checked={filters.ip_scopes.includes(value as TopologyIpScope)}
-              onChange={() => handleIpScope(value as TopologyIpScope)}
-            />
-          ))}
+          {TOPOLOGY_IP_SCOPE_OPTIONS.map(({ value, label }) => {
+            const count = facets?.ip_scopes[value];
+            return (
+              <CheckboxField
+                key={value}
+                label={
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-[12px]">{label}</span>
+                    {count != null && (
+                      <span className="ml-auto text-[10px] text-muted-foreground/60">{count}</span>
+                    )}
+                  </span>
+                }
+                checked={filters.ip_scopes.includes(value as TopologyIpScope)}
+                onChange={() => handleIpScope(value as TopologyIpScope)}
+              />
+            );
+          })}
         </div>
       </FilterSection>
 
       <FilterSection title="Status" defaultOpen={false}>
         <div className="space-y-2">
           <ToggleSwitch
-            label="Include stale nodes"
+            label={facets ? `Include stale nodes (${facets.stale_count})` : "Include stale nodes"}
             checked={filters.include_stale}
             onChange={(e) => onChange({ include_stale: e.target.checked })}
           />
           <ToggleSwitch
-            label="Has alerts"
+            label={facets ? `Has alerts (${facets.has_alerts_count})` : "Has alerts"}
             checked={filters.has_alerts}
             onChange={(e) => onChange({ has_alerts: e.target.checked })}
           />
           <ToggleSwitch
-            label="Has exposure findings"
+            label={facets ? `Has exposure findings (${facets.has_exposure_count})` : "Has exposure findings"}
             checked={filters.has_exposure}
             onChange={(e) => onChange({ has_exposure: e.target.checked })}
           />
