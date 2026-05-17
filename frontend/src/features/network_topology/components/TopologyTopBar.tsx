@@ -151,7 +151,7 @@ export function TopologyTopBar({
           className="rounded-[4px] px-1.5 py-0.5 text-[11px]"
           style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)", color: "#FBBF24" }}
         >
-          ⚡ truncated
+          truncated
         </div>
       )}
 
