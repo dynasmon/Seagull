@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildTopologyGraphPath } from "@/features/network_topology/api";
 import { resolveTopologyGraphParams, DEFAULT_TOPOLOGY_FILTERS } from "@/features/network_topology/lib/filters";
-import { groupTopologyGraph } from "@/features/network_topology/lib/grouping";
+import { groupTopologyGraph, resolveTopologyGroups } from "@/features/network_topology/lib/grouping";
 import type {
   TopologyGraph,
   TopologyGroupBackend,
@@ -145,6 +145,20 @@ describe("backend groups used when present in graph response", () => {
       ...freshness,
     };
     expect(graphEmptyGroups.groups).toEqual([]);
+  });
+
+  it("prefers backend groups over fallback grouping when backend groups are available", () => {
+    const graphWithBackendGroups: TopologyGraph = {
+      nodes: [makeNode("node-1", "agent-1")],
+      edges: [],
+      groups: [backendGroup],
+      group_edges: [backendGroupEdge],
+      ...freshness,
+    };
+    const result = resolveTopologyGroups(graphWithBackendGroups);
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0].label).toBe("Agent One");
+    expect(result.edges[0].event_count).toBe(1);
   });
 });
 
