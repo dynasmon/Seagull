@@ -63,12 +63,13 @@ function TopologyStatusStrip({
   const isTruncated = health?.nodes_truncated || health?.edges_truncated;
   const freshness = health?.freshness_seconds ?? graph?.freshness_seconds ?? null;
   const staleCount = summary?.stale_node_count ?? 0;
+  const alertCount = summary?.alert_edge_count ?? 0;
   const realtimeConnected = realtimeStatus === "connected";
 
   return (
     <div
-      className="pointer-events-none absolute bottom-2 left-2 z-10 flex flex-wrap items-center gap-1.5 rounded-lg border border-border/20 px-2.5 py-1"
-      style={{ background: "rgba(10,15,26,0.80)", maxWidth: "calc(100% - 120px)" }}
+      className="pointer-events-none absolute bottom-2 left-[44px] z-10 flex flex-wrap items-center gap-1.5 rounded-lg border border-border/20 px-2.5 py-1"
+      style={{ background: "rgba(10,15,26,0.80)", maxWidth: "calc(100% - 168px)" }}
     >
       <Pill
         color="#60A5FA"
@@ -104,6 +105,19 @@ function TopologyStatusStrip({
             border="1px solid rgba(251,191,36,0.22)"
           >
             {filterCount} filter{filterCount !== 1 ? "s" : ""}
+          </Pill>
+        </>
+      )}
+
+      {alertCount > 0 && (
+        <>
+          <Dot />
+          <Pill
+            color="#F87171"
+            bg="rgba(248,113,113,0.08)"
+            border="1px solid rgba(248,113,113,0.22)"
+          >
+            {alertCount} alert edge{alertCount === 1 ? "" : "s"}
           </Pill>
         </>
       )}

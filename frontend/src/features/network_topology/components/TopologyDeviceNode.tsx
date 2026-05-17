@@ -133,13 +133,15 @@ function nodeSubtitle(node: TopologyNode): string {
 
 function TopologyDeviceNode({ data: rawData }: NodeProps) {
   const data = rawData as unknown as DeviceNodeData;
-  const { node, isSelected, isDimmed } = data;
+  const { node, isSelected, isHighlighted, isDimmed, showLabel, importance } = data;
   const visual = nodeVisual(node);
   const hasAlert = node.alert_count > 0;
   const isCluster = node.node_type === "service" && Boolean(node.metadata?._is_service_cluster);
   const clusterCount = isCluster ? Number(node.metadata?._cluster_count ?? 0) : 0;
 
-  const opacity = isDimmed ? 0.25 : node.is_stale && node.node_type !== "agent" ? 0.55 : 1;
+  const opacity = isDimmed ? 0.16 : node.is_stale && node.node_type !== "agent" ? 0.42 : 1;
+  const markerSize = isSelected ? 30 : importance === "anchor" ? 26 : importance === "elevated" ? 22 : 14;
+  const iconSize = importance === "normal" ? 0 : importance === "anchor" ? 18 : 15;
 
   const label = node.label.length > 18 ? `${node.label.slice(0, 16)}…` : node.label;
   const subtitle = isCluster
@@ -148,31 +150,47 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
 
   return (
     <div
-      className="relative flex select-none flex-col items-center"
-      style={{ opacity, width: 80, height: 60 }}
+      className="group relative flex select-none flex-col items-center justify-center"
+      style={{ opacity, width: 76, height: 48 }}
     >
       <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
       <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
 
       <div
         className={cx(
-          "flex h-[34px] w-[34px] items-center justify-center rounded-[5px] transition-all",
-          isSelected && "ring-2 ring-offset-1",
+          "relative flex items-center justify-center rounded-full transition-all duration-200",
+          isSelected && "ring-2 ring-offset-1 ring-offset-[#07111f]",
         )}
         style={{
+          width: markerSize,
+          height: markerSize,
           background: visual.fill,
-          border: `${isSelected ? "1.8px" : "1px"} solid ${visual.stroke}`,
+          border: `${isSelected ? "1.8px" : importance === "normal" ? "1px" : "1.2px"} solid ${visual.stroke}`,
           color: visual.stroke,
+          boxShadow: isSelected
+            ? `0 0 20px ${visual.stroke}42`
+            : isHighlighted
+              ? `0 0 14px ${visual.stroke}30`
+              : hasAlert
+                ? `0 0 14px ${severityColor(node.severity)}24`
+                : "none",
         }}
       >
-        <svg width="24" height="24" viewBox="-12 -12 24 24" stroke="currentColor" fill="none">
-          <DeviceIcon nodeType={node.node_type} isCluster={isCluster} />
-        </svg>
+        {importance === "normal" ? (
+          <span
+            className="h-[5px] w-[5px] rounded-full"
+            style={{ background: visual.stroke }}
+          />
+        ) : (
+          <svg width={iconSize} height={iconSize} viewBox="-12 -12 24 24" stroke="currentColor" fill="none">
+            <DeviceIcon nodeType={node.node_type} isCluster={isCluster} />
+          </svg>
+        )}
       </div>
 
       {(hasAlert || node.is_stale) && (
         <span
-          className="absolute right-[17px] top-[-2px] h-[8px] w-[8px] rounded-full"
+          className="absolute left-1/2 top-[5px] h-[8px] w-[8px] translate-x-[8px] rounded-full border border-[#07111f]"
           style={{
             background:
               node.is_stale && node.node_type === "agent"
@@ -184,14 +202,19 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
         />
       )}
 
-      <div className="mt-1 w-[80px] text-center leading-none">
+      <div
+        className={cx(
+          "pointer-events-none absolute top-[36px] w-[76px] text-center leading-none transition-opacity duration-150 group-hover:opacity-100",
+          showLabel ? "opacity-100" : "opacity-0",
+        )}
+      >
         <div
           className="truncate px-0.5 text-[9px] font-semibold"
           style={{ color: visual.stroke }}
         >
           {label}
         </div>
-        <div className="truncate px-0.5 text-[8px]" style={{ color: "rgba(148,163,184,0.7)" }}>
+        <div className="truncate px-0.5 text-[8px]" style={{ color: "rgba(148,163,184,0.6)" }}>
           {subtitle}
         </div>
       </div>

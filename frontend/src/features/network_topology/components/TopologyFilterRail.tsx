@@ -17,7 +17,7 @@ import {
   TOPOLOGY_TIME_WINDOWS,
 } from "../lib/filters";
 import { nodeVisualByType } from "../lib/visuals";
-import type { TopologyFacets, TopologyFilters, TopologyIpScope, TopologySeverity, TopologyViewMode } from "../types";
+import type { TopologyFacets, TopologyFilters, TopologyGroup, TopologyIpScope, TopologySeverity, TopologyViewMode } from "../types";
 
 const SEVERITY_DOT: Record<string, string> = {
   critical:      "#F87171",
@@ -69,10 +69,12 @@ function toggle<T extends string>(arr: T[], value: T): T[] {
 type Props = {
   filters: TopologyFilters;
   agentOptions: AgentOption[];
+  groups: TopologyGroup[];
   dirty: boolean;
   applying: boolean;
   facets?: TopologyFacets;
   onChange: (patch: Partial<TopologyFilters>) => void;
+  onViewModeChange: (mode: TopologyViewMode) => void;
   onApply: () => void;
   onReset: () => void;
 };
@@ -80,16 +82,18 @@ type Props = {
 export function TopologyFilterRail({
   filters,
   agentOptions,
+  groups,
   dirty,
   applying,
   facets,
   onChange,
+  onViewModeChange,
   onApply,
   onReset,
 }: Props) {
   const handleViewMode = useCallback(
-    (mode: TopologyViewMode) => onChange({ view_mode: mode }),
-    [onChange],
+    (mode: TopologyViewMode) => onViewModeChange(mode),
+    [onViewModeChange],
   );
 
   const handleSeverity = useCallback(
@@ -121,23 +125,38 @@ export function TopologyFilterRail({
     value: String(tw.value),
     label: tw.label,
   }));
+  const groupOptions = [...groups]
+    .sort((a, b) => {
+      const alertDelta = b.alert_count - a.alert_count;
+      if (alertDelta !== 0) return alertDelta;
+      const riskDelta = b.risk_score - a.risk_score;
+      if (riskDelta !== 0) return riskDelta;
+      const countDelta = b.node_count - a.node_count;
+      if (countDelta !== 0) return countDelta;
+      return a.label.localeCompare(b.label);
+    })
+    .slice(0, 12);
+  const selectedGroupVisible = groupOptions.some((group) => group.group_key === filters.group_key);
+  const selectedGroup = !selectedGroupVisible
+    ? groups.find((group) => group.group_key === filters.group_key) ?? null
+    : null;
 
   return (
-    <div className="flex h-full w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border/30 bg-background/60">
+    <div className="flex h-full w-[216px] shrink-0 flex-col overflow-y-auto border-r border-white/5 bg-[#09111d]/92">
       <div className="border-b border-border/30 px-3 py-2.5">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          View Mode
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/65">
+          Show
         </div>
-        <div className="mt-2 flex gap-1.5">
+        <div className="mt-2 flex rounded-md border border-white/10 bg-black/20 p-0.5">
           {(["location", "connection"] as TopologyViewMode[]).map((mode) => (
             <button
               key={mode}
               type="button"
               className={cx(
-                "flex-1 rounded-[5px] px-2 py-1.5 text-[11px] font-medium transition-all",
+                "flex-1 rounded-[4px] px-2 py-1.5 text-[11px] font-medium transition-all",
                 filters.view_mode === mode
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted/40 text-muted-foreground hover:bg-muted/70",
+                  ? "bg-primary/90 text-primary-foreground shadow-[0_0_16px_rgba(96,165,250,0.15)]"
+                  : "text-muted-foreground hover:bg-white/5",
               )}
               onClick={() => handleViewMode(mode)}
             >
@@ -146,7 +165,7 @@ export function TopologyFilterRail({
           ))}
         </div>
         {facets ? (
-          <div className="mt-2 text-[10px] text-muted-foreground/60">
+          <div className="mt-2 text-[10px] text-muted-foreground/55">
             {facets.group_count} groups · {facets.node_types.subnet ?? 0} subnet{(facets.node_types.subnet ?? 0) === 1 ? "" : "s"}
           </div>
         ) : null}
@@ -188,7 +207,7 @@ export function TopologyFilterRail({
         </div>
       </FilterSection>
 
-      <FilterSection title="Node Type" defaultOpen={false}>
+      <FilterSection title="Type" defaultOpen={false}>
         <div className="space-y-1.5">
           {TOPOLOGY_NODE_TYPE_OPTIONS.map(({ value, label }) => {
             const visual = nodeVisualByType(value);
@@ -216,26 +235,48 @@ export function TopologyFilterRail({
         </div>
       </FilterSection>
 
-      <FilterSection title="Edge Type" defaultOpen={false}>
-        <div className="space-y-1.5">
-          {TOPOLOGY_EDGE_TYPE_OPTIONS.map(({ value, label }) => {
-            const count = facets?.edge_types[value];
-            return (
-              <CheckboxField
-                key={value}
-                label={
-                  <span className="flex items-center gap-1.5">
-                    <span className="text-[12px]">{label}</span>
-                    {count != null && (
-                      <span className="ml-auto text-[10px] text-muted-foreground/60">{count}</span>
-                    )}
-                  </span>
-                }
-                checked={filters.edge_types.includes(value)}
-                onChange={() => handleEdgeType(value)}
-              />
-            );
-          })}
+      <FilterSection title="Location / Group" defaultOpen={false}>
+        <div className="space-y-2">
+          <SelectInput
+            value={filters.group_key}
+            onChange={(e) => onChange({ group_key: e.target.value })}
+            className="h-7 text-[12px]"
+          >
+            <option value="">All locations</option>
+            {selectedGroup && (
+              <option value={selectedGroup.group_key}>{selectedGroup.label}</option>
+            )}
+            {groupOptions.map((group) => (
+              <option key={group.group_key} value={group.group_key}>
+                {group.label} ({group.node_count})
+              </option>
+            ))}
+          </SelectInput>
+          {groups.length > groupOptions.length && (
+            <div className="text-[10px] text-muted-foreground/50">
+              Showing {groupOptions.length} priority groups of {groups.length}
+            </div>
+          )}
+        </div>
+      </FilterSection>
+
+      <FilterSection title="Status" defaultOpen={false}>
+        <div className="space-y-2">
+          <ToggleSwitch
+            label={facets ? `Include stale nodes (${facets.stale_count})` : "Include stale nodes"}
+            checked={filters.include_stale}
+            onChange={(e) => onChange({ include_stale: e.target.checked })}
+          />
+          <ToggleSwitch
+            label={facets ? `Has alerts (${facets.has_alerts_count})` : "Has alerts"}
+            checked={filters.has_alerts}
+            onChange={(e) => onChange({ has_alerts: e.target.checked })}
+          />
+          <ToggleSwitch
+            label={facets ? `Has exposure findings (${facets.has_exposure_count})` : "Has exposure findings"}
+            checked={filters.has_exposure}
+            onChange={(e) => onChange({ has_exposure: e.target.checked })}
+          />
         </div>
       </FilterSection>
 
@@ -262,23 +303,26 @@ export function TopologyFilterRail({
         </div>
       </FilterSection>
 
-      <FilterSection title="Status" defaultOpen={false}>
-        <div className="space-y-2">
-          <ToggleSwitch
-            label={facets ? `Include stale nodes (${facets.stale_count})` : "Include stale nodes"}
-            checked={filters.include_stale}
-            onChange={(e) => onChange({ include_stale: e.target.checked })}
-          />
-          <ToggleSwitch
-            label={facets ? `Has alerts (${facets.has_alerts_count})` : "Has alerts"}
-            checked={filters.has_alerts}
-            onChange={(e) => onChange({ has_alerts: e.target.checked })}
-          />
-          <ToggleSwitch
-            label={facets ? `Has exposure findings (${facets.has_exposure_count})` : "Has exposure findings"}
-            checked={filters.has_exposure}
-            onChange={(e) => onChange({ has_exposure: e.target.checked })}
-          />
+      <FilterSection title="Edge Type" defaultOpen={false}>
+        <div className="space-y-1.5">
+          {TOPOLOGY_EDGE_TYPE_OPTIONS.map(({ value, label }) => {
+            const count = facets?.edge_types[value];
+            return (
+              <CheckboxField
+                key={value}
+                label={
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-[12px]">{label}</span>
+                    {count != null && (
+                      <span className="ml-auto text-[10px] text-muted-foreground/60">{count}</span>
+                    )}
+                  </span>
+                }
+                checked={filters.edge_types.includes(value)}
+                onChange={() => handleEdgeType(value)}
+              />
+            );
+          })}
         </div>
       </FilterSection>
 
