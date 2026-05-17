@@ -24,18 +24,12 @@ function EdgeSample({ edgeKey }: { edgeKey: string }) {
   const v = edgeVisual({ edge_type: edgeKey, confidence: 80 });
   return (
     <svg width="32" height="8" style={{ overflow: "visible", flexShrink: 0 }}>
-      <defs>
-        <marker id={`leg-arrow-${edgeKey}`} markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto">
-          <path d="M0,0 L0,4 L4,2 z" fill={v.stroke} opacity={v.opacity + 0.1} />
-        </marker>
-      </defs>
       <line
         x1="0" y1="4" x2="28" y2="4"
         stroke={v.stroke}
         strokeWidth={v.width + 0.2}
         strokeDasharray={v.dashArray}
         opacity={v.opacity + 0.1}
-        markerEnd={`url(#leg-arrow-${edgeKey})`}
       />
     </svg>
   );
@@ -100,7 +94,7 @@ function TopologyLegend({ viewMode }: Props) {
                 return (
                   <LegendRow key={key} label={NODE_TYPE_LABELS[key] ?? key}>
                     <span
-                      className="inline-block h-[9px] w-[9px] shrink-0 rounded-[2px]"
+                      className="inline-block h-[9px] w-[9px] shrink-0 rounded-full"
                       style={{ background: v.fill, border: `1px solid ${v.stroke}` }}
                     />
                   </LegendRow>
@@ -130,7 +124,7 @@ function TopologyLegend({ viewMode }: Props) {
 
           <LegendSection title="State">
             <LegendRow label="Stale node">
-              <span className="inline-block h-[9px] w-[9px] shrink-0 rounded-[2px] border border-muted-foreground/30 opacity-50" />
+              <span className="inline-block h-[9px] w-[9px] shrink-0 rounded-full border border-muted-foreground/30 opacity-50" />
             </LegendRow>
             <LegendRow label="Low confidence">
               <svg width="32" height="8" style={{ flexShrink: 0 }}>

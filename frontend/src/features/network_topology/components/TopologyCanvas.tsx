@@ -7,7 +7,6 @@ import {
   BaseEdge,
   type Edge,
   type EdgeProps,
-  MarkerType,
   MiniMap,
   type Node,
   type NodeTypes,
@@ -34,6 +33,7 @@ import type {
   TopologyViewMode,
 } from "../types";
 import TopologyCanvasControls from "./TopologyCanvasControls";
+import TopologyClusterHaloNode from "./TopologyClusterHaloNode";
 import TopologyDeviceNode from "./TopologyDeviceNode";
 import TopologyGroupNode from "./TopologyGroupNode";
 import TopologyLegend from "./TopologyLegend";
@@ -59,7 +59,21 @@ function TopologyFlowEdge(props: EdgeProps) {
   const [edgePath] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
 
   const opacity = isDimmed ? 0.1 : isSelected ? 1 : visual.opacity;
-  const strokeWidth = isSelected ? visual.width + 1 : visual.width;
+  const groupEventCount = isGroupEdge ? Number((edgeObj as TopologyGroupEdge).event_count || 0) : 0;
+  const groupAlertCount = isGroupEdge ? Number((edgeObj as TopologyGroupEdge).alert_count || 0) : 0;
+  const groupBoost = isGroupEdge ? Math.min(1.4, Math.log1p(groupEventCount) / 3) : 0;
+  const strokeWidth = isSelected
+    ? visual.width + 1
+    : isGroupEdge
+      ? visual.width + groupBoost
+      : visual.width;
+  const resolvedOpacity = isDimmed
+    ? isGroupEdge ? 0.06 : 0.08
+    : isSelected
+      ? 1
+      : isGroupEdge
+        ? Math.min(0.58, 0.16 + groupBoost * 0.24 + (groupAlertCount > 0 ? 0.08 : 0))
+        : opacity;
 
   return (
     <BaseEdge
@@ -69,9 +83,9 @@ function TopologyFlowEdge(props: EdgeProps) {
         stroke: visual.stroke,
         strokeWidth,
         strokeDasharray: visual.dashArray,
-        opacity,
+        opacity: resolvedOpacity,
+        transition: "stroke 180ms ease, stroke-width 180ms ease, opacity 180ms ease",
       }}
-      markerEnd={`url(#${id}-marker)`}
     />
   );
 }
@@ -79,6 +93,7 @@ function TopologyFlowEdge(props: EdgeProps) {
 const nodeTypes: NodeTypes = {
   device: TopologyDeviceNode as unknown as NodeTypes["string"],
   group: TopologyGroupNode as unknown as NodeTypes["string"],
+  clusterHalo: TopologyClusterHaloNode as unknown as NodeTypes["string"],
 };
 
 const edgeTypes = {
@@ -90,6 +105,7 @@ type FlowInnerProps = {
   nodes: Node[];
   edges: Edge[];
   viewMode: TopologyViewMode;
+  filterRailOpen: boolean;
   activeMatchKey: string | null;
   showMinimap: boolean;
   onToggleMinimap: () => void;
@@ -97,6 +113,13 @@ type FlowInnerProps = {
   searchQuery: string;
   searchMatchIndex: number;
   searchTotal: number;
+  isFullscreen: boolean;
+  isRefreshing: boolean;
+  onViewModeChange: (mode: TopologyViewMode) => void;
+  onToggleFilterRail: () => void;
+  onToggleFullscreen: () => void;
+  onRefresh: () => void;
+  onSearchChange: (query: string) => void;
   onNodeClick: (id: string, kind: "node" | "group") => void;
   onGroupDoubleClick: (id: string) => void;
   onEdgeClick: (id: string) => void;
@@ -111,6 +134,7 @@ function FlowInner({
   nodes: initialNodes,
   edges: initialEdges,
   viewMode,
+  filterRailOpen,
   activeMatchKey,
   showMinimap,
   onToggleMinimap,
@@ -118,6 +142,13 @@ function FlowInner({
   searchQuery,
   searchMatchIndex,
   searchTotal,
+  isFullscreen,
+  isRefreshing,
+  onViewModeChange,
+  onToggleFilterRail,
+  onToggleFullscreen,
+  onRefresh,
+  onSearchChange,
   onNodeClick,
   onGroupDoubleClick,
   onEdgeClick,
@@ -144,7 +175,7 @@ function FlowInner({
   useEffect(() => {
     if (graphKey !== prevKeyRef.current) {
       prevKeyRef.current = graphKey;
-      void requestAnimationFrame(() => fitView({ padding: 0.12, duration: 450 }));
+      void requestAnimationFrame(() => fitView({ padding: 0.14, duration: 450 }));
     }
   }, [graphKey, fitView]);
 
@@ -268,40 +299,46 @@ function FlowInner({
       onNodeMouseLeave={handleNodeMouseLeave}
       onEdgeMouseEnter={handleEdgeMouseEnter}
       onEdgeMouseLeave={handleEdgeMouseLeave}
-      defaultEdgeOptions={{
-        markerEnd: { type: MarkerType.Arrow, strokeWidth: 1 },
-      }}
       fitView
-      fitViewOptions={{ padding: 0.12 }}
-      minZoom={0.05}
-      maxZoom={4}
+      fitViewOptions={{ padding: 0.14 }}
+      minZoom={0.07}
+      maxZoom={3.5}
       nodesDraggable={false}
       nodesConnectable={false}
       proOptions={{ hideAttribution: true }}
     >
       <Background
-        variant={BackgroundVariant.Dots}
-        gap={28}
+        variant={BackgroundVariant.Lines}
+        gap={48}
         size={1}
-        color="rgba(148,163,184,0.14)"
-        style={{ background: "#0d1117" }}
+        color="rgba(96,165,250,0.09)"
+        style={{ background: "transparent" }}
       />
 
       <TopologyCanvasControls
+        viewMode={viewMode}
+        filterRailOpen={filterRailOpen}
         showMinimap={showMinimap}
+        isFullscreen={isFullscreen}
+        isRefreshing={isRefreshing}
+        onViewModeChange={onViewModeChange}
+        onToggleFilterRail={onToggleFilterRail}
         onToggleMinimap={onToggleMinimap}
+        onToggleFullscreen={onToggleFullscreen}
+        onRefresh={onRefresh}
         focusedGroupLabel={focusedGroupLabel}
         onClearFocus={onClearFocus}
         searchQuery={searchQuery}
         searchMatchIndex={searchMatchIndex}
         searchTotal={searchTotal}
+        onSearchChange={onSearchChange}
         onPrevMatch={onPrevMatch}
         onNextMatch={onNextMatch}
       />
 
       {showMinimap && (
         <MiniMap
-          position="top-right"
+          position="bottom-right"
           nodeColor={miniMapNodeColor}
           nodeStrokeWidth={0}
           maskColor="rgba(10,15,26,0.65)"
@@ -309,6 +346,8 @@ function FlowInner({
             background: "rgba(10,15,26,0.88)",
             border: "1px solid rgba(148,163,184,0.15)",
             borderRadius: 6,
+            marginBottom: 68,
+            marginRight: 12,
           }}
           pannable
           zoomable
@@ -329,6 +368,7 @@ type Props = {
   filters: TopologyFilters;
   loading: boolean;
   isFullscreen: boolean;
+  filterRailOpen: boolean;
   activeMatchKey: string | null;
   searchQuery: string;
   searchTotal: number;
@@ -336,6 +376,11 @@ type Props = {
   focusedGroupLabel?: string | null;
   realtimeStatus: string;
   isRefreshing: boolean;
+  onViewModeChange: (mode: TopologyViewMode) => void;
+  onToggleFilterRail: () => void;
+  onToggleFullscreen: () => void;
+  onRefresh: () => void;
+  onSearchChange: (query: string) => void;
   onNodeClick: (id: string, kind: "node" | "group") => void;
   onGroupDoubleClick: (id: string) => void;
   onEdgeClick: (id: string) => void;
@@ -355,6 +400,7 @@ function TopologyCanvas({
   filters,
   loading,
   isFullscreen,
+  filterRailOpen,
   activeMatchKey,
   searchQuery,
   searchTotal,
@@ -362,6 +408,11 @@ function TopologyCanvas({
   focusedGroupLabel,
   realtimeStatus,
   isRefreshing,
+  onViewModeChange,
+  onToggleFilterRail,
+  onToggleFullscreen,
+  onRefresh,
+  onSearchChange,
   onNodeClick,
   onGroupDoubleClick,
   onEdgeClick,
@@ -408,13 +459,33 @@ function TopologyCanvas({
         "relative h-full w-full overflow-hidden",
         isFullscreen && "fixed inset-0 z-50",
       )}
-      style={{ background: "#0d1117" }}
+      style={{
+        backgroundColor: "#07111f",
+        backgroundImage: [
+          "radial-gradient(circle at 50% 42%, rgba(37,99,235,0.11), transparent 36%)",
+          "radial-gradient(circle at 12% 18%, rgba(14,165,233,0.08), transparent 28%)",
+          "linear-gradient(rgba(255,255,255,0.012), rgba(255,255,255,0.012))",
+          "repeating-linear-gradient(0deg, transparent 0, transparent 95px, rgba(148,163,184,0.025) 96px)",
+          "repeating-linear-gradient(90deg, transparent 0, transparent 95px, rgba(148,163,184,0.025) 96px)",
+        ].join(", "),
+      }}
     >
+      <div
+        className="pointer-events-none absolute inset-0 z-[1]"
+        style={{
+          backgroundImage: [
+            "linear-gradient(90deg, rgba(255,255,255,0.015), transparent 18%, transparent 82%, rgba(255,255,255,0.015))",
+            "repeating-linear-gradient(180deg, transparent 0, transparent 4px, rgba(255,255,255,0.012) 5px)",
+          ].join(", "),
+          opacity: 0.34,
+        }}
+      />
       <ReactFlowProvider>
         <FlowInner
           nodes={nodes}
           edges={edges}
           viewMode={viewMode}
+          filterRailOpen={filterRailOpen}
           activeMatchKey={activeMatchKey}
           showMinimap={showMinimap}
           onToggleMinimap={() => setShowMinimap((p) => !p)}
@@ -422,6 +493,13 @@ function TopologyCanvas({
           searchQuery={searchQuery}
           searchMatchIndex={searchMatchIndex}
           searchTotal={searchTotal}
+          isFullscreen={isFullscreen}
+          isRefreshing={isRefreshing}
+          onViewModeChange={onViewModeChange}
+          onToggleFilterRail={onToggleFilterRail}
+          onToggleFullscreen={onToggleFullscreen}
+          onRefresh={onRefresh}
+          onSearchChange={onSearchChange}
           onNodeClick={onNodeClick}
           onGroupDoubleClick={onGroupDoubleClick}
           onEdgeClick={onEdgeClick}
@@ -437,7 +515,7 @@ function TopologyCanvas({
 
       <TopologyStatusStrip
         viewMode={viewMode}
-        nodeCount={nodes.length}
+        nodeCount={nodes.filter((node) => node.type !== "clusterHalo").length}
         edgeCount={edges.length}
         groupCount={groups.length}
         filters={filters}
