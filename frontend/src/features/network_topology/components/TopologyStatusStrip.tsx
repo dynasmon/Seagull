@@ -68,7 +68,7 @@ function TopologyStatusStrip({
 
   return (
     <div
-      className="pointer-events-none absolute bottom-2 left-[44px] z-10 flex flex-wrap items-center gap-1.5 rounded-lg border border-border/20 px-2.5 py-1"
+      className="pointer-events-none absolute bottom-3 left-[44px] z-10 flex flex-wrap items-center gap-1.5 rounded-lg border border-border/20 px-2.5 py-1"
       style={{ background: "rgba(10,15,26,0.80)", maxWidth: "calc(100% - 168px)" }}
     >
       <Pill
