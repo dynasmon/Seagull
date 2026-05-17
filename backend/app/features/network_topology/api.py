@@ -17,6 +17,7 @@ from app.features.network_topology.schemas import (
     TopologyObservationOut,
     TopologyObservationQuery,
     TopologyRecalculateOut,
+    TopologySubnetDetailOut,
     TopologySubnetOut,
     TopologySubnetQuery,
     TopologySummaryOut,
@@ -143,6 +144,19 @@ def list_subnets(
     )
     with managed_session(db) as db_session:
         return service.list_subnets(db_session, params)
+
+
+@router.get(
+    "/subnets/detail",
+    response_model=TopologySubnetDetailOut,
+    responses={404: {"model": TopologyErrorOut}},
+)
+def get_subnet_detail(
+    cidr: str = Query(..., min_length=1, max_length=64),
+    db: Session = Depends(get_db),
+):
+    with managed_session(db) as db_session:
+        return service.get_subnet_detail(db_session, cidr)
 
 
 @router.get("/observations", response_model=CursorPage[TopologyObservationOut])

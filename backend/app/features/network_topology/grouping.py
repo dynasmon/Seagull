@@ -52,6 +52,18 @@ def _has_exposure(node: Any) -> bool:
     return bool(_clean(extra.get("exposure_asset_key", "")))
 
 
+def _has_gateway_metadata(edge: Any) -> bool:
+    extra = edge.extra_data if isinstance(getattr(edge, "extra_data", None), dict) else {}
+    for key, value in extra.items():
+        normalized_key = _clean(key).lower().replace("-", "_")
+        normalized_value = _clean(value).lower().replace("-", "_")
+        if "gateway" in normalized_key and bool(value):
+            return True
+        if normalized_key in {"role", "type", "kind"} and normalized_value in {"gateway", "default_gateway", "next_hop"}:
+            return True
+    return False
+
+
 def _node_group_key(node: Any, subnet_by_node_key: dict[str, str], strategy: str) -> str:
     if strategy == "agent":
         agent = _clean(node.agent_id)
@@ -121,6 +133,11 @@ def build_groups(
     effective = strategy if strategy in VALID_STRATEGIES else "auto"
     lbl = agent_labels or {}
 
+    subnet_cidr_by_node_key: dict[str, str] = {
+        node.node_key: _clean(node.cidr)
+        for node in nodes
+        if _clean(node.node_type) == "subnet" and _clean(node.cidr)
+    }
     subnet_by_node_key: dict[str, str] = {}
     for edge in edges:
         if _clean(edge.edge_type) == "member_of_subnet":
@@ -129,6 +146,28 @@ def build_groups(
     node_to_group: dict[str, str] = {}
     for node in nodes:
         node_to_group[node.node_key] = _node_group_key(node, subnet_by_node_key, effective)
+
+    node_by_key = {node.node_key: node for node in nodes}
+    gateway_candidates_by_group: dict[str, set[str]] = {}
+    for node in nodes:
+        gk = node_to_group.get(node.node_key)
+        if gk and group_type(gk) == "subnet" and _clean(node.node_type) == "gateway":
+            gateway_candidates_by_group.setdefault(gk, set()).add(node.node_key)
+    for edge in edges:
+        edge_type = _clean(edge.edge_type)
+        if edge_type == "route_next_hop":
+            for member_key, other_key in (
+                (edge.source_node_key, edge.target_node_key),
+                (edge.target_node_key, edge.source_node_key),
+            ):
+                gk = node_to_group.get(member_key)
+                other = node_by_key.get(other_key)
+                if gk and group_type(gk) == "subnet" and other and _clean(other.node_type) == "gateway":
+                    gateway_candidates_by_group.setdefault(gk, set()).add(other.node_key)
+        if edge_type == "member_of_subnet" and _has_gateway_metadata(edge):
+            gk = node_to_group.get(edge.source_node_key)
+            if gk and group_type(gk) == "subnet":
+                gateway_candidates_by_group.setdefault(gk, set()).add(edge.source_node_key)
 
     buckets: dict[str, list[Any]] = {}
     for node in nodes:
@@ -154,6 +193,13 @@ def build_groups(
 
         agent_id = next((n.agent_id for n in bucket_nodes if n.agent_id), None)
         cidr = next((n.cidr for n in bucket_nodes if n.cidr), None)
+        subnet_ref = gk[len("subnet:"):] if gk.startswith("subnet:") else ""
+        subnet_node_key = subnet_ref if subnet_ref in subnet_cidr_by_node_key else next(
+            (_clean(n.node_key) for n in bucket_nodes if _clean(n.node_type) == "subnet"),
+            None,
+        )
+        if not cidr and subnet_node_key:
+            cidr = subnet_cidr_by_node_key.get(subnet_node_key)
 
         groups.append({
             "group_key": gk,
@@ -170,7 +216,12 @@ def build_groups(
             "last_seen": last_seen.isoformat() if last_seen else None,
             "child_node_keys": capped_keys,
             "child_node_keys_truncated": truncated,
-            "metadata": {"agent_id": agent_id, "cidr": cidr},
+            "metadata": {
+                "agent_id": agent_id,
+                "cidr": cidr,
+                "subnet_node_key": subnet_node_key,
+                "gateway_candidate_count": len(gateway_candidates_by_group.get(gk, set())),
+            },
         })
 
     group_edge_agg: dict[str, dict[str, Any]] = {}

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildTopologyGraphPath,
   buildTopologyObservationsPath,
+  buildTopologySubnetDetailPath,
   buildTopologySubnetsPath,
 } from "@/features/network_topology/api";
 
@@ -32,6 +33,12 @@ describe("network topology API URL builders", () => {
     );
     expect(buildTopologyObservationsPath({ node_key: "topo:host:agent-1:10.0.0.5", source_type: "flow" })).toBe(
       "/api/network-topology/observations?page_size=50&node_key=topo%3Ahost%3Aagent-1%3A10.0.0.5&source_type=flow",
+    );
+  });
+
+  it("builds subnet detail URLs without CIDR path escaping", () => {
+    expect(buildTopologySubnetDetailPath("10.0.0.0/24")).toBe(
+      "/api/network-topology/subnets/detail?cidr=10.0.0.0%2F24",
     );
   });
 });

@@ -67,6 +67,11 @@ export function groupTopologyGraph(
 ): { groups: TopologyGroup[]; edges: TopologyGroupEdge[] } {
   if (!graph || graph.nodes.length === 0) return { groups: [], edges: [] };
 
+  const subnetCidrByNodeKey = new Map(
+    graph.nodes
+      .filter((node) => node.node_type === "subnet" && node.cidr)
+      .map((node) => [node.node_key, node.cidr as string]),
+  );
   const subnetByNodeKey = new Map<string, string>();
   for (const edge of graph.edges) {
     if (edge.edge_type === "member_of_subnet") {
@@ -94,7 +99,8 @@ export function groupTopologyGraph(
     const riskScore = Math.max(0, ...nodes.map((n) => n.risk_score));
     const stale = nodes.every((n) => n.is_stale);
     const agentId = nodes.find((n) => n.agent_id)?.agent_id ?? null;
-    const cidr = nodes.find((n) => n.cidr)?.cidr ?? null;
+    const subnetRef = gk.startsWith("subnet:") ? gk.slice("subnet:".length) : null;
+    const cidr = nodes.find((n) => n.cidr)?.cidr ?? (subnetRef ? subnetCidrByNodeKey.get(subnetRef) ?? null : null);
     groups.push({
       group_key: gk,
       group_type: groupTypeFor(gk),

@@ -1,21 +1,71 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Sequence
+"""Compatibility facade for network-topology persistence and query helpers.
 
-from sqlalchemy import and_, exists, func, not_, or_, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import Session
+The implementation is split by concern under ``repositories/`` so callers can keep
+using ``network_topology.repository`` while the feature remains navigable.
+"""
 
-from app.features.alerts.models import AlertModel
-from app.features.attack_chain.models import AttackChainCaseModel
-from app.features.events.models import NetEventModel
-from app.features.exposure.models import ExposureFindingModel
-from app.features.network_topology.models import (
-    TopologyEdgeModel,
-    TopologyNodeModel,
-    TopologyObservationModel,
-    TopologySnapshotModel,
+from app.features.network_topology.repositories.constants import _MAX_GRAPH_FETCH, _MAX_PAGE
+from app.features.network_topology.repositories.graph import (
+    count_observations_for_edge,
+    count_observations_for_node,
+    evidence_sources_for_edge,
+    evidence_sources_for_node,
+    get_edge,
+    get_latest_snapshot,
+    get_node,
+    list_connected_node_keys,
+    list_edges,
+    list_edges_for_node,
+    list_nodes,
+    list_nodes_by_keys,
+    list_observations_for_edge,
+    list_observations_for_node,
+    list_observations_page,
+    list_subnet_nodes_page,
+)
+from app.features.network_topology.repositories.metrics import (
+    count_stale_nodes,
+    topology_insight_metrics,
+    topology_summary_metrics,
+)
+from app.features.network_topology.repositories.related import (
+    _alert_conditions_for_edge,
+    _alert_conditions_for_node,
+    _attack_chain_conditions_for_node,
+    _clean_text,
+    _exposure_conditions_for_node,
+    _flow_conditions_for_edge,
+    _flow_conditions_for_node,
+    edge_flow_metrics,
+    list_related_alerts_for_edge,
+    list_related_alerts_for_node,
+    list_related_attack_chain_cases_for_edge,
+    list_related_attack_chain_cases_for_node,
+    list_related_exposure_findings_for_edge,
+    list_related_exposure_findings_for_node,
+    list_related_flows_for_edge,
+    list_related_flows_for_node,
+)
+from app.features.network_topology.repositories.subnets import (
+    _subnet_member_keys_subquery,
+    _subnet_related_edge_filter,
+    count_edges_for_subnet,
+    count_observations_for_subnet,
+    count_subnet_member_nodes,
+    get_subnet_node_by_cidr,
+    list_edges_for_subnet,
+    list_observations_for_subnet,
+    list_subnet_member_nodes,
+    subnet_member_metrics,
+)
+from app.features.network_topology.repositories.writes import (
+    insert_observation,
+    mark_all_nodes_stale,
+    upsert_edge,
+    upsert_node,
+    upsert_snapshot,
 )
 
 _MAX_PAGE = 200

@@ -8,28 +8,65 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
-from app.core.config.env_secrets import env_value
 from app.features.agents.repository import list_agents
 from app.features.auth.session import PortalPrincipal
 from app.features.network_topology import realtime as topo_realtime
 from app.features.network_topology import repository
+from app.features.network_topology.domain.config import (
+    _config_max_events_per_run,
+    _config_stale_after_minutes,
+    _config_window_minutes,
+    _env_int,
+)
+from app.features.network_topology.domain.freshness import (
+    _build_snapshot_metrics,
+    _default_data_window,
+    _freshness_metadata,
+    _ingest_pressure_snapshot,
+    _model_dict,
+)
+from app.features.network_topology.domain.insights import _compute_insights, _compute_visibility
+from app.features.network_topology.domain.serializers import (
+    _alert_to_out,
+    _app_protocols_for_edge,
+    _attack_chain_case_to_out,
+    _confidence_from_context,
+    _edge_to_out,
+    _evidence_meta,
+    _evidence_source_to_out,
+    _exposure_finding_to_out,
+    _flow_to_out,
+    _is_sensitive_key,
+    _node_to_out,
+    _obs_to_out,
+    _sanitize_public_json,
+    _subnet_node_to_out,
+    _to_utc,
+)
+from app.features.network_topology.domain.subnet_details import (
+    _dedupe_sorted_nodes,
+    _earliest_dt,
+    _edge_has_gateway_metadata,
+    _highest_node_severity,
+    _latest_dt,
+    _node_ip_scope,
+    _severity_weight,
+    _subnet_exposed_or_public_nodes,
+    _subnet_external_destinations,
+    _subnet_gateway_candidates,
+    _subnet_listening_services,
+    _topology_edge_sort_key,
+    _topology_node_sort_key,
+)
 from app.features.network_topology.grouping import (
     apply_exclusive_focus,
     build_groups,
     compute_facets,
 )
-from app.features.network_topology.models import (
-    TopologyEdgeModel,
-    TopologyNodeModel,
-    TopologyObservationModel,
-)
 from app.features.network_topology.projector import project_topology
 from app.features.network_topology.schemas import (
     TopologyCoverageOut,
     TopologyEdgeDetailOut,
-    TopologyEdgeOut,
-    TopologyEvidencePageMetaOut,
-    TopologyEvidenceSourceOut,
     TopologyFacetsOut,
     TopologyGraphHealthOut,
     TopologyGraphOut,
@@ -37,21 +74,16 @@ from app.features.network_topology.schemas import (
     TopologyGroupDetailOut,
     TopologyGroupEdgeOut,
     TopologyGroupOut,
-    TopologyInsightOut,
     TopologyNodeDetailOut,
-    TopologyNodeOut,
     TopologyNodeTypeStat,
     TopologyObservationOut,
     TopologyObservationQuery,
     TopologyRecalculateOut,
-    TopologyRelatedAlertOut,
-    TopologyRelatedAttackChainCaseOut,
-    TopologyRelatedExposureFindingOut,
-    TopologyRelatedFlowOut,
+    TopologySubnetDetailOut,
+    TopologySubnetDetailTruncationOut,
     TopologySubnetOut,
     TopologySubnetQuery,
     TopologySummaryOut,
-    TopologyVisibilityOut,
 )
 from app.shared.schemas import CursorPage
 
@@ -59,46 +91,74 @@ _UTC = timezone.utc
 _DETAIL_OBSERVATION_LIMIT = 20
 _DETAIL_EDGE_LIMIT = 50
 _DETAIL_RELATED_LIMIT = 10
-_SENSITIVE_KEY_PARTS = (
-    "password",
-    "passwd",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-    "authorization",
-    "cookie",
-    "credential",
-    "private_key",
-    "session",
-)
+_GROUP_DETAIL_MEMBER_LIMIT = 30
+_GROUP_DETAIL_SERVICES_LIMIT = 20
+_GROUP_DETAIL_EDGE_LIMIT = 50
+_SUBNET_DETAIL_MEMBER_LIMIT = 30
+_SUBNET_DETAIL_GATEWAY_LIMIT = 10
+_SUBNET_DETAIL_EXPOSED_LIMIT = 20
+_SUBNET_DETAIL_SERVICE_LIMIT = 20
+_SUBNET_DETAIL_DESTINATION_LIMIT = 20
+_SUBNET_DETAIL_EDGE_LIMIT = 50
+_SUBNET_DETAIL_EDGE_SCAN_LIMIT = 200
+_SUBNET_DETAIL_OBSERVATION_LIMIT = 20
 
-
-def _env_int(name: str, default: int) -> int:
-    raw = env_value(name, None)
-    if raw is None:
-        return default
-    try:
-        return int(str(raw).strip(), 10)
-    except Exception:
-        return default
-
-
-def _config_window_minutes() -> int:
-    return max(5, _env_int("SEAGULL_NETWORK_TOPOLOGY_WINDOW_MINUTES", 1440))
-
-
-def _config_stale_after_minutes() -> int:
-    return max(1, _env_int("SEAGULL_NETWORK_TOPOLOGY_STALE_AFTER_MINUTES", 15))
-
-
-def _config_max_events_per_run() -> int:
-    return max(100, _env_int("SEAGULL_NETWORK_TOPOLOGY_MAX_EVENTS_PER_RUN", 5000))
+__all__ = [
+    "_alert_to_out",
+    "_app_protocols_for_edge",
+    "_attack_chain_case_to_out",
+    "_build_snapshot_metrics",
+    "_compute_insights",
+    "_compute_visibility",
+    "_confidence_from_context",
+    "_config_max_events_per_run",
+    "_config_stale_after_minutes",
+    "_config_window_minutes",
+    "_dedupe_sorted_nodes",
+    "_default_data_window",
+    "_earliest_dt",
+    "_edge_has_gateway_metadata",
+    "_edge_to_out",
+    "_env_int",
+    "_evidence_meta",
+    "_evidence_source_to_out",
+    "_exposure_finding_to_out",
+    "_flow_to_out",
+    "_freshness_metadata",
+    "_highest_node_severity",
+    "_ingest_pressure_snapshot",
+    "_is_sensitive_key",
+    "_latest_dt",
+    "_load_agent_labels",
+    "_model_dict",
+    "_node_ip_scope",
+    "_node_to_out",
+    "_obs_to_out",
+    "_sanitize_public_json",
+    "_severity_weight",
+    "_subnet_exposed_or_public_nodes",
+    "_subnet_external_destinations",
+    "_subnet_gateway_candidates",
+    "_subnet_listening_services",
+    "_subnet_node_to_out",
+    "_to_utc",
+    "_topology_edge_sort_key",
+    "_topology_node_sort_key",
+    "get_edge_detail",
+    "get_graph",
+    "get_group_detail",
+    "get_node_detail",
+    "get_subnet_detail",
+    "get_summary",
+    "list_observations",
+    "list_subnets",
+    "request_recalculate",
+    "run_recalculation",
+]
 
 
 def _load_agent_labels(db: Session) -> dict[str, str]:
     return {a.agent_id: (a.display_name or a.agent_id) for a in list_agents(db)}
-
 
 def get_summary(db: Session) -> TopologySummaryOut:
     metrics = repository.topology_summary_metrics(db)
@@ -147,12 +207,6 @@ def get_summary(db: Session) -> TopologySummaryOut:
         last_projected_at=last_projected_at,
         **freshness,
     )
-
-
-_GROUP_DETAIL_MEMBER_LIMIT = 30
-_GROUP_DETAIL_SERVICES_LIMIT = 20
-_GROUP_DETAIL_EDGE_LIMIT = 50
-
 
 def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
     node_limit = min(int(params.max_nodes), topo_realtime.graph_nodes_hard_limit())
@@ -247,7 +301,6 @@ def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
         **graph_freshness,
     )
 
-
 def get_group_detail(db: Session, group_key: str, params: TopologyGraphQuery) -> TopologyGroupDetailOut:
     node_limit = min(int(params.max_nodes), topo_realtime.graph_nodes_hard_limit())
     edge_limit = min(int(params.max_edges), topo_realtime.graph_edges_hard_limit())
@@ -337,6 +390,121 @@ def get_group_detail(db: Session, group_key: str, params: TopologyGraphQuery) ->
         metadata=group["metadata"],
     )
 
+def get_subnet_detail(db: Session, cidr: str) -> TopologySubnetDetailOut:
+    subnet = repository.get_subnet_node_by_cidr(db, cidr=cidr)
+    if subnet is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "subnet_not_found",
+                "message": "Subnet not found",
+                "context": {"cidr": cidr},
+            },
+        )
+
+    member_total = repository.count_subnet_member_nodes(db, subnet_node_key=subnet.node_key, cidr=cidr)
+    member_metrics = repository.subnet_member_metrics(db, subnet_node_key=subnet.node_key, cidr=cidr)
+    member_nodes = repository.list_subnet_member_nodes(
+        db,
+        subnet_node_key=subnet.node_key,
+        cidr=cidr,
+        limit=_SUBNET_DETAIL_MEMBER_LIMIT,
+    )
+    member_nodes = sorted(member_nodes, key=_topology_node_sort_key)[:_SUBNET_DETAIL_MEMBER_LIMIT]
+
+    related_edge_total = repository.count_edges_for_subnet(db, subnet_node_key=subnet.node_key, cidr=cidr)
+    edge_scan = repository.list_edges_for_subnet(
+        db,
+        subnet_node_key=subnet.node_key,
+        cidr=cidr,
+        limit=_SUBNET_DETAIL_EDGE_SCAN_LIMIT,
+    )
+
+    member_keys = {node.node_key for node in member_nodes}
+    member_keys.update(
+        edge.source_node_key
+        for edge in edge_scan
+        if str(edge.edge_type or "") == "member_of_subnet" and edge.target_node_key == subnet.node_key
+    )
+    relevant_edges = sorted(edge_scan, key=_topology_edge_sort_key)
+
+    related_node_keys = {subnet.node_key, *member_keys}
+    for edge in relevant_edges:
+        related_node_keys.add(edge.source_node_key)
+        related_node_keys.add(edge.target_node_key)
+    related_nodes = repository.list_nodes_by_keys(db, node_keys=sorted(related_node_keys))
+    node_by_key = {node.node_key: node for node in related_nodes}
+    for node in member_nodes:
+        node_by_key[node.node_key] = node
+    node_by_key[subnet.node_key] = subnet
+
+    gateway_candidates = _subnet_gateway_candidates(
+        member_nodes=member_nodes,
+        related_edges=relevant_edges,
+        node_by_key=node_by_key,
+        member_keys=member_keys,
+    )
+    exposed_or_public_nodes = _subnet_exposed_or_public_nodes(member_nodes)
+    listening_services = _subnet_listening_services(
+        member_nodes=member_nodes,
+        related_edges=relevant_edges,
+        node_by_key=node_by_key,
+        member_keys=member_keys,
+    )
+    external_destinations = _subnet_external_destinations(
+        related_edges=relevant_edges,
+        node_by_key=node_by_key,
+        member_keys=member_keys,
+    )
+
+    observation_total = repository.count_observations_for_subnet(
+        db,
+        subnet_node_key=subnet.node_key,
+        cidr=cidr,
+    )
+    recent_observations = repository.list_observations_for_subnet(
+        db,
+        subnet_node_key=subnet.node_key,
+        cidr=cidr,
+        limit=_SUBNET_DETAIL_OBSERVATION_LIMIT,
+    )[:_SUBNET_DETAIL_OBSERVATION_LIMIT]
+
+    metadata = subnet.extra_data if isinstance(subnet.extra_data, dict) else {}
+    highest_severity = _highest_node_severity(member_nodes) if member_nodes else str(subnet.severity or "unknown")
+    first_seen = _earliest_dt(member_metrics.get("first_seen"), subnet.first_seen_at)
+    last_seen = _latest_dt(member_metrics.get("last_seen"), subnet.last_seen_at)
+
+    return TopologySubnetDetailOut(
+        cidr=str(subnet.cidr or cidr),
+        label=str(subnet.label or subnet.cidr or cidr),
+        ip_scope=str(metadata.get("ip_scope") or "").strip() or None,
+        node_count=int(member_metrics.get("node_count", member_total) or 0),
+        active_node_count=int(member_metrics.get("active_node_count", 0) or 0),
+        stale_node_count=int(member_metrics.get("stale_node_count", 0) or 0),
+        alert_count=int(member_metrics.get("alert_count", 0) or 0),
+        highest_severity=highest_severity,
+        risk_score=member_metrics.get("risk_score"),
+        confidence=member_metrics.get("confidence") if member_metrics.get("confidence") is not None else int(subnet.confidence or 0),
+        first_seen=_to_utc(first_seen) if first_seen else None,
+        last_seen=_to_utc(last_seen) if last_seen else None,
+        gateway_candidates=[_node_to_out(node) for node in gateway_candidates[:_SUBNET_DETAIL_GATEWAY_LIMIT]],
+        member_nodes=[_node_to_out(node) for node in member_nodes],
+        exposed_or_public_nodes=[_node_to_out(node) for node in exposed_or_public_nodes[:_SUBNET_DETAIL_EXPOSED_LIMIT]],
+        listening_services=[_node_to_out(node) for node in listening_services[:_SUBNET_DETAIL_SERVICE_LIMIT]],
+        external_destinations=[_node_to_out(node) for node in external_destinations[:_SUBNET_DETAIL_DESTINATION_LIMIT]],
+        related_edges=[_edge_to_out(edge) for edge in relevant_edges[:_SUBNET_DETAIL_EDGE_LIMIT]],
+        recent_observations=[_obs_to_out(obs) for obs in recent_observations],
+        metadata=_sanitize_public_json(metadata),
+        truncation=TopologySubnetDetailTruncationOut(
+            member_nodes=_evidence_meta(_SUBNET_DETAIL_MEMBER_LIMIT, member_total),
+            gateway_candidates=_evidence_meta(_SUBNET_DETAIL_GATEWAY_LIMIT, len(gateway_candidates)),
+            exposed_or_public_nodes=_evidence_meta(_SUBNET_DETAIL_EXPOSED_LIMIT, len(exposed_or_public_nodes)),
+            listening_services=_evidence_meta(_SUBNET_DETAIL_SERVICE_LIMIT, len(listening_services)),
+            external_destinations=_evidence_meta(_SUBNET_DETAIL_DESTINATION_LIMIT, len(external_destinations)),
+            related_edges=_evidence_meta(_SUBNET_DETAIL_EDGE_LIMIT, related_edge_total),
+            recent_observations=_evidence_meta(_SUBNET_DETAIL_OBSERVATION_LIMIT, observation_total),
+        ),
+    )
 
 def get_node_detail(db: Session, node_key: str) -> TopologyNodeDetailOut:
     node = repository.get_node(db, node_key)
@@ -377,7 +545,6 @@ def get_node_detail(db: Session, node_key: str) -> TopologyNodeDetailOut:
         related_exposure_findings=[_exposure_finding_to_out(f) for f in related_findings],
         related_attack_chain_cases=[_attack_chain_case_to_out(c) for c in related_cases],
     )
-
 
 def get_edge_detail(db: Session, edge_key: str) -> TopologyEdgeDetailOut:
     edge = repository.get_edge(db, edge_key)
@@ -445,7 +612,6 @@ def get_edge_detail(db: Session, edge_key: str) -> TopologyEdgeDetailOut:
         total_bytes=total_bytes,
     )
 
-
 def list_subnets(db: Session, params: TopologySubnetQuery) -> CursorPage[TopologySubnetOut]:
     cursor_parsed = None
     if params.cursor:
@@ -472,7 +638,6 @@ def list_subnets(db: Session, params: TopologySubnetQuery) -> CursorPage[Topolog
         next_cursor=next_cursor,
         has_more=has_more,
     )
-
 
 def list_observations(db: Session, params: TopologyObservationQuery) -> CursorPage[TopologyObservationOut]:
     cursor_parsed = None
@@ -503,7 +668,6 @@ def list_observations(db: Session, params: TopologyObservationQuery) -> CursorPa
         has_more=has_more,
     )
 
-
 def request_recalculate(db: Session, *, admin: PortalPrincipal) -> TopologyRecalculateOut:
     requested_at = datetime.now(_UTC)
     snapshot = repository.get_latest_snapshot(db)
@@ -531,7 +695,6 @@ def request_recalculate(db: Session, *, admin: PortalPrincipal) -> TopologyRecal
         requested_at=requested_at,
         coverage=coverage,
     )
-
 
 def run_recalculation(
     db: Session,
@@ -610,603 +773,3 @@ def run_recalculation(
         requested_at=requested_at,
         coverage=coverage,
     )
-
-
-def _compute_insights(
-    insight_metrics: dict[str, Any],
-    *,
-    window_minutes: int,
-) -> list[TopologyInsightOut]:
-    window_label = f"{window_minutes // 60}h" if window_minutes >= 60 else f"{window_minutes}m"
-    insights: list[TopologyInsightOut] = []
-
-    nodes_with_alerts = int(insight_metrics.get("nodes_with_alerts", 0))
-    if nodes_with_alerts > 0:
-        insights.append(TopologyInsightOut(
-            id="nodes_with_alerts",
-            group="needs_attention",
-            severity="high" if nodes_with_alerts >= 5 else "medium",
-            title=f"{nodes_with_alerts} host{'s' if nodes_with_alerts != 1 else ''} with active alerts",
-            detail="These hosts appear in security alerts. Open the alert queue to review and triage them.",
-            count=nodes_with_alerts,
-        ))
-
-    nodes_with_exposure = int(insight_metrics.get("nodes_with_exposure_findings", 0))
-    if nodes_with_exposure > 0:
-        insights.append(TopologyInsightOut(
-            id="nodes_with_exposure_findings",
-            group="needs_attention",
-            severity="high" if nodes_with_exposure >= 3 else "medium",
-            title=f"{nodes_with_exposure} host{'s' if nodes_with_exposure != 1 else ''} with exposure findings",
-            detail="These hosts are linked to open exposure findings. Review the Exposure panel for remediation steps.",
-            count=nodes_with_exposure,
-        ))
-
-    exposed_services = int(insight_metrics.get("exposed_services", 0))
-    if exposed_services > 0:
-        insights.append(TopologyInsightOut(
-            id="exposed_services",
-            group="needs_attention",
-            severity="high",
-            title=f"{exposed_services} service{'s' if exposed_services != 1 else ''} with alert activity",
-            detail="Services observed with alert evidence. Verify that these ports and protocols are expected.",
-            count=exposed_services,
-        ))
-
-    high_risk_edges = int(insight_metrics.get("high_risk_edges", 0))
-    if high_risk_edges > 0:
-        insights.append(TopologyInsightOut(
-            id="high_risk_flows",
-            group="needs_attention",
-            severity="high" if high_risk_edges >= 10 else "medium",
-            title=f"{high_risk_edges} high-risk network relationship{'s' if high_risk_edges != 1 else ''}",
-            detail="Connections classified as high or critical severity from alert or exposure evidence.",
-            count=high_risk_edges,
-        ))
-
-    public_to_internal = int(insight_metrics.get("public_to_internal", 0))
-    if public_to_internal > 0:
-        insights.append(TopologyInsightOut(
-            id="public_to_internal",
-            group="needs_attention",
-            severity="medium",
-            title=f"{public_to_internal} inbound flow{'s' if public_to_internal != 1 else ''} from the public internet",
-            detail="Traffic originated from external IPs to internal hosts. Confirm these are expected entry points.",
-            count=public_to_internal,
-        ))
-
-    stale_agents = int(insight_metrics.get("stale_agents", 0))
-    if stale_agents > 0:
-        insights.append(TopologyInsightOut(
-            id="stale_agents",
-            group="needs_attention",
-            severity="medium",
-            title=f"{stale_agents} agent{'s' if stale_agents != 1 else ''} marked stale",
-            detail="Agents not recently seen. Their topology segment may be outdated or the agent may be offline.",
-            count=stale_agents,
-        ))
-
-    new_external_ips = int(insight_metrics.get("new_external_ips", 0))
-    if new_external_ips > 0:
-        insights.append(TopologyInsightOut(
-            id="new_external_ips",
-            group="needs_attention",
-            severity="medium" if new_external_ips >= 10 else "low",
-            title=f"{new_external_ips} new external IP{'s' if new_external_ips != 1 else ''} in the last {window_label}",
-            detail="Public endpoints first observed in this window. Review for unexpected external contact.",
-            count=new_external_ips,
-        ))
-
-    internal_to_internal = int(insight_metrics.get("internal_to_internal", 0))
-    if internal_to_internal > 0:
-        insights.append(TopologyInsightOut(
-            id="internal_flows",
-            group="normal_activity",
-            severity="ok",
-            title=f"{internal_to_internal} internal-to-internal flow{'s' if internal_to_internal != 1 else ''}",
-            detail="Observed connections between internal hosts. Normal for most enterprise and server traffic.",
-            count=internal_to_internal,
-        ))
-
-    internal_to_public = int(insight_metrics.get("internal_to_public", 0))
-    if internal_to_public > 0:
-        insights.append(TopologyInsightOut(
-            id="outbound_flows",
-            group="normal_activity",
-            severity="ok",
-            title=f"{internal_to_public} outbound connection{'s' if internal_to_public != 1 else ''} to public internet",
-            detail="Internal hosts contacting external IPs. Review if unfamiliar destinations appear in the topology.",
-            count=internal_to_public,
-        ))
-
-    new_internal_hosts = int(insight_metrics.get("new_internal_hosts", 0))
-    if new_internal_hosts > 0:
-        insights.append(TopologyInsightOut(
-            id="new_internal_hosts",
-            group="normal_activity",
-            severity="info",
-            title=f"{new_internal_hosts} new internal host{'s' if new_internal_hosts != 1 else ''} in the last {window_label}",
-            detail="Hosts first seen in this window, from agent inventory or observed traffic.",
-            count=new_internal_hosts,
-        ))
-
-    noisy_nodes = int(insight_metrics.get("noisy_nodes", 0))
-    if noisy_nodes > 0:
-        insights.append(TopologyInsightOut(
-            id="noisy_nodes",
-            group="normal_activity",
-            severity="info",
-            title=f"{noisy_nodes} high-traffic node{'s' if noisy_nodes != 1 else ''}",
-            detail="Nodes with 500+ observed events. Likely gateways, DNS resolvers, or heavily-used servers.",
-            count=noisy_nodes,
-        ))
-
-    if not any(i.group in ("normal_activity", "needs_attention") for i in insights):
-        insights.append(TopologyInsightOut(
-            id="no_activity",
-            group="normal_activity",
-            severity="ok",
-            title="No recent network activity detected",
-            detail="No flows, alerts, or topology changes found in the current window. This may indicate no agent coverage or a quiet period.",
-            count=0,
-        ))
-
-    stale_other = int(insight_metrics.get("stale_other", 0))
-    if stale_other > 0:
-        insights.append(TopologyInsightOut(
-            id="stale_topology_segments",
-            group="visibility_gaps",
-            severity="low",
-            title=f"{stale_other} stale topology node{'s' if stale_other != 1 else ''}",
-            detail="Non-agent nodes (hosts, interfaces, services) that have not been refreshed. Their data may be outdated.",
-            count=stale_other,
-        ))
-
-    isolated_nodes = int(insight_metrics.get("isolated_nodes", 0))
-    if isolated_nodes > 0:
-        insights.append(TopologyInsightOut(
-            id="isolated_nodes",
-            group="visibility_gaps",
-            severity="info",
-            title=f"{isolated_nodes} isolated node{'s' if isolated_nodes != 1 else ''} with no connections",
-            detail="Nodes discovered from inventory or alerts but with no observed flows or topology edges. They may represent agents or hosts with incomplete coverage.",
-            count=isolated_nodes,
-        ))
-
-    docker_count = int(insight_metrics.get("docker_node_count", 0))
-    if docker_count > 0:
-        insights.append(TopologyInsightOut(
-            id="docker_context",
-            group="visibility_gaps",
-            severity="info",
-            title=f"{docker_count} container network address{'es' if docker_count != 1 else ''} detected",
-            detail="An agent appears to be running inside Docker and may only observe container-local traffic, not the host network.",
-            count=docker_count,
-        ))
-
-    flow_edge_count = int(insight_metrics.get("flow_edge_count", 0))
-    if flow_edge_count == 0:
-        insights.append(TopologyInsightOut(
-            id="no_flow_data",
-            group="visibility_gaps",
-            severity="medium",
-            title="No network flow data available",
-            detail="Flow-based topology and connection insights are unavailable. Ensure agents are collecting network events.",
-            count=0,
-        ))
-
-    insights.append(TopologyInsightOut(
-        id="no_physical_topology",
-        group="visibility_gaps",
-        severity="info",
-        title="Physical switch topology not available",
-        detail="Seagull derives connectivity from traffic observations. SNMP, LLDP, CDP, and MAC table data are not collected.",
-    ))
-
-    insights.append(TopologyInsightOut(
-        id="no_vlan_info",
-        group="visibility_gaps",
-        severity="info",
-        title="VLAN segmentation is unknown",
-        detail="VLAN boundaries cannot be determined from agent telemetry alone. Network segmentation may differ from what is shown.",
-    ))
-
-    return insights
-
-
-def _compute_visibility(
-    *,
-    insight_metrics: dict[str, Any],
-    coverage: dict[str, Any],
-    alert_edge_count: int,
-    exposure_edge_count: int,
-) -> TopologyVisibilityOut:
-    agents_projected = int(coverage.get("agents_projected") or 0)
-    agents_with_inventory = int(coverage.get("agents_with_inventory") or 0)
-    inventory_coverage = round(agents_with_inventory / agents_projected, 2) if agents_projected > 0 else 0.0
-
-    flow_coverage = int(insight_metrics.get("flow_edge_count", 0)) > 0
-    services_projected = int(coverage.get("services_projected") or 0)
-    protocol_coverage = flow_coverage and services_projected > 0
-
-    limitations: list[str] = [
-        "Physical switch topology is unavailable: connectivity is derived from traffic and inventory, not hardware discovery.",
-        "VLAN segmentation is unknown unless explicitly configured in agent settings.",
-        "MAC address tables are not accessible: Layer 2 topology cannot be mapped.",
-        "SNMP, LLDP, and CDP data are not collected: network device topology cannot be confirmed.",
-    ]
-
-    docker_count = int(insight_metrics.get("docker_node_count", 0))
-    if docker_count > 0:
-        limitations.append(
-            f"{docker_count} Docker/container network address{'es' if docker_count != 1 else ''} detected: "
-            "the agent may be running inside a container and may only observe container-local traffic."
-        )
-
-    if agents_projected > 0 and inventory_coverage < 0.5:
-        limitations.append(
-            f"Inventory data is partial: only {int(inventory_coverage * 100)}% of agents reported host inventory. "
-            "Host discovery may be incomplete."
-        )
-
-    if not flow_coverage:
-        limitations.append(
-            "No network flow data is available. Flow-based topology, connection insights, and service detection are inactive."
-        )
-
-    last_flow_at = insight_metrics.get("last_flow_at")
-    last_alert_at = insight_metrics.get("last_alert_at")
-    last_inventory_at = insight_metrics.get("last_inventory_at")
-
-    return TopologyVisibilityOut(
-        inventory_coverage=inventory_coverage,
-        flow_coverage=flow_coverage,
-        alert_coverage=alert_edge_count > 0,
-        protocol_coverage=protocol_coverage,
-        exposure_coverage=exposure_edge_count > 0,
-        last_inventory_at=_to_utc(last_inventory_at) if last_inventory_at else None,
-        last_event_at=_to_utc(last_flow_at) if last_flow_at else None,
-        last_alert_at=_to_utc(last_alert_at) if last_alert_at else None,
-        known_limitations=limitations,
-    )
-
-
-def _freshness_metadata(snapshot) -> dict[str, Any]:
-    generated_at = datetime.now(_UTC)
-    projected_at = _to_utc(snapshot.created_at) if snapshot else None
-    freshness_seconds: int | None = None
-    if projected_at is not None:
-        freshness_seconds = max(0, int((generated_at - projected_at).total_seconds()))
-    stale_after_seconds = _config_stale_after_minutes() * 60
-    stale = projected_at is None or freshness_seconds is None or freshness_seconds > stale_after_seconds
-
-    metrics = snapshot.metrics if snapshot and isinstance(snapshot.metrics, dict) else {}
-    data_window = metrics.get("data_window") if isinstance(metrics.get("data_window"), dict) else None
-    if data_window is None:
-        data_window = _default_data_window(generated_at)
-
-    source_coverage = metrics.get("source_coverage") if isinstance(metrics.get("source_coverage"), dict) else None
-    if source_coverage is None:
-        source_coverage = snapshot.coverage if snapshot and isinstance(snapshot.coverage, dict) else {}
-
-    truncation = metrics.get("truncation") if isinstance(metrics.get("truncation"), dict) else {}
-
-    return {
-        "generated_at": generated_at,
-        "projected_at": projected_at,
-        "data_window": data_window,
-        "freshness_seconds": freshness_seconds,
-        "stale": bool(stale),
-        "source_coverage": source_coverage,
-        "truncation": truncation,
-    }
-
-
-def _default_data_window(now: datetime) -> dict[str, Any]:
-    window = _config_window_minutes()
-    start = now - timedelta(minutes=window)
-    return {
-        "window_minutes": int(window),
-        "start_at": start.isoformat(),
-        "end_at": now.isoformat(),
-    }
-
-
-def _build_snapshot_metrics(
-    *,
-    coverage: TopologyCoverageOut,
-    projected_by: str,
-    reason: str,
-    requested_at: datetime,
-    window_minutes: int,
-    max_events_per_run: int,
-) -> dict[str, Any]:
-    now = datetime.now(_UTC)
-    coverage_dict = _model_dict(coverage)
-    warnings = [str(x) for x in coverage.warnings]
-    ingest_pressure = _ingest_pressure_snapshot()
-    source_coverage = {
-        "projection": coverage_dict,
-        "agents": {"projected": int(coverage.agents_projected)},
-        "inventory": {"agents_with_inventory": int(coverage.agents_with_inventory)},
-        "flows": {"edges_added": int(coverage.flow_edges_added), "window_minutes": int(window_minutes)},
-        "alerts": {"edges_added": int(coverage.alert_edges_added), "window_minutes": int(window_minutes)},
-        "exposure": {"edges_added": int(coverage.exposure_edges_added)},
-        "ingest_pressure": ingest_pressure,
-    }
-    truncation = {
-        "max_events_per_run": int(max_events_per_run),
-        "warnings": warnings,
-        "agents_truncated": "agent_limit_reached" in warnings,
-        "inventory_truncated": "inventory_limit_reached" in warnings,
-        "flows_truncated": "flow_edge_limit_reached" in warnings,
-        "alerts_truncated": "alert_limit_reached" in warnings,
-        "exposure_truncated": "exposure_limit_reached" in warnings,
-        "sampled": bool((ingest_pressure or {}).get("sampled")),
-    }
-    return {
-        "projected_by": str(projected_by or "worker"),
-        "reason": str(reason or "worker"),
-        "requested_at": requested_at.isoformat(),
-        "data_window": {
-            "window_minutes": int(window_minutes),
-            "start_at": (now - timedelta(minutes=int(window_minutes))).isoformat(),
-            "end_at": now.isoformat(),
-        },
-        "source_coverage": source_coverage,
-        "truncation": truncation,
-    }
-
-
-def _model_dict(model: Any) -> dict[str, Any]:
-    if hasattr(model, "model_dump"):
-        return model.model_dump()
-    return model.dict()
-
-
-def _ingest_pressure_snapshot() -> dict[str, Any]:
-    try:
-        from app.features.ingest.control.service import get_storm_status
-
-        raw = get_storm_status()
-    except Exception:
-        raw = None
-    if not isinstance(raw, dict):
-        return {"sampled": False, "phase": "unknown"}
-    phase = str(raw.get("phase") or "ok")
-    sample_hot = raw.get("sample_hot_percent")
-    sample_warm = raw.get("sample_warm_percent")
-    try:
-        hot_i = int(sample_hot)
-    except Exception:
-        hot_i = 100
-    sampled = bool(raw.get("active")) or phase not in {"ok", "normal"} or hot_i < 100
-    return {
-        "sampled": bool(sampled),
-        "phase": phase,
-        "reason": str(raw.get("reason") or "ok"),
-        "backlog_events": int(raw.get("backlog_events") or 0),
-        "backlog_messages": int(raw.get("backlog_messages") or 0),
-        "sample_hot_percent": hot_i,
-        "sample_warm_percent": int(sample_warm or 0),
-    }
-
-
-def _node_to_out(node: TopologyNodeModel) -> TopologyNodeOut:
-    return TopologyNodeOut(
-        node_key=node.node_key,
-        node_type=node.node_type,
-        agent_id=node.agent_id,
-        label=node.label,
-        ip=node.ip,
-        cidr=node.cidr,
-        port=node.port,
-        protocol=node.protocol,
-        severity=node.severity,
-        risk_score=int(node.risk_score or 0),
-        confidence=int(node.confidence or 0),
-        is_stale=bool(node.is_stale),
-        event_count=int(node.event_count or 0),
-        alert_count=int(node.alert_count or 0),
-        observation_count=int(node.observation_count or 0),
-        first_seen_at=_to_utc(node.first_seen_at),
-        last_seen_at=_to_utc(node.last_seen_at),
-        updated_at=_to_utc(node.updated_at),
-        metadata=_sanitize_public_json(node.extra_data or {}),
-    )
-
-
-def _edge_to_out(edge: TopologyEdgeModel) -> TopologyEdgeOut:
-    return TopologyEdgeOut(
-        edge_key=edge.edge_key,
-        source_node_key=edge.source_node_key,
-        target_node_key=edge.target_node_key,
-        edge_type=edge.edge_type,
-        agent_id=edge.agent_id,
-        weight=float(edge.weight or 1.0),
-        confidence=int(edge.confidence or 0),
-        severity=edge.severity,
-        port=edge.port,
-        protocol=edge.protocol,
-        event_count=int(edge.event_count or 0),
-        alert_count=int(edge.alert_count or 0),
-        first_seen_at=_to_utc(edge.first_seen_at),
-        last_seen_at=_to_utc(edge.last_seen_at),
-        updated_at=_to_utc(edge.updated_at),
-        metadata=_sanitize_public_json(edge.extra_data or {}),
-    )
-
-
-def _obs_to_out(obs: TopologyObservationModel) -> TopologyObservationOut:
-    raw_context = _sanitize_public_json(obs.raw_context or {})
-    return TopologyObservationOut(
-        id=int(obs.id),
-        node_key=obs.node_key,
-        edge_key=obs.edge_key,
-        agent_id=obs.agent_id,
-        source_type=obs.source_type,
-        source_id=obs.source_id,
-        observed_at=_to_utc(obs.observed_at),
-        summary=obs.summary,
-        confidence=_confidence_from_context(raw_context),
-        raw_context=raw_context,
-    )
-
-
-def _subnet_node_to_out(node: TopologyNodeModel) -> TopologySubnetOut:
-    return TopologySubnetOut(
-        node_key=node.node_key,
-        cidr=str(node.cidr or node.label),
-        label=node.label,
-        agent_id=node.agent_id,
-        severity=node.severity,
-        confidence=int(node.confidence or 0),
-        first_seen_at=_to_utc(node.first_seen_at),
-        last_seen_at=_to_utc(node.last_seen_at),
-        metadata=_sanitize_public_json(node.extra_data or {}),
-    )
-
-
-def _evidence_meta(limit: int, total: int) -> TopologyEvidencePageMetaOut:
-    return TopologyEvidencePageMetaOut(
-        limit=int(limit),
-        total=max(0, int(total or 0)),
-        omitted=max(0, int(total or 0) - int(limit)),
-    )
-
-
-def _evidence_source_to_out(row: tuple[str, int, datetime | None]) -> TopologyEvidenceSourceOut:
-    source_type, count, latest = row
-    return TopologyEvidenceSourceOut(
-        source_type=str(source_type or "unknown"),
-        count=int(count or 0),
-        latest_observed_at=_to_utc(latest) if latest else None,
-    )
-
-
-def _flow_to_out(flow: Any) -> TopologyRelatedFlowOut:
-    return TopologyRelatedFlowOut(
-        id=int(getattr(flow, "id", 0) or 0),
-        timestamp=_to_utc(getattr(flow, "timestamp", None)),
-        agent_id=str(getattr(flow, "agent_id", "") or ""),
-        event_type=str(getattr(flow, "event_type", "") or "event"),
-        src_ip=getattr(flow, "src_ip", None),
-        dst_ip=getattr(flow, "dst_ip", None),
-        src_port=getattr(flow, "src_port", None),
-        dst_port=getattr(flow, "dst_port", None),
-        protocol=getattr(flow, "proto", None),
-        bytes=getattr(flow, "bytes", None),
-        app_proto=getattr(flow, "app_proto", None),
-    )
-
-
-def _alert_to_out(alert: Any) -> TopologyRelatedAlertOut:
-    return TopologyRelatedAlertOut(
-        id=int(getattr(alert, "id", 0) or 0),
-        created_at=_to_utc(getattr(alert, "created_at", None)),
-        rule_id=str(getattr(alert, "rule_id", "") or ""),
-        severity=str(getattr(alert, "severity", "unknown") or "unknown"),
-        status=str(getattr(alert, "status", "open") or "open"),
-        confidence=int(getattr(alert, "confidence", 0) or 0),
-        description=str(getattr(alert, "description", "") or ""),
-        src_ip=getattr(alert, "src_ip", None),
-        dst_ip=getattr(alert, "dst_ip", None),
-        dst_port=getattr(alert, "dst_port", None),
-    )
-
-
-def _exposure_finding_to_out(finding: Any) -> TopologyRelatedExposureFindingOut:
-    return TopologyRelatedExposureFindingOut(
-        finding_key=str(getattr(finding, "finding_key", "") or ""),
-        asset_key=str(getattr(finding, "asset_key", "") or ""),
-        agent_id=getattr(finding, "agent_id", None),
-        finding_type=str(getattr(finding, "finding_type", "") or "finding"),
-        severity=str(getattr(finding, "severity", "unknown") or "unknown"),
-        status=str(getattr(finding, "status", "open") or "open"),
-        confidence=int(getattr(finding, "confidence", 0) or 0),
-        title=str(getattr(finding, "title", "") or ""),
-        summary=str(getattr(finding, "summary", "") or ""),
-        last_seen_at=_to_utc(getattr(finding, "last_seen_at", None)),
-    )
-
-
-def _attack_chain_case_to_out(case: Any) -> TopologyRelatedAttackChainCaseOut:
-    return TopologyRelatedAttackChainCaseOut(
-        id=int(getattr(case, "id", 0) or 0),
-        agent_id=str(getattr(case, "agent_id", "") or ""),
-        suspect_ip=getattr(case, "suspect_ip", None),
-        status=str(getattr(case, "status", "open") or "open"),
-        score=int(getattr(case, "score", 0) or 0),
-        max_stage=str(getattr(case, "max_stage", "initial_access") or "initial_access"),
-        step_count=int(getattr(case, "step_count", 0) or 0),
-        first_seen_at=_to_utc(getattr(case, "first_seen_at", None)),
-        last_seen_at=_to_utc(getattr(case, "last_seen_at", None)),
-    )
-
-
-def _app_protocols_for_edge(edge: TopologyEdgeModel, flows: list[Any], aggregate_protocols: list[str] | None = None) -> list[str]:
-    protocols: list[str] = []
-    metadata = edge.extra_data if isinstance(edge.extra_data, dict) else {}
-    raw = metadata.get("application_protocols") or metadata.get("app_protocols")
-    if isinstance(raw, list):
-        protocols.extend(str(item).strip().lower() for item in raw if str(item or "").strip())
-    elif isinstance(raw, str) and raw.strip():
-        protocols.append(raw.strip().lower())
-    for flow in flows:
-        app_proto = str(getattr(flow, "app_proto", "") or "").strip().lower()
-        if app_proto:
-            protocols.append(app_proto)
-    for app_proto in aggregate_protocols or []:
-        proto = str(app_proto or "").strip().lower()
-        if proto:
-            protocols.append(proto)
-    out: list[str] = []
-    seen: set[str] = set()
-    for proto in protocols:
-        if proto in seen:
-            continue
-        seen.add(proto)
-        out.append(proto)
-    return out[:12]
-
-
-def _confidence_from_context(context: dict[str, Any]) -> int:
-    raw = context.get("confidence")
-    try:
-        value = int(raw)
-    except Exception:
-        return 50
-    return max(0, min(100, value))
-
-
-def _is_sensitive_key(key: str) -> bool:
-    normalized = key.lower().replace("-", "_")
-    return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
-
-
-def _sanitize_public_json(value: Any, *, depth: int = 0) -> Any:
-    if depth >= 6:
-        return "[truncated]"
-    if isinstance(value, dict):
-        out: dict[str, Any] = {}
-        for key, item in value.items():
-            text_key = str(key)
-            if _is_sensitive_key(text_key):
-                continue
-            out[text_key] = _sanitize_public_json(item, depth=depth + 1)
-        return out
-    if isinstance(value, list):
-        return [_sanitize_public_json(item, depth=depth + 1) for item in value[:50]]
-    if isinstance(value, tuple):
-        return [_sanitize_public_json(item, depth=depth + 1) for item in value[:50]]
-    if isinstance(value, str) and len(value) > 2048:
-        return value[:2048] + "...[truncated]"
-    return value
-
-
-def _to_utc(dt: datetime | None) -> datetime:
-    if dt is None:
-        return datetime.now(_UTC)
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=_UTC)
-    return dt

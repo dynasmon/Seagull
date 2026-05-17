@@ -13,6 +13,7 @@ import {
   getTopologyGraph,
   getTopologyGroupDetail,
   getTopologyNodeDetail,
+  getTopologySubnetDetail,
   getTopologySummary,
   listTopologyObservations,
   listTopologySubnets,
@@ -46,6 +47,11 @@ import {
 } from "./lib/graphTransform";
 import { groupTopologyGraph } from "./lib/grouping";
 import { searchTopologyGraph } from "./lib/search";
+import {
+  filtersForSubnetExplore,
+  focusedGroupDisplayLabel,
+  subnetCidrForGroup,
+} from "./lib/subnets";
 import type { TopologyGraph, TopologyGroup, TopologyGroupEdge, TopologyObservation, TopologySubnet, TopologySummary } from "./types";
 
 function firstRejectedMessage(results: PromiseSettledResult<unknown>[]): string | null {
@@ -135,6 +141,9 @@ export default function NetworkTopologyPage() {
         is_stale: g.is_stale,
         agent_id: (g.metadata?.agent_id as string | null) ?? null,
         cidr: (g.metadata?.cidr as string | null) ?? null,
+        gateway_candidate_count: typeof g.metadata?.gateway_candidate_count === "number"
+          ? g.metadata.gateway_candidate_count
+          : null,
       }));
       const backendGroupEdges: TopologyGroupEdge[] = (visibleGraph.group_edges ?? []).map((ge) => ({
         edge_key: ge.edge_key,
@@ -156,7 +165,7 @@ export default function NetworkTopologyPage() {
     [workspace.focusedGroupKey, groups],
   );
 
-  const focusedGroupLabel = focusedGroup?.label ?? null;
+  const focusedGroupLabel = focusedGroupDisplayLabel(focusedGroup);
 
   const focusState = useMemo((): TopologyFocusState | undefined => {
     if (!focusedGroup || appliedFilters.view_mode !== "connection") return undefined;
@@ -360,7 +369,7 @@ export default function NetworkTopologyPage() {
     (groupKey: string) => {
       const group = groups.find((g) => g.group_key === groupKey);
       if (!group) return;
-      applyWith({ ...appliedFilters, view_mode: "connection" });
+      applyWith(filtersForSubnetExplore(appliedFilters));
       workspace.setFocusedGroupKey(groupKey);
       workspace.setSearchQuery("");
       setDetailSelection(null);
@@ -375,6 +384,7 @@ export default function NetworkTopologyPage() {
         workspace.selectGroup(id);
         const group = groups.find((g) => g.group_key === id) ?? null;
         if (group) {
+          const subnetCidr = subnetCidrForGroup(group);
           const memberNodes = (visibleGraph?.nodes ?? [])
             .filter((n) => group.node_keys.includes(n.node_key))
             .slice(0, 20);
@@ -386,25 +396,49 @@ export default function NetworkTopologyPage() {
             backendDetail: null,
             backendDetailLoading: true,
             backendDetailError: null,
+            subnetCidr,
+            subnetDetail: null,
+            subnetDetailLoading: Boolean(subnetCidr),
+            subnetDetailError: null,
             onExploreInConnection: () => handleExploreGroupInConnection(id),
           });
           const seq = detailSeqRef.current + 1;
           detailSeqRef.current = seq;
-          try {
-            const backendDetail = await getTopologyGroupDetail(id);
-            if (detailSeqRef.current !== seq) return;
-            setDetailSelection((prev) =>
-              prev?.kind === "group" && prev.key === id
-                ? { ...prev, backendDetail, backendDetailLoading: false }
-                : prev,
-            );
-          } catch (err) {
-            if (detailSeqRef.current !== seq) return;
-            setDetailSelection((prev) =>
-              prev?.kind === "group" && prev.key === id
-                ? { ...prev, backendDetailLoading: false, backendDetailError: getErrorMessage(err, "Failed to load group detail") }
-                : prev,
-            );
+          void getTopologyGroupDetail(id)
+            .then((backendDetail) => {
+              if (detailSeqRef.current !== seq) return;
+              setDetailSelection((prev) =>
+                prev?.kind === "group" && prev.key === id
+                  ? { ...prev, backendDetail, backendDetailLoading: false }
+                  : prev,
+              );
+            })
+            .catch((err) => {
+              if (detailSeqRef.current !== seq) return;
+              setDetailSelection((prev) =>
+                prev?.kind === "group" && prev.key === id
+                  ? { ...prev, backendDetailLoading: false, backendDetailError: getErrorMessage(err, "Failed to load group detail") }
+                  : prev,
+              );
+            });
+          if (subnetCidr) {
+            void getTopologySubnetDetail(subnetCidr)
+              .then((subnetDetail) => {
+                if (detailSeqRef.current !== seq) return;
+                setDetailSelection((prev) =>
+                  prev?.kind === "group" && prev.key === id
+                    ? { ...prev, subnetDetail, subnetDetailLoading: false }
+                    : prev,
+                );
+              })
+              .catch((err) => {
+                if (detailSeqRef.current !== seq) return;
+                setDetailSelection((prev) =>
+                  prev?.kind === "group" && prev.key === id
+                    ? { ...prev, subnetDetailLoading: false, subnetDetailError: getErrorMessage(err, "Failed to load subnet detail") }
+                    : prev,
+                );
+              });
           }
         }
         return;

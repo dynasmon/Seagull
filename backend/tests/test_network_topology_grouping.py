@@ -171,6 +171,24 @@ class TestGroupingBySubnet:
         groups, _ = build_groups(nodes, [], strategy="subnet")
         assert groups[0]["group_key"] == "subnet:192.168.1.0/24"
 
+    def test_subnet_group_metadata_exposes_cidr_from_subnet_node(self) -> None:
+        nodes = [
+            _node(node_key="host-1"),
+            _node(node_key="topo:subnet:10.0.0.0/24", node_type="subnet", cidr="10.0.0.0/24"),
+        ]
+        edges = [
+            _edge(
+                edge_key="member-1",
+                source_node_key="host-1",
+                target_node_key="topo:subnet:10.0.0.0/24",
+                edge_type="member_of_subnet",
+            ),
+        ]
+        groups, _ = build_groups(nodes, edges, strategy="subnet")
+        host_group = next(g for g in groups if g["group_key"] == "subnet:topo:subnet:10.0.0.0/24")
+        assert host_group["metadata"]["cidr"] == "10.0.0.0/24"
+        assert host_group["metadata"]["subnet_node_key"] == "topo:subnet:10.0.0.0/24"
+
 
 class TestGroupingByIpScope:
     def test_nodes_grouped_by_scope(self) -> None:
