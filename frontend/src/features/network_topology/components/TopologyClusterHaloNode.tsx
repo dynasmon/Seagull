@@ -17,7 +17,7 @@ function TopologyClusterHaloNode({ data: rawData }: NodeProps) {
       style={{
         width: size,
         height: size,
-        opacity: isDimmed ? 0.06 : 1,
+        opacity: isDimmed ? 0.05 : isSelected ? 0.88 : 0.68,
         border: `1px solid ${isSelected ? `${accent}66` : risky ? `${accent}2e` : "rgba(96,165,250,0.1)"}`,
         background: `radial-gradient(circle, ${risky ? `${accent}0d` : "rgba(96,165,250,0.04)"} 0%, rgba(7,14,25,0) 68%)`,
         boxShadow: isSelected
