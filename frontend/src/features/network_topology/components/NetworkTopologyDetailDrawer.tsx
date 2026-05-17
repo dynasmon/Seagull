@@ -47,6 +47,7 @@ import type {
   TopologyRelatedAttackChainCase,
   TopologyRelatedExposureFinding,
   TopologyRelatedFlow,
+  TopologySubnetDetail,
 } from "../types";
 
 export type NetworkTopologyDetailSelection =
@@ -60,6 +61,10 @@ export type NetworkTopologyDetailSelection =
       backendDetail: TopologyGroupDetail | null;
       backendDetailLoading: boolean;
       backendDetailError: string | null;
+      subnetCidr: string | null;
+      subnetDetail: TopologySubnetDetail | null;
+      subnetDetailLoading: boolean;
+      subnetDetailError: string | null;
       onExploreInConnection: () => void;
     }
   | null;
@@ -618,16 +623,167 @@ export function NetworkTopologyEdgeDetailContent({
 function GroupTypeLabel({ groupType }: { groupType: string }) {
   if (groupType === "agent") return <>Agent</>;
   if (groupType === "subnet") return <>Subnet</>;
-  if (groupType === "ip_scope") return <>IP Scope</>;
+  if (groupType === "ip_scope" || groupType === "scope") return <>IP Scope</>;
   return <>Ungrouped</>;
 }
 
-function NetworkTopologyGroupDetailContent({
+function TruncationNotice({ omitted, label }: { omitted?: number; label: string }) {
+  if (!omitted) return null;
+  return <div className="text-[11px] text-muted-foreground">{omitted} additional {label} omitted from this detail payload.</div>;
+}
+
+export function NetworkTopologySubnetDetailContent({
+  detail,
+}: {
+  detail: TopologySubnetDetail;
+}) {
+  return (
+    <div className="space-y-4">
+      <InvestigationMetaStrip
+        items={[
+          { label: "CIDR", value: detail.cidr, variant: "info" },
+          { label: "Scope", value: <TopologyIpScopeBadge scope={detail.ip_scope} compact /> },
+          { label: "Freshness", value: detail.last_seen ? formatTopologyTimestamp(detail.last_seen) : "-" },
+        ]}
+      />
+
+      <InvestigationSummaryGrid>
+        <InvestigationFactCard label="Node count" value={formatCount(detail.node_count)} />
+        <InvestigationFactCard label="Active nodes" value={formatCount(detail.active_node_count)} />
+        <InvestigationFactCard label="Stale nodes" value={formatCount(detail.stale_node_count)} />
+        <InvestigationFactCard label="Alert count" value={formatCount(detail.alert_count)} />
+        <InvestigationFactCard
+          label="Highest severity"
+          value={<span style={{ color: severityColor(detail.highest_severity), textTransform: "capitalize" }}>{detail.highest_severity}</span>}
+        />
+        {detail.risk_score != null ? <InvestigationFactCard label="Risk score" value={formatCount(detail.risk_score)} /> : null}
+        {detail.confidence != null ? <InvestigationFactCard label="Confidence" value={`${detail.confidence}%`} /> : null}
+        {detail.first_seen ? <InvestigationFactCard label="First seen" value={formatTopologyTimestamp(detail.first_seen)} mono /> : null}
+        {detail.last_seen ? <InvestigationFactCard label="Last seen" value={formatTopologyTimestamp(detail.last_seen)} mono /> : null}
+      </InvestigationSummaryGrid>
+
+      <InvestigationSection title="Gateway candidates" subtitle="Only nodes supported by existing topology evidence are shown.">
+        {detail.gateway_candidates.length ? (
+          <div className="space-y-2">
+            {detail.gateway_candidates.map((node) => (
+              <InvestigationListItem
+                key={node.node_key}
+                title={node.label || node.node_key}
+                meta={[{ value: [node.ip ?? node.cidr, toTitleLabel(node.node_type)].filter(Boolean).join(" · ") }]}
+              />
+            ))}
+            <TruncationNotice omitted={detail.truncation.gateway_candidates.omitted} label="gateway candidate(s)" />
+          </div>
+        ) : (
+          <EmptyLine>No gateway candidates identified from current evidence.</EmptyLine>
+        )}
+      </InvestigationSection>
+
+      <InvestigationSection
+        title="Top member nodes"
+        subtitle={`Showing ${detail.member_nodes.length} of ${detail.node_count}`}
+      >
+        {detail.member_nodes.length ? (
+          <div className="space-y-2">
+            {detail.member_nodes.map((node) => (
+              <InvestigationListItem
+                key={node.node_key}
+                title={node.label || node.node_key}
+                badges={[
+                  { label: node.severity, variant: topologySeverityVariant(node.severity) },
+                  { label: node.is_stale ? "stale" : "active", variant: node.is_stale ? "neutral" : "info" },
+                ]}
+                meta={[
+                  { label: "address", value: node.ip ?? node.cidr ?? "-" },
+                  { label: "alerts", value: node.alert_count },
+                  { label: "last seen", value: formatTopologyTimestamp(node.last_seen_at) },
+                ]}
+              />
+            ))}
+            <TruncationNotice omitted={detail.truncation.member_nodes.omitted} label="member node(s)" />
+          </div>
+        ) : (
+          <EmptyLine>No subnet member nodes returned.</EmptyLine>
+        )}
+      </InvestigationSection>
+
+      <InvestigationSection title="Listening services" subtitle="Services tied to subnet members through existing topology edges.">
+        {detail.listening_services.length ? (
+          <div className="space-y-2">
+            {detail.listening_services.map((node) => (
+              <InvestigationListItem
+                key={node.node_key}
+                title={node.label || node.node_key}
+                meta={[
+                  { label: "address", value: node.ip ?? "-" },
+                  { label: "service", value: portLabel(node.port, node.protocol) },
+                ]}
+              />
+            ))}
+            <TruncationNotice omitted={detail.truncation.listening_services.omitted} label="service(s)" />
+          </div>
+        ) : (
+          <EmptyLine>No listening services returned for this subnet.</EmptyLine>
+        )}
+      </InvestigationSection>
+
+      <InvestigationSection title="External destinations" subtitle="Public nodes connected through real observed topology edges.">
+        {detail.external_destinations.length ? (
+          <div className="space-y-2">
+            {detail.external_destinations.map((node) => (
+              <InvestigationListItem
+                key={node.node_key}
+                title={node.label || node.node_key}
+                meta={[
+                  { label: "address", value: node.ip ?? "-" },
+                  { label: "last seen", value: formatTopologyTimestamp(node.last_seen_at) },
+                ]}
+              />
+            ))}
+            <TruncationNotice omitted={detail.truncation.external_destinations.omitted} label="external destination(s)" />
+          </div>
+        ) : (
+          <EmptyLine>No external destinations returned for this subnet.</EmptyLine>
+        )}
+      </InvestigationSection>
+
+      <InvestigationSection title="Related edges" subtitle="Bounded topology relationships touching subnet members.">
+        {detail.related_edges.length ? (
+          <div className="space-y-2">
+            {detail.related_edges.map((edge) => (
+              <InvestigationListItem
+                key={edge.edge_key}
+                title={`${edge.source_node_key.split(":").pop() ?? edge.source_node_key} → ${edge.target_node_key.split(":").pop() ?? edge.target_node_key}`}
+                meta={[
+                  { label: "type", value: toTitleLabel(edge.edge_type) },
+                  { label: "alerts", value: edge.alert_count },
+                ]}
+              />
+            ))}
+            <TruncationNotice omitted={detail.truncation.related_edges.omitted} label="related edge(s)" />
+          </div>
+        ) : (
+          <EmptyLine>No related edges returned for this subnet.</EmptyLine>
+        )}
+      </InvestigationSection>
+
+      <InvestigationSection title="Recent observations" subtitle="Most recent topology observations for the subnet and its members.">
+        <Observations observations={detail.recent_observations} meta={detail.truncation.recent_observations} />
+      </InvestigationSection>
+    </div>
+  );
+}
+
+export function NetworkTopologyGroupDetailContent({
   group,
   memberNodes,
   backendDetail,
   backendDetailLoading,
   backendDetailError,
+  subnetCidr,
+  subnetDetail,
+  subnetDetailLoading,
+  subnetDetailError,
   onExploreInConnection,
 }: {
   group: TopologyGroup;
@@ -635,6 +791,10 @@ function NetworkTopologyGroupDetailContent({
   backendDetail: TopologyGroupDetail | null;
   backendDetailLoading: boolean;
   backendDetailError: string | null;
+  subnetCidr: string | null;
+  subnetDetail: TopologySubnetDetail | null;
+  subnetDetailLoading: boolean;
+  subnetDetailError: string | null;
   onExploreInConnection: () => void;
 }) {
   const sev = backendDetail?.highest_severity ?? group.highest_severity ?? null;
@@ -670,9 +830,27 @@ function NetworkTopologyGroupDetailContent({
 
       <InvestigationActionBar>
         <InvestigationActionButton onClick={onExploreInConnection}>
-          Explore in Connection view
+          {group.group_type === "subnet" && (subnetCidr || group.group_key.startsWith("subnet:"))
+            ? "Explore subnet"
+            : "Explore in Connection view"}
         </InvestigationActionButton>
       </InvestigationActionBar>
+
+      {group.group_type === "subnet" && (
+        <InvestigationSection title="Subnet exploration" subtitle="Network-level context derived from existing topology evidence.">
+          {subnetDetailLoading && !subnetDetail ? (
+            <div className="rounded-md border border-border/70 bg-background/35 px-3 py-2 text-sm text-muted-foreground">
+              Loading subnet detail...
+            </div>
+          ) : null}
+          {subnetDetailError && !subnetDetail ? (
+            <div className="rounded-md border border-border/40 bg-background/30 px-3 py-2 text-xs text-muted-foreground">
+              Subnet detail unavailable — keeping the group summary visible.
+            </div>
+          ) : null}
+          {subnetDetail ? <NetworkTopologySubnetDetailContent detail={subnetDetail} /> : null}
+        </InvestigationSection>
+      )}
 
       {displayNodes.length > 0 && (
         <InvestigationSection
@@ -748,6 +926,10 @@ export function NetworkTopologyDetailDrawer({
           backendDetail={selection.backendDetail}
           backendDetailLoading={selection.backendDetailLoading}
           backendDetailError={selection.backendDetailError}
+          subnetCidr={selection.subnetCidr}
+          subnetDetail={selection.subnetDetail}
+          subnetDetailLoading={selection.subnetDetailLoading}
+          subnetDetailError={selection.subnetDetailError}
           onExploreInConnection={selection.onExploreInConnection}
         />
       ) : selection.loading ? (

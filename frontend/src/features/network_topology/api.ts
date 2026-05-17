@@ -11,6 +11,7 @@ import type {
   TopologyObservationParams,
   TopologyRecalculateResult,
   TopologySubnet,
+  TopologySubnetDetail,
   TopologySubnetParams,
   TopologySummary,
 } from "./types";
@@ -65,6 +66,12 @@ export function buildTopologySubnetsPath(params: TopologySubnetParams = {}): str
   return withQuery(`${BASE}/subnets`, q);
 }
 
+export function buildTopologySubnetDetailPath(cidr: string): string {
+  const q = new URLSearchParams();
+  appendOptional(q, "cidr", cidr);
+  return withQuery(`${BASE}/subnets/detail`, q);
+}
+
 export function buildTopologyObservationsPath(params: TopologyObservationParams = {}): string {
   const q = new URLSearchParams();
   appendOptional(q, "page_size", params.page_size ?? 50);
@@ -95,6 +102,10 @@ export function getTopologyEdgeDetail(edgeKey: string, signal?: AbortSignal) {
 
 export function listTopologySubnets(params: TopologySubnetParams = {}) {
   return apiGet<CursorPage<TopologySubnet>>(buildTopologySubnetsPath(params), { cacheMs: 0, signal: params.signal });
+}
+
+export function getTopologySubnetDetail(cidr: string, signal?: AbortSignal) {
+  return apiGet<TopologySubnetDetail>(buildTopologySubnetDetailPath(cidr), { cacheMs: 0, signal });
 }
 
 export function listTopologyObservations(params: TopologyObservationParams = {}) {
