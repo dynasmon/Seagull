@@ -480,6 +480,7 @@ export type TopologyGroupEdge = {
 
 export type TopologyFilters = {
   agent_id: string;
+  group_key: string;
   window_minutes: TopologyTimeWindowMinutes;
   node_types: string[];
   edge_types: string[];

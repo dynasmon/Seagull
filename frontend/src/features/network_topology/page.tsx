@@ -29,7 +29,6 @@ import { NetworkTopologyInsightsPanel } from "./components/NetworkTopologyInsigh
 import { NetworkTopologyServicesPanel } from "./components/NetworkTopologyServicesPanel";
 import TopologyCanvas from "./components/TopologyCanvas";
 import { TopologyFilterRail } from "./components/TopologyFilterRail";
-import { TopologyTopBar } from "./components/TopologyTopBar";
 import { useNetworkTopologyFilters } from "./hooks/useNetworkTopologyFilters";
 import { useNetworkTopologyRealtimeInvalidation } from "./hooks/useNetworkTopologyRealtimeInvalidation";
 import { useTopologyWorkspaceState } from "./hooks/useTopologyWorkspaceState";
@@ -45,14 +44,14 @@ import {
   graphToLocationView,
   type TopologyFocusState,
 } from "./lib/graphTransform";
-import { groupTopologyGraph } from "./lib/grouping";
+import { resolveTopologyGroups } from "./lib/grouping";
 import { searchTopologyGraph } from "./lib/search";
 import {
   filtersForSubnetExplore,
   focusedGroupDisplayLabel,
   subnetCidrForGroup,
 } from "./lib/subnets";
-import type { TopologyGraph, TopologyGroup, TopologyGroupEdge, TopologyObservation, TopologySubnet, TopologySummary } from "./types";
+import type { TopologyGraph, TopologyObservation, TopologySubnet, TopologySummary } from "./types";
 
 function firstRejectedMessage(results: PromiseSettledResult<unknown>[]): string | null {
   for (const result of results) {
@@ -127,38 +126,15 @@ export default function NetworkTopologyPage() {
 
   const visibleGraph = useMemo(() => filterTopologyGraph(graph, appliedFilters), [appliedFilters, graph]);
 
-  const { groups, edges: groupEdges } = useMemo((): { groups: TopologyGroup[]; edges: TopologyGroupEdge[] } => {
-    if (visibleGraph?.groups) {
-      const backendGroups: TopologyGroup[] = visibleGraph.groups.map((g) => ({
-        group_key: g.group_key,
-        group_type: g.group_type as TopologyGroup["group_type"],
-        label: g.label,
-        node_keys: g.child_node_keys,
-        node_count: g.node_count,
-        alert_count: g.alert_count,
-        highest_severity: g.highest_severity,
-        risk_score: g.risk_score,
-        is_stale: g.is_stale,
-        agent_id: (g.metadata?.agent_id as string | null) ?? null,
-        cidr: (g.metadata?.cidr as string | null) ?? null,
-        gateway_candidate_count: typeof g.metadata?.gateway_candidate_count === "number"
-          ? g.metadata.gateway_candidate_count
-          : null,
-      }));
-      const backendGroupEdges: TopologyGroupEdge[] = (visibleGraph.group_edges ?? []).map((ge) => ({
-        edge_key: ge.edge_key,
-        source_group_key: ge.source_group_key,
-        target_group_key: ge.target_group_key,
-        edge_types: [ge.edge_type],
-        weight: ge.weight,
-        event_count: ge.edge_count,
-        alert_count: ge.alert_count,
-        severity: ge.highest_severity,
-      }));
-      return { groups: backendGroups, edges: backendGroupEdges };
-    }
-    return visibleGraph ? groupTopologyGraph(visibleGraph, agentLabelById) : { groups: [], edges: [] };
-  }, [visibleGraph, agentLabelById]);
+  const availableGrouping = useMemo(
+    () => resolveTopologyGroups(graph, agentLabelById),
+    [graph, agentLabelById],
+  );
+
+  const { groups, edges: groupEdges } = useMemo(
+    () => resolveTopologyGroups(visibleGraph, agentLabelById),
+    [visibleGraph, agentLabelById],
+  );
 
   const focusedGroup = useMemo(
     () => (workspace.focusedGroupKey ? groups.find((g) => g.group_key === workspace.focusedGroupKey) ?? null : null),
@@ -185,8 +161,9 @@ export default function NetworkTopologyPage() {
         groups,
         workspace.selection?.key ?? null,
         workspace.selection?.kind ?? null,
+        groupEdges,
       ),
-    [visibleGraph, groups, workspace.selection],
+    [visibleGraph, groups, groupEdges, workspace.selection],
   );
 
   const selState = useMemo(
@@ -233,7 +210,7 @@ export default function NetworkTopologyPage() {
     if (appliedFilters.view_mode === "location") {
       return graphToLocationView(groups, groupEdges, selState, searchStateWithActive);
     }
-    return graphToConnectionView(visibleGraph, selState, searchStateWithActive, focusState);
+    return graphToConnectionView(visibleGraph, selState, searchStateWithActive, focusState, groups, groupEdges);
   }, [appliedFilters.view_mode, groups, groupEdges, visibleGraph, selState, searchStateWithActive, focusState]);
 
   const selectedDiscoveryAgent = useMemo(
@@ -553,32 +530,6 @@ export default function NetworkTopologyPage() {
       className="flex min-w-0 flex-col overflow-hidden"
       style={{ height: "calc(100vh - 88px)" }}
     >
-      <TopologyTopBar
-        summary={summary}
-        graph={visibleGraph}
-        filters={appliedFilters}
-        liveState={liveState}
-        isAdmin={isAdmin}
-        filterRailOpen={workspace.filterRailOpen}
-        recalculateBusy={recalculateBusy}
-        isFullscreen={workspace.isFullscreen}
-        searchQuery={workspace.searchQuery}
-        searchTotal={searchTotal}
-        searchMatchIndex={workspace.searchMatchIndex}
-        focusedGroupLabel={focusedGroupLabel}
-        onRefresh={() => void refreshNow()}
-        onRecalculate={() => void handleRecalculate()}
-        onToggleFilterRail={() => workspace.setFilterRailOpen((prev) => !prev)}
-        onToggleFullscreen={workspace.toggleFullscreen}
-        onSearchChange={(q) => {
-          workspace.setSearchQuery(q);
-          workspace.setSearchMatchIndex(0);
-        }}
-        onPrevMatch={() => workspace.prevSearchMatch(searchTotal)}
-        onNextMatch={() => workspace.nextSearchMatch(searchTotal)}
-        onClearFocus={handleClearFocus}
-      />
-
       {recalculateMessage && (
         <DataQueryStateBanner tone="success" message={recalculateMessage} />
       )}
@@ -590,16 +541,18 @@ export default function NetworkTopologyPage() {
           <TopologyFilterRail
             filters={draftFilters}
             agentOptions={agentOptions}
+            groups={availableGrouping.groups}
             dirty={isDirty}
             applying={liveState.isRefreshing}
             facets={visibleGraph?.facets ?? undefined}
             onChange={(patch) => setDraftFilters((current) => ({ ...current, ...patch }))}
+            onViewModeChange={(mode) => applyWith({ ...draftFilters, view_mode: mode })}
             onApply={applyFilters}
             onReset={resetFilters}
           />
         )}
 
-        <div className="min-h-0 min-w-0 flex-1">
+        <div className="relative min-h-0 min-w-0 flex-1">
           <TopologyCanvas
             nodes={rfNodes}
             edges={rfEdges}
@@ -611,6 +564,7 @@ export default function NetworkTopologyPage() {
             filters={appliedFilters}
             loading={loading}
             isFullscreen={workspace.isFullscreen}
+            filterRailOpen={workspace.filterRailOpen}
             activeMatchKey={activeMatchKey}
             searchQuery={workspace.searchQuery}
             searchTotal={searchTotal}
@@ -618,6 +572,14 @@ export default function NetworkTopologyPage() {
             focusedGroupLabel={focusedGroupLabel}
             realtimeStatus={liveState.realtimeStatus}
             isRefreshing={liveState.isRefreshing}
+            onViewModeChange={(mode) => applyWith({ ...draftFilters, view_mode: mode })}
+            onToggleFilterRail={() => workspace.setFilterRailOpen((prev) => !prev)}
+            onToggleFullscreen={workspace.toggleFullscreen}
+            onRefresh={() => void refreshNow()}
+            onSearchChange={(q) => {
+              workspace.setSearchQuery(q);
+              workspace.setSearchMatchIndex(0);
+            }}
             onNodeClick={handleNodeClick}
             onGroupDoubleClick={handleGroupDoubleClick}
             onEdgeClick={handleEdgeClick}
@@ -630,19 +592,31 @@ export default function NetworkTopologyPage() {
       </div>
 
       <div className="shrink-0 border-t border-border/30">
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 bg-background/40 px-4 py-2 text-left"
-          onClick={() => setSecondaryOpen((prev) => !prev)}
-        >
-          <span className={`text-[10px] transition-transform ${secondaryOpen ? "rotate-90" : ""}`}>▶</span>
-          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-            Operational Details
-          </span>
-          <span className="ml-auto text-[10px] text-muted-foreground/50">
-            Services · Insights · Evidence{isAdmin ? " · Discovery" : ""}
-          </span>
-        </button>
+        <div className="flex items-center bg-background/40">
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-2 px-4 py-2 text-left"
+            onClick={() => setSecondaryOpen((prev) => !prev)}
+          >
+            <span className={`text-[10px] transition-transform ${secondaryOpen ? "rotate-90" : ""}`}>▶</span>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              Operational Details
+            </span>
+            <span className="ml-auto truncate text-[10px] text-muted-foreground/50">
+              Services · Insights · Evidence{isAdmin ? " · Discovery" : ""}
+            </span>
+          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              className="mr-4 rounded-[4px] border border-border/40 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/20 hover:text-foreground disabled:opacity-50"
+              onClick={() => void handleRecalculate()}
+              disabled={recalculateBusy}
+            >
+              {recalculateBusy ? "Recalculating…" : "Recalculate"}
+            </button>
+          )}
+        </div>
 
         {secondaryOpen && (
           <div className="max-h-[480px] overflow-y-auto border-t border-border/30 bg-background/30 px-4 py-4">
