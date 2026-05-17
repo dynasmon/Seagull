@@ -47,6 +47,14 @@ const HEIGHT = 1040;
 const CENTER = { x: WIDTH / 2, y: HEIGHT / 2 };
 const SERVICE_CLUSTER_THRESHOLD = 18;
 
+const MIN_SPACING_NORMAL = 72;
+const MIN_SPACING_IMPORTANT = 92;
+const RING_BASE_RADIUS = 88;
+const RING_EXPANSION = 96;
+const HALO_MIN_RADIUS = 110;
+const HALO_MAX_RADIUS = 360;
+const HALO_PADDING = 42;
+
 const SEVERITY_WEIGHT: Record<string, number> = {
   critical: 5,
   high: 4,
@@ -218,6 +226,18 @@ function nodeRadius(node: TopologyNode): number {
   return 7;
 }
 
+function nodeMinSpacing(node: TopologyNode): number {
+  return nodeImportance(node) === "normal" ? MIN_SPACING_NORMAL : MIN_SPACING_IMPORTANT;
+}
+
+function sliceMinSpacing(nodes: TopologyNode[]): number {
+  return nodes.reduce((max, n) => Math.max(max, nodeMinSpacing(n)), MIN_SPACING_NORMAL);
+}
+
+function ringCapacity(radius: number, minSpacing: number): number {
+  return Math.max(1, Math.floor((2 * Math.PI * radius) / minSpacing));
+}
+
 function nodePriority(node: TopologyNode): number {
   const importance = nodeImportance(node);
   const base = importance === "anchor" ? 3000 : importance === "elevated" ? 2000 : 1000;
@@ -320,8 +340,52 @@ function collapseServicesIfNeeded(nodes: TopologyNode[], edges: TopologyEdge[]):
   return [...nodes.filter((node) => !collapsed.has(node.node_key)), ...clusters];
 }
 
-function groupAreaRadius(nodeCount: number): number {
-  return Math.min(150, 44 + Math.sqrt(Math.max(1, nodeCount)) * 10);
+function relaxGroupCollisions(
+  placements: TopologyLayoutNode[],
+  center: { x: number; y: number },
+): TopologyLayoutNode[] {
+  if (placements.length < 2) return placements;
+  const MAX_ITER = 8;
+  const MAX_PUSH = 12;
+  const maxBound = HALO_MAX_RADIUS - HALO_PADDING;
+  const result = placements.map((n) => ({ ...n }));
+
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    let moved = false;
+    for (let i = 0; i < result.length; i++) {
+      for (let j = i + 1; j < result.length; j++) {
+        const a = result[i];
+        const b = result[j];
+        const minDist = Math.max(nodeMinSpacing(a), nodeMinSpacing(b));
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist >= minDist || dist < 0.01) continue;
+        const push = Math.min(MAX_PUSH, (minDist - dist) / 2);
+        const nx = dist > 0.01 ? dx / dist : 1;
+        const ny = dist > 0.01 ? dy / dist : 0;
+        if (a.importance !== "anchor") {
+          const ax2 = Math.round(a.x - nx * push);
+          const ay2 = Math.round(a.y - ny * push);
+          if (Math.hypot(ax2 - center.x, ay2 - center.y) <= maxBound) {
+            result[i] = { ...a, x: ax2, y: ay2 };
+            moved = true;
+          }
+        }
+        if (b.importance !== "anchor") {
+          const bx2 = Math.round(b.x + nx * push);
+          const by2 = Math.round(b.y + ny * push);
+          if (Math.hypot(bx2 - center.x, by2 - center.y) <= maxBound) {
+            result[j] = { ...b, x: bx2, y: by2 };
+            moved = true;
+          }
+        }
+      }
+    }
+    if (!moved) break;
+  }
+
+  return result;
 }
 
 function placeAroundCenter(
@@ -364,9 +428,12 @@ function placeAroundCenter(
     let cursor = 0;
     let ring = initialRing;
     while (cursor < nodes.length) {
-      const capacity = ring === 0 ? 1 : 6 + ring * 4;
+      const radius = RING_BASE_RADIUS + Math.max(0, ring - 1) * RING_EXPANSION;
+      const estimatedCapacity = ringCapacity(radius, MIN_SPACING_NORMAL);
+      const candidates = nodes.slice(cursor, cursor + estimatedCapacity);
+      const minSpacing = sliceMinSpacing(candidates);
+      const capacity = ringCapacity(radius, minSpacing);
       const slice = nodes.slice(cursor, cursor + capacity);
-      const radius = ring === 0 ? 0 : 52 + ring * 36;
       const startAngle = ((stableTopologyHash(`${groupKey}:${ring}`) % 360) / 360) * Math.PI * 2;
       slice.forEach((node, index) => {
         const angle = startAngle + (index / Math.max(1, slice.length)) * Math.PI * 2;
@@ -418,19 +485,27 @@ function placeServicesNearOwners(
     const owner = placementByKey.get(ownerKey);
     if (!owner) continue;
     const ordered = [...services].sort((a, b) => a.node_key.localeCompare(b.node_key));
-    const startAngle = ((stableTopologyHash(`${groupKey}:${ownerKey}:services`) % 360) / 360) * Math.PI * 2;
-    ordered.forEach((service, index) => {
-      const angle = startAngle + (index / Math.max(1, ordered.length)) * Math.PI * 2;
-      const distance = owner.radius + 26 + Math.floor(index / 8) * 18;
-      next.push({
-        ...service,
-        x: Math.round(owner.x + Math.cos(angle) * distance),
-        y: Math.round(owner.y + Math.sin(angle) * distance),
-        radius: nodeRadius(service),
-        group_key: groupKey,
-        importance: nodeImportance(service),
+    let svcCursor = 0;
+    let svcRing = 0;
+    while (svcCursor < ordered.length) {
+      const svcRadius = owner.radius + 30 + svcRing * MIN_SPACING_NORMAL;
+      const capacity = ringCapacity(svcRadius, MIN_SPACING_NORMAL);
+      const slice = ordered.slice(svcCursor, svcCursor + capacity);
+      const startAngle = ((stableTopologyHash(`${groupKey}:${ownerKey}:svc:${svcRing}`) % 360) / 360) * Math.PI * 2;
+      slice.forEach((service, index) => {
+        const angle = startAngle + (index / Math.max(1, slice.length)) * Math.PI * 2;
+        next.push({
+          ...service,
+          x: Math.round(owner.x + Math.cos(angle) * svcRadius),
+          y: Math.round(owner.y + Math.sin(angle) * svcRadius),
+          radius: nodeRadius(service),
+          group_key: groupKey,
+          importance: nodeImportance(service),
+        });
       });
-    });
+      svcCursor += slice.length;
+      svcRing += 1;
+    }
   }
   return next;
 }
@@ -484,11 +559,14 @@ export function computeTopologyLayout(
     const members = membersByGroup.get(group.group_key) ?? [];
     const point = groupPositions.get(group.group_key);
     if (!point) continue;
-    const placed = placeServicesNearOwners(
-      placeAroundCenter(group.group_key, members, point, group.group_type),
-      members,
-      graph.edges,
-      group.group_key,
+    const placed = relaxGroupCollisions(
+      placeServicesNearOwners(
+        placeAroundCenter(group.group_key, members, point, group.group_type),
+        members,
+        graph.edges,
+        group.group_key,
+      ),
+      point,
     );
     layoutNodes.push(...placed);
     const maxDistance = placed.reduce((max, node) => {
@@ -496,11 +574,14 @@ export function computeTopologyLayout(
       const dy = node.y - point.y;
       return Math.max(max, Math.sqrt(dx * dx + dy * dy) + node.radius);
     }, 0);
+    const smallGroup = members.length < 5;
+    const padding = smallGroup ? 24 : HALO_PADDING;
+    const haloMin = smallGroup ? 72 : HALO_MIN_RADIUS;
     areas.push({
       group,
       x: point.x,
       y: point.y,
-      radius: Math.min(220, Math.max(groupAreaRadius(members.length), maxDistance + 16)),
+      radius: Math.max(haloMin, Math.min(HALO_MAX_RADIUS, maxDistance + padding)),
       ring: point.ring,
       degree: point.degree,
       isCentral: point.isCentral,

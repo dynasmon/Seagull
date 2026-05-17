@@ -4,6 +4,8 @@ import {
   computeLocationGroupLayout,
   computeTopologyLayout,
 } from "@/features/network_topology/lib/topologyLayoutEngine";
+import { graphToConnectionView } from "@/features/network_topology/lib/graphTransform";
+import type { DeviceNodeData } from "@/features/network_topology/lib/graphTransform";
 import type {
   TopologyEdge,
   TopologyGraph,
@@ -193,7 +195,26 @@ describe("topology layout engine", () => {
     const layout = computeTopologyLayout(graph(), groups, groupEdges);
     for (const area of layout.areas) {
       expect(area.radius).toBeGreaterThan(0);
-      expect(area.radius).toBeLessThanOrEqual(220);
+      expect(area.radius).toBeLessThanOrEqual(360);
+    }
+  });
+
+  it("halo radius is at least the minimum for groups with 5 or more nodes", () => {
+    const largeGroup = [
+      group({
+        group_key: "lg",
+        group_type: "subnet",
+        node_keys: ["subnet-a", "risk-a", "host-a", "public-a", "agent-b"],
+        node_count: 5,
+        cidr: "10.0.0.0/24",
+        alert_count: 1,
+        risk_score: 82,
+        highest_severity: "high",
+      }),
+    ];
+    const layout = computeTopologyLayout(graph(), largeGroup, []);
+    for (const area of layout.areas) {
+      expect(area.radius).toBeGreaterThanOrEqual(110);
     }
   });
 
@@ -215,5 +236,96 @@ describe("topology layout engine", () => {
     const singleRadius = singleLayout.areas[0]?.radius ?? 0;
     const denseRadius = denseLayout.areas[0]?.radius ?? 0;
     expect(denseRadius).toBeGreaterThanOrEqual(singleRadius);
+  });
+});
+
+describe("dense group spacing", () => {
+  const now = "2026-05-17T12:00:00.000Z";
+
+  function makeHostNode(key: string): import("@/features/network_topology/types").TopologyNode {
+    return node({ node_key: key, label: key, node_type: "host", first_seen_at: now, last_seen_at: now, updated_at: now });
+  }
+
+  it("non-anchor nodes in a dense group are not placed closer than 64px to each other", () => {
+    const anchor = node({ node_key: "subnet-dense", node_type: "subnet", label: "10.0.1.0/24", cidr: "10.0.1.0/24" });
+    const members = Array.from({ length: 12 }, (_, i) => makeHostNode(`h${i}`));
+    const denseGraph: import("@/features/network_topology/types").TopologyGraph = {
+      nodes: [anchor, ...members],
+      edges: [],
+      graph_health: { node_count: 13, edge_count: 0, nodes_truncated: false, edges_truncated: false, max_nodes_applied: 350, max_edges_applied: 650 },
+    };
+    const denseGroup = [group({
+      group_key: "dg",
+      group_type: "subnet",
+      node_keys: [anchor.node_key, ...members.map((n) => n.node_key)],
+      node_count: 13,
+      cidr: "10.0.1.0/24",
+    })];
+    const layout = computeTopologyLayout(denseGraph, denseGroup, []);
+    const placed = layout.nodes.filter((n) => n.group_key === "dg" && n.importance !== "anchor");
+    for (let i = 0; i < placed.length; i++) {
+      for (let j = i + 1; j < placed.length; j++) {
+        const dist = Math.hypot(placed[i].x - placed[j].x, placed[i].y - placed[j].y);
+        expect(dist).toBeGreaterThanOrEqual(64);
+      }
+    }
+  });
+
+  it("a larger dense group spreads nodes farther from center than a small group", () => {
+    function maxDistFromCenter(count: number): number {
+      const members = Array.from({ length: count }, (_, i) => makeHostNode(`n${i}`));
+      const g = group({ group_key: "g", node_keys: members.map((n) => n.node_key), node_count: count });
+      const gr: import("@/features/network_topology/types").TopologyGraph = {
+        nodes: members,
+        edges: [],
+        graph_health: { node_count: count, edge_count: 0, nodes_truncated: false, edges_truncated: false, max_nodes_applied: 350, max_edges_applied: 650 },
+      };
+      const layout = computeTopologyLayout(gr, [g], []);
+      const placed = layout.nodes.filter((n) => n.group_key === "g");
+      return Math.max(...placed.map((n) => Math.hypot(n.x - 840, n.y - 520)));
+    }
+    expect(maxDistFromCenter(14)).toBeGreaterThan(maxDistFromCenter(4));
+  });
+});
+
+describe("label policy in connection view", () => {
+  const selNone = { selectedKey: null as string | null, selectedKind: null as "node" | "edge" | "group" | null, highlightedKeys: new Set<string>() };
+
+  it("normal host node does not show label by default", () => {
+    const { nodes } = graphToConnectionView(graph(), selNone, undefined, undefined, groups, groupEdges);
+    const hostNode = nodes.find((n) => n.type === "device" && n.id === "host-a");
+    expect((hostNode?.data as unknown as DeviceNodeData).showLabel).toBe(false);
+  });
+
+  it("agent node in a small group shows label", () => {
+    const { nodes } = graphToConnectionView(graph(), selNone, undefined, undefined, groups, groupEdges);
+    const agentNode = nodes.find((n) => n.type === "device" && n.id === "agent-b");
+    expect((agentNode?.data as unknown as DeviceNodeData).showLabel).toBe(true);
+  });
+
+  it("selected node always shows label", () => {
+    const sel = { selectedKey: "host-a", selectedKind: "node" as const, highlightedKeys: new Set(["host-a"]) };
+    const { nodes } = graphToConnectionView(graph(), sel, undefined, undefined, groups, groupEdges);
+    const hostNode = nodes.find((n) => n.type === "device" && n.id === "host-a");
+    expect((hostNode?.data as unknown as DeviceNodeData).showLabel).toBe(true);
+  });
+
+  it("search match node shows label", () => {
+    const { nodes } = graphToConnectionView(
+      graph(),
+      selNone,
+      { matchedNodeKeys: new Set(["host-a"]), matchedGroupKeys: new Set(), activeMatchKey: "host-a" },
+      undefined,
+      groups,
+      groupEdges,
+    );
+    const hostNode = nodes.find((n) => n.type === "device" && n.id === "host-a");
+    expect((hostNode?.data as unknown as DeviceNodeData).showLabel).toBe(true);
+  });
+
+  it("high severity node with alerts shows label", () => {
+    const { nodes } = graphToConnectionView(graph(), selNone, undefined, undefined, groups, groupEdges);
+    const riskNode = nodes.find((n) => n.type === "device" && n.id === "risk-a");
+    expect((riskNode?.data as unknown as DeviceNodeData).showLabel).toBe(true);
   });
 });

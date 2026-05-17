@@ -5,7 +5,7 @@ import { groupTopologyGraph } from "./grouping";
 import { computeTopologyLayout, computeLocationGroupLayout } from "./topologyLayoutEngine";
 
 const DEVICE_NODE_W = 76;
-const DEVICE_NODE_H = 48;
+const DEVICE_NODE_H = 56;
 const GROUP_NODE_W = 148;
 const GROUP_NODE_H = 52;
 
@@ -106,9 +106,13 @@ function nodeNeedsLabel(
   node: TopologyNode,
   isSelected: boolean,
   isSearchMatch: boolean,
-  importance: "anchor" | "elevated" | "normal",
+  groupNodeCount: number,
 ): boolean {
-  return isSelected || isSearchMatch || importance !== "normal" || node.alert_count > 0;
+  if (isSelected || isSearchMatch) return true;
+  const sev = String(node.severity ?? "").toLowerCase();
+  if (node.alert_count > 0 && (sev === "critical" || sev === "high")) return true;
+  if (node.node_type === "agent" && groupNodeCount < 20) return true;
+  return false;
 }
 
 export function graphToConnectionView(
@@ -125,6 +129,12 @@ export function graphToConnectionView(
   const groups = inputGroups.length > 0 ? inputGroups : fallbackGrouping?.groups ?? [];
   const groupEdges = inputGroupEdges.length > 0 ? inputGroupEdges : fallbackGrouping?.edges ?? [];
   const layout = computeTopologyLayout(graph, groups, groupEdges);
+  const groupNodeCounts = new Map<string, number>();
+  for (const ln of layout.nodes) {
+    if (ln.group_key) {
+      groupNodeCounts.set(ln.group_key, (groupNodeCounts.get(ln.group_key) ?? 0) + 1);
+    }
+  }
   const hasSelection = selState.selectedKey !== null;
   const hasSearch = Boolean(searchState && searchState.matchedNodeKeys.size > 0);
   const hasFocus = Boolean(focusState && focusState.focusedNodeKeys.size > 0);
@@ -150,7 +160,7 @@ export function graphToConnectionView(
         isHighlighted,
         isDimmed,
         isSearchMatch,
-        showLabel: nodeNeedsLabel(ln, isSelected, isSearchMatch, ln.importance),
+        showLabel: nodeNeedsLabel(ln, isSelected, isSearchMatch, groupNodeCounts.get(ln.group_key ?? "") ?? 0),
         importance: ln.importance,
         groupKey: ln.group_key,
       },
