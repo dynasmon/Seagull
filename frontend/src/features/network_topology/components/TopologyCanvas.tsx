@@ -12,7 +12,7 @@ import {
   type NodeTypes,
   ReactFlow,
   ReactFlowProvider,
-  getBezierPath,
+  getStraightPath,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -41,7 +41,7 @@ import TopologyStatusStrip from "./TopologyStatusStrip";
 import TopologyTooltip, { type TooltipInfo } from "./TopologyTooltip";
 
 function TopologyFlowEdge(props: EdgeProps) {
-  const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data } = props;
+  const { id, sourceX, sourceY, targetX, targetY, data } = props;
   const isGroupEdge = data && "groupEdge" in data;
   const edgeObj = isGroupEdge
     ? (data as { groupEdge: TopologyGroupEdge }).groupEdge
@@ -56,7 +56,11 @@ function TopologyFlowEdge(props: EdgeProps) {
   const isSelected = Boolean((data as Record<string, unknown>)?.isSelected);
   const isDimmed = Boolean((data as Record<string, unknown>)?.isDimmed);
 
-  const [edgePath] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const cx0 = sourceX - 38;
+  const cy0 = sourceY;
+  const cx1 = targetX + 38;
+  const cy1 = targetY;
+  const [edgePath] = getStraightPath({ sourceX: cx0, sourceY: cy0, targetX: cx1, targetY: cy1 });
 
   const opacity = isDimmed ? 0.1 : isSelected ? 1 : visual.opacity;
   const groupEventCount = isGroupEdge ? Number((edgeObj as TopologyGroupEdge).event_count || 0) : 0;
@@ -175,7 +179,7 @@ function FlowInner({
   useEffect(() => {
     if (graphKey !== prevKeyRef.current) {
       prevKeyRef.current = graphKey;
-      void requestAnimationFrame(() => fitView({ padding: 0.14, duration: 450 }));
+      void requestAnimationFrame(() => fitView({ padding: 0.22, maxZoom: 1.05, duration: 450 }));
     }
   }, [graphKey, fitView]);
 
@@ -190,7 +194,7 @@ function FlowInner({
   useEffect(() => {
     if (activeMatchKey) {
       void requestAnimationFrame(() =>
-        fitView({ nodes: [{ id: activeMatchKey }], padding: 0.35, duration: 350 }),
+        fitView({ nodes: [{ id: activeMatchKey }], padding: 0.45, maxZoom: 1.2, duration: 350 }),
       );
     }
   }, [activeMatchKey, fitView]);
@@ -300,7 +304,7 @@ function FlowInner({
       onEdgeMouseEnter={handleEdgeMouseEnter}
       onEdgeMouseLeave={handleEdgeMouseLeave}
       fitView
-      fitViewOptions={{ padding: 0.14 }}
+      fitViewOptions={{ padding: 0.22, maxZoom: 1.05 }}
       minZoom={0.07}
       maxZoom={3.5}
       nodesDraggable={false}
