@@ -155,7 +155,7 @@ function TopologyStatusStrip({
       {isTruncated && (
         <>
           <Dot />
-          <span className="text-[10px]" style={{ color: "#FBBF24" }}>⚡ truncated</span>
+          <span className="text-[10px]" style={{ color: "#FBBF24" }}>truncated</span>
         </>
       )}
 
