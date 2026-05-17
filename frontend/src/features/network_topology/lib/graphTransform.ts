@@ -1,18 +1,23 @@
 import type { Edge, Node } from "@xyflow/react";
 
 import type { TopologyEdge, TopologyGraph, TopologyGroup, TopologyGroupEdge, TopologyNode } from "../types";
-import { computeTopologyLayout } from "./layout";
+import { groupTopologyGraph } from "./grouping";
+import { computeTopologyLayout, computeLocationGroupLayout } from "./topologyLayoutEngine";
 
-const DEVICE_NODE_W = 80;
-const DEVICE_NODE_H = 60;
-const GROUP_NODE_W = 168;
-const GROUP_NODE_H = 88;
+const DEVICE_NODE_W = 76;
+const DEVICE_NODE_H = 48;
+const GROUP_NODE_W = 148;
+const GROUP_NODE_H = 52;
 
 export type DeviceNodeData = Record<string, unknown> & {
   node: TopologyNode;
   isSelected: boolean;
   isHighlighted: boolean;
   isDimmed: boolean;
+  isSearchMatch: boolean;
+  showLabel: boolean;
+  importance: "anchor" | "elevated" | "normal";
+  groupKey: string | null;
 };
 
 export type GroupNodeData = Record<string, unknown> & {
@@ -30,6 +35,13 @@ export type TopologyEdgeData = Record<string, unknown> & {
 
 export type TopologyGroupEdgeData = Record<string, unknown> & {
   groupEdge: TopologyGroupEdge;
+  isSelected: boolean;
+  isDimmed: boolean;
+};
+
+export type ClusterHaloNodeData = Record<string, unknown> & {
+  group: TopologyGroup;
+  radius: number;
   isSelected: boolean;
   isDimmed: boolean;
 };
@@ -55,6 +67,7 @@ export function computeHighlightedKeys(
   groups: TopologyGroup[],
   selectedKey: string | null,
   selectedKind: "node" | "edge" | "group" | null,
+  groupEdges: TopologyGroupEdge[] = [],
 ): Set<string> {
   if (!selectedKey || !selectedKind) return new Set();
   const keys = new Set<string>([selectedKey]);
@@ -75,8 +88,27 @@ export function computeHighlightedKeys(
     if (group) {
       for (const nk of group.node_keys) keys.add(nk);
     }
+    for (const edge of groupEdges) {
+      if (edge.source_group_key === selectedKey) {
+        keys.add(edge.edge_key);
+        keys.add(edge.target_group_key);
+      }
+      if (edge.target_group_key === selectedKey) {
+        keys.add(edge.edge_key);
+        keys.add(edge.source_group_key);
+      }
+    }
   }
   return keys;
+}
+
+function nodeNeedsLabel(
+  node: TopologyNode,
+  isSelected: boolean,
+  isSearchMatch: boolean,
+  importance: "anchor" | "elevated" | "normal",
+): boolean {
+  return isSelected || isSearchMatch || importance !== "normal" || node.alert_count > 0;
 }
 
 export function graphToConnectionView(
@@ -84,21 +116,27 @@ export function graphToConnectionView(
   selState: SelectionState,
   searchState?: TopologySearchState,
   focusState?: TopologyFocusState,
-): { nodes: Node<DeviceNodeData>[]; edges: Edge<TopologyEdgeData>[] } {
+  inputGroups: TopologyGroup[] = [],
+  inputGroupEdges: TopologyGroupEdge[] = [],
+): { nodes: Node<DeviceNodeData | ClusterHaloNodeData>[]; edges: Edge<TopologyEdgeData>[] } {
   if (!graph) return { nodes: [], edges: [] };
 
-  const layout = computeTopologyLayout(graph);
+  const fallbackGrouping = inputGroups.length === 0 ? groupTopologyGraph(graph) : null;
+  const groups = inputGroups.length > 0 ? inputGroups : fallbackGrouping?.groups ?? [];
+  const groupEdges = inputGroupEdges.length > 0 ? inputGroupEdges : fallbackGrouping?.edges ?? [];
+  const layout = computeTopologyLayout(graph, groups, groupEdges);
   const hasSelection = selState.selectedKey !== null;
   const hasSearch = Boolean(searchState && searchState.matchedNodeKeys.size > 0);
   const hasFocus = Boolean(focusState && focusState.focusedNodeKeys.size > 0);
 
-  const nodes: Node<DeviceNodeData>[] = layout.nodes.map((ln) => {
+  const deviceNodes: Node<DeviceNodeData>[] = layout.nodes.map((ln) => {
     const isSelected = selState.selectedKind === "node" && selState.selectedKey === ln.node_key;
+    const isSearchMatch = Boolean(searchState?.matchedNodeKeys.has(ln.node_key));
     const isHighlighted = hasSearch
-      ? searchState!.matchedNodeKeys.has(ln.node_key)
+      ? isSearchMatch
       : selState.highlightedKeys.has(ln.node_key);
     const isDimmed = hasSearch
-      ? !searchState!.matchedNodeKeys.has(ln.node_key) && !isSelected
+      ? !isSearchMatch && !isSelected
       : hasFocus
         ? !focusState!.focusedNodeKeys.has(ln.node_key) && !isSelected
         : hasSelection && !isSelected && !isHighlighted;
@@ -106,11 +144,46 @@ export function graphToConnectionView(
       id: ln.node_key,
       type: "device",
       position: { x: ln.x - DEVICE_NODE_W / 2, y: ln.y - DEVICE_NODE_H / 2 },
-      data: { node: ln, isSelected, isHighlighted, isDimmed },
+      data: {
+        node: ln,
+        isSelected,
+        isHighlighted,
+        isDimmed,
+        isSearchMatch,
+        showLabel: nodeNeedsLabel(ln, isSelected, isSearchMatch, ln.importance),
+        importance: ln.importance,
+        groupKey: ln.group_key,
+      },
       selectable: true,
       draggable: false,
       width: DEVICE_NODE_W,
       height: DEVICE_NODE_H,
+      style: { transition: "transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease" },
+      zIndex: ln.importance === "anchor" ? 4 : ln.importance === "elevated" ? 3 : 2,
+    };
+  });
+
+  const haloNodes = layout.areas.map<Node<ClusterHaloNodeData>>((area) => {
+    const isSelected = selState.selectedKind === "group" && selState.selectedKey === area.group.group_key;
+    const isHighlighted = selState.highlightedKeys.has(area.group.group_key);
+    const hasGroupSearchMatch = area.group.node_keys.some((key) => searchState?.matchedNodeKeys.has(key));
+    const isDimmed = hasSearch
+      ? !hasGroupSearchMatch
+      : hasFocus
+        ? !area.group.node_keys.some((key) => focusState!.focusedNodeKeys.has(key))
+        : hasSelection && !isSelected && !isHighlighted;
+    return {
+      id: `halo:${area.group.group_key}`,
+      type: "clusterHalo",
+      position: { x: area.x - area.radius, y: area.y - area.radius },
+      data: { group: area.group, radius: area.radius, isSelected, isDimmed },
+      width: area.radius * 2,
+      height: area.radius * 2,
+      draggable: false,
+      selectable: false,
+      focusable: false,
+      zIndex: 0,
+      style: { transition: "transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease" },
     };
   });
 
@@ -139,44 +212,11 @@ export function graphToConnectionView(
       target: edge.target_node_key,
       type: "topology",
       data: { edge, isSelected, isDimmed },
+      zIndex: isSelected ? 5 : 1,
     });
   }
 
-  return { nodes, edges };
-}
-
-function computeGroupLayout(groups: TopologyGroup[]): Map<string, { x: number; y: number }> {
-  const positions = new Map<string, { x: number; y: number }>();
-  if (groups.length === 0) return positions;
-
-  const sorted = [...groups].sort((a, b) => {
-    const alertDelta = b.alert_count - a.alert_count;
-    if (alertDelta !== 0) return alertDelta;
-    return b.node_count - a.node_count;
-  });
-
-  if (sorted.length === 1) {
-    positions.set(sorted[0].group_key, { x: 600 - GROUP_NODE_W / 2, y: 380 - GROUP_NODE_H / 2 });
-    return positions;
-  }
-
-  const CX = 600;
-  const CY = 370;
-  const R = Math.min(280, 100 + sorted.length * 30);
-
-  sorted.forEach((g, idx) => {
-    if (idx === 0) {
-      positions.set(g.group_key, { x: CX - GROUP_NODE_W / 2, y: CY - R * 0.2 - GROUP_NODE_H / 2 });
-    } else {
-      const angle = ((idx - 1) / (sorted.length - 1)) * 2 * Math.PI - Math.PI / 2;
-      positions.set(g.group_key, {
-        x: Math.round(CX + R * Math.cos(angle)) - GROUP_NODE_W / 2,
-        y: Math.round(CY + R * Math.sin(angle) * 0.75) - GROUP_NODE_H / 2,
-      });
-    }
-  });
-
-  return positions;
+  return { nodes: [...haloNodes, ...deviceNodes], edges };
 }
 
 export function graphToLocationView(
@@ -185,12 +225,18 @@ export function graphToLocationView(
   selState: SelectionState,
   searchState?: TopologySearchState,
 ): { nodes: Node<GroupNodeData>[]; edges: Edge<TopologyGroupEdgeData>[] } {
-  const positions = computeGroupLayout(groups);
+  const positions = computeLocationGroupLayout(groups, groupEdges);
   const hasSelection = selState.selectedKey !== null;
   const hasSearch = Boolean(searchState && searchState.matchedGroupKeys.size > 0);
 
   const nodes: Node<GroupNodeData>[] = groups.map((group) => {
-    const pos = positions.get(group.group_key) ?? { x: 0, y: 0 };
+    const point = positions.get(group.group_key) ?? {
+      x: 0,
+      y: 0,
+      ring: 0,
+      degree: 0,
+      isCentral: false,
+    };
     const isSelected = selState.selectedKind === "group" && selState.selectedKey === group.group_key;
     const isHighlighted = hasSearch
       ? searchState!.matchedGroupKeys.has(group.group_key)
@@ -201,12 +247,14 @@ export function graphToLocationView(
     return {
       id: group.group_key,
       type: "group",
-      position: pos,
+      position: { x: point.x - GROUP_NODE_W / 2, y: point.y - GROUP_NODE_H / 2 },
       data: { group, isSelected, isHighlighted, isDimmed },
       selectable: true,
       draggable: false,
       width: GROUP_NODE_W,
       height: GROUP_NODE_H,
+      style: { transition: "transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease" },
+      zIndex: isSelected ? 4 : point.isCentral ? 3 : 2,
     };
   });
 
@@ -218,13 +266,20 @@ export function graphToLocationView(
       const isConnected =
         selState.highlightedKeys.has(ge.source_group_key) ||
         selState.highlightedKeys.has(ge.target_group_key);
-      const isDimmed = hasSelection && !isSelected && !isConnected;
+      const edgeEndpointMatched = hasSearch
+        ? searchState!.matchedGroupKeys.has(ge.source_group_key) ||
+          searchState!.matchedGroupKeys.has(ge.target_group_key)
+        : false;
+      const isDimmed = hasSearch
+        ? !edgeEndpointMatched && !isSelected
+        : hasSelection && !isSelected && !isConnected;
       return {
         id: ge.edge_key,
         source: ge.source_group_key,
         target: ge.target_group_key,
         type: "group",
         data: { groupEdge: ge, isSelected, isDimmed },
+        zIndex: isSelected ? 3 : 1,
       };
     });
 
