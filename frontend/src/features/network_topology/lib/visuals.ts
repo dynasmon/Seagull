@@ -49,19 +49,19 @@ export function edgeVisual(edge: Pick<TopologyEdge, "edge_type" | "confidence">)
   const lowConf = Number(edge.confidence || 0) < 50;
   switch (edge.edge_type) {
     case "alert_related":
-      return { stroke: "#F87171", dashArray: undefined, width: 1.8, opacity: 0.85 };
+      return { stroke: "#F87171", dashArray: undefined, width: 1.7, opacity: 0.88 };
     case "exposure_related":
-      return { stroke: "#F87171", dashArray: "5 3", width: 1.5, opacity: 0.75 };
+      return { stroke: "#FB7185", dashArray: "5 3", width: 1.45, opacity: 0.76 };
     case "observed_flow":
-      return { stroke: "#60A5FA", dashArray: lowConf ? "5 4" : undefined, width: 1.8, opacity: 0.7 };
+      return { stroke: "#60A5FA", dashArray: lowConf ? "5 4" : undefined, width: 1.25, opacity: 0.4 };
     case "listens_on":
-      return { stroke: "#FBBF24", dashArray: lowConf ? "5 4" : undefined, width: 1.2, opacity: 0.65 };
+      return { stroke: "#FBBF24", dashArray: lowConf ? "5 4" : undefined, width: 1.1, opacity: 0.46 };
     case "resolved_dns":
-      return { stroke: "#C084FC", dashArray: "6 4", width: 1.2, opacity: 0.6 };
+      return { stroke: "#C084FC", dashArray: "6 4", width: 1.05, opacity: 0.42 };
     case "member_of_subnet":
-      return { stroke: "#FBBF24", dashArray: "3 3", width: 1.0, opacity: 0.5 };
+      return { stroke: "#FBBF24", dashArray: "3 3", width: 0.95, opacity: 0.38 };
     default:
-      return { stroke: "#4B5563", dashArray: "3 3", width: 1.0, opacity: 0.45 };
+      return { stroke: "#64748B", dashArray: lowConf ? "4 4" : undefined, width: 0.9, opacity: 0.3 };
   }
 }
 

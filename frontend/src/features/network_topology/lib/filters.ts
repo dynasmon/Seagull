@@ -11,9 +11,11 @@ import type {
   TopologyTimeWindowMinutes,
   TopologyViewMode,
 } from "../types";
+import { groupTopologyGraph } from "./grouping";
 
 export const DEFAULT_TOPOLOGY_FILTERS: TopologyFilters = {
   agent_id: "",
+  group_key: "",
   window_minutes: 1440,
   node_types: [],
   edge_types: [],
@@ -131,6 +133,7 @@ export function parseTopologyFilters(sp: URLSearchParams): TopologyFilters {
 
   return {
     agent_id: clean(sp.get("agent")),
+    group_key: clean(sp.get("group")),
     window_minutes: parseWindow(sp.get("window")),
     node_types: [...new Set(nodeTypes)],
     edge_types: [...new Set(edgeTypes)],
@@ -148,6 +151,7 @@ export function parseTopologyFilters(sp: URLSearchParams): TopologyFilters {
 export function serializeTopologyFilters(filters: TopologyFilters): URLSearchParams {
   const sp = new URLSearchParams();
   if (filters.agent_id) sp.set("agent", filters.agent_id);
+  if (filters.group_key) sp.set("group", filters.group_key);
   if (filters.window_minutes !== DEFAULT_TOPOLOGY_FILTERS.window_minutes) {
     sp.set("window", String(filters.window_minutes));
   }
@@ -178,6 +182,7 @@ export function hasActiveTopologyFilters(filters: TopologyFilters): boolean {
 export function activeFilterCount(filters: TopologyFilters): number {
   let count = 0;
   if (filters.agent_id) count++;
+  if (filters.group_key) count++;
   if (filters.window_minutes !== DEFAULT_TOPOLOGY_FILTERS.window_minutes) count++;
   count += filters.node_types.length;
   count += filters.edge_types.length;
@@ -277,17 +282,36 @@ export function filterTopologyGraph(graph: TopologyGraph | null, filters: Topolo
   const needle = filters.q.trim().toLowerCase();
   const hasAlerts = filters.has_alerts;
   const hasExposure = filters.has_exposure;
+  const groupKey = filters.group_key.trim();
 
-  if (!severities.length && !needle && !hasAlerts && !hasExposure) return graph;
+  if (!severities.length && !needle && !hasAlerts && !hasExposure && !groupKey) return graph;
 
   const nodeByKey = new Map(graph.nodes.map((node) => [node.node_key, node]));
+  const resolvedGroups = graph.groups
+    ? graph.groups.map((group) => ({
+        group_key: group.group_key,
+        node_keys: group.child_node_keys,
+        agent_id: (group.metadata?.agent_id as string | null) ?? null,
+        cidr: (group.metadata?.cidr as string | null) ?? null,
+      }))
+    : groupTopologyGraph(graph).groups.map((group) => ({
+        group_key: group.group_key,
+        node_keys: group.node_keys,
+        agent_id: group.agent_id,
+        cidr: group.cidr,
+      }));
+  const selectedGroup = groupKey ? resolvedGroups.find((group) => group.group_key === groupKey) ?? null : null;
+  const selectedGroupNodeKeys = new Set(selectedGroup?.node_keys ?? []);
   const visibleNodeKeys = new Set<string>();
 
   for (const node of graph.nodes) {
     const severityOk = !severities.length || severities.includes(String(node.severity || "").toLowerCase());
     const alertsOk = !hasAlerts || node.alert_count > 0;
     const exposureOk = !hasExposure || Boolean(node.metadata?.has_exposure_findings || node.metadata?.exposure_asset_key);
-    if (severityOk && alertsOk && exposureOk && nodeMatchesSearch(node, needle)) {
+    const groupOk = !selectedGroup || selectedGroupNodeKeys.has(node.node_key) ||
+      Boolean(selectedGroup.agent_id && node.agent_id === selectedGroup.agent_id) ||
+      Boolean(selectedGroup.cidr && node.cidr === selectedGroup.cidr);
+    if (severityOk && alertsOk && exposureOk && groupOk && nodeMatchesSearch(node, needle)) {
       visibleNodeKeys.add(node.node_key);
     }
   }
@@ -295,7 +319,9 @@ export function filterTopologyGraph(graph: TopologyGraph | null, filters: Topolo
   const edges = graph.edges.filter((edge) => {
     const severityOk = !severities.length || severities.includes(String(edge.severity || "").toLowerCase());
     const searchOk = edgeMatchesSearch(edge, nodeByKey, needle);
-    const endpointOk = visibleNodeKeys.has(edge.source_node_key) || visibleNodeKeys.has(edge.target_node_key);
+    const endpointOk = selectedGroup
+      ? visibleNodeKeys.has(edge.source_node_key) && visibleNodeKeys.has(edge.target_node_key)
+      : visibleNodeKeys.has(edge.source_node_key) || visibleNodeKeys.has(edge.target_node_key);
     if (severityOk && searchOk && endpointOk) {
       visibleNodeKeys.add(edge.source_node_key);
       visibleNodeKeys.add(edge.target_node_key);
@@ -303,11 +329,29 @@ export function filterTopologyGraph(graph: TopologyGraph | null, filters: Topolo
     }
     return false;
   });
+  const filteredNodes = graph.nodes.filter((node) => visibleNodeKeys.has(node.node_key));
+  const visibleGroupKeys = new Set<string>();
+  if (graph.groups) {
+    for (const group of graph.groups) {
+      const groupAgentId = (group.metadata?.agent_id as string | null) ?? null;
+      const groupCidr = (group.metadata?.cidr as string | null) ?? null;
+      const visible = filteredNodes.some((node) =>
+        group.child_node_keys.includes(node.node_key) ||
+        Boolean(groupAgentId && node.agent_id === groupAgentId) ||
+        Boolean(groupCidr && node.cidr === groupCidr),
+      );
+      if (visible) visibleGroupKeys.add(group.group_key);
+    }
+  }
 
   return {
     ...graph,
-    nodes: graph.nodes.filter((node) => visibleNodeKeys.has(node.node_key)),
+    nodes: filteredNodes,
     edges,
+    groups: graph.groups?.filter((group) => visibleGroupKeys.has(group.group_key)),
+    group_edges: graph.group_edges?.filter(
+      (edge) => visibleGroupKeys.has(edge.source_group_key) && visibleGroupKeys.has(edge.target_group_key),
+    ),
     graph_health: {
       ...graph.graph_health,
       node_count: visibleNodeKeys.size,

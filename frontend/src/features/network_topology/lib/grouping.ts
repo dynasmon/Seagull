@@ -2,7 +2,9 @@ import type {
   TopologyEdgeType,
   TopologyGraph,
   TopologyGroup,
+  TopologyGroupBackend,
   TopologyGroupEdge,
+  TopologyGroupEdgeBackend,
   TopologyNode,
   TopologySeverity,
 } from "../types";
@@ -147,4 +149,50 @@ export function groupTopologyGraph(
   }
 
   return { groups, edges: [...groupEdgeMap.values()] };
+}
+
+function backendGroupToGroup(group: TopologyGroupBackend): TopologyGroup {
+  return {
+    group_key: group.group_key,
+    group_type: group.group_type as TopologyGroup["group_type"],
+    label: group.label,
+    node_keys: group.child_node_keys,
+    node_count: group.node_count,
+    alert_count: group.alert_count,
+    highest_severity: group.highest_severity,
+    risk_score: group.risk_score,
+    is_stale: group.is_stale,
+    agent_id: (group.metadata?.agent_id as string | null) ?? null,
+    cidr: (group.metadata?.cidr as string | null) ?? null,
+    gateway_candidate_count: typeof group.metadata?.gateway_candidate_count === "number"
+      ? group.metadata.gateway_candidate_count
+      : null,
+  };
+}
+
+function backendGroupEdgeToGroupEdge(edge: TopologyGroupEdgeBackend): TopologyGroupEdge {
+  return {
+    edge_key: edge.edge_key,
+    source_group_key: edge.source_group_key,
+    target_group_key: edge.target_group_key,
+    edge_types: [edge.edge_type as TopologyEdgeType],
+    weight: edge.weight,
+    event_count: edge.edge_count,
+    alert_count: edge.alert_count,
+    severity: edge.highest_severity,
+  };
+}
+
+export function resolveTopologyGroups(
+  graph: TopologyGraph | null,
+  agentLabelById: Map<string, string> = new Map(),
+): { groups: TopologyGroup[]; edges: TopologyGroupEdge[] } {
+  if (!graph) return { groups: [], edges: [] };
+  if (graph.groups) {
+    return {
+      groups: graph.groups.map(backendGroupToGroup),
+      edges: (graph.group_edges ?? []).map(backendGroupEdgeToGroupEdge),
+    };
+  }
+  return groupTopologyGraph(graph, agentLabelById);
 }
