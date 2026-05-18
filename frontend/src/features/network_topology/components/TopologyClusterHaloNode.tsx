@@ -28,7 +28,7 @@ function TopologyClusterHaloNode({ data: rawData }: NodeProps) {
       }}
     >
       <div
-        className="absolute left-1/2 top-3 -translate-x-1/2 max-w-[144px] truncate rounded-full border px-2 py-0.5 text-[10px]"
+        className="absolute left-1/2 top-4 -translate-x-1/2 max-w-[144px] truncate rounded-full border px-2 py-0.5 text-[10px]"
         style={{
           color: risky ? accent : "rgba(148,163,184,0.65)",
           background: "rgba(7,14,25,0.78)",
