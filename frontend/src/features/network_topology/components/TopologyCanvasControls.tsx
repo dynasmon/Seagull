@@ -11,6 +11,7 @@ type Props = {
   showMinimap: boolean;
   isFullscreen: boolean;
   isRefreshing: boolean;
+  hasCustomPositions: boolean;
   focusedGroupLabel?: string | null;
   searchQuery: string;
   searchMatchIndex: number;
@@ -20,6 +21,7 @@ type Props = {
   onToggleMinimap: () => void;
   onToggleFullscreen: () => void;
   onRefresh: () => void;
+  onResetLayout: () => void;
   onClearFocus?: () => void;
   onSearchChange: (query: string) => void;
   onPrevMatch: () => void;
@@ -63,6 +65,7 @@ function TopologyCanvasControls({
   showMinimap,
   isFullscreen,
   isRefreshing,
+  hasCustomPositions,
   focusedGroupLabel,
   searchQuery,
   searchMatchIndex,
@@ -72,6 +75,7 @@ function TopologyCanvasControls({
   onToggleMinimap,
   onToggleFullscreen,
   onRefresh,
+  onResetLayout,
   onClearFocus,
   onSearchChange,
   onPrevMatch,
@@ -174,6 +178,14 @@ function TopologyCanvasControls({
           <IconButton onClick={onRefresh} title="Refresh" disabled={isRefreshing}>
             ↻
           </IconButton>
+          {hasCustomPositions && (
+            <>
+              <div className="mx-0.5 h-6 w-px bg-white/10" />
+              <IconButton onClick={onResetLayout} title="Reset layout to auto-arranged positions">
+                ⟳
+              </IconButton>
+            </>
+          )}
         </div>
 
         {focusedGroupLabel && (

@@ -1,6 +1,7 @@
 import "@xyflow/react/dist/style.css";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { OnNodeDrag } from "@xyflow/react";
 import {
   Background,
   BackgroundVariant,
@@ -10,9 +11,10 @@ import {
   MiniMap,
   type Node,
   type NodeTypes,
+  Position,
   ReactFlow,
   ReactFlowProvider,
-  getStraightPath,
+  getBezierPath,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -21,8 +23,10 @@ import {
 import EmptyState from "@/shared/components/EmptyState";
 import { cx } from "@/shared/lib/cx";
 
-import type { DeviceNodeData, GroupNodeData, TopologyEdgeData } from "../lib/graphTransform";
+import type { ClusterHaloNodeData, DeviceNodeData, GroupNodeData, TopologyEdgeData } from "../lib/graphTransform";
+import { stableTopologyHash } from "../lib/topologyLayoutEngine";
 import { edgeVisual } from "../lib/visuals";
+import { useTopologyPositions } from "../hooks/useTopologyPositions";
 import type {
   TopologyEdge,
   TopologyFilters,
@@ -40,6 +44,21 @@ import TopologyLegend from "./TopologyLegend";
 import TopologyStatusStrip from "./TopologyStatusStrip";
 import TopologyTooltip, { type TooltipInfo } from "./TopologyTooltip";
 
+function edgeHandlePositions(
+  sx: number, sy: number, tx: number, ty: number,
+): { sp: Position; tp: Position } {
+  const dx = tx - sx;
+  const dy = ty - sy;
+  if (Math.abs(dx) >= Math.abs(dy) * 0.7) {
+    return dx >= 0
+      ? { sp: Position.Right, tp: Position.Left }
+      : { sp: Position.Left, tp: Position.Right };
+  }
+  return dy >= 0
+    ? { sp: Position.Bottom, tp: Position.Top }
+    : { sp: Position.Top, tp: Position.Bottom };
+}
+
 function TopologyFlowEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, data } = props;
   const isGroupEdge = data && "groupEdge" in data;
@@ -56,28 +75,50 @@ function TopologyFlowEdge(props: EdgeProps) {
   const isSelected = Boolean((data as Record<string, unknown>)?.isSelected);
   const isDimmed = Boolean((data as Record<string, unknown>)?.isDimmed);
 
-  const cx0 = sourceX - 38;
-  const cy0 = sourceY;
-  const cx1 = targetX + 38;
-  const cy1 = targetY;
-  const [edgePath] = getStraightPath({ sourceX: cx0, sourceY: cy0, targetX: cx1, targetY: cy1 });
-
-  const opacity = isDimmed ? 0.1 : isSelected ? 1 : visual.opacity;
   const groupEventCount = isGroupEdge ? Number((edgeObj as TopologyGroupEdge).event_count || 0) : 0;
   const groupAlertCount = isGroupEdge ? Number((edgeObj as TopologyGroupEdge).alert_count || 0) : 0;
   const groupBoost = isGroupEdge ? Math.min(1.4, Math.log1p(groupEventCount) / 3) : 0;
+
+  const parallelShift = isGroupEdge ? ((stableTopologyHash(id) % 5) - 2) * 11 : 0;
+  const edgeData = data as unknown as TopologyEdgeData;
+  const sourceRadius = isGroupEdge ? 0 : (edgeData.sourceRadius ?? 11);
+  const targetRadius = isGroupEdge ? 0 : (edgeData.targetRadius ?? 11);
+
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  const nx = dx / dist;
+  const ny = dy / dist;
+
+  const adjSX = sourceX + nx * sourceRadius;
+  const adjSY = sourceY + ny * sourceRadius + parallelShift;
+  const adjTX = targetX - nx * targetRadius;
+  const adjTY = targetY - ny * targetRadius + parallelShift;
+
+  const { sp, tp } = edgeHandlePositions(adjSX, adjSY, adjTX, adjTY);
+  const curvature = isGroupEdge ? 0.28 : 0.42;
+  const [edgePath] = getBezierPath({
+    sourceX: adjSX,
+    sourceY: adjSY,
+    sourcePosition: sp,
+    targetX: adjTX,
+    targetY: adjTY,
+    targetPosition: tp,
+    curvature,
+  });
+
   const strokeWidth = isSelected
-    ? visual.width + 1
+    ? visual.width + 1.5
     : isGroupEdge
       ? visual.width + groupBoost
       : visual.width;
   const resolvedOpacity = isDimmed
-    ? isGroupEdge ? 0.06 : 0.08
+    ? (isGroupEdge ? 0.05 : 0.07)
     : isSelected
       ? 1
       : isGroupEdge
-        ? Math.min(0.58, 0.16 + groupBoost * 0.24 + (groupAlertCount > 0 ? 0.08 : 0))
-        : opacity;
+        ? Math.min(0.62, 0.18 + groupBoost * 0.26 + (groupAlertCount > 0 ? 0.10 : 0))
+        : visual.opacity;
 
   return (
     <BaseEdge
@@ -112,6 +153,7 @@ type FlowInnerProps = {
   filterRailOpen: boolean;
   activeMatchKey: string | null;
   showMinimap: boolean;
+  hasCustomPositions: boolean;
   onToggleMinimap: () => void;
   focusedGroupLabel?: string | null;
   searchQuery: string;
@@ -123,6 +165,7 @@ type FlowInnerProps = {
   onToggleFilterRail: () => void;
   onToggleFullscreen: () => void;
   onRefresh: () => void;
+  onResetLayout: () => void;
   onSearchChange: (query: string) => void;
   onNodeClick: (id: string, kind: "node" | "group") => void;
   onGroupDoubleClick: (id: string) => void;
@@ -131,6 +174,7 @@ type FlowInnerProps = {
   onClearFocus?: () => void;
   onPrevMatch: () => void;
   onNextMatch: () => void;
+  onPositionSave: (nodeId: string, x: number, y: number) => void;
   onTooltipChange: (info: TooltipInfo | null) => void;
 };
 
@@ -141,6 +185,7 @@ function FlowInner({
   filterRailOpen,
   activeMatchKey,
   showMinimap,
+  hasCustomPositions,
   onToggleMinimap,
   focusedGroupLabel,
   searchQuery,
@@ -152,6 +197,7 @@ function FlowInner({
   onToggleFilterRail,
   onToggleFullscreen,
   onRefresh,
+  onResetLayout,
   onSearchChange,
   onNodeClick,
   onGroupDoubleClick,
@@ -160,12 +206,15 @@ function FlowInner({
   onClearFocus,
   onPrevMatch,
   onNextMatch,
+  onPositionSave,
   onTooltipChange,
 }: FlowInnerProps) {
   const { fitView } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const prevKeyRef = useRef<string>("");
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
 
   const graphKey = useMemo(
     () =>
@@ -198,6 +247,35 @@ function FlowInner({
       );
     }
   }, [activeMatchKey, fitView]);
+
+  const handleNodeDragStop: OnNodeDrag = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      if (node.draggable === false) return;
+      onPositionSave(node.id, node.position.x, node.position.y);
+
+      const nodeData = node.data as unknown as DeviceNodeData;
+      if (nodeData.importance !== "anchor" || !nodeData.groupKey) return;
+
+      const haloId = `halo:${nodeData.groupKey}`;
+      const haloNode = nodesRef.current.find((n) => n.id === haloId);
+      if (!haloNode) return;
+
+      const radius = (haloNode.data as unknown as ClusterHaloNodeData).radius;
+      const haloX = node.position.x + 40 - radius;
+      const haloY = node.position.y + 40 - radius;
+      onPositionSave(haloId, haloX, haloY);
+      setNodes((nds) =>
+        nds.map((n) => (n.id === haloId ? { ...n, position: { x: haloX, y: haloY } } : n)),
+      );
+    },
+    [onPositionSave, setNodes],
+  );
+
+  const handleResetLayout = useCallback(() => {
+    onResetLayout();
+    setNodes(initialNodes);
+    void requestAnimationFrame(() => fitView({ padding: 0.22, maxZoom: 1.05, duration: 450 }));
+  }, [onResetLayout, setNodes, initialNodes, fitView]);
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
@@ -297,6 +375,7 @@ function FlowInner({
       onEdgesChange={onEdgesChange}
       onNodeClick={handleNodeClick}
       onNodeDoubleClick={handleNodeDoubleClick}
+      onNodeDragStop={handleNodeDragStop}
       onEdgeClick={handleEdgeClick}
       onPaneClick={onPaneClick}
       onNodeMouseEnter={handleNodeMouseEnter}
@@ -307,15 +386,15 @@ function FlowInner({
       fitViewOptions={{ padding: 0.22, maxZoom: 1.05 }}
       minZoom={0.07}
       maxZoom={3.5}
-      nodesDraggable={false}
+      nodesDraggable={true}
       nodesConnectable={false}
       proOptions={{ hideAttribution: true }}
     >
       <Background
-        variant={BackgroundVariant.Lines}
-        gap={48}
+        variant={BackgroundVariant.Dots}
+        gap={30}
         size={1}
-        color="rgba(96,165,250,0.09)"
+        color="rgba(96,165,250,0.05)"
         style={{ background: "transparent" }}
       />
 
@@ -325,11 +404,13 @@ function FlowInner({
         showMinimap={showMinimap}
         isFullscreen={isFullscreen}
         isRefreshing={isRefreshing}
+        hasCustomPositions={hasCustomPositions}
         onViewModeChange={onViewModeChange}
         onToggleFilterRail={onToggleFilterRail}
         onToggleMinimap={onToggleMinimap}
         onToggleFullscreen={onToggleFullscreen}
         onRefresh={onRefresh}
+        onResetLayout={handleResetLayout}
         focusedGroupLabel={focusedGroupLabel}
         onClearFocus={onClearFocus}
         searchQuery={searchQuery}
@@ -427,6 +508,15 @@ function TopologyCanvas({
 }: Props) {
   const [showMinimap, setShowMinimap] = useState(false);
   const [tooltipInfo, setTooltipInfo] = useState<TooltipInfo>(null);
+  const { positions: storedPositions, setPosition, resetPositions, hasCustomPositions } = useTopologyPositions(viewMode);
+
+  const mergedNodes = useMemo(
+    () => nodes.map((node) => {
+      const pos = storedPositions[node.id];
+      return pos ? { ...node, position: pos } : node;
+    }),
+    [nodes, storedPositions],
+  );
 
   const isEmpty = !loading && nodes.length === 0;
 
@@ -466,32 +556,21 @@ function TopologyCanvas({
       style={{
         backgroundColor: "#07111f",
         backgroundImage: [
-          "radial-gradient(circle at 50% 42%, rgba(37,99,235,0.11), transparent 36%)",
-          "radial-gradient(circle at 12% 18%, rgba(14,165,233,0.08), transparent 28%)",
-          "linear-gradient(rgba(255,255,255,0.012), rgba(255,255,255,0.012))",
-          "repeating-linear-gradient(0deg, transparent 0, transparent 95px, rgba(148,163,184,0.025) 96px)",
-          "repeating-linear-gradient(90deg, transparent 0, transparent 95px, rgba(148,163,184,0.025) 96px)",
+          "radial-gradient(ellipse at 50% 38%, rgba(37,99,235,0.08), transparent 55%)",
+          "repeating-linear-gradient(0deg, transparent 0, transparent 79px, rgba(148,163,184,0.014) 80px)",
+          "repeating-linear-gradient(90deg, transparent 0, transparent 79px, rgba(148,163,184,0.014) 80px)",
         ].join(", "),
       }}
     >
-      <div
-        className="pointer-events-none absolute inset-0 z-[1]"
-        style={{
-          backgroundImage: [
-            "linear-gradient(90deg, rgba(255,255,255,0.015), transparent 18%, transparent 82%, rgba(255,255,255,0.015))",
-            "repeating-linear-gradient(180deg, transparent 0, transparent 4px, rgba(255,255,255,0.012) 5px)",
-          ].join(", "),
-          opacity: 0.34,
-        }}
-      />
       <ReactFlowProvider>
         <FlowInner
-          nodes={nodes}
+          nodes={mergedNodes}
           edges={edges}
           viewMode={viewMode}
           filterRailOpen={filterRailOpen}
           activeMatchKey={activeMatchKey}
           showMinimap={showMinimap}
+          hasCustomPositions={hasCustomPositions}
           onToggleMinimap={() => setShowMinimap((p) => !p)}
           focusedGroupLabel={focusedGroupLabel}
           searchQuery={searchQuery}
@@ -503,6 +582,7 @@ function TopologyCanvas({
           onToggleFilterRail={onToggleFilterRail}
           onToggleFullscreen={onToggleFullscreen}
           onRefresh={onRefresh}
+          onResetLayout={resetPositions}
           onSearchChange={onSearchChange}
           onNodeClick={onNodeClick}
           onGroupDoubleClick={onGroupDoubleClick}
@@ -511,6 +591,7 @@ function TopologyCanvas({
           onClearFocus={onClearFocus}
           onPrevMatch={onPrevMatch}
           onNextMatch={onNextMatch}
+          onPositionSave={setPosition}
           onTooltipChange={setTooltipInfo}
         />
       </ReactFlowProvider>
