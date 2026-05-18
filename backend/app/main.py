@@ -50,6 +50,7 @@ from app.features.overview.api import router as overview_router
 from app.features.realtime.api import router as realtime_router
 from app.features.response.api import router as response_router
 from app.features.settings.api import router as settings_router
+from app.features.ueba.api import router as ueba_router
 from app.features.users.api import router as users_router
 from app.features.vuln.api import router as vuln_router
 
@@ -369,6 +370,7 @@ app.include_router(detections_router)
 app.include_router(vuln_router)
 app.include_router(users_router)
 app.include_router(settings_router)
+app.include_router(ueba_router)
 app.include_router(response_router)
 app.include_router(realtime_router)
 app.include_router(agents_router)
