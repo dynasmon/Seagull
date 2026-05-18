@@ -47,8 +47,8 @@ const HEIGHT = 1040;
 const CENTER = { x: WIDTH / 2, y: HEIGHT / 2 };
 const SERVICE_CLUSTER_THRESHOLD = 18;
 
-const MIN_SPACING_NORMAL = 72;
-const MIN_SPACING_IMPORTANT = 92;
+const MIN_SPACING_NORMAL = 96;
+const MIN_SPACING_IMPORTANT = 120;
 const RING_BASE_RADIUS = 88;
 const RING_EXPANSION = 96;
 const HALO_MIN_RADIUS = 110;
@@ -172,7 +172,9 @@ export function computeLocationGroupLayout(
 
   for (const [ring, ringGroups] of [...byRing.entries()].sort((a, b) => a[0] - b[0])) {
     if (ring === 0) continue;
-    const radius = 440 + Math.max(0, ring - 1) * 260;
+    const baseRadius = 440 + Math.max(0, ring - 1) * 260;
+    const minByCount = Math.ceil((ringGroups.length * 228) / (2 * Math.PI));
+    const radius = Math.max(baseRadius, minByCount);
     const ordered = [...ringGroups].sort((a, b) => {
       const degreeDelta = (degrees.get(b.group_key) ?? 0) - (degrees.get(a.group_key) ?? 0);
       if (degreeDelta !== 0) return degreeDelta;
@@ -213,7 +215,7 @@ function nodeIsPublic(node: TopologyNode): boolean {
   return node.node_type === "external_ip" || String(node.metadata?.ip_scope ?? "").toLowerCase() === "public_internet";
 }
 
-function nodeImportance(node: TopologyNode): TopologyNodeImportance {
+export function nodeImportance(node: TopologyNode): TopologyNodeImportance {
   if (node.node_type === "agent" || node.node_type === "gateway" || node.node_type === "subnet") return "anchor";
   if (node.alert_count > 0 || severityWeight(node.severity) >= 4 || Number(node.risk_score || 0) >= 70) return "elevated";
   return "normal";
@@ -226,8 +228,12 @@ function nodeRadius(node: TopologyNode): number {
   return 7;
 }
 
+function minSpacingForImportance(importance: TopologyNodeImportance): number {
+  return importance === "normal" ? MIN_SPACING_NORMAL : MIN_SPACING_IMPORTANT;
+}
+
 function nodeMinSpacing(node: TopologyNode): number {
-  return nodeImportance(node) === "normal" ? MIN_SPACING_NORMAL : MIN_SPACING_IMPORTANT;
+  return minSpacingForImportance(nodeImportance(node));
 }
 
 function sliceMinSpacing(nodes: TopologyNode[]): number {
@@ -356,7 +362,7 @@ function relaxGroupCollisions(
       for (let j = i + 1; j < result.length; j++) {
         const a = result[i];
         const b = result[j];
-        const minDist = Math.max(nodeMinSpacing(a), nodeMinSpacing(b));
+        const minDist = Math.max(minSpacingForImportance(a.importance), minSpacingForImportance(b.importance));
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const dist = Math.sqrt(dx * dx + dy * dy);

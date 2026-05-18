@@ -3,11 +3,10 @@ import type { Edge, Node } from "@xyflow/react";
 import type { TopologyEdge, TopologyGraph, TopologyGroup, TopologyGroupEdge, TopologyNode } from "../types";
 import { groupTopologyGraph } from "./grouping";
 import { computeTopologyLayout, computeLocationGroupLayout } from "./topologyLayoutEngine";
+import { shouldShowLabel, groupCardSize, edgePriorityRank, groupEdgePriorityRank, nodeBoundingRadius } from "./presentation";
 
-const DEVICE_NODE_W = 76;
-const DEVICE_NODE_H = 56;
-const GROUP_NODE_W = 148;
-const GROUP_NODE_H = 52;
+const DEVICE_NODE_W = 80;
+const DEVICE_NODE_H = 80;
 
 export type DeviceNodeData = Record<string, unknown> & {
   node: TopologyNode;
@@ -31,6 +30,8 @@ export type TopologyEdgeData = Record<string, unknown> & {
   edge: TopologyEdge;
   isSelected: boolean;
   isDimmed: boolean;
+  sourceRadius: number;
+  targetRadius: number;
 };
 
 export type TopologyGroupEdgeData = Record<string, unknown> & {
@@ -102,18 +103,6 @@ export function computeHighlightedKeys(
   return keys;
 }
 
-function nodeNeedsLabel(
-  node: TopologyNode,
-  isSelected: boolean,
-  isSearchMatch: boolean,
-  groupNodeCount: number,
-): boolean {
-  if (isSelected || isSearchMatch) return true;
-  const sev = String(node.severity ?? "").toLowerCase();
-  if (node.alert_count > 0 && (sev === "critical" || sev === "high")) return true;
-  if (node.node_type === "agent" && groupNodeCount < 20) return true;
-  return false;
-}
 
 export function graphToConnectionView(
   graph: TopologyGraph | null,
@@ -160,15 +149,14 @@ export function graphToConnectionView(
         isHighlighted,
         isDimmed,
         isSearchMatch,
-        showLabel: nodeNeedsLabel(ln, isSelected, isSearchMatch, groupNodeCounts.get(ln.group_key ?? "") ?? 0),
+        showLabel: shouldShowLabel(ln, isSelected, isSearchMatch, ln.importance, groupNodeCounts.get(ln.group_key ?? "") ?? 0),
         importance: ln.importance,
         groupKey: ln.group_key,
       },
       selectable: true,
-      draggable: false,
       width: DEVICE_NODE_W,
       height: DEVICE_NODE_H,
-      style: { transition: "transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease" },
+      style: { transition: "opacity 180ms ease" },
       zIndex: ln.importance === "anchor" ? 4 : ln.importance === "elevated" ? 3 : 2,
     };
   });
@@ -193,7 +181,7 @@ export function graphToConnectionView(
       selectable: false,
       focusable: false,
       zIndex: 0,
-      style: { transition: "transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease" },
+      style: { transition: "opacity 180ms ease" },
     };
   });
 
@@ -216,13 +204,20 @@ export function graphToConnectionView(
           !focusState!.focusedNodeKeys.has(edge.target_node_key) &&
           !isSelected
         : hasSelection && !isSelected && !isConnected;
+    const priority = edgePriorityRank(edge);
     edges.push({
       id: edge.edge_key,
       source: edge.source_node_key,
       target: edge.target_node_key,
       type: "topology",
-      data: { edge, isSelected, isDimmed },
-      zIndex: isSelected ? 5 : 1,
+      data: {
+        edge,
+        isSelected,
+        isDimmed,
+        sourceRadius: nodeBoundingRadius(edge.source?.importance ?? "normal"),
+        targetRadius: nodeBoundingRadius(edge.target?.importance ?? "normal"),
+      },
+      zIndex: isSelected ? 5 : priority >= 80 ? 3 : priority >= 30 ? 2 : 1,
     });
   }
 
@@ -254,16 +249,16 @@ export function graphToLocationView(
     const isDimmed = hasSearch
       ? !searchState!.matchedGroupKeys.has(group.group_key) && !isSelected
       : hasSelection && !isSelected && !isHighlighted;
+    const { w, h } = groupCardSize(group.label);
     return {
       id: group.group_key,
       type: "group",
-      position: { x: point.x - GROUP_NODE_W / 2, y: point.y - GROUP_NODE_H / 2 },
+      position: { x: point.x - w / 2, y: point.y - h / 2 },
       data: { group, isSelected, isHighlighted, isDimmed },
       selectable: true,
-      draggable: false,
-      width: GROUP_NODE_W,
-      height: GROUP_NODE_H,
-      style: { transition: "transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease" },
+      width: w,
+      height: h,
+      style: { transition: "opacity 180ms ease" },
       zIndex: isSelected ? 4 : point.isCentral ? 3 : 2,
     };
   });
@@ -283,13 +278,14 @@ export function graphToLocationView(
       const isDimmed = hasSearch
         ? !edgeEndpointMatched && !isSelected
         : hasSelection && !isSelected && !isConnected;
+      const priority = groupEdgePriorityRank(ge.alert_count, ge.edge_types as string[]);
       return {
         id: ge.edge_key,
         source: ge.source_group_key,
         target: ge.target_group_key,
         type: "group",
         data: { groupEdge: ge, isSelected, isDimmed },
-        zIndex: isSelected ? 3 : 1,
+        zIndex: isSelected ? 3 : priority >= 70 ? 2 : 1,
       };
     });
 
