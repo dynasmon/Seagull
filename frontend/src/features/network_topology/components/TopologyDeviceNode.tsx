@@ -9,6 +9,10 @@ import { nodeVisual, NODE_TYPE_LABELS, severityColor } from "../lib/visuals";
 import { toTitleLabel } from "../lib/labels";
 import type { TopologyNode } from "../types";
 
+const NODE_H = 80;
+const NODE_W = 80;
+const CIRCLE_CENTER_Y = NODE_H / 2;
+
 function RouterIcon() {
   return (
     <>
@@ -139,78 +143,85 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
   const isCluster = node.node_type === "service" && Boolean(node.metadata?._is_service_cluster);
   const clusterCount = isCluster ? Number(node.metadata?._cluster_count ?? 0) : 0;
 
-  const opacity = isDimmed ? 0.14 : node.is_stale && node.node_type !== "agent" ? 0.42 : 1;
+  const opacity = isDimmed ? 0.11 : node.is_stale && node.node_type !== "agent" ? 0.38 : 1;
 
-  const baseSize = isSelected ? 4 : 0;
-  const markerSize = importance === "anchor" ? 36 + baseSize : importance === "elevated" ? 28 + baseSize : 20 + baseSize;
-  const iconSize = importance === "anchor" ? 21 : importance === "elevated" ? 17 : 12;
+  const baseBoost = isSelected ? 4 : 0;
+  const markerSize = importance === "anchor" ? 36 + baseBoost : importance === "elevated" ? 28 + baseBoost : 22 + baseBoost;
+  const iconSize = importance === "anchor" ? 21 : importance === "elevated" ? 17 : 13;
+
+  const circleTop = CIRCLE_CENTER_Y - markerSize / 2;
+  const labelTop = CIRCLE_CENTER_Y + markerSize / 2 + 4;
 
   const label = node.label.length > 18 ? `${node.label.slice(0, 16)}…` : node.label;
   const subtitle = isCluster
     ? `${clusterCount} service${clusterCount !== 1 ? "s" : ""}`
     : nodeSubtitle(node).slice(0, 22);
 
+  const centerHandle = { opacity: 0 as const, left: "50%", top: "50%", transform: "translate(-50%, -50%)" };
+
   return (
     <div
-      className="group relative flex select-none flex-col items-center justify-center"
-      style={{ opacity, width: 76, height: 56 }}
+      className="group relative select-none"
+      style={{ opacity, width: NODE_W, height: NODE_H }}
     >
-      <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
-      <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
+      <Handle type="target" position={Position.Left}  style={centerHandle} />
+      <Handle type="source" position={Position.Right} style={centerHandle} />
 
       <div
         className={cx(
-          "relative flex items-center justify-center rounded-full transition-all duration-200",
+          "absolute left-1/2 -translate-x-1/2 flex items-center justify-center rounded-full transition-all duration-200",
           isSelected && "ring-2 ring-offset-1 ring-offset-[#07111f]",
         )}
         style={{
+          top: circleTop,
           width: markerSize,
           height: markerSize,
           background: visual.fill,
           border: `${isSelected ? "2px" : importance === "normal" ? "1.2px" : "1.5px"} solid ${visual.stroke}`,
           color: visual.stroke,
           boxShadow: isSelected
-            ? `0 0 22px ${visual.stroke}48`
+            ? `0 0 22px ${visual.stroke}50`
             : isHighlighted
               ? `0 0 16px ${visual.stroke}38`
               : hasAlert
-                ? `0 0 14px ${severityColor(node.severity)}28`
+                ? `0 0 12px ${severityColor(node.severity)}28`
                 : "none",
         }}
       >
         <svg width={iconSize} height={iconSize} viewBox="-12 -12 24 24" stroke="currentColor" fill="none">
           <DeviceIcon nodeType={node.node_type} isCluster={isCluster} />
         </svg>
-      </div>
 
-      {(hasAlert || node.is_stale) && (
-        <span
-          className="absolute left-1/2 top-[6px] h-[8px] w-[8px] translate-x-[10px] rounded-full border border-[#07111f]"
-          style={{
-            background:
-              node.is_stale && node.node_type === "agent"
-                ? "#F97316"
-                : hasAlert
-                  ? severityColor(node.severity)
-                  : "#6B7280",
-          }}
-        />
-      )}
+        {(hasAlert || (node.is_stale && node.node_type === "agent")) && (
+          <span
+            className="absolute -right-[1px] -top-[1px] h-[7px] w-[7px] rounded-full border-[1.5px] border-[#07111f]"
+            style={{
+              background:
+                node.is_stale && node.node_type === "agent"
+                  ? "#F97316"
+                  : hasAlert
+                    ? severityColor(node.severity)
+                    : "#6B7280",
+            }}
+          />
+        )}
+      </div>
 
       <div
         className={cx(
-          "pointer-events-none absolute top-[44px] w-[76px] overflow-hidden text-center leading-none transition-opacity duration-150 group-hover:opacity-100",
+          "pointer-events-none absolute left-0 right-0 overflow-hidden text-center leading-none transition-opacity duration-150 group-hover:opacity-100",
           showLabel ? "opacity-100" : "opacity-0",
         )}
+        style={{ top: labelTop }}
       >
         <div
-          className="max-w-[76px] truncate overflow-hidden whitespace-nowrap px-0.5 text-[9px] font-semibold"
+          className="truncate px-0.5 text-[9px] font-semibold"
           style={{ color: visual.stroke }}
         >
           {label}
         </div>
         {(isSelected || isSearchMatch) && (
-          <div className="max-w-[76px] truncate overflow-hidden whitespace-nowrap px-0.5 text-[8px]" style={{ color: "rgba(148,163,184,0.6)" }}>
+          <div className="truncate px-0.5 text-[8px]" style={{ color: "rgba(148,163,184,0.55)" }}>
             {subtitle}
           </div>
         )}
