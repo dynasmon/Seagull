@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeLocationGroupLayout,
   computeTopologyLayout,
+  nodeImportance,
 } from "@/features/network_topology/lib/topologyLayoutEngine";
 import { graphToConnectionView } from "@/features/network_topology/lib/graphTransform";
 import type { DeviceNodeData } from "@/features/network_topology/lib/graphTransform";
@@ -288,6 +289,26 @@ describe("dense group spacing", () => {
   });
 });
 
+describe("nodeImportance", () => {
+  it("classifies agent, gateway, subnet as anchor", () => {
+    expect(nodeImportance(node({ node_key: "a", node_type: "agent" }))).toBe("anchor");
+    expect(nodeImportance(node({ node_key: "g", node_type: "gateway" }))).toBe("anchor");
+    expect(nodeImportance(node({ node_key: "s", node_type: "subnet" }))).toBe("anchor");
+  });
+
+  it("classifies an alerted host as elevated", () => {
+    expect(nodeImportance(node({ node_key: "h", alert_count: 1 }))).toBe("elevated");
+  });
+
+  it("classifies a high-risk host as elevated", () => {
+    expect(nodeImportance(node({ node_key: "h", risk_score: 75 }))).toBe("elevated");
+  });
+
+  it("classifies a plain host as normal", () => {
+    expect(nodeImportance(node({ node_key: "h" }))).toBe("normal");
+  });
+});
+
 describe("label policy in connection view", () => {
   const selNone = { selectedKey: null as string | null, selectedKind: null as "node" | "edge" | "group" | null, highlightedKeys: new Set<string>() };
 
@@ -327,5 +348,11 @@ describe("label policy in connection view", () => {
     const { nodes } = graphToConnectionView(graph(), selNone, undefined, undefined, groups, groupEdges);
     const riskNode = nodes.find((n) => n.type === "device" && n.id === "risk-a");
     expect((riskNode?.data as unknown as DeviceNodeData).showLabel).toBe(true);
+  });
+
+  it("subnet anchor node shows label in a small group", () => {
+    const { nodes } = graphToConnectionView(graph(), selNone, undefined, undefined, groups, groupEdges);
+    const subnetNode = nodes.find((n) => n.type === "device" && n.id === "subnet-a");
+    expect((subnetNode?.data as unknown as DeviceNodeData).showLabel).toBe(true);
   });
 });
