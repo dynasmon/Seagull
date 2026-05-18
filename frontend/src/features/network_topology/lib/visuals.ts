@@ -53,15 +53,15 @@ export function edgeVisual(edge: Pick<TopologyEdge, "edge_type" | "confidence">)
     case "exposure_related":
       return { stroke: "#FB7185", dashArray: "5 3", width: 1.45, opacity: 0.76 };
     case "observed_flow":
-      return { stroke: "#60A5FA", dashArray: lowConf ? "5 4" : undefined, width: 1.25, opacity: 0.12 };
+      return { stroke: "#60A5FA", dashArray: lowConf ? "5 4" : undefined, width: 1.3, opacity: 0.22 };
     case "listens_on":
-      return { stroke: "#FBBF24", dashArray: lowConf ? "5 4" : undefined, width: 1.1, opacity: 0.14 };
+      return { stroke: "#FBBF24", dashArray: lowConf ? "5 4" : undefined, width: 1.15, opacity: 0.26 };
     case "resolved_dns":
-      return { stroke: "#C084FC", dashArray: "6 4", width: 1.05, opacity: 0.11 };
+      return { stroke: "#C084FC", dashArray: "6 4", width: 1.1, opacity: 0.20 };
     case "member_of_subnet":
-      return { stroke: "#FBBF24", dashArray: "3 3", width: 0.95, opacity: 0.09 };
+      return { stroke: "#FBBF24", dashArray: "3 3", width: 1.0, opacity: 0.15 };
     default:
-      return { stroke: "#64748B", dashArray: lowConf ? "4 4" : undefined, width: 0.9, opacity: 0.08 };
+      return { stroke: "#64748B", dashArray: lowConf ? "4 4" : undefined, width: 0.9, opacity: 0.12 };
   }
 }
 
