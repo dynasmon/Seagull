@@ -17,6 +17,7 @@ def load_all_models() -> None:
     from app.features.network_topology import models as _network_topology  # noqa: F401
     from app.features.response import models as _response  # noqa: F401
     from app.features.settings import models as _settings  # noqa: F401
+    from app.features.ueba import models as _ueba  # noqa: F401
     from app.features.vuln import models as _vuln  # noqa: F401
 
     # Shared cross-feature models

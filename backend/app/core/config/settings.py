@@ -255,6 +255,7 @@ class Settings:
     SEAGULL_EXPOSURE_STALE_INVENTORY_HOURS: int = _env_int("SEAGULL_EXPOSURE_STALE_INVENTORY_HOURS", 24)
     SEAGULL_EXPOSURE_MAX_GRAPH_NODES_PER_ASSET: int = _env_int("SEAGULL_EXPOSURE_MAX_GRAPH_NODES_PER_ASSET", 200)
     SEAGULL_EXPOSURE_MAX_GRAPH_EDGES_PER_ASSET: int = _env_int("SEAGULL_EXPOSURE_MAX_GRAPH_EDGES_PER_ASSET", 300)
+    SEAGULL_UEBA_ENABLED: bool = _env_bool("SEAGULL_UEBA_ENABLED", True)
     SEAGULL_NETWORK_TOPOLOGY_ENABLED: bool = _env_bool("SEAGULL_NETWORK_TOPOLOGY_ENABLED", True)
     SEAGULL_NETWORK_TOPOLOGY_REFRESH_SECONDS: float = _env_float("SEAGULL_NETWORK_TOPOLOGY_REFRESH_SECONDS", 300.0)
     SEAGULL_NETWORK_TOPOLOGY_WINDOW_MINUTES: int = _env_int("SEAGULL_NETWORK_TOPOLOGY_WINDOW_MINUTES", 1440)
@@ -595,6 +596,9 @@ class Settings:
             "vuln": {
                 "max_findings_per_ingest": self.SEAGULL_VULN_MAX_FINDINGS_PER_INGEST,
                 "max_evidence_bytes": self.SEAGULL_VULN_MAX_EVIDENCE_BYTES,
+            },
+            "ueba": {
+                "enabled": bool(self.SEAGULL_UEBA_ENABLED),
             },
         }
 
