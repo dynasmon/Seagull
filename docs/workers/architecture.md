@@ -42,6 +42,7 @@ Drain the ingest queue, index events into Elasticsearch, and pre-aggregate 1-min
 | attack-chain   | `app.workers.intelligence.attack_chain.main`         | always on                          |
 | exposure-graph | `app.workers.intelligence.exposure.main`             | `SEAGULL_EXPOSURE_ENABLED` (default on)  |
 | correlations   | `app.workers.intelligence.correlations.main`         | `SEAGULL_CORRELATIONS_WORKER_ENABLED` (default on) |
+| ueba           | `app.workers.intelligence.ueba.main`                 | `SEAGULL_UEBA_ENABLED` (default on) |
 
 ### maintenance
 
@@ -102,6 +103,12 @@ Key env vars: `SEAGULL_ATTACK_CHAIN_BATCH_SIZE`, `SEAGULL_ATTACK_CHAIN_EVERY_SEC
 `app.workers.intelligence.correlations.main`
 
 Runs correlation cycles on a configurable interval (default 60s, env `SEAGULL_CORRELATIONS_INTERVAL_SECONDS`). Delegates to `app.features.correlations.worker_runtime.run_correlation_cycle`.
+
+### ueba.main
+
+`app.workers.intelligence.ueba.main`
+
+Runs bounded behavioral detector cycles on a configurable interval (default 60s, env `SEAGULL_UEBA_INTERVAL_SECONDS`). Delegates to `app.features.ueba.worker_runtime.run_ueba_cycle`; individual detector failures are recorded and isolated so one detector does not stop the rest of the cycle.
 
 ### ip_intel.main
 
