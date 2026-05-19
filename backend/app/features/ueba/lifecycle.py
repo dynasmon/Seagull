@@ -84,7 +84,7 @@ def _max_dt(left: datetime | None, right: datetime | None) -> datetime | None:
         return right
     if right is None:
         return left
-    return max(left, right)
+    return max(_normalize_dt(left), _normalize_dt(right))
 
 
 def _min_dt(left: datetime | None, right: datetime | None) -> datetime | None:
@@ -92,7 +92,7 @@ def _min_dt(left: datetime | None, right: datetime | None) -> datetime | None:
         return right
     if right is None:
         return left
-    return min(left, right)
+    return min(_normalize_dt(left), _normalize_dt(right))
 
 
 def _merge_reason_codes(existing: Iterable[str] | None, incoming: Iterable[str] | None) -> list[str]:
@@ -155,7 +155,7 @@ def record_finding_observation(db: Session, **values: Any) -> FindingObservation
         )
 
     prior_cooldown_until = row.cooldown_until
-    in_cooldown = prior_cooldown_until is not None and observed_at <= prior_cooldown_until
+    in_cooldown = prior_cooldown_until is not None and _normalize_dt(observed_at) <= _normalize_dt(prior_cooldown_until)
 
     for field in _FINDING_LATEST_FIELDS:
         if field in payload:
@@ -360,7 +360,13 @@ def fail_detector_run(
 
 
 def _duration_ms(started_at: datetime, finished_at: datetime) -> int:
-    return max(0, int((finished_at - started_at).total_seconds() * 1000))
+    return max(0, int((_normalize_dt(finished_at) - _normalize_dt(started_at)).total_seconds() * 1000))
+
+
+def _normalize_dt(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _evidence_signature_from_values(values: dict[str, Any]) -> tuple[Any, ...]:

@@ -34,6 +34,30 @@ def get_baseline_by_key(db: Session, baseline_key: str) -> UebaBaselineModel | N
     return db.execute(stmt).scalars().first()
 
 
+def list_detector_baselines(
+    db: Session,
+    *,
+    detector_id: str,
+    limit: int,
+    include_stale: bool = False,
+) -> list[UebaBaselineModel]:
+    stmt = select(UebaBaselineModel).where(UebaBaselineModel.detector_id == detector_id)
+    if not include_stale:
+        stmt = stmt.where(UebaBaselineModel.status != "stale")
+    stmt = stmt.order_by(UebaBaselineModel.last_observed_at.desc(), UebaBaselineModel.id.desc())
+    return db.execute(stmt.limit(max(1, int(limit)))).scalars().all()
+
+
+def count_detector_baselines(db: Session, detector_id: str) -> tuple[int, int]:
+    row = db.execute(
+        select(
+            func.count(UebaBaselineModel.id),
+            func.sum(case((UebaBaselineModel.status == "mature", 1), else_=0)),
+        ).where(UebaBaselineModel.detector_id == detector_id)
+    ).one()
+    return int(row[0] or 0), int(row[1] or 0)
+
+
 def list_baselines_page(
     db: Session,
     *,
@@ -97,6 +121,16 @@ def get_open_finding_by_dedup_key(db: Session, dedup_key: str) -> UebaFindingMod
         .limit(1)
     )
     return db.execute(stmt).scalars().first()
+
+
+def count_open_findings_for_detector(db: Session, detector_id: str) -> int:
+    value = db.execute(
+        select(func.count(UebaFindingModel.id)).where(
+            UebaFindingModel.detector_id == detector_id,
+            UebaFindingModel.status == "open",
+        )
+    ).scalar()
+    return int(value or 0)
 
 
 def list_findings_page(
