@@ -129,7 +129,9 @@ def upsert_baseline(db: Session, **values: Any) -> tuple[UebaBaselineModel, bool
     row = repository.get_baseline_by_key(db, baseline_key)
     if row is None:
         payload["updated_at"] = updated_at
-        return repository.create_baseline(db, **payload), True
+        new_row = repository.create_baseline(db, **payload)
+        repository.flush(db)  # autoflush=False — flush so same-session lookups see the new row
+        return new_row, True
 
     for field in _BASELINE_MUTABLE_FIELDS:
         if field in payload:
@@ -148,8 +150,10 @@ def record_finding_observation(db: Session, **values: Any) -> FindingObservation
     if row is None:
         payload["updated_at"] = updated_at
         payload.setdefault("occurrence_count", 1)
+        new_finding = repository.create_finding(db, **payload)
+        repository.flush(db)  # autoflush=False — flush so same-session lookups see the new row
         return FindingObservationResult(
-            finding=repository.create_finding(db, **payload),
+            finding=new_finding,
             created=True,
             in_cooldown=False,
         )
