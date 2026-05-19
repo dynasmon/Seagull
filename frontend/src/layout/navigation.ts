@@ -7,6 +7,7 @@ export type AppNavIcon =
   | "alerts"
   | "attack_chain"
   | "correlations"
+  | "ueba"
   | "investigations"
   | "agents"
   | "inventory"
@@ -63,6 +64,7 @@ export const SOC_NAV_GROUPS: AppNavGroup[] = [
     label: "Detection & Investigation",
     items: [
       { id: "alerts", label: "Alerts", to: "/alerts", icon: "alerts" },
+      { id: "ueba", label: "Anomaly Detection", to: "/ueba", icon: "ueba" },
       { id: "attack-chain", label: "Attack Chains", to: "/attack-chain", icon: "attack_chain" },
       { id: "correlations", label: "Correlations", to: "/correlations", icon: "correlations" },
       { id: "investigations", label: "Investigations", to: "/investigations", icon: "investigations" },
@@ -204,6 +206,29 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       breadcrumbs: [
         { label: "Detection & Investigation" },
         { label: "Correlations", to: "/correlations/incidents" },
+      ],
+    },
+  },
+  {
+    path: "/ueba/detectors",
+    meta: {
+      title: "Detector Health",
+      subtitle: "Behavioral detector status, run history, and baseline maturity.",
+      breadcrumbs: [
+        { label: "Detection & Investigation" },
+        { label: "Anomaly Detection", to: "/ueba/findings" },
+        { label: "Detector Health", to: "/ueba/detectors" },
+      ],
+    },
+  },
+  {
+    path: "/ueba",
+    meta: {
+      title: "Anomaly Detection",
+      subtitle: "Behavioral baselines and statistical anomaly detection across user and entity activity.",
+      breadcrumbs: [
+        { label: "Detection & Investigation" },
+        { label: "Anomaly Detection", to: "/ueba/findings" },
       ],
     },
   },
