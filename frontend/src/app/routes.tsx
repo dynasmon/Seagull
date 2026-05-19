@@ -22,6 +22,10 @@ const loadCorrelationIncidentsPage = () => import("@/features/correlations/views
 const loadCorrelationFindingsPage = () => import("@/features/correlations/views/findings");
 const loadCorrelationRulesPage = () => import("@/features/correlations/views/rules");
 
+const loadUebaLayout = () => import("@/features/ueba/page");
+const loadUebaFindingsPage = () => import("@/features/ueba/views/findings");
+const loadUebaDetectorsPage = () => import("@/features/ueba/views/detectors");
+
 const loadAttackChainPage = () => import("@/features/attack_chain/page");
 const loadInvestigationsPage = () => import("@/features/investigations/page");
 
@@ -61,6 +65,10 @@ const CorrelationsLayout = lazy(loadCorrelationsLayout);
 const CorrelationIncidentsPage = lazy(loadCorrelationIncidentsPage);
 const CorrelationFindingsPage = lazy(loadCorrelationFindingsPage);
 const CorrelationRulesPage = lazy(loadCorrelationRulesPage);
+
+const UebaLayout = lazy(loadUebaLayout);
+const UebaFindingsPage = lazy(loadUebaFindingsPage);
+const UebaDetectorsPage = lazy(loadUebaDetectorsPage);
 
 const AttackChainPage = lazy(loadAttackChainPage);
 const InvestigationsPage = lazy(loadInvestigationsPage);
@@ -166,6 +174,12 @@ export function Routes() {
               <Route path="incidents" element={<CorrelationIncidentsPage />} />
               <Route path="findings" element={<CorrelationFindingsPage />} />
               <Route path="rules" element={<CorrelationRulesPage />} />
+            </Route>
+
+            <Route path="/ueba" element={<UebaLayout />}>
+              <Route index element={<Navigate to="/ueba/findings" replace />} />
+              <Route path="findings" element={<UebaFindingsPage />} />
+              <Route path="detectors" element={<UebaDetectorsPage />} />
             </Route>
 
             <Route path="/attack-chain" element={<AttackChainPage />} />
