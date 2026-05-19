@@ -72,7 +72,7 @@ Backend modular-monolith boundaries and contribution guardrails are documented i
 
 - **seagull-intelligence-worker**
   - Runs rule evaluation and enrichment/correlation workers in one supervised group.
-  - Child modules: `app.workers.intelligence.rules.runner`, `app.workers.intelligence.ip_intel.main`, `app.workers.intelligence.protocol.main`, `app.workers.intelligence.attack_chain.main`, `app.workers.intelligence.exposure.main`.
+  - Child modules: `app.workers.intelligence.rules.runner`, `app.workers.intelligence.ip_intel.main`, `app.workers.intelligence.protocol.main`, `app.workers.intelligence.attack_chain.main`, `app.workers.intelligence.exposure.main`, `app.workers.intelligence.network_topology.main`, `app.workers.intelligence.correlations.main`, `app.workers.intelligence.ueba.main`.
 
 - **seagull-maintenance-worker**
   - Runs administrative maintenance loops.
