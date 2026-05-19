@@ -56,6 +56,13 @@ function NavIcon({ icon }: { icon: AppNavIcon }) {
           <path d="M7 7a3 3 0 1 0 0 .01V7Zm10 10a3 3 0 1 0 0 .01V17ZM9.1 8.9l5.8 5.8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
+    case "ueba":
+      return (
+        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M3 17l4-6 4 3 4-8 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="19" cy="10" r="1.5" fill="currentColor" />
+        </svg>
+      );
     case "investigations":
       return (
         <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
