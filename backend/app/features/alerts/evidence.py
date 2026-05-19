@@ -135,6 +135,9 @@ def extract_evidence_specs(alert: AlertModel) -> list[dict]:
             "raw_context": {},
         }]
 
+    if detector_type == "ueba":
+        return _extract_ueba_evidence(alert, details)
+
     if detector_type == "correlation" or rule_type == "correlation":
         correlated = details.get("correlated_rules") or {}
         matched_val = ",".join(sorted(str(k) for k in correlated.keys())) if correlated else None
@@ -182,6 +185,47 @@ def extract_evidence_specs(alert: AlertModel) -> list[dict]:
         )
 
     return []
+
+
+def _extract_ueba_evidence(alert: AlertModel, details: dict) -> list[dict]:
+    items = details.get("evidence")
+    out: list[dict] = []
+    if isinstance(items, list):
+        for raw in items[:3]:
+            if not isinstance(raw, dict):
+                continue
+            out.append(
+                {
+                    "event_id": raw.get("event_id"),
+                    "evidence_type": _safe_str(raw.get("evidence_type")) or "event",
+                    "evidence_role": _safe_str(raw.get("evidence_role")) or "trigger",
+                    "entity_type": _safe_str(raw.get("entity_type")),
+                    "entity_value": _safe_str(raw.get("entity_value")),
+                    "matched_field": _safe_str(raw.get("matched_field")),
+                    "matched_value": _safe_str(raw.get("matched_value")),
+                    "summary": _safe_str(raw.get("summary")),
+                    "raw_context": dict(raw.get("raw_context") or {}),
+                }
+            )
+    if out:
+        return out
+
+    return [
+        {
+            "evidence_type": "statistical",
+            "evidence_role": "trigger",
+            "entity_type": _safe_str(details.get("entity_type")),
+            "entity_value": _safe_str(details.get("entity_value")),
+            "matched_field": _safe_str(details.get("metric_name")),
+            "matched_value": _safe_str(details.get("observed_value")),
+            "summary": _safe_str(alert.description) or "UEBA statistical anomaly",
+            "raw_context": {
+                "expected_value": details.get("expected_value"),
+                "observed_value": details.get("observed_value"),
+                "deviation_score": details.get("deviation_score"),
+            },
+        }
+    ]
 
 
 def _extract_inline_evidence(alert: AlertModel, details: dict) -> list[dict]:

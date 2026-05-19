@@ -136,6 +136,12 @@ def _persist_alerts(db: Session, rows: list[AlertModel]) -> list[AlertModel]:
     return rows
 
 
+def persist_generated_alerts(db: Session, rows: list[AlertModel]) -> list[AlertModel]:
+    """Persist generated alerts through the shared alert/evidence/realtime path."""
+
+    return _persist_alerts(db, rows)
+
+
 def _rule_out(
     *,
     rule_id: str,
