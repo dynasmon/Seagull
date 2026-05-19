@@ -798,3 +798,11 @@ This significantly reduces CPU usage caused by Grafana dashboards that run COUNT
 Tune via `.env`:
 
 - `SEAGULL_ROLLUP_EVERY_SECONDS`, `SEAGULL_ROLLUP_MAX_ROWS`
+
+## License
+
+This project is licensed under the GNU General Public License v3.0.
+
+Copyright (C) 2026 Nathan Menezes
+
+See the LICENSE file for details.
