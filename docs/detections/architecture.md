@@ -12,10 +12,12 @@ backend/app/features/detections/   ← owns rule loading, validation, compilatio
 backend/app/features/alerts/       ← owns alert models, rule execution, governance overlays
 backend/app/features/correlations/ ← owns correlation rules, incidents, engines
 backend/app/features/attack_chain/ ← owns attack chain cases, steps, story evaluation
+backend/app/features/ueba/         ← owns behavioral baselines, findings, detector runtime
 
 backend/app/workers/intelligence/rules/      ← schedules rule execution (no logic)
 backend/app/workers/intelligence/attack_chain/ ← schedules attack chain processing (no logic)
 backend/app/workers/intelligence/correlations/ ← schedules correlation cycles (no logic)
+backend/app/workers/intelligence/ueba/         ← schedules UEBA detector cycles (no logic)
 ```
 
 ## Data flow
@@ -33,6 +35,11 @@ alerts table
     │        app.features.correlations.service.run_correlations()
     │        → CorrelationIncidentModel (durable)
     │
+    ├──► ueba worker (every 60s)
+    │        app.features.ueba.worker_runtime.run_ueba_cycle()
+    │        → UebaBaselineModel / UebaFindingModel (durable)
+    │        → shared alert persistence path for promoted findings
+    │
     └──► attack_chain worker (continuous batch)
              app.features.attack_chain domain
              → AttackChainCaseModel / AttackChainStepModel (durable)
@@ -48,6 +55,7 @@ Workers call features through `worker_runtime` modules. This keeps worker entryp
 | `intelligence.rules.runner` | `features.alerts.rule_runtime` |
 | `intelligence.attack_chain.main` | `features.attack_chain.worker_runtime` |
 | `intelligence.correlations.main` | `features.correlations.worker_runtime` |
+| `intelligence.ueba.main` | `features.ueba.worker_runtime` |
 
 The `worker_runtime` modules are the stable API contract between workers and features. They may call `features.*.service` and `features.*.repository` internally. Workers must not bypass them.
 

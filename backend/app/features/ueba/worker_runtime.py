@@ -1,0 +1,236 @@
+"""Worker-facing import surface for the UEBA feature."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Iterable
+
+from app.core.config.env_secrets import env_value
+from app.core.db import SessionLocal
+from app.features.ueba import lifecycle, repository
+from app.features.ueba.domain.registry import DetectorExecutionResult, UebaDetector, default_detectors
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = env_value(name, None)
+    if raw is None:
+        return int(default)
+    try:
+        return int(raw, 10)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = env_value(name, None)
+    if raw is None:
+        return float(default)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+@dataclass(frozen=True)
+class UebaWorkerConfig:
+    interval_seconds: float
+    log_every_seconds: float
+    failing_after: int
+    cooldown_minutes: int
+    max_findings_per_detector_cycle: int
+    active_entity_hours: int
+
+    login_hour_lookback_hours: int
+    login_hour_min_samples: int
+    login_hour_max_events_per_cycle: int
+    login_hour_min_rarity_bits: float
+    login_hour_min_z_score: float
+
+    source_diversity_window_minutes: int
+    source_diversity_min_samples: int
+    source_diversity_max_entities_per_cycle: int
+    source_diversity_max_windows_per_cycle: int
+    source_diversity_min_z_score: float
+
+
+@dataclass(frozen=True)
+class UebaDetectorCycleResult:
+    detector_id: str
+    detector_version: int
+    status: str
+    outcome: DetectorExecutionResult | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class UebaCycleResult:
+    detectors: list[UebaDetectorCycleResult]
+
+    @property
+    def completed(self) -> int:
+        return sum(1 for item in self.detectors if item.status == "completed")
+
+    @property
+    def failed(self) -> int:
+        return sum(1 for item in self.detectors if item.status == "failed")
+
+    @property
+    def alerts_created(self) -> int:
+        return sum(int(item.outcome.alerts_created) for item in self.detectors if item.outcome is not None)
+
+
+def load_worker_config() -> UebaWorkerConfig:
+    return UebaWorkerConfig(
+        interval_seconds=max(5.0, _env_float("SEAGULL_UEBA_INTERVAL_SECONDS", 60.0)),
+        log_every_seconds=_env_float("SEAGULL_UEBA_LOG_EVERY_SECONDS", 60.0),
+        failing_after=max(1, _env_int("SEAGULL_UEBA_FAILING_AFTER", 3)),
+        cooldown_minutes=max(1, _env_int("SEAGULL_UEBA_COOLDOWN_MINUTES", 60)),
+        max_findings_per_detector_cycle=max(0, _env_int("SEAGULL_UEBA_MAX_FINDINGS_PER_DETECTOR_CYCLE", 20)),
+        active_entity_hours=max(1, _env_int("SEAGULL_UEBA_ACTIVE_ENTITY_HOURS", 24)),
+        login_hour_lookback_hours=max(1, _env_int("SEAGULL_UEBA_LOGIN_HOUR_LOOKBACK_HOURS", 72)),
+        login_hour_min_samples=max(4, _env_int("SEAGULL_UEBA_LOGIN_HOUR_MIN_SAMPLES", 20)),
+        login_hour_max_events_per_cycle=max(1, _env_int("SEAGULL_UEBA_LOGIN_HOUR_MAX_EVENTS_PER_CYCLE", 500)),
+        login_hour_min_rarity_bits=max(0.0, _env_float("SEAGULL_UEBA_LOGIN_HOUR_MIN_RARITY_BITS", 3.0)),
+        login_hour_min_z_score=max(0.0, _env_float("SEAGULL_UEBA_LOGIN_HOUR_MIN_Z_SCORE", 2.5)),
+        source_diversity_window_minutes=max(1, _env_int("SEAGULL_UEBA_SOURCE_DIVERSITY_WINDOW_MINUTES", 15)),
+        source_diversity_min_samples=max(4, _env_int("SEAGULL_UEBA_SOURCE_DIVERSITY_MIN_SAMPLES", 12)),
+        source_diversity_max_entities_per_cycle=max(
+            1,
+            _env_int("SEAGULL_UEBA_SOURCE_DIVERSITY_MAX_ENTITIES_PER_CYCLE", 500),
+        ),
+        source_diversity_max_windows_per_cycle=max(
+            1,
+            _env_int("SEAGULL_UEBA_SOURCE_DIVERSITY_MAX_WINDOWS_PER_CYCLE", 4),
+        ),
+        source_diversity_min_z_score=max(0.0, _env_float("SEAGULL_UEBA_SOURCE_DIVERSITY_MIN_Z_SCORE", 3.0)),
+    )
+
+
+def run_ueba_cycle(
+    cfg: UebaWorkerConfig,
+    *,
+    now: datetime | None = None,
+    detector_set: Iterable[UebaDetector] | None = None,
+) -> UebaCycleResult:
+    cycle_now = _as_utc(now or datetime.now(timezone.utc))
+    detectors = list(detector_set or default_detectors())
+    results: list[UebaDetectorCycleResult] = []
+    for detector in detectors:
+        results.append(_run_one_detector(detector, cfg=cfg, now=cycle_now))
+    return UebaCycleResult(detectors=results)
+
+
+def _run_one_detector(detector: UebaDetector, *, cfg: UebaWorkerConfig, now: datetime) -> UebaDetectorCycleResult:
+    db = SessionLocal()
+    run = None
+    try:
+        window_started_at, window_ended_at = detector.window_bounds(db, cfg=cfg, now=now)
+        run = lifecycle.start_detector_run(
+            db,
+            detector_id=detector.detector_id,
+            detector_version=detector.detector_version,
+            started_at=now,
+            window_started_at=window_started_at,
+            window_ended_at=window_ended_at,
+            context={"source": "postgres"},
+        )
+        repository.flush(db)
+        repository.commit(db)
+
+        outcome = detector.run(db, cfg=cfg, now=now)
+        _merge_detector_context(db, detector.detector_id, outcome.state_context_patch)
+        baseline_count, mature_count = repository.count_detector_baselines(db, detector.detector_id)
+        open_findings = repository.count_open_findings_for_detector(db, detector.detector_id)
+        lifecycle.complete_detector_run(
+            db,
+            run=run,
+            finished_at=now,
+            scanned_events=outcome.scanned_events,
+            evaluated_entities=outcome.evaluated_entities,
+            baselines_created=outcome.baselines_created,
+            baselines_updated=outcome.baselines_updated,
+            findings_created=outcome.findings_created,
+            findings_updated=outcome.findings_updated,
+            alerts_created=outcome.alerts_created,
+            suppressions_applied=outcome.suppressions_applied,
+            baseline_count=baseline_count,
+            mature_baseline_count=mature_count,
+            open_findings=open_findings,
+            context_patch=outcome.run_context_patch,
+        )
+        repository.commit(db)
+        return UebaDetectorCycleResult(
+            detector_id=detector.detector_id,
+            detector_version=detector.detector_version,
+            status="completed",
+            outcome=outcome,
+        )
+    except Exception as exc:
+        db.rollback()
+        try:
+            if run is None:
+                window_started_at, window_ended_at = detector.window_bounds(db, cfg=cfg, now=now)
+                run = lifecycle.start_detector_run(
+                    db,
+                    detector_id=detector.detector_id,
+                    detector_version=detector.detector_version,
+                    started_at=now,
+                    window_started_at=window_started_at,
+                    window_ended_at=window_ended_at,
+                    context={"source": "postgres", "failed_before_execution": True},
+                )
+                repository.flush(db)
+            else:
+                run = repository.get_detector_run(db, int(run.id)) or run
+            lifecycle.fail_detector_run(
+                db,
+                run=run,
+                failed_at=now,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                failing_after=cfg.failing_after,
+                context_patch={"source": "postgres"},
+            )
+            repository.commit(db)
+        except Exception:
+            db.rollback()
+        return UebaDetectorCycleResult(
+            detector_id=detector.detector_id,
+            detector_version=detector.detector_version,
+            status="failed",
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
+    finally:
+        db.close()
+
+
+def _merge_detector_context(db, detector_id: str, patch: dict | None) -> None:
+    if not patch:
+        return
+    existing = repository.get_detector_state(db, detector_id)
+    merged = dict(getattr(existing, "context", None) or {})
+    merged.update(dict(patch or {}))
+    lifecycle.upsert_detector_state(
+        db,
+        detector_id=detector_id,
+        detector_version=getattr(existing, "detector_version", None),
+        context=merged,
+    )
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+__all__ = [
+    "UebaCycleResult",
+    "UebaDetectorCycleResult",
+    "UebaWorkerConfig",
+    "load_worker_config",
+    "run_ueba_cycle",
+]

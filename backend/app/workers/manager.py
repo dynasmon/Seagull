@@ -121,6 +121,12 @@ GROUPS: dict[str, tuple[ChildSpec, ...]] = {
             enabled_env="SEAGULL_CORRELATIONS_WORKER_ENABLED",
             enabled_default=True,
         ),
+        ChildSpec(
+            name="ueba",
+            module="app.workers.intelligence.ueba.main",
+            enabled_env="SEAGULL_UEBA_ENABLED",
+            enabled_default=True,
+        ),
     ),
     "maintenance": (
         ChildSpec(name="audit-retention", module="app.workers.maintenance.audit_retention"),
