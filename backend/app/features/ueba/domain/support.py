@@ -36,6 +36,16 @@ class DetectorRuntimeConfig(Protocol):
     lateral_spread_max_entities_per_cycle: int
     lateral_spread_max_windows_per_cycle: int
     lateral_spread_min_z_score: float
+    proc_exec_rate_window_minutes: int
+    proc_exec_rate_min_samples: int
+    proc_exec_rate_max_entities_per_cycle: int
+    proc_exec_rate_max_windows_per_cycle: int
+    proc_exec_rate_min_z_score: float
+    proc_name_lookback_hours: int
+    proc_name_max_events_per_cycle: int
+    proc_name_min_rarity_bits: float
+    proc_name_min_samples_for_maturity: int
+    proc_name_rarity_lookback_hours: int
 
 
 @dataclass(frozen=True)
