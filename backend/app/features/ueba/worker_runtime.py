@@ -72,6 +72,16 @@ class UebaWorkerConfig:
     proc_name_min_rarity_bits: float
     proc_name_min_samples_for_maturity: int
     proc_name_rarity_lookback_hours: int
+    fim_spike_window_minutes: int
+    fim_spike_min_samples: int
+    fim_spike_max_entities_per_cycle: int
+    fim_spike_max_windows_per_cycle: int
+    fim_spike_min_z_score: float
+    sudo_hour_lookback_hours: int
+    sudo_hour_min_samples: int
+    sudo_hour_max_events_per_cycle: int
+    sudo_hour_min_rarity_bits: float
+    sudo_hour_min_z_score: float
 
 
 @dataclass(frozen=True)
@@ -145,6 +155,16 @@ def load_worker_config() -> UebaWorkerConfig:
         proc_name_min_rarity_bits=max(0.0, _env_float("SEAGULL_UEBA_PROC_NAME_MIN_RARITY_BITS", 4.0)),
         proc_name_min_samples_for_maturity=max(1, _env_int("SEAGULL_UEBA_PROC_NAME_MIN_SAMPLES_FOR_MATURITY", 5)),
         proc_name_rarity_lookback_hours=max(1, _env_int("SEAGULL_UEBA_PROC_NAME_RARITY_LOOKBACK_HOURS", 168)),
+        fim_spike_window_minutes=max(1, _env_int("SEAGULL_UEBA_FIM_SPIKE_WINDOW_MINUTES", 5)),
+        fim_spike_min_samples=max(1, _env_int("SEAGULL_UEBA_FIM_SPIKE_MIN_SAMPLES", 10)),
+        fim_spike_max_entities_per_cycle=max(1, _env_int("SEAGULL_UEBA_FIM_SPIKE_MAX_ENTITIES_PER_CYCLE", 100)),
+        fim_spike_max_windows_per_cycle=max(1, _env_int("SEAGULL_UEBA_FIM_SPIKE_MAX_WINDOWS_PER_CYCLE", 6)),
+        fim_spike_min_z_score=max(0.0, _env_float("SEAGULL_UEBA_FIM_SPIKE_MIN_Z_SCORE", 4.0)),
+        sudo_hour_lookback_hours=max(1, _env_int("SEAGULL_UEBA_SUDO_HOUR_LOOKBACK_HOURS", 72)),
+        sudo_hour_min_samples=max(1, _env_int("SEAGULL_UEBA_SUDO_HOUR_MIN_SAMPLES", 15)),
+        sudo_hour_max_events_per_cycle=max(1, _env_int("SEAGULL_UEBA_SUDO_HOUR_MAX_EVENTS_PER_CYCLE", 500)),
+        sudo_hour_min_rarity_bits=max(0.0, _env_float("SEAGULL_UEBA_SUDO_HOUR_MIN_RARITY_BITS", 3.0)),
+        sudo_hour_min_z_score=max(0.0, _env_float("SEAGULL_UEBA_SUDO_HOUR_MIN_Z_SCORE", 2.5)),
     )
 
 
