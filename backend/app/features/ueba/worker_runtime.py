@@ -52,6 +52,16 @@ class UebaWorkerConfig:
     source_diversity_max_entities_per_cycle: int
     source_diversity_max_windows_per_cycle: int
     source_diversity_min_z_score: float
+    outbound_bytes_window_minutes: int
+    outbound_bytes_min_samples: int
+    outbound_bytes_max_entities_per_cycle: int
+    outbound_bytes_max_windows_per_cycle: int
+    outbound_bytes_min_z_score: float
+    lateral_spread_window_minutes: int
+    lateral_spread_min_samples: int
+    lateral_spread_max_entities_per_cycle: int
+    lateral_spread_max_windows_per_cycle: int
+    lateral_spread_min_z_score: float
 
 
 @dataclass(frozen=True)
@@ -105,6 +115,16 @@ def load_worker_config() -> UebaWorkerConfig:
             _env_int("SEAGULL_UEBA_SOURCE_DIVERSITY_MAX_WINDOWS_PER_CYCLE", 4),
         ),
         source_diversity_min_z_score=max(0.0, _env_float("SEAGULL_UEBA_SOURCE_DIVERSITY_MIN_Z_SCORE", 3.0)),
+        outbound_bytes_window_minutes=max(1, _env_int("SEAGULL_UEBA_OUTBOUND_BYTES_WINDOW_MINUTES", 15)),
+        outbound_bytes_min_samples=max(1, _env_int("SEAGULL_UEBA_OUTBOUND_BYTES_MIN_SAMPLES", 10)),
+        outbound_bytes_max_entities_per_cycle=max(1, _env_int("SEAGULL_UEBA_OUTBOUND_BYTES_MAX_ENTITIES_PER_CYCLE", 200)),
+        outbound_bytes_max_windows_per_cycle=max(1, _env_int("SEAGULL_UEBA_OUTBOUND_BYTES_MAX_WINDOWS_PER_CYCLE", 4)),
+        outbound_bytes_min_z_score=max(0.0, _env_float("SEAGULL_UEBA_OUTBOUND_BYTES_MIN_Z_SCORE", 3.5)),
+        lateral_spread_window_minutes=max(1, _env_int("SEAGULL_UEBA_LATERAL_SPREAD_WINDOW_MINUTES", 15)),
+        lateral_spread_min_samples=max(1, _env_int("SEAGULL_UEBA_LATERAL_SPREAD_MIN_SAMPLES", 8)),
+        lateral_spread_max_entities_per_cycle=max(1, _env_int("SEAGULL_UEBA_LATERAL_SPREAD_MAX_ENTITIES_PER_CYCLE", 200)),
+        lateral_spread_max_windows_per_cycle=max(1, _env_int("SEAGULL_UEBA_LATERAL_SPREAD_MAX_WINDOWS_PER_CYCLE", 4)),
+        lateral_spread_min_z_score=max(0.0, _env_float("SEAGULL_UEBA_LATERAL_SPREAD_MIN_Z_SCORE", 3.0)),
     )
 
 
