@@ -26,6 +26,16 @@ class DetectorRuntimeConfig(Protocol):
     active_entity_hours: int
     cooldown_minutes: int
     max_findings_per_detector_cycle: int
+    outbound_bytes_window_minutes: int
+    outbound_bytes_min_samples: int
+    outbound_bytes_max_entities_per_cycle: int
+    outbound_bytes_max_windows_per_cycle: int
+    outbound_bytes_min_z_score: float
+    lateral_spread_window_minutes: int
+    lateral_spread_min_samples: int
+    lateral_spread_max_entities_per_cycle: int
+    lateral_spread_max_windows_per_cycle: int
+    lateral_spread_min_z_score: float
 
 
 @dataclass(frozen=True)
