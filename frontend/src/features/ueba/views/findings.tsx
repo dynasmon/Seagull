@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { Badge } from "@/shared/components/Badge";
 import {
@@ -18,7 +19,9 @@ import { useLiveRefresh } from "@/shared/realtime";
 import { getUebaSummary, listUebaFindings } from "../api";
 import FindingDrawer from "../components/FindingDrawer";
 import {
+  DETECTOR_LABELS,
   detectorLabel,
+  formatMetricValue,
   formatTimestamp,
   metricLabel,
   relativeTime,
@@ -43,6 +46,13 @@ const STATUS_OPTIONS: Array<{ value: UebaFindingStatus | "all"; label: string }>
 ];
 
 const PAGE_SIZE = 50;
+
+function riskBarClass(score: number): string {
+  if (score >= 90) return "bg-severity-critical";
+  if (score >= 70) return "bg-severity-high";
+  if (score >= 45) return "bg-severity-medium";
+  return "bg-severity-low";
+}
 
 function SummaryStrip({ summary }: { summary: UebaSummary }) {
   const detectorHealth =
@@ -124,6 +134,10 @@ export default function UebaFindingsPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
 
+  const [searchParams] = useSearchParams();
+  const [detectorId, setDetectorId] = useState(searchParams.get("detector_id") ?? "");
+  const [agentFilter, setAgentFilter] = useState("");
+
   const [severity, setSeverity] = useState<UebaSeverity | "all">("all");
   const [status, setStatus] = useState<UebaFindingStatus | "all">("open");
   const [entitySearch, setEntitySearch] = useState("");
@@ -161,6 +175,8 @@ export default function UebaFindingsPage() {
             severity: severity !== "all" ? severity : null,
             status: status !== "all" ? status : null,
             entity_value: entitySearch || null,
+            detector_id: detectorId || null,
+            agent_id: agentFilter || null,
             signal: ctrl.signal,
           }),
           replace
@@ -188,7 +204,7 @@ export default function UebaFindingsPage() {
         }
       }
     },
-    [severity, status, entitySearch],
+    [severity, status, entitySearch, detectorId, agentFilter],
   );
 
   useEffect(() => {
@@ -257,13 +273,33 @@ export default function UebaFindingsPage() {
         <div className="space-y-3">
           <DataViewToolbar
             left={
-              <DebouncedSearchInput
-                value={entitySearch}
-                onChange={setEntitySearch}
-                placeholder="Filter by entity..."
-                ariaLabel="Filter by entity value"
-                className="w-56"
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={detectorId}
+                  onChange={(e) => setDetectorId(e.target.value)}
+                  className="ui-select h-8 text-xs font-mono"
+                  aria-label="Detector filter"
+                >
+                  <option value="">All detectors</option>
+                  {Object.entries(DETECTOR_LABELS).map(([id, label]) => (
+                    <option key={id} value={id}>{label}</option>
+                  ))}
+                </select>
+                <DebouncedSearchInput
+                  value={agentFilter}
+                  onChange={setAgentFilter}
+                  placeholder="Filter by agent..."
+                  className="w-44"
+                  ariaLabel="Filter by agent ID"
+                />
+                <DebouncedSearchInput
+                  value={entitySearch}
+                  onChange={setEntitySearch}
+                  placeholder="Filter by entity..."
+                  ariaLabel="Filter by entity value"
+                  className="w-56"
+                />
+              </div>
             }
             right={
               <div className="flex items-center gap-2">
@@ -353,6 +389,9 @@ export default function UebaFindingsPage() {
                     <th className="px-2 py-2 text-left">
                       <SortHeader col="last_seen_at">Last seen</SortHeader>
                     </th>
+                    <th className="px-2 py-2 text-left">
+                      <SortHeader col="first_seen_at">First seen</SortHeader>
+                    </th>
                     <th className="px-2 py-2 text-right">
                       <SortHeader col="occurrence_count">Hits</SortHeader>
                     </th>
@@ -399,6 +438,11 @@ export default function UebaFindingsPage() {
                             {row.entity_type}
                             {row.agent_id ? ` · ${row.agent_id}` : ""}
                           </div>
+                          {row.agent_id && row.agent_id !== row.entity_value && (
+                            <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                              {row.agent_id}
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="px-2 py-2.5">
@@ -414,21 +458,36 @@ export default function UebaFindingsPage() {
                       <td className="px-2 py-2.5">
                         <div className="font-mono text-[11px]">
                           <span className="font-semibold text-foreground">
-                            {row.observed_value != null ? String(row.observed_value) : "—"}
+                            {row.observed_value != null ? formatMetricValue(row.observed_value, row.metric_name) : "—"}
                           </span>
-                          {row.expected_value != null ? (
-                            <span className="text-muted-foreground"> → {String(row.expected_value)}</span>
-                          ) : null}
+                          {row.expected_value != null && (
+                            <span className="text-muted-foreground">
+                              {" → "}{formatMetricValue(row.expected_value, row.metric_name)}
+                            </span>
+                          )}
                         </div>
-                        {row.deviation_score != null ? (
-                          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                            z={row.deviation_score.toFixed(2)}
+                        {row.deviation_score != null && (
+                          <div className="mt-1 flex items-center gap-1.5">
+                            <div className="h-1 w-14 overflow-hidden rounded-full bg-muted/40">
+                              <div
+                                className={cx("h-full rounded-full", riskBarClass(row.risk_score))}
+                                style={{ width: `${Math.min(100, row.risk_score)}%` }}
+                              />
+                            </div>
+                            <span className="font-mono text-[10px] text-muted-foreground">
+                              z={row.deviation_score.toFixed(1)}
+                            </span>
                           </div>
-                        ) : null}
+                        )}
                       </td>
                       <td className="px-2 py-2.5 font-mono text-[11px] text-muted-foreground">
                         <span title={formatTimestamp(row.last_seen_at)}>
                           {relativeTime(row.last_seen_at)}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2.5 font-mono text-[11px] text-muted-foreground">
+                        <span title={formatTimestamp(row.first_seen_at)}>
+                          {relativeTime(row.first_seen_at)}
                         </span>
                       </td>
                       <td className="px-2 py-2.5 text-right font-mono text-[11px] text-muted-foreground">
