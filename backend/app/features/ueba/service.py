@@ -15,6 +15,7 @@ from app.features.ueba.schemas import (
     UebaFindingEvidenceOut,
     UebaFindingListItemOut,
     UebaFindingsQuery,
+    UebaFindingTriageIn,
     UebaRunsQuery,
     UebaSummaryOut,
 )
@@ -121,3 +122,23 @@ def list_detector_runs(db: Session, *, params: UebaRunsQuery) -> CursorPage[Ueba
         next_cursor=next_cursor,
         has_more=has_more,
     )
+
+
+def triage_finding(db: Session, finding_id: int, body: UebaFindingTriageIn) -> UebaFindingDetailOut:
+    from datetime import datetime, timedelta, timezone
+    row = repository.get_finding(db, finding_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="UEBA finding not found")
+    if body.status in ("closed", "suppressed"):
+        row.status = body.status
+        row.closed_at = datetime.now(timezone.utc)
+    elif body.status == "open":
+        row.status = "open"
+        row.closed_at = None
+    if body.cooldown_extension_minutes is not None:
+        now = datetime.now(timezone.utc)
+        base = row.cooldown_until if (row.cooldown_until and row.cooldown_until > now) else now
+        row.cooldown_until = base + timedelta(minutes=body.cooldown_extension_minutes)
+    repository.flush(db)
+    repository.refresh(db, row)
+    return get_finding_detail(db, finding_id)
