@@ -1,4 +1,4 @@
-import { apiGet } from "@/shared/lib/http";
+import { apiGet, apiPatch } from "@/shared/lib/http";
 import type { CursorPage } from "@/shared/types/pagination";
 
 import type {
@@ -101,4 +101,11 @@ export function listUebaRuns(params?: {
     cacheMs: 0,
     signal: params?.signal,
   });
+}
+
+export function triageUebaFinding(
+  findingId: number,
+  body: { status: UebaFindingStatus; cooldown_extension_minutes?: number },
+) {
+  return apiPatch<UebaFindingDetail>(`/api/ueba/findings/${findingId}`, body);
 }
