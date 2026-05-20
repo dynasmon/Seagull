@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Badge } from "@/shared/components/Badge";
 import Drawer from "@/shared/components/Drawer";
 import {
+  InvestigationActionBar,
+  InvestigationActionButton,
   InvestigationChipList,
   InvestigationFieldGroup,
   InvestigationListItem,
@@ -16,14 +19,16 @@ import {
 } from "@/shared/components/investigation";
 import { cx } from "@/shared/lib/cx";
 
-import { getUebaFinding } from "../api";
-import type { UebaFinding, UebaFindingDetail } from "../types";
+import { getUebaFinding, triageUebaFinding } from "../api";
+import type { UebaFinding, UebaFindingDetail, UebaFindingStatus } from "../types";
 import {
   baselineStatusVariant,
+  detectorDescription,
   detectorLabel,
   findingStatusVariant,
   formatConfidence,
   formatExplanationEntries,
+  formatMetricValue,
   formatTimestamp,
   metricLabel,
   reasonCodeLabel,
@@ -34,15 +39,17 @@ import {
 type Tab = "overview" | "evidence" | "raw";
 
 function BaselineMaturityBar({ sampleCount, status }: { sampleCount: number; status: string }) {
-  const MIN_SAMPLES_APPROX = 20;
-  const pct = Math.min(100, Math.round((sampleCount / MIN_SAMPLES_APPROX) * 100));
+  const pct =
+    status === "mature"
+      ? 100
+      : Math.min(100, Math.round((sampleCount / Math.max(sampleCount * 1.5, 20)) * 100));
 
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-[11px] font-mono">
         <span className="text-muted-foreground">Maturity</span>
         <span className="text-foreground">
-          {sampleCount} samples{status === "mature" ? " — mature" : " — warming up"}
+          {sampleCount} samples — {status === "mature" ? "mature" : "warming up"}
         </span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/50">
@@ -58,14 +65,165 @@ function BaselineMaturityBar({ sampleCount, status }: { sampleCount: number; sta
   );
 }
 
+function HourHistogram({
+  hourCounts,
+  observedHour,
+  expectedHour,
+}: {
+  hourCounts: number[];
+  observedHour: number;
+  expectedHour: number;
+}) {
+  const max = Math.max(...hourCounts, 1);
+  return (
+    <div>
+      <div className="flex items-end gap-px h-8">
+        {hourCounts.map((count, h) => (
+          <div
+            key={h}
+            title={`${String(h).padStart(2, "0")}:00 — ${count}`}
+            className={cx(
+              "flex-1 rounded-sm min-h-[2px]",
+              h === observedHour
+                ? "bg-severity-high"
+                : h === expectedHour
+                  ? "bg-severity-low"
+                  : "bg-muted/50",
+            )}
+            style={{ height: `${Math.max(4, (count / max) * 100)}%` }}
+          />
+        ))}
+      </div>
+      <div className="mt-1 flex justify-between font-mono text-[9px] text-muted-foreground">
+        <span>00:00</span>
+        <span>
+          <span className="text-severity-high">▲</span> observed ·{" "}
+          <span className="text-severity-low">●</span> expected
+        </span>
+        <span>23:00</span>
+      </div>
+    </div>
+  );
+}
+
+function DeviationBar({
+  obs,
+  exp,
+  z,
+  metricName,
+}: {
+  obs: number;
+  exp: number;
+  z: number;
+  metricName: string;
+}) {
+  const spread = Math.abs(obs - exp) || exp * 0.1 || 1;
+  const lo = Math.max(0, exp - spread * 0.5);
+  const hi = exp + spread * 2;
+  const range = hi - lo || 1;
+  const obsPct = Math.min(100, Math.max(0, ((obs - lo) / range) * 100));
+  const expPct = Math.min(100, Math.max(0, ((exp - lo) / range) * 100));
+
+  return (
+    <div className="space-y-1">
+      <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted/40">
+        <div
+          className="absolute inset-y-0 left-0 rounded-l-full bg-muted/50"
+          style={{ width: `${expPct}%` }}
+        />
+        <div
+          className={cx(
+            "absolute top-0 h-full w-1.5 -translate-x-1/2 rounded-full",
+            z >= 4
+              ? "bg-severity-high"
+              : z >= 2.5
+                ? "bg-severity-medium"
+                : "bg-severity-low",
+          )}
+          style={{ left: `${obsPct}%` }}
+        />
+      </div>
+      <div className="flex justify-between font-mono text-[9px] text-muted-foreground">
+        <span>{formatMetricValue(lo, metricName)}</span>
+        <span className="opacity-60">baseline</span>
+        <span>{formatMetricValue(hi, metricName)}</span>
+      </div>
+    </div>
+  );
+}
+
+function DeviationBlock({ finding }: { finding: UebaFinding }) {
+  const { observed_value: obs, expected_value: exp, deviation_score: z, metric_name } = finding;
+
+  const hourCounts = (finding.explanation as Record<string, unknown>)?.hour_counts as
+    | number[]
+    | undefined;
+  const isHourMetric =
+    metric_name === "login_hour" || metric_name === "sudo_execution_hour";
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border/60 bg-background/30 px-3 py-3">
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Observed
+          </div>
+          <div className="mt-1 font-mono text-sm font-semibold text-foreground">
+            {obs != null ? formatMetricValue(obs, metric_name) : "—"}
+          </div>
+        </div>
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Expected
+          </div>
+          <div className="mt-1 font-mono text-sm text-muted-foreground">
+            {exp != null ? formatMetricValue(exp, metric_name) : "—"}
+          </div>
+        </div>
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Deviation (z)
+          </div>
+          <div
+            className={cx(
+              "mt-1 font-mono text-sm font-semibold",
+              z != null && z >= 4
+                ? "text-severity-high"
+                : z != null && z >= 2.5
+                  ? "text-severity-medium"
+                  : "text-foreground",
+            )}
+          >
+            {z != null ? z.toFixed(2) : "—"}
+          </div>
+        </div>
+      </div>
+
+      {obs != null && exp != null && z != null && !isHourMetric && (
+        <DeviationBar obs={obs} exp={exp} z={z} metricName={metric_name} />
+      )}
+
+      {isHourMetric && hourCounts && Array.isArray(hourCounts) && hourCounts.length === 24 && (
+        <HourHistogram
+          hourCounts={hourCounts}
+          observedHour={obs != null ? Math.round(obs) % 24 : -1}
+          expectedHour={exp != null ? Math.round(exp) % 24 : -1}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function FindingDrawer({
   open,
   finding,
   onClose,
+  onTriaged,
 }: {
   open: boolean;
   finding: UebaFinding | null;
   onClose: () => void;
+  onTriaged?: (updated: UebaFindingDetail) => void;
 }) {
   const [tab, setTab] = useState<Tab>("overview");
   const [detail, setDetail] = useState<UebaFindingDetail | null>(null);
@@ -95,8 +253,25 @@ export default function FindingDrawer({
     return () => ctrl.abort();
   }, [open, finding?.id]);
 
+  const navigate = useNavigate();
+  const [triageBusy, setTriageBusy] = useState(false);
+
   const f = detail ?? finding;
   const title = f ? `${detectorLabel(f.detector_id)} — ${f.entity_value}` : "Finding Detail";
+
+  const doTriage = async (status: UebaFindingStatus) => {
+    if (!f || triageBusy) return;
+    setTriageBusy(true);
+    try {
+      const updated = await triageUebaFinding(f.id, { status });
+      setDetail(updated);
+      onTriaged?.(updated);
+    } catch {
+      // no-op
+    } finally {
+      setTriageBusy(false);
+    }
+  };
 
   return (
     <Drawer
@@ -135,32 +310,50 @@ export default function FindingDrawer({
             ]}
           />
 
+          <InvestigationActionBar>
+            {f.status === "open" && (
+              <InvestigationActionButton onClick={() => doTriage("closed")} disabled={triageBusy}>
+                {triageBusy ? "Closing..." : "Close finding"}
+              </InvestigationActionButton>
+            )}
+            {f.status === "open" && (
+              <InvestigationActionButton onClick={() => doTriage("suppressed")} disabled={triageBusy}>
+                {triageBusy ? "Suppressing..." : "Suppress"}
+              </InvestigationActionButton>
+            )}
+            {f.status !== "open" && (
+              <InvestigationActionButton onClick={() => doTriage("open")} disabled={triageBusy}>
+                Reopen
+              </InvestigationActionButton>
+            )}
+            {f.alert_id != null && (
+              <InvestigationActionButton
+                tone="primary"
+                onClick={() => {
+                  onClose();
+                  navigate(`/alerts/queue?search=${encodeURIComponent(String(f.alert_id))}`);
+                }}
+              >
+                View alert ↗
+              </InvestigationActionButton>
+            )}
+            {f.agent_id && (
+              <InvestigationActionButton
+                onClick={() => {
+                  onClose();
+                  navigate(`/events/stream?agent_id=${encodeURIComponent(f.agent_id!)}`);
+                }}
+              >
+                Events for agent ↗
+              </InvestigationActionButton>
+            )}
+          </InvestigationActionBar>
+
           {tab === "overview" && (
             <div className="space-y-4">
               <InvestigationSection title="Anomaly Analysis">
                 <div className="space-y-3">
-                  <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-3">
-                    <div className="grid grid-cols-3 gap-3">
-                      <div>
-                        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Observed</div>
-                        <div className="mt-1 font-mono text-sm font-semibold text-foreground">
-                          {f.observed_value != null ? String(f.observed_value) : "—"}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Expected</div>
-                        <div className="mt-1 font-mono text-sm text-muted-foreground">
-                          {f.expected_value != null ? String(f.expected_value) : "—"}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Deviation (Z)</div>
-                        <div className="mt-1 font-mono text-sm font-semibold text-severity-high">
-                          {f.deviation_score != null ? f.deviation_score.toFixed(2) : "—"}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <DeviationBlock finding={f} />
 
                   {f.reason_codes.length > 0 && (
                     <InvestigationChipList
@@ -199,6 +392,22 @@ export default function FindingDrawer({
                     <div className="rounded-md border border-border/60 bg-background/30 px-3 py-2">
                       <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Linked Alert</div>
                       <div className="mt-1 text-foreground">#{f.alert_id}</div>
+                    </div>
+                  )}
+                </div>
+              </InvestigationSection>
+
+              <InvestigationSection title="Detector">
+                <div className="space-y-2 font-mono text-[12px]">
+                  <div className="text-muted-foreground">{detectorDescription(f.detector_id)}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground text-[11px]">ID</span>
+                    <span className="text-foreground text-[11px]">{f.detector_id}</span>
+                  </div>
+                  {f.cooldown_until && new Date(f.cooldown_until) > new Date() && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground text-[11px]">Cooldown until</span>
+                      <span className="text-foreground text-[11px]">{formatTimestamp(f.cooldown_until)}</span>
                     </div>
                   )}
                 </div>
