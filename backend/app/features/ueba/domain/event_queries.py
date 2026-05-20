@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.features.events.models import NetEventModel
+from app.features.ueba.models import UebaBaselineModel
 
 
 @dataclass(frozen=True)
@@ -201,6 +202,130 @@ def fetch_lateral_spread_per_agent(
         ],
         truncated,
     )
+
+
+@dataclass(frozen=True)
+class ProcExecRateObservation:
+    agent_id: str
+    exec_count: int
+
+
+@dataclass(frozen=True)
+class ProcExecEvent:
+    id: int
+    timestamp: datetime
+    agent_id: str
+    proc_name: str
+    proc_exe: str | None
+    proc_parent_name: str | None
+
+
+def fetch_proc_exec_rate_per_agent(
+    db: Session,
+    *,
+    window_started_at: datetime,
+    window_ended_at: datetime,
+    limit: int,
+) -> tuple[list[ProcExecRateObservation], bool]:
+    stmt = (
+        select(
+            NetEventModel.agent_id.label("agent_id"),
+            func.count(NetEventModel.id).label("exec_count"),
+        )
+        .where(
+            NetEventModel.timestamp >= window_started_at,
+            NetEventModel.timestamp < window_ended_at,
+            NetEventModel.event_type == "proc_exec",
+        )
+        .group_by(NetEventModel.agent_id)
+        .order_by(func.count(NetEventModel.id).desc())
+        .limit(max(1, int(limit)) + 1)
+    )
+    rows = db.execute(stmt).mappings().all()
+    truncated = len(rows) > max(1, int(limit))
+    kept = rows[: max(1, int(limit))]
+    return (
+        [
+            ProcExecRateObservation(
+                agent_id=str(row["agent_id"]),
+                exec_count=max(0, int(row["exec_count"] or 0)),
+            )
+            for row in kept
+        ],
+        truncated,
+    )
+
+
+def fetch_proc_exec_events(
+    db: Session,
+    *,
+    after_id: int,
+    since: datetime,
+    limit: int,
+) -> list[ProcExecEvent]:
+    stmt = (
+        select(
+            NetEventModel.id,
+            NetEventModel.timestamp,
+            NetEventModel.agent_id,
+            NetEventModel.proc_name,
+            NetEventModel.proc_exe,
+            NetEventModel.proc_parent_name,
+        )
+        .where(
+            NetEventModel.id > max(0, int(after_id)),
+            NetEventModel.timestamp >= since,
+            NetEventModel.event_type == "proc_exec",
+            NetEventModel.proc_name.isnot(None),
+            NetEventModel.proc_name != "",
+        )
+        .order_by(NetEventModel.id.asc())
+        .limit(max(1, int(limit)))
+    )
+    rows = db.execute(stmt).mappings().all()
+    return [
+        ProcExecEvent(
+            id=int(row["id"]),
+            timestamp=row["timestamp"],
+            agent_id=str(row["agent_id"]),
+            proc_name=str(row["proc_name"]),
+            proc_exe=(str(row["proc_exe"]) if row.get("proc_exe") else None),
+            proc_parent_name=(str(row["proc_parent_name"]) if row.get("proc_parent_name") else None),
+        )
+        for row in rows
+    ]
+
+
+def fetch_proc_exec_count_for_agent(
+    db: Session,
+    *,
+    agent_id: str,
+    since: datetime,
+) -> int:
+    value = db.execute(
+        select(func.count(NetEventModel.id)).where(
+            NetEventModel.agent_id == agent_id,
+            NetEventModel.event_type == "proc_exec",
+            NetEventModel.timestamp >= since,
+        )
+    ).scalar()
+    return max(0, int(value or 0))
+
+
+def fetch_proc_name_baseline_count_for_agent(
+    db: Session,
+    *,
+    agent_id: str,
+    detector_id: str,
+) -> int:
+    value = db.execute(
+        select(func.count(UebaBaselineModel.id)).where(
+            UebaBaselineModel.detector_id == detector_id,
+            UebaBaselineModel.entity_type == "proc_name",
+            UebaBaselineModel.bucket_key == agent_id,
+        )
+    ).scalar()
+    return max(0, int(value or 0))
 
 
 def fetch_ssh_source_evidence(
