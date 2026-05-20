@@ -111,6 +111,98 @@ def fetch_ssh_source_diversity(
     )
 
 
+@dataclass(frozen=True)
+class OutboundBytesObservation:
+    agent_id: str
+    total_bytes: int
+    event_count: int
+
+
+@dataclass(frozen=True)
+class LateralSpreadObservation:
+    agent_id: str
+    distinct_dst_ips: int
+    event_count: int
+
+
+def fetch_outbound_bytes_per_agent(
+    db: Session,
+    *,
+    window_started_at: datetime,
+    window_ended_at: datetime,
+    limit: int,
+) -> tuple[list[OutboundBytesObservation], bool]:
+    stmt = (
+        select(
+            NetEventModel.agent_id.label("agent_id"),
+            func.sum(NetEventModel.bytes).label("total_bytes"),
+            func.count(NetEventModel.id).label("event_count"),
+        )
+        .where(
+            NetEventModel.timestamp >= window_started_at,
+            NetEventModel.timestamp < window_ended_at,
+            NetEventModel.event_type.in_(["flow", "l7_flow", "lateral_conn"]),
+            NetEventModel.bytes.isnot(None),
+        )
+        .group_by(NetEventModel.agent_id)
+        .order_by(func.sum(NetEventModel.bytes).desc())
+        .limit(max(1, int(limit)) + 1)
+    )
+    rows = db.execute(stmt).mappings().all()
+    truncated = len(rows) > max(1, int(limit))
+    kept = rows[: max(1, int(limit))]
+    return (
+        [
+            OutboundBytesObservation(
+                agent_id=str(row["agent_id"]),
+                total_bytes=max(0, int(row["total_bytes"] or 0)),
+                event_count=max(0, int(row["event_count"] or 0)),
+            )
+            for row in kept
+        ],
+        truncated,
+    )
+
+
+def fetch_lateral_spread_per_agent(
+    db: Session,
+    *,
+    window_started_at: datetime,
+    window_ended_at: datetime,
+    limit: int,
+) -> tuple[list[LateralSpreadObservation], bool]:
+    stmt = (
+        select(
+            NetEventModel.agent_id.label("agent_id"),
+            func.count(func.distinct(NetEventModel.dst_ip)).label("distinct_dst_ips"),
+            func.count(NetEventModel.id).label("event_count"),
+        )
+        .where(
+            NetEventModel.timestamp >= window_started_at,
+            NetEventModel.timestamp < window_ended_at,
+            NetEventModel.event_type == "lateral_conn",
+            NetEventModel.dst_ip.isnot(None),
+        )
+        .group_by(NetEventModel.agent_id)
+        .order_by(func.count(func.distinct(NetEventModel.dst_ip)).desc(), func.count(NetEventModel.id).desc())
+        .limit(max(1, int(limit)) + 1)
+    )
+    rows = db.execute(stmt).mappings().all()
+    truncated = len(rows) > max(1, int(limit))
+    kept = rows[: max(1, int(limit))]
+    return (
+        [
+            LateralSpreadObservation(
+                agent_id=str(row["agent_id"]),
+                distinct_dst_ips=max(0, int(row["distinct_dst_ips"] or 0)),
+                event_count=max(0, int(row["event_count"] or 0)),
+            )
+            for row in kept
+        ],
+        truncated,
+    )
+
+
 def fetch_ssh_source_evidence(
     db: Session,
     *,
