@@ -328,6 +328,123 @@ def fetch_proc_name_baseline_count_for_agent(
     return max(0, int(value or 0))
 
 
+@dataclass(frozen=True)
+class FimRateObservation:
+    agent_id: str
+    fim_count: int
+
+
+@dataclass(frozen=True)
+class SudoCmdEvent:
+    id: int
+    timestamp: datetime
+    agent_id: str
+    username: str
+    proc_name: str | None
+
+
+def fetch_fim_rate_per_agent(
+    db: Session,
+    *,
+    window_started_at: datetime,
+    window_ended_at: datetime,
+    limit: int,
+) -> tuple[list[FimRateObservation], bool]:
+    stmt = (
+        select(
+            NetEventModel.agent_id.label("agent_id"),
+            func.count(NetEventModel.id).label("fim_count"),
+        )
+        .where(
+            NetEventModel.timestamp >= window_started_at,
+            NetEventModel.timestamp < window_ended_at,
+            NetEventModel.event_type == "fim_change",
+        )
+        .group_by(NetEventModel.agent_id)
+        .order_by(func.count(NetEventModel.id).desc())
+        .limit(max(1, int(limit)) + 1)
+    )
+    rows = db.execute(stmt).mappings().all()
+    truncated = len(rows) > max(1, int(limit))
+    kept = rows[: max(1, int(limit))]
+    return (
+        [
+            FimRateObservation(
+                agent_id=str(row["agent_id"]),
+                fim_count=max(0, int(row["fim_count"] or 0)),
+            )
+            for row in kept
+        ],
+        truncated,
+    )
+
+
+def fetch_fim_spike_evidence(
+    db: Session,
+    *,
+    agent_id: str,
+    window_started_at: datetime,
+    window_ended_at: datetime,
+    limit: int,
+) -> list[dict[str, Any]]:
+    stmt = (
+        select(
+            NetEventModel.id,
+            NetEventModel.timestamp,
+            NetEventModel.fim_path,
+            NetEventModel.fim_category,
+        )
+        .where(
+            NetEventModel.timestamp >= window_started_at,
+            NetEventModel.timestamp < window_ended_at,
+            NetEventModel.event_type == "fim_change",
+            NetEventModel.agent_id == agent_id,
+            NetEventModel.fim_path.isnot(None),
+        )
+        .order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
+        .limit(max(1, int(limit)))
+    )
+    return [dict(row) for row in db.execute(stmt).mappings().all()]
+
+
+def fetch_sudo_cmd_events(
+    db: Session,
+    *,
+    after_id: int,
+    since: datetime,
+    limit: int,
+) -> list[SudoCmdEvent]:
+    stmt = (
+        select(
+            NetEventModel.id,
+            NetEventModel.timestamp,
+            NetEventModel.agent_id,
+            NetEventModel.ssh_username,
+            NetEventModel.proc_name,
+        )
+        .where(
+            NetEventModel.id > max(0, int(after_id)),
+            NetEventModel.timestamp >= since,
+            NetEventModel.event_type == "sudo_cmd",
+            NetEventModel.ssh_username.isnot(None),
+            NetEventModel.ssh_username != "",
+        )
+        .order_by(NetEventModel.id.asc())
+        .limit(max(1, int(limit)))
+    )
+    rows = db.execute(stmt).mappings().all()
+    return [
+        SudoCmdEvent(
+            id=int(row["id"]),
+            timestamp=row["timestamp"],
+            agent_id=str(row["agent_id"]),
+            username=str(row["ssh_username"]),
+            proc_name=(str(row["proc_name"]) if row.get("proc_name") else None),
+        )
+        for row in rows
+    ]
+
+
 def fetch_ssh_source_evidence(
     db: Session,
     *,

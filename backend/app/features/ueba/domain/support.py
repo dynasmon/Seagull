@@ -46,6 +46,16 @@ class DetectorRuntimeConfig(Protocol):
     proc_name_min_rarity_bits: float
     proc_name_min_samples_for_maturity: int
     proc_name_rarity_lookback_hours: int
+    fim_spike_window_minutes: int
+    fim_spike_min_samples: int
+    fim_spike_max_entities_per_cycle: int
+    fim_spike_max_windows_per_cycle: int
+    fim_spike_min_z_score: float
+    sudo_hour_lookback_hours: int
+    sudo_hour_min_samples: int
+    sudo_hour_max_events_per_cycle: int
+    sudo_hour_min_rarity_bits: float
+    sudo_hour_min_z_score: float
 
 
 @dataclass(frozen=True)
