@@ -62,6 +62,16 @@ class UebaWorkerConfig:
     lateral_spread_max_entities_per_cycle: int
     lateral_spread_max_windows_per_cycle: int
     lateral_spread_min_z_score: float
+    proc_exec_rate_window_minutes: int
+    proc_exec_rate_min_samples: int
+    proc_exec_rate_max_entities_per_cycle: int
+    proc_exec_rate_max_windows_per_cycle: int
+    proc_exec_rate_min_z_score: float
+    proc_name_lookback_hours: int
+    proc_name_max_events_per_cycle: int
+    proc_name_min_rarity_bits: float
+    proc_name_min_samples_for_maturity: int
+    proc_name_rarity_lookback_hours: int
 
 
 @dataclass(frozen=True)
@@ -125,6 +135,16 @@ def load_worker_config() -> UebaWorkerConfig:
         lateral_spread_max_entities_per_cycle=max(1, _env_int("SEAGULL_UEBA_LATERAL_SPREAD_MAX_ENTITIES_PER_CYCLE", 200)),
         lateral_spread_max_windows_per_cycle=max(1, _env_int("SEAGULL_UEBA_LATERAL_SPREAD_MAX_WINDOWS_PER_CYCLE", 4)),
         lateral_spread_min_z_score=max(0.0, _env_float("SEAGULL_UEBA_LATERAL_SPREAD_MIN_Z_SCORE", 3.0)),
+        proc_exec_rate_window_minutes=max(1, _env_int("SEAGULL_UEBA_PROC_EXEC_RATE_WINDOW_MINUTES", 5)),
+        proc_exec_rate_min_samples=max(1, _env_int("SEAGULL_UEBA_PROC_EXEC_RATE_MIN_SAMPLES", 12)),
+        proc_exec_rate_max_entities_per_cycle=max(1, _env_int("SEAGULL_UEBA_PROC_EXEC_RATE_MAX_ENTITIES_PER_CYCLE", 200)),
+        proc_exec_rate_max_windows_per_cycle=max(1, _env_int("SEAGULL_UEBA_PROC_EXEC_RATE_MAX_WINDOWS_PER_CYCLE", 6)),
+        proc_exec_rate_min_z_score=max(0.0, _env_float("SEAGULL_UEBA_PROC_EXEC_RATE_MIN_Z_SCORE", 4.0)),
+        proc_name_lookback_hours=max(1, _env_int("SEAGULL_UEBA_PROC_NAME_LOOKBACK_HOURS", 72)),
+        proc_name_max_events_per_cycle=max(1, _env_int("SEAGULL_UEBA_PROC_NAME_MAX_EVENTS_PER_CYCLE", 1000)),
+        proc_name_min_rarity_bits=max(0.0, _env_float("SEAGULL_UEBA_PROC_NAME_MIN_RARITY_BITS", 4.0)),
+        proc_name_min_samples_for_maturity=max(1, _env_int("SEAGULL_UEBA_PROC_NAME_MIN_SAMPLES_FOR_MATURITY", 5)),
+        proc_name_rarity_lookback_hours=max(1, _env_int("SEAGULL_UEBA_PROC_NAME_RARITY_LOOKBACK_HOURS", 168)),
     )
 
 
