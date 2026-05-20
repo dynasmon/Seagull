@@ -17,6 +17,7 @@ from app.features.ueba.schemas import (
     UebaFindingListItemOut,
     UebaFindingsQuery,
     UebaFindingStatus,
+    UebaFindingTriageIn,
     UebaRunsQuery,
     UebaRunStatus,
     UebaSeverity,
@@ -121,3 +122,13 @@ def list_runs(
     )
     with managed_session(db) as db_session:
         return service.list_detector_runs(db_session, params=params)
+
+
+@router.patch("/findings/{finding_id}", response_model=UebaFindingDetailOut)
+def triage_finding_endpoint(
+    finding_id: int,
+    body: UebaFindingTriageIn,
+    db: Session = Depends(get_db),
+):
+    with managed_session(db) as db_session:
+        return service.triage_finding(db_session, finding_id, body)

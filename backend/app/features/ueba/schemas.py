@@ -218,3 +218,8 @@ class UebaRunsQuery(BaseModel):
             return None
         text = str(value).strip()
         return text or None
+
+
+class UebaFindingTriageIn(BaseModel):
+    status: UebaFindingStatus
+    cooldown_extension_minutes: Optional[int] = Field(None, ge=0, le=10080)
