@@ -47,9 +47,9 @@ export function shouldShowLabel(
 }
 
 export function nodeBoundingRadius(importance: TopologyNodeImportance): number {
-  if (importance === "anchor") return 18;
-  if (importance === "elevated") return 14;
-  return 11;
+  if (importance === "anchor") return 26;
+  if (importance === "elevated") return 20;
+  return 16;
 }
 
 export type EdgeRoutingHint = {
