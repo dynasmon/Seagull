@@ -9,9 +9,18 @@ import { nodeVisual, NODE_TYPE_LABELS, severityColor } from "../lib/visuals";
 import { toTitleLabel } from "../lib/labels";
 import type { TopologyNode } from "../types";
 
-const NODE_H = 80;
-const NODE_W = 80;
+const NODE_H = 96;
+const NODE_W = 96;
 const CIRCLE_CENTER_Y = NODE_H / 2;
+
+let pulseKeyframeInjected = false;
+function ensurePulseKeyframe() {
+  if (typeof document === "undefined" || pulseKeyframeInjected) return;
+  pulseKeyframeInjected = true;
+  const style = document.createElement("style");
+  style.textContent = `@keyframes topology-node-pulse{0%{box-shadow:0 0 0 0 rgba(96,165,250,0.7)}70%{box-shadow:0 0 0 14px rgba(96,165,250,0)}100%{box-shadow:0 0 0 0 rgba(96,165,250,0)}}`;
+  document.head.appendChild(style);
+}
 
 function RouterIcon() {
   return (
@@ -29,9 +38,9 @@ function RouterIcon() {
 function HostIcon() {
   return (
     <>
-      <rect x="-8" y="-8" width="16" height="11" rx="1.5" fill="none" strokeWidth="1.4" />
-      <line x1="0" y1="3" x2="0" y2="6" strokeWidth="1.5" />
-      <line x1="-5" y1="6" x2="5" y2="6" strokeWidth="2" />
+      <rect x="-9" y="-9" width="18" height="13" rx="2" fill="none" strokeWidth="1.8" />
+      <line x1="-3" y1="4" x2="3" y2="4" strokeWidth="1.6" />
+      <rect x="-5" y="4" width="10" height="3" rx="1" fill="none" strokeWidth="1.4" />
     </>
   );
 }
@@ -39,12 +48,13 @@ function HostIcon() {
 function ServerIcon() {
   return (
     <>
-      <rect x="-8" y="-8" width="16" height="16" rx="1.5" fill="none" strokeWidth="1.4" />
-      <line x1="-6" y1="-3" x2="3" y2="-3" strokeWidth="1" opacity="0.6" />
-      <line x1="-6" y1="2" x2="3" y2="2" strokeWidth="1" opacity="0.6" />
-      <circle cx="6" cy="-5.5" r="1.4" fill="currentColor" stroke="none" />
-      <circle cx="6" cy="-0.5" r="1.4" fill="currentColor" stroke="none" opacity="0.7" />
-      <circle cx="6" cy="4.5" r="1.4" fill="currentColor" stroke="none" opacity="0.4" />
+      <rect x="-9" y="-9" width="18" height="18" rx="2" fill="none" strokeWidth="1.8" />
+      <rect x="-7" y="-6" width="10" height="3.5" rx="1" fill="none" strokeWidth="1.2" />
+      <rect x="-7" y="-1" width="10" height="3.5" rx="1" fill="none" strokeWidth="1.2" />
+      <rect x="-7" y="4" width="10" height="3.5" rx="1" fill="none" strokeWidth="1.2" />
+      <circle cx="5.5" cy="-4.5" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="5.5" cy="0.5" r="1.5" fill="currentColor" stroke="none" opacity="0.7" />
+      <circle cx="5.5" cy="5.5" r="1.5" fill="currentColor" stroke="none" opacity="0.4" />
     </>
   );
 }
@@ -143,11 +153,17 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
   const isCluster = node.node_type === "service" && Boolean(node.metadata?._is_service_cluster);
   const clusterCount = isCluster ? Number(node.metadata?._cluster_count ?? 0) : 0;
 
+  if (data.isNew) ensurePulseKeyframe();
+
   const opacity = isDimmed ? 0.11 : node.is_stale && node.node_type !== "agent" ? 0.38 : 1;
 
-  const baseBoost = isSelected ? 4 : 0;
-  const markerSize = importance === "anchor" ? 36 + baseBoost : importance === "elevated" ? 28 + baseBoost : 22 + baseBoost;
-  const iconSize = importance === "anchor" ? 21 : importance === "elevated" ? 17 : 13;
+  const baseBoost = isSelected ? 5 : 0;
+  const markerSize =
+    importance === "anchor"   ? 52 + baseBoost :
+    importance === "elevated" ? 40 + baseBoost : 32 + baseBoost;
+  const iconSize =
+    importance === "anchor"   ? 28 :
+    importance === "elevated" ? 22 : 17;
 
   const circleTop = CIRCLE_CENTER_Y - markerSize / 2;
   const labelTop = CIRCLE_CENTER_Y + markerSize / 2 + 4;
@@ -186,42 +202,44 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
               : hasAlert
                 ? `0 0 12px ${severityColor(node.severity)}28`
                 : "none",
+          animation: data.isNew ? "topology-node-pulse 0.7s ease-out 3" : undefined,
         }}
       >
-        <svg width={iconSize} height={iconSize} viewBox="-12 -12 24 24" stroke="currentColor" fill="none">
+        <svg width={iconSize} height={iconSize} viewBox="-14 -14 28 28" stroke="currentColor" fill="none">
           <DeviceIcon nodeType={node.node_type} isCluster={isCluster} />
         </svg>
 
-        {(hasAlert || (node.is_stale && node.node_type === "agent")) && (
+        {node.is_stale && node.node_type === "agent" && (
           <span
             className="absolute -right-[1px] -top-[1px] h-[7px] w-[7px] rounded-full border-[1.5px] border-[#07111f]"
-            style={{
-              background:
-                node.is_stale && node.node_type === "agent"
-                  ? "#F97316"
-                  : hasAlert
-                    ? severityColor(node.severity)
-                    : "#6B7280",
-            }}
+            style={{ background: "#F97316" }}
           />
+        )}
+        {hasAlert && node.alert_count > 0 && (
+          <span
+            className="absolute -right-2 -top-2 flex h-4 min-w-[16px] items-center justify-center rounded-full border border-[#07111f] px-1 text-[8px] font-bold"
+            style={{ background: severityColor(node.severity), color: "#fff" }}
+          >
+            {node.alert_count > 9 ? "9+" : node.alert_count}
+          </span>
         )}
       </div>
 
       <div
         className={cx(
           "pointer-events-none absolute left-0 right-0 overflow-hidden text-center leading-none transition-opacity duration-150 group-hover:opacity-100",
-          showLabel ? "opacity-100" : "opacity-0",
+          (showLabel || importance === "anchor") ? "opacity-100" : "opacity-0",
         )}
         style={{ top: labelTop }}
       >
         <div
-          className="truncate px-0.5 text-[9px] font-semibold"
+          className="truncate px-0.5 text-[10px] font-semibold"
           style={{ color: visual.stroke }}
         >
           {label}
         </div>
-        {(isSelected || isSearchMatch) && (
-          <div className="truncate px-0.5 text-[8px]" style={{ color: "rgba(148,163,184,0.55)" }}>
+        {(isSelected || isSearchMatch || importance === "anchor") && (
+          <div className="truncate px-0.5 text-[9px]" style={{ color: "rgba(148,163,184,0.65)" }}>
             {subtitle}
           </div>
         )}

@@ -25,7 +25,7 @@ import { cx } from "@/shared/lib/cx";
 
 import type { ClusterHaloNodeData, DeviceNodeData, GroupNodeData, TopologyEdgeData } from "../lib/graphTransform";
 import { stableTopologyHash } from "../lib/topologyLayoutEngine";
-import { edgeVisual } from "../lib/visuals";
+import { edgeVisual, severityColor } from "../lib/visuals";
 import { useTopologyPositions } from "../hooks/useTopologyPositions";
 import type {
   TopologyEdge,
@@ -38,6 +38,7 @@ import type {
 } from "../types";
 import TopologyCanvasControls from "./TopologyCanvasControls";
 import TopologyClusterHaloNode from "./TopologyClusterHaloNode";
+import { TopologyContextMenu } from "./TopologyContextMenu";
 import TopologyDeviceNode from "./TopologyDeviceNode";
 import TopologyGroupNode from "./TopologyGroupNode";
 import TopologyLegend from "./TopologyLegend";
@@ -59,6 +60,19 @@ function edgeHandlePositions(
     : { sp: Position.Top, tp: Position.Bottom };
 }
 
+const EDGE_TYPE_SHORT_LABELS: Record<string, string> = {
+  observed_flow: "flow",
+  alert_related: "alert",
+  exposure_related: "exposure",
+  listens_on: "listens",
+  resolved_dns: "dns",
+  member_of_subnet: "subnet",
+  route_next_hop: "route",
+  inferred_relationship: "inferred",
+};
+
+const PARALLEL_LANE_WIDTH = 13;
+
 function TopologyFlowEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, data } = props;
   const isGroupEdge = data && "groupEdge" in data;
@@ -79,10 +93,12 @@ function TopologyFlowEdge(props: EdgeProps) {
   const groupAlertCount = isGroupEdge ? Number((edgeObj as TopologyGroupEdge).alert_count || 0) : 0;
   const groupBoost = isGroupEdge ? Math.min(1.4, Math.log1p(groupEventCount) / 3) : 0;
 
-  const parallelShift = isGroupEdge ? ((stableTopologyHash(id) % 5) - 2) * 11 : 0;
   const edgeData = data as unknown as TopologyEdgeData;
-  const sourceRadius = isGroupEdge ? 0 : (edgeData.sourceRadius ?? 11);
-  const targetRadius = isGroupEdge ? 0 : (edgeData.targetRadius ?? 11);
+  const sourceRadius = isGroupEdge ? 0 : (edgeData.sourceRadius ?? 16);
+  const targetRadius = isGroupEdge ? 0 : (edgeData.targetRadius ?? 16);
+
+  const parallelIndex = isGroupEdge ? (stableTopologyHash(id) % 5) - 2 : (edgeData.parallelIndex ?? 0);
+  const parallelTotal = isGroupEdge ? 1 : (edgeData.parallelTotal ?? 1);
 
   const dx = targetX - sourceX;
   const dy = targetY - sourceY;
@@ -90,13 +106,24 @@ function TopologyFlowEdge(props: EdgeProps) {
   const nx = dx / dist;
   const ny = dy / dist;
 
-  const adjSX = sourceX + nx * sourceRadius;
-  const adjSY = sourceY + ny * sourceRadius + parallelShift;
-  const adjTX = targetX - nx * targetRadius;
-  const adjTY = targetY - ny * targetRadius + parallelShift;
+  const perpX = -ny;
+  const perpY = nx;
+
+  const laneOffset = parallelTotal > 1
+    ? (parallelIndex - (parallelTotal - 1) / 2) * PARALLEL_LANE_WIDTH
+    : 0;
+
+  const groupShift = isGroupEdge ? ((stableTopologyHash(id) % 5) - 2) * 11 : 0;
+  const totalShift = laneOffset + groupShift;
+
+  const adjSX = sourceX + nx * sourceRadius + perpX * totalShift;
+  const adjSY = sourceY + ny * sourceRadius + perpY * totalShift;
+  const adjTX = targetX - nx * targetRadius + perpX * totalShift;
+  const adjTY = targetY - ny * targetRadius + perpY * totalShift;
+
+  const curvature = isGroupEdge ? 0.28 : parallelTotal > 1 ? 0.25 : 0.42;
 
   const { sp, tp } = edgeHandlePositions(adjSX, adjSY, adjTX, adjTY);
-  const curvature = isGroupEdge ? 0.28 : 0.42;
   const [edgePath] = getBezierPath({
     sourceX: adjSX,
     sourceY: adjSY,
@@ -117,21 +144,55 @@ function TopologyFlowEdge(props: EdgeProps) {
     : isSelected
       ? 1
       : isGroupEdge
-        ? Math.min(0.62, 0.18 + groupBoost * 0.26 + (groupAlertCount > 0 ? 0.10 : 0))
+        ? Math.min(0.62, 0.18 + groupBoost * 0.26 + (groupAlertCount > 0 ? 0.1 : 0))
         : visual.opacity;
 
+  const midX = (adjSX + adjTX) / 2;
+  const midY = (adjSY + adjTY) / 2;
+
   return (
-    <BaseEdge
-      id={id}
-      path={edgePath}
-      style={{
-        stroke: visual.stroke,
-        strokeWidth,
-        strokeDasharray: visual.dashArray,
-        opacity: resolvedOpacity,
-        transition: "stroke 180ms ease, stroke-width 180ms ease, opacity 180ms ease",
-      }}
-    />
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        style={{
+          stroke: visual.stroke,
+          strokeWidth,
+          strokeDasharray: visual.dashArray,
+          opacity: resolvedOpacity,
+          transition: "stroke 180ms ease, stroke-width 180ms ease, opacity 180ms ease",
+        }}
+      />
+      {(isSelected || (parallelTotal > 1 && !isDimmed)) && (
+        <foreignObject
+          x={midX - 32}
+          y={midY - 9}
+          width={64}
+          height={18}
+          style={{ overflow: "visible", pointerEvents: "none" }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(7,14,25,0.88)",
+              border: `1px solid ${visual.stroke}55`,
+              borderRadius: 4,
+              padding: "1px 5px",
+              fontSize: 9,
+              fontWeight: 600,
+              color: visual.stroke,
+              whiteSpace: "nowrap",
+              backdropFilter: "blur(4px)",
+              opacity: resolvedOpacity > 0.1 ? 1 : 0,
+            }}
+          >
+            {EDGE_TYPE_SHORT_LABELS[edgeType] ?? edgeType}
+          </div>
+        </foreignObject>
+      )}
+    </>
   );
 }
 
@@ -145,6 +206,22 @@ const edgeTypes = {
   topology: TopologyFlowEdge,
   group: TopologyFlowEdge,
 };
+
+function isNodeInsideHalo(
+  nodePos: { x: number; y: number },
+  haloNode: Node,
+  haloRadius: number,
+): boolean {
+  const nodeCenterX = nodePos.x + 48;
+  const nodeCenterY = nodePos.y + 48;
+  const haloCenterX = haloNode.position.x + haloRadius;
+  const haloCenterY = haloNode.position.y + haloRadius;
+  const dist = Math.sqrt(
+    Math.pow(nodeCenterX - haloCenterX, 2) +
+    Math.pow(nodeCenterY - haloCenterY, 2),
+  );
+  return dist <= haloRadius;
+}
 
 type FlowInnerProps = {
   nodes: Node[];
@@ -176,6 +253,10 @@ type FlowInnerProps = {
   onNextMatch: () => void;
   onPositionSave: (nodeId: string, x: number, y: number) => void;
   onTooltipChange: (info: TooltipInfo | null) => void;
+  onMultiSelectToggle: (id: string) => void;
+  onMultiSelectionClear: () => void;
+  onContextMenuRequest: (x: number, y: number, nodeId: string, nodeLabel: string, nodeType: "device" | "group") => void;
+  onHaloEscape: (nodeId: string, nodeLabel: string, groupLabel: string, prevPosition: { x: number; y: number }) => void;
 };
 
 function FlowInner({
@@ -208,6 +289,10 @@ function FlowInner({
   onNextMatch,
   onPositionSave,
   onTooltipChange,
+  onMultiSelectToggle,
+  onMultiSelectionClear,
+  onContextMenuRequest,
+  onHaloEscape,
 }: FlowInnerProps) {
   const { fitView } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -215,6 +300,7 @@ function FlowInner({
   const prevKeyRef = useRef<string>("");
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
+  const prevNodePositionRef = useRef<{ x: number; y: number } | null>(null);
 
   const graphKey = useMemo(
     () =>
@@ -248,9 +334,33 @@ function FlowInner({
     }
   }, [activeMatchKey, fitView]);
 
+  const handleNodeDragStart: OnNodeDrag = useCallback(
+    (_event, node) => {
+      prevNodePositionRef.current = { x: node.position.x, y: node.position.y };
+    },
+    [],
+  );
+
   const handleNodeDragStop: OnNodeDrag = useCallback(
     (_event: React.MouseEvent, node: Node) => {
       if (node.draggable === false) return;
+
+      const nodeDataFull = node.data as unknown as DeviceNodeData;
+      if (node.type === "device" && nodeDataFull.groupKey) {
+        const haloId = `halo:${nodeDataFull.groupKey}`;
+        const haloNodeForEscape = nodesRef.current.find((n) => n.id === haloId);
+        if (haloNodeForEscape) {
+          const haloRadius = (haloNodeForEscape.data as unknown as ClusterHaloNodeData).radius;
+          if (!isNodeInsideHalo(node.position, haloNodeForEscape, haloRadius)) {
+            const prevPos = prevNodePositionRef.current;
+            if (prevPos) {
+              const haloData = haloNodeForEscape.data as unknown as ClusterHaloNodeData;
+              onHaloEscape(node.id, nodeDataFull.node.label, haloData.group.label, prevPos);
+            }
+          }
+        }
+      }
+
       onPositionSave(node.id, node.position.x, node.position.y);
 
       const nodeData = node.data as unknown as DeviceNodeData;
@@ -261,14 +371,24 @@ function FlowInner({
       if (!haloNode) return;
 
       const radius = (haloNode.data as unknown as ClusterHaloNodeData).radius;
-      const haloX = node.position.x + 40 - radius;
-      const haloY = node.position.y + 40 - radius;
+      const haloX = node.position.x + 48 - radius;
+      const haloY = node.position.y + 48 - radius;
       onPositionSave(haloId, haloX, haloY);
       setNodes((nds) =>
         nds.map((n) => (n.id === haloId ? { ...n, position: { x: haloX, y: haloY } } : n)),
       );
+
+      const groupMembers = nodesRef.current.filter(
+        (n) =>
+          n.type === "device" &&
+          (n.data as unknown as DeviceNodeData).groupKey === nodeData.groupKey &&
+          n.id !== node.id,
+      );
+      for (const member of groupMembers) {
+        onPositionSave(member.id, member.position.x, member.position.y);
+      }
     },
-    [onPositionSave, setNodes],
+    [onPositionSave, setNodes, onHaloEscape],
   );
 
   const handleResetLayout = useCallback(() => {
@@ -278,11 +398,16 @@ function FlowInner({
   }, [onResetLayout, setNodes, initialNodes, fitView]);
 
   const handleNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => {
+    (event: React.MouseEvent, node: Node) => {
+      if (event.shiftKey) {
+        onMultiSelectToggle(node.id);
+        return;
+      }
+      onMultiSelectionClear();
       const kind = node.type === "group" ? "group" : "node";
       onNodeClick(node.id, kind);
     },
-    [onNodeClick],
+    [onMultiSelectToggle, onMultiSelectionClear, onNodeClick],
   );
 
   const handleNodeDoubleClick = useCallback(
@@ -295,6 +420,19 @@ function FlowInner({
   const handleEdgeClick = useCallback(
     (_: React.MouseEvent, edge: Edge) => onEdgeClick(edge.id),
     [onEdgeClick],
+  );
+
+  const handleNodeContextMenu = useCallback(
+    (event: React.MouseEvent, node: Node) => {
+      event.preventDefault();
+      const label =
+        node.type === "device"
+          ? (node.data as unknown as DeviceNodeData).node.label
+          : (node.data as unknown as GroupNodeData).group.label;
+      const nodeType: "device" | "group" = node.type === "group" ? "group" : "device";
+      onContextMenuRequest(event.clientX, event.clientY, node.id, label, nodeType);
+    },
+    [onContextMenuRequest],
   );
 
   const handleNodeMouseEnter = useCallback(
@@ -375,7 +513,9 @@ function FlowInner({
       onEdgesChange={onEdgesChange}
       onNodeClick={handleNodeClick}
       onNodeDoubleClick={handleNodeDoubleClick}
+      onNodeDragStart={handleNodeDragStart}
       onNodeDragStop={handleNodeDragStop}
+      onNodeContextMenu={handleNodeContextMenu}
       onEdgeClick={handleEdgeClick}
       onPaneClick={onPaneClick}
       onNodeMouseEnter={handleNodeMouseEnter}
@@ -425,14 +565,23 @@ function FlowInner({
         <MiniMap
           position="bottom-right"
           nodeColor={miniMapNodeColor}
-          nodeStrokeWidth={0}
-          maskColor="rgba(10,15,26,0.65)"
+          nodeStrokeWidth={2}
+          nodeStrokeColor={(node) => {
+            if (node.type === "device") {
+              const d = node.data as unknown as DeviceNodeData;
+              return d.node.alert_count > 0 ? severityColor(d.node.severity) : "transparent";
+            }
+            return "transparent";
+          }}
+          maskColor="rgba(7,14,25,0.72)"
           style={{
-            background: "rgba(10,15,26,0.88)",
-            border: "1px solid rgba(148,163,184,0.15)",
-            borderRadius: 6,
-            marginBottom: 68,
-            marginRight: 12,
+            background: "rgba(7,14,25,0.92)",
+            border: "1px solid rgba(148,163,184,0.12)",
+            borderRadius: 8,
+            marginBottom: 72,
+            marginRight: 14,
+            width: 160,
+            height: 110,
           }}
           pannable
           zoomable
@@ -508,15 +657,84 @@ function TopologyCanvas({
 }: Props) {
   const [showMinimap, setShowMinimap] = useState(false);
   const [tooltipInfo, setTooltipInfo] = useState<TooltipInfo>(null);
+  const [haloEscapeAlert, setHaloEscapeAlert] = useState<{
+    nodeId: string;
+    nodeLabel: string;
+    groupLabel: string;
+    prevPosition: { x: number; y: number };
+  } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    nodeId: string;
+    nodeLabel: string;
+    nodeType: "device" | "group";
+  } | null>(null);
+  const [multiSelection, setMultiSelection] = useState<Set<string>>(new Set());
+
   const { positions: storedPositions, setPosition, resetPositions, hasCustomPositions } = useTopologyPositions(viewMode);
 
   const mergedNodes = useMemo(
     () => nodes.map((node) => {
       const pos = storedPositions[node.id];
-      return pos ? { ...node, position: pos } : node;
+      if (pos) return { ...node, position: pos };
+
+      if (node.type === "device") {
+        const nodeData = node.data as unknown as DeviceNodeData;
+        if (nodeData.groupKey) {
+          const haloId = `halo:${nodeData.groupKey}`;
+          const haloPos = storedPositions[haloId];
+          if (haloPos) {
+            const haloNode = nodes.find((n) => n.id === haloId);
+            const radius = haloNode
+              ? (haloNode.data as unknown as ClusterHaloNodeData).radius
+              : 150;
+            const origHaloCenter = haloNode
+              ? { x: haloNode.position.x + radius, y: haloNode.position.y + radius }
+              : { x: node.position.x, y: node.position.y };
+            const savedHaloCenter = { x: haloPos.x + radius, y: haloPos.y + radius };
+            const dx = savedHaloCenter.x - origHaloCenter.x;
+            const dy = savedHaloCenter.y - origHaloCenter.y;
+            return { ...node, position: { x: node.position.x + dx, y: node.position.y + dy } };
+          }
+        }
+      }
+      return node;
     }),
     [nodes, storedPositions],
   );
+
+  const handleMultiSelectToggle = useCallback((id: string) => {
+    setMultiSelection((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleMultiSelectionClear = useCallback(() => {
+    setMultiSelection(new Set());
+  }, []);
+
+  const handleContextMenuRequest = useCallback(
+    (x: number, y: number, nodeId: string, nodeLabel: string, nodeType: "device" | "group") => {
+      setContextMenu({ x, y, nodeId, nodeLabel, nodeType });
+    },
+    [],
+  );
+
+  const handleHaloEscape = useCallback(
+    (nodeId: string, nodeLabel: string, groupLabel: string, prevPosition: { x: number; y: number }) => {
+      setHaloEscapeAlert({ nodeId, nodeLabel, groupLabel, prevPosition });
+    },
+    [],
+  );
+
+  const handlePaneClickWrapped = useCallback(() => {
+    setMultiSelection(new Set());
+    setContextMenu(null);
+    onPaneClick();
+  }, [onPaneClick]);
 
   const isEmpty = !loading && nodes.length === 0;
 
@@ -546,6 +764,10 @@ function TopologyCanvas({
       </div>
     );
   }
+
+  const contextNode = contextMenu
+    ? graph?.nodes.find((n) => n.node_key === contextMenu.nodeId) ?? null
+    : null;
 
   return (
     <div
@@ -587,12 +809,16 @@ function TopologyCanvas({
           onNodeClick={onNodeClick}
           onGroupDoubleClick={onGroupDoubleClick}
           onEdgeClick={onEdgeClick}
-          onPaneClick={onPaneClick}
+          onPaneClick={handlePaneClickWrapped}
           onClearFocus={onClearFocus}
           onPrevMatch={onPrevMatch}
           onNextMatch={onNextMatch}
           onPositionSave={setPosition}
           onTooltipChange={setTooltipInfo}
+          onMultiSelectToggle={handleMultiSelectToggle}
+          onMultiSelectionClear={handleMultiSelectionClear}
+          onContextMenuRequest={handleContextMenuRequest}
+          onHaloEscape={handleHaloEscape}
         />
       </ReactFlowProvider>
 
@@ -614,6 +840,108 @@ function TopologyCanvas({
       />
 
       <TopologyTooltip info={tooltipInfo} />
+
+      {multiSelection.size > 1 && (
+        <div
+          className="absolute bottom-16 left-1/2 z-40 -translate-x-1/2 flex items-center gap-2 rounded-lg border px-4 py-2 shadow-xl"
+          style={{
+            background: "rgba(10,18,32,0.97)",
+            borderColor: "rgba(96,165,250,0.25)",
+            backdropFilter: "blur(8px)",
+          }}
+        >
+          <span className="text-xs" style={{ color: "rgba(148,163,184,0.7)" }}>
+            {multiSelection.size} nodes selected
+          </span>
+          <div className="h-3 w-px" style={{ background: "rgba(148,163,184,0.15)" }} />
+          <button
+            className="rounded px-2 py-1 text-xs font-medium hover:bg-white/10"
+            style={{ color: "#60A5FA" }}
+          >
+            View alerts
+          </button>
+          <button
+            className="rounded px-2 py-1 text-xs font-medium hover:bg-white/10"
+            style={{ color: "#60A5FA" }}
+          >
+            Export IPs
+          </button>
+          <button
+            className="rounded px-2 py-1 text-xs hover:bg-white/5"
+            style={{ color: "rgba(148,163,184,0.5)" }}
+            onClick={() => setMultiSelection(new Set())}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {haloEscapeAlert && (
+        <div
+          className="absolute bottom-16 left-1/2 z-50 -translate-x-1/2 flex items-center gap-3 rounded-lg border px-4 py-3 text-sm shadow-xl"
+          style={{
+            background: "rgba(10,18,32,0.95)",
+            borderColor: "rgba(251,191,36,0.45)",
+            color: "rgba(226,232,240,0.9)",
+            backdropFilter: "blur(8px)",
+            minWidth: 320,
+          }}
+        >
+          <span style={{ color: "#FBBF24" }}>⚠</span>
+          <span className="flex-1">
+            <strong>{haloEscapeAlert.nodeLabel}</strong> left group{" "}
+            <strong>{haloEscapeAlert.groupLabel}</strong>
+          </span>
+          <button
+            className="rounded px-2 py-1 text-xs font-medium hover:bg-white/10"
+            style={{ color: "#60A5FA" }}
+            onClick={() => {
+              setPosition(haloEscapeAlert.nodeId, haloEscapeAlert.prevPosition.x, haloEscapeAlert.prevPosition.y);
+              setHaloEscapeAlert(null);
+            }}
+          >
+            Undo
+          </button>
+          <button
+            className="rounded px-2 py-1 text-xs font-medium hover:bg-white/10"
+            style={{ color: "rgba(148,163,184,0.6)" }}
+            onClick={() => setHaloEscapeAlert(null)}
+          >
+            OK
+          </button>
+        </div>
+      )}
+
+      {contextMenu && (
+        <TopologyContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          nodeLabel={contextMenu.nodeLabel}
+          nodeType={contextMenu.nodeType}
+          onClose={() => setContextMenu(null)}
+          onOpenDetail={() => {
+            onNodeClick(contextMenu.nodeId, contextMenu.nodeType === "group" ? "group" : "node");
+            setContextMenu(null);
+          }}
+          onFocusGroup={
+            contextMenu.nodeType === "group"
+              ? () => {
+                  onGroupDoubleClick(contextMenu.nodeId);
+                  setContextMenu(null);
+                }
+              : undefined
+          }
+          onIsolate={() => setContextMenu(null)}
+          onCopyIp={
+            contextMenu.nodeType === "device" && contextNode?.ip
+              ? () => {
+                  void navigator.clipboard.writeText(contextNode!.ip!);
+                  setContextMenu(null);
+                }
+              : undefined
+          }
+        />
+      )}
     </div>
   );
 }
