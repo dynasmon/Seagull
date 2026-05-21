@@ -13,29 +13,69 @@ function TopologyClusterHaloNode({ data: rawData }: NodeProps) {
 
   return (
     <div
-      className="pointer-events-none relative rounded-full transition-opacity"
+      className="pointer-events-none relative rounded-full"
       style={{
         width: size,
         height: size,
-        opacity: isDimmed ? 0.05 : isSelected ? 0.88 : 0.68,
-        border: `1px solid ${isSelected ? `${accent}66` : risky ? `${accent}2e` : "rgba(96,165,250,0.1)"}`,
-        background: `radial-gradient(circle, ${risky ? `${accent}0d` : "rgba(96,165,250,0.04)"} 0%, rgba(7,14,25,0) 68%)`,
-        boxShadow: isSelected
-          ? `0 0 28px ${accent}20`
-          : risky
-            ? `0 0 18px ${accent}0e`
-            : "none",
+        opacity: isDimmed ? 0.04 : 1,
+        transition: "opacity 200ms ease",
       }}
     >
       <div
-        className="absolute left-1/2 top-4 -translate-x-1/2 max-w-[144px] truncate rounded-full border px-2 py-0.5 text-[10px]"
+        className="absolute inset-0 rounded-full"
         style={{
-          color: risky ? accent : "rgba(148,163,184,0.65)",
-          background: "rgba(7,14,25,0.78)",
-          borderColor: risky ? `${accent}28` : "rgba(148,163,184,0.1)",
+          border: `${isSelected ? "2px" : "1px"} solid ${isSelected ? `${accent}88` : risky ? `${accent}40` : "rgba(96,165,250,0.18)"}`,
+          boxShadow: isSelected
+            ? `0 0 32px ${accent}28, inset 0 0 32px ${accent}08`
+            : risky
+              ? `0 0 20px ${accent}14`
+              : "none",
+        }}
+      />
+      <div
+        className="absolute rounded-full"
+        style={{
+          inset: size * 0.075,
+          border: `1px dashed ${risky ? `${accent}20` : "rgba(96,165,250,0.08)"}`,
+        }}
+      />
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{
+          background: `radial-gradient(circle at 50% 40%, ${risky ? `${accent}10` : "rgba(96,165,250,0.05)"} 0%, transparent 70%)`,
+        }}
+      />
+      <div
+        className="absolute left-1/2 top-5 -translate-x-1/2 flex items-center gap-1.5 rounded-full border px-3 py-1"
+        style={{
+          color: risky ? accent : "rgba(148,163,184,0.75)",
+          background: "rgba(7,14,25,0.85)",
+          borderColor: risky ? `${accent}35` : "rgba(148,163,184,0.12)",
+          backdropFilter: "blur(4px)",
+          whiteSpace: "nowrap",
+          fontSize: 11,
+          fontWeight: 600,
+          maxWidth: radius * 1.4,
         }}
       >
-        {group.label} · {group.node_count}
+        <span className="truncate">{group.label}</span>
+        <span
+          className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold"
+          style={{
+            background: risky ? `${accent}25` : "rgba(96,165,250,0.15)",
+            color: risky ? accent : "#60A5FA",
+          }}
+        >
+          {group.node_count}
+        </span>
+        {group.alert_count > 0 && (
+          <span
+            className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold"
+            style={{ background: `${accent}25`, color: accent }}
+          >
+            {group.alert_count}⚑
+          </span>
+        )}
       </div>
     </div>
   );
