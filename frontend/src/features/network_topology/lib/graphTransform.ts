@@ -192,18 +192,29 @@ export function graphToConnectionView(
 
   const presentNodeKeys = new Set(layout.nodes.map((n) => n.node_key));
 
-  const pairCountMap = new Map<string, number>();
+  type LayoutEdge = (typeof layout.edges)[0];
+  const pairTypeMap = new Map<string, Map<string, LayoutEdge[]>>();
   for (const edge of layout.edges) {
     if (!presentNodeKeys.has(edge.source_node_key) || !presentNodeKeys.has(edge.target_node_key)) continue;
-    const key =
+    const pairKey =
       edge.source_node_key < edge.target_node_key
         ? `${edge.source_node_key}|${edge.target_node_key}`
         : `${edge.target_node_key}|${edge.source_node_key}`;
-    pairCountMap.set(key, (pairCountMap.get(key) ?? 0) + 1);
+    const typeMap = pairTypeMap.get(pairKey) ?? new Map<string, LayoutEdge[]>();
+    const typeEdges = typeMap.get(edge.edge_type) ?? [];
+    typeEdges.push(edge);
+    typeMap.set(edge.edge_type, typeEdges);
+    pairTypeMap.set(pairKey, typeMap);
+  }
+
+  const pairCountMap = new Map<string, number>();
+  for (const [pairKey, typeMap] of pairTypeMap) {
+    pairCountMap.set(pairKey, typeMap.size);
   }
 
   const pairIndexMap = new Map<string, number>();
   const edges: Edge<TopologyEdgeData>[] = [];
+  const processedPairTypes = new Set<string>();
 
   for (const edge of layout.edges) {
     if (!presentNodeKeys.has(edge.source_node_key) || !presentNodeKeys.has(edge.target_node_key)) continue;
@@ -211,38 +222,50 @@ export function graphToConnectionView(
       edge.source_node_key < edge.target_node_key
         ? `${edge.source_node_key}|${edge.target_node_key}`
         : `${edge.target_node_key}|${edge.source_node_key}`;
+    const pairTypeKey = `${pairKey}|${edge.edge_type}`;
+    if (processedPairTypes.has(pairTypeKey)) continue;
+    processedPairTypes.add(pairTypeKey);
+
+    const typeEdges = pairTypeMap.get(pairKey)?.get(edge.edge_type) ?? [edge];
+    const selectedInType = typeEdges.find((candidate) =>
+      selState.selectedKind === "edge" && selState.selectedKey === candidate.edge_key,
+    );
+    const rep = selectedInType ?? typeEdges.reduce((best, candidate) =>
+      edgePriorityRank(candidate) > edgePriorityRank(best) ? candidate : best,
+    );
+
     const parallelTotal = pairCountMap.get(pairKey) ?? 1;
     const parallelIndex = pairIndexMap.get(pairKey) ?? 0;
     pairIndexMap.set(pairKey, parallelIndex + 1);
 
-    const isSelected = selState.selectedKind === "edge" && selState.selectedKey === edge.edge_key;
+    const isSelected = Boolean(selectedInType);
     const isConnected =
-      selState.highlightedKeys.has(edge.source_node_key) ||
-      selState.highlightedKeys.has(edge.target_node_key);
+      selState.highlightedKeys.has(rep.source_node_key) ||
+      selState.highlightedKeys.has(rep.target_node_key);
     const edgeEndpointMatched = hasSearch
-      ? searchState!.matchedNodeKeys.has(edge.source_node_key) ||
-        searchState!.matchedNodeKeys.has(edge.target_node_key)
+      ? searchState!.matchedNodeKeys.has(rep.source_node_key) ||
+        searchState!.matchedNodeKeys.has(rep.target_node_key)
       : false;
     const isDimmed = hasSearch
       ? !edgeEndpointMatched && !isSelected
       : hasFocus
-        ? !focusState!.focusedNodeKeys.has(edge.source_node_key) &&
-          !focusState!.focusedNodeKeys.has(edge.target_node_key) &&
+        ? !focusState!.focusedNodeKeys.has(rep.source_node_key) &&
+          !focusState!.focusedNodeKeys.has(rep.target_node_key) &&
           !isSelected
         : hasSelection && !isSelected && !isConnected;
 
-    const priority = edgePriorityRank(edge);
+    const priority = edgePriorityRank(rep);
     edges.push({
-      id: edge.edge_key,
-      source: edge.source_node_key,
-      target: edge.target_node_key,
+      id: rep.edge_key,
+      source: rep.source_node_key,
+      target: rep.target_node_key,
       type: "topology",
       data: {
-        edge,
+        edge: rep,
         isSelected,
         isDimmed,
-        sourceRadius: nodeBoundingRadius(edge.source?.importance ?? "normal"),
-        targetRadius: nodeBoundingRadius(edge.target?.importance ?? "normal"),
+        sourceRadius: nodeBoundingRadius(rep.source?.importance ?? "normal"),
+        targetRadius: nodeBoundingRadius(rep.target?.importance ?? "normal"),
         parallelIndex,
         parallelTotal,
       },
