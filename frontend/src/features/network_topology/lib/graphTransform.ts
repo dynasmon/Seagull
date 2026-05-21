@@ -5,8 +5,8 @@ import { groupTopologyGraph } from "./grouping";
 import { computeTopologyLayout, computeLocationGroupLayout } from "./topologyLayoutEngine";
 import { shouldShowLabel, groupCardSize, edgePriorityRank, groupEdgePriorityRank, nodeBoundingRadius } from "./presentation";
 
-const DEVICE_NODE_W = 80;
-const DEVICE_NODE_H = 80;
+const DEVICE_NODE_W = 96;
+const DEVICE_NODE_H = 96;
 
 export type DeviceNodeData = Record<string, unknown> & {
   node: TopologyNode;
@@ -17,6 +17,7 @@ export type DeviceNodeData = Record<string, unknown> & {
   showLabel: boolean;
   importance: "anchor" | "elevated" | "normal";
   groupKey: string | null;
+  isNew: boolean;
 };
 
 export type GroupNodeData = Record<string, unknown> & {
@@ -32,6 +33,8 @@ export type TopologyEdgeData = Record<string, unknown> & {
   isDimmed: boolean;
   sourceRadius: number;
   targetRadius: number;
+  parallelIndex: number;
+  parallelTotal: number;
 };
 
 export type TopologyGroupEdgeData = Record<string, unknown> & {
@@ -111,6 +114,7 @@ export function graphToConnectionView(
   focusState?: TopologyFocusState,
   inputGroups: TopologyGroup[] = [],
   inputGroupEdges: TopologyGroupEdge[] = [],
+  newNodeIds?: Set<string>,
 ): { nodes: Node<DeviceNodeData | ClusterHaloNodeData>[]; edges: Edge<TopologyEdgeData>[] } {
   if (!graph) return { nodes: [], edges: [] };
 
@@ -152,6 +156,7 @@ export function graphToConnectionView(
         showLabel: shouldShowLabel(ln, isSelected, isSearchMatch, ln.importance, groupNodeCounts.get(ln.group_key ?? "") ?? 0),
         importance: ln.importance,
         groupKey: ln.group_key,
+        isNew: newNodeIds?.has(ln.node_key) ?? false,
       },
       selectable: true,
       width: DEVICE_NODE_W,
@@ -186,9 +191,30 @@ export function graphToConnectionView(
   });
 
   const presentNodeKeys = new Set(layout.nodes.map((n) => n.node_key));
-  const edges: Edge<TopologyEdgeData>[] = [];
+
+  const pairCountMap = new Map<string, number>();
   for (const edge of layout.edges) {
     if (!presentNodeKeys.has(edge.source_node_key) || !presentNodeKeys.has(edge.target_node_key)) continue;
+    const key =
+      edge.source_node_key < edge.target_node_key
+        ? `${edge.source_node_key}|${edge.target_node_key}`
+        : `${edge.target_node_key}|${edge.source_node_key}`;
+    pairCountMap.set(key, (pairCountMap.get(key) ?? 0) + 1);
+  }
+
+  const pairIndexMap = new Map<string, number>();
+  const edges: Edge<TopologyEdgeData>[] = [];
+
+  for (const edge of layout.edges) {
+    if (!presentNodeKeys.has(edge.source_node_key) || !presentNodeKeys.has(edge.target_node_key)) continue;
+    const pairKey =
+      edge.source_node_key < edge.target_node_key
+        ? `${edge.source_node_key}|${edge.target_node_key}`
+        : `${edge.target_node_key}|${edge.source_node_key}`;
+    const parallelTotal = pairCountMap.get(pairKey) ?? 1;
+    const parallelIndex = pairIndexMap.get(pairKey) ?? 0;
+    pairIndexMap.set(pairKey, parallelIndex + 1);
+
     const isSelected = selState.selectedKind === "edge" && selState.selectedKey === edge.edge_key;
     const isConnected =
       selState.highlightedKeys.has(edge.source_node_key) ||
@@ -204,6 +230,7 @@ export function graphToConnectionView(
           !focusState!.focusedNodeKeys.has(edge.target_node_key) &&
           !isSelected
         : hasSelection && !isSelected && !isConnected;
+
     const priority = edgePriorityRank(edge);
     edges.push({
       id: edge.edge_key,
@@ -216,6 +243,8 @@ export function graphToConnectionView(
         isDimmed,
         sourceRadius: nodeBoundingRadius(edge.source?.importance ?? "normal"),
         targetRadius: nodeBoundingRadius(edge.target?.importance ?? "normal"),
+        parallelIndex,
+        parallelTotal,
       },
       zIndex: isSelected ? 5 : priority >= 80 ? 3 : priority >= 30 ? 2 : 1,
     });
