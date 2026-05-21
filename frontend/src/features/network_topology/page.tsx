@@ -109,6 +109,7 @@ export default function NetworkTopologyPage() {
   const loadedOnceRef = useRef(false);
   const detailSeqRef = useRef(0);
   const discoveryActionSeqRef = useRef(0);
+  const prevNodeIdsRef = useRef<Set<string>>(new Set());
 
   const agentOptions = useMemo(
     () =>
@@ -206,11 +207,19 @@ export default function NetworkTopologyPage() {
     ? searchResult.orderedGroupKeys.length
     : searchResult.orderedNodeKeys.length;
 
+  const newNodeIds = new Set(
+    graph?.nodes
+      .filter((n) => !prevNodeIdsRef.current.has(n.node_key))
+      .map((n) => n.node_key) ?? [],
+  );
+  prevNodeIdsRef.current = new Set(graph?.nodes.map((n) => n.node_key) ?? []);
+
   const { nodes: rfNodes, edges: rfEdges } = useMemo(() => {
     if (appliedFilters.view_mode === "location") {
       return graphToLocationView(groups, groupEdges, selState, searchStateWithActive);
     }
-    return graphToConnectionView(visibleGraph, selState, searchStateWithActive, focusState, groups, groupEdges);
+    return graphToConnectionView(visibleGraph, selState, searchStateWithActive, focusState, groups, groupEdges, newNodeIds);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedFilters.view_mode, groups, groupEdges, visibleGraph, selState, searchStateWithActive, focusState]);
 
   const selectedDiscoveryAgent = useMemo(
