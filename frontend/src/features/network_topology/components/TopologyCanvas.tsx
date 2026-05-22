@@ -431,6 +431,10 @@ function FlowInner({
         return;
       }
       onMultiSelectionClear();
+      if (node.type === "clusterHalo") {
+        onNodeClick(node.id.replace(/^halo:/, ""), "group");
+        return;
+      }
       const kind = node.type === "group" ? "group" : "node";
       onNodeClick(node.id, kind);
     },
