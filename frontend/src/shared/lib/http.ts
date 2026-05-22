@@ -269,7 +269,17 @@ export async function apiFetch<T>(path: string, init?: ApiRequestInit): Promise<
   }
 
   if (!res.ok) {
-    const msg = (body && typeof body === "object" && body.detail) ? String(body.detail) : `HTTP ${res.status}`;
+    let msg = `HTTP ${res.status}`;
+    if (body && typeof body === "object" && body.detail) {
+      const d = body.detail;
+      if (typeof d === "string") msg = d;
+      else if (Array.isArray(d)) {
+        const parts = (d as unknown[])
+          .map((item) => (item && typeof item === "object" ? (item as Record<string, unknown>).msg ?? null : typeof item === "string" ? item : null))
+          .filter((s): s is string => typeof s === "string" && s.length > 0);
+        msg = parts.length ? parts.join("; ") : `HTTP ${res.status}`;
+      }
+    }
     throw makeHttpError(res.status, body, msg);
   }
 
