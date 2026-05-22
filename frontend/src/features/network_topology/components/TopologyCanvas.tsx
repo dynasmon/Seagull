@@ -71,7 +71,7 @@ const EDGE_TYPE_SHORT_LABELS: Record<string, string> = {
   inferred_relationship: "inferred",
 };
 
-const PARALLEL_LANE_WIDTH = 13;
+const PARALLEL_LANE_WIDTH = 20;
 
 function TopologyFlowEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, data } = props;
@@ -163,12 +163,40 @@ function TopologyFlowEdge(props: EdgeProps) {
           transition: "stroke 180ms ease, stroke-width 180ms ease, opacity 180ms ease",
         }}
       />
-      {(isSelected || (parallelTotal > 1 && !isDimmed)) && (
+      {isSelected && (
         <foreignObject
-          x={midX - 32}
-          y={midY - 9}
-          width={64}
-          height={18}
+          x={midX - 28}
+          y={midY - 8}
+          width={56}
+          height={16}
+          style={{ overflow: "visible", pointerEvents: "none" }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(7,14,25,0.92)",
+              border: `1px solid ${visual.stroke}60`,
+              borderRadius: 3,
+              padding: "1px 4px",
+              fontSize: 9,
+              fontWeight: 700,
+              color: visual.stroke,
+              whiteSpace: "nowrap",
+              letterSpacing: "0.02em",
+            }}
+          >
+            {EDGE_TYPE_SHORT_LABELS[edgeType] ?? edgeType}
+          </div>
+        </foreignObject>
+      )}
+      {parallelTotal > 1 && parallelIndex === 0 && !isDimmed && !isSelected && (
+        <foreignObject
+          x={(sourceX + targetX) / 2 - 10}
+          y={(sourceY + targetY) / 2 - 8}
+          width={20}
+          height={16}
           style={{ overflow: "visible", pointerEvents: "none" }}
         >
           <div
@@ -177,18 +205,17 @@ function TopologyFlowEdge(props: EdgeProps) {
               alignItems: "center",
               justifyContent: "center",
               background: "rgba(7,14,25,0.88)",
-              border: `1px solid ${visual.stroke}55`,
-              borderRadius: 4,
-              padding: "1px 5px",
-              fontSize: 9,
-              fontWeight: 600,
+              border: `1px solid ${visual.stroke}50`,
+              borderRadius: 8,
+              width: 20,
+              height: 16,
+              fontSize: 8,
+              fontWeight: 700,
               color: visual.stroke,
-              whiteSpace: "nowrap",
-              backdropFilter: "blur(4px)",
-              opacity: resolvedOpacity > 0.1 ? 1 : 0,
+              lineHeight: 1,
             }}
           >
-            {EDGE_TYPE_SHORT_LABELS[edgeType] ?? edgeType}
+            {parallelTotal}
           </div>
         </foreignObject>
       )}
