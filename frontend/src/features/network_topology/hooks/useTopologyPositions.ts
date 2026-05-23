@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { TopologyViewMode } from "../types";
 
@@ -17,14 +17,24 @@ function readPositions(viewMode: TopologyViewMode): PositionMap {
   }
 }
 
-export function useTopologyPositions(viewMode: TopologyViewMode) {
-  // Keyed by viewMode so switching views is synchronous — no useEffect needed.
+export function useTopologyPositions(viewMode: TopologyViewMode, topologyKey: string) {
   const [posMap, setPosMap] = useState<Partial<Record<string, PositionMap>>>(() => ({
     [viewMode]: readPositions(viewMode),
   }));
 
-  // Read from cache; fall back to localStorage synchronously on first access for a mode.
   const positions: PositionMap = posMap[viewMode] ?? readPositions(viewMode);
+
+  const lastTopologyKeyRef = useRef<string>(topologyKey);
+  useEffect(() => {
+    if (lastTopologyKeyRef.current === topologyKey) return;
+    lastTopologyKeyRef.current = topologyKey;
+    setPosMap((prev) => ({ ...prev, [viewMode]: {} }));
+    try {
+      localStorage.removeItem(storageKey(viewMode));
+    } catch {
+      // ignore
+    }
+  }, [topologyKey, viewMode]);
 
   const setPosition = useCallback(
     (nodeId: string, x: number, y: number) => {
