@@ -1,5 +1,6 @@
 import type { TopologyEdge, TopologyNode } from "../types";
-import type { TopologyNodeImportance } from "./topologyLayoutEngine";
+
+export type TopologyNodeImportance = "anchor" | "elevated" | "normal";
 
 const LABEL_CHAR_PX = 6.2;
 const CARD_OVERHEAD = 60;

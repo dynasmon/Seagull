@@ -1,8 +1,7 @@
 import type { Edge, Node } from "@xyflow/react";
 
 import type { TopologyEdge, TopologyGraph, TopologyGroup, TopologyGroupEdge, TopologyNode } from "../types";
-import { groupTopologyGraph } from "./grouping";
-import { computeTopologyLayout, computeLocationGroupLayout } from "./topologyLayoutEngine";
+import type { TopologyGroupLayoutPoint, TopologyLayout } from "./topologyLayoutELK";
 import { shouldShowLabel, groupCardSize, edgePriorityRank, groupEdgePriorityRank, nodeBoundingRadius } from "./presentation";
 
 const DEVICE_NODE_W = 96;
@@ -18,7 +17,10 @@ export type DeviceNodeData = Record<string, unknown> & {
   importance: "anchor" | "elevated" | "normal";
   groupKey: string | null;
   isNew: boolean;
+  isIsolatedGhost?: boolean;
 };
+
+export const ISOLATED_GHOST_NODE_ID = "__topology_isolated_ghost__";
 
 export type GroupNodeData = Record<string, unknown> & {
   group: TopologyGroup;
@@ -35,6 +37,7 @@ export type TopologyEdgeData = Record<string, unknown> & {
   targetRadius: number;
   parallelIndex: number;
   parallelTotal: number;
+  isBidirectional: boolean;
 };
 
 export type TopologyGroupEdgeData = Record<string, unknown> & {
@@ -107,21 +110,104 @@ export function computeHighlightedKeys(
 }
 
 
+export function pruneIsolatedNodes(
+  graph: TopologyGraph,
+  searchState?: TopologySearchState,
+  overrideShowIsolated?: boolean,
+): { activeGraph: TopologyGraph; isolatedCount: number } {
+  if (overrideShowIsolated) {
+    return { activeGraph: graph, isolatedCount: 0 };
+  }
+  const connectedNodeKeys = new Set<string>();
+  for (const edge of graph.edges) {
+    connectedNodeKeys.add(edge.source_node_key);
+    connectedNodeKeys.add(edge.target_node_key);
+  }
+  const matched = searchState?.matchedNodeKeys ?? new Set<string>();
+  const activeNodes: TopologyNode[] = [];
+  let isolatedCount = 0;
+  for (const node of graph.nodes) {
+    const isActive =
+      connectedNodeKeys.has(node.node_key) ||
+      node.node_type === "agent" ||
+      node.alert_count > 0 ||
+      matched.has(node.node_key);
+    if (isActive) activeNodes.push(node);
+    else isolatedCount += 1;
+  }
+  return {
+    activeGraph: { ...graph, nodes: activeNodes },
+    isolatedCount,
+  };
+}
+
+function makeIsolatedGhostNode(
+  isolatedCount: number,
+  layout: TopologyLayout,
+  isDimmed: boolean,
+): Node<DeviceNodeData> {
+  const ghostX = layout.width - DEVICE_NODE_W;
+  const ghostY = layout.height - DEVICE_NODE_H;
+  const syntheticNode: TopologyNode = {
+    node_key: ISOLATED_GHOST_NODE_ID,
+    node_type: "unknown",
+    agent_id: null,
+    label: `${isolatedCount} isolated hosts`,
+    ip: null,
+    cidr: null,
+    port: null,
+    protocol: null,
+    severity: "informational",
+    risk_score: 0,
+    confidence: 100,
+    is_stale: false,
+    event_count: 0,
+    alert_count: 0,
+    observation_count: 0,
+    first_seen_at: "",
+    last_seen_at: "",
+    updated_at: "",
+    metadata: { _isolated_pool: true, _isolated_count: isolatedCount },
+  };
+  return {
+    id: ISOLATED_GHOST_NODE_ID,
+    type: "device",
+    position: { x: ghostX, y: ghostY },
+    data: {
+      node: syntheticNode,
+      isSelected: false,
+      isHighlighted: false,
+      isDimmed,
+      isSearchMatch: false,
+      showLabel: true,
+      importance: "normal",
+      groupKey: null,
+      isNew: false,
+      isIsolatedGhost: true,
+    },
+    selectable: true,
+    width: DEVICE_NODE_W,
+    height: DEVICE_NODE_H,
+    style: { transition: "opacity 180ms ease" },
+    zIndex: 1,
+  };
+}
+
 export function graphToConnectionView(
   graph: TopologyGraph | null,
+  layout: TopologyLayout | null,
   selState: SelectionState,
   searchState?: TopologySearchState,
   focusState?: TopologyFocusState,
-  inputGroups: TopologyGroup[] = [],
-  inputGroupEdges: TopologyGroupEdge[] = [],
   newNodeIds?: Set<string>,
-): { nodes: Node<DeviceNodeData | ClusterHaloNodeData>[]; edges: Edge<TopologyEdgeData>[] } {
-  if (!graph) return { nodes: [], edges: [] };
+  isolatedCount: number = 0,
+): {
+  nodes: Node<DeviceNodeData | ClusterHaloNodeData>[];
+  edges: Edge<TopologyEdgeData>[];
+  isolatedCount: number;
+} {
+  if (!graph || !layout) return { nodes: [], edges: [], isolatedCount };
 
-  const fallbackGrouping = inputGroups.length === 0 ? groupTopologyGraph(graph) : null;
-  const groups = inputGroups.length > 0 ? inputGroups : fallbackGrouping?.groups ?? [];
-  const groupEdges = inputGroupEdges.length > 0 ? inputGroupEdges : fallbackGrouping?.edges ?? [];
-  const layout = computeTopologyLayout(graph, groups, groupEdges);
   const groupNodeCounts = new Map<string, number>();
   for (const ln of layout.nodes) {
     if (ln.group_key) {
@@ -193,6 +279,12 @@ export function graphToConnectionView(
   const presentNodeKeys = new Set(layout.nodes.map((n) => n.node_key));
 
   type LayoutEdge = (typeof layout.edges)[0];
+  const directedSet = new Set<string>();
+  for (const edge of layout.edges) {
+    if (!presentNodeKeys.has(edge.source_node_key) || !presentNodeKeys.has(edge.target_node_key)) continue;
+    directedSet.add(`${edge.source_node_key}|${edge.target_node_key}|${edge.edge_type}`);
+  }
+
   const pairTypeMap = new Map<string, Map<string, LayoutEdge[]>>();
   for (const edge of layout.edges) {
     if (!presentNodeKeys.has(edge.source_node_key) || !presentNodeKeys.has(edge.target_node_key)) continue;
@@ -255,6 +347,9 @@ export function graphToConnectionView(
         : hasSelection && !isSelected && !isConnected;
 
     const priority = edgePriorityRank(rep);
+    const isBidirectional = directedSet.has(
+      `${rep.target_node_key}|${rep.source_node_key}|${rep.edge_type}`,
+    );
     edges.push({
       id: rep.edge_key,
       source: rep.source_node_key,
@@ -268,21 +363,27 @@ export function graphToConnectionView(
         targetRadius: nodeBoundingRadius(rep.target?.importance ?? "normal"),
         parallelIndex,
         parallelTotal,
+        isBidirectional,
       },
       zIndex: isSelected ? 5 : priority >= 80 ? 3 : priority >= 30 ? 2 : 1,
     });
   }
 
-  return { nodes: [...haloNodes, ...deviceNodes], edges };
+  const allNodes: Node<DeviceNodeData | ClusterHaloNodeData>[] = [...haloNodes, ...deviceNodes];
+  if (isolatedCount > 0) {
+    allNodes.push(makeIsolatedGhostNode(isolatedCount, layout, hasSelection || hasSearch || hasFocus));
+  }
+  return { nodes: allNodes, edges, isolatedCount };
 }
 
 export function graphToLocationView(
   groups: TopologyGroup[],
   groupEdges: TopologyGroupEdge[],
+  positions: Map<string, TopologyGroupLayoutPoint> | null,
   selState: SelectionState,
   searchState?: TopologySearchState,
 ): { nodes: Node<GroupNodeData>[]; edges: Edge<TopologyGroupEdgeData>[] } {
-  const positions = computeLocationGroupLayout(groups, groupEdges);
+  if (!positions) return { nodes: [], edges: [] };
   const hasSelection = selState.selectedKey !== null;
   const hasSearch = Boolean(searchState && searchState.matchedGroupKeys.size > 0);
 
