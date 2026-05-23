@@ -17,7 +17,7 @@ const EDGE_LEGEND_ROWS: Array<{ key: string; label: string }> = [
 const SEVERITY_KEYS = ["critical", "high", "medium", "low", "informational", "unknown"] as const;
 const NODE_LEGEND_KEYS = Object.keys(NODE_TYPE_LABELS);
 
-function EdgeSample({ edgeKey }: { edgeKey: string }) {
+function EdgeSample({ edgeKey, dim }: { edgeKey: string; dim: boolean }) {
   const v = edgeVisual({ edge_type: edgeKey, confidence: 80 });
   return (
     <svg width="28" height="8" style={{ overflow: "visible", flexShrink: 0 }}>
@@ -26,7 +26,7 @@ function EdgeSample({ edgeKey }: { edgeKey: string }) {
         stroke={v.stroke}
         strokeWidth={v.width + 0.3}
         strokeDasharray={v.dashArray}
-        opacity={Math.min(1, v.opacity * 2.5 + 0.2)}
+        opacity={dim ? 0.25 : Math.min(1, v.opacity * 2.5 + 0.2)}
       />
     </svg>
   );
@@ -43,21 +43,62 @@ function LegendSection({ title, children }: { title: string; children: React.Rea
   );
 }
 
-function LegendRow({ label, children }: { label: string; children: React.ReactNode }) {
+function LegendRow({
+  label,
+  active,
+  dimmed,
+  onClick,
+  children,
+}: {
+  label: string;
+  active?: boolean;
+  dimmed?: boolean;
+  onClick?: () => void;
+  children: React.ReactNode;
+}) {
+  const interactive = Boolean(onClick);
   return (
-    <div className="flex items-center gap-2 text-[10px]">
+    <button
+      type="button"
+      disabled={!interactive}
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded text-left text-[10px]"
+      style={{
+        opacity: dimmed ? 0.4 : 1,
+        cursor: interactive ? "pointer" : "default",
+        background: active ? "rgba(96,165,250,0.10)" : "transparent",
+        padding: interactive ? "2px 4px" : "0",
+        transition: "opacity 140ms ease, background 140ms ease",
+      }}
+    >
       <span className="flex w-7 shrink-0 items-center">{children}</span>
-      <span className="text-muted-foreground/70">{label}</span>
-    </div>
+      <span
+        className={active ? "text-foreground/95" : "text-muted-foreground/70"}
+        style={{ fontWeight: active ? 700 : 400 }}
+      >
+        {label}
+      </span>
+    </button>
   );
 }
 
 type Props = {
   viewMode: TopologyViewMode;
+  onFilterToggle?: (edgeType: string) => void;
 };
 
-function TopologyLegend({ viewMode }: Props) {
+function TopologyLegend({ viewMode, onFilterToggle }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const [activeEdgeType, setActiveEdgeType] = useState<string | null>(null);
+
+  const handleEdgeRowClick = (edgeKey: string) => {
+    setActiveEdgeType((prev) => (prev === edgeKey ? null : edgeKey));
+    onFilterToggle?.(edgeKey);
+  };
+
+  const resetActive = () => {
+    setActiveEdgeType(null);
+  };
 
   return (
     <div className="absolute bottom-[68px] left-2 z-20 select-none" style={{ pointerEvents: "all" }}>
@@ -73,14 +114,26 @@ function TopologyLegend({ viewMode }: Props) {
           <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/50">
             Legend
           </span>
-          <button
-            type="button"
-            className="flex h-4 w-4 items-center justify-center rounded text-[11px] text-muted-foreground/45 transition-colors hover:text-foreground/80"
-            onClick={() => setExpanded((p) => !p)}
-            title={expanded ? "Collapse legend" : "Expand legend"}
-          >
-            {expanded ? "−" : "+"}
-          </button>
+          <div className="flex items-center gap-1">
+            {activeEdgeType && (
+              <button
+                type="button"
+                className="rounded px-1.5 text-[9px] font-medium text-muted-foreground/70 transition-colors hover:text-foreground/95"
+                onClick={resetActive}
+                title="Reset legend filter"
+              >
+                Reset
+              </button>
+            )}
+            <button
+              type="button"
+              className="flex h-4 w-4 items-center justify-center rounded text-[11px] text-muted-foreground/45 transition-colors hover:text-foreground/80"
+              onClick={() => setExpanded((p) => !p)}
+              title={expanded ? "Collapse legend" : "Expand legend"}
+            >
+              {expanded ? "−" : "+"}
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 border-t border-border/20 px-2.5 py-1.5">
@@ -125,11 +178,21 @@ function TopologyLegend({ viewMode }: Props) {
             )}
 
             <LegendSection title="Edge types">
-              {EDGE_LEGEND_ROWS.map(({ key, label }) => (
-                <LegendRow key={key} label={label}>
-                  <EdgeSample edgeKey={key} />
-                </LegendRow>
-              ))}
+              {EDGE_LEGEND_ROWS.map(({ key, label }) => {
+                const isActive = activeEdgeType === key;
+                const isDim = activeEdgeType !== null && !isActive;
+                return (
+                  <LegendRow
+                    key={key}
+                    label={label}
+                    active={isActive}
+                    dimmed={isDim}
+                    onClick={() => handleEdgeRowClick(key)}
+                  >
+                    <EdgeSample edgeKey={key} dim={isDim} />
+                  </LegendRow>
+                );
+              })}
             </LegendSection>
 
             <LegendSection title="Severity">
