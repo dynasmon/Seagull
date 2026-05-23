@@ -11,15 +11,20 @@ import type { TopologyNode } from "../types";
 
 const NODE_H = 96;
 const NODE_W = 96;
-const CIRCLE_CENTER_Y = NODE_H / 2;
+const ICON_CENTER_Y = 30;
 
 let pulseKeyframeInjected = false;
 function ensurePulseKeyframe() {
   if (typeof document === "undefined" || pulseKeyframeInjected) return;
   pulseKeyframeInjected = true;
   const style = document.createElement("style");
-  style.textContent = `@keyframes topology-node-pulse{0%{box-shadow:0 0 0 0 rgba(96,165,250,0.7)}70%{box-shadow:0 0 0 14px rgba(96,165,250,0)}100%{box-shadow:0 0 0 0 rgba(96,165,250,0)}}`;
+  style.textContent = `@keyframes topology-node-pulse{0%{box-shadow:0 0 0 0 rgba(96,165,250,0.7)}70%{box-shadow:0 0 0 14px rgba(96,165,250,0)}100%{box-shadow:0 0 0 0 rgba(96,165,250,0)}}@keyframes topology-anchor-ring{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`;
   document.head.appendChild(style);
+}
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function RouterIcon() {
@@ -138,40 +143,107 @@ function DeviceIcon({ nodeType, isCluster }: { nodeType: string; isCluster?: boo
   }
 }
 
-function nodeSubtitle(node: TopologyNode): string {
-  if (node.ip) return node.port ? `${node.ip}:${node.port}` : node.ip;
+function humanizeCount(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+function truncateLabel(label: string, max: number): string {
+  return label.length > max ? `${label.slice(0, max - 1)}…` : label;
+}
+
+function nodeSubtitleFallback(node: TopologyNode): string {
   if (node.cidr) return node.cidr;
   if (node.protocol) return node.protocol.toUpperCase();
   return NODE_TYPE_LABELS[node.node_type] ?? toTitleLabel(node.node_type);
 }
 
+type StatusBadge = {
+  key: string;
+  text: string;
+  color: string;
+  bg: string;
+  border: string;
+};
+
+function buildStatusBadges(node: TopologyNode): StatusBadge[] {
+  const badges: StatusBadge[] = [];
+  if (node.alert_count > 0) {
+    const color = severityColor(node.severity);
+    badges.push({
+      key: "alerts",
+      text: `${node.alert_count > 99 ? "99+" : node.alert_count}⚑`,
+      color,
+      bg: `${color}22`,
+      border: `${color}55`,
+    });
+  }
+  if (node.event_count > 0) {
+    badges.push({
+      key: "events",
+      text: humanizeCount(node.event_count),
+      color: "#60A5FA",
+      bg: "rgba(96,165,250,0.10)",
+      border: "rgba(96,165,250,0.30)",
+    });
+  }
+  if (node.confidence < 60) {
+    badges.push({
+      key: "confidence",
+      text: `~${Math.max(0, Math.round(node.confidence))}%`,
+      color: "#FBBF24",
+      bg: "rgba(251,191,36,0.12)",
+      border: "rgba(251,191,36,0.35)",
+    });
+  }
+  if (node.is_stale) {
+    badges.push({
+      key: "stale",
+      text: "STALE",
+      color: "#F97316",
+      bg: "rgba(249,115,22,0.14)",
+      border: "rgba(249,115,22,0.4)",
+    });
+  }
+  return badges;
+}
+
 function TopologyDeviceNode({ data: rawData }: NodeProps) {
   const data = rawData as unknown as DeviceNodeData;
-  const { node, isSelected, isHighlighted, isDimmed, showLabel, importance, isSearchMatch } = data;
+  const { node, isSelected, isHighlighted, isDimmed, importance } = data;
   const visual = nodeVisual(node);
   const hasAlert = node.alert_count > 0;
   const isCluster = node.node_type === "service" && Boolean(node.metadata?._is_service_cluster);
   const clusterCount = isCluster ? Number(node.metadata?._cluster_count ?? 0) : 0;
+  const isLiveAgent = node.node_type === "agent" && !node.is_stale;
+  const isIsolatedGhost = Boolean(data.isIsolatedGhost);
+  const reducedMotion = prefersReducedMotion();
 
-  if (data.isNew) ensurePulseKeyframe();
+  ensurePulseKeyframe();
 
-  const opacity = isDimmed ? 0.11 : node.is_stale && node.node_type !== "agent" ? 0.38 : 1;
+  const opacity = isDimmed ? 0.11 : node.is_stale && node.node_type !== "agent" ? 0.45 : 1;
 
-  const baseBoost = isSelected ? 5 : 0;
+  const baseBoost = isSelected ? 4 : 0;
   const markerSize =
-    importance === "anchor"   ? 52 + baseBoost :
-    importance === "elevated" ? 40 + baseBoost : 32 + baseBoost;
+    importance === "anchor"   ? 48 + baseBoost :
+    importance === "elevated" ? 38 + baseBoost : 32 + baseBoost;
   const iconSize =
-    importance === "anchor"   ? 28 :
-    importance === "elevated" ? 22 : 17;
+    importance === "anchor"   ? 26 :
+    importance === "elevated" ? 21 : 17;
 
-  const circleTop = CIRCLE_CENTER_Y - markerSize / 2;
-  const labelTop = CIRCLE_CENTER_Y + markerSize / 2 + 4;
+  const circleTop = ICON_CENTER_Y - markerSize / 2;
+  const labelTop = ICON_CENTER_Y + markerSize / 2 + 3;
 
-  const label = node.label.length > 18 ? `${node.label.slice(0, 16)}…` : node.label;
-  const subtitle = isCluster
-    ? `${clusterCount} service${clusterCount !== 1 ? "s" : ""}`
-    : nodeSubtitle(node).slice(0, 22);
+  const primaryLabel = isIsolatedGhost
+    ? node.label
+    : isCluster
+      ? `${clusterCount} svc`
+      : truncateLabel(node.label, 14);
+  const secondaryText = isCluster || isIsolatedGhost ? null : node.ip;
+  const fallbackSubtitle = isCluster || isIsolatedGhost ? null : nodeSubtitleFallback(node);
+
+  const badges = isIsolatedGhost ? [] : buildStatusBadges(node);
 
   const centerHandle = { opacity: 0 as const, left: "50%", top: "50%", transform: "translate(-50%, -50%)" };
 
@@ -202,9 +274,35 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
               : hasAlert
                 ? `0 0 12px ${severityColor(node.severity)}28`
                 : "none",
-          animation: data.isNew ? "topology-node-pulse 0.7s ease-out 3" : undefined,
+          animation: data.isNew && !reducedMotion ? "topology-node-pulse 0.7s ease-out 3" : undefined,
         }}
       >
+        {isLiveAgent && (
+          <svg
+            width={markerSize + 24}
+            height={markerSize + 24}
+            viewBox="-40 -40 80 80"
+            style={{
+              position: "absolute",
+              inset: -12,
+              pointerEvents: "none",
+              animation: reducedMotion ? undefined : "topology-anchor-ring 8s linear infinite",
+              transformOrigin: "50% 50%",
+            }}
+          >
+            <circle
+              cx="0"
+              cy="0"
+              r="36"
+              fill="none"
+              stroke={visual.stroke}
+              strokeOpacity="0.45"
+              strokeWidth="1"
+              strokeDasharray="2 4"
+            />
+          </svg>
+        )}
+
         <svg width={iconSize} height={iconSize} viewBox="-14 -14 28 28" stroke="currentColor" fill="none">
           <DeviceIcon nodeType={node.node_type} isCluster={isCluster} />
         </svg>
@@ -215,35 +313,60 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
             style={{ background: "#F97316" }}
           />
         )}
-        {hasAlert && node.alert_count > 0 && (
-          <span
-            className="absolute -right-2 -top-2 flex h-4 min-w-[16px] items-center justify-center rounded-full border border-[#07111f] px-1 text-[8px] font-bold"
-            style={{ background: severityColor(node.severity), color: "#fff" }}
-          >
-            {node.alert_count > 9 ? "9+" : node.alert_count}
-          </span>
-        )}
       </div>
 
       <div
-        className={cx(
-          "pointer-events-none absolute left-0 right-0 overflow-hidden text-center leading-none transition-opacity duration-150 group-hover:opacity-100",
-          (showLabel || importance === "anchor") ? "opacity-100" : "opacity-0",
-        )}
+        className="pointer-events-none absolute left-0 right-0 overflow-hidden text-center leading-tight"
         style={{ top: labelTop }}
       >
         <div
           className="truncate px-0.5 text-[10px] font-semibold"
           style={{ color: visual.stroke }}
+          title={node.label}
         >
-          {label}
+          {primaryLabel}
         </div>
-        {(isSelected || isSearchMatch || importance === "anchor") && (
-          <div className="truncate px-0.5 text-[9px]" style={{ color: "rgba(148,163,184,0.65)" }}>
-            {subtitle}
+        {secondaryText && (
+          <div
+            className="truncate px-0.5 text-[9px]"
+            style={{ color: "rgba(148,163,184,0.78)", opacity: 0.5 }}
+          >
+            {secondaryText}
+          </div>
+        )}
+        {!secondaryText && fallbackSubtitle && importance === "anchor" && (
+          <div
+            className="truncate px-0.5 text-[9px]"
+            style={{ color: "rgba(148,163,184,0.78)", opacity: 0.5 }}
+          >
+            {fallbackSubtitle}
           </div>
         )}
       </div>
+
+      {badges.length > 0 && (
+        <div
+          className="pointer-events-none absolute left-1/2 -translate-x-1/2 flex items-center justify-center gap-[3px]"
+          style={{ bottom: 2, height: 14, maxWidth: NODE_W - 4 }}
+        >
+          {badges.map((badge) => (
+            <span
+              key={badge.key}
+              className="inline-flex items-center justify-center rounded-[3px] px-[3px] text-[8px] font-bold leading-none"
+              style={{
+                color: badge.color,
+                background: badge.bg,
+                border: `1px solid ${badge.border}`,
+                height: 12,
+                minWidth: 14,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {badge.text}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
