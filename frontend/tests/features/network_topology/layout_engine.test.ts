@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  computeLocationGroupLayout,
-  computeTopologyLayout,
-  nodeImportance,
-} from "@/features/network_topology/lib/topologyLayoutEngine";
 import { graphToConnectionView } from "@/features/network_topology/lib/graphTransform";
 import type { DeviceNodeData } from "@/features/network_topology/lib/graphTransform";
+import {
+  findLocalAnchor,
+  nodeImportance,
+  type TopologyLayout,
+  type TopologyLayoutNode,
+} from "@/features/network_topology/lib/topologyLayoutELK";
 import type {
   TopologyEdge,
   TopologyGraph,
   TopologyGroup,
-  TopologyGroupEdge,
   TopologyNode,
 } from "@/features/network_topology/types";
 
@@ -81,20 +81,6 @@ function group(overrides: Partial<TopologyGroup>): TopologyGroup {
   };
 }
 
-function groupEdge(overrides: Partial<TopologyGroupEdge>): TopologyGroupEdge {
-  return {
-    edge_key: "group-edge",
-    source_group_key: "a",
-    target_group_key: "b",
-    edge_types: ["observed_flow"],
-    weight: 1,
-    event_count: 1,
-    alert_count: 0,
-    severity: "low",
-    ...overrides,
-  };
-}
-
 function graph(): TopologyGraph {
   return {
     nodes: [
@@ -108,7 +94,7 @@ function graph(): TopologyGraph {
         ip: "8.8.8.8",
         metadata: { ip_scope: "public_internet" },
       }),
-      node({ node_key: "agent-b", node_type: "agent", agent_id: "agent-b", label: "agent-b" }),
+      node({ node_key: "agent-b", node_type: "agent", agent_id: "agent-b", label: "agent-b", event_count: 10 }),
     ],
     edges: [
       edge({ edge_key: "risk-flow", source_node_key: "risk-a", target_node_key: "public-a" }),
@@ -144,150 +130,40 @@ const groups = [
     node_count: 1,
     agent_id: "agent-b",
   }),
-  group({
-    group_key: "c",
-    label: "Isolated",
-    node_count: 1,
-  }),
 ];
 
-const groupEdges = [
-  groupEdge({ edge_key: "a-b", source_group_key: "a", target_group_key: "b", weight: 4, event_count: 9 }),
-];
-
-describe("topology layout engine", () => {
-  it("returns stable positions for the same graph input", () => {
-    const first = computeTopologyLayout(graph(), groups, groupEdges);
-    const second = computeTopologyLayout(graph(), groups, groupEdges);
-    expect(first.nodes.map(({ node_key, x, y }) => ({ node_key, x, y }))).toEqual(
-      second.nodes.map(({ node_key, x, y }) => ({ node_key, x, y })),
-    );
-  });
-
-  it("keeps subnet anchors central and public nodes farther toward the perimeter", () => {
-    const layout = computeTopologyLayout(graph(), groups, groupEdges);
-    const subnet = layout.nodes.find((item) => item.node_key === "subnet-a");
-    const host = layout.nodes.find((item) => item.node_key === "host-a");
-    const publicNode = layout.nodes.find((item) => item.node_key === "public-a");
-    expect(subnet?.importance).toBe("anchor");
-    const area = layout.areas.find((item) => item.group.group_key === "a");
-    const hostDistance = Math.hypot((host?.x ?? 0) - (area?.x ?? 0), (host?.y ?? 0) - (area?.y ?? 0));
-    const publicDistance = Math.hypot((publicNode?.x ?? 0) - (area?.x ?? 0), (publicNode?.y ?? 0) - (area?.y ?? 0));
-    expect(publicDistance).toBeGreaterThan(hostDistance);
-  });
-
-  it("uses connectivity to place the primary location at the center and isolated groups farther away", () => {
-    const positions = computeLocationGroupLayout(groups, groupEdges);
-    expect(positions.get("a")?.isCentral).toBe(true);
-    expect(positions.get("a")?.ring).toBe(0);
-    expect(positions.get("b")?.ring).toBe(1);
-    expect(positions.get("c")?.ring).toBeGreaterThan(1);
-  });
-
-  it("no two nodes share the exact same position within a group", () => {
-    const layout = computeTopologyLayout(graph(), groups, groupEdges);
-    const grouped = layout.nodes.filter((n) => n.group_key !== null);
-    const coords = grouped.map((n) => `${n.x},${n.y}`);
-    const unique = new Set(coords);
-    expect(unique.size).toBe(coords.length);
-  });
-
-  it("halo radius is bounded by the maximum", () => {
-    const layout = computeTopologyLayout(graph(), groups, groupEdges);
-    for (const area of layout.areas) {
-      expect(area.radius).toBeGreaterThan(0);
-      expect(area.radius).toBeLessThanOrEqual(360);
-    }
-  });
-
-  it("halo radius is at least the minimum for groups with 5 or more nodes", () => {
-    const largeGroup = [
-      group({
-        group_key: "lg",
-        group_type: "subnet",
-        node_keys: ["subnet-a", "risk-a", "host-a", "public-a", "agent-b"],
-        node_count: 5,
-        cidr: "10.0.0.0/24",
-        alert_count: 1,
-        risk_score: 82,
-        highest_severity: "high",
-      }),
-    ];
-    const layout = computeTopologyLayout(graph(), largeGroup, []);
-    for (const area of layout.areas) {
-      expect(area.radius).toBeGreaterThanOrEqual(110);
-    }
-  });
-
-  it("a group with more members produces a larger or equal halo area than a single-node group", () => {
-    const singleGroup = [group({ group_key: "single", node_keys: ["host-a"], node_count: 1, cidr: null })];
-    const denseGroup = [
-      group({
-        group_key: "dense",
-        node_keys: ["subnet-a", "risk-a", "host-a", "public-a", "agent-b"],
-        node_count: 5,
-        cidr: "10.0.0.0/24",
-        highest_severity: "high",
-        alert_count: 1,
-        risk_score: 82,
-      }),
-    ];
-    const singleLayout = computeTopologyLayout(graph(), singleGroup, []);
-    const denseLayout = computeTopologyLayout(graph(), denseGroup, []);
-    const singleRadius = singleLayout.areas[0]?.radius ?? 0;
-    const denseRadius = denseLayout.areas[0]?.radius ?? 0;
-    expect(denseRadius).toBeGreaterThanOrEqual(singleRadius);
-  });
-});
-
-describe("dense group spacing", () => {
-  const now = "2026-05-17T12:00:00.000Z";
-
-  function makeHostNode(key: string): import("@/features/network_topology/types").TopologyNode {
-    return node({ node_key: key, label: key, node_type: "host", first_seen_at: now, last_seen_at: now, updated_at: now });
-  }
-
-  it("non-anchor nodes in a dense group are not placed closer than 64px to each other", () => {
-    const anchor = node({ node_key: "subnet-dense", node_type: "subnet", label: "10.0.1.0/24", cidr: "10.0.1.0/24" });
-    const members = Array.from({ length: 12 }, (_, i) => makeHostNode(`h${i}`));
-    const denseGraph: import("@/features/network_topology/types").TopologyGraph = {
-      nodes: [anchor, ...members],
-      edges: [],
-      graph_health: { node_count: 13, edge_count: 0, nodes_truncated: false, edges_truncated: false, max_nodes_applied: 350, max_edges_applied: 650 },
-    };
-    const denseGroup = [group({
-      group_key: "dg",
-      group_type: "subnet",
-      node_keys: [anchor.node_key, ...members.map((n) => n.node_key)],
-      node_count: 13,
-      cidr: "10.0.1.0/24",
-    })];
-    const layout = computeTopologyLayout(denseGraph, denseGroup, []);
-    const placed = layout.nodes.filter((n) => n.group_key === "dg" && n.importance !== "anchor");
-    for (let i = 0; i < placed.length; i++) {
-      for (let j = i + 1; j < placed.length; j++) {
-        const dist = Math.hypot(placed[i].x - placed[j].x, placed[i].y - placed[j].y);
-        expect(dist).toBeGreaterThanOrEqual(64);
-      }
-    }
-  });
-
-  it("a larger dense group spreads nodes farther from center than a small group", () => {
-    function maxDistFromCenter(count: number): number {
-      const members = Array.from({ length: count }, (_, i) => makeHostNode(`n${i}`));
-      const g = group({ group_key: "g", node_keys: members.map((n) => n.node_key), node_count: count });
-      const gr: import("@/features/network_topology/types").TopologyGraph = {
-        nodes: members,
-        edges: [],
-        graph_health: { node_count: count, edge_count: 0, nodes_truncated: false, edges_truncated: false, max_nodes_applied: 350, max_edges_applied: 650 },
-      };
-      const layout = computeTopologyLayout(gr, [g], []);
-      const placed = layout.nodes.filter((n) => n.group_key === "g");
-      return Math.max(...placed.map((n) => Math.hypot(n.x - 840, n.y - 520)));
-    }
-    expect(maxDistFromCenter(14)).toBeGreaterThan(maxDistFromCenter(4));
-  });
-});
+function buildLayout(g: TopologyGraph, gs: TopologyGroup[]): TopologyLayout {
+  const groupByNode = new Map<string, string>();
+  for (const grp of gs) for (const k of grp.node_keys) groupByNode.set(k, grp.group_key);
+  const layoutNodes: TopologyLayoutNode[] = g.nodes.map((n, idx) => ({
+    ...n,
+    x: idx * 200,
+    y: 0,
+    radius: 12,
+    group_key: groupByNode.get(n.node_key) ?? null,
+    importance: nodeImportance(n),
+  }));
+  const nodeByKey = new Map(layoutNodes.map((n) => [n.node_key, n]));
+  return {
+    width: 1680,
+    height: 1040,
+    nodes: layoutNodes,
+    edges: g.edges.map((e) => ({
+      ...e,
+      source: nodeByKey.get(e.source_node_key) ?? null,
+      target: nodeByKey.get(e.target_node_key) ?? null,
+    })),
+    areas: gs.map((grp, idx) => ({
+      group: grp,
+      x: idx * 400,
+      y: 0,
+      radius: 150,
+      ring: 0,
+      degree: 0,
+      isCentral: idx === 0,
+    })),
+  };
+}
 
 describe("nodeImportance", () => {
   it("classifies agent, gateway, subnet as anchor", () => {
@@ -309,49 +185,73 @@ describe("nodeImportance", () => {
   });
 });
 
+describe("findLocalAnchor", () => {
+  it("picks the live agent with the highest event_count", () => {
+    const candidates: TopologyNode[] = [
+      node({ node_key: "a1", node_type: "agent", event_count: 4 }),
+      node({ node_key: "a2", node_type: "agent", event_count: 20 }),
+      node({ node_key: "a3", node_type: "agent", is_stale: true, event_count: 99 }),
+      node({ node_key: "h1", node_type: "host", event_count: 999 }),
+    ];
+    expect(findLocalAnchor(candidates)?.node_key).toBe("a2");
+  });
+
+  it("returns null when there are no live agents", () => {
+    expect(findLocalAnchor([node({ node_type: "host" })])).toBeNull();
+  });
+});
+
 describe("label policy in connection view", () => {
-  const selNone = { selectedKey: null as string | null, selectedKind: null as "node" | "edge" | "group" | null, highlightedKeys: new Set<string>() };
+  const selNone = {
+    selectedKey: null as string | null,
+    selectedKind: null as "node" | "edge" | "group" | null,
+    highlightedKeys: new Set<string>(),
+  };
 
   it("normal host node does not show label by default", () => {
-    const { nodes } = graphToConnectionView(graph(), selNone, undefined, undefined, groups, groupEdges);
+    const layout = buildLayout(graph(), groups);
+    const { nodes } = graphToConnectionView(graph(), layout, selNone);
     const hostNode = nodes.find((n) => n.type === "device" && n.id === "host-a");
     expect((hostNode?.data as unknown as DeviceNodeData).showLabel).toBe(false);
   });
 
   it("agent node in a small group shows label", () => {
-    const { nodes } = graphToConnectionView(graph(), selNone, undefined, undefined, groups, groupEdges);
+    const layout = buildLayout(graph(), groups);
+    const { nodes } = graphToConnectionView(graph(), layout, selNone);
     const agentNode = nodes.find((n) => n.type === "device" && n.id === "agent-b");
     expect((agentNode?.data as unknown as DeviceNodeData).showLabel).toBe(true);
   });
 
   it("selected node always shows label", () => {
+    const layout = buildLayout(graph(), groups);
     const sel = { selectedKey: "host-a", selectedKind: "node" as const, highlightedKeys: new Set(["host-a"]) };
-    const { nodes } = graphToConnectionView(graph(), sel, undefined, undefined, groups, groupEdges);
+    const { nodes } = graphToConnectionView(graph(), layout, sel);
     const hostNode = nodes.find((n) => n.type === "device" && n.id === "host-a");
     expect((hostNode?.data as unknown as DeviceNodeData).showLabel).toBe(true);
   });
 
   it("search match node shows label", () => {
+    const layout = buildLayout(graph(), groups);
     const { nodes } = graphToConnectionView(
       graph(),
+      layout,
       selNone,
       { matchedNodeKeys: new Set(["host-a"]), matchedGroupKeys: new Set(), activeMatchKey: "host-a" },
-      undefined,
-      groups,
-      groupEdges,
     );
     const hostNode = nodes.find((n) => n.type === "device" && n.id === "host-a");
     expect((hostNode?.data as unknown as DeviceNodeData).showLabel).toBe(true);
   });
 
   it("high severity node with alerts shows label", () => {
-    const { nodes } = graphToConnectionView(graph(), selNone, undefined, undefined, groups, groupEdges);
+    const layout = buildLayout(graph(), groups);
+    const { nodes } = graphToConnectionView(graph(), layout, selNone);
     const riskNode = nodes.find((n) => n.type === "device" && n.id === "risk-a");
     expect((riskNode?.data as unknown as DeviceNodeData).showLabel).toBe(true);
   });
 
   it("subnet anchor node shows label in a small group", () => {
-    const { nodes } = graphToConnectionView(graph(), selNone, undefined, undefined, groups, groupEdges);
+    const layout = buildLayout(graph(), groups);
+    const { nodes } = graphToConnectionView(graph(), layout, selNone);
     const subnetNode = nodes.find((n) => n.type === "device" && n.id === "subnet-a");
     expect((subnetNode?.data as unknown as DeviceNodeData).showLabel).toBe(true);
   });
