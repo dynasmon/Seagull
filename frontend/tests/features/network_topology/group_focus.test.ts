@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { graphToConnectionView } from "@/features/network_topology/lib/graphTransform";
-import type { TopologyGraph } from "@/features/network_topology/types";
+import { nodeImportance, type TopologyLayout, type TopologyLayoutNode } from "@/features/network_topology/lib/topologyLayoutELK";
+import type { TopologyGraph, TopologyNode } from "@/features/network_topology/types";
 
-const makeNode = (key: string, overrides: object = {}) => ({
+const makeNode = (key: string, overrides: object = {}): TopologyNode => ({
   node_key: key,
   node_type: "host" as const,
   agent_id: null,
@@ -63,19 +64,42 @@ const mockGraph: TopologyGraph = {
   },
 };
 
+function buildLayout(graph: TopologyGraph): TopologyLayout {
+  const layoutNodes: TopologyLayoutNode[] = graph.nodes.map((n, idx) => ({
+    ...n,
+    x: idx * 200,
+    y: 0,
+    radius: 12,
+    group_key: null,
+    importance: nodeImportance(n),
+  }));
+  const nodeByKey = new Map(layoutNodes.map((n) => [n.node_key, n]));
+  return {
+    width: 1680,
+    height: 1040,
+    nodes: layoutNodes,
+    edges: graph.edges.map((e) => ({
+      ...e,
+      source: nodeByKey.get(e.source_node_key) ?? null,
+      target: nodeByKey.get(e.target_node_key) ?? null,
+    })),
+    areas: [],
+  };
+}
+
 const defaultSel = { selectedKey: null, selectedKind: null as null, highlightedKeys: new Set<string>() };
 
 describe("graphToConnectionView – focus state", () => {
   it("dims nodes outside the focused group", () => {
     const focusState = { focusedNodeKeys: new Set(["node-1", "node-2"]) };
-    const { nodes } = graphToConnectionView(mockGraph, defaultSel, undefined, focusState);
+    const { nodes } = graphToConnectionView(mockGraph, buildLayout(mockGraph), defaultSel, undefined, focusState);
     const n3 = nodes.find((n) => n.id === "node-3");
     expect(n3?.data.isDimmed).toBe(true);
   });
 
   it("does not dim nodes inside the focused group", () => {
     const focusState = { focusedNodeKeys: new Set(["node-1", "node-2"]) };
-    const { nodes } = graphToConnectionView(mockGraph, defaultSel, undefined, focusState);
+    const { nodes } = graphToConnectionView(mockGraph, buildLayout(mockGraph), defaultSel, undefined, focusState);
     const n1 = nodes.find((n) => n.id === "node-1");
     const n2 = nodes.find((n) => n.id === "node-2");
     expect(n1?.data.isDimmed).toBe(false);
@@ -84,14 +108,14 @@ describe("graphToConnectionView – focus state", () => {
 
   it("dims edges where both endpoints are outside the focused group", () => {
     const focusState = { focusedNodeKeys: new Set(["node-1"]) };
-    const { edges } = graphToConnectionView(mockGraph, defaultSel, undefined, focusState);
+    const { edges } = graphToConnectionView(mockGraph, buildLayout(mockGraph), defaultSel, undefined, focusState);
     const e23 = edges.find((e) => e.id === "node-2->node-3");
     expect(e23?.data?.isDimmed).toBe(true);
   });
 
   it("does not dim edges where at least one endpoint is in the focused group", () => {
     const focusState = { focusedNodeKeys: new Set(["node-1", "node-2"]) };
-    const { edges } = graphToConnectionView(mockGraph, defaultSel, undefined, focusState);
+    const { edges } = graphToConnectionView(mockGraph, buildLayout(mockGraph), defaultSel, undefined, focusState);
     const e12 = edges.find((e) => e.id === "node-1->node-2");
     expect(e12?.data?.isDimmed).toBe(false);
   });
@@ -103,7 +127,7 @@ describe("graphToConnectionView – focus state", () => {
       matchedGroupKeys: new Set<string>(),
       activeMatchKey: null,
     };
-    const { nodes } = graphToConnectionView(mockGraph, defaultSel, searchState, focusState);
+    const { nodes } = graphToConnectionView(mockGraph, buildLayout(mockGraph), defaultSel, searchState, focusState);
     const n1 = nodes.find((n) => n.id === "node-1");
     const n3 = nodes.find((n) => n.id === "node-3");
     expect(n1?.data.isDimmed).toBe(true);
@@ -116,13 +140,13 @@ describe("graphToConnectionView – focus state", () => {
       selectedKind: "node" as const,
       highlightedKeys: new Set(["node-1", "node-1->node-2"]),
     };
-    const { nodes } = graphToConnectionView(mockGraph, selState, undefined, undefined);
+    const { nodes } = graphToConnectionView(mockGraph, buildLayout(mockGraph), selState, undefined, undefined);
     const n2 = nodes.find((n) => n.id === "node-2");
     expect(n2?.data.isDimmed).toBe(true);
   });
 
   it("does not dim anything when no focus, no search, and no selection", () => {
-    const { nodes } = graphToConnectionView(mockGraph, defaultSel, undefined, undefined);
+    const { nodes } = graphToConnectionView(mockGraph, buildLayout(mockGraph), defaultSel, undefined, undefined);
     expect(nodes.every((n) => !n.data.isDimmed)).toBe(true);
   });
 });

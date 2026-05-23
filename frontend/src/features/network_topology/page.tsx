@@ -27,10 +27,11 @@ import { NetworkTopologyDiscoveryPanel } from "./components/NetworkTopologyDisco
 import { NetworkTopologyEvidencePanel } from "./components/NetworkTopologyEvidencePanel";
 import { NetworkTopologyInsightsPanel } from "./components/NetworkTopologyInsightsPanel";
 import { NetworkTopologyServicesPanel } from "./components/NetworkTopologyServicesPanel";
-import SigmaTopologyCanvas from "./components/SigmaTopologyCanvas";
+import TopologyCanvas from "./components/TopologyCanvas";
 import { TopologyFilterRail } from "./components/TopologyFilterRail";
 import { useNetworkTopologyFilters } from "./hooks/useNetworkTopologyFilters";
 import { useNetworkTopologyRealtimeInvalidation } from "./hooks/useNetworkTopologyRealtimeInvalidation";
+import { useTopologyLayout } from "./hooks/useTopologyLayout";
 import { useTopologyWorkspaceState } from "./hooks/useTopologyWorkspaceState";
 import {
   filterTopologyGraph,
@@ -42,6 +43,7 @@ import {
   computeHighlightedKeys,
   graphToConnectionView,
   graphToLocationView,
+  pruneIsolatedNodes,
   type TopologyFocusState,
 } from "./lib/graphTransform";
 import { resolveTopologyGroups } from "./lib/grouping";
@@ -103,6 +105,7 @@ export default function NetworkTopologyPage() {
   } | null>(null);
   const [detailSelection, setDetailSelection] = useState<NetworkTopologyDetailSelection>(null);
   const [secondaryOpen, setSecondaryOpen] = useState(false);
+  const [showIsolated, setShowIsolated] = useState(false);
 
   const filtersRef = useRef(appliedFilters);
   const focusedGroupKeyRef = useRef<string | null>(null);
@@ -214,13 +217,37 @@ export default function NetworkTopologyPage() {
   );
   prevNodeIdsRef.current = new Set(graph?.nodes.map((n) => n.node_key) ?? []);
 
+  const { activeGraph, isolatedCount } = useMemo(() => {
+    if (!visibleGraph) return { activeGraph: null as TopologyGraph | null, isolatedCount: 0 };
+    return pruneIsolatedNodes(visibleGraph, searchStateWithActive, showIsolated);
+  }, [visibleGraph, searchStateWithActive, showIsolated]);
+
+  const { connectionLayout, locationPositions } = useTopologyLayout(
+    activeGraph,
+    groups,
+    groupEdges,
+    appliedFilters.view_mode,
+  );
+
   const { nodes: rfNodes, edges: rfEdges } = useMemo(() => {
     if (appliedFilters.view_mode === "location") {
-      return graphToLocationView(groups, groupEdges, selState, searchStateWithActive);
+      return graphToLocationView(groups, groupEdges, locationPositions, selState, searchStateWithActive);
     }
-    return graphToConnectionView(visibleGraph, selState, searchStateWithActive, focusState, groups, groupEdges, newNodeIds);
+    return graphToConnectionView(
+      activeGraph,
+      connectionLayout,
+      selState,
+      searchStateWithActive,
+      focusState,
+      newNodeIds,
+      isolatedCount,
+    );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appliedFilters.view_mode, groups, groupEdges, visibleGraph, selState, searchStateWithActive, focusState]);
+  }, [appliedFilters.view_mode, groups, groupEdges, locationPositions, connectionLayout, activeGraph, isolatedCount, selState, searchStateWithActive, focusState]);
+
+  const handleShowIsolated = useCallback(() => {
+    setShowIsolated(true);
+  }, []);
 
   const selectedDiscoveryAgent = useMemo(
     () => agents.find((agent) => agent.agent_id === selectedDiscoveryAgentId) ?? null,
@@ -562,7 +589,7 @@ export default function NetworkTopologyPage() {
         )}
 
         <div className="relative min-h-0 min-w-0 flex-1">
-          <SigmaTopologyCanvas
+          <TopologyCanvas
             nodes={rfNodes}
             edges={rfEdges}
             viewMode={appliedFilters.view_mode}
@@ -581,6 +608,9 @@ export default function NetworkTopologyPage() {
             focusedGroupLabel={focusedGroupLabel}
             realtimeStatus={liveState.realtimeStatus}
             isRefreshing={liveState.isRefreshing}
+            isolatedCount={isolatedCount}
+            showIsolated={showIsolated}
+            onShowIsolated={handleShowIsolated}
             onViewModeChange={(mode) => applyWith({ ...draftFilters, view_mode: mode })}
             onToggleFilterRail={() => workspace.setFilterRailOpen((prev) => !prev)}
             onToggleFullscreen={workspace.toggleFullscreen}
