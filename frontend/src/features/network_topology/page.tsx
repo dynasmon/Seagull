@@ -27,7 +27,7 @@ import { NetworkTopologyDiscoveryPanel } from "./components/NetworkTopologyDisco
 import { NetworkTopologyEvidencePanel } from "./components/NetworkTopologyEvidencePanel";
 import { NetworkTopologyInsightsPanel } from "./components/NetworkTopologyInsightsPanel";
 import { NetworkTopologyServicesPanel } from "./components/NetworkTopologyServicesPanel";
-import TopologyCanvas from "./components/TopologyCanvas";
+import SigmaTopologyCanvas from "./components/SigmaTopologyCanvas";
 import { TopologyFilterRail } from "./components/TopologyFilterRail";
 import { useNetworkTopologyFilters } from "./hooks/useNetworkTopologyFilters";
 import { useNetworkTopologyRealtimeInvalidation } from "./hooks/useNetworkTopologyRealtimeInvalidation";
@@ -562,7 +562,7 @@ export default function NetworkTopologyPage() {
         )}
 
         <div className="relative min-h-0 min-w-0 flex-1">
-          <TopologyCanvas
+          <SigmaTopologyCanvas
             nodes={rfNodes}
             edges={rfEdges}
             viewMode={appliedFilters.view_mode}
