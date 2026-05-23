@@ -7,10 +7,18 @@ import type { TopologyEdge, TopologyGroup, TopologyNode } from "../types";
 export type TooltipInfo =
   | { kind: "node"; node: TopologyNode; x: number; y: number }
   | { kind: "group"; group: TopologyGroup; x: number; y: number }
-  | { kind: "edge"; edge: TopologyEdge; sourceLabel: string; targetLabel: string; x: number; y: number }
+  | {
+      kind: "edge";
+      edge: TopologyEdge;
+      sourceLabel: string;
+      targetLabel: string;
+      isBidirectional?: boolean;
+      x: number;
+      y: number;
+    }
   | null;
 
-const TOOLTIP_W = 220;
+const TOOLTIP_W = 260;
 const OX = 14;
 const OY = 8;
 
@@ -19,6 +27,26 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
     <div className="flex items-baseline justify-between gap-2">
       <span className="shrink-0 text-[10px] text-muted-foreground/55">{label}</span>
       <span className="truncate text-right text-[10px] text-foreground/80">{value}</span>
+    </div>
+  );
+}
+
+function RiskBar({ score }: { score: number }) {
+  const clamped = Math.max(0, Math.min(100, Math.round(score)));
+  const sev = clamped >= 80 ? "critical" : clamped >= 60 ? "high" : clamped >= 40 ? "medium" : clamped >= 20 ? "low" : "informational";
+  const color = severityColor(sev);
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        className="relative h-[4px] w-[80px] overflow-hidden rounded-full"
+        style={{ background: "rgba(148,163,184,0.18)" }}
+      >
+        <div
+          className="absolute inset-y-0 left-0 rounded-full"
+          style={{ width: `${clamped}%`, background: color }}
+        />
+      </div>
+      <span className="text-[10px] tabular-nums text-foreground/75">{clamped}</span>
     </div>
   );
 }
@@ -33,11 +61,17 @@ function NodeContent({ node }: { node: TopologyNode }) {
       <div className="space-y-0.5">
         <Row label="Type" value={toTitleLabel(node.node_type)} />
         {(node.ip || node.cidr) && <Row label="Address" value={node.ip ?? node.cidr} />}
+        {node.port != null && node.protocol && (
+          <Row label="Port" value={`${node.port}/${node.protocol.toUpperCase()}`} />
+        )}
         {node.agent_id && <Row label="Agent" value={node.agent_id} />}
         <Row label="Severity" value={<span style={{ color: severityColor(sev) }}>{sev}</span>} />
+        {node.risk_score > 0 && <Row label="Risk" value={<RiskBar score={node.risk_score} />} />}
         {node.alert_count > 0 && <Row label="Alerts" value={node.alert_count} />}
         {node.event_count > 0 && <Row label="Events" value={node.event_count} />}
+        {node.observation_count > 0 && <Row label="Observations" value={node.observation_count} />}
         <Row label="Confidence" value={`${node.confidence}%`} />
+        <Row label="First seen" value={formatTopologyTimestamp(node.first_seen_at)} />
         <Row label="Last seen" value={formatTopologyTimestamp(node.last_seen_at)} />
         {node.is_stale && (
           <Row label="Status" value={<span style={{ color: "#F97316" }}>stale</span>} />
@@ -49,6 +83,7 @@ function NodeContent({ node }: { node: TopologyNode }) {
 
 function GroupContent({ group }: { group: TopologyGroup }) {
   const sev = group.highest_severity ?? "unknown";
+  const firstSeen = (group as TopologyGroup & { first_seen?: string | null }).first_seen ?? null;
   return (
     <>
       <div className="mb-1.5 truncate text-[11px] font-semibold text-foreground">
@@ -59,11 +94,12 @@ function GroupContent({ group }: { group: TopologyGroup }) {
         <Row label="Nodes" value={group.node_count} />
         {group.alert_count > 0 && <Row label="Alerts" value={group.alert_count} />}
         <Row label="Severity" value={<span style={{ color: severityColor(sev) }}>{sev}</span>} />
-        {group.risk_score > 0 && <Row label="Risk" value={group.risk_score} />}
+        {group.risk_score > 0 && <Row label="Risk score" value={<RiskBar score={group.risk_score} />} />}
         {group.cidr && <Row label="CIDR" value={group.cidr} />}
         {group.group_type === "subnet" && group.gateway_candidate_count != null && (
           <Row label="Gateways" value={group.gateway_candidate_count} />
         )}
+        {firstSeen && <Row label="First seen" value={formatTopologyTimestamp(firstSeen)} />}
       </div>
       <div className="mt-1.5 text-[9px] italic text-muted-foreground/45">
         Double-click to explore
@@ -76,20 +112,24 @@ function EdgeContent({
   edge,
   sourceLabel,
   targetLabel,
+  isBidirectional,
 }: {
   edge: TopologyEdge;
   sourceLabel: string;
   targetLabel: string;
+  isBidirectional?: boolean;
 }) {
+  const arrow = isBidirectional ? "↔" : "→";
   return (
     <>
       <div className="mb-1 text-[10px]">
         <span className="font-medium text-foreground/80">{sourceLabel}</span>
-        <span className="mx-1 text-muted-foreground/40">→</span>
+        <span className="mx-1 text-muted-foreground/40">{arrow}</span>
         <span className="font-medium text-foreground/80">{targetLabel}</span>
       </div>
       <div className="space-y-0.5">
         <Row label="Type" value={toTitleLabel(edge.edge_type)} />
+        <Row label="Direction" value={<span className="text-foreground/85">{arrow}</span>} />
         {(edge.port || edge.protocol) && (
           <Row
             label="Protocol"
@@ -133,7 +173,12 @@ function TopologyTooltip({ info }: { info: TooltipInfo }) {
       {info.kind === "node" && <NodeContent node={info.node} />}
       {info.kind === "group" && <GroupContent group={info.group} />}
       {info.kind === "edge" && (
-        <EdgeContent edge={info.edge} sourceLabel={info.sourceLabel} targetLabel={info.targetLabel} />
+        <EdgeContent
+          edge={info.edge}
+          sourceLabel={info.sourceLabel}
+          targetLabel={info.targetLabel}
+          isBidirectional={info.isBidirectional}
+        />
       )}
     </div>
   );

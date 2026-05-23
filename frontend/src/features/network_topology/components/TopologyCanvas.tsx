@@ -14,7 +14,7 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
-  getBezierPath,
+  getSmoothStepPath,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -23,8 +23,9 @@ import {
 import EmptyState from "@/shared/components/EmptyState";
 import { cx } from "@/shared/lib/cx";
 
-import type { ClusterHaloNodeData, DeviceNodeData, GroupNodeData, TopologyEdgeData } from "../lib/graphTransform";
+import { ISOLATED_GHOST_NODE_ID, type ClusterHaloNodeData, type DeviceNodeData, type GroupNodeData, type TopologyEdgeData } from "../lib/graphTransform";
 import { stableTopologyHash } from "../lib/topologyLayoutEngine";
+import { topologyNodeSetKey } from "../lib/topologyLayoutELK";
 import { edgeVisual, severityColor } from "../lib/visuals";
 import { useTopologyPositions } from "../hooks/useTopologyPositions";
 import type {
@@ -71,10 +72,16 @@ const EDGE_TYPE_SHORT_LABELS: Record<string, string> = {
   inferred_relationship: "inferred",
 };
 
-const PARALLEL_LANE_WIDTH = 20;
+const PILL_SUPPRESSED_EDGE_TYPES = new Set<string>(["member_of_subnet", "same_agent"]);
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 function TopologyFlowEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, data } = props;
+  const [hovered, setHovered] = useState(false);
   const isGroupEdge = data && "groupEdge" in data;
   const edgeObj = isGroupEdge
     ? (data as { groupEdge: TopologyGroupEdge }).groupEdge
@@ -84,14 +91,16 @@ function TopologyFlowEdge(props: EdgeProps) {
     ? ((edgeObj as TopologyGroupEdge).edge_types[0] ?? "observed_flow")
     : (edgeObj as TopologyEdge).edge_type;
   const confidence = isGroupEdge ? 80 : (edgeObj as TopologyEdge).confidence;
+  const eventCount = isGroupEdge
+    ? Number((edgeObj as TopologyGroupEdge).event_count || 0)
+    : Number((edgeObj as TopologyEdge).event_count || 0);
 
   const visual = edgeVisual({ edge_type: edgeType, confidence });
   const isSelected = Boolean((data as Record<string, unknown>)?.isSelected);
   const isDimmed = Boolean((data as Record<string, unknown>)?.isDimmed);
 
-  const groupEventCount = isGroupEdge ? Number((edgeObj as TopologyGroupEdge).event_count || 0) : 0;
   const groupAlertCount = isGroupEdge ? Number((edgeObj as TopologyGroupEdge).alert_count || 0) : 0;
-  const groupBoost = isGroupEdge ? Math.min(1.4, Math.log1p(groupEventCount) / 3) : 0;
+  const groupBoost = isGroupEdge ? Math.min(1.4, Math.log1p(eventCount) / 3) : 0;
 
   const edgeData = data as unknown as TopologyEdgeData;
   const sourceRadius = isGroupEdge ? 0 : (edgeData.sourceRadius ?? 16);
@@ -106,32 +115,25 @@ function TopologyFlowEdge(props: EdgeProps) {
   const nx = dx / dist;
   const ny = dy / dist;
 
-  const perpX = -ny;
-  const perpY = nx;
+  const adjSX = sourceX + nx * sourceRadius;
+  const adjSY = sourceY + ny * sourceRadius;
+  const adjTX = targetX - nx * targetRadius;
+  const adjTY = targetY - ny * targetRadius;
 
-  const laneOffset = parallelTotal > 1
-    ? (parallelIndex - (parallelTotal - 1) / 2) * PARALLEL_LANE_WIDTH
+  const offset = parallelTotal > 1
+    ? (parallelIndex - (parallelTotal - 1) / 2) * 18
     : 0;
 
-  const groupShift = isGroupEdge ? ((stableTopologyHash(id) % 5) - 2) * 11 : 0;
-  const totalShift = laneOffset + groupShift;
-
-  const adjSX = sourceX + nx * sourceRadius + perpX * totalShift;
-  const adjSY = sourceY + ny * sourceRadius + perpY * totalShift;
-  const adjTX = targetX - nx * targetRadius + perpX * totalShift;
-  const adjTY = targetY - ny * targetRadius + perpY * totalShift;
-
-  const curvature = isGroupEdge ? 0.28 : parallelTotal > 1 ? 0.25 : 0.42;
-
   const { sp, tp } = edgeHandlePositions(adjSX, adjSY, adjTX, adjTY);
-  const [edgePath] = getBezierPath({
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX: adjSX,
     sourceY: adjSY,
     sourcePosition: sp,
     targetX: adjTX,
     targetY: adjTY,
     targetPosition: tp,
-    curvature,
+    borderRadius: 12,
+    offset,
   });
 
   const strokeWidth = isSelected
@@ -147,8 +149,17 @@ function TopologyFlowEdge(props: EdgeProps) {
         ? Math.min(0.62, 0.18 + groupBoost * 0.26 + (groupAlertCount > 0 ? 0.1 : 0))
         : visual.opacity;
 
-  const midX = (adjSX + adjTX) / 2;
-  const midY = (adjSY + adjTY) / 2;
+  const reducedMotion = prefersReducedMotion();
+  const showFlowPulse =
+    !isGroupEdge &&
+    edgeType === "observed_flow" &&
+    eventCount > 200 &&
+    !isDimmed &&
+    !reducedMotion;
+
+  const showPill = !isDimmed && !PILL_SUPPRESSED_EDGE_TYPES.has(edgeType);
+  const pillLabel = EDGE_TYPE_SHORT_LABELS[edgeType] ?? edgeType;
+  const pillOpacity = isSelected || hovered ? 1 : 0.45;
 
   return (
     <>
@@ -163,15 +174,37 @@ function TopologyFlowEdge(props: EdgeProps) {
           transition: "stroke 180ms ease, stroke-width 180ms ease, opacity 180ms ease",
         }}
       />
-      {isSelected && (
+      {showFlowPulse && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke={visual.stroke}
+          strokeWidth={strokeWidth + 0.6}
+          strokeDasharray="10 14"
+          strokeLinecap="round"
+          opacity={Math.min(0.85, resolvedOpacity + 0.35)}
+          pointerEvents="none"
+        >
+          <animate
+            attributeName="stroke-dashoffset"
+            from="0"
+            to="-24"
+            dur="2.4s"
+            repeatCount="indefinite"
+          />
+        </path>
+      )}
+      {showPill && (
         <foreignObject
-          x={midX - 28}
-          y={midY - 8}
-          width={56}
+          x={labelX - 30}
+          y={labelY - 8}
+          width={60}
           height={16}
-          style={{ overflow: "visible", pointerEvents: "none" }}
+          style={{ overflow: "visible", pointerEvents: "auto" }}
         >
           <div
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
             style={{
               display: "flex",
               alignItems: "center",
@@ -180,14 +213,17 @@ function TopologyFlowEdge(props: EdgeProps) {
               border: `1px solid ${visual.stroke}60`,
               borderRadius: 3,
               padding: "1px 4px",
-              fontSize: 9,
+              fontSize: 8,
               fontWeight: 700,
               color: visual.stroke,
               whiteSpace: "nowrap",
               letterSpacing: "0.02em",
+              opacity: pillOpacity,
+              transition: "opacity 160ms ease",
+              cursor: "default",
             }}
           >
-            {EDGE_TYPE_SHORT_LABELS[edgeType] ?? edgeType}
+            {pillLabel}
           </div>
         </foreignObject>
       )}
@@ -284,6 +320,7 @@ type FlowInnerProps = {
   onMultiSelectionClear: () => void;
   onContextMenuRequest: (x: number, y: number, nodeId: string, nodeLabel: string, nodeType: "device" | "group") => void;
   onHaloEscape: (nodeId: string, nodeLabel: string, groupLabel: string, prevPosition: { x: number; y: number }) => void;
+  onIsolatedGhostClick: () => void;
 };
 
 function FlowInner({
@@ -320,6 +357,7 @@ function FlowInner({
   onMultiSelectionClear,
   onContextMenuRequest,
   onHaloEscape,
+  onIsolatedGhostClick,
 }: FlowInnerProps) {
   const { fitView } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -426,6 +464,10 @@ function FlowInner({
 
   const handleNodeClick = useCallback(
     (event: React.MouseEvent, node: Node) => {
+      if (node.id === ISOLATED_GHOST_NODE_ID) {
+        onIsolatedGhostClick();
+        return;
+      }
       if (event.shiftKey) {
         onMultiSelectToggle(node.id);
         return;
@@ -438,7 +480,7 @@ function FlowInner({
       const kind = node.type === "group" ? "group" : "node";
       onNodeClick(node.id, kind);
     },
-    [onMultiSelectToggle, onMultiSelectionClear, onNodeClick],
+    [onMultiSelectToggle, onMultiSelectionClear, onNodeClick, onIsolatedGhostClick],
   );
 
   const handleNodeDoubleClick = useCallback(
@@ -468,6 +510,7 @@ function FlowInner({
 
   const handleNodeMouseEnter = useCallback(
     (event: React.MouseEvent, node: Node) => {
+      if (node.id === ISOLATED_GHOST_NODE_ID) return;
       if (node.type === "device") {
         const d = node.data as unknown as DeviceNodeData;
         onTooltipChange({ kind: "node", node: d.node, x: event.clientX, y: event.clientY });
@@ -505,11 +548,13 @@ function FlowInner({
             : edge.target;
 
       if ("edge" in data) {
+        const ed = data as TopologyEdgeData;
         onTooltipChange({
           kind: "edge",
-          edge: (data as TopologyEdgeData).edge,
+          edge: ed.edge,
           sourceLabel: srcLabel,
           targetLabel: tgtLabel,
+          isBidirectional: Boolean(ed.isBidirectional),
           x: event.clientX,
           y: event.clientY,
         });
@@ -641,6 +686,9 @@ type Props = {
   focusedGroupLabel?: string | null;
   realtimeStatus: string;
   isRefreshing: boolean;
+  isolatedCount: number;
+  showIsolated: boolean;
+  onShowIsolated: () => void;
   onViewModeChange: (mode: TopologyViewMode) => void;
   onToggleFilterRail: () => void;
   onToggleFullscreen: () => void;
@@ -673,6 +721,9 @@ function TopologyCanvas({
   focusedGroupLabel,
   realtimeStatus,
   isRefreshing,
+  isolatedCount,
+  showIsolated,
+  onShowIsolated,
   onViewModeChange,
   onToggleFilterRail,
   onToggleFullscreen,
@@ -703,7 +754,14 @@ function TopologyCanvas({
   } | null>(null);
   const [multiSelection, setMultiSelection] = useState<Set<string>>(new Set());
 
-  const { positions: storedPositions, setPosition, resetPositions, hasCustomPositions } = useTopologyPositions(viewMode);
+  const topologyKey = useMemo(() => topologyNodeSetKey(graph), [graph]);
+  const { positions: storedPositions, setPosition, resetPositions, hasCustomPositions } = useTopologyPositions(viewMode, topologyKey);
+  const agentNodeCount = useMemo(() => {
+    const stats = summary?.node_type_breakdown ?? [];
+    const fromStats = stats.find((s) => s.node_type === "agent")?.count;
+    if (typeof fromStats === "number") return fromStats;
+    return Number(summary?.agent_count ?? 0);
+  }, [summary]);
 
   const mergedNodes = useMemo(
     () => nodes.map((node) => {
@@ -850,6 +908,7 @@ function TopologyCanvas({
           onMultiSelectionClear={handleMultiSelectionClear}
           onContextMenuRequest={handleContextMenuRequest}
           onHaloEscape={handleHaloEscape}
+          onIsolatedGhostClick={onShowIsolated}
         />
       </ReactFlowProvider>
 
@@ -860,6 +919,9 @@ function TopologyCanvas({
         nodeCount={nodes.filter((node) => node.type !== "clusterHalo").length}
         edgeCount={edges.length}
         groupCount={groups.length}
+        agentNodeCount={agentNodeCount}
+        isolatedCount={showIsolated ? 0 : isolatedCount}
+        onShowIsolated={isolatedCount > 0 && !showIsolated ? onShowIsolated : undefined}
         filters={filters}
         searchQuery={searchQuery}
         searchTotal={searchTotal}

@@ -9,6 +9,9 @@ type Props = {
   nodeCount: number;
   edgeCount: number;
   groupCount: number;
+  agentNodeCount: number;
+  isolatedCount: number;
+  onShowIsolated?: () => void;
   filters: TopologyFilters;
   searchQuery: string;
   searchTotal: number;
@@ -49,6 +52,9 @@ function TopologyStatusStrip({
   nodeCount,
   edgeCount,
   groupCount,
+  agentNodeCount,
+  isolatedCount,
+  onShowIsolated,
   filters,
   searchQuery,
   searchTotal,
@@ -65,6 +71,12 @@ function TopologyStatusStrip({
   const staleCount = summary?.stale_node_count ?? 0;
   const alertCount = summary?.alert_edge_count ?? 0;
   const realtimeConnected = realtimeStatus === "connected";
+
+  const healthScore = 100 - Math.min(
+    100,
+    Math.round((staleCount / Math.max(1, nodeCount)) * 100 + (alertCount > 0 ? 20 : 0)),
+  );
+  const healthColor = healthScore >= 80 ? "#4ADE80" : healthScore >= 50 ? "#FBBF24" : "#F87171";
 
   return (
     <div
@@ -95,6 +107,24 @@ function TopologyStatusStrip({
           </>
         )}
       </span>
+
+      <Dot />
+      <Pill
+        color={healthColor}
+        bg={`${healthColor}15`}
+        border={`1px solid ${healthColor}38`}
+      >
+        Health {healthScore}%
+      </Pill>
+
+      <Dot />
+      <Pill
+        color="#60A5FA"
+        bg="rgba(96,165,250,0.10)"
+        border="1px solid rgba(96,165,250,0.28)"
+      >
+        {agentNodeCount} agent{agentNodeCount === 1 ? "" : "s"}
+      </Pill>
 
       {filterCount > 0 && (
         <>
@@ -183,6 +213,28 @@ function TopologyStatusStrip({
 
       {isRefreshing && (
         <span className="text-[10px] text-muted-foreground/45">refreshing…</span>
+      )}
+
+      {isolatedCount > 0 && (
+        <>
+          <Dot />
+          <button
+            type="button"
+            onClick={onShowIsolated}
+            disabled={!onShowIsolated}
+            className="rounded-[4px] px-1.5 py-0.5 text-[10px] transition-colors hover:brightness-125"
+            style={{
+              color: "#94A3B8",
+              background: "rgba(148,163,184,0.10)",
+              border: "1px solid rgba(148,163,184,0.30)",
+              pointerEvents: "auto",
+              cursor: onShowIsolated ? "pointer" : "default",
+            }}
+            title="Show isolated nodes on canvas"
+          >
+            {isolatedCount} isolated
+          </button>
+        </>
       )}
     </div>
   );
