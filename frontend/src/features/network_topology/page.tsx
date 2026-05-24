@@ -225,8 +225,8 @@ export default function NetworkTopologyPage() {
   const { connectionLayout, locationPositions } = useTopologyLayout(
     activeGraph,
     groups,
-    groupEdges,
     appliedFilters.view_mode,
+    workspace.focusedGroupKey,
   );
 
   const { nodes: rfNodes, edges: rfEdges } = useMemo(() => {
