@@ -3,7 +3,7 @@ import type {
   TopologyGraph,
   TopologyGroup,
   TopologyNode,
-} from "../types";
+} from "../../types";
 import {
   arrangeGroupCluster,
   classifyGroupMembers,

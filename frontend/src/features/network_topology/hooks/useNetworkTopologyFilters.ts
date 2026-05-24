@@ -7,7 +7,7 @@ import {
   parseTopologyFilters,
   serializeTopologyFilters,
   topologyFilterKey,
-} from "../lib/filters";
+} from "../lib/filtering/filters";
 import type { TopologyFilters } from "../types";
 
 export function useNetworkTopologyFilters() {

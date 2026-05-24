@@ -6,7 +6,7 @@ import type {
   TopologyRelatedAttackChainCase,
   TopologyRelatedExposureFinding,
   TopologyRelatedFlow,
-} from "../types";
+} from "../../types";
 
 function clean(value: unknown): string {
   return String(value ?? "").trim();

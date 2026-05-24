@@ -1,8 +1,8 @@
 import type { Edge, Node } from "@xyflow/react";
 
-import type { TopologyEdge, TopologyGraph, TopologyGroup, TopologyGroupEdge, TopologyNode } from "../types";
-import type { TopologyGroupLayoutPoint, TopologyLayout } from "./topologyLayout";
-import { shouldShowLabel, groupCardSize, edgePriorityRank, groupEdgePriorityRank, nodeBoundingRadius } from "./presentation";
+import type { TopologyEdge, TopologyGraph, TopologyGroup, TopologyGroupEdge, TopologyNode } from "../../types";
+import type { TopologyGroupLayoutPoint, TopologyLayout } from "../layout/topologyLayout";
+import { shouldShowLabel, groupCardSize, edgePriorityRank, groupEdgePriorityRank, nodeBoundingRadius } from "../layout/presentation";
 
 const DEVICE_NODE_W = 96;
 const DEVICE_NODE_H = 96;
