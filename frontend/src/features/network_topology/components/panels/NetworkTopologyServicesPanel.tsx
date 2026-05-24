@@ -3,14 +3,14 @@ import { useMemo, useState } from "react";
 import { Panel } from "@/shared/components/Panel";
 import { cx } from "@/shared/lib/cx";
 
-import { formatTopologyTimestamp } from "../lib/labels";
+import { formatTopologyTimestamp } from "../../lib/presentation/labels";
 import {
   CATEGORY_ORDER,
   SERVICE_CATEGORY_META,
   fmtFlows,
   resolveServiceInfo,
-} from "../lib/services";
-import type { TopologyGraph, TopologyNode } from "../types";
+} from "../../lib/details/services";
+import type { TopologyGraph, TopologyNode } from "../../types";
 
 // ─── Category SVG icons (14 × 14, drawn at center 7,7) ───────────────────────
 

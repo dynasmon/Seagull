@@ -2,10 +2,10 @@ import { Badge } from "@/shared/components/Badge";
 import { Panel } from "@/shared/components/Panel";
 import { SeverityPill } from "@/shared/components/SeverityPill";
 
-import { TopologyIpScopeBadge } from "./TopologyIpScopeBadge";
-import { formatTopologyTimestamp, topologySeverityVariant } from "../lib/labels";
-import { observationPivotUrl } from "../lib/pivots";
-import type { TopologyObservation, TopologySubnet } from "../types";
+import { TopologyIpScopeBadge } from "../common/TopologyIpScopeBadge";
+import { formatTopologyTimestamp, topologySeverityVariant } from "../../lib/presentation/labels";
+import { observationPivotUrl } from "../../lib/details/pivots";
+import type { TopologyObservation, TopologySubnet } from "../../types";
 
 export function NetworkTopologyEvidencePanel({
   observations,
