@@ -1,7 +1,7 @@
 import { memo, useState } from "react";
 
-import { NODE_TYPE_LABELS, SEVERITY_COLORS, edgeVisual, nodeVisualByType } from "../lib/visuals";
-import type { TopologyViewMode } from "../types";
+import { NODE_TYPE_LABELS, SEVERITY_COLORS, edgeVisual, nodeVisualByType } from "../../lib/presentation/visuals";
+import type { TopologyViewMode } from "../../types";
 
 const EDGE_LEGEND_ROWS: Array<{ key: string; label: string }> = [
   { key: "alert_related",       label: "Alert context" },

@@ -1,6 +1,6 @@
 import { Badge } from "@/shared/components/Badge";
 
-import { ipScopeLabel, ipScopeVariant } from "../lib/labels";
+import { ipScopeLabel, ipScopeVariant } from "../../lib/presentation/labels";
 
 export function TopologyIpScopeBadge({ scope, compact = false }: { scope?: string | null; compact?: boolean }) {
   const label = ipScopeLabel(scope);

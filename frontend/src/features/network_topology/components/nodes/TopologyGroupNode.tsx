@@ -2,8 +2,8 @@ import { memo } from "react";
 import type { NodeProps } from "@xyflow/react";
 import { Handle, Position } from "@xyflow/react";
 
-import type { GroupNodeData } from "../lib/graphTransform";
-import { nodeVisualByType, severityColor } from "../lib/visuals";
+import type { GroupNodeData } from "../../lib/graph/graphTransform";
+import { nodeVisualByType, severityColor } from "../../lib/presentation/visuals";
 
 function groupSymbol(groupType: string): string {
   if (groupType === "agent") return "◎";

@@ -24,11 +24,11 @@ import {
 import EmptyState from "@/shared/components/EmptyState";
 import { cx } from "@/shared/lib/cx";
 
-import { ISOLATED_GHOST_NODE_ID, type ClusterHaloNodeData, type DeviceNodeData, type GroupNodeData, type TopologyEdgeData } from "../lib/graphTransform";
-import { stableTopologyHash } from "../lib/topologyLayoutEngine";
-import { AGGREGATE_NODE_PREFIX, topologyNodeSetKey } from "../lib/topologyLayout";
-import { edgeVisual, severityColor } from "../lib/visuals";
-import { useTopologyPositions } from "../hooks/useTopologyPositions";
+import { ISOLATED_GHOST_NODE_ID, type ClusterHaloNodeData, type DeviceNodeData, type GroupNodeData, type TopologyEdgeData } from "../../lib/graph/graphTransform";
+import { stableTopologyHash } from "../../lib/layout/topologyLayoutEngine";
+import { AGGREGATE_NODE_PREFIX, topologyNodeSetKey } from "../../lib/layout/topologyLayout";
+import { edgeVisual, severityColor } from "../../lib/presentation/visuals";
+import { useTopologyPositions } from "../../hooks/useTopologyPositions";
 import type {
   TopologyEdge,
   TopologyFilters,
@@ -37,12 +37,12 @@ import type {
   TopologyGroupEdge,
   TopologySummary,
   TopologyViewMode,
-} from "../types";
+} from "../../types";
 import TopologyCanvasControls from "./TopologyCanvasControls";
-import TopologyClusterHaloNode from "./TopologyClusterHaloNode";
+import TopologyClusterHaloNode from "../nodes/TopologyClusterHaloNode";
 import { TopologyContextMenu } from "./TopologyContextMenu";
-import TopologyDeviceNode from "./TopologyDeviceNode";
-import TopologyGroupNode from "./TopologyGroupNode";
+import TopologyDeviceNode from "../nodes/TopologyDeviceNode";
+import TopologyGroupNode from "../nodes/TopologyGroupNode";
 import TopologyLegend from "./TopologyLegend";
 import TopologyStatusStrip from "./TopologyStatusStrip";
 import TopologyTooltip, { type TooltipInfo } from "./TopologyTooltip";

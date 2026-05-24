@@ -3,7 +3,7 @@ import { Panel, useReactFlow, useStore } from "@xyflow/react";
 
 import { cx } from "@/shared/lib/cx";
 
-import type { TopologyViewMode } from "../types";
+import type { TopologyViewMode } from "../../types";
 
 type Props = {
   viewMode: TopologyViewMode;

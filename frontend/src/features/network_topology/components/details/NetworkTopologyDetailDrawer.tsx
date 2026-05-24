@@ -17,9 +17,9 @@ import {
 import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
 import { pinAttackChainCaseToWorkspace, pinEventToWorkspace } from "@/features/investigations/api";
 
-import { TopologyIpScopeBadge } from "./TopologyIpScopeBadge";
-import { formatTopologyTimestamp, toTitleLabel, topologySeverityVariant } from "../lib/labels";
-import { severityColor } from "../lib/visuals";
+import { TopologyIpScopeBadge } from "../common/TopologyIpScopeBadge";
+import { formatTopologyTimestamp, toTitleLabel, topologySeverityVariant } from "../../lib/presentation/labels";
+import { severityColor } from "../../lib/presentation/visuals";
 import {
   alertPivotUrl,
   attackChainCasePivotUrl,
@@ -34,7 +34,7 @@ import {
   nodeEventsPivot,
   nodePrimaryIp,
   observationPivotUrl,
-} from "../lib/pivots";
+} from "../../lib/details/pivots";
 import type {
   TopologyEdge,
   TopologyEdgeDetail,
@@ -48,7 +48,7 @@ import type {
   TopologyRelatedExposureFinding,
   TopologyRelatedFlow,
   TopologySubnetDetail,
-} from "../types";
+} from "../../types";
 
 export type NetworkTopologyDetailSelection =
   | { kind: "node"; key: string; detail: TopologyNodeDetail | null; loading: boolean; error: string | null }
