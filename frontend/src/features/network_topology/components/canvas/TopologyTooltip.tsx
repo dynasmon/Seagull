@@ -1,8 +1,8 @@
 import { memo } from "react";
 
-import { formatTopologyTimestamp, toTitleLabel } from "../lib/labels";
-import { severityColor } from "../lib/visuals";
-import type { TopologyEdge, TopologyGroup, TopologyNode } from "../types";
+import { formatTopologyTimestamp, toTitleLabel } from "../../lib/presentation/labels";
+import { severityColor } from "../../lib/presentation/visuals";
+import type { TopologyEdge, TopologyGroup, TopologyNode } from "../../types";
 
 export type TooltipInfo =
   | { kind: "node"; node: TopologyNode; x: number; y: number }

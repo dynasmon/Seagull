@@ -3,10 +3,10 @@ import { useRef } from "react";
 import { Button } from "@/shared/components/Button";
 import { cx } from "@/shared/lib/cx";
 
-import { activeFilterCount } from "../lib/filters";
-import { formatFreshness } from "../lib/labels";
-import { severityColor } from "../lib/visuals";
-import type { TopologyFilters, TopologyGraph, TopologySummary } from "../types";
+import { activeFilterCount } from "../../lib/filtering/filters";
+import { formatFreshness } from "../../lib/presentation/labels";
+import { severityColor } from "../../lib/presentation/visuals";
+import type { TopologyFilters, TopologyGraph, TopologySummary } from "../../types";
 
 type LiveState = {
   isRefreshing: boolean;

@@ -1,8 +1,8 @@
 import { memo } from "react";
 
-import { activeFilterCount } from "../lib/filters";
-import { formatFreshness } from "../lib/labels";
-import type { TopologyFilters, TopologyGraph, TopologySummary } from "../types";
+import { activeFilterCount } from "../../lib/filtering/filters";
+import { formatFreshness } from "../../lib/presentation/labels";
+import type { TopologyFilters, TopologyGraph, TopologySummary } from "../../types";
 
 type Props = {
   viewMode: "location" | "connection";

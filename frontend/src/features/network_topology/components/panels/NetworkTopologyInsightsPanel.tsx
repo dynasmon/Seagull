@@ -5,8 +5,8 @@ import { Badge } from "@/shared/components/Badge";
 import { Panel } from "@/shared/components/Panel";
 import { cx } from "@/shared/lib/cx";
 
-import { formatTopologyTimestamp } from "../lib/labels";
-import type { TopologyInsight, TopologyInsightSeverity, TopologyVisibility } from "../types";
+import { formatTopologyTimestamp } from "../../lib/presentation/labels";
+import type { TopologyInsight, TopologyInsightSeverity, TopologyVisibility } from "../../types";
 
 const SEVERITY_DOT: Record<TopologyInsightSeverity, string> = {
   critical: "bg-[hsl(var(--color-danger))]",

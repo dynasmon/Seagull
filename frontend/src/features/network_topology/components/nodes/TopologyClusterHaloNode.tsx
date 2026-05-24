@@ -1,9 +1,9 @@
 import { memo } from "react";
 import type { NodeProps } from "@xyflow/react";
 
-import type { ClusterHaloNodeData } from "../lib/graphTransform";
-import { REGION_HEADER } from "../lib/layoutContainment";
-import { severityColor } from "../lib/visuals";
+import type { ClusterHaloNodeData } from "../../lib/graph/graphTransform";
+import { REGION_HEADER } from "../../lib/layout/layoutContainment";
+import { severityColor } from "../../lib/presentation/visuals";
 
 function groupTypeLabel(groupType: string): string {
   if (groupType === "agent") return "Agent";

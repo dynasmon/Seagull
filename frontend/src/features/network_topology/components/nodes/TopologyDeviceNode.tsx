@@ -4,10 +4,10 @@ import { Handle, Position, useStore } from "@xyflow/react";
 
 import { cx } from "@/shared/lib/cx";
 
-import type { DeviceNodeData } from "../lib/graphTransform";
-import { nodeVisual, NODE_TYPE_LABELS, severityColor } from "../lib/visuals";
-import { toTitleLabel } from "../lib/labels";
-import type { TopologyNode } from "../types";
+import type { DeviceNodeData } from "../../lib/graph/graphTransform";
+import { nodeVisual, NODE_TYPE_LABELS, severityColor } from "../../lib/presentation/visuals";
+import { toTitleLabel } from "../../lib/presentation/labels";
+import type { TopologyNode } from "../../types";
 
 const NODE_H = 96;
 const NODE_W = 96;

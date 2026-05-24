@@ -15,9 +15,9 @@ import {
   TOPOLOGY_NODE_TYPE_OPTIONS,
   TOPOLOGY_SEVERITY_OPTIONS,
   TOPOLOGY_TIME_WINDOWS,
-} from "../lib/filters";
-import { nodeVisualByType } from "../lib/visuals";
-import type { TopologyFacets, TopologyFilters, TopologyGroup, TopologyIpScope, TopologySeverity, TopologyViewMode } from "../types";
+} from "../../lib/filtering/filters";
+import { nodeVisualByType } from "../../lib/presentation/visuals";
+import type { TopologyFacets, TopologyFilters, TopologyGroup, TopologyIpScope, TopologySeverity, TopologyViewMode } from "../../types";
 
 const SEVERITY_DOT: Record<string, string> = {
   critical:      "#F87171",
