@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { graphToConnectionView } from "@/features/network_topology/lib/graphTransform";
-import { nodeImportance, type TopologyLayout, type TopologyLayoutNode } from "@/features/network_topology/lib/topologyLayoutELK";
+import { nodeImportance, type TopologyLayout, type TopologyLayoutNode } from "@/features/network_topology/lib/topologyLayout";
 import type { TopologyGraph, TopologyNode } from "@/features/network_topology/types";
 
 const makeNode = (key: string, overrides: object = {}): TopologyNode => ({

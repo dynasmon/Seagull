@@ -12,7 +12,7 @@ import {
   type TopologyGroupLayoutPoint,
   type TopologyLayout,
   type TopologyLayoutNode,
-} from "@/features/network_topology/lib/topologyLayoutELK";
+} from "@/features/network_topology/lib/topologyLayout";
 import type {
   TopologyGraph,
   TopologyGroup,
@@ -109,9 +109,8 @@ function buildLayout(g: TopologyGraph, gs: TopologyGroup[]): TopologyLayout {
       group: grp,
       x: idx * 400,
       y: 0,
-      radius: 180,
-      ring: 0,
-      degree: 0,
+      w: 360,
+      h: 240,
       isCentral: idx === 0,
     })),
   };
