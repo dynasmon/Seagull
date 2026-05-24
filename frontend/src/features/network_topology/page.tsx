@@ -22,13 +22,13 @@ import {
 import {
   NetworkTopologyDetailDrawer,
   type NetworkTopologyDetailSelection,
-} from "./components/NetworkTopologyDetailDrawer";
-import { NetworkTopologyDiscoveryPanel } from "./components/NetworkTopologyDiscoveryPanel";
-import { NetworkTopologyEvidencePanel } from "./components/NetworkTopologyEvidencePanel";
-import { NetworkTopologyInsightsPanel } from "./components/NetworkTopologyInsightsPanel";
-import { NetworkTopologyServicesPanel } from "./components/NetworkTopologyServicesPanel";
-import TopologyCanvas from "./components/TopologyCanvas";
-import { TopologyFilterRail } from "./components/TopologyFilterRail";
+} from "./components/details/NetworkTopologyDetailDrawer";
+import { NetworkTopologyDiscoveryPanel } from "./components/panels/NetworkTopologyDiscoveryPanel";
+import { NetworkTopologyEvidencePanel } from "./components/panels/NetworkTopologyEvidencePanel";
+import { NetworkTopologyInsightsPanel } from "./components/panels/NetworkTopologyInsightsPanel";
+import { NetworkTopologyServicesPanel } from "./components/panels/NetworkTopologyServicesPanel";
+import TopologyCanvas from "./components/canvas/TopologyCanvas";
+import { TopologyFilterRail } from "./components/filters/TopologyFilterRail";
 import { useNetworkTopologyFilters } from "./hooks/useNetworkTopologyFilters";
 import { useNetworkTopologyRealtimeInvalidation } from "./hooks/useNetworkTopologyRealtimeInvalidation";
 import { useTopologyLayout } from "./hooks/useTopologyLayout";
@@ -38,21 +38,21 @@ import {
   resolveTopologyGraphParams,
   resolveTopologyObservationParams,
   resolveTopologySubnetParams,
-} from "./lib/filters";
+} from "./lib/filtering/filters";
 import {
   computeHighlightedKeys,
   graphToConnectionView,
   graphToLocationView,
   pruneIsolatedNodes,
   type TopologyFocusState,
-} from "./lib/graphTransform";
-import { resolveTopologyGroups } from "./lib/grouping";
-import { searchTopologyGraph } from "./lib/search";
+} from "./lib/graph/graphTransform";
+import { resolveTopologyGroups } from "./lib/graph/grouping";
+import { searchTopologyGraph } from "./lib/filtering/search";
 import {
   filtersForSubnetExplore,
   focusedGroupDisplayLabel,
   subnetCidrForGroup,
-} from "./lib/subnets";
+} from "./lib/filtering/subnets";
 import type { TopologyGraph, TopologyObservation, TopologySubnet, TopologySummary } from "./types";
 
 function firstRejectedMessage(results: PromiseSettledResult<unknown>[]): string | null {

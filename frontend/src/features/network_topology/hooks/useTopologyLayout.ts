@@ -6,7 +6,7 @@ import {
   topologyNodeSetKey,
   type TopologyGroupLayoutPoint,
   type TopologyLayout,
-} from "../lib/topologyLayout";
+} from "../lib/layout/topologyLayout";
 import type { TopologyGraph, TopologyGroup, TopologyViewMode } from "../types";
 
 type LayoutState = {

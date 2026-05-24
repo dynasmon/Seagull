@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { usePortalRealtimeSubscription } from "@/shared/realtime";
 
-import { createTopologyInvalidationScheduler, type TopologyInvalidationScheduler } from "../lib/realtime";
+import { createTopologyInvalidationScheduler, type TopologyInvalidationScheduler } from "../lib/realtime/realtime";
 
 export function useNetworkTopologyRealtimeInvalidation(onInvalidate: () => void) {
   const schedulerRef = useRef<TopologyInvalidationScheduler | null>(null);

@@ -1,4 +1,4 @@
-import type { TopologyEdge, TopologyNode } from "../types";
+import type { TopologyEdge, TopologyNode } from "../../types";
 
 export type TopologyNodeImportance = "anchor" | "elevated" | "normal";
 
