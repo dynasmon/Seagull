@@ -14,10 +14,11 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
-  getSmoothStepPath,
+  getBezierPath,
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useStore,
 } from "@xyflow/react";
 
 import EmptyState from "@/shared/components/EmptyState";
@@ -25,7 +26,7 @@ import { cx } from "@/shared/lib/cx";
 
 import { ISOLATED_GHOST_NODE_ID, type ClusterHaloNodeData, type DeviceNodeData, type GroupNodeData, type TopologyEdgeData } from "../lib/graphTransform";
 import { stableTopologyHash } from "../lib/topologyLayoutEngine";
-import { topologyNodeSetKey } from "../lib/topologyLayoutELK";
+import { AGGREGATE_NODE_PREFIX, topologyNodeSetKey } from "../lib/topologyLayout";
 import { edgeVisual, severityColor } from "../lib/visuals";
 import { useTopologyPositions } from "../hooks/useTopologyPositions";
 import type {
@@ -82,6 +83,7 @@ function prefersReducedMotion(): boolean {
 function TopologyFlowEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, data } = props;
   const [hovered, setHovered] = useState(false);
+  const labelsVisible = useStore((state) => state.transform[2] >= 0.55);
   const isGroupEdge = data && "groupEdge" in data;
   const edgeObj = isGroupEdge
     ? (data as { groupEdge: TopologyGroupEdge }).groupEdge
@@ -120,20 +122,18 @@ function TopologyFlowEdge(props: EdgeProps) {
   const adjTX = targetX - nx * targetRadius;
   const adjTY = targetY - ny * targetRadius;
 
-  const offset = parallelTotal > 1
-    ? (parallelIndex - (parallelTotal - 1) / 2) * 18
-    : 0;
+  const curvature =
+    0.24 + (parallelTotal > 1 ? (parallelIndex - (parallelTotal - 1) / 2) * 0.16 : 0);
 
   const { sp, tp } = edgeHandlePositions(adjSX, adjSY, adjTX, adjTY);
-  const [edgePath, labelX, labelY] = getSmoothStepPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX: adjSX,
     sourceY: adjSY,
     sourcePosition: sp,
     targetX: adjTX,
     targetY: adjTY,
     targetPosition: tp,
-    borderRadius: 12,
-    offset,
+    curvature,
   });
 
   const strokeWidth = isSelected
@@ -157,7 +157,8 @@ function TopologyFlowEdge(props: EdgeProps) {
     !isDimmed &&
     !reducedMotion;
 
-  const showPill = !isDimmed && !PILL_SUPPRESSED_EDGE_TYPES.has(edgeType);
+  const showPill =
+    !isDimmed && !PILL_SUPPRESSED_EDGE_TYPES.has(edgeType) && (labelsVisible || isSelected || hovered);
   const pillLabel = EDGE_TYPE_SHORT_LABELS[edgeType] ?? edgeType;
   const pillOpacity = isSelected || hovered ? 1 : 0.45;
 
@@ -227,7 +228,7 @@ function TopologyFlowEdge(props: EdgeProps) {
           </div>
         </foreignObject>
       )}
-      {parallelTotal > 1 && parallelIndex === 0 && !isDimmed && !isSelected && (
+      {parallelTotal > 1 && parallelIndex === 0 && !isDimmed && !isSelected && labelsVisible && (
         <foreignObject
           x={(sourceX + targetX) / 2 - 10}
           y={(sourceY + targetY) / 2 - 8}
@@ -273,17 +274,17 @@ const edgeTypes = {
 function isNodeInsideHalo(
   nodePos: { x: number; y: number },
   haloNode: Node,
-  haloRadius: number,
+  haloWidth: number,
+  haloHeight: number,
 ): boolean {
   const nodeCenterX = nodePos.x + 48;
   const nodeCenterY = nodePos.y + 48;
-  const haloCenterX = haloNode.position.x + haloRadius;
-  const haloCenterY = haloNode.position.y + haloRadius;
-  const dist = Math.sqrt(
-    Math.pow(nodeCenterX - haloCenterX, 2) +
-    Math.pow(nodeCenterY - haloCenterY, 2),
+  return (
+    nodeCenterX >= haloNode.position.x &&
+    nodeCenterX <= haloNode.position.x + haloWidth &&
+    nodeCenterY >= haloNode.position.y &&
+    nodeCenterY <= haloNode.position.y + haloHeight
   );
-  return dist <= haloRadius;
 }
 
 type FlowInnerProps = {
@@ -410,50 +411,22 @@ function FlowInner({
     (_event: React.MouseEvent, node: Node) => {
       if (node.draggable === false) return;
 
-      const nodeDataFull = node.data as unknown as DeviceNodeData;
-      if (node.type === "device" && nodeDataFull.groupKey) {
-        const haloId = `halo:${nodeDataFull.groupKey}`;
-        const haloNodeForEscape = nodesRef.current.find((n) => n.id === haloId);
-        if (haloNodeForEscape) {
-          const haloRadius = (haloNodeForEscape.data as unknown as ClusterHaloNodeData).radius;
-          if (!isNodeInsideHalo(node.position, haloNodeForEscape, haloRadius)) {
+      const nodeData = node.data as unknown as DeviceNodeData;
+      if (node.type === "device" && nodeData.groupKey) {
+        const haloId = `halo:${nodeData.groupKey}`;
+        const haloNode = nodesRef.current.find((n) => n.id === haloId);
+        if (haloNode) {
+          const haloData = haloNode.data as unknown as ClusterHaloNodeData;
+          if (!isNodeInsideHalo(node.position, haloNode, haloData.width, haloData.height)) {
             const prevPos = prevNodePositionRef.current;
-            if (prevPos) {
-              const haloData = haloNodeForEscape.data as unknown as ClusterHaloNodeData;
-              onHaloEscape(node.id, nodeDataFull.node.label, haloData.group.label, prevPos);
-            }
+            if (prevPos) onHaloEscape(node.id, nodeData.node.label, haloData.group.label, prevPos);
           }
         }
       }
 
       onPositionSave(node.id, node.position.x, node.position.y);
-
-      const nodeData = node.data as unknown as DeviceNodeData;
-      if (nodeData.importance !== "anchor" || !nodeData.groupKey) return;
-
-      const haloId = `halo:${nodeData.groupKey}`;
-      const haloNode = nodesRef.current.find((n) => n.id === haloId);
-      if (!haloNode) return;
-
-      const radius = (haloNode.data as unknown as ClusterHaloNodeData).radius;
-      const haloX = node.position.x + 48 - radius;
-      const haloY = node.position.y + 48 - radius;
-      onPositionSave(haloId, haloX, haloY);
-      setNodes((nds) =>
-        nds.map((n) => (n.id === haloId ? { ...n, position: { x: haloX, y: haloY } } : n)),
-      );
-
-      const groupMembers = nodesRef.current.filter(
-        (n) =>
-          n.type === "device" &&
-          (n.data as unknown as DeviceNodeData).groupKey === nodeData.groupKey &&
-          n.id !== node.id,
-      );
-      for (const member of groupMembers) {
-        onPositionSave(member.id, member.position.x, member.position.y);
-      }
     },
-    [onPositionSave, setNodes, onHaloEscape],
+    [onPositionSave, onHaloEscape],
   );
 
   const handleResetLayout = useCallback(() => {
@@ -468,6 +441,10 @@ function FlowInner({
         onIsolatedGhostClick();
         return;
       }
+      if (node.id.startsWith(AGGREGATE_NODE_PREFIX)) {
+        onGroupDoubleClick(node.id.slice(AGGREGATE_NODE_PREFIX.length));
+        return;
+      }
       if (event.shiftKey) {
         onMultiSelectToggle(node.id);
         return;
@@ -480,7 +457,7 @@ function FlowInner({
       const kind = node.type === "group" ? "group" : "node";
       onNodeClick(node.id, kind);
     },
-    [onMultiSelectToggle, onMultiSelectionClear, onNodeClick, onIsolatedGhostClick],
+    [onMultiSelectToggle, onMultiSelectionClear, onNodeClick, onIsolatedGhostClick, onGroupDoubleClick],
   );
 
   const handleNodeDoubleClick = useCallback(
@@ -510,7 +487,7 @@ function FlowInner({
 
   const handleNodeMouseEnter = useCallback(
     (event: React.MouseEvent, node: Node) => {
-      if (node.id === ISOLATED_GHOST_NODE_ID) return;
+      if (node.id === ISOLATED_GHOST_NODE_ID || node.id.startsWith(AGGREGATE_NODE_PREFIX)) return;
       if (node.type === "device") {
         const d = node.data as unknown as DeviceNodeData;
         onTooltipChange({ kind: "node", node: d.node, x: event.clientX, y: event.clientY });
@@ -764,32 +741,11 @@ function TopologyCanvas({
   }, [summary]);
 
   const mergedNodes = useMemo(
-    () => nodes.map((node) => {
-      const pos = storedPositions[node.id];
-      if (pos) return { ...node, position: pos };
-
-      if (node.type === "device") {
-        const nodeData = node.data as unknown as DeviceNodeData;
-        if (nodeData.groupKey) {
-          const haloId = `halo:${nodeData.groupKey}`;
-          const haloPos = storedPositions[haloId];
-          if (haloPos) {
-            const haloNode = nodes.find((n) => n.id === haloId);
-            const radius = haloNode
-              ? (haloNode.data as unknown as ClusterHaloNodeData).radius
-              : 150;
-            const origHaloCenter = haloNode
-              ? { x: haloNode.position.x + radius, y: haloNode.position.y + radius }
-              : { x: node.position.x, y: node.position.y };
-            const savedHaloCenter = { x: haloPos.x + radius, y: haloPos.y + radius };
-            const dx = savedHaloCenter.x - origHaloCenter.x;
-            const dy = savedHaloCenter.y - origHaloCenter.y;
-            return { ...node, position: { x: node.position.x + dx, y: node.position.y + dy } };
-          }
-        }
-      }
-      return node;
-    }),
+    () =>
+      nodes.map((node) => {
+        const pos = storedPositions[node.id];
+        return pos ? { ...node, position: pos } : node;
+      }),
     [nodes, storedPositions],
   );
 
@@ -916,7 +872,7 @@ function TopologyCanvas({
 
       <TopologyStatusStrip
         viewMode={viewMode}
-        nodeCount={nodes.filter((node) => node.type !== "clusterHalo").length}
+        nodeCount={nodes.filter((node) => node.type !== "clusterHalo" && node.id !== ISOLATED_GHOST_NODE_ID && !node.id.startsWith(AGGREGATE_NODE_PREFIX)).length}
         edgeCount={edges.length}
         groupCount={groups.length}
         agentNodeCount={agentNodeCount}

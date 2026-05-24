@@ -1,6 +1,6 @@
 import { memo } from "react";
 import type { NodeProps } from "@xyflow/react";
-import { Handle, Position } from "@xyflow/react";
+import { Handle, Position, useStore } from "@xyflow/react";
 
 import { cx } from "@/shared/lib/cx";
 
@@ -12,6 +12,15 @@ import type { TopologyNode } from "../types";
 const NODE_H = 96;
 const NODE_W = 96;
 const ICON_CENTER_Y = 30;
+const LABEL_FAR_ZOOM = 0.45;
+const LABEL_NEAR_ZOOM = 0.95;
+
+function zoomTierSelector(state: { transform: [number, number, number] }): number {
+  const zoom = state.transform[2];
+  if (zoom < LABEL_FAR_ZOOM) return 0;
+  if (zoom >= LABEL_NEAR_ZOOM) return 2;
+  return 1;
+}
 
 let pulseKeyframeInjected = false;
 function ensurePulseKeyframe() {
@@ -212,6 +221,7 @@ function buildStatusBadges(node: TopologyNode): StatusBadge[] {
 function TopologyDeviceNode({ data: rawData }: NodeProps) {
   const data = rawData as unknown as DeviceNodeData;
   const { node, isSelected, isHighlighted, isDimmed, importance } = data;
+  const zoomTier = useStore(zoomTierSelector);
   const visual = nodeVisual(node);
   const hasAlert = node.alert_count > 0;
   const isCluster = node.node_type === "service" && Boolean(node.metadata?._is_service_cluster);
@@ -219,6 +229,72 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
   const isLiveAgent = node.node_type === "agent" && !node.is_stale;
   const isIsolatedGhost = Boolean(data.isIsolatedGhost);
   const reducedMotion = prefersReducedMotion();
+
+  const alwaysLabel = isSelected || data.isSearchMatch || isIsolatedGhost;
+  const showLabel = alwaysLabel || (data.showLabel && zoomTier >= 1) || zoomTier >= 2;
+  const showDetailBadges = zoomTier >= 1 || isSelected;
+
+  if (node.metadata?._aggregate) {
+    const aggregateCount = Number(node.metadata?._aggregate_count ?? 0);
+    return (
+      <div
+        className="group flex select-none items-center justify-center"
+        style={{ width: NODE_W, height: NODE_H, opacity: isDimmed ? 0.2 : 1 }}
+      >
+        <div
+          className="flex flex-col items-center gap-0.5 rounded-xl border px-3 py-1.5"
+          style={{
+            borderColor: `${visual.stroke}55`,
+            background: "rgba(13,20,34,0.92)",
+            minWidth: 88,
+            cursor: "pointer",
+          }}
+          title={`${aggregateCount} more ${NODE_TYPE_LABELS[node.node_type] ?? "nodes"} — click to expand`}
+        >
+          <div className="flex items-center gap-1.5" style={{ color: visual.stroke }}>
+            <svg width="15" height="15" viewBox="-14 -14 28 28" stroke="currentColor" fill="none">
+              <DeviceIcon nodeType={node.node_type} isCluster />
+            </svg>
+            <span className="text-[14px] font-bold leading-none tabular-nums">+{humanizeCount(aggregateCount)}</span>
+          </div>
+          <span className="text-[8px] uppercase tracking-[0.1em]" style={{ color: "rgba(148,163,184,0.65)" }}>
+            more · expand
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (isIsolatedGhost) {
+    const isolatedCount = Number(node.metadata?._isolated_count ?? 0);
+    return (
+      <div
+        className="group flex select-none items-center justify-center"
+        style={{ width: NODE_W, height: NODE_H, opacity: isDimmed ? 0.4 : 1 }}
+      >
+        <div
+          className="flex flex-col items-center gap-0.5 rounded-xl border border-dashed px-3 py-2"
+          style={{
+            borderColor: "rgba(148,163,184,0.4)",
+            background: "rgba(13,20,34,0.9)",
+            minWidth: 104,
+            cursor: "pointer",
+          }}
+          title={`${isolatedCount} isolated hosts — click to show`}
+        >
+          <span className="text-[8px] font-bold uppercase tracking-[0.12em]" style={{ color: "rgba(148,163,184,0.7)" }}>
+            Isolated
+          </span>
+          <span className="text-[15px] font-bold leading-none tabular-nums" style={{ color: "rgba(226,232,240,0.92)" }}>
+            {humanizeCount(isolatedCount)}
+          </span>
+          <span className="text-[8px]" style={{ color: "rgba(96,165,250,0.85)" }}>
+            click to show
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   ensurePulseKeyframe();
 
@@ -235,15 +311,12 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
   const circleTop = ICON_CENTER_Y - markerSize / 2;
   const labelTop = ICON_CENTER_Y + markerSize / 2 + 3;
 
-  const primaryLabel = isIsolatedGhost
-    ? node.label
-    : isCluster
-      ? `${clusterCount} svc`
-      : truncateLabel(node.label, 14);
-  const secondaryText = isCluster || isIsolatedGhost ? null : node.ip;
-  const fallbackSubtitle = isCluster || isIsolatedGhost ? null : nodeSubtitleFallback(node);
+  const primaryLabel = isCluster ? `${clusterCount} svc` : truncateLabel(node.label, 14);
+  const secondaryText = isCluster ? null : node.ip;
+  const fallbackSubtitle = isCluster ? null : nodeSubtitleFallback(node);
 
-  const badges = isIsolatedGhost ? [] : buildStatusBadges(node);
+  const allBadges = buildStatusBadges(node);
+  const badges = showDetailBadges ? allBadges : allBadges.filter((badge) => badge.key === "alerts");
 
   const centerHandle = { opacity: 0 as const, left: "50%", top: "50%", transform: "translate(-50%, -50%)" };
 
@@ -315,34 +388,36 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
         )}
       </div>
 
-      <div
-        className="pointer-events-none absolute left-0 right-0 overflow-hidden text-center leading-tight"
-        style={{ top: labelTop }}
-      >
+      {showLabel && (
         <div
-          className="truncate px-0.5 text-[10px] font-semibold"
-          style={{ color: visual.stroke }}
-          title={node.label}
+          className="pointer-events-none absolute left-0 right-0 overflow-hidden text-center leading-tight"
+          style={{ top: labelTop }}
         >
-          {primaryLabel}
+          <div
+            className="truncate px-0.5 text-[10px] font-semibold"
+            style={{ color: visual.stroke }}
+            title={node.label}
+          >
+            {primaryLabel}
+          </div>
+          {secondaryText && zoomTier >= 1 && (
+            <div
+              className="truncate px-0.5 text-[9px]"
+              style={{ color: "rgba(148,163,184,0.78)", opacity: 0.5 }}
+            >
+              {secondaryText}
+            </div>
+          )}
+          {!secondaryText && fallbackSubtitle && importance === "anchor" && zoomTier >= 1 && (
+            <div
+              className="truncate px-0.5 text-[9px]"
+              style={{ color: "rgba(148,163,184,0.78)", opacity: 0.5 }}
+            >
+              {fallbackSubtitle}
+            </div>
+          )}
         </div>
-        {secondaryText && (
-          <div
-            className="truncate px-0.5 text-[9px]"
-            style={{ color: "rgba(148,163,184,0.78)", opacity: 0.5 }}
-          >
-            {secondaryText}
-          </div>
-        )}
-        {!secondaryText && fallbackSubtitle && importance === "anchor" && (
-          <div
-            className="truncate px-0.5 text-[9px]"
-            style={{ color: "rgba(148,163,184,0.78)", opacity: 0.5 }}
-          >
-            {fallbackSubtitle}
-          </div>
-        )}
-      </div>
+      )}
 
       {badges.length > 0 && (
         <div
