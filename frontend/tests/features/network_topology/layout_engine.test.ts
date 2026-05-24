@@ -7,7 +7,7 @@ import {
   nodeImportance,
   type TopologyLayout,
   type TopologyLayoutNode,
-} from "@/features/network_topology/lib/topologyLayoutELK";
+} from "@/features/network_topology/lib/topologyLayout";
 import type {
   TopologyEdge,
   TopologyGraph,
@@ -157,9 +157,8 @@ function buildLayout(g: TopologyGraph, gs: TopologyGroup[]): TopologyLayout {
       group: grp,
       x: idx * 400,
       y: 0,
-      radius: 150,
-      ring: 0,
-      degree: 0,
+      w: 320,
+      h: 220,
       isCentral: idx === 0,
     })),
   };
