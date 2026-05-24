@@ -2,78 +2,97 @@ import { memo } from "react";
 import type { NodeProps } from "@xyflow/react";
 
 import type { ClusterHaloNodeData } from "../lib/graphTransform";
+import { REGION_HEADER } from "../lib/layoutContainment";
 import { severityColor } from "../lib/visuals";
+
+function groupTypeLabel(groupType: string): string {
+  if (groupType === "agent") return "Agent";
+  if (groupType === "subnet") return "Subnet";
+  if (groupType === "scope" || groupType === "ip_scope") return "Scope";
+  if (groupType === "ungrouped") return "Unassigned";
+  return "Group";
+}
 
 function TopologyClusterHaloNode({ data: rawData }: NodeProps) {
   const data = rawData as unknown as ClusterHaloNodeData;
-  const { group, radius, isSelected, isDimmed } = data;
+  const { group, width, height, isCentral, isSelected, isDimmed } = data;
   const risky = group.alert_count > 0 || group.risk_score >= 70;
-  const accent = risky ? severityColor(group.highest_severity) : "#60A5FA";
-  const size = radius * 2;
+  const accent = risky ? severityColor(group.highest_severity) : isCentral ? "#7DD3FC" : "#60A5FA";
+
+  const borderColor = isSelected
+    ? `${accent}cc`
+    : risky
+      ? `${accent}55`
+      : isCentral
+        ? "rgba(125,211,252,0.34)"
+        : "rgba(96,165,250,0.18)";
+  const borderWidth = isSelected ? 1.5 : isCentral ? 1.25 : 1;
+  const boxShadow = isSelected
+    ? `0 0 0 1px ${accent}55, 0 0 28px ${accent}1f`
+    : risky
+      ? `0 0 22px ${accent}14`
+      : "none";
 
   return (
     <div
-      className="pointer-events-none relative rounded-full"
-      style={{
-        width: size,
-        height: size,
-        opacity: isDimmed ? 0.04 : 1,
-        transition: "opacity 200ms ease",
-      }}
+      className="pointer-events-none relative"
+      style={{ width, height, opacity: isDimmed ? 0.07 : 1, transition: "opacity 200ms ease" }}
     >
       <div
-        className="absolute inset-0 rounded-full"
+        className="absolute inset-0 rounded-2xl"
         style={{
-          border: `${isSelected ? "2px" : "1px"} solid ${isSelected ? `${accent}88` : risky ? `${accent}40` : "rgba(96,165,250,0.18)"}`,
-          boxShadow: isSelected
-            ? `0 0 32px ${accent}28, inset 0 0 32px ${accent}08`
-            : risky
-              ? `0 0 20px ${accent}14`
-              : "none",
+          border: `${borderWidth}px solid ${borderColor}`,
+          background: risky
+            ? `linear-gradient(180deg, ${accent}0d 0%, rgba(7,14,25,0) 45%)`
+            : isCentral
+              ? "linear-gradient(180deg, rgba(125,211,252,0.06) 0%, rgba(7,14,25,0) 42%)"
+              : "rgba(96,165,250,0.025)",
+          boxShadow,
         }}
       />
       <div
-        className="absolute rounded-full"
-        style={{
-          inset: size * 0.075,
-          border: `1px dashed ${risky ? `${accent}20` : "rgba(96,165,250,0.08)"}`,
-        }}
-      />
-      <div
-        className="absolute inset-0 rounded-full"
-        style={{
-          background: `radial-gradient(circle at 50% 40%, ${risky ? `${accent}10` : "rgba(96,165,250,0.05)"} 0%, transparent 70%)`,
-        }}
-      />
-      <div
-        className="absolute left-1/2 top-5 -translate-x-1/2 flex items-center gap-1.5 rounded-full border px-3 py-1"
-        style={{
-          color: risky ? accent : "rgba(148,163,184,0.75)",
-          background: "rgba(7,14,25,0.85)",
-          borderColor: risky ? `${accent}35` : "rgba(148,163,184,0.12)",
-          backdropFilter: "blur(4px)",
-          whiteSpace: "nowrap",
-          fontSize: 11,
-          fontWeight: 600,
-          maxWidth: radius * 1.4,
-        }}
+        className="absolute inset-x-0 top-0 flex items-center gap-2 px-4"
+        style={{ height: REGION_HEADER, pointerEvents: "auto", cursor: "pointer" }}
       >
-        <span className="truncate">{group.label}</span>
         <span
-          className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold"
+          className="shrink-0 rounded-[3px] px-1.5 py-[2px] text-[8.5px] font-bold uppercase tracking-[0.08em]"
           style={{
-            background: risky ? `${accent}25` : "rgba(96,165,250,0.15)",
+            color: risky ? accent : isCentral ? "#7DD3FC" : "rgba(148,163,184,0.78)",
+            background: risky ? `${accent}1c` : isCentral ? "rgba(125,211,252,0.12)" : "rgba(148,163,184,0.1)",
+          }}
+        >
+          {groupTypeLabel(group.group_type)}
+        </span>
+        <span
+          className="min-w-0 flex-1 truncate text-[12px] font-semibold"
+          style={{ color: isSelected || risky ? accent : "rgba(226,232,240,0.92)" }}
+          title={group.label}
+        >
+          {group.label}
+        </span>
+        {isCentral && !risky && (
+          <span
+            className="shrink-0 rounded-[3px] px-1.5 py-[2px] text-[8px] font-bold uppercase tracking-[0.1em]"
+            style={{ color: "#7DD3FC", background: "rgba(125,211,252,0.14)" }}
+          >
+            Local
+          </span>
+        )}
+        <span
+          className="shrink-0 rounded-full px-2 py-[2px] text-[9px] font-bold tabular-nums"
+          style={{
             color: risky ? accent : "#60A5FA",
+            background: risky ? `${accent}20` : "rgba(96,165,250,0.14)",
           }}
         >
           {group.node_count}
         </span>
         {group.alert_count > 0 && (
           <span
-            className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold"
-            style={{ background: `${accent}25`, color: accent }}
+            className="shrink-0 rounded-full px-2 py-[2px] text-[9px] font-bold tabular-nums"
+            style={{ color: accent, background: `${accent}22` }}
           >
-            {group.alert_count}⚑
+            {group.alert_count > 99 ? "99+" : group.alert_count}⚑
           </span>
         )}
       </div>

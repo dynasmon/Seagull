@@ -29,13 +29,13 @@ function riskTone(score: number): string {
 
 function TopologyGroupNode({ data: rawData }: NodeProps) {
   const data = rawData as unknown as GroupNodeData;
-  const { group, isSelected, isHighlighted, isDimmed } = data;
+  const { group, isSelected, isHighlighted, isDimmed, isCentral } = data;
   const visual = nodeVisualByType(
     group.group_type === "agent" ? "agent" :
     group.group_type === "subnet" ? "subnet" : "unknown",
   );
   const risky = group.alert_count > 0 || group.risk_score >= 70;
-  const accent = risky ? severityColor(group.highest_severity) : visual.stroke;
+  const accent = risky ? severityColor(group.highest_severity) : isCentral ? "#7DD3FC" : visual.stroke;
   const opacity = isDimmed ? 0.15 : group.is_stale ? 0.45 : 1;
   const bottomBorderColor =
     group.alert_count > 0 ? severityColor(group.highest_severity) : "rgba(96,165,250,0.18)";
@@ -47,16 +47,25 @@ function TopologyGroupNode({ data: rawData }: NodeProps) {
       <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
       <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
 
+      {isCentral && (
+        <span
+          className="absolute -top-2 left-2 z-10 rounded-[3px] px-1.5 py-[1px] text-[8px] font-bold uppercase tracking-[0.1em]"
+          style={{ color: "#0b1220", background: "#7DD3FC" }}
+        >
+          Local
+        </span>
+      )}
+
       <div
         className="relative flex h-full w-full items-center gap-2 overflow-hidden rounded-xl border px-2 py-1"
         style={{
-          background: risky ? `${accent}0d` : "rgba(10,18,32,0.94)",
-          borderColor: isSelected ? accent : risky ? `${accent}50` : `${visual.stroke}28`,
+          background: risky ? `${accent}0d` : isCentral ? "rgba(125,211,252,0.07)" : "rgba(10,18,32,0.94)",
+          borderColor: isSelected ? accent : risky ? `${accent}50` : isCentral ? "rgba(125,211,252,0.4)" : `${visual.stroke}28`,
           borderBottomWidth: 3,
           borderBottomColor: bottomBorderColor,
           boxShadow: isSelected
             ? `0 0 22px ${accent}32, inset 0 0 0 0.5px ${accent}28, 0 0 0 1px ${accent}`
-            : risky || isHighlighted
+            : risky || isHighlighted || isCentral
               ? `0 0 14px ${accent}1e`
               : "none",
         }}
