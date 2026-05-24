@@ -1,4 +1,4 @@
-import type { TopologyFilters, TopologyGroup } from "../types";
+import type { TopologyFilters, TopologyGroup } from "../../types";
 
 function text(value: unknown): string {
   return String(value ?? "").trim();

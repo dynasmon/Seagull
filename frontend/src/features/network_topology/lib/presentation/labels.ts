@@ -1,7 +1,7 @@
 import type { BadgeVariant } from "@/shared/components/Badge";
 import { labelForIpScope } from "@/shared/lib/ipClassification";
 
-import type { TopologySeverity } from "../types";
+import type { TopologySeverity } from "../../types";
 
 export function toTitleLabel(value: string | null | undefined): string {
   const raw = String(value ?? "").trim();

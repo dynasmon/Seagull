@@ -1,4 +1,4 @@
-import type { TopologyEdge, TopologyGraph, TopologyGroup, TopologyNode } from "../types";
+import type { TopologyEdge, TopologyGraph, TopologyGroup, TopologyNode } from "../../types";
 
 function text(value: unknown): string {
   return String(value ?? "").toLowerCase();

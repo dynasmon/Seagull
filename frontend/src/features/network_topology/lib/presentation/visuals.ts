@@ -1,4 +1,4 @@
-import type { TopologyEdge, TopologyNode, TopologySeverity } from "../types";
+import type { TopologyEdge, TopologyNode, TopologySeverity } from "../../types";
 
 export type NodeVisual = { stroke: string; fill: string };
 

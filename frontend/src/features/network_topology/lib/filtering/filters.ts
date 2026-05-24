@@ -10,8 +10,8 @@ import type {
   TopologySubnetParams,
   TopologyTimeWindowMinutes,
   TopologyViewMode,
-} from "../types";
-import { groupTopologyGraph } from "./grouping";
+} from "../../types";
+import { groupTopologyGraph } from "../graph/grouping";
 
 export const DEFAULT_TOPOLOGY_FILTERS: TopologyFilters = {
   agent_id: "",

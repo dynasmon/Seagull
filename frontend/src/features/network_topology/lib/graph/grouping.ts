@@ -7,7 +7,7 @@ import type {
   TopologyGroupEdgeBackend,
   TopologyNode,
   TopologySeverity,
-} from "../types";
+} from "../../types";
 
 function severityWeight(sev: string): number {
   const MAP: Record<string, number> = {
