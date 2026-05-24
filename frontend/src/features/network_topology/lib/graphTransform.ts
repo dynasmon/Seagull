@@ -1,7 +1,7 @@
 import type { Edge, Node } from "@xyflow/react";
 
 import type { TopologyEdge, TopologyGraph, TopologyGroup, TopologyGroupEdge, TopologyNode } from "../types";
-import type { TopologyGroupLayoutPoint, TopologyLayout } from "./topologyLayoutELK";
+import type { TopologyGroupLayoutPoint, TopologyLayout } from "./topologyLayout";
 import { shouldShowLabel, groupCardSize, edgePriorityRank, groupEdgePriorityRank, nodeBoundingRadius } from "./presentation";
 
 const DEVICE_NODE_W = 96;
@@ -27,6 +27,7 @@ export type GroupNodeData = Record<string, unknown> & {
   isSelected: boolean;
   isHighlighted: boolean;
   isDimmed: boolean;
+  isCentral: boolean;
 };
 
 export type TopologyEdgeData = Record<string, unknown> & {
@@ -48,7 +49,9 @@ export type TopologyGroupEdgeData = Record<string, unknown> & {
 
 export type ClusterHaloNodeData = Record<string, unknown> & {
   group: TopologyGroup;
-  radius: number;
+  width: number;
+  height: number;
+  isCentral: boolean;
   isSelected: boolean;
   isDimmed: boolean;
 };
@@ -146,8 +149,8 @@ function makeIsolatedGhostNode(
   layout: TopologyLayout,
   isDimmed: boolean,
 ): Node<DeviceNodeData> {
-  const ghostX = layout.width - DEVICE_NODE_W;
-  const ghostY = layout.height - DEVICE_NODE_H;
+  const ghostX = Math.max(0, layout.width / 2 - DEVICE_NODE_W / 2);
+  const ghostY = layout.height + 56;
   const syntheticNode: TopologyNode = {
     node_key: ISOLATED_GHOST_NODE_ID,
     node_type: "unknown",
@@ -264,10 +267,10 @@ export function graphToConnectionView(
     return {
       id: `halo:${area.group.group_key}`,
       type: "clusterHalo",
-      position: { x: area.x - area.radius, y: area.y - area.radius },
-      data: { group: area.group, radius: area.radius, isSelected, isDimmed },
-      width: area.radius * 2,
-      height: area.radius * 2,
+      position: { x: area.x, y: area.y },
+      data: { group: area.group, width: area.w, height: area.h, isCentral: area.isCentral, isSelected, isDimmed },
+      width: area.w,
+      height: area.h,
       draggable: false,
       selectable: false,
       focusable: false,
@@ -407,7 +410,7 @@ export function graphToLocationView(
       id: group.group_key,
       type: "group",
       position: { x: point.x - w / 2, y: point.y - h / 2 },
-      data: { group, isSelected, isHighlighted, isDimmed },
+      data: { group, isSelected, isHighlighted, isDimmed, isCentral: point.isCentral },
       selectable: true,
       width: w,
       height: h,
