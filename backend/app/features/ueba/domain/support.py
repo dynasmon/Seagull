@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from sqlalchemy.orm import Session
 
 from app.features.ueba import lifecycle, repository
-from app.features.ueba.domain import alerting
+from app.features.ueba.domain import alerting, feedback
 from app.features.ueba.models import UebaBaselineModel
 
 
@@ -56,6 +56,25 @@ class DetectorRuntimeConfig(Protocol):
     sudo_hour_max_events_per_cycle: int
     sudo_hour_min_rarity_bits: float
     sudo_hour_min_z_score: float
+    if_training_min_samples: int
+    if_retraining_interval_seconds: int
+    if_model_stale_seconds: int
+    if_model_retention_days: int
+    if_model_cache_ttl_seconds: int
+    if_weight: float
+    rarity_weight: float
+    if_n_estimators: int
+    if_random_state: int
+    if_feature_schema_version: int
+    peer_clustering_interval_seconds: int
+    peer_group_retention_days: int
+    peer_min_silhouette_score: float
+    peer_distance_percentile: float
+    peer_current_window_minutes: int
+    peer_feature_schema_version: int
+    peer_min_agents: int
+    peer_min_mature_days: int
+    peer_max_events_per_clustering: int
 
 
 @dataclass(frozen=True)
@@ -93,7 +112,14 @@ class UebaDetector(Protocol):
 @dataclass(frozen=True)
 class _RecordedFinding:
     created: bool
+    updated: bool
     alerts_created: int
+    suppressed: bool = False
+
+
+# Shared sentinels for detector evaluation paths that emit nothing.
+_NO_FINDING = _RecordedFinding(created=False, updated=False, alerts_created=0, suppressed=False)
+_SUPPRESSED = _RecordedFinding(created=False, updated=False, alerts_created=0, suppressed=True)
 
 
 def _record_finding(
@@ -125,6 +151,39 @@ def _record_finding(
     mitre_technique_id: str,
     mitre_technique: str | None,
 ) -> _RecordedFinding:
+    # Surface B: an active analyst suppression for this scope short-circuits emission.
+    scope_key = feedback.suppression_scope_key(detector_id, agent_id, entity_type, entity_value)
+    if repository.find_active_suppression(db, scope_key=scope_key, now=observed_at) is not None:
+        return _SUPPRESSED
+
+    # Surface A: down-weight the emission per durable analyst-feedback state on the baseline.
+    state = feedback.feedback_state_from_baseline(baseline)
+    adjustment = feedback.apply_feedback_to_emission(
+        confidence=int(confidence),
+        risk_score=int(risk_score),
+        cooldown_minutes=max(1, int(cooldown_minutes)),
+        state=state,
+    )
+    eff_explanation = dict(explanation or {})
+    if adjustment.applied:
+        eff_explanation["feedback_adjustment"] = {
+            "raw_confidence": int(confidence),
+            "raw_risk_score": int(risk_score),
+            "raw_severity": severity,
+            "effective_confidence": adjustment.confidence,
+            "effective_risk_score": adjustment.risk_score,
+            "effective_severity": adjustment.severity,
+            "confidence_delta": int(state.confidence_delta),
+            "sensitivity_scale": float(state.sensitivity_scale),
+            "cooldown_minutes": adjustment.cooldown_minutes,
+            "fp_count": int(state.fp_count),
+            "tp_count": int(state.tp_count),
+        }
+    if adjustment.cooldown_oneshot_consumed:
+        # The post-true-positive halved cooldown is a one-shot reinforcement; consume it.
+        baseline.feedback_cooldown_scale = 1.0
+        repository.save_baseline(db, baseline)
+
     dedup_key = _dedup_key(detector_id, agent_id, entity_type, entity_value, metric_name, bucket_key)
     finding_key = _finding_key(dedup_key, observed_at)
     result = lifecycle.record_finding_observation(
@@ -140,9 +199,9 @@ def _record_finding(
         metric_name=metric_name,
         bucket_key=bucket_key,
         status="open",
-        severity=severity,
-        confidence=int(confidence),
-        risk_score=int(risk_score),
+        severity=adjustment.severity,
+        confidence=int(adjustment.confidence),
+        risk_score=int(adjustment.risk_score),
         expected_value=float(expected_value),
         observed_value=float(observed_value),
         deviation_score=float(deviation_score),
@@ -150,10 +209,10 @@ def _record_finding(
         last_seen_at=observed_at,
         window_started_at=window_started_at,
         window_ended_at=window_ended_at,
-        cooldown_until=observed_at + timedelta(minutes=max(1, int(cooldown_minutes))),
+        cooldown_until=observed_at + timedelta(minutes=max(1, int(adjustment.cooldown_minutes))),
         summary=summary,
         reason_codes=reason_codes,
-        explanation=explanation,
+        explanation=eff_explanation,
         mitre_tactic=mitre_tactic,
         mitre_technique_id=mitre_technique_id,
         mitre_technique=mitre_technique,
@@ -165,7 +224,12 @@ def _record_finding(
     if result.created:
         alerting.persist_alert_for_finding(db, finding=result.finding, evidence_specs=evidence)
         alerts_created = 1
-    return _RecordedFinding(created=bool(result.created), alerts_created=alerts_created)
+    return _RecordedFinding(
+        created=bool(result.created),
+        updated=not bool(result.created),
+        alerts_created=alerts_created,
+        suppressed=False,
+    )
 
 
 @dataclass
@@ -177,12 +241,13 @@ class _MutableCounters:
     findings_created: int = 0
     findings_updated: int = 0
     alerts_created: int = 0
+    suppressions_applied: int = 0
 
-    def consume_finding_result(self, result: tuple[bool, bool, int]) -> None:
-        created, updated, alerts_created = result
-        self.findings_created += int(created)
-        self.findings_updated += int(updated)
-        self.alerts_created += int(alerts_created)
+    def consume_finding_result(self, result: _RecordedFinding) -> None:
+        self.findings_created += int(result.created)
+        self.findings_updated += int(result.updated)
+        self.alerts_created += int(result.alerts_created)
+        self.suppressions_applied += int(result.suppressed)
 
 
 def _baseline_key(

@@ -8,7 +8,16 @@ from sqlalchemy.orm import Session
 
 from app.features.ueba import lifecycle, repository
 from app.features.ueba.domain import event_queries
+from app.features.ueba.domain.statistics import (
+    RunningStats,
+    baseline_confidence,
+    effective_dispersion,
+    positive_z_score,
+    risk_from_statistical_score,
+    severity_from_risk,
+)
 from app.features.ueba.domain.support import (
+    _NO_FINDING,
     DetectorExecutionResult,
     DetectorRuntimeConfig,
     _as_utc,
@@ -19,14 +28,7 @@ from app.features.ueba.domain.support import (
     _optional_utc,
     _parse_iso,
     _record_finding,
-)
-from app.features.ueba.domain.statistics import (
-    RunningStats,
-    baseline_confidence,
-    effective_dispersion,
-    positive_z_score,
-    risk_from_statistical_score,
-    severity_from_risk,
+    _RecordedFinding,
 )
 from app.features.ueba.models import UebaBaselineModel
 from app.shared.taxonomy.catalog import technique_name
@@ -149,6 +151,7 @@ class OutboundBytesBurstDetector:
             findings_created=counters.findings_created,
             findings_updated=counters.findings_updated,
             alerts_created=counters.alerts_created,
+            suppressions_applied=counters.suppressions_applied,
             state_context_patch=(
                 {"last_window_end": _iso(last_processed_end)}
                 if last_processed_end is not None
@@ -255,7 +258,7 @@ class OutboundBytesBurstDetector:
         event_count: int,
         window_started_at: datetime,
         window_ended_at: datetime,
-    ) -> tuple[bool, bool, int]:
+    ) -> _RecordedFinding:
         expected = float(baseline.expected_value or 0.0)
         dispersion = float(baseline.dispersion or 0.0)
         z_score = positive_z_score(
@@ -264,7 +267,7 @@ class OutboundBytesBurstDetector:
             dispersion=dispersion,
         )
         if z_score < float(cfg.outbound_bytes_min_z_score):
-            return False, False, 0
+            return _NO_FINDING
         confidence = max(int(baseline.confidence or 0), 50)
         risk_score = risk_from_statistical_score(z_score=z_score, confidence=confidence, floor=45)
         severity = severity_from_risk(risk_score)
@@ -333,4 +336,4 @@ class OutboundBytesBurstDetector:
             mitre_technique_id="T1048",
             mitre_technique=technique_name("T1048"),
         )
-        return finding.created, not finding.created, finding.alerts_created
+        return finding

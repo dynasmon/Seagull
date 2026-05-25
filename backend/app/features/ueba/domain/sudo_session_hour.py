@@ -8,16 +8,6 @@ from sqlalchemy.orm import Session
 
 from app.features.ueba import lifecycle, repository
 from app.features.ueba.domain import event_queries
-from app.features.ueba.domain.support import (
-    DetectorExecutionResult,
-    DetectorRuntimeConfig,
-    _as_utc,
-    _baseline_key,
-    _iso,
-    _MutableCounters,
-    _optional_utc,
-    _record_finding,
-)
 from app.features.ueba.domain.statistics import (
     baseline_confidence,
     circular_hour_distance,
@@ -27,6 +17,18 @@ from app.features.ueba.domain.statistics import (
     severity_from_risk,
     summarize_hour_histogram,
     update_hour_histogram,
+)
+from app.features.ueba.domain.support import (
+    _NO_FINDING,
+    DetectorExecutionResult,
+    DetectorRuntimeConfig,
+    _as_utc,
+    _baseline_key,
+    _iso,
+    _MutableCounters,
+    _optional_utc,
+    _record_finding,
+    _RecordedFinding,
 )
 from app.features.ueba.models import UebaBaselineModel
 from app.shared.taxonomy.catalog import technique_name
@@ -105,6 +107,7 @@ class SudoSessionHourDetector:
             findings_created=counters.findings_created,
             findings_updated=counters.findings_updated,
             alerts_created=counters.alerts_created,
+            suppressions_applied=counters.suppressions_applied,
             state_context_patch={"last_event_id": latest_id},
             run_context_patch={
                 "source": "postgres",
@@ -179,17 +182,17 @@ class SudoSessionHourDetector:
         cfg: DetectorRuntimeConfig,
         event: event_queries.SudoCmdEvent,
         baseline: UebaBaselineModel,
-    ) -> tuple[bool, bool, int]:
+    ) -> _RecordedFinding:
         snapshot = summarize_hour_histogram((baseline.state or {}).get("hour_counts"))
         if snapshot.sample_count < max(1, int(cfg.sudo_hour_min_samples)):
-            return False, False, 0
+            return _NO_FINDING
         observed_hour = int(event.timestamp.hour)
         rarity_bits = hour_rarity_bits(counts=snapshot.counts, hour=observed_hour)
         distance = circular_hour_distance(observed_hour, snapshot.mode_hour)
         denom = max(1.0, effective_dispersion(observed_dispersion=snapshot.dispersion, expected_value=0.0))
         z_score = float(distance / denom)
         if rarity_bits < float(cfg.sudo_hour_min_rarity_bits) or z_score < float(cfg.sudo_hour_min_z_score):
-            return False, False, 0
+            return _NO_FINDING
 
         confidence = max(int(baseline.confidence or 0), 50)
         risk_score = risk_from_statistical_score(
@@ -258,4 +261,4 @@ class SudoSessionHourDetector:
             mitre_technique_id="T1548",
             mitre_technique=technique_name("T1548"),
         )
-        return finding.created, not finding.created, finding.alerts_created
+        return finding

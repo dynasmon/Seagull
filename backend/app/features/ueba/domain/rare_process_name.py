@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -8,8 +7,14 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.features.ueba import lifecycle, repository
-from app.features.ueba.domain import event_queries
+from app.features.ueba.domain import event_queries, ml
+from app.features.ueba.domain.statistics import (
+    baseline_confidence,
+    risk_from_statistical_score,
+    severity_from_risk,
+)
 from app.features.ueba.domain.support import (
+    _NO_FINDING,
     DetectorExecutionResult,
     DetectorRuntimeConfig,
     _as_utc,
@@ -19,22 +24,12 @@ from app.features.ueba.domain.support import (
     _optional_utc,
     _parse_iso,
     _record_finding,
-)
-from app.features.ueba.domain.statistics import (
-    baseline_confidence,
-    finite_float,
-    risk_from_statistical_score,
-    severity_from_risk,
+    _RecordedFinding,
 )
 from app.features.ueba.models import UebaBaselineModel
 from app.shared.taxonomy.catalog import technique_name
 
-_SHELL_PARENTS: frozenset[str] = frozenset({"bash", "sh", "zsh", "python3", "python"})
-
-
-def _proc_rarity_bits(observation_count: int, total_executions: int, vocab_size: int) -> float:
-    probability = (observation_count + 1) / (total_executions + vocab_size + 1)
-    return finite_float(-math.log2(max(probability, 1e-9)))
+_MODEL_CACHE: dict[tuple[str, int], tuple[datetime, int | None, Any | None, dict[str, Any], str | None]] = {}
 
 
 @dataclass(frozen=True)
@@ -95,6 +90,18 @@ class RareProcessNameDetector:
                     )
                     _agent_rarity_cache[event.agent_id] = (total_exec, vocab)
                 total_executions, vocab_size = _agent_rarity_cache[event.agent_id]
+                model_obj, model_metadata, model_fallback = _load_agent_model(
+                    db,
+                    cfg=cfg,
+                    agent_id=event.agent_id,
+                    now=now,
+                )
+                rolling_rate = event_queries.fetch_proc_exec_rate_for_agent_at(
+                    db,
+                    agent_id=event.agent_id,
+                    window_started_at=_as_utc(event.timestamp) - timedelta(minutes=5),
+                    window_ended_at=_as_utc(event.timestamp),
+                )
                 finding_result = self._evaluate_event(
                     db,
                     cfg=cfg,
@@ -102,6 +109,10 @@ class RareProcessNameDetector:
                     baseline=baseline,
                     total_executions=total_executions,
                     vocab_size=vocab_size,
+                    model_obj=model_obj,
+                    model_metadata=model_metadata,
+                    model_fallback=model_fallback,
+                    rolling_exec_rate_5m=rolling_rate,
                 )
                 counters.consume_finding_result(finding_result)
 
@@ -126,6 +137,7 @@ class RareProcessNameDetector:
             findings_created=counters.findings_created,
             findings_updated=counters.findings_updated,
             alerts_created=counters.alerts_created,
+            suppressions_applied=counters.suppressions_applied,
             state_context_patch={"last_event_id": latest_id},
             run_context_patch={
                 "source": "postgres",
@@ -199,23 +211,54 @@ class RareProcessNameDetector:
         baseline: UebaBaselineModel,
         total_executions: int,
         vocab_size: int,
-    ) -> tuple[bool, bool, int]:
+        model_obj: Any | None,
+        model_metadata: dict[str, Any],
+        model_fallback: str | None,
+        rolling_exec_rate_5m: float,
+    ) -> _RecordedFinding:
         prior_state = dict(getattr(baseline, "state", None) or {})
         observation_count = max(0, int(prior_state.get("observation_count") or 0))
         is_warmup = baseline.status == "warmup"
 
-        rarity_bits = _proc_rarity_bits(observation_count, total_executions, vocab_size)
+        rarity_bits = ml.process_rarity_bits(observation_count, total_executions, vocab_size)
+        parent_vocab = model_metadata.get("parent_vocab") if isinstance(model_metadata, dict) else None
+        feature_vector = ml.build_proc_feature_vector(
+            event,
+            rarity_bits=rarity_bits,
+            rolling_exec_rate_5m=rolling_exec_rate_5m,
+            parent_vocab=(parent_vocab if isinstance(parent_vocab, dict) else None),
+        )
+        score = ml.score_with_optional_model(
+            model=(None if is_warmup else model_obj),
+            feature_vector=feature_vector,
+            rarity_bits=rarity_bits,
+            if_weight=float(cfg.if_weight),
+            rarity_weight=float(cfg.rarity_weight),
+            fallback_reason=("baseline_warmup" if is_warmup else model_fallback),
+        )
 
-        if not is_warmup and rarity_bits < float(cfg.proc_name_min_rarity_bits):
-            return False, False, 0
+        if not is_warmup and score.deviation_score < float(cfg.proc_name_min_rarity_bits):
+            return _NO_FINDING
 
         reason_codes = ["rare_process_name"] if is_warmup else ["rare_process_name_reappeared"]
         parent = str(event.proc_parent_name or "")
-        technique_id = "T1059" if parent in _SHELL_PARENTS else "T1204"
+        technique_id = "T1059" if parent in ml.SHELL_PARENTS else "T1204"
 
         confidence = max(int(baseline.confidence or 0), 20)
-        risk_score = risk_from_statistical_score(z_score=0.0, confidence=confidence, rarity_bits=rarity_bits)
+        risk_score = risk_from_statistical_score(z_score=0.0, confidence=confidence, rarity_bits=score.deviation_score)
         severity = severity_from_risk(risk_score)
+        score_explanation = dict(score.explanation)
+        score_explanation.update(
+            {
+                "proc_name": event.proc_name,
+                "proc_exe": event.proc_exe,
+                "proc_parent_name": event.proc_parent_name,
+                "observation_count": int(observation_count),
+                "total_executions": int(total_executions),
+                "vocab_size": int(vocab_size),
+                "is_warmup": is_warmup,
+            }
+        )
 
         evidence = [
             {
@@ -236,6 +279,7 @@ class RareProcessNameDetector:
                     "proc_parent_name": event.proc_parent_name,
                     "observation_count": int(observation_count),
                     "rarity_bits": float(rarity_bits),
+                    "scoring_method": score.scoring_method,
                 },
             }
         ]
@@ -254,30 +298,54 @@ class RareProcessNameDetector:
             window_ended_at=_as_utc(event.timestamp),
             expected_value=float(observation_count),
             observed_value=float(observation_count + 1),
-            deviation_score=float(rarity_bits),
+            deviation_score=float(score.deviation_score),
             severity=severity,
             confidence=confidence,
             risk_score=risk_score,
             summary=(
-                f"Process {event.proc_name!r} is {'new' if is_warmup else 'rare'} "
-                f"on agent {event.agent_id}"
+                f"Process {event.proc_name!r} is anomalous on agent {event.agent_id} "
+                f"({score.scoring_method})"
             ),
             reason_codes=reason_codes,
-            explanation={
-                "method": "frequency_rarity",
-                "proc_name": event.proc_name,
-                "proc_exe": event.proc_exe,
-                "proc_parent_name": event.proc_parent_name,
-                "observation_count": int(observation_count),
-                "total_executions": int(total_executions),
-                "vocab_size": int(vocab_size),
-                "rarity_bits": float(rarity_bits),
-                "is_warmup": is_warmup,
-            },
+            explanation=score_explanation,
             evidence=evidence,
             cooldown_minutes=max(1, int(cfg.cooldown_minutes)),
             mitre_tactic="execution",
             mitre_technique_id=technique_id,
             mitre_technique=technique_name(technique_id),
         )
-        return finding.created, not finding.created, finding.alerts_created
+        return finding
+
+
+def _load_agent_model(db: Session, *, cfg: DetectorRuntimeConfig, agent_id: str, now: datetime):
+    key = (str(agent_id), int(cfg.if_feature_schema_version))
+    now_v = _as_utc(now)
+    cached = _MODEL_CACHE.get(key)
+    if cached is not None:
+        cached_at, _model_id, model_obj, metadata, fallback = cached
+        expires_at = _as_utc(cached_at) + timedelta(seconds=max(1, int(cfg.if_model_cache_ttl_seconds)))
+        if expires_at > now_v:
+            return model_obj, metadata, fallback
+
+    row = repository.get_active_ml_model(
+        db,
+        detector_id="rare_process_name_v1",
+        agent_id=str(agent_id),
+        model_type=ml.MODEL_TYPE_ISOLATION_FOREST,
+        feature_schema_version=int(cfg.if_feature_schema_version),
+    )
+    if row is None:
+        metadata: dict[str, Any] = {}
+        _MODEL_CACHE[key] = (now_v, None, None, metadata, "model_unavailable")
+        return None, metadata, "model_unavailable"
+
+    metadata = row.metadata_json if isinstance(row.metadata_json, dict) else {}
+    try:
+        model_obj = ml.deserialize_model(row.serialized_model)
+        repository.mark_ml_model_used(db, row, used_at=now_v)
+        fallback = None
+    except Exception as exc:
+        model_obj = None
+        fallback = f"model_deserialize_failed:{type(exc).__name__}"
+    _MODEL_CACHE[key] = (now_v, int(row.id), model_obj, metadata, fallback)
+    return model_obj, metadata, fallback

@@ -10,6 +10,8 @@ UebaFindingStatus = Literal["open", "closed", "suppressed"]
 UebaSeverity = Literal["informational", "low", "medium", "high", "critical"]
 UebaDetectorStatus = Literal["idle", "healthy", "degraded", "failing", "disabled"]
 UebaRunStatus = Literal["running", "completed", "failed"]
+UebaVerdict = Literal["true_positive", "false_positive", "benign_acknowledged"]
+UebaMlModelStatus = Literal["unavailable", "training", "active", "stale"]
 
 
 class UebaBaselineOut(BaseModel):
@@ -58,6 +60,24 @@ class UebaFindingEvidenceOut(BaseModel):
     raw_context: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
+class UebaFeedbackOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    finding_id: int
+    detector_id: str
+    entity_type: str
+    entity_value: str
+    agent_id: Optional[str] = None
+    verdict: UebaVerdict
+    annotated_by: str
+    annotated_at: datetime
+    suppression_ttl_seconds: Optional[int] = None
+    notes: Optional[str] = None
+    is_override: bool = False
+    created_at: datetime
+
+
 class UebaFindingListItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -93,12 +113,16 @@ class UebaFindingListItemOut(BaseModel):
     mitre_tactic: Optional[str] = None
     mitre_technique_id: Optional[str] = None
     mitre_technique: Optional[str] = None
+    latest_verdict: Optional[UebaVerdict] = None
+    latest_verdict_at: Optional[datetime] = None
+    latest_verdict_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
 class UebaFindingDetailOut(UebaFindingListItemOut):
     baseline: Optional[UebaBaselineOut] = None
     evidence: List[UebaFindingEvidenceOut] = Field(default_factory=list)
+    feedback: List[UebaFeedbackOut] = Field(default_factory=list)
 
 
 class UebaDetectorStateOut(BaseModel):
@@ -120,6 +144,8 @@ class UebaDetectorStateOut(BaseModel):
     next_run_at: Optional[datetime] = None
     error_type: Optional[str] = None
     error_message: Optional[str] = None
+    ml_model_status: UebaMlModelStatus = "unavailable"
+    ml_model_trained_at: Optional[datetime] = None
     context: Dict[str, Any] = Field(default_factory=dict)
     updated_at: datetime
 
@@ -163,6 +189,9 @@ class UebaSummaryOut(BaseModel):
     detectors_failing: int = 0
     latest_run_at: Optional[datetime] = None
     latest_finding_at: Optional[datetime] = None
+    verdicts_last_24h: int = 0
+    false_positive_rate_7d: float = 0.0
+    suppressed_entities: int = 0
 
 
 class UebaFindingsQuery(BaseModel):
@@ -221,5 +250,17 @@ class UebaRunsQuery(BaseModel):
 
 
 class UebaFindingTriageIn(BaseModel):
-    status: UebaFindingStatus
+    status: Optional[UebaFindingStatus] = None
     cooldown_extension_minutes: Optional[int] = Field(None, ge=0, le=10080)
+    verdict: Optional[UebaVerdict] = None
+    notes: Optional[str] = Field(None, max_length=2000)
+    suppression_ttl_seconds: Optional[int] = Field(None, ge=0, le=31_536_000)
+    override: bool = False
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def _normalize_notes(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
