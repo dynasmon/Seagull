@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy import inspect
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
@@ -85,6 +87,7 @@ from app.features.network_topology.schemas import (
     TopologySubnetQuery,
     TopologySummaryOut,
 )
+from app.features.ueba import repository as ueba_repository
 from app.shared.schemas import CursorPage
 
 _UTC = timezone.utc
@@ -159,6 +162,58 @@ __all__ = [
 
 def _load_agent_labels(db: Session) -> dict[str, str]:
     return {a.agent_id: (a.display_name or a.agent_id) for a in list_agents(db)}
+
+
+def _peer_deviation_by_agent(db: Session) -> dict[str, Any]:
+    if not hasattr(db, "get_bind"):
+        return {}
+    try:
+        bind = db.get_bind()
+        if bind is None or not inspect(bind).has_table("ueba_findings"):
+            return {}
+        findings = ueba_repository.list_high_peer_deviation_findings(db, min_risk_score=70)
+    except SQLAlchemyError:
+        return {}
+    out: dict[str, Any] = {}
+    for finding in findings:
+        agent_id = str(getattr(finding, "agent_id", "") or "")
+        if not agent_id:
+            continue
+        current = out.get(agent_id)
+        if current is None or int(getattr(finding, "risk_score", 0) or 0) > int(getattr(current, "risk_score", 0) or 0):
+            out[agent_id] = finding
+    return out
+
+
+def _node_to_out_with_peer_deviation(node: Any, peer_deviation_by_agent: dict[str, Any]) -> Any:
+    out = _node_to_out(node)
+    if str(out.node_type or "").lower() != "agent" or not out.agent_id:
+        return out
+    finding = peer_deviation_by_agent.get(str(out.agent_id))
+    if finding is None:
+        return out
+    explanation = getattr(finding, "explanation", None) if isinstance(getattr(finding, "explanation", None), dict) else {}
+    metadata = dict(out.metadata or {})
+    metadata["peer_group_deviation"] = {
+        "finding_id": int(getattr(finding, "id", 0) or 0),
+        "risk_score": int(getattr(finding, "risk_score", 0) or 0),
+        "severity": str(getattr(finding, "severity", "high") or "high"),
+        "mahalanobis_distance": explanation.get("mahalanobis_distance"),
+        "threshold_distance": explanation.get("threshold_distance"),
+        "group_id": explanation.get("group_id"),
+        "last_seen_at": _to_utc(getattr(finding, "last_seen_at", None)).isoformat(),
+    }
+    peer_risk = int(getattr(finding, "risk_score", 0) or 0)
+    peer_severity = str(getattr(finding, "severity", "high") or "high")
+    severity = peer_severity if _severity_weight(peer_severity) > _severity_weight(out.severity) else out.severity
+    return out.model_copy(
+        update={
+            "metadata": metadata,
+            "risk_score": max(int(out.risk_score or 0), peer_risk),
+            "severity": severity,
+        }
+    )
+
 
 def get_summary(db: Session) -> TopologySummaryOut:
     metrics = repository.topology_summary_metrics(db)
@@ -281,8 +336,10 @@ def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
         groups_out = [TopologyGroupOut(**g) for g in raw_groups]
         group_edges_out = [TopologyGroupEdgeOut(**ge) for ge in raw_group_edges]
 
+    peer_deviation_by_agent = _peer_deviation_by_agent(db)
+
     return TopologyGraphOut(
-        nodes=[_node_to_out(n) for n in nodes],
+        nodes=[_node_to_out_with_peer_deviation(n, peer_deviation_by_agent) for n in nodes],
         edges=[_edge_to_out(e) for e in edges],
         groups=groups_out,
         group_edges=group_edges_out,
