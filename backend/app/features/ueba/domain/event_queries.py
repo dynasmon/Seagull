@@ -218,6 +218,7 @@ class ProcExecEvent:
     proc_name: str
     proc_exe: str | None
     proc_parent_name: str | None
+    effective_uid: int | None = None
 
 
 def fetch_proc_exec_rate_per_agent(
@@ -271,6 +272,7 @@ def fetch_proc_exec_events(
             NetEventModel.proc_name,
             NetEventModel.proc_exe,
             NetEventModel.proc_parent_name,
+            NetEventModel.extra,
         )
         .where(
             NetEventModel.id > max(0, int(after_id)),
@@ -291,9 +293,84 @@ def fetch_proc_exec_events(
             proc_name=str(row["proc_name"]),
             proc_exe=(str(row["proc_exe"]) if row.get("proc_exe") else None),
             proc_parent_name=(str(row["proc_parent_name"]) if row.get("proc_parent_name") else None),
+            effective_uid=_effective_uid(row.get("extra")),
         )
         for row in rows
     ]
+
+
+def fetch_proc_exec_events_for_agent(
+    db: Session,
+    *,
+    agent_id: str,
+    since: datetime,
+    limit: int,
+) -> list[ProcExecEvent]:
+    stmt = (
+        select(
+            NetEventModel.id,
+            NetEventModel.timestamp,
+            NetEventModel.agent_id,
+            NetEventModel.proc_name,
+            NetEventModel.proc_exe,
+            NetEventModel.proc_parent_name,
+            NetEventModel.extra,
+        )
+        .where(
+            NetEventModel.agent_id == agent_id,
+            NetEventModel.timestamp >= since,
+            NetEventModel.event_type == "proc_exec",
+            NetEventModel.proc_name.isnot(None),
+            NetEventModel.proc_name != "",
+        )
+        .order_by(NetEventModel.timestamp.asc(), NetEventModel.id.asc())
+        .limit(max(1, int(limit)))
+    )
+    rows = db.execute(stmt).mappings().all()
+    return [
+        ProcExecEvent(
+            id=int(row["id"]),
+            timestamp=row["timestamp"],
+            agent_id=str(row["agent_id"]),
+            proc_name=str(row["proc_name"]),
+            proc_exe=(str(row["proc_exe"]) if row.get("proc_exe") else None),
+            proc_parent_name=(str(row["proc_parent_name"]) if row.get("proc_parent_name") else None),
+            effective_uid=_effective_uid(row.get("extra")),
+        )
+        for row in rows
+    ]
+
+
+def fetch_proc_exec_rate_for_agent_at(
+    db: Session,
+    *,
+    agent_id: str,
+    window_started_at: datetime,
+    window_ended_at: datetime,
+) -> int:
+    value = db.execute(
+        select(func.count(NetEventModel.id)).where(
+            NetEventModel.agent_id == agent_id,
+            NetEventModel.event_type == "proc_exec",
+            NetEventModel.timestamp >= window_started_at,
+            NetEventModel.timestamp < window_ended_at,
+        )
+    ).scalar()
+    return max(0, int(value or 0))
+
+
+def _effective_uid(extra: Any) -> int | None:
+    if not isinstance(extra, dict):
+        return None
+    for key in ("effective_uid", "euid", "uid", "user_id"):
+        raw = extra.get(key)
+        if raw is None:
+            continue
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def fetch_proc_exec_count_for_agent(
@@ -474,3 +551,79 @@ def fetch_ssh_source_evidence(
         .limit(max(1, int(limit)))
     )
     return [dict(row) for row in db.execute(stmt).mappings().all()]
+
+
+@dataclass(frozen=True)
+class AgentBehaviorEvent:
+    id: int
+    timestamp: datetime
+    agent_id: str
+    event_type: str
+    bytes: int | None
+    dst_ip: str | None
+    src_ip: str | None
+    ssh_username: str | None
+    ssh_action: str | None
+    proc_name: str | None
+    proc_exe: str | None
+    proc_parent_name: str | None
+    fim_path: str | None
+
+
+def fetch_behavior_events_for_agents(
+    db: Session,
+    *,
+    agent_ids: list[str],
+    since: datetime,
+    until: datetime,
+    limit: int,
+) -> list[AgentBehaviorEvent]:
+    clean_agents = [str(a) for a in agent_ids if str(a or "").strip()]
+    if not clean_agents:
+        return []
+    stmt = (
+        select(
+            NetEventModel.id,
+            NetEventModel.timestamp,
+            NetEventModel.agent_id,
+            NetEventModel.event_type,
+            NetEventModel.bytes,
+            NetEventModel.dst_ip,
+            NetEventModel.src_ip,
+            NetEventModel.ssh_username,
+            NetEventModel.ssh_action,
+            NetEventModel.proc_name,
+            NetEventModel.proc_exe,
+            NetEventModel.proc_parent_name,
+            NetEventModel.fim_path,
+        )
+        .where(
+            NetEventModel.agent_id.in_(clean_agents),
+            NetEventModel.timestamp >= since,
+            NetEventModel.timestamp < until,
+            NetEventModel.event_type.in_(
+                ["proc_exec", "ssh_auth", "flow", "l7_flow", "lateral_conn", "fim_change", "sudo_cmd"]
+            ),
+        )
+        .order_by(NetEventModel.timestamp.asc(), NetEventModel.id.asc())
+        .limit(max(1, int(limit)))
+    )
+    rows = db.execute(stmt).mappings().all()
+    return [
+        AgentBehaviorEvent(
+            id=int(row["id"]),
+            timestamp=row["timestamp"],
+            agent_id=str(row["agent_id"]),
+            event_type=str(row["event_type"]),
+            bytes=(int(row["bytes"]) if row.get("bytes") is not None else None),
+            dst_ip=(str(row["dst_ip"]) if row.get("dst_ip") else None),
+            src_ip=(str(row["src_ip"]) if row.get("src_ip") else None),
+            ssh_username=(str(row["ssh_username"]) if row.get("ssh_username") else None),
+            ssh_action=(str(row["ssh_action"]) if row.get("ssh_action") else None),
+            proc_name=(str(row["proc_name"]) if row.get("proc_name") else None),
+            proc_exe=(str(row["proc_exe"]) if row.get("proc_exe") else None),
+            proc_parent_name=(str(row["proc_parent_name"]) if row.get("proc_parent_name") else None),
+            fim_path=(str(row["fim_path"]) if row.get("fim_path") else None),
+        )
+        for row in rows
+    ]

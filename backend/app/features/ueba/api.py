@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.db.session import managed_session
-from app.features.auth.session import get_current_user
+from app.features.auth.session import PortalPrincipal, get_current_user
 from app.features.ueba import service
 from app.features.ueba.schemas import (
     UebaBaselineOut,
@@ -128,7 +128,16 @@ def list_runs(
 def triage_finding_endpoint(
     finding_id: int,
     body: UebaFindingTriageIn,
+    request: Request,
     db: Session = Depends(get_db),
+    principal: PortalPrincipal = Depends(get_current_user),
 ):
     with managed_session(db) as db_session:
-        return service.triage_finding(db_session, finding_id, body)
+        return service.triage_finding(
+            db_session,
+            finding_id,
+            body,
+            annotated_by=principal.username,
+            actor_user_id=principal.id,
+            request=request,
+        )
