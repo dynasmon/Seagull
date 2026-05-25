@@ -178,6 +178,17 @@ type StatusBadge = {
 
 function buildStatusBadges(node: TopologyNode): StatusBadge[] {
   const badges: StatusBadge[] = [];
+  if (node.metadata?.peer_group_deviation) {
+    const peer = node.metadata.peer_group_deviation as Record<string, unknown>;
+    const color = severityColor(String(peer.severity ?? node.severity ?? "high"));
+    badges.push({
+      key: "peer",
+      text: "PEER",
+      color,
+      bg: `${color}24`,
+      border: `${color}66`,
+    });
+  }
   if (node.alert_count > 0) {
     const color = severityColor(node.severity);
     badges.push({
@@ -224,6 +235,7 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
   const zoomTier = useStore(zoomTierSelector);
   const visual = nodeVisual(node);
   const hasAlert = node.alert_count > 0;
+  const hasPeerDeviation = Boolean(node.metadata?.peer_group_deviation);
   const isCluster = node.node_type === "service" && Boolean(node.metadata?._is_service_cluster);
   const clusterCount = isCluster ? Number(node.metadata?._cluster_count ?? 0) : 0;
   const isLiveAgent = node.node_type === "agent" && !node.is_stale;
@@ -344,6 +356,8 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
             ? `0 0 22px ${visual.stroke}50`
             : isHighlighted
               ? `0 0 16px ${visual.stroke}38`
+              : hasPeerDeviation
+                ? `0 0 18px ${severityColor(node.severity)}45`
               : hasAlert
                 ? `0 0 12px ${severityColor(node.severity)}28`
                 : "none",
@@ -384,6 +398,13 @@ function TopologyDeviceNode({ data: rawData }: NodeProps) {
           <span
             className="absolute -right-[1px] -top-[1px] h-[7px] w-[7px] rounded-full border-[1.5px] border-[#07111f]"
             style={{ background: "#F97316" }}
+          />
+        )}
+
+        {hasPeerDeviation && (
+          <span
+            className="absolute -left-[2px] -top-[2px] h-[9px] w-[9px] rounded-full border-[1.5px] border-[#07111f]"
+            style={{ background: severityColor(node.severity) }}
           />
         )}
       </div>

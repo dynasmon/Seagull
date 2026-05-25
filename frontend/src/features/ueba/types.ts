@@ -3,6 +3,8 @@ export type UebaFindingStatus = "open" | "closed" | "suppressed";
 export type UebaSeverity = "informational" | "low" | "medium" | "high" | "critical";
 export type UebaDetectorStatus = "idle" | "healthy" | "degraded" | "failing" | "disabled";
 export type UebaRunStatus = "running" | "completed" | "failed";
+export type UebaVerdict = "true_positive" | "false_positive" | "benign_acknowledged";
+export type UebaMlModelStatus = "unavailable" | "training" | "active" | "stale";
 
 export type UebaBaseline = {
   id: number;
@@ -81,13 +83,33 @@ export type UebaFinding = {
   mitre_tactic: string | null;
   mitre_technique_id: string | null;
   mitre_technique: string | null;
+  latest_verdict: UebaVerdict | null;
+  latest_verdict_at: string | null;
+  latest_verdict_by: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type UebaFeedback = {
+  id: number;
+  finding_id: number;
+  detector_id: string;
+  entity_type: string;
+  entity_value: string;
+  agent_id: string | null;
+  verdict: UebaVerdict;
+  annotated_by: string;
+  annotated_at: string;
+  suppression_ttl_seconds: number | null;
+  notes: string | null;
+  is_override: boolean;
+  created_at: string;
 };
 
 export type UebaFindingDetail = UebaFinding & {
   baseline: UebaBaseline | null;
   evidence: UebaFindingEvidence[];
+  feedback: UebaFeedback[];
 };
 
 export type UebaDetectorState = {
@@ -107,6 +129,8 @@ export type UebaDetectorState = {
   next_run_at: string | null;
   error_type: string | null;
   error_message: string | null;
+  ml_model_status: UebaMlModelStatus;
+  ml_model_trained_at: string | null;
   context: Record<string, unknown>;
   updated_at: string;
 };
@@ -150,4 +174,16 @@ export type UebaSummary = {
   detectors_failing: number;
   latest_run_at: string | null;
   latest_finding_at: string | null;
+  verdicts_last_24h: number;
+  false_positive_rate_7d: number;
+  suppressed_entities: number;
+};
+
+export type UebaFindingTriageBody = {
+  status?: UebaFindingStatus | null;
+  cooldown_extension_minutes?: number;
+  verdict?: UebaVerdict | null;
+  notes?: string | null;
+  suppression_ttl_seconds?: number | null;
+  override?: boolean;
 };
