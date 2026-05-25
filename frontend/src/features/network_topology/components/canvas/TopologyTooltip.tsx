@@ -53,6 +53,7 @@ function RiskBar({ score }: { score: number }) {
 
 function NodeContent({ node }: { node: TopologyNode }) {
   const sev = node.severity ?? "unknown";
+  const peerDeviation = node.metadata?.peer_group_deviation as Record<string, unknown> | undefined;
   return (
     <>
       <div className="mb-1.5 truncate text-[11px] font-semibold text-foreground">
@@ -67,6 +68,16 @@ function NodeContent({ node }: { node: TopologyNode }) {
         {node.agent_id && <Row label="Agent" value={node.agent_id} />}
         <Row label="Severity" value={<span style={{ color: severityColor(sev) }}>{sev}</span>} />
         {node.risk_score > 0 && <Row label="Risk" value={<RiskBar score={node.risk_score} />} />}
+        {peerDeviation && (
+          <Row
+            label="Peer deviation"
+            value={
+              <span style={{ color: severityColor(String(peerDeviation.severity ?? sev)) }}>
+                {String(peerDeviation.risk_score ?? node.risk_score)}
+              </span>
+            }
+          />
+        )}
         {node.alert_count > 0 && <Row label="Alerts" value={node.alert_count} />}
         {node.event_count > 0 && <Row label="Events" value={node.event_count} />}
         {node.observation_count > 0 && <Row label="Observations" value={node.observation_count} />}

@@ -13,3 +13,8 @@ PyJWT==2.10.1
 passlib[argon2]==1.7.4
 argon2-cffi==23.1.0
 geoip2==5.2.0
+numpy==2.1.1
+scipy==1.14.1
+joblib==1.4.2
+threadpoolctl==3.5.0
+scikit-learn==1.5.2
