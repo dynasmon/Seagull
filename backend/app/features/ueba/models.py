@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
@@ -52,6 +52,14 @@ class UebaBaselineModel(Base):
     upper_bound = Column(Float, nullable=True)
     confidence = Column(Integer, nullable=False, default=0)
 
+    feedback_fp_count = Column(Integer, nullable=False, default=0, server_default="0")
+    feedback_tp_count = Column(Integer, nullable=False, default=0, server_default="0")
+    feedback_confidence_delta = Column(Integer, nullable=False, default=0, server_default="0")
+    feedback_sensitivity_scale = Column(Float, nullable=False, default=1.0, server_default="1.0")
+    feedback_cooldown_scale = Column(Float, nullable=False, default=1.0, server_default="1.0")
+    feedback_last_verdict = Column(String(24), nullable=True)
+    feedback_last_annotated_at = Column(DateTime(timezone=True), nullable=True)
+
     state = Column(JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -102,6 +110,10 @@ class UebaFindingModel(Base):
     cooldown_until = Column(DateTime(timezone=True), nullable=True)
     closed_at = Column(DateTime(timezone=True), nullable=True)
     occurrence_count = Column(Integer, nullable=False, default=1)
+
+    latest_verdict = Column(String(24), nullable=True, index=True)
+    latest_verdict_at = Column(DateTime(timezone=True), nullable=True)
+    latest_verdict_by = Column(String(128), nullable=True)
 
     summary = Column(Text, nullable=False, default="")
     reason_codes = Column(JSONB, nullable=False, default=list)
@@ -197,3 +209,114 @@ class UebaDetectorRunModel(Base):
     error_type = Column(String(128), nullable=True)
     error_message = Column(String(512), nullable=True)
     context = Column(JSONB, nullable=False, default=dict)
+
+
+class UebaFeedbackModel(Base):
+    __tablename__ = "ueba_feedback"
+    __table_args__ = (
+        Index("ix_ueba_feedback_finding_annotated", "finding_id", "annotated_at"),
+        Index(
+            "ix_ueba_feedback_scope",
+            "detector_id",
+            "agent_id",
+            "entity_type",
+            "entity_value",
+        ),
+        Index("ix_ueba_feedback_verdict_annotated", "verdict", "annotated_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    finding_id = Column(Integer, ForeignKey("ueba_findings.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    detector_id = Column(String(96), nullable=False, index=True)
+    entity_type = Column(String(64), nullable=False)
+    entity_value = Column(String(256), nullable=False)
+    agent_id = Column(String(64), nullable=True, index=True)
+
+    verdict = Column(String(24), nullable=False, index=True)
+    annotated_by = Column(String(128), nullable=False)
+    annotated_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    suppression_ttl_seconds = Column(Integer, nullable=True)
+    notes = Column(Text, nullable=True)
+    is_override = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class UebaSuppressionModel(Base):
+    __tablename__ = "ueba_suppressions"
+    __table_args__ = (
+        Index(
+            "ix_ueba_suppressions_scope",
+            "detector_id",
+            "agent_id",
+            "entity_type",
+            "entity_value",
+        ),
+        Index("ix_ueba_suppressions_active_expires", "active", "expires_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    scope_key = Column(String(200), nullable=False, unique=True, index=True)
+
+    detector_id = Column(String(96), nullable=False, index=True)
+    agent_id = Column(String(64), nullable=True, index=True)
+    entity_type = Column(String(64), nullable=False)
+    entity_value = Column(String(256), nullable=False)
+
+    reason = Column(String(32), nullable=False, default="false_positive_feedback")
+    feedback_id = Column(Integer, ForeignKey("ueba_feedback.id", ondelete="SET NULL"), nullable=True, index=True)
+    annotated_by = Column(String(128), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    active = Column(Boolean, nullable=False, default=True, server_default="true")
+
+
+class UebaMlModelModel(Base):
+    __tablename__ = "ueba_ml_models"
+    __table_args__ = (
+        Index("ix_ueba_ml_models_scope_status", "detector_id", "agent_id", "model_type", "status"),
+        Index("ix_ueba_ml_models_status_finished", "status", "training_finished_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    model_key = Column(String(220), nullable=False, index=True)
+    model_type = Column(String(32), nullable=False, index=True)
+    agent_id = Column(String(64), nullable=True, index=True)
+    detector_id = Column(String(96), nullable=False, index=True)
+    status = Column(String(24), nullable=False, default="active", server_default="active", index=True)
+
+    serialized_model = Column(LargeBinary, nullable=False)
+    feature_schema_version = Column(Integer, nullable=False)
+    training_sample_count = Column(Integer, nullable=False, default=0)
+    training_started_at = Column(DateTime(timezone=True), nullable=False)
+    training_finished_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    anomaly_threshold = Column(Float, nullable=False, default=0.0)
+    metadata_json = Column("metadata", JSONB, nullable=False, default=dict)
+
+
+class UebaPeerGroupModel(Base):
+    __tablename__ = "ueba_peer_groups"
+    __table_args__ = (
+        Index("ix_ueba_peer_groups_run_group", "run_id", "group_id"),
+        Index("ix_ueba_peer_groups_agent_computed", "agent_id", "computed_at"),
+        Index("ix_ueba_peer_groups_computed", "computed_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(String(36), nullable=False, index=True)
+    agent_id = Column(String(64), nullable=False, index=True)
+    group_id = Column(Integer, nullable=False, index=True)
+    silhouette_score = Column(Float, nullable=True)
+    fingerprint_vector = Column(JSONB, nullable=False, default=dict)
+    computed_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    feature_schema_version = Column(Integer, nullable=False)
+
+    centroid_vector = Column(JSONB, nullable=False, default=dict)
+    covariance_matrix = Column(JSONB, nullable=False, default=dict)
+    distance_threshold = Column(Float, nullable=True)
+    group_size = Column(Integer, nullable=False, default=0)
+    peer_agents = Column(JSONB, nullable=False, default=list)
+    scoring_enabled = Column(Boolean, nullable=False, default=False, server_default="false")

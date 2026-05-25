@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 from app.core.config.env_secrets import env_value
 from app.core.db import SessionLocal
-from app.features.ueba import lifecycle, repository
+from app.features.ueba import lifecycle, maintenance, repository
 from app.features.ueba.domain.registry import DetectorExecutionResult, UebaDetector, default_detectors
+
+_LAST_MAINTENANCE_AT: datetime | None = None
 
 
 def _env_int(name: str, default: int) -> int:
@@ -82,6 +84,25 @@ class UebaWorkerConfig:
     sudo_hour_max_events_per_cycle: int
     sudo_hour_min_rarity_bits: float
     sudo_hour_min_z_score: float
+    if_training_min_samples: int
+    if_retraining_interval_seconds: int
+    if_model_stale_seconds: int
+    if_model_retention_days: int
+    if_model_cache_ttl_seconds: int
+    if_weight: float
+    rarity_weight: float
+    if_n_estimators: int
+    if_random_state: int
+    if_feature_schema_version: int
+    peer_clustering_interval_seconds: int
+    peer_group_retention_days: int
+    peer_min_silhouette_score: float
+    peer_distance_percentile: float
+    peer_current_window_minutes: int
+    peer_feature_schema_version: int
+    peer_min_agents: int
+    peer_min_mature_days: int
+    peer_max_events_per_clustering: int
 
 
 @dataclass(frozen=True)
@@ -165,6 +186,28 @@ def load_worker_config() -> UebaWorkerConfig:
         sudo_hour_max_events_per_cycle=max(1, _env_int("SEAGULL_UEBA_SUDO_HOUR_MAX_EVENTS_PER_CYCLE", 500)),
         sudo_hour_min_rarity_bits=max(0.0, _env_float("SEAGULL_UEBA_SUDO_HOUR_MIN_RARITY_BITS", 3.0)),
         sudo_hour_min_z_score=max(0.0, _env_float("SEAGULL_UEBA_SUDO_HOUR_MIN_Z_SCORE", 2.5)),
+        if_training_min_samples=max(10, _env_int("SEAGULL_UEBA_IF_TRAINING_MIN_SAMPLES", 500)),
+        if_retraining_interval_seconds=max(60, _env_int("SEAGULL_UEBA_IF_RETRAINING_INTERVAL_SECONDS", 21_600)),
+        if_model_stale_seconds=max(60, _env_int("SEAGULL_UEBA_IF_MODEL_STALE_SECONDS", 86_400)),
+        if_model_retention_days=max(1, _env_int("SEAGULL_UEBA_IF_MODEL_RETENTION_DAYS", 30)),
+        if_model_cache_ttl_seconds=max(1, _env_int("SEAGULL_UEBA_IF_MODEL_CACHE_TTL_SECONDS", 300)),
+        if_weight=min(1.0, max(0.0, _env_float("SEAGULL_UEBA_IF_BLEND_WEIGHT", 0.6))),
+        rarity_weight=min(1.0, max(0.0, _env_float("SEAGULL_UEBA_RARITY_BLEND_WEIGHT", 0.4))),
+        if_n_estimators=max(10, _env_int("SEAGULL_UEBA_IF_N_ESTIMATORS", 200)),
+        if_random_state=_env_int("SEAGULL_UEBA_IF_RANDOM_STATE", 42),
+        if_feature_schema_version=max(1, _env_int("SEAGULL_UEBA_IF_FEATURE_SCHEMA_VERSION", 1)),
+        peer_clustering_interval_seconds=max(
+            60,
+            _env_int("SEAGULL_UEBA_PEER_CLUSTERING_INTERVAL_SECONDS", 21_600),
+        ),
+        peer_group_retention_days=max(1, _env_int("SEAGULL_UEBA_PEER_GROUP_RETENTION_DAYS", 90)),
+        peer_min_silhouette_score=max(0.0, _env_float("SEAGULL_UEBA_PEER_MIN_SILHOUETTE_SCORE", 0.25)),
+        peer_distance_percentile=min(99.9, max(50.0, _env_float("SEAGULL_UEBA_PEER_DISTANCE_PERCENTILE", 95.0))),
+        peer_current_window_minutes=max(5, _env_int("SEAGULL_UEBA_PEER_CURRENT_WINDOW_MINUTES", 60)),
+        peer_feature_schema_version=max(1, _env_int("SEAGULL_UEBA_PEER_FEATURE_SCHEMA_VERSION", 1)),
+        peer_min_agents=max(2, _env_int("SEAGULL_UEBA_PEER_MIN_AGENTS", 4)),
+        peer_min_mature_days=max(0, _env_int("SEAGULL_UEBA_PEER_MIN_MATURE_DAYS", 3)),
+        peer_max_events_per_clustering=max(1000, _env_int("SEAGULL_UEBA_PEER_MAX_EVENTS_PER_CLUSTERING", 50_000)),
     )
 
 
@@ -175,11 +218,31 @@ def run_ueba_cycle(
     detector_set: Iterable[UebaDetector] | None = None,
 ) -> UebaCycleResult:
     cycle_now = _as_utc(now or datetime.now(timezone.utc))
+    _run_maintenance_if_due(cfg, now=cycle_now)
     detectors = list(detector_set or default_detectors())
     results: list[UebaDetectorCycleResult] = []
     for detector in detectors:
         results.append(_run_one_detector(detector, cfg=cfg, now=cycle_now))
     return UebaCycleResult(detectors=results)
+
+
+def _run_maintenance_if_due(cfg: UebaWorkerConfig, *, now: datetime) -> None:
+    global _LAST_MAINTENANCE_AT
+    interval = min(
+        max(60, int(cfg.if_retraining_interval_seconds)),
+        max(60, int(cfg.peer_clustering_interval_seconds)),
+    )
+    if _LAST_MAINTENANCE_AT is not None and (_LAST_MAINTENANCE_AT + timedelta(seconds=interval)) > now:
+        return
+    db = SessionLocal()
+    try:
+        maintenance.run_ueba_maintenance(db, cfg=cfg, now=now)
+        repository.commit(db)
+        _LAST_MAINTENANCE_AT = now
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
 
 
 def _run_one_detector(detector: UebaDetector, *, cfg: UebaWorkerConfig, now: datetime) -> UebaDetectorCycleResult:
