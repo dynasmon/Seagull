@@ -13,6 +13,7 @@ import {
   detectorLabel,
   detectorStatusVariant,
   formatTimestamp,
+  mlModelStatusVariant,
   relativeTime,
 } from "../components/ueba-utils";
 
@@ -45,6 +46,11 @@ function DetectorCard({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {!d.enabled && <Badge variant="neutral">disabled</Badge>}
+          {d.ml_model_status !== "unavailable" && (
+            <Badge variant={mlModelStatusVariant(d.ml_model_status)}>
+              ML {d.ml_model_status}
+            </Badge>
+          )}
           <Badge variant={detectorStatusVariant(d.status)}>{d.status}</Badge>
         </div>
       </div>
@@ -94,6 +100,15 @@ function DetectorCard({
           <span className="text-muted-foreground">Next run</span>
           <span className="text-foreground">{d.next_run_at ? relativeTime(d.next_run_at) : "—"}</span>
         </div>
+        {d.ml_model_status !== "unavailable" && (
+          <div className="col-span-2 flex items-center justify-between rounded border border-border/40 bg-background/20 px-2.5 py-1.5">
+            <span className="text-muted-foreground">ML model</span>
+            <span className="text-foreground">
+              {d.ml_model_status}
+              {d.ml_model_trained_at ? ` · ${relativeTime(d.ml_model_trained_at)}` : ""}
+            </span>
+          </div>
+        )}
         {d.last_success_at && (
           <div className="flex items-center justify-between rounded border border-border/40 bg-background/20 px-2.5 py-1.5">
             <span className="text-muted-foreground">Last success</span>

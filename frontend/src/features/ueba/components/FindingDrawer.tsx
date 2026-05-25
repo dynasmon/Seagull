@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 
 import { Badge } from "@/shared/components/Badge";
 import Drawer from "@/shared/components/Drawer";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { TextArea } from "@/shared/components/TextArea";
 import {
   InvestigationActionBar,
   InvestigationActionButton,
@@ -20,7 +22,7 @@ import {
 import { cx } from "@/shared/lib/cx";
 
 import { getUebaFinding, triageUebaFinding } from "../api";
-import type { UebaFinding, UebaFindingDetail, UebaFindingStatus } from "../types";
+import type { UebaFinding, UebaFindingDetail, UebaFindingStatus, UebaVerdict } from "../types";
 import {
   baselineStatusVariant,
   detectorDescription,
@@ -34,9 +36,19 @@ import {
   reasonCodeLabel,
   relativeTime,
   severityVariant,
+  verdictLabel,
+  verdictVariant,
 } from "./ueba-utils";
 
 type Tab = "overview" | "evidence" | "raw";
+
+const FP_TTL_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: "24 hours", value: "86400" },
+  { label: "1 hour", value: "3600" },
+  { label: "6 hours", value: "21600" },
+  { label: "7 days", value: "604800" },
+  { label: "Permanent", value: "permanent" },
+];
 
 function BaselineMaturityBar({ sampleCount, status }: { sampleCount: number; status: string }) {
   const pct =
@@ -214,6 +226,165 @@ function DeviationBlock({ finding }: { finding: UebaFinding }) {
   );
 }
 
+function latestFeedback(detail: UebaFindingDetail | null) {
+  const rows = detail?.feedback ?? [];
+  return rows.length > 0 ? rows[0] : null;
+}
+
+function VerdictPanel({
+  finding,
+  detail,
+  busy,
+  onSubmit,
+}: {
+  finding: UebaFinding;
+  detail: UebaFindingDetail | null;
+  busy: boolean;
+  onSubmit: (body: {
+    verdict: UebaVerdict;
+    notes?: string | null;
+    suppression_ttl_seconds?: number | null;
+    override?: boolean;
+  }) => Promise<void>;
+}) {
+  const [pendingVerdict, setPendingVerdict] = useState<UebaVerdict | null>(null);
+  const [notes, setNotes] = useState("");
+  const [ttl, setTtl] = useState("86400");
+  const [override, setOverride] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const feedback = latestFeedback(detail);
+  const latestVerdict = feedback?.verdict ?? finding.latest_verdict;
+  const latestBy = feedback?.annotated_by ?? finding.latest_verdict_by;
+  const latestAt = feedback?.annotated_at ?? finding.latest_verdict_at;
+
+  const submit = async () => {
+    if (!pendingVerdict) return;
+    setError(null);
+    try {
+      await onSubmit({
+        verdict: pendingVerdict,
+        notes: notes.trim() || null,
+        suppression_ttl_seconds:
+          pendingVerdict === "false_positive"
+            ? ttl === "permanent"
+              ? null
+              : Number(ttl)
+            : 0,
+        override,
+      });
+      setPendingVerdict(null);
+      setNotes("");
+      setOverride(false);
+    } catch (e: unknown) {
+      setError((e as Error)?.message ?? "Verdict update failed");
+    }
+  };
+
+  return (
+    <InvestigationSection title="Analyst Verdict">
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {latestVerdict ? (
+            <>
+              <Badge variant={verdictVariant(latestVerdict)}>{verdictLabel(latestVerdict)}</Badge>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {latestBy ?? "unknown"} · {latestAt ? formatTimestamp(latestAt) : "—"}
+              </span>
+            </>
+          ) : (
+            <Badge variant="neutral">Unreviewed</Badge>
+          )}
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-3">
+          {([
+            ["true_positive", "Mark True Positive"],
+            ["false_positive", "Mark False Positive"],
+            ["benign_acknowledged", "Acknowledge as Benign"],
+          ] as Array<[UebaVerdict, string]>).map(([verdict, label]) => (
+            <button
+              key={verdict}
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setPendingVerdict((current) => (current === verdict ? null : verdict));
+                setError(null);
+              }}
+              className={cx(
+                "rounded-md border px-3 py-2 text-left text-[12px] transition-colors",
+                pendingVerdict === verdict
+                  ? "border-severity-medium/60 bg-severity-medium/10 text-foreground"
+                  : "border-border/60 bg-background/30 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {pendingVerdict && (
+          <div className="space-y-3 rounded-md border border-border/60 bg-background/30 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Badge variant={verdictVariant(pendingVerdict)}>{verdictLabel(pendingVerdict)}</Badge>
+              {pendingVerdict === "false_positive" && (
+                <SelectInput
+                  value={ttl}
+                  onChange={(event) => setTtl(event.target.value)}
+                  className="h-8 min-w-[150px] text-xs font-mono"
+                  aria-label="Suppression TTL"
+                >
+                  {FP_TTL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectInput>
+              )}
+            </div>
+            <TextArea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Notes"
+              maxLength={2000}
+              className="min-h-[72px] text-xs"
+            />
+            {latestVerdict && latestVerdict !== pendingVerdict && (
+              <label className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={override}
+                  onChange={(event) => setOverride(event.target.checked)}
+                  className="h-3.5 w-3.5"
+                />
+                Record override
+              </label>
+            )}
+            {error && <div className="font-mono text-[11px] text-severity-high">{error}</div>}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingVerdict(null)}
+                disabled={busy}
+                className="ui-btn-secondary h-8 px-3 text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submit}
+                disabled={busy}
+                className="ui-btn-primary h-8 px-3 text-xs"
+              >
+                {busy ? "Submitting..." : "Confirm"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </InvestigationSection>
+  );
+}
+
 export default function FindingDrawer({
   open,
   finding,
@@ -268,6 +439,23 @@ export default function FindingDrawer({
       onTriaged?.(updated);
     } catch {
       // no-op
+    } finally {
+      setTriageBusy(false);
+    }
+  };
+
+  const submitVerdict = async (body: {
+    verdict: UebaVerdict;
+    notes?: string | null;
+    suppression_ttl_seconds?: number | null;
+    override?: boolean;
+  }) => {
+    if (!f || triageBusy) return;
+    setTriageBusy(true);
+    try {
+      const updated = await triageUebaFinding(f.id, body);
+      setDetail(updated);
+      onTriaged?.(updated);
     } finally {
       setTriageBusy(false);
     }
@@ -373,6 +561,8 @@ export default function FindingDrawer({
                   )}
                 </div>
               </InvestigationSection>
+
+              <VerdictPanel finding={f} detail={detail} busy={triageBusy} onSubmit={submitVerdict} />
 
               <InvestigationSection title="Occurrence">
                 <div className="grid grid-cols-2 gap-3 font-mono text-[12px]">

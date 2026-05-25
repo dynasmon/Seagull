@@ -9,6 +9,7 @@ import type {
   UebaFinding,
   UebaFindingDetail,
   UebaFindingStatus,
+  UebaFindingTriageBody,
   UebaRunStatus,
   UebaSeverity,
   UebaSummary,
@@ -105,7 +106,7 @@ export function listUebaRuns(params?: {
 
 export function triageUebaFinding(
   findingId: number,
-  body: { status: UebaFindingStatus; cooldown_extension_minutes?: number },
+  body: UebaFindingTriageBody,
 ) {
   return apiPatch<UebaFindingDetail>(`/api/ueba/findings/${findingId}`, body);
 }

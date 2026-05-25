@@ -26,6 +26,8 @@ import {
   metricLabel,
   relativeTime,
   severityVariant,
+  verdictLabel,
+  verdictVariant,
 } from "../components/ueba-utils";
 import type { UebaFinding, UebaFindingStatus, UebaSeverity, UebaSummary } from "../types";
 
@@ -90,6 +92,11 @@ function SummaryStrip({ summary }: { summary: UebaSummary }) {
           label: "Baselines",
           value: summary.mature_baselines,
           hint: `${summary.warming_baselines} warming, ${summary.stale_baselines} stale`,
+        },
+        {
+          label: "Feedback",
+          value: summary.verdicts_last_24h,
+          hint: `${(summary.false_positive_rate_7d * 100).toFixed(1)}% FP, ${summary.suppressed_entities} suppressed`,
         },
         {
           label: "Detector Health",
@@ -424,6 +431,14 @@ export default function UebaFindingsPage() {
                           <SeverityPill variant={severityVariant(row.severity)}>
                             {row.severity === "informational" ? "info" : row.severity}
                           </SeverityPill>
+                          <Badge variant={row.status === "open" ? "medium" : "neutral"} className="w-fit text-[10px]">
+                            {row.status}
+                          </Badge>
+                          {row.latest_verdict && (
+                            <Badge variant={verdictVariant(row.latest_verdict)} className="w-fit text-[10px]">
+                              {verdictLabel(row.latest_verdict)}
+                            </Badge>
+                          )}
                           <span className="font-mono text-[10px] text-muted-foreground">
                             risk {row.risk_score}
                           </span>
@@ -534,6 +549,11 @@ export default function UebaFindingsPage() {
         open={drawerOpen}
         finding={selectedFinding}
         onClose={() => setDrawerOpen(false)}
+        onTriaged={(updated) => {
+          setSelectedFinding(updated);
+          setFindings((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+          load({ replace: true });
+        }}
       />
     </div>
   );

@@ -1,7 +1,14 @@
 import type { SeverityVariant } from "@/shared/components/SeverityPill";
 import type { BadgeVariant } from "@/shared/components/Badge";
 
-import type { UebaBaselineStatus, UebaDetectorStatus, UebaFindingStatus, UebaSeverity } from "../types";
+import type {
+  UebaBaselineStatus,
+  UebaDetectorStatus,
+  UebaFindingStatus,
+  UebaMlModelStatus,
+  UebaSeverity,
+  UebaVerdict,
+} from "../types";
 
 export function severityVariant(severity: UebaSeverity | string): SeverityVariant {
   switch (severity) {
@@ -43,6 +50,33 @@ export function findingStatusVariant(status: UebaFindingStatus | string): BadgeV
   }
 }
 
+export function verdictVariant(verdict: UebaVerdict | string): BadgeVariant {
+  switch (verdict) {
+    case "true_positive": return "critical";
+    case "false_positive": return "neutral";
+    case "benign_acknowledged": return "low";
+    default: return "neutral";
+  }
+}
+
+export function verdictLabel(verdict: UebaVerdict | string | null | undefined): string {
+  switch (verdict) {
+    case "true_positive": return "True positive";
+    case "false_positive": return "False positive";
+    case "benign_acknowledged": return "Benign";
+    default: return "Unreviewed";
+  }
+}
+
+export function mlModelStatusVariant(status: UebaMlModelStatus | string): BadgeVariant {
+  switch (status) {
+    case "active": return "low";
+    case "training": return "medium";
+    case "stale": return "medium";
+    default: return "neutral";
+  }
+}
+
 const REASON_CODE_LABELS: Record<string, string> = {
   rare_login_hour: "Rare login hour",
   login_hour_far_from_baseline: "Login hour far from baseline",
@@ -57,6 +91,7 @@ const REASON_CODE_LABELS: Record<string, string> = {
   rare_sudo_hour: "Sudo at unusual hour",
   sudo_hour_far_from_baseline: "Sudo hour far from expected window",
   fim_spike_above_baseline: "FIM modification spike above baseline",
+  peer_group_deviation: "Agent deviates from peer group",
 };
 
 export function reasonCodeLabel(code: string): string {
@@ -72,6 +107,7 @@ export const DETECTOR_LABELS: Record<string, string> = {
   rare_process_name_v1: "Rare Process Name",
   fim_spike_v1: "FIM Spike",
   sudo_session_hour_v1: "Sudo Session Hour",
+  peer_group_deviation_v1: "Peer Group Deviation",
 };
 
 export function detectorLabel(detectorId: string): string {
@@ -85,6 +121,7 @@ const METRIC_LABELS: Record<string, string> = {
   lateral_distinct_dst_ips_per_window: "Lateral Distinct Targets / Window",
   proc_exec_count_per_window: "Exec Count / Window",
   proc_name_frequency: "Process Name Frequency",
+  peer_group_distance: "Peer Group Distance",
   fim_events_per_window: "FIM Events / Window",
   sudo_execution_hour: "Sudo Execution Hour",
 };
@@ -237,6 +274,7 @@ const DETECTOR_DESCRIPTIONS: Record<string, string> = {
   rare_process_name_v1: "Detects process names never or rarely seen on this agent.",
   fim_spike_v1: "Detects file modification rate spikes above the per-agent baseline.",
   sudo_session_hour_v1: "Detects sudo commands at hours statistically unusual for each user.",
+  peer_group_deviation_v1: "Compares each mature agent against behaviorally similar peers.",
 };
 
 export function detectorDescription(detectorId: string): string {
