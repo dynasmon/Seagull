@@ -22,8 +22,12 @@ from app.features.ueba.models import (
     UebaBaselineModel,
     UebaDetectorRunModel,
     UebaDetectorStateModel,
+    UebaFeedbackModel,
     UebaFindingEvidenceModel,
     UebaFindingModel,
+    UebaMlModelModel,
+    UebaPeerGroupModel,
+    UebaSuppressionModel,
 )
 from app.features.ueba.schemas import UebaBaselinesQuery, UebaFindingsQuery, UebaRunsQuery
 
@@ -42,6 +46,10 @@ def db_session():
             UebaBaselineModel.__table__,
             UebaFindingModel.__table__,
             UebaFindingEvidenceModel.__table__,
+            UebaFeedbackModel.__table__,
+            UebaSuppressionModel.__table__,
+            UebaMlModelModel.__table__,
+            UebaPeerGroupModel.__table__,
             UebaDetectorStateModel.__table__,
             UebaDetectorRunModel.__table__,
         ],
@@ -57,6 +65,10 @@ def db_session():
             tables=[
                 UebaDetectorRunModel.__table__,
                 UebaDetectorStateModel.__table__,
+                UebaPeerGroupModel.__table__,
+                UebaMlModelModel.__table__,
+                UebaSuppressionModel.__table__,
+                UebaFeedbackModel.__table__,
                 UebaFindingEvidenceModel.__table__,
                 UebaFindingModel.__table__,
                 UebaBaselineModel.__table__,
@@ -146,8 +158,16 @@ def test_ueba_models_are_registered_and_migration_exists() -> None:
         "ueba_finding_evidence",
         "ueba_detector_states",
         "ueba_detector_runs",
+        "ueba_feedback",
+        "ueba_suppressions",
+        "ueba_ml_models",
+        "ueba_peer_groups",
     ):
         assert table_name in Base.metadata.tables
+
+    migration = Path("alembic/versions/20260525_0024_ueba_feedback_loop.py")
+    assert migration.exists()
+    assert 'revision = "20260525_0024"' in migration.read_text()
 
     migration = Path("alembic/versions/20260518_0023_ueba_foundation.py")
     assert migration.exists()
