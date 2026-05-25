@@ -1,10 +1,3 @@
-"""Add detection_rule_health table for per-rule runtime observability.
-
-Revision ID: 20260506_0019
-Revises: 20260503_0018
-Create Date: 2026-05-06
-"""
-
 from __future__ import annotations
 
 import sqlalchemy as sa
