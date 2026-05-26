@@ -8,75 +8,46 @@ import { cx } from "@/shared/lib/cx";
 import { Dot, FieldLabel } from "./AgentsPageShared";
 import AgentConfigPanel from "./AgentConfigPanel";
 import type { AgentDetail } from "../types";
-import type { DdosConfigDraft } from "../lib/agentUtils";
 import { isOnline, fmtLastSeen } from "../lib/agentUtils";
+import type { AgentConfigController } from "../hooks/useAgentConfig";
 
 interface AgentDrawerProps {
   open: boolean;
   onClose: () => void;
   selectedAgentId: string;
   agent: AgentDetail | null;
-  agentError: string | null;
-  // from useAgentConfig:
-  draftName: string;
-  setDraftName: (v: string) => void;
-  draftDesc: string;
-  setDraftDesc: (v: string) => void;
-  draftTags: string;
-  setDraftTags: (v: string) => void;
-  draftMetaText: string;
-  setDraftMetaText: (v: string) => void;
-  saveBusy: boolean;
-  canSaveAgent: boolean;
-  toggleBusy: boolean;
-  onSaveAgent: () => Promise<void>;
-  onToggleRevoked: () => Promise<void>;
-  configObj: Record<string, any>;
-  configText: string;
-  setConfigText: (v: string) => void;
-  configParseError: string | null;
-  ddosDraft: DdosConfigDraft;
-  timingKeys: string[];
-  configBusy: boolean;
-  onConfigTextChange: (v: string) => void;
-  onUpdateTiming: (key: string, value: number) => void;
-  onApplyDdosConfig: () => Promise<void>;
-  onApplyConfig: () => Promise<void>;
-  setDdosDraft: (updater: (prev: DdosConfigDraft) => DdosConfigDraft) => void;
+  controller: AgentConfigController;
 }
 
-export default function AgentDrawer({
-  open,
-  onClose,
-  selectedAgentId,
-  agent,
-  agentError,
-  draftName,
-  setDraftName,
-  draftDesc,
-  setDraftDesc,
-  draftTags,
-  setDraftTags,
-  draftMetaText,
-  setDraftMetaText,
-  saveBusy,
-  canSaveAgent,
-  toggleBusy,
-  onSaveAgent,
-  onToggleRevoked,
-  configObj,
-  configText,
-  setConfigText,
-  configParseError,
-  ddosDraft,
-  timingKeys,
-  configBusy,
-  onConfigTextChange,
-  onUpdateTiming,
-  onApplyDdosConfig,
-  onApplyConfig,
-  setDdosDraft,
-}: AgentDrawerProps) {
+export default function AgentDrawer({ open, onClose, selectedAgentId, agent, controller }: AgentDrawerProps) {
+  const {
+    agentError,
+    draftName,
+    setDraftName,
+    draftDesc,
+    setDraftDesc,
+    draftTags,
+    setDraftTags,
+    draftMetaText,
+    setDraftMetaText,
+    saveBusy,
+    canSaveAgent,
+    toggleBusy,
+    onSaveAgent,
+    onToggleRevoked,
+    configObj,
+    configText,
+    setConfigText,
+    configParseError,
+    ddosDraft,
+    timingKeys,
+    configBusy,
+    onConfigTextChange,
+    onUpdateTiming,
+    onApplyDdosConfig,
+    onApplyConfig,
+    setDdosDraft,
+  } = controller;
   return (
     <Drawer
       open={open}
