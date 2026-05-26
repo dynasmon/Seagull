@@ -226,6 +226,13 @@ export function useAgents() {
     ]);
   }, [loadAgent, loadEvents, loadSnapshot, refresh, selectedAgentId]);
 
+  const reloadSelectedTelemetry = useCallback(() => {
+    if (!selectedAgentId) return;
+    const cfg = eventsCfgRef.current;
+    loadSnapshot(selectedAgentId, cfg);
+    loadEvents(selectedAgentId, cfg);
+  }, [loadEvents, loadSnapshot, selectedAgentId]);
+
   const detailLive = useLiveRefresh({
     enabled: Boolean(selectedAgentId) && autoRefresh,
     profile: "hot-operational",
@@ -320,7 +327,10 @@ export function useAgents() {
     setAutoRefresh,
     lastUpdatedAt,
     refreshSelectedAgent,
+    reloadSelectedTelemetry,
     detailLive,
     urlResponseActionTrigger,
   };
 }
+
+export type AgentsController = ReturnType<typeof useAgents>;

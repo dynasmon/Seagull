@@ -548,3 +548,5 @@ export function useAgentActions({
     fmtLastSeen,
   };
 }
+
+export type AgentActionsController = ReturnType<typeof useAgentActions>;
