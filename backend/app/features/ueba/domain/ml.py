@@ -191,6 +191,7 @@ def train_isolation_forest(
     random_state: int,
     feature_schema_version: int,
     parent_vocab: dict[str, int],
+    contamination: str = "auto",
 ) -> TrainedIsolationForest:
     if len(matrix) < 2:
         raise ValueError("isolation forest training requires at least two samples")
@@ -199,8 +200,15 @@ def train_isolation_forest(
     except Exception as exc:  # pragma: no cover - depends on optional runtime package
         raise RuntimeError("scikit-learn is required for IsolationForest training") from exc
 
+    contamination_val: object = "auto"
+    if str(contamination) != "auto":
+        try:
+            contamination_val = float(contamination)
+        except (TypeError, ValueError):
+            contamination_val = "auto"
+
     model = IsolationForest(
-        contamination="auto",
+        contamination=contamination_val,
         n_estimators=max(10, int(n_estimators)),
         random_state=int(random_state),
     )
