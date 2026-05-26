@@ -181,6 +181,9 @@ def mahalanobis_distance(
     centroid: dict[str, float],
     covariance: dict[str, float],
 ) -> float:
+    # Diagonal-covariance (scaled Euclidean) approximation: `covariance` stores
+    # per-feature variances only (the diagonal of the full covariance matrix).
+    # Cross-feature correlations are ignored.
     total = 0.0
     for name in PEER_FEATURE_NAMES:
         delta = finite_float(vector.get(name)) - finite_float(centroid.get(name))

@@ -132,9 +132,39 @@ class PeerGroupDeviationDetector:
 
         matured_before = now - timedelta(days=max(0, int(cfg.peer_min_mature_days)))
         agents = repository.list_mature_agent_ids(db, matured_before=matured_before)
+        all_agents_with_data = set(repository.list_all_agent_ids_with_baselines(db))
+        ungrouped_agents = sorted(all_agents_with_data - set(agents))
+
+        run_id = str(uuid4())
+
         if len(agents) < max(2, int(cfg.peer_min_agents)):
-            patch = {"last_clustering_at": _iso(now), "last_clustered_agents": len(agents), "peer_scoring_enabled": False}
-            log_event(logger, "info", "ueba_peer_group_clustering", agents=len(agents), groups=0, scoring_enabled=False)
+            for agent_id in ungrouped_agents + list(agents):
+                repository.create_peer_group(
+                    db,
+                    run_id=run_id,
+                    agent_id=agent_id,
+                    group_id=0,
+                    silhouette_score=None,
+                    fingerprint_vector={},
+                    computed_at=now,
+                    feature_schema_version=int(cfg.peer_feature_schema_version),
+                    centroid_vector={},
+                    covariance_matrix={},
+                    distance_threshold=None,
+                    group_size=0,
+                    peer_agents=[],
+                    scoring_enabled=False,
+                )
+            patch = {
+                "last_clustering_at": _iso(now),
+                "last_clustered_agents": len(agents),
+                "last_ungrouped_agents": len(ungrouped_agents),
+                "peer_scoring_enabled": False,
+            }
+            log_event(
+                logger, "info", "ueba_peer_group_clustering",
+                agents=len(agents), ungrouped=len(ungrouped_agents), groups=0, scoring_enabled=False,
+            )
             return patch
 
         since = now - timedelta(days=7)
@@ -159,7 +189,6 @@ class PeerGroupDeviationDetector:
         )
         by_agent = {fp.agent_id: fp for fp in fingerprints}
         assignment_by_agent = {item.agent_id: item for item in assignments}
-        run_id = str(uuid4())
         for agent_id in sorted(by_agent):
             assignment = assignment_by_agent[agent_id]
             stat = stats.get(assignment.group_id)
@@ -183,14 +212,32 @@ class PeerGroupDeviationDetector:
                 peer_agents=(stat.peer_agents if stat else []),
                 scoring_enabled=bool(assignment.scoring_enabled and stat and stat.threshold_distance is not None),
             )
+        for agent_id in ungrouped_agents:
+            repository.create_peer_group(
+                db,
+                run_id=run_id,
+                agent_id=agent_id,
+                group_id=0,
+                silhouette_score=None,
+                fingerprint_vector={},
+                computed_at=now,
+                feature_schema_version=int(cfg.peer_feature_schema_version),
+                centroid_vector={},
+                covariance_matrix={},
+                distance_threshold=None,
+                group_size=0,
+                peer_agents=[],
+                scoring_enabled=False,
+            )
         enabled = any(item.scoring_enabled for item in assignments)
-        group_count = len({item.group_id for item in assignments})
+        group_count = len({item.group_id for item in assignments if item.scoring_enabled})
         log_event(
             logger,
             "info",
             "ueba_peer_group_clustering",
             run_id=run_id,
             agents=len(agents),
+            ungrouped=len(ungrouped_agents),
             groups=group_count,
             scoring_enabled=enabled,
             events=len(events),
@@ -199,6 +246,7 @@ class PeerGroupDeviationDetector:
             "last_clustering_at": _iso(now),
             "last_peer_run_id": run_id,
             "last_clustered_agents": len(agents),
+            "last_ungrouped_agents": len(ungrouped_agents),
             "last_peer_group_count": group_count,
             "peer_scoring_enabled": enabled,
         }
