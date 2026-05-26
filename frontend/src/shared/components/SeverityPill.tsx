@@ -25,7 +25,7 @@ export function SeverityPill({
   return (
     <span
       className={cx(
-        "inline-flex items-center rounded-sm border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
+        "inline-flex items-center rounded-sm border px-1 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em]",
         map[variant],
         className,
       )}
