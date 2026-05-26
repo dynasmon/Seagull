@@ -147,3 +147,50 @@ def test_peer_group_distance_and_percentiles_handle_empty_singleton_and_nan() ->
         min_agents=2,
     )
     assert sparse_assignments[0].scoring_enabled is False
+
+
+def test_isolation_forest_blended_explanation_has_required_keys() -> None:
+    vector = ml.ProcFeatureVector(names=ml.PROC_FEATURE_NAMES, values=(0.0,) * len(ml.PROC_FEATURE_NAMES), audit={})
+
+    class FakeModel:
+        def decision_function(self, _matrix):
+            return [-0.3]
+
+    score = ml.score_with_optional_model(
+        model=FakeModel(),
+        feature_vector=vector,
+        rarity_bits=2.5,
+        if_weight=0.6,
+        rarity_weight=0.4,
+    )
+
+    assert score.scoring_method == "isolation_forest_blended"
+    required_keys = {
+        "scoring_method",
+        "if_decision_score",
+        "if_anomaly_component",
+        "rarity_bits",
+        "blend_weights",
+        "feature_schema_version",
+        "feature_vector",
+    }
+    assert required_keys <= score.explanation.keys()
+    assert set(score.explanation["blend_weights"].keys()) == {"isolation_forest", "rarity"}
+    assert score.explanation["if_decision_score"] == -0.3
+    assert math.isclose(score.explanation["if_anomaly_component"], 3.0)
+
+
+def test_peer_group_choose_assignments_marks_all_ungrouped_when_below_min_agents() -> None:
+    agents = {"agent-a": {name: float(i) for i, name in enumerate(peer_groups.PEER_FEATURE_NAMES)},
+              "agent-b": {name: float(i + 1) for i, name in enumerate(peer_groups.PEER_FEATURE_NAMES)},
+              "agent-c": {name: float(i + 2) for i, name in enumerate(peer_groups.PEER_FEATURE_NAMES)}}
+
+    assignments = peer_groups.choose_peer_assignments(
+        agents,
+        min_silhouette_score=0.25,
+        min_agents=10,
+    )
+
+    assert len(assignments) == 3
+    assert all(a.scoring_enabled is False for a in assignments)
+    assert all(a.group_id == 0 for a in assignments)

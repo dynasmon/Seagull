@@ -17,6 +17,7 @@ os.environ.setdefault("SEAGULL_DB_URL", "postgresql://seagull:test@127.0.0.1:543
 
 from app.core.db import Base
 from app.core.db.model_registry import load_all_models
+from app.features.admin.models import AdminAuditEventModel
 from app.features.ueba import lifecycle, repository, service
 from app.features.ueba.models import (
     UebaBaselineModel,
@@ -29,7 +30,9 @@ from app.features.ueba.models import (
     UebaPeerGroupModel,
     UebaSuppressionModel,
 )
-from app.features.ueba.schemas import UebaBaselinesQuery, UebaFindingsQuery, UebaRunsQuery
+from app.features.ueba.domain import feedback as fb
+from app.features.ueba.domain.support import _record_finding
+from app.features.ueba.schemas import UebaBaselinesQuery, UebaFindingTriageIn, UebaFindingsQuery, UebaRunsQuery
 
 
 @compiles(JSONB, "sqlite")
@@ -43,6 +46,7 @@ def db_session():
     Base.metadata.create_all(
         engine,
         tables=[
+            AdminAuditEventModel.__table__,
             UebaBaselineModel.__table__,
             UebaFindingModel.__table__,
             UebaFindingEvidenceModel.__table__,
@@ -72,6 +76,7 @@ def db_session():
                 UebaFindingEvidenceModel.__table__,
                 UebaFindingModel.__table__,
                 UebaBaselineModel.__table__,
+                AdminAuditEventModel.__table__,
             ],
         )
         engine.dispose()
@@ -172,6 +177,10 @@ def test_ueba_models_are_registered_and_migration_exists() -> None:
     migration = Path("alembic/versions/20260518_0023_ueba_foundation.py")
     assert migration.exists()
     assert 'revision = "20260518_0023"' in migration.read_text()
+
+    migration = Path("alembic/versions/20260526_0025_ueba_ml_model_unique_active.py")
+    assert migration.exists()
+    assert 'revision = "20260526_0025"' in migration.read_text()
 
 
 def test_ueba_setting_loads_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -539,3 +548,168 @@ def test_detector_run_lifecycle_updates_health_and_failure_state(db_session) -> 
     assert failed_state is not None
     assert failed_state.status == "failing"
     assert failed_state.consecutive_failures == 1
+
+
+# ---------------------------------------------------------------------------
+# Triage persistence
+# ---------------------------------------------------------------------------
+
+def test_triage_persistence_survives_session_close(db_session) -> None:
+    baseline = repository.create_baseline(db_session, **_baseline_payload(status="mature"))
+    finding = repository.create_finding(db_session, **_finding_payload(suffix="p1", baseline_id=None))
+    repository.commit(db_session)
+    repository.refresh(db_session, baseline)
+    repository.refresh(db_session, finding)
+    finding.baseline_id = baseline.id
+    repository.save_finding(db_session, finding)
+    repository.commit(db_session)
+
+    body = UebaFindingTriageIn(verdict="false_positive", suppression_ttl_seconds=3600, notes="test")
+    service.triage_finding(db_session, finding.id, body, annotated_by="analyst")
+
+    # Close the session and open a brand-new one to prove commit happened.
+    db_session.close()
+
+    from sqlalchemy import select as sa_select
+    feedback_rows = db_session.execute(
+        sa_select(UebaFeedbackModel).where(UebaFeedbackModel.finding_id == finding.id)
+    ).scalars().all()
+    assert len(feedback_rows) == 1
+    assert feedback_rows[0].verdict == "false_positive"
+
+    suppression_rows = db_session.execute(
+        sa_select(UebaSuppressionModel).where(
+            UebaSuppressionModel.detector_id == "ssh_login_hour_v1",
+            UebaSuppressionModel.entity_value == "alice",
+        )
+    ).scalars().all()
+    assert len(suppression_rows) == 1
+    assert suppression_rows[0].active is True
+
+    updated_baseline = repository.get_baseline(db_session, baseline.id)
+    assert updated_baseline is not None
+    assert updated_baseline.feedback_fp_count == 1
+    assert updated_baseline.feedback_sensitivity_scale > 1.0
+
+    updated_finding = repository.get_finding(db_session, finding.id)
+    assert updated_finding is not None
+    assert updated_finding.latest_verdict == "false_positive"
+    assert updated_finding.status == "suppressed"
+
+
+def test_fp_ttl_zero_updates_sensitivity_without_creating_suppression(db_session) -> None:
+    baseline = repository.create_baseline(db_session, **_baseline_payload(status="mature"))
+    finding = repository.create_finding(db_session, **_finding_payload(suffix="p2", baseline_id=None))
+    repository.commit(db_session)
+    repository.refresh(db_session, baseline)
+    repository.refresh(db_session, finding)
+    finding.baseline_id = baseline.id
+    repository.save_finding(db_session, finding)
+    repository.commit(db_session)
+
+    body = UebaFindingTriageIn(verdict="false_positive", suppression_ttl_seconds=0)
+    service.triage_finding(db_session, finding.id, body, annotated_by="analyst")
+
+    from sqlalchemy import select as sa_select
+    suppression_rows = db_session.execute(sa_select(UebaSuppressionModel)).scalars().all()
+    assert suppression_rows == [], "ttl=0 must not create a suppression window"
+
+    updated_baseline = repository.get_baseline(db_session, baseline.id)
+    assert updated_baseline is not None
+    assert updated_baseline.feedback_fp_count == 1
+    assert updated_baseline.feedback_sensitivity_scale > 1.0, "threshold widened via sensitivity_scale even without suppression"
+
+    adjusted = fb.apply_feedback_to_emission(
+        confidence=80,
+        risk_score=80,
+        cooldown_minutes=60,
+        state=fb.feedback_state_from_baseline(updated_baseline),
+    )
+    assert adjusted.risk_score < 80, "future emissions use widened threshold"
+    assert adjusted.applied is True
+
+
+def test_active_suppression_skips_emission(db_session) -> None:
+    baseline = repository.create_baseline(db_session, **_baseline_payload(status="mature"))
+    repository.commit(db_session)
+    repository.refresh(db_session, baseline)
+
+    scope_key = fb.suppression_scope_key("ssh_login_hour_v1", "agent-1", "user", "alice")
+    repository.upsert_suppression(
+        db_session,
+        scope_key=scope_key,
+        detector_id="ssh_login_hour_v1",
+        agent_id="agent-1",
+        entity_type="user",
+        entity_value="alice",
+        reason="false_positive_feedback",
+        feedback_id=None,
+        annotated_by="analyst",
+        created_at=_ts(),
+        expires_at=_ts(120),
+        active=True,
+    )
+    repository.commit(db_session)
+
+    result = _record_finding(
+        db_session,
+        detector_id="ssh_login_hour_v1",
+        detector_version=1,
+        baseline=baseline,
+        agent_id="agent-1",
+        entity_type="user",
+        entity_value="alice",
+        metric_name="login_hour",
+        bucket_key="weekday",
+        observed_at=_ts(1),
+        window_started_at=_ts(-10),
+        window_ended_at=_ts(1),
+        expected_value=9.0,
+        observed_value=3.0,
+        deviation_score=4.0,
+        severity="high",
+        confidence=80,
+        risk_score=75,
+        summary="test",
+        reason_codes=["test"],
+        explanation={},
+        evidence=[],
+        cooldown_minutes=60,
+        mitre_tactic="initial_access",
+        mitre_technique_id="T1078",
+        mitre_technique=None,
+    )
+    assert result.suppressed is True
+    assert result.created is False
+
+    from sqlalchemy import select as sa_select
+    assert db_session.execute(sa_select(UebaFindingModel)).scalars().all() == []
+
+
+def test_expired_suppression_sweep(db_session) -> None:
+    scope_key = fb.suppression_scope_key("ssh_login_hour_v1", "agent-1", "user", "alice")
+    repository.upsert_suppression(
+        db_session,
+        scope_key=scope_key,
+        detector_id="ssh_login_hour_v1",
+        agent_id="agent-1",
+        entity_type="user",
+        entity_value="alice",
+        reason="false_positive_feedback",
+        feedback_id=None,
+        annotated_by="analyst",
+        created_at=_ts(-120),
+        expires_at=_ts(-1),
+        active=True,
+    )
+    repository.commit(db_session)
+
+    swept = repository.sweep_expired_suppressions(db_session, now=_ts(0))
+    assert swept == 1
+
+    from sqlalchemy import select as sa_select
+    rows = db_session.execute(
+        sa_select(UebaSuppressionModel).where(UebaSuppressionModel.scope_key == scope_key)
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].active is False
