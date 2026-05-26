@@ -72,6 +72,7 @@ def train_stale_isolation_forest_models(db: Session, *, cfg: Any, now: datetime)
                 random_state=int(getattr(cfg, "if_random_state", 42)),
                 feature_schema_version=int(getattr(cfg, "if_feature_schema_version", ml.PROC_FEATURE_SCHEMA_VERSION)),
                 parent_vocab=parent_vocab,
+                contamination=str(getattr(cfg, "if_contamination", "auto")),
             )
             finished_at = datetime.now(timezone.utc)
             repository.mark_active_ml_models_superseded(

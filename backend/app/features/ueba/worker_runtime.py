@@ -94,6 +94,7 @@ class UebaWorkerConfig:
     if_n_estimators: int
     if_random_state: int
     if_feature_schema_version: int
+    if_contamination: str
     peer_clustering_interval_seconds: int
     peer_group_retention_days: int
     peer_min_silhouette_score: float
@@ -130,6 +131,16 @@ class UebaCycleResult:
     @property
     def alerts_created(self) -> int:
         return sum(int(item.outcome.alerts_created) for item in self.detectors if item.outcome is not None)
+
+
+def _load_contamination() -> str:
+    raw = env_value("SEAGULL_UEBA_IF_CONTAMINATION", "auto")
+    if raw != "auto":
+        try:
+            float(raw)
+        except (TypeError, ValueError):
+            return "auto"
+    return raw
 
 
 def load_worker_config() -> UebaWorkerConfig:
@@ -196,6 +207,7 @@ def load_worker_config() -> UebaWorkerConfig:
         if_n_estimators=max(10, _env_int("SEAGULL_UEBA_IF_N_ESTIMATORS", 200)),
         if_random_state=_env_int("SEAGULL_UEBA_IF_RANDOM_STATE", 42),
         if_feature_schema_version=max(1, _env_int("SEAGULL_UEBA_IF_FEATURE_SCHEMA_VERSION", 1)),
+        if_contamination=_load_contamination(),
         peer_clustering_interval_seconds=max(
             60,
             _env_int("SEAGULL_UEBA_PEER_CLUSTERING_INTERVAL_SECONDS", 21_600),
