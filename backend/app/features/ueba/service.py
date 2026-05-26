@@ -201,6 +201,10 @@ def triage_finding(
     suppression_created = False
     prior_verdict = row.latest_verdict
 
+    cfg: object = None
+    ttl_seconds: int | None = None
+    is_override: bool = False
+
     if verdict is not None:
         cfg = load_feedback_config()
         ttl_seconds = body.suppression_ttl_seconds
@@ -210,7 +214,6 @@ def triage_finding(
         ):
             ttl_seconds = cfg.default_suppression_ttl_seconds
 
-        # 1. Conflicting verdict guard: true_positive <-> false_positive needs override.
         latest = repository.get_latest_feedback_for_finding(db, int(row.id))
         prior_verdict = latest.verdict if latest is not None else row.latest_verdict
         is_override = fb.verdict_conflict(prior_verdict, verdict)
@@ -223,129 +226,131 @@ def triage_finding(
                 ),
             )
 
-        # 2. Durable, versioned verdict record.
-        feedback_row = repository.create_feedback(
-            db,
-            finding_id=int(row.id),
-            detector_id=str(row.detector_id),
-            entity_type=str(row.entity_type),
-            entity_value=str(row.entity_value),
-            agent_id=(str(row.agent_id) if row.agent_id else None),
-            verdict=verdict,
-            annotated_by=actor,
-            annotated_at=now,
-            suppression_ttl_seconds=ttl_seconds,
-            notes=body.notes,
-            is_override=bool(is_override),
-        )
-        repository.flush(db)  # need feedback_row.id for the suppression FK
+    try:
+        if verdict is not None:
+            feedback_row = repository.create_feedback(
+                db,
+                finding_id=int(row.id),
+                detector_id=str(row.detector_id),
+                entity_type=str(row.entity_type),
+                entity_value=str(row.entity_value),
+                agent_id=(str(row.agent_id) if row.agent_id else None),
+                verdict=verdict,
+                annotated_by=actor,
+                annotated_at=now,
+                suppression_ttl_seconds=ttl_seconds,
+                notes=body.notes,
+                is_override=bool(is_override),
+            )
+            repository.flush(db)
 
-        # 3. Surface A: project onto the baseline atomically with the verdict record.
-        baseline = repository.get_baseline(db, int(row.baseline_id)) if row.baseline_id is not None else None
-        adj_state = None
-        if baseline is not None:
-            state = fb.feedback_state_from_baseline(baseline)
-            adj_state = fb.project_verdict(state, verdict=verdict, cfg=cfg, now=now)
-            repository.update_baseline_feedback(db, baseline, **fb.baseline_feedback_updates(adj_state))
+            baseline = repository.get_baseline(db, int(row.baseline_id)) if row.baseline_id is not None else None
+            adj_state = None
+            if baseline is not None:
+                state = fb.feedback_state_from_baseline(baseline)
+                adj_state = fb.project_verdict(state, verdict=verdict, cfg=cfg, now=now)
+                repository.update_baseline_feedback(db, baseline, **fb.baseline_feedback_updates(adj_state))
 
-        # 4. Surface B: open a suppression window for false positives (unless ttl == 0).
-        if verdict == fb.VERDICT_FALSE_POSITIVE:
-            plan = fb.resolve_suppression(ttl_seconds=ttl_seconds, now=now)
-            if plan.create:
-                scope_key = fb.suppression_scope_key(
-                    row.detector_id, row.agent_id, row.entity_type, row.entity_value
-                )
-                repository.upsert_suppression(
-                    db,
-                    scope_key=scope_key,
-                    detector_id=str(row.detector_id),
-                    agent_id=(str(row.agent_id) if row.agent_id else None),
-                    entity_type=str(row.entity_type),
-                    entity_value=str(row.entity_value),
-                    reason="false_positive_feedback",
-                    feedback_id=int(feedback_row.id),
-                    annotated_by=actor,
-                    created_at=now,
-                    expires_at=plan.expires_at,
-                    active=True,
-                )
-                suppression_created = True
 
-        # 5. Denormalize the latest verdict for the findings-list badge.
-        row.latest_verdict = verdict
-        row.latest_verdict_at = now
-        row.latest_verdict_by = actor
+            if verdict == fb.VERDICT_FALSE_POSITIVE:
+                plan = fb.resolve_suppression(ttl_seconds=ttl_seconds, now=now)
+                if plan.create:
+                    scope_key = fb.suppression_scope_key(
+                        row.detector_id, row.agent_id, row.entity_type, row.entity_value
+                    )
+                    repository.upsert_suppression(
+                        db,
+                        scope_key=scope_key,
+                        detector_id=str(row.detector_id),
+                        agent_id=(str(row.agent_id) if row.agent_id else None),
+                        entity_type=str(row.entity_type),
+                        entity_value=str(row.entity_value),
+                        reason="false_positive_feedback",
+                        feedback_id=int(feedback_row.id),
+                        annotated_by=actor,
+                        created_at=now,
+                        expires_at=plan.expires_at,
+                        active=True,
+                    )
+                    suppression_created = True
 
-        # 6. Structured observability for every verdict + adjustment.
-        log_event(
-            logger,
-            "info",
-            "ueba_feedback_recorded",
-            finding_id=int(row.id),
-            detector_id=str(row.detector_id),
-            verdict=verdict,
-            entity_type=str(row.entity_type),
-            entity_value=str(row.entity_value),
-            agent_id=(str(row.agent_id) if row.agent_id else None),
-            suppression_created=suppression_created,
-            is_override=bool(is_override),
-            annotated_by=actor,
-        )
-        if adj_state is not None:
+            row.latest_verdict = verdict
+            row.latest_verdict_at = now
+            row.latest_verdict_by = actor
+
             log_event(
                 logger,
                 "info",
-                "ueba_baseline_feedback_adjustment",
+                "ueba_feedback_recorded",
                 finding_id=int(row.id),
-                baseline_id=int(baseline.id),
+                detector_id=str(row.detector_id),
                 verdict=verdict,
-                fp_count=adj_state.fp_count,
-                tp_count=adj_state.tp_count,
-                confidence_delta=adj_state.confidence_delta,
-                sensitivity_scale=round(adj_state.sensitivity_scale, 4),
-                cooldown_scale=round(adj_state.cooldown_scale, 4),
+                entity_type=str(row.entity_type),
+                entity_value=str(row.entity_value),
+                agent_id=(str(row.agent_id) if row.agent_id else None),
+                suppression_created=suppression_created,
+                is_override=bool(is_override),
+                annotated_by=actor,
+            )
+            if adj_state is not None:
+                log_event(
+                    logger,
+                    "info",
+                    "ueba_baseline_feedback_adjustment",
+                    finding_id=int(row.id),
+                    baseline_id=int(baseline.id),
+                    verdict=verdict,
+                    fp_count=adj_state.fp_count,
+                    tp_count=adj_state.tp_count,
+                    confidence_delta=adj_state.confidence_delta,
+                    sensitivity_scale=round(adj_state.sensitivity_scale, 4),
+                    cooldown_scale=round(adj_state.cooldown_scale, 4),
+                )
+
+            write_audit_event(
+                db,
+                request=request,
+                actor=audit_actor(actor_user_id, actor),
+                event_type="ueba_triage",
+                action="ueba.finding.verdict",
+                resource_type="ueba_finding",
+                resource_id=str(row.id),
+                outcome="success",
+                before={"latest_verdict": prior_verdict},
+                after={"latest_verdict": verdict, "suppression_created": suppression_created},
+                context={
+                    "detector_id": str(row.detector_id),
+                    "entity_type": str(row.entity_type),
+                    "entity_value": str(row.entity_value),
+                    "agent_id": (str(row.agent_id) if row.agent_id else None),
+                    "suppression_ttl_seconds": ttl_seconds,
+                    "override": bool(body.override),
+                    "notes": body.notes,
+                },
             )
 
-        # 7. Audit trail: record every verdict transition.
-        write_audit_event(
-            db,
-            request=request,
-            actor=audit_actor(actor_user_id, actor),
-            event_type="ueba_triage",
-            action="ueba.finding.verdict",
-            resource_type="ueba_finding",
-            resource_id=str(row.id),
-            outcome="success",
-            before={"latest_verdict": prior_verdict},
-            after={"latest_verdict": verdict, "suppression_created": suppression_created},
-            context={
-                "detector_id": str(row.detector_id),
-                "entity_type": str(row.entity_type),
-                "entity_value": str(row.entity_value),
-                "agent_id": (str(row.agent_id) if row.agent_id else None),
-                "suppression_ttl_seconds": ttl_seconds,
-                "override": bool(body.override),
-                "notes": body.notes,
-            },
-        )
+        effective_status = body.status
+        if effective_status is None and verdict is not None:
+            effective_status = fb.default_status_for_verdict(verdict, suppression_created=suppression_created)
+        if effective_status in ("closed", "suppressed"):
+            row.status = effective_status
+            row.closed_at = now
+        elif effective_status == "open":
+            row.status = "open"
+            row.closed_at = None
 
-    # 8. Status transition: explicit status wins, else derive from the verdict.
-    effective_status = body.status
-    if effective_status is None and verdict is not None:
-        effective_status = fb.default_status_for_verdict(verdict, suppression_created=suppression_created)
-    if effective_status in ("closed", "suppressed"):
-        row.status = effective_status
-        row.closed_at = now
-    elif effective_status == "open":
-        row.status = "open"
-        row.closed_at = None
+        if body.cooldown_extension_minutes is not None:
+            current = _as_utc(row.cooldown_until)
+            base = current if (current and current > now) else now
+            row.cooldown_until = base + timedelta(minutes=body.cooldown_extension_minutes)
 
-    # 9. Optional cooldown extension (existing behavior).
-    if body.cooldown_extension_minutes is not None:
-        current = _as_utc(row.cooldown_until)
-        base = current if (current and current > now) else now
-        row.cooldown_until = base + timedelta(minutes=body.cooldown_extension_minutes)
+        repository.flush(db)
+        repository.commit(db)
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise
 
-    repository.flush(db)
     repository.refresh(db, row)
     return get_finding_detail(db, int(finding_id))
