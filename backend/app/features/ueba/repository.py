@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.features.ueba.models import (
@@ -435,18 +435,17 @@ def mark_active_ml_models_superseded(
     agent_id: str | None,
     model_type: str,
 ) -> int:
-    rows = db.execute(
-        select(UebaMlModelModel).where(
+    result = db.execute(
+        update(UebaMlModelModel)
+        .where(
             UebaMlModelModel.detector_id == detector_id,
             UebaMlModelModel.agent_id == agent_id,
             UebaMlModelModel.model_type == model_type,
             UebaMlModelModel.status == "active",
         )
-    ).scalars().all()
-    for row in rows:
-        row.status = "superseded"
-        db.add(row)
-    return len(rows)
+        .values(status="superseded")
+    )
+    return int(result.rowcount)
 
 
 def mark_ml_model_used(db: Session, row: UebaMlModelModel, *, used_at: datetime) -> None:
@@ -455,15 +454,23 @@ def mark_ml_model_used(db: Session, row: UebaMlModelModel, *, used_at: datetime)
 
 
 def sweep_superseded_ml_models(db: Session, *, cutoff: datetime) -> int:
-    rows = db.execute(
-        select(UebaMlModelModel).where(
+    result = db.execute(
+        delete(UebaMlModelModel).where(
             UebaMlModelModel.status == "superseded",
             UebaMlModelModel.training_finished_at < _utc(cutoff),
         )
-    ).scalars().all()
-    for row in rows:
-        db.delete(row)
-    return len(rows)
+    )
+    return int(result.rowcount)
+
+
+def list_all_agent_ids_with_baselines(db: Session) -> list[str]:
+    stmt = (
+        select(UebaBaselineModel.agent_id)
+        .where(UebaBaselineModel.agent_id.isnot(None))
+        .group_by(UebaBaselineModel.agent_id)
+        .order_by(UebaBaselineModel.agent_id.asc())
+    )
+    return [str(v) for v in db.execute(stmt).scalars().all() if v]
 
 
 def list_mature_agent_ids(db: Session, *, matured_before: datetime | None = None) -> list[str]:

@@ -50,6 +50,7 @@ class MlConfig:
     if_n_estimators: int
     if_random_state: int
     if_feature_schema_version: int
+    if_contamination: str
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,12 @@ def load_feedback_config() -> FeedbackConfig:
 
 def load_ml_config() -> MlConfig:
     if_weight = min(1.0, max(0.0, _env_float("SEAGULL_UEBA_IF_BLEND_WEIGHT", 0.6)))
+    raw_contamination = env_value("SEAGULL_UEBA_IF_CONTAMINATION", "auto")
+    if raw_contamination != "auto":
+        try:
+            float(raw_contamination)
+        except (TypeError, ValueError):
+            raw_contamination = "auto"
     return MlConfig(
         if_training_min_samples=max(10, _env_int("SEAGULL_UEBA_IF_TRAINING_MIN_SAMPLES", 500)),
         if_retraining_interval_seconds=max(60, _env_int("SEAGULL_UEBA_IF_RETRAINING_INTERVAL_SECONDS", 21_600)),
@@ -95,6 +102,7 @@ def load_ml_config() -> MlConfig:
         if_n_estimators=max(10, _env_int("SEAGULL_UEBA_IF_N_ESTIMATORS", 200)),
         if_random_state=_env_int("SEAGULL_UEBA_IF_RANDOM_STATE", 42),
         if_feature_schema_version=max(1, _env_int("SEAGULL_UEBA_IF_FEATURE_SCHEMA_VERSION", 1)),
+        if_contamination=raw_contamination,
     )
 
 
