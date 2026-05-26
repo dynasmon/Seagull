@@ -239,3 +239,5 @@ export function useAgentConfig({ agent, onAgentUpdate, onRefreshCatalog }: UseAg
     onUpdateTiming,
   };
 }
+
+export type AgentConfigController = ReturnType<typeof useAgentConfig>;

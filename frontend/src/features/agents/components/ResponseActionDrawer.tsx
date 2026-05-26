@@ -20,140 +20,75 @@ import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer
 import { pinResponseResultToWorkspace } from "@/features/investigations/api";
 
 import { FieldLabel } from "./AgentsPageShared";
-import type { AgentPublic, ResponseActionOut, ResponseActionResultOut } from "../types";
+import type { AgentPublic } from "../types";
 import { RESPONSE_ACTION_TYPES, fmtMaybeIso, fmtDuration } from "../lib/agentUtils";
+import type { AgentActionsController } from "../hooks/useAgentActions";
 
 interface ResponseActionDrawerProps {
-  // open state
-  responseActionOpen: boolean;
-  closeResponseActionDrawer: () => void;
-  // user
+  controller: AgentActionsController;
   user: { username?: string } | null;
   isAdmin: boolean;
-  // agents
   agentsSorted: AgentPublic[];
-  // form state
-  responseActionAgentId: string;
-  setResponseActionAgentId: (v: string) => void;
-  responseActionType: string;
-  setResponseActionType: (v: string) => void;
-  responseActionPayloadText: string;
-  setResponseActionPayloadText: (v: string) => void;
-  responseActionAdvancedOpen: boolean;
-  setResponseActionAdvancedOpen: (updater: (prev: boolean) => boolean) => void;
-  responseActionExpiresAt: string;
-  setResponseActionExpiresAt: (v: string) => void;
-  responseActionError: string | null;
-  setResponseActionError: (v: string | null) => void;
-  responseActionCreated: ResponseActionOut | null;
-  setResponseActionCreated: (v: ResponseActionOut | null) => void;
-  responseActionMode: "create" | "investigate";
-  setResponseActionMode: (v: "create" | "investigate") => void;
-  responseActionTab: "create" | "execution" | "result";
-  setResponseActionTab: (v: "create" | "execution" | "result") => void;
-  responseActionSelectedId: number | null;
-  setResponseActionSelectedId: (v: number | null) => void;
-  responseActionHistory: ResponseActionOut[];
-  responseActionHistoryLoading: boolean;
-  responseActionHistoryError: string | null;
-  responseActionLive: ResponseActionOut | null;
-  responseActionLiveLoading: boolean;
-  responseActionLiveError: string | null;
-  responseActionResult: ResponseActionResultOut | null;
-  responseActionResultLoading: boolean;
-  responseActionResultError: string | null;
-  responseActionResultRawOpen: boolean;
-  setResponseActionResultRawOpen: (updater: (prev: boolean) => boolean) => void;
-  pinResponseResultId: number | null;
-  setPinResponseResultId: (v: number | null) => void;
-  responseActionBusy: boolean;
-  // derived
-  responseActionDefinition: (typeof RESPONSE_ACTION_TYPES)[number];
-  responseActionAgentRow: AgentPublic | null;
-  responseActionPayload: { error: string | null; payload: Record<string, any> | null };
-  responseActionPayloadError: string | null;
-  responseActionExpiresIso: string | null;
-  responseActionExpirationInvalid: boolean;
-  responseActionExpirationInPast: boolean;
-  responseActionAgentStatus: string;
-  responseActionExpiresLabel: string;
-  canSubmitResponseAction: boolean;
-  responseActionSelected: ResponseActionOut | null;
-  responseActionLiveView: ResponseActionOut | null;
-  responseActionCanCancel: boolean;
-  // handlers
-  loadResponseActionHistory: (agentId: string) => Promise<void>;
-  loadResponseActionLive: (actionId: number) => Promise<void>;
-  loadResponseActionResult: (actionId: number) => Promise<void>;
-  setResponseActionExpiryOffset: (minutes: number) => void;
-  onSelectResponseAction: (actionId: number, nextTab?: "execution" | "result") => void;
-  onCancelSelectedResponseAction: () => Promise<void>;
-  onCopyResponseResultJson: () => Promise<void>;
-  onDownloadResponseResultJson: () => void;
-  onSubmitResponseAction: () => Promise<void>;
-  fmtLastSeen: (lastSeenAt?: string | null) => string;
 }
 
-export default function ResponseActionDrawer({
-  responseActionOpen,
-  closeResponseActionDrawer,
-  user,
-  isAdmin,
-  agentsSorted,
-  responseActionAgentId,
-  setResponseActionAgentId,
-  responseActionType,
-  setResponseActionType,
-  responseActionPayloadText,
-  setResponseActionPayloadText,
-  responseActionAdvancedOpen,
-  setResponseActionAdvancedOpen,
-  responseActionExpiresAt,
-  setResponseActionExpiresAt,
-  responseActionError,
-  setResponseActionError,
-  responseActionCreated,
-  setResponseActionCreated,
-  responseActionMode,
-  setResponseActionMode,
-  responseActionTab,
-  setResponseActionTab,
-  responseActionSelectedId,
-  responseActionHistory,
-  responseActionHistoryLoading,
-  responseActionHistoryError,
-  responseActionLiveLoading,
-  responseActionLiveError,
-  responseActionResult,
-  responseActionResultLoading,
-  responseActionResultError,
-  responseActionResultRawOpen,
-  setResponseActionResultRawOpen,
-  pinResponseResultId,
-  setPinResponseResultId,
-  responseActionBusy,
-  responseActionDefinition,
-  responseActionAgentRow,
-  responseActionPayload,
-  responseActionPayloadError,
-  responseActionExpirationInvalid,
-  responseActionExpirationInPast,
-  responseActionAgentStatus,
-  responseActionExpiresLabel,
-  canSubmitResponseAction,
-  responseActionLiveView,
-  responseActionCanCancel,
-  loadResponseActionHistory,
-  loadResponseActionLive,
-  loadResponseActionResult,
-  setResponseActionExpiryOffset,
-  onSelectResponseAction,
-  onCancelSelectedResponseAction,
-  onCopyResponseResultJson,
-  onDownloadResponseResultJson,
-  onSubmitResponseAction,
-  fmtLastSeen,
-}: ResponseActionDrawerProps) {
+export default function ResponseActionDrawer({ controller, user, isAdmin, agentsSorted }: ResponseActionDrawerProps) {
+  const {
+    responseActionOpen,
+    closeResponseActionDrawer,
+    responseActionAgentId,
+    setResponseActionAgentId,
+    responseActionType,
+    setResponseActionType,
+    responseActionPayloadText,
+    setResponseActionPayloadText,
+    responseActionAdvancedOpen,
+    setResponseActionAdvancedOpen,
+    responseActionExpiresAt,
+    setResponseActionExpiresAt,
+    responseActionError,
+    setResponseActionError,
+    responseActionCreated,
+    setResponseActionCreated,
+    responseActionMode,
+    setResponseActionMode,
+    responseActionTab,
+    setResponseActionTab,
+    responseActionSelectedId,
+    responseActionHistory,
+    responseActionHistoryLoading,
+    responseActionHistoryError,
+    responseActionLiveLoading,
+    responseActionLiveError,
+    responseActionResult,
+    responseActionResultLoading,
+    responseActionResultError,
+    responseActionResultRawOpen,
+    setResponseActionResultRawOpen,
+    pinResponseResultId,
+    setPinResponseResultId,
+    responseActionBusy,
+    responseActionDefinition,
+    responseActionAgentRow,
+    responseActionPayload,
+    responseActionPayloadError,
+    responseActionExpirationInvalid,
+    responseActionExpirationInPast,
+    responseActionAgentStatus,
+    responseActionExpiresLabel,
+    canSubmitResponseAction,
+    responseActionLiveView,
+    responseActionCanCancel,
+    loadResponseActionHistory,
+    loadResponseActionLive,
+    loadResponseActionResult,
+    setResponseActionExpiryOffset,
+    onSelectResponseAction,
+    onCancelSelectedResponseAction,
+    onCopyResponseResultJson,
+    onDownloadResponseResultJson,
+    onSubmitResponseAction,
+    fmtLastSeen,
+  } = controller;
   return (
     <>
       <Drawer
