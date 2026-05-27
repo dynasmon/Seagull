@@ -29,12 +29,12 @@ export function MetricCard({
   size?: "default" | "sm";
   className?: string;
 }) {
-  const padClass = size === "sm" ? "px-2 py-2" : "px-3 py-3";
-  const valClass = size === "sm" ? "text-sm font-semibold leading-tight" : "text-lg font-semibold leading-tight";
+  const padClass = size === "sm" ? "px-3 py-2.5" : "px-4 py-3.5";
+  const valClass = size === "sm" ? "text-sm font-semibold leading-tight tracking-tight" : "text-xl font-semibold leading-tight tracking-tight";
 
   return (
     <div className={cx("ui-card-shell", padClass, className)}>
-      <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+      <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
         {title}
       </div>
       <div className={cx("mt-1", valClass, toneClasses[tone])}>

@@ -176,7 +176,7 @@ export default function Drawer({
   return createPortal(
     <div className="fixed inset-0 z-[9999]" data-drawer-id={drawerId}>
       <div
-        className="absolute inset-0 bg-slate-950/55 backdrop-blur-[1px]"
+        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
         onClick={(event) => {
           if (event.target !== event.currentTarget) return;
           if (!closeOnOverlayClick) return;
@@ -196,7 +196,7 @@ export default function Drawer({
         className={cx(
           "absolute right-0 top-0 h-full max-w-[92vw]",
           widthClassName,
-          "border-l border-border/80 bg-surface-1/95 backdrop-blur-sm shadow-[0_24px_72px_rgb(2_8_20/0.4)]",
+          "border-l border-border bg-surface-1 shadow-drawer",
           "flex flex-col overflow-hidden"
         )}
         onMouseDown={(e) => e.stopPropagation()}
@@ -227,7 +227,7 @@ export default function Drawer({
 
         <div className={cx("flex-1 min-h-0 overflow-y-auto overscroll-contain p-5", bodyClassName)}>{children}</div>
 
-        {footer ? <footer className="shrink-0 border-t border-border/80 bg-surface-2/60 px-5 py-3">{footer}</footer> : null}
+        {footer ? <footer className="shrink-0 border-t border-border bg-surface-2/70 px-5 py-3">{footer}</footer> : null}
       </section>
     </div>,
     document.body

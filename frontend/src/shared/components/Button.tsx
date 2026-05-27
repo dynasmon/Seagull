@@ -7,17 +7,17 @@ export type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    "border-primary/70 bg-primary text-primary-foreground hover:bg-primary/90 hover:border-primary/80",
+    "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:border-primary/90 focus-visible:ring-primary/40",
   secondary:
-    "border-border/80 bg-muted/35 text-foreground hover:border-primary/30 hover:bg-muted/55",
+    "border-border bg-surface-2 text-foreground hover:border-primary/40 hover:bg-muted focus-visible:ring-primary/35",
   ghost:
-    "border-transparent bg-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+    "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-primary/35",
   danger:
-    "border-danger/50 bg-danger/10 text-danger hover:bg-danger/20",
+    "border-danger/50 bg-danger/10 text-danger hover:bg-danger/20 focus-visible:ring-danger/40",
   success:
-    "border-success/50 bg-success/10 text-success hover:bg-success/20",
+    "border-success/50 bg-success/10 text-success hover:bg-success/20 focus-visible:ring-success/40",
   subtle:
-    "border-border/50 bg-muted/20 text-muted-foreground hover:bg-muted/45 hover:text-foreground",
+    "border-border/60 bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-primary/30",
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
@@ -46,7 +46,7 @@ export function Button({
       type="button"
       disabled={disabled}
       className={cx(
-        "inline-flex items-center justify-center rounded-md border font-semibold transition-colors",
+        "inline-flex items-center justify-center rounded-md border font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-0",
         variantClasses[variant],
         sizeClasses[size],
         disabled && "cursor-not-allowed opacity-50",

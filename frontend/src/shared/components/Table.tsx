@@ -84,12 +84,12 @@ export function Table<T>({
           <thead
             className={cx(
               stickyHeader && "sticky top-0 z-[2]",
-              "bg-surface-2/95 text-left text-[10px] uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm"
+              "bg-surface-2 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm"
             )}
           >
             <tr>
               {selectableRows ? (
-                <th className="w-10 whitespace-nowrap px-3 py-2.5 align-middle">
+                <th className="w-10 whitespace-nowrap border-b border-border px-3 py-2.5 align-middle">
                   <input
                     type="checkbox"
                     checked={allRowsSelected}
@@ -114,7 +114,7 @@ export function Table<T>({
                   <th
                     key={c.key}
                     style={c.width ? { width: c.width } : undefined}
-                    className={cx("font-semibold align-middle", cellPadding, alignClass, c.className || "")}
+                    className={cx("border-b border-border font-semibold align-middle", cellPadding, alignClass, c.className || "")}
                     aria-sort={isActiveSort ? (sort?.direction === "asc" ? "ascending" : "descending") : "none"}
                   >
                     {isSortable ? (
@@ -157,9 +157,9 @@ export function Table<T>({
                   <tr
                     key={renderKey}
                     className={cx(
-                      "border-t border-border/60",
-                      clickable ? "cursor-pointer hover:bg-muted/30" : "hover:bg-muted/20",
-                      isSelected && "bg-primary/10",
+                      "border-t border-border/60 transition-colors",
+                      clickable ? "cursor-pointer hover:bg-surface-2" : "hover:bg-surface-2/60",
+                      isSelected && "bg-primary/10 hover:bg-primary/15",
                       rowClassName?.(r, i)
                     )}
                     onClick={() => onRowClick?.(r, i)}
@@ -192,7 +192,7 @@ export function Table<T>({
         </table>
       </div>
 
-      {footer ? <div className="border-t border-border/60 bg-muted/20 px-3 py-2">{footer}</div> : null}
+      {footer ? <div className="border-t border-border bg-surface-2/60 px-3 py-2">{footer}</div> : null}
     </div>
   );
 }
