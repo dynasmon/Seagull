@@ -1,3 +1,7 @@
+export type HygieneDomain = "dashboard" | "system" | "software" | "processes" | "network" | "identity" | "services";
+
+export type DrawerTab = "overview" | "snapshot" | "history" | "packages" | "configuration";
+
 export type PackageEntry = {
   name: string;
   version: string;
