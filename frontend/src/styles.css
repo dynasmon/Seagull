@@ -5,20 +5,20 @@
 :root {
   color-scheme: light;
 
-  --background: 240 244 248;
-  --foreground: 26 58 95;
+  --background: 241 245 249;
+  --foreground: 15 23 42;
 
-  --card: 248 250 253;
-  --muted: 232 239 247;
-  --muted-foreground: 106 138 170;
-  --border: 220 229 239;
+  --card: 255 255 255;
+  --muted: 241 245 249;
+  --muted-foreground: 100 116 139;
+  --border: 226 232 240;
 
   --primary: 14 165 233;
   --primary-foreground: 255 255 255;
 
-  --surface-1: 248 251 254;
-  --surface-2: 242 247 251;
-  --surface-3: 234 241 248;
+  --surface-1: 255 255 255;
+  --surface-2: 248 250 252;
+  --surface-3: 241 245 249;
   --ring: 14 165 233;
 
   --success: 16 185 129;
@@ -30,38 +30,50 @@
   --severity-high: 249 115 22;
   --severity-medium: 245 158 11;
   --severity-low: 14 165 233;
-  --severity-neutral: 106 138 170;
+  --severity-neutral: 100 116 139;
+
+  --sidebar: 15 23 42;
+  --sidebar-foreground: 226 232 240;
+  --sidebar-muted: 148 163 184;
+  --sidebar-border: 30 41 59;
+  --sidebar-accent: 56 189 248;
 }
 
 html.dark {
   color-scheme: dark;
 
-  --background: 10 24 38;
-  --foreground: 200 223 240;
+  --background: 9 16 29;
+  --foreground: 226 232 240;
 
-  --card: 13 31 49;
-  --muted: 9 22 35;
-  --muted-foreground: 106 138 170;
-  --border: 26 45 64;
+  --card: 17 26 43;
+  --muted: 14 22 37;
+  --muted-foreground: 144 160 182;
+  --border: 30 42 60;
 
   --primary: 14 165 233;
   --primary-foreground: 255 255 255;
 
-  --surface-1: 12 25 41;
-  --surface-2: 13 31 49;
-  --surface-3: 16 38 60;
+  --surface-1: 14 22 38;
+  --surface-2: 19 29 47;
+  --surface-3: 25 37 58;
   --ring: 56 189 248;
 
   --success: 16 185 129;
   --warning: 245 158 11;
   --danger: 239 68 68;
-  --info: 14 165 233;
+  --info: 56 189 248;
 
-  --severity-critical: 239 68 68;
-  --severity-high: 249 115 22;
-  --severity-medium: 245 158 11;
-  --severity-low: 14 165 233;
-  --severity-neutral: 106 138 170;
+  --severity-critical: 248 113 113;
+  --severity-high: 251 146 60;
+  --severity-medium: 250 204 21;
+  --severity-low: 56 189 248;
+  --severity-neutral: 148 163 184;
+
+  --sidebar: 11 18 32;
+  --sidebar-foreground: 226 232 240;
+  --sidebar-muted: 148 163 184;
+  --sidebar-border: 28 40 58;
+  --sidebar-accent: 56 189 248;
 }
 
 @layer base {
@@ -78,8 +90,8 @@ html.dark {
   body {
     margin: 0;
     background:
-      radial-gradient(circle at top, rgb(var(--primary) / 0.12), transparent 28%),
-      linear-gradient(180deg, rgb(var(--surface-1)) 0%, rgb(var(--background)) 100%);
+      radial-gradient(120% 80% at 50% -10%, rgb(var(--primary) / 0.05), transparent 55%),
+      rgb(var(--background));
     color: rgb(var(--foreground));
     font-family: Inter, "IBM Plex Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     line-height: 1.4;
@@ -97,8 +109,9 @@ html.dark {
   }
 
   *:focus-visible {
-    outline: 2px solid rgb(var(--ring) / 0.95);
+    outline: 2px solid rgb(var(--ring) / 0.9);
     outline-offset: 2px;
+    border-radius: 0.25rem;
   }
 
   ::selection {
@@ -108,27 +121,27 @@ html.dark {
 
 @layer components {
   .ui-surface-1 {
-    @apply border border-border/70 bg-card/90 shadow-[0_12px_32px_rgb(2_8_20/0.08)];
+    @apply border border-border bg-card shadow-soft;
   }
 
   .ui-surface-2 {
-    @apply border border-border/60 bg-background/45 shadow-[inset_0_1px_0_rgb(255_255_255/0.03)];
+    @apply border border-border/70 bg-surface-2;
   }
 
   .ui-section-shell {
-    @apply rounded-md border border-border/80 bg-card/90 shadow-[0_18px_48px_rgb(2_8_20/0.14)];
+    @apply rounded-lg border border-border bg-card shadow-elevated;
   }
 
   .ui-toolbar-shell {
-    @apply rounded-md border border-border/70 bg-background/45 px-3 py-2.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.03)];
+    @apply rounded-lg border border-border bg-surface-2/70 px-3 py-2.5;
   }
 
   .ui-card-shell {
-    @apply rounded-md border border-border/80 bg-card/95 shadow-[0_10px_28px_rgb(2_8_20/0.12)];
+    @apply rounded-lg border border-border bg-card shadow-soft;
   }
 
   .ui-tab-shell {
-    @apply flex flex-wrap items-center gap-1 border-b border-border/80;
+    @apply flex flex-wrap items-center gap-1 border-b border-border;
   }
 
   .ui-tab-item {
@@ -140,35 +153,35 @@ html.dark {
   }
 
   .ui-btn {
-    @apply inline-flex h-8 items-center justify-center rounded-md border border-border/80 bg-background/40 px-3 text-[11px] font-semibold text-foreground transition-colors hover:border-primary/30 hover:bg-muted/55;
+    @apply inline-flex h-8 items-center justify-center rounded-md border border-border bg-surface-2 px-3 text-[11px] font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35;
   }
 
   .ui-btn-secondary {
-    @apply ui-btn bg-muted/35;
+    @apply ui-btn bg-muted/60;
   }
 
   .ui-btn-ghost {
-    @apply inline-flex h-8 items-center justify-center rounded-md px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground;
+    @apply inline-flex h-8 items-center justify-center rounded-md px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35;
   }
 
   .ui-btn-danger {
-    @apply inline-flex h-8 items-center justify-center rounded-md border border-danger/50 bg-danger/10 px-3 text-[11px] font-semibold text-danger transition-colors hover:bg-danger/20;
+    @apply inline-flex h-8 items-center justify-center rounded-md border border-danger/50 bg-danger/10 px-3 text-[11px] font-semibold text-danger transition-colors hover:bg-danger/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/35;
   }
 
   .ui-input {
-    @apply h-9 w-full rounded-md border border-border/80 bg-muted/25 px-3 text-[12px] text-foreground placeholder:text-muted-foreground/80;
+    @apply h-9 w-full rounded-md border border-border bg-surface-2 px-3 text-[12px] text-foreground placeholder:text-muted-foreground/70 transition-colors focus:border-primary focus:bg-card focus:outline-none focus:ring-2 focus:ring-primary/20;
   }
 
   .ui-select {
-    @apply h-9 w-full rounded-md border border-border/80 bg-muted/25 px-3 text-[12px] text-foreground;
+    @apply h-9 w-full rounded-md border border-border bg-surface-2 px-3 text-[12px] text-foreground transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20;
   }
 
   .ui-chip {
-    @apply inline-flex items-center rounded-sm border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em];
+    @apply inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em];
   }
 
   .ui-empty-state {
-    @apply rounded-md border border-border/80 bg-background/45 px-5 py-6 text-center shadow-[inset_0_1px_0_rgb(255_255_255/0.03)];
+    @apply rounded-lg border border-dashed border-border bg-surface-2/50 px-5 py-6 text-center;
   }
 
   .ui-loading-state {
@@ -176,7 +189,7 @@ html.dark {
   }
 
   .ui-drawer-header {
-    @apply border-b border-border/80 bg-surface-2/95 backdrop-blur-sm;
+    @apply border-b border-border bg-surface-1/95 backdrop-blur-sm;
   }
 }
 

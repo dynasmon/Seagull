@@ -13,10 +13,10 @@ function MainFallback() {
     <div className="space-y-3">
       <Loading label="Loading view..." />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div className="h-24 rounded-md border border-border/80 bg-card/70 shadow-[0_10px_24px_rgb(2_8_20/0.12)]" />
-        <div className="h-24 rounded-md border border-border/80 bg-card/70 shadow-[0_10px_24px_rgb(2_8_20/0.12)]" />
+        <div className="h-24 animate-pulse rounded-lg border border-border bg-card shadow-soft" />
+        <div className="h-24 animate-pulse rounded-lg border border-border bg-card shadow-soft" />
       </div>
-      <div className="h-64 rounded-md border border-border/80 bg-card/70 shadow-[0_10px_24px_rgb(2_8_20/0.12)]" />
+      <div className="h-64 animate-pulse rounded-lg border border-border bg-card shadow-soft" />
     </div>
   );
 }

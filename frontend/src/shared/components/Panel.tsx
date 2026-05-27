@@ -30,7 +30,7 @@ export function Panel({
   return (
     <section className={cx("ui-card-shell flex flex-col overflow-hidden", className)} style={style}>
       {hasHeader && (
-        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border/80 bg-surface-2/70 px-4 py-3">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-surface-2/60 px-4 py-3">
           <div className="min-w-0">
             {title ? (
               <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
