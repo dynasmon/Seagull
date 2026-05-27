@@ -1,0 +1,83 @@
+import { Button } from "@/shared/components/Button";
+import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
+import { Panel } from "@/shared/components/Panel";
+import { cx } from "@/shared/lib/cx";
+
+import { useAlertRuleEditor } from "../hooks/useAlertRuleEditor";
+import { useAlertsRulesData } from "../hooks/useAlertsRulesData";
+import { AlertRuleDrawer } from "./drawer/AlertRuleDrawer";
+import { AlertsRulesList } from "./AlertsRulesList";
+
+export function AlertsRulesWorkspace() {
+  const rulesData = useAlertsRulesData();
+  const editor = useAlertRuleEditor(rulesData.selected, rulesData.reload, rulesData.loadHistory);
+
+  const panelHeightClass = "h-[640px] xl:h-[calc(100vh-270px)]";
+  const headerRight = rulesData.loading ? "Loading…" : `${rulesData.filtered.length} rules`;
+
+  return (
+    <div className="space-y-4">
+      <DataViewToolbar
+        left={
+          <div>
+            <h2 className="text-lg font-semibold">Rules</h2>
+            <div className="text-xs text-muted-foreground">
+              Configure thresholds, lookback windows, cooldowns, schedules and severity with override safety.
+            </div>
+          </div>
+        }
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <DebouncedSearchInput
+              value={rulesData.q}
+              onChange={rulesData.setQ}
+              placeholder="Search rule, pack, category..."
+              className="h-9 min-w-[240px]"
+            />
+            <Button variant="subtle" size="lg" onClick={() => rulesData.reload()} disabled={rulesData.loading}>
+              Refresh
+            </Button>
+          </div>
+        }
+      />
+
+      <DataQueryStateBanner
+        tone={rulesData.error ? "danger" : "neutral"}
+        message={
+          rulesData.error ||
+          `${rulesData.filtered.length} filtered rules · ${rulesData.rules.length} total rules`
+        }
+        right={rulesData.loading ? "loading" : "ready"}
+      />
+
+      <DataStatsStrip
+        stats={[
+          { label: "Rules", value: rulesData.rules.length },
+          { label: "Filtered", value: rulesData.filtered.length },
+          { label: "Enabled", value: rulesData.ruleStats.enabled },
+          { label: "Overrides", value: rulesData.ruleStats.overrides },
+          { label: "Critical/High", value: rulesData.ruleStats.criticalHigh },
+          { label: "Selected", value: rulesData.selectedId || "-" },
+          { label: "Editor", value: rulesData.drawerOpen ? "open" : "closed" },
+          { label: "View", value: editor.showEffective ? "effective visible" : "effective hidden" },
+        ]}
+      />
+
+      <Panel
+        title="Rule catalog"
+        actions={<span className="text-[10px] font-mono text-muted-foreground">{headerRight}</span>}
+        scrollY
+        className={cx(panelHeightClass)}
+      >
+        <AlertsRulesList
+          loading={rulesData.loading}
+          filtered={rulesData.filtered}
+          selectedId={rulesData.selectedId}
+          onEdit={rulesData.openDrawerFor}
+        />
+      </Panel>
+
+      <AlertRuleDrawer rulesData={rulesData} editor={editor} />
+    </div>
+  );
+}
