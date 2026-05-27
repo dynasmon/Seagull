@@ -12,13 +12,13 @@ export type StatusVariant =
   | "neutral";
 
 const map: Record<StatusVariant, string> = {
-  active: "border-success/45 bg-success/10 text-success",
-  inactive: "border-border/70 bg-muted/40 text-muted-foreground",
-  pending: "border-warning/45 bg-warning/10 text-warning",
-  success: "border-success/45 bg-success/10 text-success",
-  warning: "border-warning/45 bg-warning/10 text-warning",
-  danger: "border-danger/45 bg-danger/10 text-danger",
-  neutral: "border-border/70 bg-muted/40 text-muted-foreground",
+  active: "border-success/40 bg-success/15 text-success",
+  inactive: "border-border bg-muted text-muted-foreground",
+  pending: "border-warning/40 bg-warning/15 text-warning",
+  success: "border-success/40 bg-success/15 text-success",
+  warning: "border-warning/40 bg-warning/15 text-warning",
+  danger: "border-danger/40 bg-danger/15 text-danger",
+  neutral: "border-border bg-muted text-muted-foreground",
 };
 
 export function StatusPill({
@@ -33,7 +33,7 @@ export function StatusPill({
   return (
     <span
       className={cx(
-        "inline-flex items-center rounded-sm border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em]",
+        "inline-flex items-center whitespace-nowrap rounded-sm border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em]",
         map[variant],
         className,
       )}

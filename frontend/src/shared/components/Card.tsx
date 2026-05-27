@@ -25,7 +25,7 @@ export function Card({
       )}
     >
       {hasHeader && (
-        <header className="flex items-center justify-between border-b border-border/80 bg-surface-2/70 px-4 py-2.5">
+        <header className="flex items-center justify-between border-b border-border bg-surface-2/60 px-4 py-2.5">
           <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
             {title}
           </div>

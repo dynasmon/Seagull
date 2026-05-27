@@ -37,7 +37,7 @@ export function PageHeader({
 
   return (
     <section className="ui-section-shell mb-6 overflow-hidden" aria-label={`${title} section`}>
-      <div className="border-b border-border/80 bg-surface-2/80 px-4 py-4 sm:px-5">
+      <div className="border-b border-border bg-surface-2/50 px-4 py-4 sm:px-5">
         {breadcrumb && breadcrumb.length > 0 ? (
           <nav aria-label="Section breadcrumb" className="mb-2">
             <ol className="flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">

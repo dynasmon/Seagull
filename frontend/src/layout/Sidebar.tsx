@@ -138,7 +138,7 @@ function NavGroupHeading({ compact, label }: { compact: boolean; label: string }
   return (
     <h2
       className={cx(
-        "px-4 pb-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground",
+        "px-4 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-sidebar-muted/80",
         compact && "sr-only"
       )}
     >
@@ -170,20 +170,17 @@ function NavItem({
       onClick={onNavigate}
       className={({ isActive }) =>
         cx(
-          "group relative flex items-center gap-3 border-l-2 border-transparent px-4 py-1.5 text-[12px] transition-colors",
-          compact && "justify-center px-2",
+          "group relative mx-2 flex items-center gap-3 rounded-md px-3 py-2 text-[12.5px] font-medium transition-colors",
+          compact && "justify-center px-0",
           isActive
-            ? "border-primary bg-primary/10 text-primary"
-            : "text-muted-foreground hover:bg-muted/35 hover:text-foreground"
+            ? "bg-primary/15 text-white ring-1 ring-inset ring-primary/20"
+            : "text-sidebar-muted hover:bg-white/[0.06] hover:text-sidebar-foreground"
         )
       }
     >
       {({ isActive }) => (
         <>
-          <span
-            className="sr-only"
-          />
-          <span className={cx("shrink-0", isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground")}>
+          <span className={cx("shrink-0", isActive ? "text-primary" : "text-sidebar-muted group-hover:text-sidebar-foreground")}>
             <NavIcon icon={icon} />
           </span>
           {!compact ? <span className="truncate">{label}</span> : <span className="sr-only">{label}</span>}
@@ -218,14 +215,14 @@ export default function Sidebar({
       <aside
         id="primary-navigation"
         className={cx(
-          "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-border/80 bg-surface-1/95 shadow-[0_24px_64px_rgb(2_8_20/0.28)] backdrop-blur-sm transition-transform lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 lg:shadow-none",
-          compact ? "w-[12rem] lg:w-[4.5rem]" : "w-[12rem] lg:w-[12rem]",
+          "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-pop transition-transform lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 lg:shadow-none",
+          compact ? "w-[13rem] lg:w-[4.5rem]" : "w-[13rem] lg:w-[13.5rem]",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
         aria-label="Primary navigation"
       >
-        <div className={cx("border-b border-border/80 px-4 py-3", condensed && "px-2.5 py-3")}>
-          <div className="flex items-center gap-2">
+        <div className={cx("flex h-14 shrink-0 items-center border-b border-sidebar-border px-4", condensed && "justify-center px-2")}>
+          <div className="flex items-center gap-2.5">
             <img
               src="/icon/seagull-icon.png"
               alt="Seagull"
@@ -233,14 +230,14 @@ export default function Sidebar({
             />
             {!condensed ? (
               <div className="min-w-0">
-                <div className="truncate text-[12px] font-semibold text-foreground">Seagull</div>
-                <div className="truncate text-[9px] uppercase tracking-[0.08em] text-muted-foreground">Security Operations</div>
+                <div className="truncate text-[13px] font-semibold tracking-tight text-sidebar-foreground">Seagull</div>
+                <div className="truncate text-[9px] uppercase tracking-[0.12em] text-sidebar-muted">Security Operations</div>
               </div>
             ) : null}
           </div>
         </div>
 
-        <nav className="flex-1 space-y-4 overflow-y-auto px-0 py-3" aria-label="Portal sections">
+        <nav className="flex-1 space-y-5 overflow-y-auto py-4" aria-label="Portal sections">
           {SOC_NAV_GROUPS.map((group) => (
             <section key={group.id}>
               <NavGroupHeading compact={condensed} label={group.label} />
