@@ -1,4 +1,4 @@
-import { cx } from "@/shared/lib/cx";
+import { SelectInput } from "@/shared/components/SelectInput";
 
 export default function SeverityFilter(props: {
   value: string;
@@ -6,13 +6,12 @@ export default function SeverityFilter(props: {
   className?: string;
 }) {
   return (
-    <select
+    <SelectInput
       value={props.value}
       onChange={(e) => props.onChange(e.target.value)}
-      className={cx(
-        "h-9 rounded-md border border-border/60 bg-background/40 px-3 text-sm outline-none focus:ring-1 focus:ring-primary/40",
-        props.className
-      )}
+      className={props.className}
+      title="Severity filter"
+      aria-label="Severity filter"
     >
       <option value="all">All severities</option>
       <option value="critical">Critical</option>
@@ -20,6 +19,6 @@ export default function SeverityFilter(props: {
       <option value="medium">Medium</option>
       <option value="low">Low</option>
       <option value="unknown">Unknown</option>
-    </select>
+    </SelectInput>
   );
 }
