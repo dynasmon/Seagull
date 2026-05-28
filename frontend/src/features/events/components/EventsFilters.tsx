@@ -2,6 +2,8 @@ import { memo, useEffect, useMemo } from "react";
 
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import { DataLookbackSelect, DebouncedSearchInput } from "@/shared/components/DataView";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { TextInput } from "@/shared/components/TextInput";
 import { cx } from "@/shared/lib/cx";
 
 export type EventsViewConfig = {
@@ -20,24 +22,25 @@ type AgentOption = {
 type Props = {
   config?: EventsViewConfig;
   value?: EventsViewConfig;
-
   onChange?: (next: EventsViewConfig) => void;
-
   agents?: AgentOption[];
-
-  // When set, agent selection is driven by the sidebar (global scope).
   lockAgentId?: string | null;
   lockEventType?: string | null;
   hideEventType?: boolean;
-
   busy?: boolean;
 };
 
 const DEFAULTS: { search: string; window_minutes: number; limit: number } = {
   search: "",
   window_minutes: 60,
-  limit: 200
+  limit: 200,
 };
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</div>
+  );
+}
 
 function norm(cfg: EventsViewConfig | undefined | null): EventsViewConfig {
   const c = cfg ?? {};
@@ -46,7 +49,7 @@ function norm(cfg: EventsViewConfig | undefined | null): EventsViewConfig {
     event_type: (c.event_type ?? null) || null,
     search: (c.search ?? DEFAULTS.search) ?? DEFAULTS.search,
     window_minutes: Number.isFinite(Number(c.window_minutes)) ? Number(c.window_minutes) : DEFAULTS.window_minutes,
-    limit: Number.isFinite(Number(c.limit)) ? Number(c.limit) : DEFAULTS.limit
+    limit: Number.isFinite(Number(c.limit)) ? Number(c.limit) : DEFAULTS.limit,
   };
 }
 
@@ -63,7 +66,6 @@ function EventsFiltersImpl(props: Props) {
     return norm({ ...cfg, agent_id: effectiveAgentId, event_type: effectiveEventType });
   }, [cfg, effectiveAgentId, effectiveEventType]);
 
-  // Keep config consistent when the sidebar selection changes.
   useEffect(() => {
     if (!props.onChange) return;
     const a = JSON.stringify(cfg);
@@ -91,34 +93,23 @@ function EventsFiltersImpl(props: Props) {
 
   return (
     <div className="space-y-3">
-      {/* Agent scope */}
       <div>
-        <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Agent</div>
-
+        <FieldLabel>Agent</FieldLabel>
         {lockedAgentId ? (
           <>
-            <input
+            <TextInput
               value={agentLabel || lockedAgentId}
               readOnly
-              className={cx(
-                "mt-1 w-full border border-border/60 bg-background/30 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-                "opacity-80"
-              )}
+              className={cx("mt-1 font-mono text-[11.5px] opacity-80")}
             />
-            <div className="mt-1 text-[11px] text-muted-foreground">
-              Scope is set in the sidebar (Agent picker).
-            </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">Scope is set in the sidebar (Agent picker).</div>
           </>
         ) : (
-          <select
+          <SelectInput
             value={effectiveCfg.agent_id ?? ""}
             onChange={(e) => patch({ agent_id: e.target.value ? e.target.value : null })}
             disabled={busy}
-            className={cx(
-              "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-              "focus:ring-2 focus:ring-primary/30",
-              busy && "opacity-60 cursor-not-allowed"
-            )}
+            className={cx("mt-1 font-mono text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
           >
             <option value="">All agents</option>
             {agents.map((a) => (
@@ -126,35 +117,28 @@ function EventsFiltersImpl(props: Props) {
                 {a.display_name ? a.display_name : a.agent_id}
               </option>
             ))}
-          </select>
+          </SelectInput>
         )}
       </div>
 
       {!hideEventType ? (
         <div>
-          <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Event type</div>
+          <FieldLabel>Event type</FieldLabel>
           {lockedEventType ? (
             <>
-              <input
+              <TextInput
                 value={lockedEventType}
                 readOnly
-                className={cx(
-                  "mt-1 w-full border border-border/60 bg-background/30 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-                  "opacity-80"
-                )}
+                className="mt-1 font-mono text-[11.5px] opacity-80"
               />
               <div className="mt-1 text-[11px] text-muted-foreground">Event type is locked for this module.</div>
             </>
           ) : (
-            <select
+            <SelectInput
               value={effectiveCfg.event_type ?? ""}
               onChange={(e) => patch({ event_type: e.target.value ? e.target.value : null })}
               disabled={busy}
-              className={cx(
-                "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-                "focus:ring-2 focus:ring-primary/30",
-                busy && "opacity-60 cursor-not-allowed"
-              )}
+              className={cx("mt-1 font-mono text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
             >
               <option value="">All types</option>
               <option value="dos_attack">dos_attack</option>
@@ -163,30 +147,26 @@ function EventsFiltersImpl(props: Props) {
               <option value="scan_probe">scan_probe</option>
               <option value="lateral_conn">lateral_conn</option>
               <option value="flow">flow</option>
-            </select>
+            </SelectInput>
           )}
         </div>
       ) : null}
 
-      {/* Search */}
       <div>
-        <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Search</div>
+        <FieldLabel>Search</FieldLabel>
         <DebouncedSearchInput
           value={effectiveCfg.search ?? ""}
           onChange={(value) => patch({ search: value })}
           disabled={busy}
           delayMs={350}
           placeholder="ip, user, rule, target, vector..."
-          className={cx("mt-1 h-9 text-[11px]", busy && "opacity-60 cursor-not-allowed")}
+          className={cx("mt-1 h-9 text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
         />
       </div>
 
-      {/* Window + Limit */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">
-            Window (min)
-          </div>
+          <FieldLabel>Window (min)</FieldLabel>
           <DataLookbackSelect
             value={Number(effectiveCfg.window_minutes ?? DEFAULTS.window_minutes)}
             onChange={(v) => patch({ window_minutes: v })}
@@ -195,18 +175,15 @@ function EventsFiltersImpl(props: Props) {
               { label: "30 min", minutes: 30 },
               { label: "1 hour", minutes: 60 },
               { label: "6 hours", minutes: 360 },
-              { label: "24 hours", minutes: 1440 }
+              { label: "24 hours", minutes: 1440 },
             ]}
             disabled={busy}
-            className={cx(
-              "mt-1 h-9 w-full text-[11px] font-mono",
-              busy && "opacity-60 cursor-not-allowed"
-            )}
+            className={cx("mt-1 h-9 w-full font-mono text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
           />
         </div>
 
         <div>
-          <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Limit</div>
+          <FieldLabel>Limit</FieldLabel>
           <DraftNumberInput
             value={Number(effectiveCfg.limit ?? DEFAULTS.limit)}
             min={10}
@@ -214,11 +191,7 @@ function EventsFiltersImpl(props: Props) {
             fallback={DEFAULTS.limit}
             onCommit={(v) => patch({ limit: v })}
             disabled={busy}
-            className={cx(
-              "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground outline-none font-mono",
-              "focus:ring-2 focus:ring-primary/30",
-              busy && "opacity-60 cursor-not-allowed"
-            )}
+            className={cx("ui-input mt-1 font-mono text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
             title="Max events to fetch"
           />
         </div>

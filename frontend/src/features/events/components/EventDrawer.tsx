@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/shared/components/Badge";
 import Drawer from "@/shared/components/Drawer";
-import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import {
   InvestigationActionBar,
   InvestigationActionButton,
@@ -19,11 +18,11 @@ import {
 } from "@/shared/components/investigation";
 import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
 import { pinEventToWorkspace } from "@/features/investigations/api";
-import { getFlowIpContext } from "@/shared/lib/ipClassification";
 
 import type { NetEvent } from "../types";
 import { formatProtocolLabel, getEventProtocolIntel } from "../lib/protocol";
 import EventDetailsPanel from "./EventDetailsPanel";
+import { SrcDstFlow } from "./SrcDstFlow";
 
 function fmtAddr(ip?: string | null, port?: number | null) {
   if (!ip) return "-";
@@ -88,19 +87,7 @@ export default function EventDrawer({
 
   const netSummaryNode = useMemo(() => {
     if (!event) return "-";
-    return (
-      <span className="inline-flex max-w-full flex-wrap items-center gap-1.5">
-        <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
-          <IpAddressPill ip={event.src_ip} ipContext={getFlowIpContext(event.extra?.ip_context, "src")} compact />
-          {typeof event.src_port === "number" ? <span className="text-muted-foreground">:{event.src_port}</span> : null}
-        </span>
-        <span className="text-muted-foreground">→</span>
-        <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
-          <IpAddressPill ip={event.dst_ip} ipContext={getFlowIpContext(event.extra?.ip_context, "dst")} compact />
-          {typeof event.dst_port === "number" ? <span className="text-muted-foreground">:{event.dst_port}</span> : null}
-        </span>
-      </span>
-    );
+    return <SrcDstFlow event={event} />;
   }, [event]);
 
   const protocol = useMemo(() => (event ? getEventProtocolIntel(event) : null), [event]);

@@ -14,7 +14,6 @@ import { SelectInput } from "@/shared/components/SelectInput";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { usePersistentState } from "@/shared/hooks/usePersistentState";
 import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
-import { cx } from "@/shared/lib/cx";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt, normalizeFilterText, normalizeSearchText } from "@/shared/lib/filters";
 import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
@@ -149,11 +148,41 @@ function sortRows(rows: NetEvent[], sortKey: string, direction: "asc" | "desc"):
   return sorted;
 }
 
+function TopList({
+  items,
+  onPick,
+}: {
+  items: Array<{ key: string; count: number }>;
+  onPick: (key: string) => void;
+}) {
+  if (items.length === 0) {
+    return <div className="text-[12px] text-muted-foreground">-</div>;
+  }
+  return (
+    <div className="space-y-1.5">
+      {items.map((r) => (
+        <button
+          key={r.key}
+          type="button"
+          onClick={() => onPick(r.key)}
+          className="block w-full rounded-md border border-border bg-card px-3 py-1.5 text-left transition-colors hover:border-primary/30 hover:bg-surface-2/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+          title="Click to search"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="truncate font-mono text-[12px] text-foreground">{r.key}</div>
+            <div className="shrink-0 font-mono text-[11.5px] text-muted-foreground">{r.count}</div>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function SmallToggle({
   label,
   checked,
   onChange,
-  hint
+  hint,
 }: {
   label: string;
   checked: boolean;
@@ -161,16 +190,16 @@ function SmallToggle({
   hint?: string;
 }) {
   return (
-    <label className="flex items-start gap-3 rounded-md border border-border/80 bg-background/35 px-3 py-2">
+    <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-border bg-surface-2/40 px-3 py-2 transition-colors hover:bg-surface-2/70">
       <input
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-1"
+        className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-primary"
       />
       <div className="min-w-0">
-        <div className="text-[12px] text-foreground">{label}</div>
-        {hint ? <div className="mt-1 text-[10px] text-muted-foreground">{hint}</div> : null}
+        <div className="text-[12px] font-medium text-foreground">{label}</div>
+        {hint ? <div className="mt-0.5 text-[10.5px] text-muted-foreground">{hint}</div> : null}
       </div>
     </label>
   );
@@ -621,21 +650,21 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Refresh</div>
-                  <div className="mt-1 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-[11px] font-mono text-muted-foreground">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Refresh</div>
+                  <div className="mt-1 inline-flex h-9 w-full items-center rounded-md border border-border bg-surface-2 px-3 font-mono text-[11px] text-muted-foreground">
                     {display.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "Manual only"}
                   </div>
                 </div>
 
                 <div>
-                  <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Sort</div>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Sort</div>
                   <SelectInput
                     value={`${tablePrefs.sort?.key || "timestamp"}:${tablePrefs.sort?.direction || "desc"}`}
                     onChange={(e) => {
                       const [key, direction] = e.target.value.split(":");
                       tablePrefs.setSort({ key, direction: direction === "asc" ? "asc" : "desc" });
                     }}
-                    className="mt-1 w-full text-[11px] font-mono"
+                    className="mt-1 font-mono text-[11.5px]"
                     title="Sort visible rows"
                   >
                     <option value="timestamp:desc">Time (newest first)</option>
@@ -676,50 +705,18 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
             </Panel>
           )}
 
-          <Panel title="Top sources" actions={topSrc.length ? undefined : <span className="text-[10px] font-mono text-muted-foreground">No data</span>}>
-            <div className="space-y-2">
-              {topSrc.slice(0, 6).map((r) => (
-                <button
-                  key={r.key}
-                  type="button"
-                  onClick={() => patchView({ search: r.key })}
-                  className={cx(
-                    "w-full text-left rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                    "hover:bg-muted/10 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  )}
-                  title="Click to search"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="truncate text-[12px] font-mono text-foreground">{r.key}</div>
-                    <div className="shrink-0 text-[12px] font-mono text-muted-foreground">{r.count}</div>
-                  </div>
-                </button>
-              ))}
-              {topSrc.length === 0 ? <div className="text-[12px] text-muted-foreground">-</div> : null}
-            </div>
+          <Panel
+            title="Top sources"
+            actions={topSrc.length ? undefined : <span className="text-[10.5px] text-muted-foreground">No data</span>}
+          >
+            <TopList items={topSrc.slice(0, 6)} onPick={(key) => patchView({ search: key })} />
           </Panel>
 
-          <Panel title="Top destinations" actions={topDst.length ? undefined : <span className="text-[10px] font-mono text-muted-foreground">No data</span>}>
-            <div className="space-y-2">
-              {topDst.slice(0, 6).map((r) => (
-                <button
-                  key={r.key}
-                  type="button"
-                  onClick={() => patchView({ search: r.key })}
-                  className={cx(
-                    "w-full text-left rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                    "hover:bg-muted/10 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  )}
-                  title="Click to search"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="truncate text-[12px] font-mono text-foreground">{r.key}</div>
-                    <div className="shrink-0 text-[12px] font-mono text-muted-foreground">{r.count}</div>
-                  </div>
-                </button>
-              ))}
-              {topDst.length === 0 ? <div className="text-[12px] text-muted-foreground">-</div> : null}
-            </div>
+          <Panel
+            title="Top destinations"
+            actions={topDst.length ? undefined : <span className="text-[10.5px] text-muted-foreground">No data</span>}
+          >
+            <TopList items={topDst.slice(0, 6)} onPick={(key) => patchView({ search: key })} />
           </Panel>
         </div>
 
@@ -797,9 +794,9 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
               />
 
               {isRefreshing ? (
-                <div className="absolute right-3 top-3 rounded-md border border-border/60 bg-background/70 px-3 py-2 text-[11px] font-mono text-muted-foreground backdrop-blur">
-                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-muted-foreground mr-2 align-[-2px]" />
-                  Refreshing...
+                <div className="absolute right-3 top-3 inline-flex items-center gap-2 rounded-md border border-border bg-card/90 px-2.5 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur">
+                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-border/70 border-t-primary" />
+                  Refreshing
                 </div>
               ) : null}
 

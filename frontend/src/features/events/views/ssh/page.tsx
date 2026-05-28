@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 import AsyncState from "@/shared/components/AsyncState";
 import { Button } from "@/shared/components/Button";
@@ -10,6 +10,7 @@ import { MetricCard } from "@/shared/components/MetricCard";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import { Card } from "@/shared/components/Card";
 import { SelectInput } from "@/shared/components/SelectInput";
+import { StatusPill } from "@/shared/components/StatusPill";
 import { Table } from "@/shared/components/Table";
 import { Badge } from "@/shared/components/Badge";
 import { getErrorMessage } from "@/shared/lib/errors";
@@ -19,13 +20,16 @@ import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime
 
 import { useAgentsCatalog } from "@/app/providers";
 
+import { EventsLinkButton } from "../../components/EventsLinkButton";
 import { getSshSummary } from "./api";
+import { SshActionBadge } from "./SshActionBadge";
+import { SshGeoCell } from "./SshGeoCell";
 import type { SshAuthEvent, SshIpStat, SshLoginEvent, SshSummaryResponse, SshUserStat, SudoEventSummary } from "./types";
 import SshIpDrawer from "./SshIpDrawer";
 
 
 type ViewCfg = {
-  agent_id: string; // empty = all agents
+  agent_id: string;
   since_minutes: number;
   limit: number;
   auto_refresh: boolean;
@@ -39,7 +43,7 @@ const DEFAULTS: ViewCfg = {
   since_minutes: 60 * 24,
   limit: 50,
   auto_refresh: true,
-  refresh_ms: 15000
+  refresh_ms: 15000,
 };
 
 function safeLoadView(): ViewCfg {
@@ -54,7 +58,7 @@ function safeLoadView(): ViewCfg {
       since_minutes: clampInt(parsed.since_minutes, 1, 60 * 24 * 30, DEFAULTS.since_minutes),
       limit: clampInt(parsed.limit, 1, 500, DEFAULTS.limit),
       refresh_ms: clampInt(parsed.refresh_ms, 2000, 300000, DEFAULTS.refresh_ms),
-      auto_refresh: Boolean(parsed.auto_refresh)
+      auto_refresh: Boolean(parsed.auto_refresh),
     };
   } catch {
     return DEFAULTS;
@@ -65,7 +69,6 @@ function persistView(v: ViewCfg) {
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(v));
   } catch {
-    // no-op
   }
 }
 
@@ -105,12 +108,17 @@ function toEventsLink(params: { agent_id?: string; event_type?: string; search?:
   return s ? `/events?${s}` : "/events";
 }
 
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</div>
+  );
+}
 
 function MiniSelect({
   label,
   value,
   onChange,
-  children
+  children,
 }: {
   label: string;
   value: string;
@@ -119,12 +127,8 @@ function MiniSelect({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</span>
-      <SelectInput
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 text-sm"
-      >
+      <FieldLabel>{label}</FieldLabel>
+      <SelectInput value={value} onChange={(e) => onChange(e.target.value)} className="font-mono text-[11.5px]">
         {children}
       </SelectInput>
     </label>
@@ -135,7 +139,7 @@ function MiniToggle({
   label,
   checked,
   onChange,
-  hint
+  hint,
 }: {
   label: string;
   checked: boolean;
@@ -143,27 +147,19 @@ function MiniToggle({
   hint?: string;
 }) {
   return (
-    <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/40 px-3 py-2">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-1" />
+    <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-border bg-surface-2/40 px-3 py-2 transition-colors hover:bg-surface-2/70">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-primary"
+      />
       <div className="min-w-0">
-        <div className="text-[12px] font-mono text-foreground">{label}</div>
-        {hint ? <div className="mt-1 text-[11px] text-muted-foreground">{hint}</div> : null}
+        <div className="font-mono text-[12px] text-foreground">{label}</div>
+        {hint ? <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div> : null}
       </div>
     </label>
   );
-}
-
-function ipMeta(r: Pick<SshIpStat, "geo_country" | "geo_org" | "asn" | "asn_org">) {
-  const country = (r.geo_country ?? "").trim();
-  const org = (r.geo_org ?? "").trim();
-  const asn = (r.asn ?? "").trim();
-  const asnOrg = (r.asn_org ?? "").trim();
-  return {
-    country: country || null,
-    org: org || null,
-    asn: asn || null,
-    asnOrg: asnOrg || null
-  };
 }
 
 function sshIpContext(r: SshIpStat | SshAuthEvent | SshLoginEvent) {
@@ -185,7 +181,6 @@ export default function SshInsightsPage() {
     persistView(view);
   }, [view]);
 
-  // One-time URL hydration (shareable links).
   const didInitFromUrl = useRef(false);
   useEffect(() => {
     if (didInitFromUrl.current) return;
@@ -201,7 +196,6 @@ export default function SshInsightsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sync URL with view (shareable state).
   useEffect(() => {
     const q = new URLSearchParams();
     if (view.agent_id) q.set("agent_id", view.agent_id);
@@ -232,7 +226,7 @@ export default function SshInsightsPage() {
       const r = await getSshSummary({
         agent_id: viewRef.current.agent_id,
         since_minutes: viewRef.current.since_minutes,
-        limit: viewRef.current.limit
+        limit: viewRef.current.limit,
       });
       if (reqSeq.current !== mySeq) return;
       setData(r);
@@ -242,7 +236,6 @@ export default function SshInsightsPage() {
       if (reqSeq.current !== mySeq) return;
       const msg = getErrorMessage(e, "Failed to load SSH summary");
       setError(msg);
-      // keep last known good data (no flicker)
       if (dataRef.current) setData(dataRef.current);
     } finally {
       if (reqSeq.current !== mySeq) return;
@@ -251,7 +244,6 @@ export default function SshInsightsPage() {
     }
   }, []);
 
-  // Initial load
   useEffect(() => {
     if (!didBootRef.current) {
       didBootRef.current = true;
@@ -273,9 +265,9 @@ export default function SshInsightsPage() {
           {
             agent_id: viewRef.current.agent_id,
             since_minutes: viewRef.current.since_minutes,
-            limit: viewRef.current.limit
+            limit: viewRef.current.limit,
           },
-          { signal }
+          { signal },
         );
         if (reqSeq.current !== mySeq) return;
         setData(r);
@@ -343,13 +335,13 @@ export default function SshInsightsPage() {
     parts.push(`Rows: ${view.limit}`);
     if (data?.meta?.source) parts.push(`Source: ${data.meta.source}`);
     if (lastUpdatedAt) parts.push(`Updated: ${fmtAgo(Date.now() - lastUpdatedAt)}`);
-    return parts.join(" • ");
+    return parts.join(" · ");
   }, [view.since_minutes, view.limit, lastUpdatedAt, data?.meta?.source]);
 
   const headerRight = (
     <div className="flex items-center gap-2">
-      {refreshing ? <Badge variant="info">Refreshing…</Badge> : null}
-      {error ? <Badge variant="high">{error}</Badge> : null}
+      {refreshing ? <StatusPill variant="info" withDot>Refreshing</StatusPill> : null}
+      {error ? <StatusPill variant="danger" withDot>Error</StatusPill> : null}
       <Button variant="subtle" size="md" onClick={() => void refresh()}>
         Refresh
       </Button>
@@ -367,9 +359,9 @@ export default function SshInsightsPage() {
 
       <DataStatsStrip
         stats={[
-          { label: "Accepted", value: totals.success },
-          { label: "Failed password", value: totals.failed },
-          { label: "Invalid user", value: totals.invalid },
+          { label: "Accepted", value: totals.success, tone: totals.success > 0 ? "success" : "default" },
+          { label: "Failed password", value: totals.failed, tone: totals.failed > 0 ? "warning" : "default" },
+          { label: "Invalid user", value: totals.invalid, tone: totals.invalid > 0 ? "warning" : "default" },
           { label: "Total actions", value: totals.actions },
           { label: "Unique source IPs", value: totals.uniqueIps },
           { label: "Enriched source IPs", value: `${totals.enrichPct}%`, hint: `${totals.enriched}/${totals.uniqueIps}` },
@@ -385,28 +377,24 @@ export default function SshInsightsPage() {
         />
       ) : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
         <div className="lg:col-span-8">
-          <Card title="Summary" right={rightHint} className="rounded-xl overflow-hidden">
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              <MetricCard title="Accepted" value={totals.success} helper="Total accepted events" />
-              <MetricCard title="Failed password" value={totals.failed} helper="Total failed password events" />
-              <MetricCard title="Invalid user" value={totals.invalid} helper="Total invalid user events" />
-              <MetricCard title="Total actions" value={totals.actions} helper="Accepted + failed + invalid" />
-              <MetricCard title="Unique source IPs" value={totals.uniqueIps} helper="Distinct IPs in the selected window" />
-              <MetricCard title="Enriched source IPs" value={`${totals.enrichPct}%`} helper={`${totals.enriched}/${totals.uniqueIps} with geo/asn/org`} />
+          <Card title="Summary" right={rightHint}>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <MetricCard size="sm" title="Accepted" value={totals.success} helper="Total accepted events" tone={totals.success > 0 ? "success" : "default"} />
+              <MetricCard size="sm" title="Failed password" value={totals.failed} helper="Failed password events" tone={totals.failed > 0 ? "warning" : "default"} />
+              <MetricCard size="sm" title="Invalid user" value={totals.invalid} helper="Invalid user events" tone={totals.invalid > 0 ? "warning" : "default"} />
+              <MetricCard size="sm" title="Total actions" value={totals.actions} helper="Accepted + failed + invalid" />
+              <MetricCard size="sm" title="Unique source IPs" value={totals.uniqueIps} helper="Distinct IPs in this window" />
+              <MetricCard size="sm" title="Enriched IPs" value={`${totals.enrichPct}%`} helper={`${totals.enriched}/${totals.uniqueIps} with geo/asn`} />
             </div>
           </Card>
         </div>
 
         <div className="lg:col-span-4">
-          <Card title="Filters" className="rounded-xl overflow-hidden">
+          <Card title="Filters">
             <div className="grid grid-cols-1 gap-3">
-              <MiniSelect
-                label="Agent"
-                value={view.agent_id}
-                onChange={(v) => setView((prev) => ({ ...prev, agent_id: v }))}
-              >
+              <MiniSelect label="Agent" value={view.agent_id} onChange={(v) => setView((prev) => ({ ...prev, agent_id: v }))}>
                 <option value="">All agents</option>
                 {agentOptions.map((a) => (
                   <option key={a.agent_id} value={a.agent_id}>
@@ -418,7 +406,9 @@ export default function SshInsightsPage() {
               <MiniSelect
                 label="Lookback"
                 value={String(view.since_minutes)}
-                onChange={(v) => setView((prev) => ({ ...prev, since_minutes: clampInt(v, 1, 60 * 24 * 30, prev.since_minutes) }))}
+                onChange={(v) =>
+                  setView((prev) => ({ ...prev, since_minutes: clampInt(v, 1, 60 * 24 * 30, prev.since_minutes) }))
+                }
               >
                 <option value={60}>Last 60 minutes</option>
                 <option value={6 * 60}>Last 6 hours</option>
@@ -448,9 +438,9 @@ export default function SshInsightsPage() {
                 hint={view.auto_refresh ? "Uses the shared operational live cadence." : "Off"}
               />
 
-              <div className="rounded-lg border border-border/60 bg-background/40 px-3 py-2">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Refresh cadence</div>
-                <div className="mt-1 text-[12px] font-mono text-muted-foreground">
+              <div className="rounded-md border border-border bg-surface-2/50 px-3 py-2">
+                <FieldLabel>Refresh cadence</FieldLabel>
+                <div className="mt-1 font-mono text-[12px] text-muted-foreground">
                   {view.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "Manual only"}
                 </div>
               </div>
@@ -474,8 +464,8 @@ export default function SshInsightsPage() {
       ) : null}
 
       {current ? (
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-3">
-          <div className="xl:col-span-8 space-y-3">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
+          <div className="space-y-3 xl:col-span-8">
             <RecentAuthEventsCard
               title="Recent auth.log events"
               rows={current.recent_auth_events}
@@ -484,16 +474,16 @@ export default function SshInsightsPage() {
               onViewIp={openIpDrawer}
             />
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <IpTableCard title="Top source IPs" rows={current.most_active_ips} viewAgentId={view.agent_id} variant="info" onViewIp={openIpDrawer} />
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <IpTableCard title="Top source IPs" rows={current.most_active_ips} viewAgentId={view.agent_id} countryVariant="info" onViewIp={openIpDrawer} />
               <UserTableCard title="Users attempted" rows={current.users_attempted} viewAgentId={view.agent_id} />
-              <IpTableCard title="Successful logins" rows={current.successful_logins} viewAgentId={view.agent_id} variant="low" onViewIp={openIpDrawer} />
-              <IpTableCard title="Failed password" rows={current.failed_attempts} viewAgentId={view.agent_id} variant="high" onViewIp={openIpDrawer} />
-              <IpTableCard title="Invalid user" rows={current.invalid_user_attempts} viewAgentId={view.agent_id} variant="medium" onViewIp={openIpDrawer} />
+              <IpTableCard title="Successful logins" rows={current.successful_logins} viewAgentId={view.agent_id} countryVariant="low" onViewIp={openIpDrawer} />
+              <IpTableCard title="Failed password" rows={current.failed_attempts} viewAgentId={view.agent_id} countryVariant="high" onViewIp={openIpDrawer} />
+              <IpTableCard title="Invalid user" rows={current.invalid_user_attempts} viewAgentId={view.agent_id} countryVariant="medium" onViewIp={openIpDrawer} />
             </div>
           </div>
 
-          <div className="xl:col-span-4 space-y-3">
+          <div className="space-y-3 xl:col-span-4">
             <RootLoginsCard title="Root logins" rows={current.root_logins} viewAgentId={view.agent_id} onViewIp={openIpDrawer} />
             <SudoRecentCard title="Recent sudo" rows={current.sudo_recent} viewAgentId={view.agent_id} />
           </div>
@@ -512,39 +502,12 @@ export default function SshInsightsPage() {
   );
 }
 
-
-function actionVariant(action?: string | null): Parameters<typeof Badge>[0]["variant"] {
-  switch ((action ?? "").trim()) {
-    case "accepted":
-      return "low";
-    case "failed_password":
-      return "high";
-    case "invalid_user":
-      return "medium";
-    default:
-      return "neutral";
-  }
-}
-
-function actionLabel(action?: string | null) {
-  switch ((action ?? "").trim()) {
-    case "accepted":
-      return "accepted";
-    case "failed_password":
-      return "failed password";
-    case "invalid_user":
-      return "invalid user";
-    default:
-      return action || "-";
-  }
-}
-
 function RecentAuthEventsCard({
   title,
   rows,
   viewAgentId,
   hint,
-  onViewIp
+  onViewIp,
 }: {
   title: string;
   rows: SshAuthEvent[];
@@ -558,13 +521,13 @@ function RecentAuthEventsCard({
         key: "timestamp",
         title: "When",
         width: 180,
-        render: (r: SshAuthEvent) => <span className="font-mono text-xs">{fmtWhen(r.timestamp)}</span>
+        render: (r: SshAuthEvent) => <span className="font-mono text-xs">{fmtWhen(r.timestamp)}</span>,
       },
       {
         key: "action",
         title: "Action",
-        width: 150,
-        render: (r: SshAuthEvent) => <Badge variant={actionVariant(r.action)}>{actionLabel(r.action)}</Badge>
+        width: 160,
+        render: (r: SshAuthEvent) => <SshActionBadge action={r.action} />,
       },
       {
         key: "src_ip",
@@ -573,44 +536,33 @@ function RecentAuthEventsCard({
         render: (r: SshAuthEvent) => (
           <div className="min-w-0">
             <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />
-            <div className="mt-0.5 text-[11px] font-mono text-muted-foreground truncate">{r.agent_id}</div>
+            <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{r.agent_id}</div>
           </div>
-        )
+        ),
       },
       {
         key: "username",
         title: "Username",
         width: 140,
-        render: (r: SshAuthEvent) => <span className="font-mono">{r.username || "-"}</span>
+        render: (r: SshAuthEvent) => <span className="font-mono">{r.username || "-"}</span>,
       },
       {
         key: "meta",
         title: "Geo / ASN",
-        render: (r: SshAuthEvent) => {
-          const meta = ipMeta(r);
-          return (
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                {meta.country ? <Badge variant="info">{meta.country}</Badge> : <Badge variant="neutral">{ipFallbackLabel(r)}</Badge>}
-              </div>
-              <div className="mt-1 truncate text-[11px] text-muted-foreground">{meta.org || "-"}</div>
-              <div className="mt-0.5 truncate text-[11px] font-mono text-muted-foreground">
-                {meta.asn ? `${meta.asn}${meta.asnOrg ? ` • ${meta.asnOrg}` : ""}` : "-"}
-              </div>
-            </div>
-          );
-        }
+        render: (r: SshAuthEvent) => <SshGeoCell row={r} fallbackLabel={ipFallbackLabel(r)} />,
       },
       {
         key: "actions",
         title: "Actions",
-        width: 230,
+        width: 220,
         render: (r: SshAuthEvent) => {
           const search = (r.src_ip || "").trim() || (r.username || "").trim();
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: search || undefined });
           return (
             <div className="flex items-center gap-2">
-              <Button variant="subtle" size="sm"
+              <Button
+                variant="subtle"
+                size="sm"
                 title="Open IP profile drawer"
                 onClick={() => {
                   const ip = (r.src_ip || "").trim();
@@ -625,7 +577,7 @@ function RecentAuthEventsCard({
                     src_ip_scope: r.src_ip_scope,
                     src_ip_label: r.src_ip_label,
                     src_is_internal: r.src_is_internal,
-                    src_is_public: r.src_is_public
+                    src_is_public: r.src_is_public,
                   });
                 }}
                 disabled={!onViewIp || !(r.src_ip || "").trim()}
@@ -633,22 +585,17 @@ function RecentAuthEventsCard({
                 View
               </Button>
 
-              <Link
-                to={to}
-                className="inline-flex items-center justify-center h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
-              >
-                Open
-              </Link>
+              <EventsLinkButton to={to}>Open</EventsLinkButton>
             </div>
           );
-        }
-      }
+        },
+      },
     ],
-    [onViewIp, viewAgentId]
+    [onViewIp, viewAgentId],
   );
 
   return (
-    <Card title={title} right={hint} className="rounded-xl overflow-hidden">
+    <Card title={title} right={hint}>
       {rows.length === 0 ? (
         <EmptyState title="No SSH auth events" hint="No ssh_auth entries matched the selected window." />
       ) : (
@@ -663,14 +610,14 @@ function IpTableCard({
   rows,
   viewAgentId,
   hint,
-  variant = "neutral",
-  onViewIp
+  countryVariant = "neutral",
+  onViewIp,
 }: {
   title: string;
   rows: SshIpStat[];
   viewAgentId: string;
   hint?: string;
-  variant?: Parameters<typeof Badge>[0]["variant"];
+  countryVariant?: Parameters<typeof Badge>[0]["variant"];
   onViewIp?: (row: SshIpStat) => void;
 }) {
   const cols = useMemo(
@@ -678,9 +625,9 @@ function IpTableCard({
       {
         key: "count",
         title: "Count",
-        width: 90,
-        className: "font-mono text-right",
-        render: (r: SshIpStat) => <span className="font-mono">{r.count}</span>
+        width: 80,
+        className: "text-right font-mono",
+        render: (r: SshIpStat) => <span className="font-mono">{r.count}</span>,
       },
       {
         key: "src_ip",
@@ -689,65 +636,50 @@ function IpTableCard({
         render: (r: SshIpStat) => (
           <div className="flex flex-wrap items-center gap-2">
             <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />
-            {(() => {
-              const meta = ipMeta(r);
-              if (!meta.country) return null;
-              return <Badge variant={variant}>{meta.country}</Badge>;
-            })()}
+            {r.geo_country ? <Badge variant={countryVariant}>{r.geo_country}</Badge> : null}
           </div>
-        )
+        ),
       },
       {
         key: "org",
         title: "Org",
-        render: (r: SshIpStat) => {
-          const meta = ipMeta(r);
-          return (
-            <div className="min-w-0">
-              <div className="truncate">{meta.org || "-"}</div>
-              <div className="mt-0.5 text-[11px] text-muted-foreground font-mono truncate">
-                {meta.asn ? `${meta.asn}${meta.asnOrg ? ` • ${meta.asnOrg}` : ""}` : "-"}
-              </div>
+        render: (r: SshIpStat) => (
+          <div className="min-w-0">
+            <div className="truncate">{(r.geo_org || "").trim() || "-"}</div>
+            <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+              {(r.asn || "").trim() ? `${r.asn}${r.asn_org ? ` • ${r.asn_org}` : ""}` : "-"}
             </div>
-          );
-        }
+          </div>
+        ),
       },
       {
         key: "actions",
         title: "Actions",
-        width: 240,
+        width: 220,
         render: (r: SshIpStat) => {
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: r.src_ip });
           return (
             <div className="flex items-center gap-2">
-              <Button variant="subtle" size="sm"
+              <Button
+                variant="subtle"
+                size="sm"
                 title="Open IP profile drawer"
                 onClick={() => onViewIp?.(r)}
                 disabled={!onViewIp}
               >
                 View
               </Button>
-
-              <Link
-                to={to}
-                className="inline-flex items-center justify-center h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
-              >
-                Open
-              </Link>
+              <EventsLinkButton to={to}>Open</EventsLinkButton>
             </div>
           );
-        }
-      }
+        },
+      },
     ],
-    [viewAgentId, variant, onViewIp]
+    [viewAgentId, countryVariant, onViewIp],
   );
 
   return (
-    <Card
-      title={title}
-      right={hint}
-      className="rounded-xl overflow-hidden"
-    >
+    <Card title={title} right={hint}>
       {rows.length === 0 ? (
         <EmptyState title="No rows" hint="Nothing matched the selected window." />
       ) : (
@@ -763,37 +695,30 @@ function UserTableCard({ title, rows, viewAgentId }: { title: string; rows: SshU
       {
         key: "count",
         title: "Count",
-        width: 90,
-        className: "font-mono text-right",
-        render: (r: SshUserStat) => <span className="font-mono">{r.count}</span>
+        width: 80,
+        className: "text-right font-mono",
+        render: (r: SshUserStat) => <span className="font-mono">{r.count}</span>,
       },
       {
         key: "username",
         title: "Username",
-        render: (r: SshUserStat) => <span className="font-mono">{r.username}</span>
+        render: (r: SshUserStat) => <span className="font-mono">{r.username}</span>,
       },
       {
         key: "actions",
         title: "Actions",
-        width: 130,
+        width: 120,
         render: (r: SshUserStat) => {
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: r.username });
-          return (
-            <Link
-              to={to}
-              className="inline-flex items-center justify-center h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
-            >
-              Open
-            </Link>
-          );
-        }
-      }
+          return <EventsLinkButton to={to}>Open</EventsLinkButton>;
+        },
+      },
     ],
-    [viewAgentId]
+    [viewAgentId],
   );
 
   return (
-    <Card title={title} className="rounded-xl overflow-hidden">
+    <Card title={title}>
       {rows.length === 0 ? (
         <EmptyState title="No users" hint="No failed/invalid usernames in the selected window." />
       ) : (
@@ -807,7 +732,7 @@ function RootLoginsCard({
   title,
   rows,
   viewAgentId,
-  onViewIp
+  onViewIp,
 }: {
   title: string;
   rows: SshLoginEvent[];
@@ -820,48 +745,36 @@ function RootLoginsCard({
         key: "timestamp",
         title: "When",
         width: 180,
-        render: (r: SshLoginEvent) => <span className="font-mono text-xs">{fmtWhen(r.timestamp)}</span>
+        render: (r: SshLoginEvent) => <span className="font-mono text-xs">{fmtWhen(r.timestamp)}</span>,
       },
       {
         key: "src_ip",
         title: "IP",
         width: 180,
-        render: (r: SshLoginEvent) => <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />
+        render: (r: SshLoginEvent) => <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />,
       },
       {
         key: "meta",
         title: "Geo / ASN",
-        render: (r: SshLoginEvent) => {
-          const country = (r.geo_country ?? "").trim();
-          const asn = (r.asn ?? "").trim();
-          const org = (r.geo_org ?? "").trim();
-          const asnOrg = (r.asn_org ?? "").trim();
-          return (
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                {country ? <Badge variant="critical">{country}</Badge> : <Badge variant="neutral">{ipFallbackLabel(r)}</Badge>}
-                <span className="text-xs font-mono text-muted-foreground">{r.agent_id}</span>
-              </div>
-              <div className="mt-1 text-[11px] text-muted-foreground truncate">
-                {org || "-"}
-              </div>
-              <div className="mt-0.5 text-[11px] text-muted-foreground font-mono truncate">
-                {asn ? `${asn}${asnOrg ? ` • ${asnOrg}` : ""}` : "-"}
-              </div>
-            </div>
-          );
-        }
+        render: (r: SshLoginEvent) => (
+          <div className="min-w-0 space-y-1">
+            <SshGeoCell row={r} fallbackLabel={ipFallbackLabel(r)} countryVariant="critical" />
+            <div className="text-[11px] font-mono text-muted-foreground">agent: {r.agent_id}</div>
+          </div>
+        ),
       },
       {
         key: "actions",
         title: "Actions",
-        width: 240,
+        width: 220,
         render: (r: SshLoginEvent) => {
           const search = r.src_ip ? r.src_ip : "root";
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search });
           return (
             <div className="flex items-center gap-2">
-              <Button variant="subtle" size="sm"
+              <Button
+                variant="subtle"
+                size="sm"
                 title="Open IP profile drawer"
                 onClick={() => {
                   const ip = (r.src_ip || "").trim();
@@ -876,34 +789,24 @@ function RootLoginsCard({
                     src_ip_scope: r.src_ip_scope,
                     src_ip_label: r.src_ip_label,
                     src_is_internal: r.src_is_internal,
-                    src_is_public: r.src_is_public
+                    src_is_public: r.src_is_public,
                   });
                 }}
                 disabled={!onViewIp || !(r.src_ip || "").trim()}
               >
                 View
               </Button>
-
-              <Link
-                to={to}
-                className="inline-flex items-center justify-center h-8 rounded-md border border-border/60 bg-background/40 px-3 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
-              >
-                Open
-              </Link>
+              <EventsLinkButton to={to}>Open</EventsLinkButton>
             </div>
           );
-        }
-      }
+        },
+      },
     ],
-    [viewAgentId, onViewIp]
+    [viewAgentId, onViewIp],
   );
 
   return (
-    <Card
-      title={title}
-      right={rows.length ? "accepted + username=root" : undefined}
-      className="rounded-xl overflow-hidden"
-    >
+    <Card title={title} right={rows.length ? "accepted + username=root" : undefined}>
       {rows.length === 0 ? (
         <EmptyState title="No root logins" hint="No accepted root logins found." />
       ) : (
@@ -928,7 +831,7 @@ function SudoRecentCard({ title, rows, viewAgentId }: { title: string; rows: Sud
             <div className="break-all font-mono text-[11px] text-muted-foreground">{fmtWhen(r.timestamp)}</div>
             <div className="break-all font-mono text-[11px] text-muted-foreground">{r.agent_id}</div>
           </div>
-        )
+        ),
       },
       {
         key: "command",
@@ -939,43 +842,30 @@ function SudoRecentCard({ title, rows, viewAgentId }: { title: string; rows: Sud
             {r.pwd ? <div className="break-all font-mono text-[11px] text-muted-foreground">PWD={r.pwd}</div> : null}
             {r.tty ? <div className="break-all font-mono text-[11px] text-muted-foreground">TTY={r.tty}</div> : null}
           </div>
-        )
+        ),
       },
       {
         key: "actions",
         title: "",
-        width: 72,
+        width: 90,
         className: "text-right",
         render: (r: SudoEventSummary) => {
           const search = r.command ? r.command.split(" ")[0] : "sudo";
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "sudo_cmd", search });
-          return (
-            <Link
-              to={to}
-              className="inline-flex h-8 items-center justify-center rounded-md border border-border/60 bg-background/40 px-2.5 text-xs font-mono uppercase tracking-widest hover:bg-muted/20"
-            >
-              Open
-            </Link>
-          );
-        }
-      }
+          return <EventsLinkButton to={to}>Open</EventsLinkButton>;
+        },
+      },
     ],
-    [viewAgentId]
+    [viewAgentId],
   );
 
   return (
-    <Card title={title} right={rows.length ? "event_type=sudo_cmd" : undefined} className="rounded-xl overflow-hidden">
+    <Card title={title} right={rows.length ? "event_type=sudo_cmd" : undefined}>
       {rows.length === 0 ? (
         <EmptyState title="No sudo activity" hint="No sudo commands found in the selected window." />
       ) : (
         <div className="max-h-[520px] overflow-y-auto">
-          <Table
-            columns={cols}
-            rows={rows}
-            rowKey={(r, i) => `${r.timestamp}-${i}`}
-            className="text-sm"
-            compact
-          />
+          <Table columns={cols} rows={rows} rowKey={(r, i) => `${r.timestamp}-${i}`} className="text-sm" compact />
         </div>
       )}
     </Card>
