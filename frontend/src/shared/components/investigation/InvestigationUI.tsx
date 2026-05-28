@@ -2,13 +2,12 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 
 import { Badge } from "@/shared/components/Badge";
+import type { BadgeVariant } from "@/shared/components/Badge";
 import EmptyState from "@/shared/components/EmptyState";
 import { JsonBlock } from "@/shared/components/JsonBlock";
 import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
 import { copyTextToClipboard } from "./utils";
-
-type BadgeVariant = "critical" | "high" | "medium" | "low" | "info" | "neutral";
 
 export function InvestigationShell({
   children,
@@ -25,37 +24,37 @@ export function InvestigationMetaStrip({
 }: {
   items: Array<{ label: string; value: ReactNode; variant?: BadgeVariant }>;
 }) {
-  const rows = items.filter((x) => x && x.value !== undefined && x.value !== null && String(x.value).trim() !== "");
+  const rows = items.filter(
+    (x) => x && x.value !== undefined && x.value !== null && String(x.value).trim() !== "",
+  );
   if (rows.length === 0) return null;
 
   return (
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {rows.map((item) => (
-          <div
-            key={`${item.label}-${String(item.value)}`}
-            className="rounded-lg border border-border/60 bg-background/35 px-3 py-2"
-          >
-            <div className="text-[10px] font-mono uppercase tracking-[0.24em] text-muted-foreground">{item.label}</div>
-            {item.variant ? (
-              <div className="mt-2">
-                <Badge variant={item.variant}>{item.value}</Badge>
-              </div>
-            ) : (
-              <div className="mt-1 break-words text-[12px] font-mono text-foreground">{item.value}</div>
-            )}
+      {rows.map((item) => (
+        <div
+          key={`${item.label}-${String(item.value)}`}
+          className="ui-card-shell px-3 py-2"
+        >
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {item.label}
           </div>
-        ))}
+          {item.variant ? (
+            <div className="mt-1.5">
+              <Badge variant={item.variant}>{item.value}</Badge>
+            </div>
+          ) : (
+            <div className="mt-1 break-words font-mono text-[12px] text-foreground">{item.value}</div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
 
-export function InvestigationActionBar({
-  children,
-}: {
-  children: ReactNode;
-}) {
+export function InvestigationActionBar({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-border/60 bg-background/35 p-2.5">
+    <div className="rounded-lg border border-border bg-surface-2/60 p-2">
       <div className="flex flex-wrap items-center gap-2">{children}</div>
     </div>
   );
@@ -81,12 +80,12 @@ export function InvestigationActionButton({
       title={title}
       disabled={disabled}
       className={cx(
-        "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-mono uppercase tracking-widest",
-        "focus:outline-none focus:ring-2 focus:ring-primary/30",
+        "inline-flex h-8 items-center gap-2 rounded-md border px-3 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
         tone === "primary"
-          ? "border-primary/50 bg-primary/20 text-foreground hover:bg-primary/25"
-          : "border-border/60 bg-background/40 text-muted-foreground hover:bg-muted/15 hover:text-foreground",
-        disabled && "opacity-60 cursor-not-allowed hover:bg-background/40 hover:text-muted-foreground",
+          ? "border-primary/50 bg-primary/15 text-primary hover:bg-primary/20"
+          : "border-border bg-card text-foreground hover:border-primary/35 hover:bg-muted",
+        disabled && "opacity-60 cursor-not-allowed",
       )}
     >
       {children}
@@ -104,27 +103,20 @@ export function InvestigationTabs<T extends string>({
   tabs: Array<{ key: T; label: string }>;
 }) {
   return (
-    <div className="border-b border-border/60">
-      <div className="flex flex-wrap items-center gap-2">
-        {tabs.map((t) => {
-          const active = t.key === value;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => onChange(t.key)}
-              className={cx(
-                "border-b-2 px-2 py-2 text-[11px] font-mono uppercase tracking-widest",
-                active
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:border-border/60 hover:text-foreground",
-              )}
-            >
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+    <div className="ui-tab-shell">
+      {tabs.map((t) => {
+        const active = t.key === value;
+        return (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => onChange(t.key)}
+            className={cx("ui-tab-item", active && "ui-tab-item-active")}
+          >
+            {t.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -145,14 +137,14 @@ export function InvestigationSection({
   bodyClassName?: string;
 }) {
   return (
-    <section className={cx("rounded-xl border border-border/60 bg-background/45", className)}>
-      <div className="flex items-start justify-between gap-3 border-b border-border/60 px-4 py-3">
+    <section className={cx("ui-card-shell", className)}>
+      <header className="ui-panel-header">
         <div className="min-w-0">
-          <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">{title}</div>
-          {subtitle ? <div className="mt-1 text-[12px] text-muted-foreground">{subtitle}</div> : null}
+          <div className="ui-panel-eyebrow truncate">{title}</div>
+          {subtitle ? <div className="ui-panel-subtitle">{subtitle}</div> : null}
         </div>
         {right ? <div className="shrink-0">{right}</div> : null}
-      </div>
+      </header>
       <div className={cx("p-4", bodyClassName)}>{children}</div>
     </section>
   );
@@ -184,8 +176,8 @@ export function InvestigationFactCard({
   const [copied, setCopied] = useState<null | "ok" | "fail">(null);
 
   return (
-    <div className="rounded-lg border border-border/60 bg-background/35 px-3 py-2">
-      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</div>
+    <div className="rounded-md border border-border bg-surface-2/50 px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</div>
       <div className="mt-1 flex items-start justify-between gap-3">
         <div className={cx("min-w-0 flex-1 break-words text-sm text-foreground", mono && "font-mono text-[12px]")}>
           {value}
@@ -198,7 +190,7 @@ export function InvestigationFactCard({
               setCopied(ok ? "ok" : "fail");
               window.setTimeout(() => setCopied(null), 1200);
             }}
-            className="shrink-0 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground"
+            className="shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             {copied === "ok" ? "Copied" : copied === "fail" ? "Failed" : "Copy"}
           </button>
@@ -216,11 +208,13 @@ export function InvestigationChipList({
   title: string;
   chips: Array<{ label: ReactNode; variant?: BadgeVariant }>;
 }) {
-  const items = chips.filter((c) => c && c.label !== null && c.label !== undefined && String(c.label).trim() !== "");
+  const items = chips.filter(
+    (c) => c && c.label !== null && c.label !== undefined && String(c.label).trim() !== "",
+  );
   if (items.length === 0) return null;
   return (
     <div className="space-y-2">
-      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{title}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{title}</div>
       <div className="flex flex-wrap items-center gap-2">
         {items.map((item, i) => (
           <Badge key={`${title}-${i}-${String(item.label)}`} variant={item.variant || "neutral"}>
@@ -237,23 +231,32 @@ export function InvestigationKeyValueGrid({
 }: {
   entries: Array<{ key: string; value: ReactNode }>;
 }) {
-  const rows = entries.filter((x) => x && x.key && x.value !== undefined && x.value !== null && String(x.value).trim() !== "");
+  const rows = entries.filter(
+    (x) => x && x.key && x.value !== undefined && x.value !== null && String(x.value).trim() !== "",
+  );
   if (rows.length === 0) {
     return (
-      <div className="rounded-md border border-border/60 bg-background/35 px-3 py-2 text-sm text-muted-foreground">
+      <div className="rounded-md border border-border bg-surface-2/40 px-3 py-2 text-sm text-muted-foreground">
         No evidence fields.
       </div>
     );
   }
   return (
-    <div className="space-y-2">
-      {rows.map((item) => (
+    <div className="overflow-hidden rounded-md border border-border bg-surface-2/40">
+      {rows.map((item, idx) => (
         <div
           key={`${item.key}-${String(item.value)}`}
-          className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-background/30 px-3 py-2"
+          className={cx(
+            "flex items-start justify-between gap-3 px-3 py-2",
+            idx > 0 ? "border-t border-border/55" : "",
+          )}
         >
-          <div className="min-w-0 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{item.key}</div>
-          <div className="max-w-[72%] text-right font-mono text-[12px] text-foreground break-words">{item.value}</div>
+          <div className="min-w-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+            {item.key}
+          </div>
+          <div className="max-w-[72%] break-words text-right font-mono text-[12px] text-foreground">
+            {item.value}
+          </div>
         </div>
       ))}
     </div>
@@ -280,14 +283,14 @@ export function InvestigationFieldGroup({
   });
 
   return (
-    <div className={cx("rounded-lg border border-border/60 bg-background/30 p-3", className)}>
-      <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">{title}</div>
+    <div className={cx("ui-card-shell p-3", className)}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{title}</div>
       {subtitle ? <div className="mt-1 text-[12px] text-muted-foreground">{subtitle}</div> : null}
       <div className="mt-3">
         {rows.length > 0 ? (
           <InvestigationKeyValueGrid entries={rows} />
         ) : (
-          <div className="rounded-md border border-border/60 bg-background/20 px-3 py-2 text-sm text-muted-foreground">
+          <div className="rounded-md border border-border bg-surface-2/30 px-3 py-2 text-sm text-muted-foreground">
             {emptyHint}
           </div>
         )}
@@ -315,14 +318,18 @@ export function InvestigationListItem({
   active?: boolean;
   className?: string;
 }) {
-  const badgeItems = (badges || []).filter((item) => item && item.label !== undefined && item.label !== null && String(item.label).trim() !== "");
-  const metaItems = (meta || []).filter((item) => item && item.value !== undefined && item.value !== null && String(item.value).trim() !== "");
+  const badgeItems = (badges || []).filter(
+    (item) => item && item.label !== undefined && item.label !== null && String(item.label).trim() !== "",
+  );
+  const metaItems = (meta || []).filter(
+    (item) => item && item.value !== undefined && item.value !== null && String(item.value).trim() !== "",
+  );
 
   return (
     <div
       className={cx(
-        "rounded-xl border border-border/60 bg-background/35 p-4",
-        active && "border-primary/60 bg-primary/10",
+        "ui-card-shell p-4",
+        active && "border-primary/55 bg-primary/[0.08]",
         className,
       )}
     >
@@ -347,7 +354,9 @@ export function InvestigationListItem({
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] font-mono text-muted-foreground">
           {metaItems.map((item, index) => (
             <span key={`${index}-${String(item.value)}`} className="inline-flex items-center gap-2">
-              {item.label ? <span className="uppercase tracking-widest text-muted-foreground/80">{item.label}</span> : null}
+              {item.label ? (
+                <span className="uppercase tracking-[0.1em] text-muted-foreground/80">{item.label}</span>
+              ) : null}
               <span className="text-foreground/90">{item.value}</span>
             </span>
           ))}
@@ -393,7 +402,7 @@ export function InvestigationStateBlock({
   if (loading) return <Loading label={loadingLabel || "Loading..."} />;
   if (error) {
     return (
-      <div className="rounded-lg border border-danger/50 bg-danger/10 px-4 py-3 text-sm text-danger">
+      <div className="rounded-md border border-danger/50 bg-danger/10 px-3 py-2.5 text-sm text-danger">
         {error}
       </div>
     );
