@@ -1,7 +1,8 @@
 import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
-import { Badge } from "@/shared/components/Badge";
+import { SeverityPill } from "@/shared/components/SeverityPill";
+import { StatusPill } from "@/shared/components/StatusPill";
 import { cx } from "@/shared/lib/cx";
 
 import { sevVariant } from "../lib/alertSeverity";
@@ -26,43 +27,47 @@ export function AlertsRulesList({ loading, filtered, selectedId, onEdit }: Alert
       {filtered.map((r) => {
         const isSel = selectedId === r.id;
         return (
-          <div
+          <button
+            type="button"
             key={r.id}
+            onClick={() => onEdit(r)}
             className={cx(
-              "w-full rounded-lg border border-border/60 bg-background/20 px-3 py-2",
-              "hover:bg-muted/30",
-              isSel && "bg-muted/40",
+              "block w-full rounded-md border bg-card px-3 py-2.5 text-left transition-colors",
+              "hover:border-primary/35 hover:bg-surface-2/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
+              isSel ? "border-primary/55 bg-primary/[0.08]" : "border-border",
             )}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <div className="font-mono text-[12px] truncate">{r.id}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="truncate font-mono text-[12.5px] text-foreground">{r.id}</div>
+                  <SeverityPill variant={sevVariant(r.severity)} withDot>{r.severity}</SeverityPill>
                   {!r.enabled ? (
-                    <Badge variant="neutral">disabled</Badge>
+                    <StatusPill variant="neutral">disabled</StatusPill>
                   ) : r.has_override ? (
-                    <Badge variant="neutral">override</Badge>
-                  ) : null}
-                  <Badge variant={sevVariant(r.severity)}>{r.severity}</Badge>
+                    <StatusPill variant="info">override</StatusPill>
+                  ) : (
+                    <StatusPill variant="active">active</StatusPill>
+                  )}
                 </div>
 
-                <div className="mt-1 text-[11px] text-muted-foreground line-clamp-2">
+                <div className="mt-1 line-clamp-2 text-[12px] text-muted-foreground">
                   {r.description || r.name || r.type || "(no description)"}
                 </div>
 
-                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-                  <div>{r.type || "-"}</div>
-                  <div className="font-mono">
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                  <span>{r.type || "-"}</span>
+                  <span className="font-mono">
                     {r.pack || "pack:-"} / {r.category || "cat:-"} · v{Number(r.rule_version || 1)}
-                  </div>
-                  <div className="font-mono">
+                  </span>
+                  <span className="font-mono">
                     {r.window || "-"} · cd {r.cooldown || "-"}
-                  </div>
-                  {r.source_file ? <div className="font-mono truncate">src: {r.source_file}</div> : null}
+                  </span>
+                  {r.source_file ? <span className="truncate font-mono">src: {r.source_file}</span> : null}
                 </div>
               </div>
 
-              <div className="shrink-0 flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <Button
                   variant="subtle"
                   size="sm"
@@ -76,7 +81,7 @@ export function AlertsRulesList({ loading, filtered, selectedId, onEdit }: Alert
                 </Button>
               </div>
             </div>
-          </div>
+          </button>
         );
       })}
     </div>

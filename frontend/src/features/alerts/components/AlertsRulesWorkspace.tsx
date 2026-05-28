@@ -12,7 +12,7 @@ export function AlertsRulesWorkspace() {
   const rulesData = useAlertsRulesData();
   const editor = useAlertRuleEditor(rulesData.selected, rulesData.reload, rulesData.loadHistory);
 
-  const panelHeightClass = "h-[640px] xl:h-[calc(100vh-270px)]";
+  const panelHeightClass = "h-[640px] xl:h-[calc(100vh-300px)]";
   const headerRight = rulesData.loading ? "Loading…" : `${rulesData.filtered.length} rules`;
 
   return (
@@ -20,7 +20,7 @@ export function AlertsRulesWorkspace() {
       <DataViewToolbar
         left={
           <div>
-            <h2 className="text-lg font-semibold">Rules</h2>
+            <h2 className="text-base font-semibold tracking-tight">Rules</h2>
             <div className="text-xs text-muted-foreground">
               Configure thresholds, lookback windows, cooldowns, schedules and severity with override safety.
             </div>
@@ -34,7 +34,7 @@ export function AlertsRulesWorkspace() {
               placeholder="Search rule, pack, category..."
               className="h-9 min-w-[240px]"
             />
-            <Button variant="subtle" size="lg" onClick={() => rulesData.reload()} disabled={rulesData.loading}>
+            <Button variant="subtle" size="md" onClick={() => rulesData.reload()} disabled={rulesData.loading}>
               Refresh
             </Button>
           </div>
@@ -54,9 +54,9 @@ export function AlertsRulesWorkspace() {
         stats={[
           { label: "Rules", value: rulesData.rules.length },
           { label: "Filtered", value: rulesData.filtered.length },
-          { label: "Enabled", value: rulesData.ruleStats.enabled },
-          { label: "Overrides", value: rulesData.ruleStats.overrides },
-          { label: "Critical/High", value: rulesData.ruleStats.criticalHigh },
+          { label: "Enabled", value: rulesData.ruleStats.enabled, tone: "success" },
+          { label: "Overrides", value: rulesData.ruleStats.overrides, tone: "info" },
+          { label: "Critical/High", value: rulesData.ruleStats.criticalHigh, tone: rulesData.ruleStats.criticalHigh > 0 ? "danger" : "default" },
           { label: "Selected", value: rulesData.selectedId || "-" },
           { label: "Editor", value: rulesData.drawerOpen ? "open" : "closed" },
           { label: "View", value: editor.showEffective ? "effective visible" : "effective hidden" },
@@ -65,7 +65,7 @@ export function AlertsRulesWorkspace() {
 
       <Panel
         title="Rule catalog"
-        actions={<span className="text-[10px] font-mono text-muted-foreground">{headerRight}</span>}
+        actions={<span className="text-[10.5px] text-muted-foreground">{headerRight}</span>}
         scrollY
         className={cx(panelHeightClass)}
       >
