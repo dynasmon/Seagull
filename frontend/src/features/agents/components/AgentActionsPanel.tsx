@@ -2,6 +2,7 @@ import type { AgentDetail } from "@/features/agents/types";
 import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
 import { Panel } from "@/shared/components/Panel";
+import { StatusPill } from "@/shared/components/StatusPill";
 
 export default function AgentActionsPanel({
   agent,
@@ -23,38 +24,44 @@ export default function AgentActionsPanel({
   return (
     <Panel
       title="Response actions"
-      actions={<span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">{agent?.is_revoked ? "Disabled" : "Enabled"}</span>}
+      actions={
+        agent?.is_revoked ? (
+          <StatusPill variant="neutral" withDot>Disabled</StatusPill>
+        ) : (
+          <StatusPill variant="active" withDot>Enabled</StatusPill>
+        )
+      }
       style={{ minHeight: 220 }}
     >
       {!agent ? (
         <EmptyState title="Agent not loaded" hint="Try refresh or check API connectivity." />
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3">
           <div className="space-y-1">
-            <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Selected</div>
-            <div className="text-sm font-mono truncate">{agent.display_name || agent.agent_id}</div>
-            <div className="text-[10px] font-mono text-muted-foreground truncate">{agent.agent_id}</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Selected</div>
+            <div className="truncate text-[13px] font-semibold text-foreground">{agent.display_name || agent.agent_id}</div>
+            <div className="truncate font-mono text-[10.5px] text-muted-foreground">{agent.agent_id}</div>
           </div>
 
           <div className="flex flex-col gap-2">
-            <Button variant="subtle" size="sm" onClick={onOpenConfig} className="w-full font-mono uppercase tracking-widest">
+            <Button variant="secondary" size="md" onClick={onOpenConfig} className="w-full">
               Open configuration
             </Button>
 
             {isAdmin && (
-              <Button variant="subtle" size="sm" onClick={onOpenResponseAction} className="w-full font-mono uppercase tracking-widest">
+              <Button variant="subtle" size="md" onClick={onOpenResponseAction} className="w-full">
                 Queue response action
               </Button>
             )}
 
             <Button
-              variant="subtle"
-              size="sm"
+              variant={agent.is_revoked ? "success" : "danger"}
+              size="md"
               onClick={onToggleRevoked}
               disabled={toggleBusy}
-              className="w-full font-mono uppercase tracking-widest"
+              className="w-full"
             >
-              {toggleBusy ? "Working..." : agent.is_revoked ? "Enable agent" : "Disable agent"}
+              {toggleBusy ? "Working…" : agent.is_revoked ? "Enable agent" : "Disable agent"}
             </Button>
           </div>
 

@@ -1,9 +1,10 @@
+import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
 import Drawer from "@/shared/components/Drawer";
 import { Panel } from "@/shared/components/Panel";
+import { StatusPill } from "@/shared/components/StatusPill";
 import { TextInput } from "@/shared/components/TextInput";
 import { TextArea } from "@/shared/components/TextArea";
-import { cx } from "@/shared/lib/cx";
 
 import { Dot, FieldLabel } from "./AgentsPageShared";
 import AgentConfigPanel from "./AgentConfigPanel";
@@ -48,6 +49,22 @@ export default function AgentDrawer({ open, onClose, selectedAgentId, agent, con
     onApplyConfig,
     setDdosDraft,
   } = controller;
+
+  const statusVariant = agent
+    ? agent.is_revoked
+      ? "neutral"
+      : isOnline(agent.last_seen_at)
+        ? "active"
+        : "warning"
+    : "neutral";
+  const statusLabel = agent
+    ? agent.is_revoked
+      ? "Disabled"
+      : isOnline(agent.last_seen_at)
+        ? "Online"
+        : "Offline"
+    : "—";
+
   return (
     <Drawer
       open={open}
@@ -58,18 +75,16 @@ export default function AgentDrawer({ open, onClose, selectedAgentId, agent, con
       headerLabel="Agent settings"
     >
       {!agent ? (
-        <div className="space-y-4">
-          <EmptyState title="Agent not loaded" hint="Try refresh or check API connectivity." />
-        </div>
+        <EmptyState title="Agent not loaded" hint="Try refresh or check API connectivity." />
       ) : (
-        <div className="space-y-6">
-          <div className="grid gap-6 lg:grid-cols-2">
+        <div className="space-y-5">
+          <div className="grid gap-4 lg:grid-cols-2">
             <Panel title="Identity">
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div>
                   <FieldLabel>Display name</FieldLabel>
                   <TextInput
-                    className="mt-1 font-mono text-[11px]"
+                    className="mt-1 font-mono text-[11.5px]"
                     value={draftName}
                     onChange={(e) => setDraftName(e.target.value)}
                     placeholder="e.g., Web Server - PROD"
@@ -80,7 +95,7 @@ export default function AgentDrawer({ open, onClose, selectedAgentId, agent, con
                 <div>
                   <FieldLabel>Description</FieldLabel>
                   <TextInput
-                    className="mt-1 font-mono text-[11px]"
+                    className="mt-1 font-mono text-[11.5px]"
                     value={draftDesc}
                     onChange={(e) => setDraftDesc(e.target.value)}
                     placeholder="Short context about what this agent protects"
@@ -91,7 +106,7 @@ export default function AgentDrawer({ open, onClose, selectedAgentId, agent, con
                 <div>
                   <FieldLabel>Tags</FieldLabel>
                   <TextInput
-                    className="mt-1 font-mono text-[11px]"
+                    className="mt-1 font-mono text-[11.5px]"
                     value={draftTags}
                     onChange={(e) => setDraftTags(e.target.value)}
                     placeholder="prod, web, ssh, dmz"
@@ -103,7 +118,7 @@ export default function AgentDrawer({ open, onClose, selectedAgentId, agent, con
                 <div>
                   <FieldLabel>Metadata (JSON)</FieldLabel>
                   <TextArea
-                    className="mt-1 font-mono text-[11px]"
+                    className="mt-1 font-mono text-[11.5px]"
                     rows={6}
                     value={draftMetaText}
                     onChange={(e) => setDraftMetaText(e.target.value)}
@@ -111,52 +126,51 @@ export default function AgentDrawer({ open, onClose, selectedAgentId, agent, con
                   />
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 pt-1">
-                  <button
-                    type="button"
-                    onClick={onSaveAgent}
-                    disabled={!canSaveAgent}
-                    className={cx(
-                      "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                      "hover:bg-primary/5",
-                      (!canSaveAgent || saveBusy) && "opacity-60 cursor-not-allowed"
-                    )}
-                  >
-                    {saveBusy ? "Saving..." : "Save"}
-                  </button>
+                <div className="flex items-center gap-2 pt-1">
+                  <Button variant="primary" size="md" onClick={onSaveAgent} disabled={!canSaveAgent || saveBusy}>
+                    {saveBusy ? "Saving…" : "Save"}
+                  </Button>
                 </div>
               </div>
             </Panel>
 
-            <Panel title="State" actions={<span className="text-[10px] font-mono text-muted-foreground">{agent.is_revoked ? "Disabled" : isOnline(agent.last_seen_at) ? "Online" : "Offline"}</span>}>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="space-y-1 min-w-0">
-                    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Agent</div>
-                    <div className="text-sm font-mono truncate">{agent.display_name || agent.agent_id}</div>
-                    <div className="text-[10px] font-mono text-muted-foreground truncate">{agent.agent_id}</div>
+            <Panel
+              title="State"
+              actions={
+                <StatusPill variant={statusVariant} withDot>
+                  {statusLabel}
+                </StatusPill>
+              }
+            >
+              <div className="space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <FieldLabel>Agent</FieldLabel>
+                    <div className="truncate text-[13px] font-semibold text-foreground">
+                      {agent.display_name || agent.agent_id}
+                    </div>
+                    <div className="truncate font-mono text-[10.5px] text-muted-foreground">{agent.agent_id}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Dot state={agent.is_revoked ? "disabled" : isOnline(agent.last_seen_at) ? "online" : "offline"} />
-                    <div className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">{fmtLastSeen(agent.last_seen_at)}</div>
+                    <div className="whitespace-nowrap font-mono text-[10.5px] text-muted-foreground">
+                      {fmtLastSeen(agent.last_seen_at)}
+                    </div>
                   </div>
                 </div>
 
-                <div className="border border-border/60 bg-background/20 p-3 rounded-md">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Actions</div>
-                  <div className="mt-3 flex flex-col gap-2">
-                    <button
-                      type="button"
+                <div className="rounded-md border border-border bg-surface-2/50 p-3">
+                  <FieldLabel>Actions</FieldLabel>
+                  <div className="mt-2 flex flex-col gap-2">
+                    <Button
+                      variant={agent.is_revoked ? "success" : "danger"}
+                      size="md"
                       onClick={onToggleRevoked}
                       disabled={toggleBusy}
-                      className={cx(
-                        "w-full min-w-0 border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-center break-words",
-                        "hover:bg-primary/5",
-                        toggleBusy && "opacity-60 cursor-not-allowed"
-                      )}
+                      className="w-full"
                     >
-                      {toggleBusy ? "Working..." : agent.is_revoked ? "Enable agent" : "Disable agent"}
-                    </button>
+                      {toggleBusy ? "Working…" : agent.is_revoked ? "Enable agent" : "Disable agent"}
+                    </Button>
                   </div>
                 </div>
 
