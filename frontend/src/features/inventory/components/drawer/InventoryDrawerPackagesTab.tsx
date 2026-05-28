@@ -1,7 +1,7 @@
 import EmptyState from "@/shared/components/EmptyState";
 import { Table } from "@/shared/components/Table";
+import { TextInput } from "@/shared/components/TextInput";
 import { InvestigationSection } from "@/shared/components/investigation";
-import { cx } from "@/shared/lib/cx";
 
 import type { InventorySnapshotOut, PackageEntry } from "../../types";
 import { filterPackages } from "../../lib/inventoryPackageFilters";
@@ -13,7 +13,12 @@ interface InventoryDrawerPackagesTabProps {
   compact: boolean;
 }
 
-export function InventoryDrawerPackagesTab({ drawerLatest, pkgQuery, setPkgQuery, compact }: InventoryDrawerPackagesTabProps) {
+export function InventoryDrawerPackagesTab({
+  drawerLatest,
+  pkgQuery,
+  setPkgQuery,
+  compact,
+}: InventoryDrawerPackagesTabProps) {
   if (!drawerLatest) {
     return <EmptyState title="No snapshot" hint="No package list available." />;
   }
@@ -27,33 +32,30 @@ export function InventoryDrawerPackagesTab({ drawerLatest, pkgQuery, setPkgQuery
       <div className="space-y-3">
         <div className="flex items-end justify-between gap-3">
           <div className="text-[11px] text-muted-foreground">Showing up to 200 entries from latest snapshot.</div>
-          <input
+          <TextInput
+            type="search"
             value={pkgQuery}
             onChange={(e) => setPkgQuery(e.target.value)}
             placeholder="Search packages..."
-            className={cx(
-              "w-[260px] max-w-full border border-border/60 bg-background/40 px-3 py-2",
-              "text-[11px] text-foreground outline-none font-mono",
-              "placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-primary/30"
-            )}
+            className="w-[260px] max-w-full font-mono"
           />
         </div>
 
         {allPackages.length === 0 ? (
-          <EmptyState title="NO PACKAGES" hint="No package entries in the latest snapshot." />
+          <EmptyState title="No packages" hint="No package entries in the latest snapshot." />
         ) : visible.length === 0 ? (
-          <EmptyState title="NO MATCHES" hint="Your filter did not match any package." />
+          <EmptyState title="No matches" hint="Your filter did not match any package." />
         ) : (
           <Table
             compact={compact}
             scrollX={false}
             className="text-xs"
             columns={[
-              { key: "name", title: "NAME", className: "font-mono text-foreground" },
-              { key: "version", title: "VERSION", className: "font-mono text-muted-foreground w-44" },
+              { key: "name", title: "Name", className: "font-mono text-foreground" },
+              { key: "version", title: "Version", className: "font-mono text-muted-foreground w-44" },
               {
                 key: "arch",
-                title: "ARCH",
+                title: "Arch",
                 className: "text-right font-mono text-muted-foreground w-20",
                 render: (p: PackageEntry) => p.arch || "",
               },

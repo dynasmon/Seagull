@@ -13,15 +13,21 @@ interface InventoryBarGaugeListProps {
   valueFormatter?: (v: number) => string;
 }
 
-export function InventoryBarGaugeList({ title, items, onPick, maxItems = 12, valueFormatter }: InventoryBarGaugeListProps) {
+export function InventoryBarGaugeList({
+  title,
+  items,
+  onPick,
+  maxItems = 12,
+  valueFormatter,
+}: InventoryBarGaugeListProps) {
   const sliced = items.slice(0, maxItems);
   const max = Math.max(1, ...sliced.map((i) => Number(i.value) || 0));
 
   return (
-    <div className="space-y-3">
-      <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">{title}</div>
+    <div className="space-y-2">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{title}</div>
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {sliced.map((row) => {
           const pct = Math.max(0, Math.min(100, (row.value / max) * 100));
           const clickable = Boolean(onPick);
@@ -32,26 +38,26 @@ export function InventoryBarGaugeList({ title, items, onPick, maxItems = 12, val
               disabled={!clickable}
               onClick={() => onPick?.(row.metric)}
               className={cx(
-                "w-full text-left rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                clickable ? "hover:bg-muted/10" : "cursor-default",
-                "focus:outline-none focus:ring-2 focus:ring-primary/30"
+                "block w-full rounded-md border border-border bg-card px-3 py-2 text-left transition-colors",
+                clickable ? "hover:border-primary/30 hover:bg-surface-2/70" : "cursor-default",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
               )}
             >
               <div className="flex items-center justify-between gap-3">
-                <div className="truncate text-[11px] font-mono text-foreground">{row.metric}</div>
-                <div className="shrink-0 text-[11px] font-mono text-muted-foreground">
+                <div className="truncate font-mono text-[11.5px] text-foreground">{row.metric}</div>
+                <div className="shrink-0 font-mono text-[11px] text-muted-foreground">
                   {valueFormatter ? valueFormatter(row.value) : String(row.value)}
                 </div>
               </div>
-              <div className="mt-2 h-2 w-full rounded bg-muted/20 overflow-hidden">
-                <div className="h-full bg-primary/60" style={{ width: `${pct}%` }} />
+              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted/40">
+                <div className="h-full rounded-full bg-primary/65" style={{ width: `${pct}%` }} />
               </div>
             </button>
           );
         })}
 
         {sliced.length === 0 ? (
-          <div className="rounded-md border border-border/60 bg-background/30 px-3 py-2 text-[11px] text-muted-foreground">
+          <div className="rounded-md border border-border bg-surface-2/40 px-3 py-2 text-[11px] text-muted-foreground">
             No data.
           </div>
         ) : null}
