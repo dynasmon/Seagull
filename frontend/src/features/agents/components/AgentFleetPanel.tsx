@@ -31,7 +31,11 @@ export default function AgentFleetPanel({
   return (
     <Panel
       title="Fleet overview"
-      actions={<span className="text-[10px] font-mono text-muted-foreground">{agentsFiltered.length}/{agentsSorted.length}</span>}
+      actions={
+        <span className="text-[10.5px] text-muted-foreground">
+          {agentsFiltered.length}/{agentsSorted.length}
+        </span>
+      }
       scrollY
       style={{ height }}
     >
@@ -40,11 +44,11 @@ export default function AgentFleetPanel({
           value={agentQuery}
           onChange={(e) => onAgentQueryChange(e.target.value)}
           placeholder="Search agents (name, id, tags)..."
-          className="font-mono text-[11px]"
+          className="font-mono text-[11.5px]"
         />
 
         {showConfigButton && onOpenConfig ? (
-          <Button variant="subtle" size="sm" onClick={onOpenConfig} className="w-full font-mono uppercase tracking-widest">
+          <Button variant="subtle" size="md" onClick={onOpenConfig} className="w-full">
             Configure selected agent
           </Button>
         ) : null}

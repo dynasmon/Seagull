@@ -10,6 +10,7 @@ import Loading from "@/shared/components/Loading";
 import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { TextInput } from "@/shared/components/TextInput";
+import { cx } from "@/shared/lib/cx";
 
 import { FieldLabel } from "./AgentsPageShared";
 
@@ -148,12 +149,17 @@ export default function AgentEventsWorkbench({
           <div className="space-y-1">
             <button
               type="button"
-              className={`w-full text-left px-3 py-2 rounded-md border border-border/60 hover:bg-muted/10 ${!eventsCfg.event_type ? "bg-primary/10" : "bg-background/30"}`}
               onClick={() => setEventsCfg((p) => ({ ...p, event_type: "" }))}
+              className={cx(
+                "block w-full rounded-md border bg-card px-3 py-2 text-left transition-colors hover:border-primary/30 hover:bg-surface-2/70",
+                !eventsCfg.event_type
+                  ? "border-primary/55 bg-primary/[0.08] hover:bg-primary/[0.12]"
+                  : "border-border",
+              )}
             >
               <div className="flex items-center justify-between">
-                <div className="text-sm font-mono">All types</div>
-                <div className="text-[10px] font-mono text-muted-foreground">{explorerBaseCount}</div>
+                <div className="font-mono text-[12.5px] font-semibold">All types</div>
+                <div className="font-mono text-[10.5px] text-muted-foreground">{explorerBaseCount}</div>
               </div>
             </button>
 
@@ -163,12 +169,17 @@ export default function AgentEventsWorkbench({
                 <button
                   key={x.key}
                   type="button"
-                  className={`w-full text-left px-3 py-2 rounded-md border border-border/60 hover:bg-muted/10 ${active ? "bg-primary/10" : "bg-background/20"}`}
                   onClick={() => setEventsCfg((p) => ({ ...p, event_type: x.key }))}
+                  className={cx(
+                    "block w-full rounded-md border bg-card px-3 py-2 text-left transition-colors hover:border-primary/30 hover:bg-surface-2/70",
+                    active
+                      ? "border-primary/55 bg-primary/[0.08] hover:bg-primary/[0.12]"
+                      : "border-border",
+                  )}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm font-mono truncate">{x.key}</div>
-                    <div className="text-[10px] font-mono text-muted-foreground">{x.count}</div>
+                    <div className="truncate font-mono text-[12.5px]">{x.key}</div>
+                    <div className="font-mono text-[10.5px] text-muted-foreground">{x.count}</div>
                   </div>
                 </button>
               );

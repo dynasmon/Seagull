@@ -13,7 +13,7 @@ export default function AgentsWorkspace({ model }: AgentsWorkspaceProps) {
   const { agents, events, compact, setCompact } = model;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <AgentsHeader agents={agents} compact={compact} setCompact={setCompact} />
 
       <AgentsMainLayout model={model} />
