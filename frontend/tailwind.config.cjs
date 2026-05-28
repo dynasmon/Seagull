@@ -44,10 +44,11 @@ module.exports = {
         full: "9999px"
       },
       boxShadow: {
-        soft: "0 1px 2px rgb(2 8 20 / 0.04), 0 1px 3px rgb(2 8 20 / 0.06)",
-        elevated: "0 1px 3px rgb(2 8 20 / 0.06), 0 8px 24px rgb(2 8 20 / 0.06)",
-        pop: "0 12px 32px rgb(2 8 20 / 0.12), 0 4px 12px rgb(2 8 20 / 0.08)",
-        drawer: "-12px 0 40px rgb(2 8 20 / 0.18)"
+        soft: "0 1px 2px rgb(2 8 20 / 0.04), 0 1px 3px rgb(2 8 20 / 0.05)",
+        elevated: "0 1px 3px rgb(2 8 20 / 0.06), 0 10px 30px rgb(2 8 20 / 0.07)",
+        pop: "0 14px 36px rgb(2 8 20 / 0.14), 0 4px 12px rgb(2 8 20 / 0.08)",
+        drawer: "-12px 0 40px rgb(2 8 20 / 0.22)",
+        focus: "0 0 0 4px rgb(var(--primary) / 0.12)"
       },
       gridTemplateColumns: {
         24: "repeat(24, minmax(0, 1fr))"
