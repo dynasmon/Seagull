@@ -51,10 +51,10 @@ export function AlertDrawerEvidenceTab({ selected, evidenceItems, evidenceLoadin
                   <span className="font-mono text-[11px] text-foreground">{ev.evidence_type}</span>
                   <span
                     className={cx(
-                      "text-[10px] rounded px-1.5 py-0.5",
+                      "rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em]",
                       ev.evidence_role === "trigger"
-                        ? "bg-orange-500/15 text-orange-400"
-                        : "bg-muted text-muted-foreground",
+                        ? "border-warning/40 bg-warning/12 text-warning"
+                        : "border-border bg-muted text-muted-foreground",
                     )}
                   >
                     {ev.evidence_role}

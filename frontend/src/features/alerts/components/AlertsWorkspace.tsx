@@ -46,7 +46,7 @@ export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
     return () => obs.disconnect();
   }, [view.infinite_scroll, data]);
 
-  const panelHeightClass = "h-[560px] xl:h-[calc(100vh-270px)]";
+  const panelHeightClass = "h-[560px] xl:h-[calc(100vh-300px)]";
   const isInitialLoading = data.loading && data.alerts.length === 0;
 
   const headerRight = (() => {
@@ -64,7 +64,7 @@ export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
       <DataViewToolbar
         left={
           <div>
-            <h2 className="text-lg font-semibold">Alert queue</h2>
+            <h2 className="text-base font-semibold tracking-tight">Alert queue</h2>
             <div className="text-xs text-muted-foreground">
               Inspect alert triage queue, pivot into evidence, and tune detections from the same workflow.
             </div>
@@ -78,11 +78,15 @@ export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
               placeholder="Search rule, IP, technique, description..."
               className="h-9 min-w-[220px] max-w-[360px]"
             />
-            <SeverityFilter value={view.severity} onChange={(value) => patch({ severity: value })} />
+            <SeverityFilter
+              value={view.severity}
+              onChange={(value) => patch({ severity: value })}
+              className="h-9 w-[160px]"
+            />
             <SelectInput
               value={view.status}
               onChange={(event) => patch({ status: event.target.value })}
-              className="h-9 w-[150px] font-mono text-xs"
+              className="h-9 w-[150px]"
               title="Alert lifecycle status"
             >
               <option value="all">All status</option>
@@ -95,12 +99,12 @@ export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
               value={view.rule_id}
               onChange={(event) => patch({ rule_id: event.target.value })}
               placeholder="Rule ID (exact)"
-              className="h-9 w-[210px]"
+              className="h-9 w-[210px] font-mono"
               title="Exact server-side rule filter"
             />
             <Button
               variant="subtle"
-              size="lg"
+              size="md"
               onClick={() => patch({ density: view.density === "comfortable" ? "compact" : "comfortable" })}
               title="Toggle row density"
             >
@@ -108,7 +112,7 @@ export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
             </Button>
             <Button
               variant={view.infinite_scroll ? "secondary" : "subtle"}
-              size="lg"
+              size="md"
               onClick={() => patch({ infinite_scroll: !view.infinite_scroll })}
               title="Auto-load older pages when scrolling"
             >
@@ -116,7 +120,7 @@ export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
             </Button>
             <Button
               variant="subtle"
-              size="lg"
+              size="md"
               onClick={() => data.loadHead("merge")}
               disabled={data.loading}
               title="Refresh queue"
@@ -125,7 +129,7 @@ export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
             </Button>
             <Button
               variant="primary"
-              size="lg"
+              size="md"
               onClick={handleRunAll}
               disabled={actions.running}
               title="Run all rules now"
@@ -149,61 +153,65 @@ export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
       <DataStatsStrip
         stats={[
           { label: "Visible", value: filters.filtered.length, hint: `${data.alerts.length} loaded` },
-          { label: "Critical/High", value: filters.severityBreakdown.critical + filters.severityBreakdown.high },
-          { label: "Medium/Low", value: filters.severityBreakdown.medium + filters.severityBreakdown.low },
+          {
+            label: "Critical/High",
+            value: filters.severityBreakdown.critical + filters.severityBreakdown.high,
+            tone: filters.severityBreakdown.critical + filters.severityBreakdown.high > 0 ? "danger" : "default",
+          },
+          {
+            label: "Medium/Low",
+            value: filters.severityBreakdown.medium + filters.severityBreakdown.low,
+            tone: filters.severityBreakdown.medium > 0 ? "warning" : "default",
+          },
           { label: "Unknown", value: filters.severityBreakdown.unknown },
           { label: "Severity filter", value: view.severity },
           { label: "Status filter", value: view.status },
-          { label: "Rule filter", value: view.rule_id || "-" },
           { label: "Density", value: view.density },
           { label: "Selected", value: bulk.selectedRows.length },
         ]}
       />
 
       {bulk.selectedRows.length > 0 ? (
-        <DataViewToolbar
-          className="py-2"
-          left={<div className="text-xs text-muted-foreground">{bulk.selectedRows.length} row(s) selected</div>}
-          right={
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="subtle"
-                size="md"
-                onClick={() => bulk.selectedRows.length > 0 && openDrawerFor(bulk.selectedRows[0])}
-              >
-                Open first evidence
-              </Button>
-              <Button
-                variant="subtle"
-                size="md"
-                onClick={() =>
-                  bulk.selectedRows.length > 0 && actions.openSelectedRuleEditor(bulk.selectedRows[0])
-                }
-              >
-                Edit selected rule
-              </Button>
-              <Button
-                variant="subtle"
-                size="md"
-                onClick={() => bulk.selectedRows.length > 0 && actions.pivotToEvents(bulk.selectedRows[0])}
-              >
-                Pivot to events
-              </Button>
-              <Button variant="subtle" size="md" onClick={bulk.clearSelectedRows}>
-                Clear selection
-              </Button>
-            </div>
-          }
-        />
+        <div className="ui-toolbar-shell flex flex-wrap items-center justify-between gap-2 border-primary/30 bg-primary/[0.06] py-2">
+          <div className="text-xs text-foreground">
+            <span className="font-semibold">{bulk.selectedRows.length}</span> row(s) selected
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="subtle"
+              size="sm"
+              onClick={() => bulk.selectedRows.length > 0 && openDrawerFor(bulk.selectedRows[0])}
+            >
+              Open first evidence
+            </Button>
+            <Button
+              variant="subtle"
+              size="sm"
+              onClick={() => bulk.selectedRows.length > 0 && actions.openSelectedRuleEditor(bulk.selectedRows[0])}
+            >
+              Edit selected rule
+            </Button>
+            <Button
+              variant="subtle"
+              size="sm"
+              onClick={() => bulk.selectedRows.length > 0 && actions.pivotToEvents(bulk.selectedRows[0])}
+            >
+              Pivot to events
+            </Button>
+            <Button variant="ghost" size="sm" onClick={bulk.clearSelectedRows}>
+              Clear
+            </Button>
+          </div>
+        </div>
       ) : null}
 
       <Panel
         title="Queue"
-        actions={<span className="text-[10px] font-mono text-muted-foreground">{headerRight}</span>}
+        actions={<span className="text-[10.5px] text-muted-foreground">{headerRight}</span>}
         scrollY
         className={cx(panelHeightClass)}
         bodyRef={panelBodyRef}
-        bodyClassName="p-0"
+        padded={false}
       >
         {isInitialLoading ? (
           <div className="p-4">
@@ -225,7 +233,7 @@ export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
               onToggleAllRows={bulk.toggleAllVisibleRows}
             />
 
-            <div className="sticky bottom-0 left-0 right-0 border-t border-border/60 bg-background/70 px-4 py-3 backdrop-blur">
+            <div className="sticky bottom-0 left-0 right-0 border-t border-border bg-card/95 px-4 py-2.5 backdrop-blur">
               <DataPaginationFooter
                 totalCount={filters.filtered.length}
                 pageSize={view.page_size}

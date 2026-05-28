@@ -1,6 +1,6 @@
-import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
+import { SeverityPill } from "@/shared/components/SeverityPill";
 import { cx } from "@/shared/lib/cx";
 
 import type { Density } from "../constants";
@@ -30,25 +30,26 @@ export function AlertsTable({
 }: AlertsTableProps) {
   const dense = density === "compact";
   const allVisibleSelected = rows.length > 0 && rows.every((row) => selectedRowIds.has(row.id));
+  const cellPad = dense ? "py-1.5" : "py-2.5";
 
   return (
     <div className="w-full">
       <table className="w-full text-sm">
-        <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
-          <tr className="border-b border-border/60 text-muted-foreground">
-            <th className="px-3 py-2 w-10">
+        <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm">
+          <tr className="text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <th className={cx("w-10 border-b border-border px-3", cellPad)}>
               <input
                 type="checkbox"
                 checked={allVisibleSelected}
                 onChange={(e) => onToggleAllRows(e.target.checked)}
                 aria-label="Select visible alerts"
-                className="h-4 w-4"
+                className="h-3.5 w-3.5 cursor-pointer accent-primary"
               />
             </th>
-            <th className="text-left font-medium px-3 py-2">Alert</th>
-            <th className="text-left font-medium px-3 py-2">Network</th>
-            <th className="text-left font-medium px-3 py-2">Description</th>
-            <th className="text-right font-medium px-3 py-2">Actions</th>
+            <th className={cx("border-b border-border px-3 font-semibold", cellPad)}>Alert</th>
+            <th className={cx("border-b border-border px-3 font-semibold", cellPad)}>Network</th>
+            <th className={cx("border-b border-border px-3 font-semibold", cellPad)}>Description</th>
+            <th className={cx("border-b border-border px-3 text-right font-semibold", cellPad)}>Actions</th>
           </tr>
         </thead>
 
@@ -58,7 +59,10 @@ export function AlertsTable({
             return (
               <tr
                 key={a.id}
-                className={cx("border-b border-border/40 hover:bg-muted/30", selected && "bg-muted/40")}
+                className={cx(
+                  "cursor-pointer border-t border-border/55 ui-row",
+                  selected && "ui-row-selected",
+                )}
                 role="button"
                 tabIndex={0}
                 onClick={() => onEdit(a)}
@@ -69,26 +73,27 @@ export function AlertsTable({
                   }
                 }}
               >
-                <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
+                <td className={cx("px-3", cellPad)} onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
                     checked={selectedRowIds.has(a.id)}
-                    onClick={(e) => e.stopPropagation()}
                     onChange={(e) => onToggleRow(a.id, e.target.checked)}
                     aria-label={`Select alert ${a.id}`}
-                    className="h-4 w-4"
+                    className="h-3.5 w-3.5 cursor-pointer accent-primary"
                   />
                 </td>
 
-                <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
+                <td className={cx("px-3", cellPad)}>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge variant={sevVariant(String(a.severity || "unknown"))}>{String(a.severity || "unknown")}</Badge>
-                    <span className="font-mono text-[12px] break-all">{a.rule_id}</span>
+                    <SeverityPill variant={sevVariant(String(a.severity || "unknown"))} withDot>
+                      {String(a.severity || "unknown")}
+                    </SeverityPill>
+                    <span className="break-all font-mono text-[12px] text-foreground">{a.rule_id}</span>
                   </div>
-                  <div className="font-mono text-[11px] text-muted-foreground">{fmtTs(a.created_at)}</div>
+                  <div className="mt-1 font-mono text-[11px] text-muted-foreground">{fmtTs(a.created_at)}</div>
                 </td>
 
-                <td className={cx("px-3 text-[12px]", dense ? "py-1.5" : "py-2")}>
+                <td className={cx("px-3 text-[12px]", cellPad)}>
                   <div>
                     <IpAddressPill ip={a.src_ip} ipContext={alertIpContext(a, "src")} compact />
                   </div>
@@ -100,11 +105,11 @@ export function AlertsTable({
                   </div>
                 </td>
 
-                <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
-                  <div className="text-[12px] text-muted-foreground line-clamp-2">{a.description || ""}</div>
+                <td className={cx("px-3", cellPad)}>
+                  <div className="line-clamp-2 text-[12px] text-muted-foreground">{a.description || ""}</div>
                 </td>
 
-                <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2")}>
+                <td className={cx("px-3 text-right", cellPad)}>
                   <Button
                     variant="subtle"
                     size="sm"
