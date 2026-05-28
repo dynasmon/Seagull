@@ -1,5 +1,7 @@
+import { Button } from "@/shared/components/Button";
+import { TextArea } from "@/shared/components/TextArea";
+import { TextInput } from "@/shared/components/TextInput";
 import { InvestigationSection } from "@/shared/components/investigation";
-import { cx } from "@/shared/lib/cx";
 
 import type { AgentDetail } from "@/features/agents/types";
 
@@ -18,6 +20,12 @@ interface InventoryDrawerConfigurationTabProps {
   onToggleAgentState: () => void;
   onSaveConfig: () => void;
   onResetConfig: () => void;
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</div>
+  );
 }
 
 export function InventoryDrawerConfigurationTab({
@@ -42,113 +50,63 @@ export function InventoryDrawerConfigurationTab({
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="space-y-3">
             <div>
-              <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Display name</div>
-              <input
+              <FieldLabel>Display name</FieldLabel>
+              <TextInput
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                className={cx(
-                  "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
-                  "text-[11px] text-foreground outline-none font-mono",
-                  "focus:ring-2 focus:ring-primary/30"
-                )}
+                className="mt-1 font-mono text-[11.5px]"
               />
             </div>
             <div>
-              <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Description</div>
-              <input
+              <FieldLabel>Description</FieldLabel>
+              <TextInput
                 value={editDesc}
                 onChange={(e) => setEditDesc(e.target.value)}
-                className={cx(
-                  "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
-                  "text-[11px] text-foreground outline-none font-mono",
-                  "focus:ring-2 focus:ring-primary/30"
-                )}
+                className="mt-1 font-mono text-[11.5px]"
               />
             </div>
             <div>
-              <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Tags (comma)</div>
-              <input
+              <FieldLabel>Tags (comma)</FieldLabel>
+              <TextInput
                 value={editTags}
                 onChange={(e) => setEditTags(e.target.value)}
                 placeholder="prod, linux, web"
-                className={cx(
-                  "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
-                  "text-[11px] text-foreground outline-none font-mono",
-                  "placeholder:text-muted-foreground/60 focus:ring-2 focus:ring-primary/30"
-                )}
+                className="mt-1 font-mono text-[11.5px]"
               />
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={onToggleAgentState}
-                className={cx(
-                  "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                  "text-xs font-mono uppercase tracking-widest",
-                  drawerAgent.is_revoked ? "text-success" : "text-warning",
-                  "hover:bg-muted/15 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                )}
-              >
+              <Button variant={drawerAgent.is_revoked ? "success" : "danger"} size="md" onClick={onToggleAgentState}>
                 {drawerAgent.is_revoked ? "Enable agent" : "Disable agent"}
-              </button>
+              </Button>
 
-              <button
-                type="button"
-                onClick={onSaveMetadata}
-                className={cx(
-                  "rounded-md border border-border/60 bg-primary/20 px-3 py-2",
-                  "text-xs font-mono uppercase tracking-widest text-foreground",
-                  "hover:bg-primary/25 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                )}
-              >
+              <Button variant="primary" size="md" onClick={onSaveMetadata}>
                 Save metadata
-              </button>
+              </Button>
             </div>
           </div>
 
           <div className="space-y-3">
             <div>
-              <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">Agent config (JSON)</div>
-              <textarea
+              <FieldLabel>Agent config (JSON)</FieldLabel>
+              <TextArea
                 value={editConfig}
                 onChange={(e) => setEditConfig(e.target.value)}
                 rows={14}
-                className={cx(
-                  "mt-1 w-full border border-border/60 bg-background/40 px-3 py-2",
-                  "text-[11px] text-foreground outline-none font-mono",
-                  "focus:ring-2 focus:ring-primary/30"
-                )}
+                className="mt-1 font-mono text-[11.5px]"
               />
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onSaveConfig}
-                className={cx(
-                  "rounded-md border border-border/60 bg-primary/20 px-3 py-2",
-                  "text-xs font-mono uppercase tracking-widest text-foreground",
-                  "hover:bg-primary/25 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                )}
-              >
+              <Button variant="primary" size="md" onClick={onSaveConfig}>
                 Save config
-              </button>
-              <button
-                type="button"
-                onClick={onResetConfig}
-                className={cx(
-                  "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                  "text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                  "hover:bg-muted/15 hover:text-foreground",
-                  "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                )}
-              >
+              </Button>
+              <Button variant="subtle" size="md" onClick={onResetConfig}>
                 Reset
-              </button>
+              </Button>
             </div>
           </div>
         </div>
 
-        {editMsg ? <div className="text-[11px] text-muted-foreground font-mono">{editMsg}</div> : null}
+        {editMsg ? <div className="font-mono text-[11px] text-muted-foreground">{editMsg}</div> : null}
       </InvestigationSection>
     </div>
   );
