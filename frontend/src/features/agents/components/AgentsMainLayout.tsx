@@ -1,3 +1,5 @@
+import { InlineAlert } from "@/shared/components/InlineAlert";
+
 import AgentFleetPanel from "./AgentFleetPanel";
 import AgentActionsPanel from "./AgentActionsPanel";
 import AgentAtGlancePanel from "./AgentAtGlancePanel";
@@ -13,8 +15,8 @@ export default function AgentsMainLayout({ model }: AgentsMainLayoutProps) {
   const { agents, config, actions, telemetry, isAdmin, compact, openConfig } = model;
 
   return (
-    <div className="grid gap-6 xl:grid-cols-12 min-w-0">
-      <div className="xl:col-span-4 space-y-6 min-w-0">
+    <div className="grid min-w-0 gap-4 xl:grid-cols-12">
+      <div className="space-y-4 xl:col-span-4 min-w-0">
         <AgentFleetPanel
           agentsFiltered={agents.agentsFiltered}
           agentsSorted={agents.agentsSorted}
@@ -38,7 +40,7 @@ export default function AgentsMainLayout({ model }: AgentsMainLayoutProps) {
         />
       </div>
 
-      <div className="xl:col-span-8 space-y-6 min-w-0">
+      <div className="space-y-4 xl:col-span-8 min-w-0">
         <AgentAtGlancePanel
           topStats={telemetry.topStats}
           eventsRate={telemetry.eventsRate}
@@ -48,9 +50,9 @@ export default function AgentsMainLayout({ model }: AgentsMainLayoutProps) {
         />
 
         {agents.snapshotError && (
-          <div className="border border-border/60 bg-background/40 p-3 text-[11px] text-danger">
+          <InlineAlert tone="danger" className="text-xs">
             Overview: {agents.snapshotError}
-          </div>
+          </InlineAlert>
         )}
 
         <AgentTelemetrySnapshot height={H_PANEL_MD} charts={telemetry.charts} />

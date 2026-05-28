@@ -18,7 +18,7 @@ export default function AgentsTable({ agentsFiltered, selectedAgentId, compact, 
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       {agentsFiltered.map((a) => {
         const disabled = Boolean(a.is_revoked);
         const online = !disabled && isOnline(a.last_seen_at);
@@ -30,36 +30,40 @@ export default function AgentsTable({ agentsFiltered, selectedAgentId, compact, 
             key={a.agent_id}
             type="button"
             onClick={() => onSelectAgent(a.agent_id)}
+            aria-pressed={active}
             className={cx(
-              "w-full text-left rounded-md border border-border/60 px-3",
+              "block w-full rounded-md border bg-card px-3 text-left transition-colors",
               compact ? "py-1.5" : "py-2.5",
-              active ? "bg-primary/10" : "bg-background/20",
-              "hover:bg-muted/10",
-              "focus:outline-none focus:ring-2 focus:ring-primary/30"
+              active
+                ? "border-primary/55 bg-primary/[0.08] hover:bg-primary/[0.12]"
+                : "border-border hover:border-primary/30 hover:bg-surface-2/70",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
             )}
           >
             <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex min-w-0 items-center gap-2.5">
                 <Dot state={state} />
                 <div className="min-w-0">
-                  <div className="text-sm font-mono truncate">{a.display_name || a.agent_id}</div>
-                  <div className="text-[10px] font-mono text-muted-foreground truncate">{a.agent_id}</div>
+                  <div className="truncate text-[12.5px] font-semibold text-foreground">{a.display_name || a.agent_id}</div>
+                  <div className="truncate font-mono text-[10.5px] text-muted-foreground">{a.agent_id}</div>
                 </div>
               </div>
-              <div className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">{fmtLastSeen(a.last_seen_at)}</div>
+              <div className="whitespace-nowrap text-[10.5px] uppercase tracking-[0.06em] text-muted-foreground">
+                {fmtLastSeen(a.last_seen_at)}
+              </div>
             </div>
             {a.tags && a.tags.length ? (
               <div className="mt-2 flex flex-wrap gap-1">
                 {a.tags.slice(0, 4).map((t) => (
                   <span
                     key={t}
-                    className="rounded border border-border/60 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground"
+                    className="rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
                   >
                     {t}
                   </span>
                 ))}
                 {a.tags.length > 4 ? (
-                  <span className="rounded border border-border/60 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                  <span className="rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
                     +{a.tags.length - 4}
                   </span>
                 ) : null}

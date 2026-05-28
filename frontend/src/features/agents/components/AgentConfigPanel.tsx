@@ -1,9 +1,9 @@
+import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
 import { Panel } from "@/shared/components/Panel";
 import { TextArea } from "@/shared/components/TextArea";
 import { TextInput } from "@/shared/components/TextInput";
 import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
-import { cx } from "@/shared/lib/cx";
 
 import { FieldLabel } from "./AgentsPageShared";
 import type { DdosConfigDraft } from "../lib/agentUtils";
@@ -214,32 +214,28 @@ export default function AgentConfigPanel({
             Restart the agent container to apply capture-level changes.
           </div>
 
-          <button
-            type="button"
-            onClick={onApplyDdosConfig}
-            disabled={configBusy}
-            className={cx(
-              "w-full border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-              "hover:bg-primary/5",
-              configBusy && "opacity-60 cursor-not-allowed"
-            )}
-          >
-            {configBusy ? "Saving..." : "Save DDoS settings"}
-          </button>
+          <Button variant="primary" size="md" onClick={onApplyDdosConfig} disabled={configBusy} className="w-full">
+            {configBusy ? "Saving…" : "Save DDoS settings"}
+          </Button>
         </div>
       </Panel>
 
-      <Panel title="Timings" actions={<span className="text-[10px] font-mono text-muted-foreground">{timingKeys.length ? `${timingKeys.length} keys` : "-"}</span>}>
+      <Panel
+        title="Timings"
+        actions={
+          <span className="text-[10.5px] text-muted-foreground">{timingKeys.length ? `${timingKeys.length} keys` : "-"}</span>
+        }
+      >
         {timingKeys.length === 0 ? (
           <EmptyState title="No timing keys" hint="This agent config does not expose timing-related fields." />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {timingKeys.map((k) => (
               <div key={k}>
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{k}</div>
+                <FieldLabel>{k}</FieldLabel>
                 <TextInput
                   type="number"
-                  className="mt-1 font-mono text-[11px]"
+                  className="mt-1 font-mono text-[11.5px]"
                   value={String((configObj as any)[k] ?? "")}
                   onChange={(e) => onUpdateTiming(k, Number(e.target.value))}
                   disabled={configBusy}
@@ -250,7 +246,12 @@ export default function AgentConfigPanel({
         )}
       </Panel>
 
-      <Panel title="Raw config" actions={<span className="text-[10px] font-mono text-muted-foreground">{configParseError ? "Invalid" : "JSON"}</span>}>
+      <Panel
+        title="Raw config"
+        actions={
+          <span className="text-[10.5px] text-muted-foreground">{configParseError ? "Invalid" : "JSON"}</span>
+        }
+      >
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <FieldLabel>Config (JSON)</FieldLabel>
@@ -260,14 +261,14 @@ export default function AgentConfigPanel({
                 const parsed = safeJsonParse(configText);
                 if (parsed.ok) setConfigText(prettyJson(parsed.value));
               }}
-              className="text-[10px] text-primary hover:underline"
+              className="rounded px-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-primary hover:bg-primary/10"
             >
               Format
             </button>
           </div>
 
           <TextArea
-            className="mt-1 font-mono text-[11px]"
+            className="font-mono text-[11.5px]"
             rows={14}
             value={configText}
             onChange={(e) => onConfigTextChange(e.target.value)}
@@ -276,18 +277,15 @@ export default function AgentConfigPanel({
 
           {configParseError && <div className="text-[11px] text-danger">Config: {configParseError}</div>}
 
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="md"
             onClick={onApplyConfig}
             disabled={configBusy || Boolean(configParseError)}
-            className={cx(
-              "w-full border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-              "hover:bg-primary/5",
-              (configBusy || Boolean(configParseError)) && "opacity-60 cursor-not-allowed"
-            )}
+            className="w-full"
           >
-            {configBusy ? "Pushing..." : "Push config"}
-          </button>
+            {configBusy ? "Pushing…" : "Push config"}
+          </Button>
         </div>
       </Panel>
     </div>
