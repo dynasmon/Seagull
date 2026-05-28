@@ -8,47 +8,50 @@ export function Panel({
   actions,
   children,
   compact = false,
+  padded = true,
   scrollY = false,
   className,
   style,
   bodyClassName,
   bodyRef,
+  tone = "default",
 }: {
   title?: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   compact?: boolean;
+  padded?: boolean;
   scrollY?: boolean;
   className?: string;
   style?: CSSProperties;
   bodyClassName?: string;
   bodyRef?: React.Ref<HTMLDivElement>;
+  tone?: "default" | "muted" | "raised";
 }) {
   const hasHeader = Boolean(title || subtitle || actions);
+  const shellTone =
+    tone === "raised"
+      ? "ui-card-shell shadow-elevated"
+      : tone === "muted"
+        ? "rounded-lg border border-border bg-surface-2/70"
+        : "ui-card-shell";
+  const padClass = padded ? (compact ? "p-3" : "p-4") : "";
 
   return (
-    <section className={cx("ui-card-shell flex flex-col overflow-hidden", className)} style={style}>
+    <section className={cx(shellTone, "flex flex-col overflow-hidden", className)} style={style}>
       {hasHeader && (
-        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border bg-surface-2/60 px-4 py-3">
+        <header className="ui-panel-header shrink-0">
           <div className="min-w-0">
-            {title ? (
-              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-                {title}
-              </div>
-            ) : null}
-            {subtitle ? (
-              <div className="mt-1 text-[12px] text-muted-foreground">{subtitle}</div>
-            ) : null}
+            {title ? <div className="ui-panel-eyebrow truncate">{title}</div> : null}
+            {subtitle ? <div className="ui-panel-subtitle">{subtitle}</div> : null}
           </div>
-          {actions ? (
-            <div className="flex shrink-0 items-center gap-2">{actions}</div>
-          ) : null}
-        </div>
+          {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+        </header>
       )}
       <div
         ref={bodyRef}
-        className={cx(compact ? "p-3" : "p-4", "flex-1 min-h-0", scrollY && "overflow-y-auto", bodyClassName)}
+        className={cx(padClass, "flex-1 min-h-0", scrollY && "overflow-y-auto", bodyClassName)}
       >
         {children}
       </div>

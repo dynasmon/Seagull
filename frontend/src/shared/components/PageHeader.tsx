@@ -16,7 +16,7 @@ export function PageHeader({
   breadcrumb,
   description,
   tabs,
-  toolbarRight
+  toolbarRight,
 }: {
   title: string;
   breadcrumb?: PageHeaderBreadcrumb[];
@@ -28,7 +28,6 @@ export function PageHeader({
 
   function computeEnd(t: PageHeaderTab): boolean {
     if (typeof t.end === "boolean") return t.end;
-
     const base = (t.to || "/").replace(/\/+$/g, "") || "/";
     const prefix = base === "/" ? "/" : `${base}/`;
     const hasChild = computedTabs.some((o) => o.to !== t.to && (o.to || "").startsWith(prefix));
@@ -36,21 +35,21 @@ export function PageHeader({
   }
 
   return (
-    <section className="ui-section-shell mb-6 overflow-hidden" aria-label={`${title} section`}>
-      <div className="border-b border-border bg-surface-2/50 px-4 py-4 sm:px-5">
+    <section className="ui-section-shell mb-5 overflow-hidden" aria-label={`${title} section`}>
+      <div className="px-4 py-4 sm:px-5">
         {breadcrumb && breadcrumb.length > 0 ? (
-          <nav aria-label="Section breadcrumb" className="mb-2">
-            <ol className="flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+          <nav aria-label="Section breadcrumb" className="mb-1.5">
+            <ol className="flex flex-wrap items-center gap-1 text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground">
               {breadcrumb.map((entry, idx) => {
                 const item = asBreadcrumbItem(entry);
-                const isLast = idx === (breadcrumb.length - 1);
+                const isLast = idx === breadcrumb.length - 1;
                 return (
-                  <li key={`${item.label}:${idx}`} className="flex items-center gap-1.5">
-                    {idx > 0 ? <span className="text-muted-foreground/70">/</span> : null}
+                  <li key={`${item.label}:${idx}`} className="flex items-center gap-1">
+                    {idx > 0 ? <span className="text-muted-foreground/60">›</span> : null}
                     {item.to && !isLast ? (
                       <Link
                         to={item.to}
-                        className="rounded-sm px-1 py-0.5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
+                        className="rounded-sm px-1 py-0.5 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
                       >
                         {item.label}
                       </Link>
@@ -66,10 +65,9 @@ export function PageHeader({
 
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-primary">Section</div>
-            <h1 className="mt-1 text-lg font-semibold tracking-tight text-foreground">{title}</h1>
+            <h1 className="text-[18px] font-semibold tracking-tight text-foreground">{title}</h1>
             {description ? (
-              <div className="mt-1 text-[12px] text-muted-foreground">{description}</div>
+              <div className="mt-1 max-w-3xl text-[12px] leading-relaxed text-muted-foreground">{description}</div>
             ) : null}
           </div>
 
@@ -78,19 +76,14 @@ export function PageHeader({
       </div>
 
       {tabs && tabs.length > 0 ? (
-        <div className="px-4 pt-2 sm:px-5">
+        <div className="border-t border-border bg-surface-2/40 px-4 sm:px-5">
           <div className="ui-tab-shell border-b-0">
             {tabs.map((t) => (
               <NavLink
                 key={t.to}
                 to={t.to}
                 end={computeEnd(t)}
-                className={({ isActive }) =>
-                  cx(
-                    "ui-tab-item",
-                    isActive && "ui-tab-item-active"
-                  )
-                }
+                className={({ isActive }) => cx("ui-tab-item", isActive && "ui-tab-item-active")}
               >
                 {t.label}
               </NavLink>

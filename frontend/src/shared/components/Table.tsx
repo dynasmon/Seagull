@@ -29,6 +29,28 @@ function nextDirection(current: TableSortState | null | undefined, key: string):
   return current.direction === "asc" ? "desc" : "asc";
 }
 
+function SortIcon({ direction }: { direction: "asc" | "desc" | "none" }) {
+  if (direction === "asc") {
+    return (
+      <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" aria-hidden="true">
+        <path d="M2 8 6 4l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      </svg>
+    );
+  }
+  if (direction === "desc") {
+    return (
+      <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" aria-hidden="true">
+        <path d="M2 4 6 8l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 12 12" className="h-2.5 w-2.5 opacity-60" aria-hidden="true">
+      <path d="M3 5l3-3 3 3M3 7l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+}
+
 export function Table<T>({
   columns,
   rows,
@@ -46,7 +68,7 @@ export function Table<T>({
   sort,
   onSortChange,
   rowClassName,
-  footer
+  footer,
 }: {
   columns: Array<Column<T>>;
   rows: T[];
@@ -84,7 +106,7 @@ export function Table<T>({
           <thead
             className={cx(
               stickyHeader && "sticky top-0 z-[2]",
-              "bg-surface-2 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm"
+              "bg-surface-2/95 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm",
             )}
           >
             <tr>
@@ -99,7 +121,7 @@ export function Table<T>({
                     }}
                     onChange={(e) => onToggleAllRows?.(e.target.checked)}
                     aria-label="Select all rows"
-                    className="h-4 w-4"
+                    className="h-3.5 w-3.5 cursor-pointer accent-primary"
                   />
                 </th>
               ) : null}
@@ -114,7 +136,7 @@ export function Table<T>({
                   <th
                     key={c.key}
                     style={c.width ? { width: c.width } : undefined}
-                    className={cx("border-b border-border font-semibold align-middle", cellPadding, alignClass, c.className || "")}
+                    className={cx("border-b border-border align-middle font-semibold", cellPadding, alignClass, c.className || "")}
                     aria-sort={isActiveSort ? (sort?.direction === "asc" ? "ascending" : "descending") : "none"}
                   >
                     {isSortable ? (
@@ -122,15 +144,14 @@ export function Table<T>({
                         type="button"
                         onClick={() => onSortChange?.({ key, direction: nextDirection(sort, key) })}
                         className={cx(
-                          "inline-flex items-center gap-1 rounded-sm px-1 py-0.5",
-                          "hover:bg-muted/45 hover:text-foreground",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+                          "inline-flex items-center gap-1.5 rounded-sm px-1 py-0.5",
+                          "hover:bg-muted/50 hover:text-foreground",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
+                          isActiveSort && "text-foreground",
                         )}
                       >
                         <span>{c.title}</span>
-                        <span aria-hidden="true" className={cx("text-[10px]", isActiveSort ? "text-foreground" : "text-muted-foreground/70")}>
-                          {isActiveSort ? (sort?.direction === "asc" ? "▲" : "▼") : "↕"}
-                        </span>
+                        <SortIcon direction={isActiveSort ? (sort?.direction || "asc") : "none"} />
                       </button>
                     ) : (
                       c.title
@@ -150,28 +171,31 @@ export function Table<T>({
                 renderKeyCount.set(logicalKey, dupCount + 1);
                 const renderKey = dupCount === 0 ? logicalKey : `${logicalKey}__dup_${i}`;
                 const key = logicalKey;
-                const isSelected = (selectedRowKey !== undefined && selectedRowKey !== null && key === selectedRowKey) || selectedSet.has(key);
+                const isSelected =
+                  (selectedRowKey !== undefined && selectedRowKey !== null && key === selectedRowKey) ||
+                  selectedSet.has(key);
                 const clickable = Boolean(onRowClick);
 
                 return (
                   <tr
                     key={renderKey}
                     className={cx(
-                      "border-t border-border/60 transition-colors",
-                      clickable ? "cursor-pointer hover:bg-surface-2" : "hover:bg-surface-2/60",
-                      isSelected && "bg-primary/10 hover:bg-primary/15",
-                      rowClassName?.(r, i)
+                      "border-t border-border/55",
+                      clickable ? "cursor-pointer" : "",
+                      "ui-row",
+                      isSelected && "ui-row-selected",
+                      rowClassName?.(r, i),
                     )}
                     onClick={() => onRowClick?.(r, i)}
                   >
                     {selectableRows ? (
-                      <td className={cx(cellPadding, "align-top")} onClick={(e) => e.stopPropagation()}>
+                      <td className={cx(cellPadding, "align-middle")} onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={selectedSet.has(key)}
                           onChange={(e) => onToggleRow?.(r, e.target.checked)}
                           aria-label={`Select row ${i + 1}`}
-                          className="h-4 w-4"
+                          className="h-3.5 w-3.5 cursor-pointer accent-primary"
                         />
                       </td>
                     ) : null}
@@ -179,7 +203,7 @@ export function Table<T>({
                     {columns.map((c) => {
                       const alignClass = c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left";
                       return (
-                        <td key={c.key} className={cx(cellPadding, "align-top", alignClass, c.className || "")}>
+                        <td key={c.key} className={cx(cellPadding, "align-middle", alignClass, c.className || "")}>
                           {c.render ? c.render(r) : (r as Record<string, unknown>)[c.key] as ReactNode}
                         </td>
                       );
