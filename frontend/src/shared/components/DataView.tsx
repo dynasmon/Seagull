@@ -127,15 +127,29 @@ export function DataStatsStrip({
   stats,
   className
 }: {
-  stats: Array<{ label: string; value: ReactNode; hint?: ReactNode }>;
+  stats: Array<{ label: string; value: ReactNode; hint?: ReactNode; tone?: "default" | "success" | "warning" | "danger" | "info" }>;
   className?: string;
 }) {
+  function toneClass(tone?: "default" | "success" | "warning" | "danger" | "info"): string {
+    switch (tone) {
+      case "success":
+        return "text-success";
+      case "warning":
+        return "text-warning";
+      case "danger":
+        return "text-danger";
+      case "info":
+        return "text-info";
+      default:
+        return "text-foreground";
+    }
+  }
   return (
     <div className={cx("grid gap-2 sm:grid-cols-2 xl:grid-cols-4", className)}>
       {stats.map((item) => (
-        <div key={item.label} className="ui-card-shell px-3 py-3">
-          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{item.label}</div>
-          <div className="mt-1 text-lg font-semibold leading-tight text-foreground">{item.value}</div>
+        <div key={item.label} className="ui-card-shell px-3.5 py-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{item.label}</div>
+          <div className={cx("mt-1 text-lg font-semibold leading-tight tracking-tight", toneClass(item.tone))}>{item.value}</div>
           {item.hint ? <div className="mt-1 text-[10px] text-muted-foreground">{item.hint}</div> : null}
         </div>
       ))}
@@ -162,8 +176,12 @@ export function DataQueryStateBanner({
           : "border-border/60 bg-muted/30 text-muted-foreground";
 
   return (
-    <div className={cx("flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-[11px]", toneClasses)} role="status" aria-live="polite">
-      <div className="font-mono">{message}</div>
+    <div
+      className={cx("flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-[11px]", toneClasses)}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="font-mono leading-relaxed">{message}</div>
       {right ? <div className="font-mono">{right}</div> : null}
     </div>
   );

@@ -201,14 +201,14 @@ export default function Drawer({
         )}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <header className="ui-drawer-header shrink-0 px-5 py-4">
+        <header className="ui-drawer-header shrink-0 px-5 py-3.5">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-primary/90">
                 {headerLabel}
               </div>
-              <h2 id={titleId} className="mt-1 truncate text-base font-semibold">{title}</h2>
-              {description ? <div id={descriptionId} className="mt-1 text-[12px] text-muted-foreground">{description}</div> : null}
+              <h2 id={titleId} className="mt-1 truncate text-[15px] font-semibold tracking-tight">{title}</h2>
+              {description ? <div id={descriptionId} className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{description}</div> : null}
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
@@ -217,9 +217,16 @@ export default function Drawer({
                 ref={closeButtonRef}
                 type="button"
                 onClick={onClose}
-                className={cx("ui-btn shrink-0")}
+                aria-label="Close drawer"
+                className={cx(
+                  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors",
+                  "hover:border-primary/40 hover:bg-muted hover:text-foreground",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+                )}
               >
-                Close
+                <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4">
+                  <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
               </button>
             </div>
           </div>
