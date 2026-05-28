@@ -8,7 +8,9 @@ import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
+import { InlineAlert } from "@/shared/components/InlineAlert";
 import Loading from "@/shared/components/Loading";
+import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { Table, type Column } from "@/shared/components/Table";
 import { Tabs } from "@/shared/components/Tabs";
@@ -98,19 +100,35 @@ function fmtQueryMeta(meta?: { source?: string; source_freshness_seconds?: numbe
 function RiskPill({ risk }: { risk: number }) {
   const r = clampInt(risk, 0, 5, 0);
   const label = r === 0 ? "low" : r === 1 ? "medium" : r === 2 ? "high" : "critical";
-  const variant = label as any;
+  const variant = label as "low" | "medium" | "high" | "critical";
   return <Badge variant={variant}>{label}</Badge>;
 }
 
-function Section({ title, right, children, padded = true }: { title: string; right?: any; children: any; padded?: boolean }) {
+function Section({
+  title,
+  right,
+  children,
+  padded = true,
+}: {
+  title: string;
+  right?: React.ReactNode;
+  children: React.ReactNode;
+  padded?: boolean;
+}) {
   return (
-    <div className="ui-card-shell overflow-hidden rounded-xl">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/60 bg-muted/10">
-        <div className="text-sm font-semibold tracking-tight">{title}</div>
-        {right ? <div className="text-xs text-muted-foreground">{right}</div> : null}
-      </div>
-      {padded ? <div className="p-4">{children}</div> : children}
-    </div>
+    <Panel
+      title={title}
+      actions={right ? <span className="text-[10.5px] text-muted-foreground">{right}</span> : undefined}
+      padded={padded}
+    >
+      {children}
+    </Panel>
+  );
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</div>
   );
 }
 
@@ -463,116 +481,109 @@ export default function ProtocolIntelPage() {
         <div className="space-y-5">
           <Section title="Scope" right={view.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "manual"}>
             <div className="space-y-3">
-              <div className="grid grid-cols-1 gap-3">
-                <div>
-                  <div className="text-xs text-muted-foreground">Agent</div>
-                  <SelectInput
-                    value={draft.agent_id}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setDraft((s) => ({ ...s, agent_id: v }));
-                      // Agent changes are safe to apply immediately (single click, no typing spam).
-                      setView((cur) => ({ ...cur, agent_id: v }));
-                    }}
-                    className="mt-2 w-full"
-                  >
-                    <option value="">All agents</option>
-                    {agentOptions.map((a) => (
-                      <option key={a.agent_id} value={a.agent_id}>
-                        {a.display_name}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <div className="text-xs text-muted-foreground">Lookback (minutes)</div>
-                    <TextInput
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      type="text"
-                      value={draft.since_minutes}
-                      onChange={(e) => {
-                        const raw = digitsOnly(e.target.value).slice(0, 6);
-                        setDraft((s) => ({ ...s, since_minutes: raw }));
-                      }}
-                      placeholder={String(view.since_minutes)}
-                      className="mt-2 w-full"
-                    />
-                    <div className="mt-1 text-[11px] text-muted-foreground">1–43200 (30 days)</div>
-                  </div>
-
-                  <div>
-                    <div className="text-xs text-muted-foreground">Top-N</div>
-                    <TextInput
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      type="text"
-                      value={draft.top_n}
-                      onChange={(e) => {
-                        const raw = digitsOnly(e.target.value).slice(0, 3);
-                        setDraft((s) => ({ ...s, top_n: raw }));
-                      }}
-                      placeholder={String(view.top_n)}
-                      className="mt-2 w-full"
-                    />
-                    <div className="mt-1 text-[11px] text-muted-foreground">5–200</div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <div className="text-xs text-muted-foreground">Refresh cadence</div>
-                    <div className="mt-2 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm text-muted-foreground">
-                      {draft.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "Manual only"}
-                    </div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">Cadence is controlled centrally by the live-refresh policy.</div>
-                  </div>
-
-                  <div className="flex items-end">
-                    <label className="inline-flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={draft.auto_refresh}
-                        onChange={(e) => setDraft((s) => ({ ...s, auto_refresh: e.target.checked }))}
-                      />
-                      <span className="text-sm text-muted-foreground">Auto refresh</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                  <div className="text-[11px] text-muted-foreground">
-                    {isDirty ? "Draft changes pending. Click Apply to update the query scope." : "Scope applied."}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isDirty ? (
-                      <Button variant="primary" size="lg" onClick={applyDraft}>
-                        Apply
-                      </Button>
-                    ) : null}
-                    <Button
-                      variant="subtle"
-                      size="lg"
-                      onClick={() => setDraft(draftFromView(view))}
-                      disabled={!isDirty}
-                    >
-                      Reset
-                    </Button>
-                  </div>
-                </div>
-
-                {parseDraftInt(draft.since_minutes, view.since_minutes) > 60 * 24 ? (
-                  <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
-                    Large lookback windows can be expensive. Auto refresh is disabled above 24h to protect CPU/DB.
-                  </div>
-                ) : parseDraftInt(draft.since_minutes, view.since_minutes) > 60 * 12 && draft.auto_refresh ? (
-                  <div className="rounded-md border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
-                    Refresh interval was increased to reduce CPU load for large windows.
-                  </div>
-                ) : null}
+              <div>
+                <FieldLabel>Agent</FieldLabel>
+                <SelectInput
+                  value={draft.agent_id}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setDraft((s) => ({ ...s, agent_id: v }));
+                    setView((cur) => ({ ...cur, agent_id: v }));
+                  }}
+                  className="mt-1 font-mono text-[11.5px]"
+                >
+                  <option value="">All agents</option>
+                  {agentOptions.map((a) => (
+                    <option key={a.agent_id} value={a.agent_id}>
+                      {a.display_name}
+                    </option>
+                  ))}
+                </SelectInput>
               </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <FieldLabel>Lookback (min)</FieldLabel>
+                  <TextInput
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    type="text"
+                    value={draft.since_minutes}
+                    onChange={(e) => {
+                      const raw = digitsOnly(e.target.value).slice(0, 6);
+                      setDraft((s) => ({ ...s, since_minutes: raw }));
+                    }}
+                    placeholder={String(view.since_minutes)}
+                    className="mt-1 font-mono text-[11.5px]"
+                  />
+                  <div className="mt-1 text-[11px] text-muted-foreground">1–43200 (30 days)</div>
+                </div>
+
+                <div>
+                  <FieldLabel>Top-N</FieldLabel>
+                  <TextInput
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    type="text"
+                    value={draft.top_n}
+                    onChange={(e) => {
+                      const raw = digitsOnly(e.target.value).slice(0, 3);
+                      setDraft((s) => ({ ...s, top_n: raw }));
+                    }}
+                    placeholder={String(view.top_n)}
+                    className="mt-1 font-mono text-[11.5px]"
+                  />
+                  <div className="mt-1 text-[11px] text-muted-foreground">5–200</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <FieldLabel>Refresh cadence</FieldLabel>
+                  <div className="mt-1 inline-flex h-9 w-full items-center rounded-md border border-border bg-surface-2 px-3 font-mono text-[11px] text-muted-foreground">
+                    {draft.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "Manual only"}
+                  </div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">Controlled centrally by the live-refresh policy.</div>
+                </div>
+
+                <div className="flex items-end">
+                  <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-border bg-card px-3">
+                    <input
+                      type="checkbox"
+                      checked={draft.auto_refresh}
+                      onChange={(e) => setDraft((s) => ({ ...s, auto_refresh: e.target.checked }))}
+                      className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                    />
+                    <span className="text-[11.5px] text-foreground/85">Auto refresh</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div className="text-[11px] text-muted-foreground">
+                  {isDirty ? "Draft changes pending — click Apply to update the query scope." : "Scope applied."}
+                </div>
+                <div className="flex items-center gap-2">
+                  {isDirty ? (
+                    <Button variant="primary" size="md" onClick={applyDraft}>
+                      Apply
+                    </Button>
+                  ) : null}
+                  <Button variant="subtle" size="md" onClick={() => setDraft(draftFromView(view))} disabled={!isDirty}>
+                    Reset
+                  </Button>
+                </div>
+              </div>
+
+              {parseDraftInt(draft.since_minutes, view.since_minutes) > 60 * 24 ? (
+                <InlineAlert tone="warning" className="text-xs">
+                  Large lookback windows can be expensive. Auto refresh is disabled above 24h to protect CPU/DB.
+                </InlineAlert>
+              ) : parseDraftInt(draft.since_minutes, view.since_minutes) > 60 * 12 && draft.auto_refresh ? (
+                <InlineAlert tone="info" className="text-xs">
+                  Refresh interval was increased to reduce CPU load for large windows.
+                </InlineAlert>
+              ) : null}
             </div>
           </Section>
 
@@ -647,15 +658,13 @@ export default function ProtocolIntelPage() {
             />
           ) : null}
 
-          {!hasBlockingState && error ? (
-            <div className="rounded-xl border border-danger/30 bg-danger/10 p-4 text-sm text-danger">{error}</div>
-          ) : null}
+          {!hasBlockingState && error ? <InlineAlert tone="danger">{error}</InlineAlert> : null}
 
           {!hasBlockingState && !error && fallbackSinceMinutes ? (
-            <div className="rounded-xl border border-info/30 bg-info/10 p-4 text-sm text-info">
+            <InlineAlert tone="info">
               No events were found in the selected window. Showing historical protocol telemetry from the last{" "}
               <span className="font-mono">{fallbackSinceMinutes}</span> minutes.
-            </div>
+            </InlineAlert>
           ) : null}
 
           {!hasBlockingState && data?.meta ? (
@@ -666,14 +675,16 @@ export default function ProtocolIntelPage() {
           ) : null}
 
           {!hasBlockingState && shouldWarnNoCoverage ? (
-            <div className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning space-y-1">
-              <div className="font-medium">No protocol metadata in this window.</div>
-              <div>
-                L7 collection is enabled by default. If tables stay empty, confirm the{" "}
-                <span className="font-mono">proto-intel</span> worker is running and that agents are
-                capturing traffic (DNS, HTTP, or TLS handshakes).
+            <InlineAlert tone="warning">
+              <div className="space-y-0.5">
+                <div className="font-semibold">No protocol metadata in this window.</div>
+                <div>
+                  L7 collection is enabled by default. If tables stay empty, confirm the{" "}
+                  <span className="font-mono">proto-intel</span> worker is running and that agents are capturing
+                  traffic (DNS, HTTP, or TLS handshakes).
+                </div>
               </div>
-            </div>
+            </InlineAlert>
           ) : null}
 
           <Tabs<IntelTab>

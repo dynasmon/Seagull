@@ -1,16 +1,15 @@
 import EmptyState from "@/shared/components/EmptyState";
-import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { JsonBlock } from "@/shared/components/JsonBlock";
 import {
   InvestigationFieldGroup,
+  formatInvestigationTimestamp,
 } from "@/shared/components/investigation";
-import { getFlowIpContext } from "@/shared/lib/ipClassification";
 
 import type { NetEvent } from "../types";
 import { extractDdosFields, ddosLabel, fmtHumanRate, isDdosEvent } from "../lib/ddos";
 import { normalizeDetails, safeNumber } from "../lib/normalize";
 import { formatProtocolLabel, getEventProtocolIntel } from "../lib/protocol";
-import { formatInvestigationTimestamp } from "@/shared/components/investigation";
+import { DstEndpoint, SrcEndpoint } from "./SrcDstFlow";
 
 export default function EventDetailsPanel({ event }: { event: NetEvent | null }) {
   if (!event) {
@@ -18,18 +17,8 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
   }
 
   const extra = normalizeDetails(event.extra);
-  const src = (
-    <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
-      <IpAddressPill ip={event.src_ip} ipContext={getFlowIpContext(event.extra?.ip_context, "src")} compact />
-      {typeof event.src_port === "number" ? <span className="text-muted-foreground">:{event.src_port}</span> : null}
-    </span>
-  );
-  const dst = (
-    <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
-      <IpAddressPill ip={event.dst_ip} ipContext={getFlowIpContext(event.extra?.ip_context, "dst")} compact />
-      {typeof event.dst_port === "number" ? <span className="text-muted-foreground">:{event.dst_port}</span> : null}
-    </span>
-  );
+  const src = <SrcEndpoint event={event} />;
+  const dst = <DstEndpoint event={event} />;
 
   const isDdos = isDdosEvent(event);
   const ddos = isDdos ? extractDdosFields(extra) : null;
@@ -189,8 +178,8 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
         />
       )}
 
-      <div className="rounded-lg border border-border/60 bg-background/30 p-3">
-        <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Extra raw</div>
+      <div className="ui-card-shell p-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Extra raw</div>
         <JsonBlock value={extra} showControls={false} className="mt-3" />
       </div>
     </div>

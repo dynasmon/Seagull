@@ -15,21 +15,21 @@ function num(v: any): string {
 export default function DdosEventsTable({
   rows,
   selectedId,
-  onSelect
+  onSelect,
 }: {
   rows: NetEvent[];
   selectedId: number | null;
   onSelect: (e: NetEvent) => void;
 }) {
   return (
-    <div className="border border-border/60 bg-background/40">
+    <div className="h-full overflow-y-auto">
       <table className="w-full text-xs">
-        <thead className="sticky top-0 bg-background/70 backdrop-blur">
-          <tr className="border-b border-border/60 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-            <th className="px-3 py-2 text-left">time / kind</th>
-            <th className="px-3 py-2 text-left">target</th>
-            <th className="px-3 py-2 text-right">traffic</th>
-            <th className="px-3 py-2 text-left">assessment</th>
+        <thead className="sticky top-0 z-[2] bg-surface-2/95 backdrop-blur-sm">
+          <tr className="text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <th className="border-b border-border px-3 py-2">Time / kind</th>
+            <th className="border-b border-border px-3 py-2">Target</th>
+            <th className="border-b border-border px-3 py-2 text-right">Traffic</th>
+            <th className="border-b border-border px-3 py-2">Assessment</th>
           </tr>
         </thead>
         <tbody>
@@ -40,22 +40,21 @@ export default function DdosEventsTable({
               <tr
                 key={`${e.id ?? "na"}-${e.timestamp || "na"}-${e.agent_id || "na"}-${idx}`}
                 onClick={() => onSelect(e)}
-                className={cx(
-                  "border-b border-border/50 cursor-pointer",
-                  active ? "bg-primary/10" : "hover:bg-muted/10"
-                )}
+                className={cx("cursor-pointer border-t border-border/55 ui-row", active && "ui-row-selected")}
               >
                 <td className="px-3 py-2">
                   <div className="font-mono text-muted-foreground">{fmtDateTime(new Date(e.timestamp))}</div>
                   <div className="font-mono text-foreground">{ddosLabel(d)}</div>
                 </td>
-                <td className="px-3 py-2 text-muted-foreground break-all">
+                <td className="break-all px-3 py-2">
                   <span className="inline-flex max-w-full flex-wrap items-center gap-0.5 font-mono">
                     <IpAddressPill ip={e.dst_ip} ipContext={getFlowIpContext(e.extra?.ip_context, "dst")} compact />
-                    <span className="text-muted-foreground">:{e.dst_port ?? "-"}/{e.proto || "-"}</span>
+                    <span className="text-muted-foreground">
+                      :{e.dst_port ?? "-"}/{e.proto || "-"}
+                    </span>
                   </span>
                 </td>
-                <td className="px-3 py-2 font-mono text-right">
+                <td className="px-3 py-2 text-right font-mono">
                   <div className="text-foreground">{d.pps === null ? "-" : fmtHumanRate(d.pps)} pps</div>
                   <div className="text-foreground">{d.bps === null ? "-" : fmtHumanRate(d.bps)} bps</div>
                   <div className="text-muted-foreground">{num(d.unique_src_ips)} src IPs</div>

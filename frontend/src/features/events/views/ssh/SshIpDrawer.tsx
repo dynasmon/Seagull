@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 
 import { Button } from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import Loading from "@/shared/components/Loading";
-import { Badge } from "@/shared/components/Badge";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 import { ipContextFromFlatFields, resolveIpClassification } from "@/shared/lib/ipClassification";
@@ -24,8 +22,10 @@ import {
 
 import { huntEvents } from "@/features/events/api";
 import EventDrawer from "@/features/events/components/EventDrawer";
+import { EventsLinkButton } from "@/features/events/components/EventsLinkButton";
 import type { NetEvent, QueryProvenanceMeta } from "@/features/events/types";
 
+import { SshActionBadge } from "./SshActionBadge";
 import type { SshIpStat } from "./types";
 
 function toEventsLink(params: { agent_id?: string; event_type?: string; search?: string; event_id?: number }): string {
@@ -179,11 +179,7 @@ export default function SshIpDrawer({
         key: "action",
         title: "Action",
         width: 160,
-        render: (r: NetEvent) => {
-          const a = String(r.extra?.action || "-");
-          const v = a === "accepted" ? "low" : a === "failed_password" ? "high" : a === "invalid_user" ? "medium" : "neutral";
-          return <Badge variant={v as any}>{a}</Badge>;
-        }
+        render: (r: NetEvent) => <SshActionBadge action={String(r.extra?.action || "")} />,
       },
       {
         key: "username",
@@ -204,10 +200,12 @@ export default function SshIpDrawer({
       {
         key: "actions",
         title: "Actions",
-        width: 230,
+        width: 220,
         render: (r: NetEvent) => (
           <div className="flex items-center gap-2">
-            <Button variant="subtle" size="sm"
+            <Button
+              variant="subtle"
+              size="sm"
               onClick={() => {
                 setSelectedEvent(r);
                 setEventDrawerOpen(true);
@@ -216,21 +214,15 @@ export default function SshIpDrawer({
             >
               View
             </Button>
-            <Link
+            <EventsLinkButton
               to={toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: srcIp, event_id: r.id })}
-              className={cx(
-                "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground",
-                "focus:outline-none focus:ring-2 focus:ring-primary/30"
-              )}
               title="Open in Events with this event selected"
             >
               Open
-            </Link>
+            </EventsLinkButton>
           </div>
-        )
-      }
+        ),
+      },
     ],
     [agentNameById, srcIp, viewAgentId]
   );
@@ -275,25 +267,19 @@ export default function SshIpDrawer({
               <InvestigationActionButton onClick={() => void load()} disabled={loading}>
                 {loading ? "Refreshing..." : "Refresh"}
               </InvestigationActionButton>
-              <Link
-                to={toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: srcIp })}
-                className={cx(
-                  "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-                  "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                  "hover:bg-muted/15 hover:text-foreground",
-                  "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                )}
-              >
+              <EventsLinkButton to={toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: srcIp })}>
                 Open in Events
-              </Link>
+              </EventsLinkButton>
             </InvestigationActionBar>
 
             <InvestigationSection title="SSH source overview" subtitle="Recent authentication activity, enrichment, and top identities for this source.">
               {queryMeta ? (
                 <div
                   className={cx(
-                    "mb-4 rounded-lg border px-3 py-2 text-[11px] font-mono",
-                    queryMeta.degraded_reason ? "border-warning/40 bg-warning/10 text-warning" : "border-border/60 bg-background/30 text-muted-foreground"
+                    "mb-4 rounded-md border px-3 py-2 font-mono text-[11px]",
+                    queryMeta.degraded_reason
+                      ? "border-warning/40 bg-warning/10 text-warning"
+                      : "border-border bg-surface-2/60 text-muted-foreground",
                   )}
                 >
                   source {queryMeta.source}
@@ -317,17 +303,17 @@ export default function SshIpDrawer({
 
               {counts.topUsers.length ? (
                 <div className="mt-4">
-                  <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                     Top usernames
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-2 flex flex-wrap gap-1.5">
                     {counts.topUsers.map((u) => (
                       <span
                         key={u.username}
-                        className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/40 px-3 py-1"
+                        className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-2.5 py-1"
                       >
-                        <span className="text-xs font-mono">{u.username}</span>
-                        <span className="text-[11px] font-mono text-muted-foreground">{u.count}</span>
+                        <span className="font-mono text-[11.5px]">{u.username}</span>
+                        <span className="font-mono text-[10.5px] text-muted-foreground">{u.count}</span>
                       </span>
                     ))}
                   </div>

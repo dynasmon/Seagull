@@ -6,6 +6,7 @@ import { Button } from "@/shared/components/Button";
 import { DataPaginationFooter, DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
 import { SelectInput } from "@/shared/components/SelectInput";
+import { Tabs } from "@/shared/components/Tabs";
 import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
@@ -358,17 +359,13 @@ export default function DdosEventsPage() {
   if (query.panel === "stream") {
     return (
       <div className="space-y-4">
-        <DataViewToolbar
-          left={
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="secondary" size="md" onClick={() => setQuery((prev) => ({ ...prev, panel: "stream" }))}>
-                Stream
-              </Button>
-              <Button variant="primary" size="md" onClick={() => setQuery((prev) => ({ ...prev, panel: "deep" }))}>
-                Deep Dive
-              </Button>
-            </div>
-          }
+        <Tabs<DdosPanel>
+          value={query.panel}
+          onChange={(next) => setQuery((prev) => ({ ...prev, panel: next }))}
+          tabs={[
+            { key: "stream", label: "Stream" },
+            { key: "deep", label: "Deep Dive" },
+          ]}
         />
 
         <EventsStreamPage forcedScope="ddos" moduleTitle="DDoS Event Stream" />
@@ -378,28 +375,28 @@ export default function DdosEventsPage() {
 
   return (
     <div className="space-y-4">
+      <Tabs<DdosPanel>
+        value={query.panel}
+        onChange={(next) => setQuery((prev) => ({ ...prev, panel: next }))}
+        tabs={[
+          { key: "stream", label: "Stream" },
+          { key: "deep", label: "Deep Dive" },
+        ]}
+      />
+
       <DataViewToolbar
-        left={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="primary" size="md" onClick={() => setQuery((prev) => ({ ...prev, panel: "stream" }))}>
-              Stream
-            </Button>
-            <Button variant="secondary" size="md" onClick={() => setQuery((prev) => ({ ...prev, panel: "deep" }))}>
-              Deep Dive
-            </Button>
-          </div>
-        }
+        left={<div className="text-sm font-semibold tracking-tight">DDoS Deep Dive</div>}
         right={rightToolbar}
       />
 
       <DataStatsStrip
         stats={[
-          { label: "DDoS events", value: ddosEvents.length },
+          { label: "DDoS events", value: ddosEvents.length, tone: ddosEvents.length > 0 ? "warning" : "default" },
           { label: "Top target", value: topTarget },
           { label: "Top agent", value: topAgent },
-          { label: "Peak PPS", value: Number(liveSummary.ddos_peak_pps || 0).toFixed(0) },
-          { label: "Peak BPS", value: Number(liveSummary.ddos_peak_bps || 0).toFixed(0) },
-          { label: "Phase", value: String(pressure.phase || "ok") },
+          { label: "Peak PPS", value: Number(liveSummary.ddos_peak_pps || 0).toFixed(0), tone: Number(liveSummary.ddos_peak_pps || 0) > 0 ? "warning" : "default" },
+          { label: "Peak BPS", value: Number(liveSummary.ddos_peak_bps || 0).toFixed(0), tone: Number(liveSummary.ddos_peak_bps || 0) > 0 ? "warning" : "default" },
+          { label: "Phase", value: String(pressure.phase || "ok"), tone: pressure.phase && pressure.phase !== "ok" ? "danger" : "success" },
           { label: "Live status", value: liveSurface.label, hint: `${liveSurface.transport ?? "poll"}${lastUpdatedAt ? ` · ${new Date(lastUpdatedAt).toLocaleTimeString()}` : ""}` },
           { label: "Scope", value: query.agent_id || "all agents", hint: `Lookback ${query.since_minutes}m` },
           { label: "Batch size", value: query.limit },

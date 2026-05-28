@@ -3,7 +3,8 @@ import { useMemo } from "react";
 
 import EmptyState from "@/shared/components/EmptyState";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
-import { cx } from "@/shared/lib/cx";
+import { MetricCard } from "@/shared/components/MetricCard";
+import { Panel } from "@/shared/components/Panel";
 import { getFlowIpContext } from "@/shared/lib/ipClassification";
 
 import { SimpleTimeSeries } from "@/features/overview/components/Charts";
@@ -13,61 +14,16 @@ import { extractDdosFields, ddosLabel, isDdosEvent } from "../../lib/ddos";
 
 import DdosEventsTable from "./DdosEventsTable";
 
-function MiniPanel({
-  title,
-  right,
-  children
-}: {
-  title: string;
-  right?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="rounded-lg border border-border/60 bg-background/40 backdrop-blur-sm flex flex-col shadow-sm overflow-hidden min-w-0">
-      <div className="border-b border-border/60 bg-muted/10 px-4 py-3 flex items-center justify-between gap-3">
-        <div className="text-[10px] font-mono font-bold uppercase tracking-[0.35em] text-muted-foreground">{title}</div>
-        {right ? <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{right}</div> : null}
-      </div>
-      <div className="p-4 flex-1 min-h-0 min-w-0 overflow-hidden">{children}</div>
-    </div>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-  titleValue,
-  tone = "default"
-}: {
-  label: string;
-  value: ReactNode;
-  titleValue?: string;
-  tone?: "default" | "warn";
-}) {
-  const raw = typeof value === "string" ? value : titleValue || "";
-  const compact = raw.length > 26;
-  const mid = raw.length > 16;
-  const valueSize = compact ? "text-sm" : mid ? "text-lg" : "text-2xl";
-  const valueClass = tone === "warn" ? "text-danger" : "text-foreground";
-
-  return (
-    <div className="rounded-lg border border-border/60 bg-background/40 px-5 py-5 shadow-sm min-w-0">
-      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className={cx("mt-2 font-mono font-bold tracking-tight leading-none truncate", valueSize, valueClass)} title={raw || undefined}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function targetNode(event: NetEvent) {
+function targetNode(event: NetEvent): { raw: string; value: ReactNode } {
   const raw = `${event.dst_ip || "-"}:${event.dst_port ?? "-"}/${event.proto || "-"}`;
   return {
     raw,
     value: (
       <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
         <IpAddressPill ip={event.dst_ip} ipContext={getFlowIpContext(event.extra?.ip_context, "dst")} compact />
-        <span className="text-muted-foreground">:{event.dst_port ?? "-"}/{event.proto || "-"}</span>
+        <span className="text-muted-foreground">
+          :{event.dst_port ?? "-"}/{event.proto || "-"}
+        </span>
       </span>
     ),
   };
@@ -103,7 +59,7 @@ function buildMetricSeries(events: NetEvent[], keys: string[]) {
 export default function DdosDeepDive({
   events,
   selectedId,
-  onSelect
+  onSelect,
 }: {
   events: NetEvent[];
   selectedId: number | null;
@@ -148,57 +104,64 @@ export default function DdosDeepDive({
   const latestTarget = latest ? targetNode(latest) : null;
 
   return (
-    <div className="space-y-6 min-w-0">
+    <div className="min-w-0 space-y-4">
       {latest && latestFields && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 min-w-0">
-          <SummaryCard label="Latest kind" value={ddosLabel(latestFields)} />
-          <SummaryCard label="Target" value={latestTarget?.value ?? "-"} titleValue={latestTarget?.raw} />
-          <SummaryCard label="Unique src IPs" value={`${latestFields.unique_src_ips ?? "-"}`} />
-          <SummaryCard
-            label="Confidence"
+        <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricCard size="sm" title="Latest kind" value={ddosLabel(latestFields)} />
+          <MetricCard size="sm" title="Target" value={latestTarget?.value ?? "-"} helper={latestTarget?.raw} />
+          <MetricCard size="sm" title="Unique src IPs" value={String(latestFields.unique_src_ips ?? "-")} />
+          <MetricCard
+            size="sm"
+            title="Confidence"
             value={latestFields.confidence === null ? "-" : latestFields.confidence.toFixed(2)}
-            tone={(latestFields.confidence ?? 0) >= 0.7 ? "warn" : "default"}
+            tone={(latestFields.confidence ?? 0) >= 0.7 ? "danger" : "default"}
           />
         </div>
       )}
 
-      <div className="grid grid-cols-1 2xl:grid-cols-12 gap-6 min-w-0">
-        <div className="2xl:col-span-9 space-y-6 min-w-0">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-w-0">
-            <MiniPanel title="PPS / BPS">
-              <div className="h-[280px] w-full min-w-0 overflow-hidden">
-                <SimpleTimeSeries data={metrics1.data} seriesKeys={metrics1.series} height={260} allowHorizontalScroll={false} />
+      <div className="grid min-w-0 grid-cols-1 gap-3 2xl:grid-cols-12">
+        <div className="space-y-3 2xl:col-span-9 min-w-0">
+          <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2">
+            <Panel title="PPS / BPS">
+              <div className="h-[260px] w-full min-w-0 overflow-hidden">
+                <SimpleTimeSeries data={metrics1.data} seriesKeys={metrics1.series} height={240} allowHorizontalScroll={false} />
               </div>
-            </MiniPanel>
+            </Panel>
 
-            <MiniPanel title="Unique src / Entropy">
-              <div className="h-[280px] w-full min-w-0 overflow-hidden">
-                <SimpleTimeSeries data={metrics2.data} seriesKeys={metrics2.series} height={260} allowHorizontalScroll={false} />
+            <Panel title="Unique src / entropy">
+              <div className="h-[260px] w-full min-w-0 overflow-hidden">
+                <SimpleTimeSeries data={metrics2.data} seriesKeys={metrics2.series} height={240} allowHorizontalScroll={false} />
               </div>
-            </MiniPanel>
+            </Panel>
 
-            <MiniPanel title="HTTP RPS / TLS HS RPS">
-              <div className="h-[280px] w-full min-w-0 overflow-hidden">
-                <SimpleTimeSeries data={metrics3.data} seriesKeys={metrics3.series} height={260} allowHorizontalScroll={false} />
+            <Panel title="HTTP RPS / TLS HS RPS">
+              <div className="h-[260px] w-full min-w-0 overflow-hidden">
+                <SimpleTimeSeries data={metrics3.data} seriesKeys={metrics3.series} height={240} allowHorizontalScroll={false} />
               </div>
-            </MiniPanel>
+            </Panel>
 
-            <MiniPanel title="SYN ratio / Confidence">
-              <div className="h-[280px] w-full min-w-0 overflow-hidden">
-                <SimpleTimeSeries data={metrics4.data} seriesKeys={metrics4.series} height={260} allowHorizontalScroll={false} />
+            <Panel title="SYN ratio / confidence">
+              <div className="h-[260px] w-full min-w-0 overflow-hidden">
+                <SimpleTimeSeries data={metrics4.data} seriesKeys={metrics4.series} height={240} allowHorizontalScroll={false} />
               </div>
-            </MiniPanel>
+            </Panel>
           </div>
         </div>
 
-        <div className="2xl:col-span-3 min-w-0">
-          <MiniPanel title="Top kinds" right={`${ddosEvents.length} events`}>
+        <div className="min-w-0 2xl:col-span-3">
+          <Panel
+            title="Top kinds"
+            actions={<span className="text-[10.5px] text-muted-foreground">{ddosEvents.length} events</span>}
+          >
             {topKinds.length === 0 ? (
               <div className="text-[11px] text-muted-foreground">No classification keys found.</div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {topKinds.map((k) => (
-                  <div key={k.key} className="flex items-center justify-between gap-3 text-[11px] font-mono min-w-0">
+                  <div
+                    key={k.key}
+                    className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-surface-2/40 px-3 py-1.5 font-mono text-[11.5px]"
+                  >
                     <div className="truncate text-foreground" title={k.key}>
                       {k.key}
                     </div>
@@ -207,15 +170,15 @@ export default function DdosDeepDive({
                 ))}
               </div>
             )}
-          </MiniPanel>
+          </Panel>
         </div>
       </div>
 
-      <MiniPanel title="Recent DDoS detections">
+      <Panel title="Recent DDoS detections" padded={false}>
         <div className="h-[420px] overflow-hidden">
           <DdosEventsTable rows={recent} selectedId={selectedId} onSelect={onSelect} />
         </div>
-      </MiniPanel>
+      </Panel>
     </div>
   );
 }
