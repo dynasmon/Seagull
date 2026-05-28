@@ -4,7 +4,7 @@ import PageHeader from "@/shared/components/PageHeader";
 
 export default function EventsLayout() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Events"
         breadcrumb={["Threat Monitoring"]}
@@ -13,7 +13,7 @@ export default function EventsLayout() {
           { label: "Event Stream", to: "/events" },
           { label: "SSH Insights", to: "/events/ssh" },
           { label: "Protocol Intel", to: "/events/network" },
-          { label: "DDoS", to: "/events/ddos" }
+          { label: "DDoS", to: "/events/ddos" },
         ]}
       />
 

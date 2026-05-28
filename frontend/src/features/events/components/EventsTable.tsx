@@ -1,13 +1,12 @@
 import { useMemo } from "react";
 
 import { Badge } from "@/shared/components/Badge";
-import { IpAddressPill } from "@/shared/components/IpAddressPill";
+import { Button } from "@/shared/components/Button";
 import { Table, type Column, type TableSortState } from "@/shared/components/Table";
-import { cx } from "@/shared/lib/cx";
-import { getFlowIpContext } from "@/shared/lib/ipClassification";
 
 import { formatProtocolLabel, getEventProtocolIntel } from "../lib/protocol";
 import type { NetEvent } from "../types";
+import { DstEndpoint, SrcEndpoint } from "./SrcDstFlow";
 
 function fmtTs(ts: string) {
   const d = new Date(ts);
@@ -26,7 +25,6 @@ function summarizeExtra(e: NetEvent) {
   const protocol = getEventProtocolIntel(e);
 
   const tokens: string[] = [];
-
   const push = (k: string, v: any) => {
     if (v === undefined || v === null || v === "") return;
     const s = typeof v === "object" ? JSON.stringify(v) : String(v);
@@ -54,7 +52,7 @@ function summarizeExtra(e: NetEvent) {
 }
 
 function srcLabel(e: NetEvent) {
-  if (e.src_ip) return <IpAddressPill ip={e.src_ip} ipContext={getFlowIpContext(e.extra?.ip_context, "src")} compact />;
+  if (e.src_ip) return <SrcEndpoint event={e} />;
   const extra = (e.extra || {}) as Record<string, any>;
   if (typeof extra.unique_src_ips === "number" && extra.unique_src_ips > 0) {
     return `many (${extra.unique_src_ips})`;
@@ -102,7 +100,7 @@ export default function EventsTable({
         sortKey: "timestamp",
         title: "Time",
         sortable: true,
-        width: 180,
+        width: 170,
         className: "font-mono text-[12px] text-muted-foreground",
         render: (e) => fmtTs(e.timestamp),
       },
@@ -111,8 +109,8 @@ export default function EventsTable({
         title: "Agent",
         sortKey: "agent_id",
         sortable: true,
-        width: 240,
-        render: (e) => <div className="font-mono text-[12px]">{agentLabel(e.agent_id, agentNameById)}</div>,
+        width: 220,
+        render: (e) => <div className="truncate font-mono text-[12px]">{agentLabel(e.agent_id, agentNameById)}</div>,
       },
       {
         key: "event_type",
@@ -124,7 +122,7 @@ export default function EventsTable({
           <div className="flex items-center gap-2">
             <Badge>{e.event_type}</Badge>
             {!compact && e.schema_version ? (
-              <span className="text-[11px] text-muted-foreground font-mono opacity-80">v{e.schema_version}</span>
+              <span className="font-mono text-[10.5px] text-muted-foreground/80">v{e.schema_version}</span>
             ) : null}
           </div>
         ),
@@ -141,11 +139,11 @@ export default function EventsTable({
 
           return (
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {hasApp ? <Badge variant="info">{appLabel}</Badge> : null}
                 {transportLabel !== "-" ? (
                   hasApp ? (
-                    <span className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
+                    <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                       over {transportLabel}
                     </span>
                   ) : (
@@ -156,7 +154,7 @@ export default function EventsTable({
                 )}
               </div>
               {protocol.hint ? (
-                <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">{protocol.hint}</div>
+                <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{protocol.hint}</div>
               ) : null}
             </div>
           );
@@ -167,7 +165,7 @@ export default function EventsTable({
         title: "Source",
         sortKey: "src_ip",
         sortable: true,
-        width: 160,
+        width: 170,
         className: "text-[12px]",
         render: (e) => srcLabel(e),
       },
@@ -176,14 +174,9 @@ export default function EventsTable({
         title: "Dest",
         sortKey: "dst_ip",
         sortable: true,
-        width: 160,
+        width: 170,
         className: "text-[12px]",
-        render: (e) => (
-          <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
-            <IpAddressPill ip={e.dst_ip} ipContext={getFlowIpContext(e.extra?.ip_context, "dst")} compact />
-            {typeof e.dst_port === "number" ? <span className="text-muted-foreground">:{e.dst_port}</span> : null}
-          </span>
-        ),
+        render: (e) => <DstEndpoint event={e} />,
       },
     ];
 
@@ -201,24 +194,19 @@ export default function EventsTable({
         key: "actions",
         title: "Actions",
         align: "right",
-        width: 120,
+        width: 110,
         render: (e) => (
-          <button
-            type="button"
+          <Button
+            variant="subtle"
+            size="sm"
             onClick={(ev) => {
               ev.stopPropagation();
               onEdit?.(e);
             }}
-            className={cx(
-              "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-              "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-              "hover:bg-muted/15 hover:text-foreground",
-              "focus:outline-none focus:ring-2 focus:ring-primary/30"
-            )}
             title="Open drawer"
           >
             Inspect
-          </button>
+          </Button>
         ),
       });
     }
