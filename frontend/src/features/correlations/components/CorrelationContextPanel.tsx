@@ -49,7 +49,7 @@ export default function CorrelationContextPanel({
     >
       <div className="space-y-4">
         {incident.summary ? (
-          <div className="rounded-lg border border-border/60 bg-background/30 px-3 py-3 text-sm text-foreground">
+          <div className="rounded-md border border-border bg-surface-2/50 px-3 py-3 text-sm text-foreground">
             {incident.summary}
           </div>
         ) : null}

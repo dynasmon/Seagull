@@ -26,7 +26,7 @@ function chip(items: string[], fallback = "-") {
       {items.slice(0, 3).map((item) => (
         <span
           key={item}
-          className="inline-flex items-center rounded-md border border-border/60 bg-background/35 px-1.5 py-0.5 font-mono text-[11px]"
+          className="inline-flex items-center rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px]"
           title={item}
         >
           {item}
@@ -45,7 +45,7 @@ function stageHitPreview(stageHits: Record<string, number>) {
       {pairs.slice(0, 3).map(([key, value]) => (
         <span
           key={key}
-          className="inline-flex items-center rounded-md border border-border/60 bg-background/35 px-1.5 py-0.5 font-mono text-[11px]"
+          className="inline-flex items-center rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px]"
         >
           {key}:{value}
         </span>
