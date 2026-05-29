@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 
 import Drawer from "@/shared/components/Drawer";
+import { InlineAlert } from "@/shared/components/InlineAlert";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { TextArea } from "@/shared/components/TextArea";
+import { TextInput } from "@/shared/components/TextInput";
 import {
   InvestigationActionBar,
   InvestigationActionButton,
@@ -202,10 +206,9 @@ export default function PinToWorkspaceDrawer({
 
           {mode === "existing" ? (
             <div className="mt-4">
-              <select
+              <SelectInput
                 value={selectedWorkspaceId ? String(selectedWorkspaceId) : ""}
                 onChange={(e) => setSelectedWorkspaceId(Number(e.target.value) || null)}
-                className="w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
               >
                 <option value="">Select workspace</option>
                 {existingOptions.map((ws) => (
@@ -213,65 +216,65 @@ export default function PinToWorkspaceDrawer({
                     {ws.title} · {ws.workspace_key}
                   </option>
                 ))}
-              </select>
+              </SelectInput>
             </div>
           ) : (
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="md:col-span-2">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Title</div>
-                <input
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Title</div>
+                <TextInput
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="Investigation workspace title"
-                  className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                  className="mt-1"
                 />
               </div>
 
               <div className="md:col-span-2">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Description</div>
-                <textarea
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Description</div>
+                <TextArea
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
                   rows={2}
-                  className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                  className="mt-1"
                 />
               </div>
 
               <div>
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Severity</div>
-                <select
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Severity</div>
+                <SelectInput
                   value={newSeverity}
                   onChange={(e) => setNewSeverity(e.target.value as InvestigationWorkspaceSeverity)}
-                  className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                  className="mt-1"
                 >
                   <option value="low">Low</option>
                   <option value="medium">Medium</option>
                   <option value="high">High</option>
                   <option value="critical">Critical</option>
-                </select>
+                </SelectInput>
               </div>
 
               <div>
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Priority</div>
-                <select
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Priority</div>
+                <SelectInput
                   value={newPriority}
                   onChange={(e) => setNewPriority(e.target.value as InvestigationWorkspacePriority)}
-                  className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                  className="mt-1"
                 >
                   <option value="p1">P1</option>
                   <option value="p2">P2</option>
                   <option value="p3">P3</option>
                   <option value="p4">P4</option>
-                </select>
+                </SelectInput>
               </div>
 
               <div className="md:col-span-2">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Assignee</div>
-                <input
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Assignee</div>
+                <TextInput
                   value={newAssignee}
                   onChange={(e) => setNewAssignee(e.target.value)}
                   placeholder="Optional"
-                  className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                  className="mt-1"
                 />
               </div>
             </div>
@@ -281,28 +284,28 @@ export default function PinToWorkspaceDrawer({
         <InvestigationSection title="Pin context" subtitle="Preserve why this artifact matters and how the analyst wants it grouped.">
           <div className="space-y-3">
             <div>
-              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Why this evidence matters (optional)</div>
-              <textarea
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Why this evidence matters (optional)</div>
+              <TextArea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={3}
-                className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                className="mt-1"
               />
             </div>
             <div>
-              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Tags (comma separated)</div>
-              <input
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Tags (comma separated)</div>
+              <TextInput
                 value={tagsText}
                 onChange={(e) => setTagsText(e.target.value)}
                 placeholder="ioc, dns, suspicious"
-                className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                className="mt-1"
               />
             </div>
           </div>
         </InvestigationSection>
 
-        {error ? <div className="text-sm text-danger">{error}</div> : null}
-        {success ? <div className="text-sm text-success">{success}</div> : null}
+        {error ? <InlineAlert tone="danger" className="text-xs">{error}</InlineAlert> : null}
+        {success ? <InlineAlert tone="success" className="text-xs">{success}</InlineAlert> : null}
 
         <InvestigationActionBar>
           <InvestigationActionButton onClick={onClose}>Close</InvestigationActionButton>

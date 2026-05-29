@@ -5,12 +5,15 @@ import { Button } from "@/shared/components/Button";
 import { DataPaginationFooter, DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
 import DetectionWorkflowRail from "@/shared/components/DetectionWorkflow";
 import EmptyState from "@/shared/components/EmptyState";
+import { InlineAlert } from "@/shared/components/InlineAlert";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { Panel } from "@/shared/components/Panel";
 import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
 import { Badge } from "@/shared/components/Badge";
 import { SelectInput } from "@/shared/components/SelectInput";
+import { SeverityPill } from "@/shared/components/SeverityPill";
+import { StatusPill } from "@/shared/components/StatusPill";
 import { TextArea } from "@/shared/components/TextArea";
 import { TextInput } from "@/shared/components/TextInput";
 import {
@@ -92,10 +95,11 @@ function severityVariant(v: string) {
   return "neutral";
 }
 
-function statusVariant(v: string) {
+function statusPillVariant(v: string) {
   if (v === "open") return "info";
-  if (v === "contained") return "low";
-  if (v === "resolved") return "medium";
+  if (v === "contained") return "warning";
+  if (v === "resolved") return "active";
+  if (v === "closed") return "inactive";
   return "neutral";
 }
 
@@ -105,6 +109,12 @@ function evidenceVariant(v: string) {
   if (v === "protocol_intel") return "medium";
   if (v === "inventory_snapshot") return "low";
   return "neutral";
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</div>
+  );
 }
 
 function parseOptionalPositiveInt(raw: string): number | null {
@@ -635,8 +645,8 @@ function WorkspaceDrawer({
         <InvestigationShell>
           <InvestigationMetaStrip
             items={[
-              { label: "Status", value: workspace.status, variant: statusVariant(workspace.status) as any },
-              { label: "Severity", value: workspace.severity, variant: severityVariant(workspace.severity) as any },
+              { label: "Status", value: <StatusPill variant={statusPillVariant(workspace.status)} withDot>{workspace.status}</StatusPill> },
+              { label: "Severity", value: <SeverityPill variant={severityVariant(workspace.severity)} withDot>{workspace.severity}</SeverityPill> },
               { label: "Priority", value: workspace.priority },
               { label: "Triage", value: workspace.triage_state },
               { label: "Workspace key", value: workspace.workspace_key },
@@ -664,18 +674,18 @@ function WorkspaceDrawer({
             <div className="space-y-4">
               <InvestigationSection title="Workspace counts" subtitle="Notes, bookmarks, and evidence mix preserved from the workspace record.">
                 <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-8">
-                  <div className="rounded-md border border-border/60 bg-background/30 px-2 py-2">
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Notes</div>
-                    <div className="mt-1 text-lg font-semibold font-mono">{workspace.notes_count}</div>
+                  <div className="rounded-md border border-border bg-surface-2/50 px-3 py-2">
+                    <FieldLabel>Notes</FieldLabel>
+                    <div className="mt-1 font-mono text-lg font-semibold">{workspace.notes_count}</div>
                   </div>
-                  <div className="rounded-md border border-border/60 bg-background/30 px-2 py-2">
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Evidence</div>
-                    <div className="mt-1 text-lg font-semibold font-mono">{workspace.bookmarks_count}</div>
+                  <div className="rounded-md border border-border bg-surface-2/50 px-3 py-2">
+                    <FieldLabel>Evidence</FieldLabel>
+                    <div className="mt-1 font-mono text-lg font-semibold">{workspace.bookmarks_count}</div>
                   </div>
                   {Object.entries(workspace.evidence_type_counts || {}).map(([k, v]) => (
-                    <div key={k} className="rounded-md border border-border/60 bg-background/30 px-2 py-2">
-                      <div className="truncate text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{k}</div>
-                      <div className="mt-1 text-lg font-semibold font-mono">{v}</div>
+                    <div key={k} className="rounded-md border border-border bg-surface-2/50 px-3 py-2">
+                      <FieldLabel>{k}</FieldLabel>
+                      <div className="mt-1 font-mono text-lg font-semibold">{v}</div>
                     </div>
                   ))}
                 </div>
@@ -687,128 +697,109 @@ function WorkspaceDrawer({
               >
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Title</div>
-                    <input
+                    <FieldLabel>Title</FieldLabel>
+                    <TextInput
                       value={edit.title}
                       onChange={(e) => setEdit((prev) => ({ ...prev, title: e.target.value }))}
-                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                      className="mt-1"
                     />
                   </div>
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Assignee</div>
-                    <input
+                    <FieldLabel>Assignee</FieldLabel>
+                    <TextInput
                       value={edit.assignee}
                       onChange={(e) => setEdit((prev) => ({ ...prev, assignee: e.target.value }))}
                       placeholder="Unassigned"
-                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                      className="mt-1"
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Description</div>
-                    <textarea
+                    <FieldLabel>Description</FieldLabel>
+                    <TextArea
                       value={edit.description}
                       onChange={(e) => setEdit((prev) => ({ ...prev, description: e.target.value }))}
                       rows={3}
-                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                      className="mt-1"
                     />
                   </div>
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Status</div>
-                    <select
+                    <FieldLabel>Status</FieldLabel>
+                    <SelectInput
                       value={edit.status}
                       onChange={(e) => setEdit((prev) => ({ ...prev, status: e.target.value as InvestigationWorkspaceStatus }))}
-                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                      className="mt-1"
                     >
                       <option value="open">Open</option>
                       <option value="contained">Contained</option>
                       <option value="resolved">Resolved</option>
                       <option value="closed">Closed</option>
-                    </select>
+                    </SelectInput>
                   </div>
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Severity</div>
-                    <select
+                    <FieldLabel>Severity</FieldLabel>
+                    <SelectInput
                       value={edit.severity}
                       onChange={(e) => setEdit((prev) => ({ ...prev, severity: e.target.value as InvestigationWorkspaceSeverity }))}
-                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                      className="mt-1"
                     >
                       <option value="low">Low</option>
                       <option value="medium">Medium</option>
                       <option value="high">High</option>
                       <option value="critical">Critical</option>
-                    </select>
+                    </SelectInput>
                   </div>
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Priority</div>
-                    <select
+                    <FieldLabel>Priority</FieldLabel>
+                    <SelectInput
                       value={edit.priority}
                       onChange={(e) => setEdit((prev) => ({ ...prev, priority: e.target.value as InvestigationWorkspacePriority }))}
-                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                      className="mt-1"
                     >
                       <option value="p1">P1</option>
                       <option value="p2">P2</option>
                       <option value="p3">P3</option>
                       <option value="p4">P4</option>
-                    </select>
+                    </SelectInput>
                   </div>
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Primary agent</div>
-                    <input
+                    <FieldLabel>Primary agent</FieldLabel>
+                    <TextInput
                       value={edit.primaryAgentId}
                       onChange={(e) => setEdit((prev) => ({ ...prev, primaryAgentId: e.target.value }))}
                       placeholder="agent-id"
-                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm font-mono"
+                      className="mt-1 font-mono"
                     />
                   </div>
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Linked attack case</div>
-                    <input
+                    <FieldLabel>Linked attack case</FieldLabel>
+                    <TextInput
                       value={edit.linkedCaseId}
                       onChange={(e) => setEdit((prev) => ({ ...prev, linkedCaseId: e.target.value }))}
                       placeholder="case id"
-                      className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm font-mono"
+                      className="mt-1 font-mono"
                     />
                   </div>
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={saveWorkspaceMetadata}
-                    disabled={saveBusy || !editDirty}
-                    className={cx(
-                      "rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest",
-                      "hover:bg-muted/15",
-                      (saveBusy || !editDirty) && "opacity-60 cursor-not-allowed"
-                    )}
-                  >
-                    {saveBusy ? "Saving..." : "Save workspace details"}
-                  </button>
+                  <Button variant="primary" size="md" onClick={saveWorkspaceMetadata} disabled={saveBusy || !editDirty}>
+                    {saveBusy ? "Saving…" : "Save workspace details"}
+                  </Button>
                   {workspace.status === "closed" ? (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={onReopenWorkspace}
-                      className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest hover:bg-muted/15"
-                    >
+                    <Button variant="success" size="md" disabled={busy} onClick={onReopenWorkspace}>
                       Reopen workspace
-                    </button>
+                    </Button>
                   ) : (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={onCloseWorkspace}
-                      className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs font-mono uppercase tracking-widest text-danger hover:bg-danger/15"
-                    >
+                    <Button variant="danger" size="md" disabled={busy} onClick={onCloseWorkspace}>
                       Close workspace
-                    </button>
+                    </Button>
                   )}
-                  <div className="text-[11px] text-muted-foreground font-mono">
+                  <div className="font-mono text-[11px] text-muted-foreground">
                     Updated by {workspace.updated_by} · {fmtTs(workspace.updated_at)}
                   </div>
                 </div>
-                {saveError ? <div className="text-sm text-danger">{saveError}</div> : null}
-                {saveSuccess ? <div className="text-sm text-success">{saveSuccess}</div> : null}
+                {saveError ? <InlineAlert tone="danger" className="mt-3 text-xs">{saveError}</InlineAlert> : null}
+                {saveSuccess ? <InlineAlert tone="success" className="mt-3 text-xs">{saveSuccess}</InlineAlert> : null}
               </InvestigationSection>
             </div>
           ) : null}
@@ -816,21 +807,16 @@ function WorkspaceDrawer({
           {tab === "notes" ? (
             <InvestigationSection title="Notes" subtitle="Operator notes remain editable without leaving the drawer.">
               <div className="flex items-start gap-2">
-                <textarea
+                <TextArea
                   value={noteText}
                   onChange={(e) => setNoteText(e.target.value)}
                   rows={3}
                   placeholder="Add a case note..."
-                  className="flex-1 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                  className="flex-1"
                 />
-                <button
-                  type="button"
-                  onClick={submitNote}
-                  disabled={busy}
-                  className="rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest hover:bg-muted/15"
-                >
+                <Button variant="primary" size="md" onClick={submitNote} disabled={busy}>
                   {noteEditId ? "Save" : "Add"}
-                </button>
+                </Button>
               </div>
 
               <div className="mt-4 space-y-3">
@@ -845,16 +831,16 @@ function WorkspaceDrawer({
                       { label: "state", value: n.edited ? "edited" : "created" },
                     ]}
                     actions={
-                      <button
-                        type="button"
+                      <Button
+                        variant="subtle"
+                        size="sm"
                         onClick={() => {
                           setNoteEditId(n.id);
                           setNoteText(n.body);
                         }}
-                        className="rounded border border-border/60 bg-background/40 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground"
                       >
                         Edit
-                      </button>
+                      </Button>
                     }
                   />
                 ))}
@@ -877,21 +863,20 @@ function WorkspaceDrawer({
                       ...(b.tags.length ? [{ label: "tags", value: b.tags.join(", ") }] : []),
                     ]}
                     actions={
-                      <button
-                        type="button"
-                        onClick={() => onDeleteBookmark(b.id)}
-                        className="rounded border border-border/60 bg-background/40 px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground hover:text-foreground"
-                      >
+                      <Button variant="danger" size="sm" onClick={() => onDeleteBookmark(b.id)}>
                         Remove
-                      </button>
+                      </Button>
                     }
                   >
-                    <div className="rounded-md border border-border/50 bg-background/20 p-2">
+                    <div className="rounded-md border border-border bg-surface-2/40 p-2">
                       {renderEvidenceCardContent(b)}
                     </div>
                     {b.payload_snapshot?.deep_link ? (
                       <div className="mt-3">
-                        <a href={String(b.payload_snapshot.deep_link)} className="rounded border border-border/60 px-2 py-1 text-primary hover:underline">
+                        <a
+                          href={String(b.payload_snapshot.deep_link)}
+                          className="inline-flex h-8 items-center rounded-md border border-border bg-card px-3 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-primary transition-colors hover:border-primary/40 hover:bg-muted"
+                        >
                           Open source
                         </a>
                       </div>
@@ -1232,7 +1217,7 @@ export default function InvestigationsPage() {
 
       <Panel
         title="Workspace filters"
-        actions={<span className="text-[10px] font-mono text-muted-foreground">{createOpen ? "create form open" : "filters only"}</span>}
+        actions={<span className="text-[10.5px] text-muted-foreground">{createOpen ? "create form open" : "filters only"}</span>}
       >
         <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
           <SelectInput value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value as any }))}>
@@ -1275,7 +1260,7 @@ export default function InvestigationsPage() {
         </div>
 
         {createOpen ? (
-          <div className="rounded-lg border border-border/60 bg-background/20 p-3 grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 gap-3 rounded-md border border-border bg-surface-2/50 p-3 md:grid-cols-4">
             <TextInput value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Workspace title" className="md:col-span-2" />
             <SelectInput value={newSeverity} onChange={(e) => setNewSeverity(e.target.value as any)}>
               <option value="low">Low</option>
@@ -1290,63 +1275,64 @@ export default function InvestigationsPage() {
               <option value="p4">P4</option>
             </SelectInput>
             <TextArea value={newDescription} onChange={(e) => setNewDescription(e.target.value)} rows={2} placeholder="Description" className="md:col-span-3" />
-            <Button type="button" variant="primary" size="lg" onClick={createWorkspaceInline}>Create</Button>
+            <Button type="button" variant="primary" size="md" onClick={createWorkspaceInline}>Create</Button>
           </div>
         ) : null}
       </Panel>
 
-      <Panel title="Workspaces" actions={<span className="text-[10px] font-mono text-muted-foreground">{summary}</span>} bodyClassName="p-0">
-          {loading && rows.length === 0 ? <Loading label="Loading workspaces" /> : null}
-          {!loading && error ? <EmptyState title="Failed" hint={error} /> : null}
-          {!loading && !error && rows.length === 0 ? <EmptyState title="No workspaces" hint="Create the first workspace to begin." /> : null}
+      <Panel title="Workspaces" actions={<span className="text-[10.5px] text-muted-foreground">{summary}</span>} padded={false}>
+          {loading && rows.length === 0 ? <div className="p-4"><Loading label="Loading workspaces" /></div> : null}
+          {!loading && error ? <div className="p-4"><EmptyState title="Failed" hint={error} /></div> : null}
+          {!loading && !error && rows.length === 0 ? <div className="p-4"><EmptyState title="No workspaces" hint="Create the first workspace to begin." /></div> : null}
 
           {rows.length > 0 ? (
             <div className="w-full">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-background/60">
-                  <tr className="border-b border-border/60 text-muted-foreground">
-                    <th className="text-left px-3 py-2">Workspace</th>
-                    <th className="text-left px-3 py-2">Assignment</th>
-                    <th className="text-left px-3 py-2">Activity</th>
-                    <th className="text-right px-3 py-2">Action</th>
+                <thead className="sticky top-0 z-[2] bg-surface-2/95 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm">
+                  <tr>
+                    <th className="border-b border-border px-3 py-2.5">Workspace</th>
+                    <th className="border-b border-border px-3 py-2.5">Assignment</th>
+                    <th className="border-b border-border px-3 py-2.5">Activity</th>
+                    <th className="border-b border-border px-3 py-2.5 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((ws) => (
                     <tr
                       key={ws.id}
-                      className={cx("border-b border-border/40 hover:bg-muted/20", selectedId === ws.id && "bg-muted/30")}
+                      className={cx(
+                        "cursor-pointer border-t border-border/55 ui-row",
+                        selectedId === ws.id && "ui-row-selected",
+                      )}
                       role="button"
                       tabIndex={0}
-                      onClick={() => {
-                        openWorkspaceDrawer(ws.id);
-                      }}
+                      onClick={() => openWorkspaceDrawer(ws.id)}
                       onKeyDown={(event) => {
                         if (event.key !== "Enter" && event.key !== " ") return;
                         event.preventDefault();
                         openWorkspaceDrawer(ws.id);
                       }}
                     >
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2.5">
                         <div className="font-semibold">{ws.title}</div>
-                        <div className="text-[11px] text-muted-foreground font-mono break-all">{ws.workspace_key}</div>
+                        <div className="break-all font-mono text-[11px] text-muted-foreground">{ws.workspace_key}</div>
                         <div className="mt-1 flex flex-wrap items-center gap-1">
-                          <Badge variant={statusVariant(ws.status) as any}>{ws.status}</Badge>
-                          <Badge variant={severityVariant(ws.severity) as any}>{ws.severity}</Badge>
+                          <StatusPill variant={statusPillVariant(ws.status)} withDot>{ws.status}</StatusPill>
+                          <SeverityPill variant={severityVariant(ws.severity)} withDot>{ws.severity}</SeverityPill>
                           <Badge variant="neutral">{ws.priority}</Badge>
                         </div>
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2.5">
                         <div className="text-[12px]">{ws.assignee || <span className="text-muted-foreground">Unassigned</span>}</div>
                         <div className="font-mono text-[11px] text-muted-foreground">
                           {ws.linked_attack_chain_case_id ? `case #${ws.linked_attack_chain_case_id}` : "no linked case"}
                         </div>
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2.5">
                         <div className="font-mono text-[12px]">{fmtTs(ws.updated_at)}</div>
                         <div className="text-[11px] text-muted-foreground">{ws.notes_count} notes · {ws.bookmarks_count} evidence</div>
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-3 py-2.5 text-right">
                         <Button
                           variant="subtle"
                           size="sm"
