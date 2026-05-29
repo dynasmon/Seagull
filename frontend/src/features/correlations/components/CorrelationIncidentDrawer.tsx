@@ -231,7 +231,7 @@ export default function CorrelationIncidentDrawer({
                     compact
                   />
                 ) : (
-                  <div className="rounded-lg border border-border/60 bg-background/25 px-3 py-2 text-sm text-muted-foreground">
+                  <div className="rounded-md border border-border bg-surface-2/40 px-3 py-2 text-sm text-muted-foreground">
                     No related alerts were persisted for this incident.
                   </div>
                 )}
@@ -256,7 +256,7 @@ export default function CorrelationIncidentDrawer({
                     compact
                   />
                 ) : (
-                  <div className="rounded-lg border border-border/60 bg-background/25 px-3 py-2 text-sm text-muted-foreground">
+                  <div className="rounded-md border border-border bg-surface-2/40 px-3 py-2 text-sm text-muted-foreground">
                     No related network events were persisted for this incident.
                   </div>
                 )}

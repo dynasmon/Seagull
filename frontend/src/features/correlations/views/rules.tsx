@@ -73,8 +73,9 @@ export default function CorrelationRulesPage() {
       setRules([]);
       setError(cause?.message || "Failed to load correlation rules");
     } finally {
-      if (signal?.aborted || reqSeq.current !== mySeq) return;
-      setLoading(false);
+      if (!signal?.aborted && reqSeq.current === mySeq) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -270,7 +271,7 @@ export default function CorrelationRulesPage() {
                     {configFlags(rule).length > 0 ? configFlags(rule).map((item) => (
                       <span
                         key={item}
-                        className="inline-flex items-center rounded-md border border-border/60 bg-background/35 px-1.5 py-0.5 text-[11px] font-mono"
+                        className="inline-flex items-center rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px]"
                       >
                         {item}
                       </span>
@@ -289,7 +290,7 @@ export default function CorrelationRulesPage() {
                       {preview.length > 0 ? preview.map((item) => (
                         <span
                           key={item}
-                          className="inline-flex items-center rounded-md border border-border/60 bg-background/35 px-1.5 py-0.5 text-[11px] font-mono"
+                          className="inline-flex items-center rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px]"
                         >
                           {item}
                         </span>

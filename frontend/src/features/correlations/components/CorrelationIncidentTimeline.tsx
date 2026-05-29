@@ -29,7 +29,7 @@ export default function CorrelationIncidentTimeline({
 
   if (ordered.length === 0) {
     return (
-      <div className="rounded-lg border border-border/60 bg-background/25 px-3 py-2 text-sm text-muted-foreground">
+      <div className="rounded-md border border-border bg-surface-2/40 px-3 py-2 text-sm text-muted-foreground">
         No timeline entries are available yet.
       </div>
     );

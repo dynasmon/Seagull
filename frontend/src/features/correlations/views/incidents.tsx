@@ -66,6 +66,7 @@ export default function CorrelationIncidentsPage() {
   const navigate = useNavigate();
 
   const reqSeq = useRef(0);
+  const foregroundSeq = useRef(0);
   const detailCacheRef = useRef<Record<number, CorrelationIncidentDetail>>({});
   const pendingDetailsRef = useRef(new Map<number, Promise<CorrelationIncidentDetail | null>>());
 
@@ -101,6 +102,7 @@ export default function CorrelationIncidentsPage() {
 
   const loadIncidents = useCallback(async ({ signal, background = false }: { signal?: AbortSignal; background?: boolean } = {}) => {
     const mySeq = ++reqSeq.current;
+    const myForegroundSeq = background ? 0 : ++foregroundSeq.current;
     if (!background) setLoading(true);
     setError(null);
     try {
@@ -121,8 +123,9 @@ export default function CorrelationIncidentsPage() {
       setError(cause?.message || "Failed to load correlation incidents");
       if (!background) setRows([]);
     } finally {
-      if (signal?.aborted || reqSeq.current !== mySeq) return;
-      if (!background) setLoading(false);
+      if (!background && !signal?.aborted && foregroundSeq.current === myForegroundSeq) {
+        setLoading(false);
+      }
     }
   }, [pageSize, statusFilter]);
 
@@ -431,13 +434,10 @@ export default function CorrelationIncidentsPage() {
                 description="No durable incidents match the current filters. Run correlations or relax the filters."
               />
               <div className="flex justify-center gap-2">
-                <Button variant="primary" size="lg" onClick={() => void handleRunCorrelations()} disabled={runBusy}>
+                <Button variant="primary" size="md" onClick={() => void handleRunCorrelations()} disabled={runBusy}>
                   {runBusy ? "Running..." : "Run correlations"}
                 </Button>
-                <Link
-                  to="/correlations/rules"
-                  className="inline-flex h-9 items-center rounded-md border border-border/60 bg-muted/20 px-4 text-[12px] font-semibold text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground"
-                >
+                <Link to="/correlations/rules" className="ui-btn h-8">
                   Open rules
                 </Link>
               </div>
@@ -502,7 +502,7 @@ export default function CorrelationIncidentsPage() {
               </div>
 
               {runResult ? (
-                <div className="rounded-lg border border-border/60 bg-background/20 px-3 py-3 text-sm">
+                <div className="rounded-md border border-border bg-surface-2/50 px-3 py-3 text-sm">
                   <div className="font-semibold text-foreground">Last run result</div>
                   <div className="mt-2 grid grid-cols-2 gap-2 text-[12px] text-muted-foreground">
                     <div>Rules evaluated</div>
@@ -514,7 +514,7 @@ export default function CorrelationIncidentsPage() {
                   </div>
                 </div>
               ) : (
-                <div className="rounded-lg border border-border/60 bg-background/20 px-3 py-3 text-sm text-muted-foreground">
+                <div className="rounded-md border border-border bg-surface-2/40 px-3 py-3 text-sm text-muted-foreground">
                   Manual execution still exists, but the page now stays incident-centered instead of living inside one temporary run result.
                 </div>
               )}
