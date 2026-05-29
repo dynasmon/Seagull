@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
+import { InlineAlert } from "@/shared/components/InlineAlert";
 import { JsonBlock } from "@/shared/components/JsonBlock";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { SeverityPill } from "@/shared/components/SeverityPill";
+import { StatusPill } from "@/shared/components/StatusPill";
+import { TextArea } from "@/shared/components/TextArea";
+import { TextInput } from "@/shared/components/TextInput";
 import {
   InvestigationActionBar,
   InvestigationActionButton,
@@ -84,11 +91,17 @@ function scoreVariant(score: number) {
   return "neutral";
 }
 
-function statusVariant(status: string) {
+function statusPillVariant(status: string) {
   const s = String(status || "").toLowerCase();
-  if (s === "open") return "info";
-  if (s === "closed") return "neutral";
-  return "neutral";
+  if (s === "open") return "info" as const;
+  if (s === "closed") return "inactive" as const;
+  return "neutral" as const;
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</div>
+  );
 }
 
 function confidenceLabel(c: number) {
@@ -556,17 +569,9 @@ export default function AttackChainDrawer({
           ]}
           actions={
             <div className="space-y-2 text-right">
-              <button
-                type="button"
-                onClick={() => setPinStepId(s.id)}
-                className={cx(
-                  "rounded-md border border-border/60 bg-background/40",
-                  "px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                  "hover:bg-muted/15 hover:text-foreground"
-                )}
-              >
+              <Button variant="subtle" size="sm" onClick={() => setPinStepId(s.id)}>
                 Pin step
-              </button>
+              </Button>
               {s.transition.reason ? (
                 <div className="max-w-[220px] text-[10px] text-muted-foreground">{s.transition.reason}</div>
               ) : null}
@@ -574,11 +579,11 @@ export default function AttackChainDrawer({
           }
         >
           {s.confidenceFactors.length ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {s.confidenceFactors.map((f) => (
                 <span
                   key={f}
-                  className="inline-flex items-center rounded-md border border-border/60 bg-background/30 px-2 py-1 text-[10px] text-muted-foreground"
+                  className="inline-flex items-center rounded-md border border-border bg-surface-2 px-2 py-0.5 font-mono text-[10.5px] text-muted-foreground"
                 >
                   {f}
                 </span>
@@ -613,8 +618,8 @@ export default function AttackChainDrawer({
         <InvestigationShell>
           <InvestigationMetaStrip
             items={[
-              { label: "Status", value: payload.case.status, variant: statusVariant(payload.case.status) as any },
-              { label: "Score", value: String(payload.case.score), variant: scoreVariant(payload.case.score) as any },
+              { label: "Status", value: <StatusPill variant={statusPillVariant(payload.case.status)} withDot>{payload.case.status}</StatusPill> },
+              { label: "Score", value: <SeverityPill variant={scoreVariant(payload.case.score)} withDot>{payload.case.score}</SeverityPill> },
               { label: "Max stage", value: stageLabel(payload.case.max_stage) },
               { label: "Agent", value: payload.case.agent_id },
               { label: "Suspect", value: payload.case.suspect_ip || "-" },
@@ -640,17 +645,17 @@ export default function AttackChainDrawer({
             </InvestigationActionButton>
           </InvestigationActionBar>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="rounded-xl border border-border/60 bg-background/40 p-4">
-              <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Case</div>
-              <div className="mt-3 space-y-2 text-sm">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <div className="ui-card-shell p-4">
+              <FieldLabel>Case</FieldLabel>
+              <div className="mt-2 space-y-1.5 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-muted-foreground">Agent</div>
-                  <div className="font-mono text-foreground truncate">{payload.case.agent_id}</div>
+                  <div className="truncate font-mono text-foreground">{payload.case.agent_id}</div>
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-muted-foreground">Suspect</div>
-                  <div className="font-mono text-foreground truncate">{payload.case.suspect_ip || "-"}</div>
+                  <div className="truncate font-mono text-foreground">{payload.case.suspect_ip || "-"}</div>
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-muted-foreground">Steps</div>
@@ -659,9 +664,9 @@ export default function AttackChainDrawer({
               </div>
             </div>
 
-            <div className="rounded-xl border border-border/60 bg-background/40 p-4">
-              <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Window</div>
-              <div className="mt-3 space-y-2 text-sm">
+            <div className="ui-card-shell p-4">
+              <FieldLabel>Window</FieldLabel>
+              <div className="mt-2 space-y-1.5 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-muted-foreground">First seen</div>
                   <div className="font-mono text-foreground">{fmtTs(payload.case.first_seen_at)}</div>
@@ -679,19 +684,19 @@ export default function AttackChainDrawer({
               </div>
             </div>
 
-            <div className="rounded-xl border border-border/60 bg-background/40 p-4">
-              <div className="text-[10px] font-mono uppercase tracking-[0.35em] text-muted-foreground">Stage Progress</div>
-              <div className="mt-3 flex flex-wrap gap-2">
+            <div className="ui-card-shell p-4">
+              <FieldLabel>Stage progress</FieldLabel>
+              <div className="mt-2 flex flex-wrap gap-1.5">
                 {STAGES.map((st, idx) => {
                   const reached = idx <= maxStageRank;
                   return (
                     <span
                       key={st.key}
                       className={cx(
-                        "inline-flex items-center rounded-md border px-2 py-1 text-[11px] font-mono",
+                        "inline-flex items-center rounded-md border px-2 py-1 font-mono text-[11px]",
                         reached
-                          ? "border-primary/40 bg-primary/10 text-foreground"
-                          : "border-border/60 bg-background/30 text-muted-foreground"
+                          ? "border-primary/45 bg-primary/12 text-foreground"
+                          : "border-border bg-surface-2 text-muted-foreground",
                       )}
                       title={st.hint}
                     >
@@ -732,72 +737,70 @@ export default function AttackChainDrawer({
                     This case links telemetry into an ATT&CK-aligned chain while preserving evidence quality and transition guardrails.
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="rounded-lg border border-border/60 bg-background/30 p-3">
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Max stage</div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <div className="ui-card-shell p-3">
+                      <FieldLabel>Max stage</FieldLabel>
                       <div className="mt-1 text-sm font-semibold">{stageLabel(payload.case.max_stage)}</div>
                       <div className="mt-1 text-[11px] text-muted-foreground">
                         {STAGES.find((x) => x.key === payload.case.max_stage)?.hint || "-"}
                       </div>
                     </div>
-                    <div className="rounded-lg border border-border/60 bg-background/30 p-3">
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Score</div>
+                    <div className="ui-card-shell p-3">
+                      <FieldLabel>Score</FieldLabel>
                       <div className="mt-1 text-sm font-semibold">{payload.case.score}</div>
                       <div className="mt-1 text-[11px] text-muted-foreground">
                         Score is weighted by evidence quality. Weak inferred signals are intentionally capped.
                       </div>
                     </div>
-                    <div className="rounded-lg border border-border/60 bg-background/30 p-3">
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Steps</div>
+                    <div className="ui-card-shell p-3">
+                      <FieldLabel>Steps</FieldLabel>
                       <div className="mt-1 text-sm font-semibold">{payload.steps.length}</div>
                       <div className="mt-1 text-[11px] text-muted-foreground">Timeline signals used to compute the chain.</div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="rounded-lg border border-border/60 bg-background/30 p-3">
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Observed</div>
-                      <div className="mt-1 text-sm font-semibold">{qualityCounts.observed}</div>
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                    <div className="ui-card-shell p-3">
+                      <FieldLabel>Observed</FieldLabel>
+                      <div className="mt-1 text-sm font-semibold text-success">{qualityCounts.observed}</div>
                     </div>
-                    <div className="rounded-lg border border-border/60 bg-background/30 p-3">
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Strong</div>
+                    <div className="ui-card-shell p-3">
+                      <FieldLabel>Strong</FieldLabel>
                       <div className="mt-1 text-sm font-semibold">{qualityCounts.stronglySupported}</div>
                     </div>
-                    <div className="rounded-lg border border-border/60 bg-background/30 p-3">
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Inferred</div>
-                      <div className="mt-1 text-sm font-semibold">{qualityCounts.inferred}</div>
+                    <div className="ui-card-shell p-3">
+                      <FieldLabel>Inferred</FieldLabel>
+                      <div className="mt-1 text-sm font-semibold text-warning">{qualityCounts.inferred}</div>
                     </div>
-                    <div className="rounded-lg border border-border/60 bg-background/30 p-3">
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Weakly inferred</div>
-                      <div className="mt-1 text-sm font-semibold">{qualityCounts.weaklyInferred}</div>
+                    <div className="ui-card-shell p-3">
+                      <FieldLabel>Weakly inferred</FieldLabel>
+                      <div className="mt-1 text-sm font-semibold text-muted-foreground">{qualityCounts.weaklyInferred}</div>
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-border/60 bg-background/30 p-4">
+                  <div className="ui-card-shell p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <div className="text-sm font-semibold">Stage Evidence</div>
+                        <div className="text-sm font-semibold">Stage evidence</div>
                         <div className="text-xs text-muted-foreground">
                           Each stage shows support level, evidence families, and missing evidence for stronger confidence.
                         </div>
                       </div>
-                      <Badge variant={scoreVariant(payload.case.score)}>{assessment?.verdict || "Assessment"}</Badge>
+                      <SeverityPill variant={scoreVariant(payload.case.score)}>{assessment?.verdict || "Assessment"}</SeverityPill>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
                       {stageReasoning.length === 0 ? (
                         <div className="text-sm text-muted-foreground">No stage reasoning metadata available yet.</div>
                       ) : (
                         stageReasoning.map((st) => (
-                          <div key={st.stage} className="rounded-lg border border-border/60 bg-background/40 p-3">
+                          <div key={st.stage} className="rounded-md border border-border bg-surface-2/50 p-3">
                             <div className="flex items-center justify-between gap-2">
-                              <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                                {stageLabel(st.stage) || st.label || st.stage}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Badge variant={evidenceVariant(normalizeEvidenceClass(st.support_level)) as any}>
+                              <FieldLabel>{stageLabel(st.stage) || st.label || st.stage}</FieldLabel>
+                              <div className="flex items-center gap-1.5">
+                                <SeverityPill variant={evidenceVariant(normalizeEvidenceClass(st.support_level)) as any}>
                                   {evidenceLabel(normalizeEvidenceClass(st.support_level))}
-                                </Badge>
+                                </SeverityPill>
                                 <Badge variant={Boolean(st.promoted) ? "info" : "neutral"}>
                                   {Boolean(st.promoted) ? "promoted" : "held"}
                                 </Badge>
@@ -808,11 +811,11 @@ export default function AttackChainDrawer({
                               events {Number(st.evidence_count) || 0}
                             </div>
                             {(st.families || []).length ? (
-                              <div className="mt-2 flex flex-wrap gap-2">
+                              <div className="mt-2 flex flex-wrap gap-1.5">
                                 {(st.families || []).map((fam) => (
                                   <span
                                     key={`${st.stage}_${fam}`}
-                                    className="inline-flex items-center rounded-md border border-border/60 bg-background/30 px-2 py-1 text-[10px] text-muted-foreground"
+                                    className="inline-flex items-center rounded-md border border-border bg-card px-2 py-0.5 font-mono text-[10.5px] text-muted-foreground"
                                   >
                                     {fam}
                                   </span>
@@ -830,27 +833,27 @@ export default function AttackChainDrawer({
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-border/60 bg-background/30 p-4">
+                  <div className="ui-card-shell p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <div className="text-sm font-semibold">MITRE ATT&CK Coverage</div>
+                        <div className="text-sm font-semibold">MITRE ATT&CK coverage</div>
                         <div className="text-xs text-muted-foreground">
                           Summary derived from the case timeline (tactics + techniques + confidence).
                         </div>
                       </div>
-                      <Badge variant={confidenceVariant(payload.mitre?.tactics?.[0]?.max_confidence || 0)}>
-                        {payload.mitre?.tactics?.reduce((acc, t) => acc + (Number(t.total) || 0), 0) || 0}
-                      </Badge>
+                      <SeverityPill variant={confidenceVariant(payload.mitre?.tactics?.[0]?.max_confidence || 0)}>
+                        {payload.mitre?.tactics?.reduce((acc, t) => acc + (Number(t.total) || 0), 0) || 0} events
+                      </SeverityPill>
                     </div>
 
-                    <div className="mt-4">
-                      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Progression</div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <div className="mt-3">
+                      <FieldLabel>Progression</FieldLabel>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         {(payload.mitre?.progression || []).length === 0 ? (
                           <div className="text-sm text-muted-foreground">No technique metadata attached to this case yet.</div>
                         ) : (
                           (payload.mitre?.progression || []).map((k) => (
-                            <Badge key={k} variant={"neutral" as any}>
+                            <Badge key={k} variant="neutral">
                               {stageLabel(k) || k}
                             </Badge>
                           ))
@@ -858,29 +861,27 @@ export default function AttackChainDrawer({
                       </div>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                       {(payload.mitre?.tactics || []).map((t) => (
-                        <div key={t.tactic} className="rounded-lg border border-border/60 bg-background/40 p-3">
+                        <div key={t.tactic} className="rounded-md border border-border bg-surface-2/50 p-3">
                           <div className="flex items-center justify-between gap-2">
-                            <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                              {stageLabel(t.tactic) || t.tactic}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant={confidenceVariant(Number(t.max_confidence) || 0) as any}>
+                            <FieldLabel>{stageLabel(t.tactic) || t.tactic}</FieldLabel>
+                            <div className="flex items-center gap-1.5">
+                              <SeverityPill variant={confidenceVariant(Number(t.max_confidence) || 0) as any}>
                                 {Number(t.max_confidence) || 0}%
-                              </Badge>
-                              <Badge variant={"info" as any}>{Number(t.total) || 0}</Badge>
+                              </SeverityPill>
+                              <Badge variant="info">{Number(t.total) || 0}</Badge>
                             </div>
                           </div>
 
-                          <div className="mt-2 flex flex-wrap gap-2">
+                          <div className="mt-2 flex flex-wrap gap-1.5">
                             {(t.techniques || []).slice(0, 12).map((x) => (
                               <div
                                 key={x.technique_id}
-                                className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background/50 px-2 py-1"
+                                className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-0.5"
                                 title={x.technique || x.technique_id}
                               >
-                                <span className="text-[11px] font-mono text-foreground">{x.technique_id}</span>
+                                <span className="font-mono text-[11px] text-foreground">{x.technique_id}</span>
                                 <span className="text-[11px] text-muted-foreground">×{Number(x.count) || 0}</span>
                               </div>
                             ))}
@@ -913,7 +914,7 @@ export default function AttackChainDrawer({
 
               {tab === "investigation" ? (
                 <div className="space-y-4">
-                  <div className="rounded-xl border border-border/60 bg-background/30 p-4">
+                  <div className="ui-card-shell p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold">Investigation workflow</div>
@@ -923,43 +924,26 @@ export default function AttackChainDrawer({
                       </div>
                       <div className="flex items-center gap-2">
                         {workspace ? (
-                          <div className="text-[11px] text-muted-foreground font-mono">workspace {workspace.workspace_key}</div>
+                          <span className="font-mono text-[11px] text-muted-foreground">workspace {workspace.workspace_key}</span>
                         ) : (
-                          <div className="text-[11px] text-warning font-mono">no workspace linked</div>
+                          <span className="font-mono text-[11px] text-warning">no workspace linked</span>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => setPinCaseOpen(true)}
-                          className={cx(
-                            "rounded-md border border-border/60 bg-background/40",
-                            "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                            "hover:bg-muted/15 hover:text-foreground"
-                          )}
-                        >
+                        <Button variant="secondary" size="md" onClick={() => setPinCaseOpen(true)}>
                           Pin case
-                        </button>
+                        </Button>
                       </div>
                     </div>
 
                     {!workspace ? (
-                      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          disabled={wfBusy}
-                          onClick={createWorkspaceFromCase}
-                          className={cx(
-                            "rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest",
-                            "hover:bg-muted/15 hover:text-foreground",
-                            wfBusy && "opacity-60 cursor-not-allowed"
-                          )}
-                        >
+                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <Button variant="primary" size="md" disabled={wfBusy} onClick={createWorkspaceFromCase}>
                           Create workspace from this case
-                        </button>
+                        </Button>
                         <div className="flex items-center gap-2">
-                          <select
+                          <SelectInput
                             value={attachWorkspaceId ? String(attachWorkspaceId) : ""}
                             onChange={(e) => setAttachWorkspaceId(Number(e.target.value) || null)}
-                            className="flex-1 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                            className="flex-1"
                           >
                             <option value="">Select workspace to attach</option>
                             {workspaceChoices.map((ws) => (
@@ -967,27 +951,18 @@ export default function AttackChainDrawer({
                                 {ws.title} · {ws.workspace_key}
                               </option>
                             ))}
-                          </select>
-                          <button
-                            type="button"
-                            disabled={wfBusy || !attachWorkspaceId}
-                            onClick={attachWorkspace}
-                            className={cx(
-                              "rounded-md border border-border/60 bg-background/40 px-3 py-2 text-xs font-mono uppercase tracking-widest",
-                              "hover:bg-muted/15 hover:text-foreground",
-                              (wfBusy || !attachWorkspaceId) && "opacity-60 cursor-not-allowed"
-                            )}
-                          >
+                          </SelectInput>
+                          <Button variant="secondary" size="md" disabled={wfBusy || !attachWorkspaceId} onClick={attachWorkspace}>
                             Attach
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
                         <div>
-                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Triage</div>
-                          <select
-                            className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                          <FieldLabel>Triage</FieldLabel>
+                          <SelectInput
+                            className="mt-1"
                             value={wf.triage}
                             onChange={(e) => applyTriage(e.target.value as TriageState)}
                           >
@@ -997,13 +972,13 @@ export default function AttackChainDrawer({
                             <option value="investigating">Investigating</option>
                             <option value="contained">Contained</option>
                             <option value="closed">Closed</option>
-                          </select>
+                          </SelectInput>
                         </div>
 
                         <div>
-                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Priority</div>
-                          <select
-                            className="mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                          <FieldLabel>Priority</FieldLabel>
+                          <SelectInput
+                            className="mt-1"
                             value={wf.priority}
                             onChange={(e) => applyPriority(e.target.value as Priority)}
                           >
@@ -1011,65 +986,43 @@ export default function AttackChainDrawer({
                             <option value="p2">P2 (high)</option>
                             <option value="p3">P3 (medium)</option>
                             <option value="p4">P4 (low)</option>
-                          </select>
+                          </SelectInput>
                         </div>
 
                         <div>
-                          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Assignee</div>
+                          <FieldLabel>Assignee</FieldLabel>
                           <div className="mt-1 flex items-center gap-2">
-                            <input
+                            <TextInput
                               value={assigneeDraft}
                               onChange={(e) => setAssigneeDraft(e.target.value)}
                               placeholder="e.g. admin"
-                              className="flex-1 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm"
+                              className="flex-1"
                             />
-                            <button
-                              type="button"
-                              onClick={applyAssignee}
-                              disabled={wfBusy}
-                              className={cx(
-                                "rounded-md border border-border/60 bg-background/40",
-                                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                                "hover:bg-muted/15 hover:text-foreground",
-                                wfBusy && "opacity-60 cursor-not-allowed"
-                              )}
-                            >
+                            <Button variant="secondary" size="md" onClick={applyAssignee} disabled={wfBusy}>
                               Assign
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       </div>
                     )}
-                    {wfError ? <div className="mt-2 text-xs text-danger">{wfError}</div> : null}
-                    {pinResultText ? <div className="mt-2 text-xs text-success">{pinResultText}</div> : null}
+                    {wfError ? <InlineAlert tone="danger" className="mt-3 text-xs">{wfError}</InlineAlert> : null}
+                    {pinResultText ? <InlineAlert tone="success" className="mt-3 text-xs">{pinResultText}</InlineAlert> : null}
                   </div>
 
                   {workspace ? (
-                    <div className="rounded-xl border border-border/60 bg-background/30 p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold">Notes</div>
-                      </div>
+                    <div className="ui-card-shell p-4">
+                      <div className="text-sm font-semibold">Notes</div>
                       <div className="mt-3 flex items-start gap-2">
-                        <textarea
+                        <TextArea
                           value={noteText}
                           onChange={(e) => setNoteText(e.target.value)}
                           rows={3}
                           placeholder="Add investigation notes, indicators, or next steps..."
-                          className="flex-1 rounded-md border border-border/60 bg-background/40 px-3 py-2 text-sm font-mono"
+                          className="flex-1 font-mono"
                         />
-                        <button
-                          type="button"
-                          onClick={addNote}
-                          disabled={wfBusy}
-                          className={cx(
-                            "rounded-md border border-border/60 bg-background/40",
-                            "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                            "hover:bg-muted/15 hover:text-foreground",
-                            wfBusy && "opacity-60 cursor-not-allowed"
-                          )}
-                        >
+                        <Button variant="primary" size="md" onClick={addNote} disabled={wfBusy}>
                           Add
-                        </button>
+                        </Button>
                       </div>
 
                       <div className="mt-4 space-y-2">
@@ -1077,13 +1030,11 @@ export default function AttackChainDrawer({
                           <div className="text-sm text-muted-foreground">No notes yet.</div>
                         ) : (
                           wf.notes.map((n) => (
-                            <div key={n.id} className="rounded-lg border border-border/60 bg-background/40 p-3">
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="text-[11px] font-mono text-muted-foreground">
-                                  {n.author ? `${n.author} · ` : ""}{fmtTs(n.created_at)}
-                                </div>
+                            <div key={n.id} className="rounded-md border border-border bg-surface-2/50 p-3">
+                              <div className="font-mono text-[11px] text-muted-foreground">
+                                {n.author ? `${n.author} · ` : ""}{fmtTs(n.created_at)}
                               </div>
-                              <div className="mt-2 whitespace-pre-wrap break-words text-sm font-mono">{n.body}</div>
+                              <div className="mt-2 whitespace-pre-wrap break-words font-mono text-sm">{n.body}</div>
                             </div>
                           ))
                         )}
@@ -1095,24 +1046,17 @@ export default function AttackChainDrawer({
                     <div className="text-xs text-muted-foreground">
                       Closing a case requires admin privileges (backend enforcement).
                     </div>
-                    <button
-                      type="button"
+                    <Button
+                      variant={!isAdmin || payload.case.status !== "open" ? "subtle" : "danger"}
+                      size="md"
                       onClick={doCloseCase}
                       disabled={!isAdmin || payload.case.status !== "open" || closeBusy}
-                      className={cx(
-                        "rounded-md border border-border/60",
-                        closeBusy ? "opacity-60" : "",
-                        !isAdmin || payload.case.status !== "open"
-                          ? "bg-muted/10 text-muted-foreground"
-                          : "bg-danger/10 text-danger border-danger/30 hover:bg-danger/15",
-                        "px-3 py-2 text-xs font-mono uppercase tracking-widest"
-                      )}
                       title={!isAdmin ? "Admin required" : payload.case.status !== "open" ? "Already closed" : "Close case"}
                     >
-                      {closeBusy ? "Closing..." : "Close case"}
-                    </button>
+                      {closeBusy ? "Closing…" : "Close case"}
+                    </Button>
                   </div>
-                  {closeError ? <div className="text-xs text-danger">{closeError}</div> : null}
+                  {closeError ? <InlineAlert tone="danger" className="text-xs">{closeError}</InlineAlert> : null}
                 </div>
               ) : null}
           </div>
