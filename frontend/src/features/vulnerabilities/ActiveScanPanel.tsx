@@ -63,9 +63,9 @@ export const ScanStats = memo(function ScanStats({ stats }: { stats: Record<stri
       {chips.map((x) => (
         <span
           key={x.key}
-          className="inline-flex items-center gap-1.5 rounded border border-border/50 bg-background/40 px-2 py-0.5"
+          className="inline-flex items-center gap-1.5 rounded border border-border bg-surface-2 px-2 py-0.5"
         >
-          <span className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground/70">{x.label}</span>
+          <span className="text-[9.5px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/85">{x.label}</span>
           <span className="font-mono text-[11px] text-foreground">{x.value}</span>
         </span>
       ))}
@@ -183,17 +183,17 @@ const RecentScansTable = memo(function RecentScansTable({
   }
 
   return (
-    <div className="max-h-[280px] overflow-auto rounded-lg border border-border/60 bg-background/20">
+    <div className="max-h-[280px] overflow-auto rounded-md border border-border bg-card">
       <table className="w-full text-[11px]">
-        <thead className="sticky top-0 bg-background/90 backdrop-blur">
-          <tr className="border-b border-border/40 text-left text-muted-foreground/70">
-            <th className="px-2 py-1.5 font-medium">Status / Phase</th>
-            <th className="px-2 py-1.5 font-medium">Reporter / Target</th>
-            <th className="px-2 py-1.5 font-medium">Trigger</th>
-            <th className="px-2 py-1.5 font-medium">Started</th>
-            <th className="px-2 py-1.5 font-medium">Duration</th>
-            <th className="px-2 py-1.5 font-medium">Findings</th>
-            <th className="px-2 py-1.5" />
+        <thead className="sticky top-0 z-[2] bg-surface-2/95 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm">
+          <tr>
+            <th className="border-b border-border px-2 py-1.5">Status / Phase</th>
+            <th className="border-b border-border px-2 py-1.5">Reporter / Target</th>
+            <th className="border-b border-border px-2 py-1.5">Trigger</th>
+            <th className="border-b border-border px-2 py-1.5">Started</th>
+            <th className="border-b border-border px-2 py-1.5">Duration</th>
+            <th className="border-b border-border px-2 py-1.5">Findings</th>
+            <th className="border-b border-border px-2 py-1.5" />
           </tr>
         </thead>
         <tbody>
@@ -208,8 +208,8 @@ const RecentScansTable = memo(function RecentScansTable({
               <tr
                 key={s.id || s.scan_uuid}
                 className={cx(
-                  "border-b border-border/20 cursor-pointer",
-                  live ? "hover:bg-primary/5 bg-primary/[0.03]" : "hover:bg-muted/15"
+                  "cursor-pointer border-t border-border/55 ui-row",
+                  live && "bg-primary/[0.04] hover:bg-primary/[0.08]",
                 )}
                 onClick={() => onViewScan(s)}
               >

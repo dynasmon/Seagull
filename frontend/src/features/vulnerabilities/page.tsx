@@ -8,9 +8,11 @@ import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
 import { SelectInput } from "@/shared/components/SelectInput";
+import { SeverityPill } from "@/shared/components/SeverityPill";
 import { TextInput } from "@/shared/components/TextInput";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { cx } from "@/shared/lib/cx";
+import { RiskScorePill } from "./RiskScorePill";
 import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { useAuth } from "@/features/auth/context";
@@ -144,15 +146,8 @@ function StatItem({
 }) {
   return (
     <div>
-      <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-        {label}
-      </div>
-      <div
-        className={cx(
-          "mt-1 text-2xl font-semibold tabular-nums transition-opacity",
-          loading && "opacity-50"
-        )}
-      >
+      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</div>
+      <div className={cx("mt-1 text-2xl font-semibold tracking-tight tabular-nums transition-opacity", loading && "opacity-50")}>
         {value}
       </div>
       {sub && <div className="mt-0.5 text-[11px] text-muted-foreground">{sub}</div>}
@@ -737,10 +732,7 @@ export default function VulnerabilitiesPage() {
               onCommit={(n) => setActiveDays(n)}
               min={1}
               max={365}
-              className={cx(
-                "w-16 rounded-md border border-border/60 bg-background/40 px-2 py-1",
-                "text-sm font-mono text-foreground outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              className="ui-input h-8 w-16 px-2 font-mono"
             />
             <span>days</span>
           </div>
@@ -782,7 +774,7 @@ export default function VulnerabilitiesPage() {
         {/* Secondary metric strip */}
         <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-border/30 pt-4">
           <div className="flex items-baseline gap-2">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Observed
             </span>
             <span
@@ -795,7 +787,7 @@ export default function VulnerabilitiesPage() {
             </span>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Stale &gt;30d
             </span>
             <span
@@ -808,7 +800,7 @@ export default function VulnerabilitiesPage() {
             </span>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Mean risk
             </span>
             <span
@@ -822,7 +814,7 @@ export default function VulnerabilitiesPage() {
             </span>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Suppressed
             </span>
             <span
@@ -836,7 +828,7 @@ export default function VulnerabilitiesPage() {
           </div>
           {severityBlocks.length > 0 && (
             <div className="flex items-baseline gap-2">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                 Severity
               </span>
               <span className="flex flex-wrap gap-1.5">
@@ -857,7 +849,7 @@ export default function VulnerabilitiesPage() {
         <Card
           title="Priority Queue"
           right={
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               explainable ranking
             </span>
           }
@@ -871,7 +863,7 @@ export default function VulnerabilitiesPage() {
                 <button
                   key={x.id}
                   type="button"
-                  className="w-full rounded-lg border border-border/60 bg-background/40 p-3 text-left hover:bg-muted/15"
+                  className="w-full rounded-md border border-border bg-card p-3 text-left transition-colors hover:border-primary/30 hover:bg-surface-2/70"
                   onClick={() => {
                     const row = items.find((it) => it.id === x.id);
                     if (row) {
@@ -887,19 +879,8 @@ export default function VulnerabilitiesPage() {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={cx(
-                            "inline-flex rounded-md border px-2 py-0.5 font-mono text-[12px]",
-                            Number(x.risk_score) >= 80
-                              ? "border-severity-critical/50 text-severity-critical"
-                              : Number(x.risk_score) >= 65
-                                ? "border-severity-high/50 text-severity-high"
-                                : "border-border/60 text-foreground"
-                          )}
-                        >
-                          {fmtRisk(x.risk_score)}
-                        </span>
-                        <Badge variant={sevVariant(x.severity)}>{x.severity}</Badge>
+                        <RiskScorePill score={x.risk_score} />
+                        <SeverityPill variant={sevVariant(x.severity)} withDot>{x.severity}</SeverityPill>
                         <span className="text-[11px] text-muted-foreground">conf {x.confidence}</span>
                         <span className="text-[11px] text-muted-foreground">{x.exposure_source.replaceAll("_", " ")}</span>
                       </div>
@@ -919,7 +900,7 @@ export default function VulnerabilitiesPage() {
                           {x.priority_factors.slice(0, 4).map((factor) => (
                             <span
                               key={factor}
-                              className="inline-flex items-center rounded border border-border/50 bg-background/30 px-2 py-0.5 text-[10px] font-mono text-muted-foreground"
+                              className="inline-flex items-center rounded border border-border bg-surface-2 px-2 py-0.5 font-mono text-[10px] text-muted-foreground"
                             >
                               {factor}
                             </span>
@@ -944,7 +925,7 @@ export default function VulnerabilitiesPage() {
         <Card
           title="Most exposed assets"
           right={
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               {posture?.top_assets?.length ?? 0} assets
             </span>
           }
@@ -967,7 +948,7 @@ export default function VulnerabilitiesPage() {
                     setDraft(next);
                     setFilters(next);
                   }}
-                  className="w-full rounded-lg border border-border/60 bg-background/40 p-3 text-left hover:bg-muted/15"
+                  className="w-full rounded-md border border-border bg-card p-3 text-left transition-colors hover:border-primary/30 hover:bg-surface-2/70"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div
@@ -1018,11 +999,11 @@ export default function VulnerabilitiesPage() {
         right={
           <div className="flex items-center gap-3">
             {busy && items.length > 0 && (
-              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60 animate-pulse">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80 animate-pulse">
                 updating
               </span>
             )}
-            <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               {items.length} items
             </span>
             {activeFilterCount > 0 && (
@@ -1165,7 +1146,7 @@ export default function VulnerabilitiesPage() {
           <div className="mt-4 space-y-2">
             {assetPivots.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">
                   Assets
                 </span>
                 {assetPivots.map((p) => (
@@ -1183,9 +1164,9 @@ export default function VulnerabilitiesPage() {
                       setFilters(next);
                     }}
                     className={cx(
-                      "inline-flex items-center gap-1 rounded border border-border/50 bg-background/30",
-                      "px-2 py-0.5 text-[10px] font-mono text-muted-foreground",
-                      "hover:border-primary/30 hover:text-foreground"
+                      "inline-flex items-center gap-1 rounded border border-border bg-surface-2",
+                      "px-2 py-0.5 font-mono text-[10px] text-muted-foreground",
+                      "transition-colors hover:border-primary/30 hover:text-foreground"
                     )}
                   >
                     {p.label}
@@ -1196,7 +1177,7 @@ export default function VulnerabilitiesPage() {
             )}
             {packagePivots.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/60">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">
                   Packages
                 </span>
                 {packagePivots.map((p) => (
@@ -1209,9 +1190,9 @@ export default function VulnerabilitiesPage() {
                       setFilters(next);
                     }}
                     className={cx(
-                      "inline-flex items-center gap-1 rounded border border-border/50 bg-background/30",
-                      "px-2 py-0.5 text-[10px] font-mono text-muted-foreground",
-                      "hover:border-primary/30 hover:text-foreground"
+                      "inline-flex items-center gap-1 rounded border border-border bg-surface-2",
+                      "px-2 py-0.5 font-mono text-[10px] text-muted-foreground",
+                      "transition-colors hover:border-primary/30 hover:text-foreground"
                     )}
                   >
                     {p.name}
@@ -1245,19 +1226,19 @@ export default function VulnerabilitiesPage() {
         ) : (
           <div className="w-full">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 z-10 bg-background/60 backdrop-blur">
-                <tr className="border-b border-border/60 text-muted-foreground">
-                  <th className="px-3 py-2 text-left font-medium">Finding</th>
-                  <th className="px-3 py-2 text-left font-medium">Asset / Context</th>
-                  <th className="px-3 py-2 text-left font-medium">Status</th>
-                  <th className="px-3 py-2 text-left font-medium">Seen / Hits</th>
-                  <th className="px-3 py-2 text-right font-medium">Actions</th>
+              <thead className="sticky top-0 z-[2] bg-surface-2/95 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm">
+                <tr>
+                  <th className="border-b border-border px-3 py-2.5">Finding</th>
+                  <th className="border-b border-border px-3 py-2.5">Asset / Context</th>
+                  <th className="border-b border-border px-3 py-2.5">Status</th>
+                  <th className="border-b border-border px-3 py-2.5">Seen / Hits</th>
+                  <th className="border-b border-border px-3 py-2.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((f) => {
                   const selectedRow = selected?.id === f.id;
-                  const rowPad = dense ? "py-1.5" : "py-2";
+                  const rowPad = dense ? "py-1.5" : "py-2.5";
                   const svc = (f.exposure?.service_hints || []).slice(0, 2);
                   const installedVersion = findingInstalledVersion(f);
                   const fixedVersion = findingFixedVersion(f);
@@ -1265,8 +1246,8 @@ export default function VulnerabilitiesPage() {
                     <tr
                       key={f.id}
                       className={cx(
-                        "border-b border-border/40 hover:bg-muted/30 align-top",
-                        selectedRow && "bg-muted/40"
+                        "cursor-pointer border-t border-border/55 align-top ui-row",
+                        selectedRow && "ui-row-selected",
                       )}
                       onClick={() => {
                         setSelected(f);
@@ -1277,19 +1258,8 @@ export default function VulnerabilitiesPage() {
                     >
                       <td className={cx("px-3", rowPad)}>
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span
-                            className={cx(
-                              "inline-flex rounded-md border px-2 py-0.5 font-mono text-[12px]",
-                              Number(f.priority?.score || 0) >= 80
-                                ? "border-severity-critical/50 text-severity-critical"
-                                : Number(f.priority?.score || 0) >= 65
-                                  ? "border-severity-high/50 text-severity-high"
-                                  : "border-border/60 text-foreground"
-                            )}
-                          >
-                            {fmtRisk(f.priority?.score)}
-                          </span>
-                          <Badge variant={sevVariant(f.severity)}>{f.severity}</Badge>
+                          <RiskScorePill score={f.priority?.score} />
+                          <SeverityPill variant={sevVariant(f.severity)} withDot>{f.severity}</SeverityPill>
                           <span className="text-[11px] text-muted-foreground">conf {f.confidence}</span>
                         </div>
                         <div className="mt-1 font-mono text-[12px] break-all" title={findingComponentLabel(f)}>
