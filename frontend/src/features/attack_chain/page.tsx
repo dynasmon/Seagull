@@ -6,10 +6,11 @@ import DetectionWorkflowRail from "@/shared/components/DetectionWorkflow";
 import PageHeader from "@/shared/components/PageHeader";
 import Loading from "@/shared/components/Loading";
 import EmptyState from "@/shared/components/EmptyState";
-import { Badge } from "@/shared/components/Badge";
 import { DataPaginationFooter, DataQueryStateBanner, DataStatsStrip } from "@/shared/components/DataView";
 import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
+import { SeverityPill } from "@/shared/components/SeverityPill";
+import { StatusPill } from "@/shared/components/StatusPill";
 import { TextInput } from "@/shared/components/TextInput";
 import { cx } from "@/shared/lib/cx";
 
@@ -45,11 +46,17 @@ function scoreVariant(score: number) {
   return "neutral";
 }
 
-function statusVariant(status: string) {
+function statusPillVariant(status: string) {
   const s = String(status || "").toLowerCase();
-  if (s === "open") return "info";
-  if (s === "closed") return "neutral";
-  return "neutral";
+  if (s === "open") return "info" as const;
+  if (s === "closed") return "inactive" as const;
+  return "neutral" as const;
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</div>
+  );
 }
 
 function computeSinceIso(preset: SincePreset, customLocal: string): string | undefined {
@@ -363,11 +370,11 @@ export default function AttackChainPage() {
           scrollY
         >
           <div className="space-y-4">
-            <div className="rounded-xl border border-border/60 bg-background/30 p-4">
+            <div className="rounded-md border border-border bg-surface-2/50 p-3">
               <div className="text-sm font-semibold">Filter scope</div>
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div>
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Status</div>
+                  <FieldLabel>Status</FieldLabel>
                   <SelectInput
                     className="mt-1"
                     value={draft.status}
@@ -380,7 +387,7 @@ export default function AttackChainPage() {
                 </div>
 
                 <div>
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Agent</div>
+                  <FieldLabel>Agent</FieldLabel>
                   <SelectInput
                     className="mt-1"
                     value={draft.agentId}
@@ -400,7 +407,7 @@ export default function AttackChainPage() {
                 </div>
 
                 <div>
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Suspect IP</div>
+                  <FieldLabel>Suspect IP</FieldLabel>
                   <TextInput
                     value={draft.suspectIp}
                     onChange={(e) => setDraft((p) => ({ ...p, suspectIp: e.target.value }))}
@@ -410,7 +417,7 @@ export default function AttackChainPage() {
                 </div>
 
                 <div>
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Min score</div>
+                  <FieldLabel>Min score</FieldLabel>
                   <TextInput
                     value={draft.minScore}
                     onChange={(e) => setDraft((p) => ({ ...p, minScore: e.target.value }))}
@@ -421,9 +428,9 @@ export default function AttackChainPage() {
                 </div>
               </div>
 
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div>
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Since</div>
+                  <FieldLabel>Since</FieldLabel>
                   <SelectInput
                     className="mt-1"
                     value={draft.sincePreset}
@@ -449,7 +456,7 @@ export default function AttackChainPage() {
                 </div>
 
                 <div>
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Density</div>
+                  <FieldLabel>Density</FieldLabel>
                   <SelectInput
                     className="mt-1"
                     value={draft.density}
@@ -461,17 +468,17 @@ export default function AttackChainPage() {
                 </div>
               </div>
 
-              <div className="mt-4 flex items-center justify-between gap-3">
+              <div className="mt-3 flex items-center justify-between gap-3">
                 <div className="text-[11px] text-muted-foreground">Applied: {appliedSummary}</div>
-                <Button variant="subtle" size="md" onClick={applyFilters}>
+                <Button variant="primary" size="md" onClick={applyFilters}>
                   Apply & refresh
                 </Button>
               </div>
             </div>
 
-            <div className="rounded-xl border border-border/60 bg-background/30 p-4">
+            <div className="rounded-md border border-border bg-surface-2/50 p-3">
               <div className="text-sm font-semibold">How to use</div>
-              <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
+              <ul className="mt-2 space-y-1.5 text-[12px] leading-relaxed text-muted-foreground">
                 <li>• Start with <span className="text-foreground">Open</span> cases, sorted by <span className="text-foreground">last seen</span>.</li>
                 <li>• Use <span className="text-foreground">since</span> to scope recent campaigns.</li>
                 <li>• Open a case to use a persistent investigation workspace with notes and evidence.</li>
@@ -497,12 +504,12 @@ export default function AttackChainPage() {
           {!error && rows.length > 0 ? (
             <div className="w-full">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
-                  <tr className="border-b border-border/60 text-muted-foreground">
-                    <th className="text-left font-medium px-3 py-2">Risk</th>
-                    <th className="text-left font-medium px-3 py-2">Stage / Agent</th>
-                    <th className="text-left font-medium px-3 py-2">Suspect / Seen</th>
-                    <th className="text-right font-medium px-3 py-2">Actions</th>
+                <thead className="sticky top-0 z-[2] bg-surface-2/95 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm">
+                  <tr>
+                    <th className="border-b border-border px-3 py-2.5">Risk</th>
+                    <th className="border-b border-border px-3 py-2.5">Stage / Agent</th>
+                    <th className="border-b border-border px-3 py-2.5">Suspect / Seen</th>
+                    <th className="border-b border-border px-3 py-2.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -511,30 +518,33 @@ export default function AttackChainPage() {
                     return (
                       <tr
                         key={r.id}
-                        className={cx("border-b border-border/40 hover:bg-muted/30", selected && "bg-muted/40")}
+                        className={cx(
+                          "cursor-pointer border-t border-border/55 ui-row",
+                          selected && "ui-row-selected",
+                        )}
                         onClick={() => openCase(r.id)}
                         role="button"
                         tabIndex={0}
                       >
-                        <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
+                        <td className={cx("px-3", dense ? "py-1.5" : "py-2.5")}>
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <Badge variant={statusVariant(r.status)}>{r.status}</Badge>
-                            <Badge variant={scoreVariant(r.score)}>{r.score}</Badge>
+                            <StatusPill variant={statusPillVariant(r.status)} withDot>{r.status}</StatusPill>
+                            <SeverityPill variant={scoreVariant(r.score)} withDot>score {r.score}</SeverityPill>
                           </div>
                         </td>
-                        <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
+                        <td className={cx("px-3", dense ? "py-1.5" : "py-2.5")}>
                           <div className="text-sm font-semibold">{stageLabel(r.max_stage)}</div>
                           <div className="text-[11px] text-muted-foreground">{r.step_count} steps · agent {r.agent_id}</div>
                         </td>
-                        <td className={cx("px-3", dense ? "py-1.5" : "py-2")}>
-                          <div className="font-mono text-[12px] break-all" title={r.suspect_ip || ""}>
+                        <td className={cx("px-3", dense ? "py-1.5" : "py-2.5")}>
+                          <div className="break-all font-mono text-[12px]" title={r.suspect_ip || ""}>
                             {r.suspect_ip || "-"}
                           </div>
                           <div className="font-mono text-[11px] text-muted-foreground">
                             {fmtTs(r.last_seen_at)}
                           </div>
                         </td>
-                        <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2")}>
+                        <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2.5")}>
                           <div className="flex flex-wrap items-center justify-end gap-2">
                             <Button
                               variant="subtle"
