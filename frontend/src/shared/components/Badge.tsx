@@ -1,17 +1,9 @@
 import type { ReactNode } from "react";
+import { EuiBadge } from "@elastic/eui";
 
-import { cx } from "@/shared/lib/cx";
+import { severityEuiColor, type SeverityLevel } from "@/shared/lib/severity";
 
-export type BadgeVariant = "critical" | "high" | "medium" | "low" | "info" | "neutral";
-
-const map: Record<BadgeVariant, string> = {
-  critical: "border-severity-critical/40 bg-severity-critical/12 text-severity-critical",
-  high: "border-severity-high/40 bg-severity-high/12 text-severity-high",
-  medium: "border-severity-medium/40 bg-severity-medium/12 text-severity-medium",
-  low: "border-severity-low/40 bg-severity-low/12 text-severity-low",
-  info: "border-info/40 bg-info/12 text-info",
-  neutral: "border-border bg-muted text-muted-foreground",
-};
+export type BadgeVariant = SeverityLevel;
 
 export function Badge({
   children,
@@ -23,14 +15,8 @@ export function Badge({
   className?: string;
 }) {
   return (
-    <span
-      className={cx(
-        "inline-flex items-center whitespace-nowrap rounded-sm border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.07em]",
-        map[variant],
-        className,
-      )}
-    >
+    <EuiBadge color={severityEuiColor[variant]} className={className}>
       {children}
-    </span>
+    </EuiBadge>
   );
 }

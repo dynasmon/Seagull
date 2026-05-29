@@ -671,7 +671,7 @@ export default function ExposurePage() {
     <div className="space-y-6">
       <PageHeader
         title="Exposure Graph"
-        breadcrumb={["Assets & Exposure", "Exposure Graph"]}
+        breadcrumb={["Exposure & Vulnerabilities", "Exposure Graph"]}
         description="Asset risk, evidence relationships, and attack-path prioritization."
         toolbarRight={
           isAdmin ? (

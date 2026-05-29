@@ -1,31 +1,11 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { type ButtonHTMLAttributes, type ComponentType, type ReactNode, type SVGProps } from "react";
+import { EuiButton, EuiButtonEmpty, EuiButtonIcon } from "@elastic/eui";
+import type { IconType } from "@elastic/eui";
 
 import { cx } from "@/shared/lib/cx";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success" | "subtle";
 export type ButtonSize = "sm" | "md" | "lg" | "icon";
-
-const variantClasses: Record<ButtonVariant, string> = {
-  primary:
-    "border-primary bg-primary text-primary-foreground shadow-soft hover:bg-primary/90 hover:border-primary/90 focus-visible:ring-primary/40",
-  secondary:
-    "border-border bg-card text-foreground hover:border-primary/40 hover:bg-muted focus-visible:ring-primary/35",
-  ghost:
-    "border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-primary/35",
-  danger:
-    "border-danger/50 bg-danger/10 text-danger hover:bg-danger/20 focus-visible:ring-danger/40",
-  success:
-    "border-success/50 bg-success/10 text-success hover:bg-success/20 focus-visible:ring-success/40",
-  subtle:
-    "border-border/70 bg-surface-2/70 text-foreground/85 hover:border-primary/35 hover:bg-muted hover:text-foreground focus-visible:ring-primary/30",
-};
-
-const sizeClasses: Record<ButtonSize, string> = {
-  sm: "h-7 px-2.5 text-[11px] gap-1.5",
-  md: "h-8 px-3 text-[11.5px] gap-2",
-  lg: "h-9 px-3.5 text-[12px] gap-2",
-  icon: "h-8 w-8 px-0",
-};
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -33,6 +13,46 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children?: ReactNode;
   leadingIcon?: ReactNode;
   trailingIcon?: ReactNode;
+}
+
+function euiSize(size: ButtonSize): "s" | "m" {
+  return size === "lg" ? "m" : "s";
+}
+
+function euiColor(variant: ButtonVariant): "primary" | "danger" | "success" | "text" {
+  if (variant === "danger") return "danger";
+  if (variant === "success") return "success";
+  if (variant === "primary") return "primary";
+  return "text";
+}
+
+function contentIconType(icon: ReactNode): IconType {
+  const Icon: ComponentType<SVGProps<SVGSVGElement>> = (props) => (
+    <svg {...props} viewBox="0 0 16 16">
+      <foreignObject x="0" y="0" width="16" height="16">
+        <span className="flex h-4 w-4 items-center justify-center text-current">{icon}</span>
+      </foreignObject>
+    </svg>
+  );
+  return Icon;
+}
+
+function ButtonContent({
+  children,
+  leadingIcon,
+  trailingIcon,
+}: {
+  children?: ReactNode;
+  leadingIcon?: ReactNode;
+  trailingIcon?: ReactNode;
+}) {
+  return (
+    <>
+      {leadingIcon ? <span className="inline-flex shrink-0">{leadingIcon}</span> : null}
+      {children}
+      {trailingIcon ? <span className="inline-flex shrink-0">{trailingIcon}</span> : null}
+    </>
+  );
 }
 
 export function Button({
@@ -45,22 +65,54 @@ export function Button({
   trailingIcon,
   ...rest
 }: ButtonProps) {
+  const color = euiColor(variant);
+  const buttonType = rest.type ?? "button";
+  const buttonAttrs = rest as Omit<ButtonHTMLAttributes<HTMLButtonElement>, "color" | "disabled" | "type" | "value">;
+
+  if (size === "icon") {
+    const iconNode = leadingIcon ?? children ?? trailingIcon;
+    return (
+      <EuiButtonIcon
+        {...buttonAttrs}
+        iconType={iconNode ? contentIconType(iconNode) : "empty"}
+        display={variant === "primary" ? "fill" : variant === "ghost" ? "empty" : "base"}
+        color={color}
+        size="s"
+        type={buttonType}
+        isDisabled={disabled}
+        className={cx("shrink-0", className)}
+      />
+    );
+  }
+
+  const content = <ButtonContent leadingIcon={leadingIcon} trailingIcon={trailingIcon}>{children}</ButtonContent>;
+
+  if (variant === "ghost") {
+    return (
+      <EuiButtonEmpty
+        {...buttonAttrs}
+        color={color}
+        size={euiSize(size)}
+        type={buttonType}
+        isDisabled={disabled}
+        className={className}
+      >
+        {content}
+      </EuiButtonEmpty>
+    );
+  }
+
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      className={cx(
-        "inline-flex items-center justify-center rounded-md border font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-0",
-        variantClasses[variant],
-        sizeClasses[size],
-        disabled && "cursor-not-allowed opacity-50",
-        className,
-      )}
-      {...rest}
+    <EuiButton
+      {...buttonAttrs}
+      fill={variant === "primary"}
+      color={color}
+      size={euiSize(size)}
+      type={buttonType}
+      isDisabled={disabled}
+      className={className}
     >
-      {leadingIcon ? <span className="-ml-0.5 inline-flex shrink-0">{leadingIcon}</span> : null}
-      {children}
-      {trailingIcon ? <span className="-mr-0.5 inline-flex shrink-0">{trailingIcon}</span> : null}
-    </button>
+      {content}
+    </EuiButton>
   );
 }

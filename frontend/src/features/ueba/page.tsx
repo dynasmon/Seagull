@@ -7,7 +7,7 @@ export default function UebaLayout() {
     <div className="space-y-6">
       <PageHeader
         title="Anomaly Detection"
-        breadcrumb={["Detection & Investigation"]}
+        breadcrumb={["Alerts & Triage"]}
         description="Behavioral baselines and statistical anomaly detection across user and entity activity."
         tabs={[
           { label: "Anomalies", to: "/ueba/findings" },

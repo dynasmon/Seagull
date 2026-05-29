@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
-import { Link, NavLink } from "react-router-dom";
-
-import { cx } from "@/shared/lib/cx";
+import type { MouseEvent, ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { EuiPageHeader } from "@elastic/eui";
+import type { EuiBreadcrumb, EuiTabProps } from "@elastic/eui";
 
 export type PageHeaderTab = { label: string; to: string; end?: boolean };
 export type PageHeaderBreadcrumb = string | { label: string; to?: string };
@@ -9,6 +9,23 @@ export type PageHeaderBreadcrumb = string | { label: string; to?: string };
 function asBreadcrumbItem(item: PageHeaderBreadcrumb): { label: string; to?: string } {
   if (typeof item === "string") return { label: item };
   return item;
+}
+
+function shouldNavigateClientSide(event: MouseEvent<HTMLElement>): boolean {
+  return !event.defaultPrevented && event.button === 0 && !event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey;
+}
+
+function computeEnd(tab: PageHeaderTab, tabs: PageHeaderTab[]): boolean {
+  if (typeof tab.end === "boolean") return tab.end;
+  const base = (tab.to || "/").replace(/\/+$/g, "") || "/";
+  const prefix = base === "/" ? "/" : `${base}/`;
+  const hasChild = tabs.some((other) => other.to !== tab.to && (other.to || "").startsWith(prefix));
+  return hasChild;
+}
+
+function isTabActive(pathname: string, tab: PageHeaderTab, tabs: PageHeaderTab[]): boolean {
+  if (computeEnd(tab, tabs)) return pathname === tab.to;
+  return pathname === tab.to || pathname.startsWith(`${tab.to}/`);
 }
 
 export function PageHeader({
@@ -24,74 +41,57 @@ export function PageHeader({
   tabs?: PageHeaderTab[];
   toolbarRight?: ReactNode;
 }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const computedTabs = tabs ?? [];
 
-  function computeEnd(t: PageHeaderTab): boolean {
-    if (typeof t.end === "boolean") return t.end;
-    const base = (t.to || "/").replace(/\/+$/g, "") || "/";
-    const prefix = base === "/" ? "/" : `${base}/`;
-    const hasChild = computedTabs.some((o) => o.to !== t.to && (o.to || "").startsWith(prefix));
-    return hasChild;
-  }
+  const breadcrumbs: EuiBreadcrumb[] | undefined = breadcrumb?.map((entry, idx) => {
+    const item = asBreadcrumbItem(entry);
+    const isLast = idx === breadcrumb.length - 1;
+    const isLink = Boolean(item.to && !isLast);
+    return {
+      text: item.label,
+      href: isLink ? item.to : undefined,
+      onClick: isLink
+        ? (event: MouseEvent<HTMLAnchorElement>) => {
+            if (shouldNavigateClientSide(event)) {
+              event.preventDefault();
+              navigate(item.to as string);
+            }
+          }
+        : undefined,
+    };
+  });
+
+  const euiTabs: Array<EuiTabProps & { label: ReactNode }> | undefined =
+    computedTabs.length > 0
+      ? computedTabs.map((tab) => ({
+          label: tab.label,
+          href: tab.to,
+          isSelected: isTabActive(location.pathname, tab, computedTabs),
+          onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+            if (shouldNavigateClientSide(event)) {
+              event.preventDefault();
+              navigate(tab.to);
+            }
+          },
+        }))
+      : undefined;
 
   return (
-    <section className="ui-section-shell mb-5 overflow-hidden" aria-label={`${title} section`}>
-      <div className="px-4 py-4 sm:px-5">
-        {breadcrumb && breadcrumb.length > 0 ? (
-          <nav aria-label="Section breadcrumb" className="mb-1.5">
-            <ol className="flex flex-wrap items-center gap-1 text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground">
-              {breadcrumb.map((entry, idx) => {
-                const item = asBreadcrumbItem(entry);
-                const isLast = idx === breadcrumb.length - 1;
-                return (
-                  <li key={`${item.label}:${idx}`} className="flex items-center gap-1">
-                    {idx > 0 ? <span className="text-muted-foreground/60">›</span> : null}
-                    {item.to && !isLast ? (
-                      <Link
-                        to={item.to}
-                        className="rounded-sm px-1 py-0.5 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
-                      >
-                        {item.label}
-                      </Link>
-                    ) : (
-                      <span className={cx("px-1 py-0.5", isLast ? "text-foreground" : "")}>{item.label}</span>
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
-          </nav>
-        ) : null}
-
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-[18px] font-semibold tracking-tight text-foreground">{title}</h1>
-            {description ? (
-              <div className="mt-1 max-w-3xl text-[12px] leading-relaxed text-muted-foreground">{description}</div>
-            ) : null}
-          </div>
-
-          {toolbarRight ? <div className="shrink-0">{toolbarRight}</div> : null}
-        </div>
-      </div>
-
-      {tabs && tabs.length > 0 ? (
-        <div className="border-t border-border bg-surface-2/40 px-4 sm:px-5">
-          <div className="ui-tab-shell border-b-0">
-            {tabs.map((t) => (
-              <NavLink
-                key={t.to}
-                to={t.to}
-                end={computeEnd(t)}
-                className={({ isActive }) => cx("ui-tab-item", isActive && "ui-tab-item-active")}
-              >
-                {t.label}
-              </NavLink>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </section>
+    <EuiPageHeader
+      className="ui-section-shell mb-5 overflow-hidden"
+      color="plain"
+      paddingSize="m"
+      bottomBorder={Boolean(euiTabs)}
+      pageTitle={title}
+      description={description}
+      breadcrumbs={breadcrumbs}
+      breadcrumbProps={breadcrumbs ? { responsive: false } : undefined}
+      tabs={euiTabs}
+      tabsProps={euiTabs ? { bottomBorder: false } : undefined}
+      rightSideItems={toolbarRight ? [toolbarRight] : undefined}
+    />
   );
 }
 
