@@ -36,7 +36,6 @@ const loadNetworkTopologyPage = () => import("@/features/network_topology/page")
 
 const loadInventoryPage = () => import("@/features/inventory/page");
 const loadSettingsPage = () => import("@/features/settings/page");
-const loadEuiLabPage = () => import("@/features/_eui_lab/page");
 const loadAuditLayout = () => import("@/features/audit/page");
 const loadAuditAdminActionsPage = () => import("@/features/audit/views/admin-actions");
 const loadAuditLoginsPage = () => import("@/features/audit/views/logins");
@@ -81,7 +80,6 @@ const NetworkTopologyPage = lazy(loadNetworkTopologyPage);
 
 const InventoryPage = lazy(loadInventoryPage);
 const SettingsPage = lazy(loadSettingsPage);
-const EuiLabPage = lazy(loadEuiLabPage);
 const AuditLayout = lazy(loadAuditLayout);
 const AuditAdminActionsPage = lazy(loadAuditAdminActionsPage);
 const AuditLoginsPage = lazy(loadAuditLoginsPage);
@@ -194,7 +192,6 @@ export function Routes() {
 
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/eui-lab" element={<EuiLabPage />} />
             <Route path="/audit" element={<AuditLayout />}>
               <Route index element={<Navigate to="/audit/admin-actions" replace />} />
               <Route path="admin-actions" element={<AuditAdminActionsPage />} />
