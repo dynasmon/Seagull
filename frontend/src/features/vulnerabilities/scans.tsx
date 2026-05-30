@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
 import { Card } from "@/shared/components/Card";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { Table, type Column } from "@/shared/components/Table";
+import { TextInput } from "@/shared/components/TextInput";
+import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { cx } from "@/shared/lib/cx";
 import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
@@ -38,37 +43,6 @@ type Filters = {
   status: string;
   tool: string;
 };
-
-function densityToggleLabel(d: Density): string {
-  return d === "compact" ? "Compact" : "Comfortable";
-}
-
-function Toggle({
-  value,
-  onChange,
-  label,
-}: {
-  value: boolean;
-  onChange: (next: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!value)}
-      className={cx(
-        "inline-flex items-center gap-2 rounded-md border border-border/60 bg-background/40",
-        "px-3 py-2 text-xs font-mono uppercase tracking-widest",
-        value ? "text-foreground" : "text-muted-foreground",
-        "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-      )}
-      title={label}
-    >
-      <span className={cx("h-2.5 w-2.5 rounded-full", value ? "bg-primary" : "bg-muted-foreground/50")} />
-      {label}
-    </button>
-  );
-}
 
 export default function VulnerabilityScansPage() {
   const { user } = useAuth();
@@ -228,6 +202,106 @@ export default function VulnerabilityScansPage() {
 
   const dense = density === "compact";
 
+  const columns: Column<VulnScan>[] = [
+    {
+      key: "state",
+      title: "State / Tool",
+      render: (s) => {
+        const live = isLiveScan(String(s.lifecycle_state || "").toLowerCase());
+        return (
+          <>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge variant={scanVariant(s.lifecycle_state)}>{scanLifecycleLabel(s.lifecycle_state)}</Badge>
+              <span
+                className={cx(
+                  "inline-flex rounded border px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-widest",
+                  s.trigger_source === "manual" ? "border-info/30 text-info/70" : "border-border/40 text-muted-foreground/60"
+                )}
+              >
+                {scanTriggerLabel(s.trigger_source)}
+              </span>
+            </div>
+            <div className="mt-1 font-mono text-[12px]">{s.tool}{s.tool_version ? `@${s.tool_version}` : ""}</div>
+            <div className={cx("text-[11px]", live ? "text-primary/80" : "text-muted-foreground")}>
+              {scanPhaseLabel(s.current_phase)}
+            </div>
+          </>
+        );
+      },
+    },
+    {
+      key: "timing",
+      title: "Timing",
+      className: "font-mono text-[12px]",
+      render: (s) => {
+        const start = Date.parse(s.started_at || "");
+        const end = s.finished_at ? Date.parse(s.finished_at) : Date.now();
+        const dur =
+          typeof s.duration_ms === "number"
+            ? Math.max(0, s.duration_ms / 1000)
+            : !Number.isNaN(start) && !Number.isNaN(end)
+              ? Math.max(0, (end - start) / 1000)
+              : NaN;
+        const live = isLiveScan(String(s.lifecycle_state || "").toLowerCase());
+        return (
+          <>
+            <div className="text-foreground">{fmtWhen(s.started_at || s.queued_at)}</div>
+            <div className="text-muted-foreground">
+              {live ? (
+                <LiveElapsedText startIso={s.started_at ?? s.queued_at} endIso={s.finished_at} className="text-primary/90" />
+              ) : Number.isFinite(dur) ? (
+                fmtSec(dur)
+              ) : (
+                "—"
+              )}
+            </div>
+            <div className="text-muted-foreground">last progress {fmtAge(s.last_progress_at)}</div>
+          </>
+        );
+      },
+    },
+    {
+      key: "agent",
+      title: "Agent / Target",
+      render: (s) => (
+        <>
+          <div className="font-mono text-[12px]">{s.reporter_agent_id || "-"}</div>
+          <div className="break-all text-[11px] text-muted-foreground" title={s.target || ""}>
+            {s.target || s.scan_uuid}
+          </div>
+        </>
+      ),
+    },
+    {
+      key: "stats",
+      title: "Stats",
+      render: (s) => {
+        const hasNumericStats = Object.values(s.stats || {}).some(
+          (value) => typeof value === "number" && Number.isFinite(value)
+        );
+        return hasNumericStats ? <ScanStats stats={s.stats} /> : <span className="text-xs text-muted-foreground">-</span>;
+      },
+    },
+    {
+      key: "actions",
+      title: "Actions",
+      align: "right",
+      render: (s) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelected(s);
+            setDrawerOpen(true);
+          }}
+        >
+          View
+        </Button>
+      ),
+    },
+  ];
+
   const quickStats = useMemo(() => {
     const byStatus: Record<string, number> = {};
     const byTool: Record<string, number> = {};
@@ -287,25 +361,14 @@ export default function VulnerabilityScansPage() {
         ]}
         toolbarRight={
           <div className="flex flex-wrap items-center gap-2">
-            <Toggle
-              value={density === "compact"}
-              onChange={(v) => setDensity(v ? "compact" : "comfortable")}
-              label={densityToggleLabel(density)}
+            <ToggleSwitch
+              label="Compact"
+              checked={density === "compact"}
+              onChange={(e) => setDensity(e.target.checked ? "compact" : "comfortable")}
             />
-
-            <button
-              type="button"
-              onClick={() => void refreshScansNow()}
-              className={cx(
-                "inline-flex items-center rounded-md border border-border/60 bg-background/40",
-                "px-3 py-2 text-xs font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              )}
-              disabled={busy}
-              title="Refresh"
-            >
+            <Button variant="ghost" size="sm" onClick={() => void refreshScansNow()} disabled={busy}>
               {busy ? "Refreshing…" : "Refresh"}
-            </button>
+            </Button>
           </div>
         }
       />
@@ -333,28 +396,12 @@ export default function VulnerabilityScansPage() {
         title="Filters"
         right={
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={resetFilters}
-              className={cx(
-                "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              )}
-            >
+            <Button variant="ghost" size="sm" onClick={resetFilters}>
               Reset
-            </button>
-            <button
-              type="button"
-              onClick={applyFilters}
-              className={cx(
-                "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-              )}
-            >
+            </Button>
+            <Button variant="secondary" size="sm" onClick={applyFilters}>
               Apply
-            </button>
+            </Button>
           </div>
         }
         className="rounded-xl"
@@ -362,26 +409,20 @@ export default function VulnerabilityScansPage() {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
           <div>
             <div className="text-xs text-muted-foreground">Reporter agent</div>
-            <input
+            <TextInput
               value={draft.reporterAgentId}
               onChange={(e) => setDraft((p) => ({ ...p, reporterAgentId: e.target.value }))}
               placeholder="agent-id"
-              className={cx(
-                "mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-sm font-mono outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              className="mt-1 font-mono"
             />
           </div>
 
           <div>
             <div className="text-xs text-muted-foreground">State</div>
-            <select
+            <SelectInput
               value={draft.status}
               onChange={(e) => setDraft((p) => ({ ...p, status: e.target.value }))}
-              className={cx(
-                "mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-sm outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              className="mt-1"
             >
               <option value="all">All</option>
               <option value="queued">Queued</option>
@@ -390,19 +431,16 @@ export default function VulnerabilityScansPage() {
               <option value="completed">Completed</option>
               <option value="failed">Failed</option>
               <option value="cancelled">Cancelled</option>
-            </select>
+            </SelectInput>
           </div>
 
           <div>
             <div className="text-xs text-muted-foreground">Tool</div>
-            <input
+            <TextInput
               value={draft.tool}
               onChange={(e) => setDraft((p) => ({ ...p, tool: e.target.value }))}
               placeholder="osv / nuclei / trivy"
-              className={cx(
-                "mt-1 w-full rounded-md border border-border/60 bg-background/40 px-3 py-2",
-                "text-sm font-mono outline-none focus:ring-2 focus:ring-primary/30"
-              )}
+              className="mt-1 font-mono"
             />
           </div>
 
@@ -439,134 +477,31 @@ export default function VulnerabilityScansPage() {
             <EmptyState title="No scans" description="No scan executions were found for the current filters." />
           </div>
         ) : (
-          <div className="w-full">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-background/60 backdrop-blur z-10">
-                <tr className="border-b border-border/60 text-muted-foreground">
-                  <th className="text-left font-medium px-3 py-2">State / Tool</th>
-                  <th className="text-left font-medium px-3 py-2">Timing</th>
-                  <th className="text-left font-medium px-3 py-2">Agent / Target</th>
-                  <th className="text-left font-medium px-3 py-2">Stats</th>
-                  <th className="text-right font-medium px-3 py-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((s) => {
-                  const selectedRow = selected?.scan_uuid === s.scan_uuid;
-                  const rowPad = dense ? "py-1.5" : "py-2";
-                  const start = Date.parse(s.started_at || "");
-                  const end = s.finished_at ? Date.parse(s.finished_at) : Date.now();
-                  const dur =
-                    typeof s.duration_ms === "number"
-                      ? Math.max(0, s.duration_ms / 1000)
-                      : !Number.isNaN(start) && !Number.isNaN(end)
-                        ? Math.max(0, (end - start) / 1000)
-                        : NaN;
-                  const live = isLiveScan(String(s.lifecycle_state || "").toLowerCase());
-                  const hasNumericStats = Object.values(s.stats || {}).some(
-                    (value) => typeof value === "number" && Number.isFinite(value)
-                  );
-
-                  return (
-                    <tr
-                      key={s.id || s.scan_uuid}
-                      className={cx(
-                        "border-b border-border/40",
-                        live ? "hover:bg-primary/5" : "hover:bg-muted/30",
-                        selectedRow && "bg-muted/40"
-                      )}
-                      onClick={() => {
-                        setSelected(s);
-                        setDrawerOpen(true);
-                      }}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <td className={cx("px-3", rowPad)}>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Badge variant={scanVariant(s.lifecycle_state)}>{scanLifecycleLabel(s.lifecycle_state)}</Badge>
-                          <span
-                            className={cx(
-                              "inline-flex rounded border px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-widest",
-                              s.trigger_source === "manual"
-                                ? "border-info/30 text-info/70"
-                                : "border-border/40 text-muted-foreground/60"
-                            )}
-                          >
-                            {scanTriggerLabel(s.trigger_source)}
-                          </span>
-                        </div>
-                        <div className="mt-1 font-mono text-[12px]">{s.tool}{s.tool_version ? `@${s.tool_version}` : ""}</div>
-                        <div className={cx("text-[11px]", live ? "text-primary/80" : "text-muted-foreground")}>
-                          {scanPhaseLabel(s.current_phase)}
-                        </div>
-                      </td>
-                      <td className={cx("px-3 font-mono text-[12px]", rowPad)}>
-                        <div className="text-foreground">{fmtWhen(s.started_at || s.queued_at)}</div>
-                        <div className="text-muted-foreground">
-                          {live ? (
-                            <LiveElapsedText
-                              startIso={s.started_at ?? s.queued_at}
-                              endIso={s.finished_at}
-                              className="text-primary/90"
-                            />
-                          ) : Number.isFinite(dur) ? (
-                            fmtSec(dur)
-                          ) : (
-                            "—"
-                          )}
-                        </div>
-                        <div className="text-muted-foreground">last progress {fmtAge(s.last_progress_at)}</div>
-                      </td>
-                      <td className={cx("px-3", rowPad)}>
-                        <div className="font-mono text-[12px]">{s.reporter_agent_id || "-"}</div>
-                        <div className="break-all text-[11px] text-muted-foreground" title={s.target || ""}>
-                          {s.target || s.scan_uuid}
-                        </div>
-                      </td>
-                      <td className={cx("px-3", rowPad)}>
-                        {hasNumericStats ? <ScanStats stats={s.stats} /> : <span className="text-xs text-muted-foreground">-</span>}
-                      </td>
-                      <td className={cx("px-3 text-right", rowPad)}>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelected(s);
-                            setDrawerOpen(true);
-                          }}
-                          className={cx(
-                            "rounded-md border border-border/60 bg-background/40 px-3 py-1.5",
-                            "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-                            "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
-                          )}
-                        >
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <Table
+            className="!shadow-none !border-0 !bg-transparent !rounded-none"
+            columns={columns}
+            rows={items}
+            rowKey={(s) => s.scan_uuid}
+            compact={dense}
+            selectedRowKey={selected?.scan_uuid ?? null}
+            rowClassName={(s) => (isLiveScan(String(s.lifecycle_state || "").toLowerCase()) ? "hover:bg-primary/5" : undefined)}
+            onRowClick={(s) => {
+              setSelected(s);
+              setDrawerOpen(true);
+            }}
+          />
         )}
 
         <div className="mt-4 flex items-center justify-between">
           <div className="text-xs text-muted-foreground">{hasMore ? "More available" : "End"}</div>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => void loadPage({ reset: false, cursor })}
             disabled={!hasMore || busyMore}
-            className={cx(
-              "rounded-md border border-border/60 bg-background/40 px-3 py-2",
-              "text-[10px] font-mono uppercase tracking-widest text-muted-foreground",
-              "hover:bg-muted/15 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30",
-              (!hasMore || busyMore) && "opacity-50 cursor-not-allowed"
-            )}
           >
             {busyMore ? "Loading…" : "Load more"}
-          </button>
+          </Button>
         </div>
       </Card>
 
