@@ -1,10 +1,10 @@
 import EmptyState from "@/shared/components/EmptyState";
+import { JsonBlock } from "@/shared/components/JsonBlock";
 import {
   InvestigationFactCard,
   InvestigationRawJsonPanel,
   InvestigationSection,
   InvestigationSummaryGrid,
-  safeJson,
 } from "@/shared/components/investigation";
 
 import type { InventorySnapshotOut } from "../../types";
@@ -52,9 +52,7 @@ export function InventoryDrawerSnapshotTab({ drawerLatest }: InventoryDrawerSnap
             {domainEntries.map((entry) => (
               <div key={entry.key} className="rounded-md border border-border/60 bg-background/30 p-3">
                 <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{entry.key}</div>
-                <pre className="mt-2 max-h-[220px] overflow-auto text-[11px] text-muted-foreground whitespace-pre-wrap break-words">
-                  {safeJson(entry.value)}
-                </pre>
+                <JsonBlock value={entry.value} showControls={false} maxHeight="220px" className="mt-2" />
               </div>
             ))}
           </div>

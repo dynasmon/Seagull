@@ -1,8 +1,9 @@
+import { EuiLink } from "@elastic/eui";
+
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Panel } from "@/shared/components/Panel";
 import { Table } from "@/shared/components/Table";
-import { cx } from "@/shared/lib/cx";
 
 import type { InventoryOverviewSnapshot, InventoryChangeRow, InventoryWarningRow } from "../types";
 import { fmtDateTime } from "../lib/inventoryFormatters";
@@ -49,16 +50,9 @@ export function InventoryChangesPanel({
                     title: "AGENT",
                     className: "font-mono text-foreground w-56",
                     render: (r: InventoryChangeRow) => (
-                      <button
-                        type="button"
-                        onClick={() => onOpenDrawer(r.agent_id)}
-                        className={cx(
-                          "text-left font-mono text-[11px] text-primary/90 underline-offset-4 hover:underline",
-                          "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                        )}
-                      >
+                      <EuiLink onClick={() => onOpenDrawer(r.agent_id)} className="font-mono text-[11px]">
                         {r.agent_id}
-                      </button>
+                      </EuiLink>
                     ),
                   },
                   {
@@ -109,16 +103,9 @@ export function InventoryChangesPanel({
                     title: "AGENT",
                     className: "font-mono text-foreground w-56",
                     render: (r: InventoryWarningRow) => (
-                      <button
-                        type="button"
-                        onClick={() => onOpenDrawer(r.agent_id)}
-                        className={cx(
-                          "text-left font-mono text-[11px] text-primary/90 underline-offset-4 hover:underline",
-                          "focus:outline-none focus:ring-2 focus:ring-primary/30"
-                        )}
-                      >
+                      <EuiLink onClick={() => onOpenDrawer(r.agent_id)} className="font-mono text-[11px]">
                         {r.agent_id}
-                      </button>
+                      </EuiLink>
                     ),
                   },
                   {
