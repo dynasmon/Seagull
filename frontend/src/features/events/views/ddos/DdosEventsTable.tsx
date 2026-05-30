@@ -1,5 +1,7 @@
+import { useMemo } from "react";
+
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
-import { cx } from "@/shared/lib/cx";
+import { Table, type Column } from "@/shared/components/Table";
 import { getFlowIpContext } from "@/shared/lib/ipClassification";
 
 import type { NetEvent } from "../../types";
@@ -12,6 +14,10 @@ function num(v: any): string {
   return String(v);
 }
 
+function ddosRowKey(e: NetEvent, idx: number): string {
+  return `${e.id ?? "na"}-${e.timestamp || "na"}-${e.agent_id || "na"}-${idx}`;
+}
+
 export default function DdosEventsTable({
   rows,
   selectedId,
@@ -21,53 +27,84 @@ export default function DdosEventsTable({
   selectedId: number | null;
   onSelect: (e: NetEvent) => void;
 }) {
+  const columns = useMemo<Array<Column<NetEvent>>>(
+    () => [
+      {
+        key: "time",
+        title: "Time / kind",
+        render: (e) => {
+          const d = extractDdosFields(e.extra);
+          return (
+            <div>
+              <div className="font-mono text-muted-foreground">{fmtDateTime(new Date(e.timestamp))}</div>
+              <div className="font-mono text-foreground">{ddosLabel(d)}</div>
+            </div>
+          );
+        },
+      },
+      {
+        key: "target",
+        title: "Target",
+        className: "break-all",
+        render: (e) => (
+          <span className="inline-flex max-w-full flex-wrap items-center gap-0.5 font-mono">
+            <IpAddressPill ip={e.dst_ip} ipContext={getFlowIpContext(e.extra?.ip_context, "dst")} compact />
+            <span className="text-muted-foreground">
+              :{e.dst_port ?? "-"}/{e.proto || "-"}
+            </span>
+          </span>
+        ),
+      },
+      {
+        key: "traffic",
+        title: "Traffic",
+        align: "right",
+        render: (e) => {
+          const d = extractDdosFields(e.extra);
+          return (
+            <div className="font-mono">
+              <div className="text-foreground">{d.pps === null ? "-" : fmtHumanRate(d.pps)} pps</div>
+              <div className="text-foreground">{d.bps === null ? "-" : fmtHumanRate(d.bps)} bps</div>
+              <div className="text-muted-foreground">{num(d.unique_src_ips)} src IPs</div>
+            </div>
+          );
+        },
+      },
+      {
+        key: "assessment",
+        title: "Assessment",
+        render: (e) => {
+          const d = extractDdosFields(e.extra);
+          return (
+            <div className="font-mono">
+              <div className="text-foreground">{d.confidence === null ? "-" : d.confidence.toFixed(2)} conf</div>
+              <div className="text-muted-foreground">{d.severity || "-"}</div>
+            </div>
+          );
+        },
+      },
+    ],
+    [],
+  );
+
+  const selectedRowKey = useMemo(() => {
+    if (selectedId === null) return null;
+    const idx = rows.findIndex((e) => e.id === selectedId);
+    if (idx < 0) return null;
+    return ddosRowKey(rows[idx], idx);
+  }, [rows, selectedId]);
+
   return (
     <div className="h-full overflow-y-auto">
-      <table className="w-full text-xs">
-        <thead className="sticky top-0 z-[2] bg-surface-2/95 backdrop-blur-sm">
-          <tr className="text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-            <th className="border-b border-border px-3 py-2">Time / kind</th>
-            <th className="border-b border-border px-3 py-2">Target</th>
-            <th className="border-b border-border px-3 py-2 text-right">Traffic</th>
-            <th className="border-b border-border px-3 py-2">Assessment</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((e, idx) => {
-            const active = selectedId === e.id;
-            const d = extractDdosFields(e.extra);
-            return (
-              <tr
-                key={`${e.id ?? "na"}-${e.timestamp || "na"}-${e.agent_id || "na"}-${idx}`}
-                onClick={() => onSelect(e)}
-                className={cx("cursor-pointer border-t border-border/55 ui-row", active && "ui-row-selected")}
-              >
-                <td className="px-3 py-2">
-                  <div className="font-mono text-muted-foreground">{fmtDateTime(new Date(e.timestamp))}</div>
-                  <div className="font-mono text-foreground">{ddosLabel(d)}</div>
-                </td>
-                <td className="break-all px-3 py-2">
-                  <span className="inline-flex max-w-full flex-wrap items-center gap-0.5 font-mono">
-                    <IpAddressPill ip={e.dst_ip} ipContext={getFlowIpContext(e.extra?.ip_context, "dst")} compact />
-                    <span className="text-muted-foreground">
-                      :{e.dst_port ?? "-"}/{e.proto || "-"}
-                    </span>
-                  </span>
-                </td>
-                <td className="px-3 py-2 text-right font-mono">
-                  <div className="text-foreground">{d.pps === null ? "-" : fmtHumanRate(d.pps)} pps</div>
-                  <div className="text-foreground">{d.bps === null ? "-" : fmtHumanRate(d.bps)} bps</div>
-                  <div className="text-muted-foreground">{num(d.unique_src_ips)} src IPs</div>
-                </td>
-                <td className="px-3 py-2 font-mono">
-                  <div className="text-foreground">{d.confidence === null ? "-" : d.confidence.toFixed(2)} conf</div>
-                  <div className="text-muted-foreground">{d.severity || "-"}</div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <Table
+        className="!shadow-none !border-0 !bg-transparent !rounded-none text-xs"
+        columns={columns}
+        rows={rows}
+        rowKey={ddosRowKey}
+        stickyHeader
+        selectedRowKey={selectedRowKey}
+        onRowClick={(e) => onSelect(e)}
+      />
     </div>
   );
 }

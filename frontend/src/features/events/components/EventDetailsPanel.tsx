@@ -1,5 +1,6 @@
 import EmptyState from "@/shared/components/EmptyState";
 import { JsonBlock } from "@/shared/components/JsonBlock";
+import { Panel } from "@/shared/components/Panel";
 import {
   InvestigationFieldGroup,
   formatInvestigationTimestamp,
@@ -178,10 +179,9 @@ export default function EventDetailsPanel({ event }: { event: NetEvent | null })
         />
       )}
 
-      <div className="ui-card-shell p-3">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Extra raw</div>
-        <JsonBlock value={extra} showControls={false} className="mt-3" />
-      </div>
+      <Panel title="Extra raw" compact>
+        <JsonBlock value={extra} showControls={false} />
+      </Panel>
     </div>
   );
 }
