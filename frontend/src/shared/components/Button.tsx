@@ -1,6 +1,5 @@
-import { type ButtonHTMLAttributes, type ComponentType, type ReactNode, type SVGProps } from "react";
-import { EuiButton, EuiButtonEmpty, EuiButtonIcon } from "@elastic/eui";
-import type { IconType } from "@elastic/eui";
+import { type ButtonHTMLAttributes, type ReactNode } from "react";
+import { EuiButton, EuiButtonEmpty } from "@elastic/eui";
 
 import { cx } from "@/shared/lib/cx";
 
@@ -24,17 +23,6 @@ function euiColor(variant: ButtonVariant): "primary" | "danger" | "success" | "t
   if (variant === "success") return "success";
   if (variant === "primary") return "primary";
   return "text";
-}
-
-function contentIconType(icon: ReactNode): IconType {
-  const Icon: ComponentType<SVGProps<SVGSVGElement>> = (props) => (
-    <svg {...props} viewBox="0 0 16 16">
-      <foreignObject x="0" y="0" width="16" height="16">
-        <span className="flex h-4 w-4 items-center justify-center text-current">{icon}</span>
-      </foreignObject>
-    </svg>
-  );
-  return Icon;
 }
 
 function ButtonContent({
@@ -70,18 +58,37 @@ export function Button({
   const buttonAttrs = rest as Omit<ButtonHTMLAttributes<HTMLButtonElement>, "color" | "disabled" | "type" | "value">;
 
   if (size === "icon") {
-    const iconNode = leadingIcon ?? children ?? trailingIcon;
+    const iconContent = leadingIcon ?? children ?? trailingIcon;
+    const squareClassName = cx("w-8 shrink-0 justify-center", className);
+    if (variant === "ghost") {
+      return (
+        <EuiButtonEmpty
+          {...buttonAttrs}
+          color={color}
+          size="s"
+          type={buttonType}
+          isDisabled={disabled}
+          className={squareClassName}
+          contentProps={{ className: "px-0" }}
+        >
+          {iconContent}
+        </EuiButtonEmpty>
+      );
+    }
     return (
-      <EuiButtonIcon
+      <EuiButton
         {...buttonAttrs}
-        iconType={iconNode ? contentIconType(iconNode) : "empty"}
-        display={variant === "primary" ? "fill" : variant === "ghost" ? "empty" : "base"}
+        fill={variant === "primary"}
         color={color}
         size="s"
+        minWidth={0}
         type={buttonType}
         isDisabled={disabled}
-        className={cx("shrink-0", className)}
-      />
+        className={squareClassName}
+        contentProps={{ className: "px-0" }}
+      >
+        {iconContent}
+      </EuiButton>
     );
   }
 

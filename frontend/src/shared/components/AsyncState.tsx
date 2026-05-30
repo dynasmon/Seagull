@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { cx } from "@/shared/lib/cx";
@@ -41,13 +42,9 @@ export default function AsyncState({
         <EmptyState title={errorTitle} description={error} />
         {onRetry ? (
           <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={onRetry}
-              className={cx("ui-btn")}
-            >
+            <Button variant="secondary" size="sm" onClick={onRetry}>
               Retry
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>
