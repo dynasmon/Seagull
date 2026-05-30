@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { EuiButtonGroup } from "@elastic/eui";
 
 import { Button } from "@/shared/components/Button";
 import { CheckboxField } from "@/shared/components/CheckboxField";
@@ -147,23 +148,19 @@ export function TopologyFilterRail({
         <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/65">
           Show
         </div>
-        <div className="mt-2 flex rounded-md border border-white/10 bg-black/20 p-0.5">
-          {(["location", "connection"] as TopologyViewMode[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              className={cx(
-                "flex-1 rounded-[4px] px-2 py-1.5 text-[11px] font-medium transition-all",
-                filters.view_mode === mode
-                  ? "bg-primary/90 text-primary-foreground shadow-[0_0_16px_rgba(96,165,250,0.15)]"
-                  : "text-muted-foreground hover:bg-white/5",
-              )}
-              onClick={() => handleViewMode(mode)}
-            >
-              {mode === "location" ? "Location" : "Connection"}
-            </button>
-          ))}
-        </div>
+        <EuiButtonGroup
+          legend="View mode"
+          type="single"
+          buttonSize="compressed"
+          isFullWidth
+          className="mt-2"
+          options={[
+            { id: "location", label: "Location" },
+            { id: "connection", label: "Connection" },
+          ]}
+          idSelected={filters.view_mode}
+          onChange={(id) => handleViewMode(id as TopologyViewMode)}
+        />
         {facets ? (
           <div className="mt-2 text-[10px] text-muted-foreground/55">
             {facets.group_count} groups · {facets.node_types.subnet ?? 0} subnet{(facets.node_types.subnet ?? 0) === 1 ? "" : "s"}
