@@ -4,13 +4,20 @@
 
 Branch: `spike/elastic-eui` · Goal: migrate the Seagull frontend to **real `@elastic/eui`** (Borealis theme), faithfully Kibana-like. **The human commits/pushes — never run `git commit`/`push`.** Nothing is auto-committed by the assistant.
 
-Last updated: 2026-05-30 (Phase 5 area 7: Governance & Platform).
+Last updated: 2026-05-30 (Phase 5 area 8: Settings — ALL 8 feature areas done).
 
 ---
 
 ## TL;DR — where we stopped
 
-Phases **1, 2, 3, 4 are DONE**. **Phase 5 areas 1 (Alerts), 2 (Events), 3 (Entities/Inventory), 4 (Network/Topology), 5 (Exposure & Vulnerabilities), 6 (Investigations & Cases), 7 (Governance & Platform) are DONE**, plus the shared **`DataView` primitives** migrated to EUI (cross-cutting, ~21 pages). Next (and last feature area) is **Settings** (`src/features/settings/`). All work passed the verification baseline at every batch. Governance & Platform had no raw `<table>` left — this pass cleared the Audit filter inputs/selects/buttons, density toggles, the governance-scope chips (→`EuiButtonGroup`), and the Internal agent-picker cards (→`EuiPanel`) + 3 `<pre>` JSON dumps (→`JsonBlock`). Open browser passes needed (no browser in this env): Alerts, Events (4 lenses), Entities/Inventory, Network/Topology, Exposure, Vulnerabilities, Investigations, Attack Chain, Audit, Internal, and especially the cross-cutting `DataView` SWEEP across every data page. Two cross-cutting items still deferred (each needs its own focused pass): **`DraftNumberInput`→`EuiFieldNumber`** (now mainly the Vulnerabilities page-size/min inputs + the Topology Confidence input) and the **`ResponseActionDrawer`** (750-line Response/Automation surface, 15 varied buttons).
+Phases **1, 2, 3, 4 are DONE**, and **all 8 Phase 5 feature areas are DONE** (1 Alerts · 2 Events · 3 Entities/Inventory · 4 Network/Topology · 5 Exposure & Vulnerabilities · 6 Investigations & Cases · 7 Governance & Platform · 8 Settings), plus the shared **`DataView` primitives** (cross-cutting, ~21 pages). **The per-feature migration is complete — every feature page now renders on the shared EUI adapters; what remains is cross-cutting cleanup + final visual QA.** All work passed the verification baseline at every batch (build 0, lint 0-err/12-warn, tests at baseline, eager entry ~114.6 KB gz).
+
+**Remaining (not feature areas):**
+1. The deferred **`DraftNumberInput`→`EuiFieldNumber`** cross-cutting batch — now just the Vulnerabilities page-size/min inputs (`page.tsx` ×2, `scans.tsx` ×1) + the Topology filter-rail Confidence input. Reconcile their `.ui-input`/custom styling in one focused pass.
+2. The **`ResponseActionDrawer`** (`agents/components/`, 750 lines, 15 varied buttons) — the Response/Automation authoring surface; migrate deliberately with focused visual review.
+3. Optionally finish the `DataView` **layout shells** on EUI (`DataViewToolbar`→`EuiPanel`, `DataTableSkeleton`→`EuiSkeleton*`) — kept as-is so far.
+4. Bundle re-measure + EUI icon tree-shaking (`appendIconComponentCache`); reconsider the `code_block` highlighter lazy chunk.
+5. The full **dark + light browser QA SWEEP** across every page (no browser in this env) — see the per-area checklists below.
 
 ---
 
@@ -149,8 +156,13 @@ Neither area had a raw `<table>` left (`AuditEventsTable` already used the share
 - `InternalRefreshToolbar` — Refresh → shared **`Button`** (kept the `ui-toolbar-shell`).
 - `views/agents.tsx` — the agent-picker cards → clickable **`EuiPanel`** (`color="primary"` when active, `aria-pressed`; the `AgentsTable` idiom); the 3 raw `<pre>` JSON dumps (Heartbeat/Modules, Metadata, Config) → **`JsonBlock`** (`maxHeight="320px"`, now copyable + wrap toggle).
 
+### Phase 5 — Area 8: Settings (`src/features/settings/`)
+Already fully on the shared adapters (`PageHeader`/`Card`/`Button`/`TextInput`/`InlineAlert`/`Loading`/`Table`/`Badge`, including the login-history `Table` and the password-change form). This pass:
+- `page.tsx` — the `loginError` raw `<div className="text-danger">` → **`InlineAlert`** (`tone="danger"`), matching the `runtimeError` callout already used in the same view. Kept the `PasswordRule` dot-list (domain display) and the `<label>`+eyebrow field affordances.
+- **Deleted the empty, unused `components/ApiEndpointForm.tsx`** (0 bytes, 0 imports) + removed the now-empty `components/` dir.
+
 ### Deleted dead code (0 usages, confirmed by grep)
-`src/shared/components/IconButton.tsx`, `QueryState.tsx`, `FormField.tsx`, `ThemeToggle.tsx`; `src/features/overview/components/StatLinkTile.tsx`; the whole `src/features/_eui_lab/` + its `/eui-lab` route in `src/app/routes.tsx`; `src/features/network_topology/components/chrome/TopologyTopBar.tsx` (+ the emptied `chrome/` dir).
+`src/shared/components/IconButton.tsx`, `QueryState.tsx`, `FormField.tsx`, `ThemeToggle.tsx`; `src/features/overview/components/StatLinkTile.tsx`; the whole `src/features/_eui_lab/` + its `/eui-lab` route in `src/app/routes.tsx`; `src/features/network_topology/components/chrome/TopologyTopBar.tsx` (+ the emptied `chrome/` dir); `src/features/settings/components/ApiEndpointForm.tsx` (empty 0-byte file + emptied `components/` dir).
 
 ### Intentionally KEPT legacy (with reasons)
 - `DraftNumberInput` — a behavior wrapper (anti-jump draft/commit); its 8 consumers pass their own input styling (incl. `.ui-input`), so wrapping in EuiFieldNumber would double-style. **Migrate in Phase 5 when its host forms are touched.**
@@ -172,7 +184,9 @@ Migrate each feature area's orchestrator + components/hooks/lib/drawer to reuse 
 5. ~~**Exposure & Vulnerabilities** (`src/features/exposure/`, `src/features/vulnerabilities/`)~~ — **DONE 2026-05-30** (see DONE section above). Exposure: checkboxes→`CheckboxField`, tabs→`Tabs`. Vulnerabilities: 3 raw `<table>`→shared `Table`, scans filters/buttons→adapters, card-lists→`EuiPanel`. Deferred: the `DraftNumberInput` page-size/min inputs (cross-cutting).
 6. ~~**Investigations & Cases** (`src/features/investigations/`, `src/features/attack_chain/`)~~ — **DONE 2026-05-30** (see DONE section above). One raw `<table>` per page → shared `Table`; everything else already on adapters. Nothing deferred.
 7. ~~**Governance & Platform** (`src/features/audit/`, `src/features/internal/`)~~ — **DONE 2026-05-30** (see DONE section above). Audit filter inputs/selects/buttons → adapters, density → `ToggleSwitch`, governance chips → `EuiButtonGroup`; Internal agent cards → `EuiPanel` + `<pre>` → `JsonBlock`. Nothing deferred.
-8. **Settings** (`src/features/settings/`) — **START HERE** (last feature area).
+8. ~~**Settings** (`src/features/settings/`)~~ — **DONE 2026-05-30** (last feature area). Was already fully migrated; only a `loginError`→`InlineAlert` consistency fix + deleted the empty dead `ApiEndpointForm.tsx`.
+
+**✅ All 8 Phase 5 feature areas are complete.** Remaining work is cross-cutting only — see the "Remaining (not feature areas)" list in the TL;DR.
 - Response & Automation: only when a real backing capability exists — don't fake it.
 
 **Per-area definition of done:** new impl fully wired; existing behavior preserved; no duplicate old/new layers; no unused imports/exports/files; no comments; build+lint+tests at baseline; area cleaner than before. Report: what migrated, legacy removed, reused, intentionally-kept + why, risks/debt, next.
