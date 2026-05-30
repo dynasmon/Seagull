@@ -1,5 +1,7 @@
 import { useMemo } from "react";
 
+import { EuiButtonGroup } from "@elastic/eui";
+
 import { Badge } from "@/shared/components/Badge";
 import { Card } from "@/shared/components/Card";
 
@@ -41,21 +43,14 @@ export default function AuditChangesView() {
       />
 
       <Card title="Governance Scope">
-        <div className="flex flex-wrap gap-2">
-          {CHANGE_RESOURCES.map((r) => {
-            const active = q.filters.resourceType === r.key;
-            return (
-              <button
-                key={r.label}
-                type="button"
-                onClick={() => q.setFilter("resourceType", r.key)}
-                className={active ? "ui-btn h-8 border-primary/60 bg-primary/10 px-3 text-xs font-mono" : "ui-btn-secondary h-8 px-3 text-xs font-mono"}
-              >
-                {r.label}
-              </button>
-            );
-          })}
-        </div>
+        <EuiButtonGroup
+          legend="Governance object filter"
+          type="single"
+          buttonSize="compressed"
+          options={CHANGE_RESOURCES.map((r) => ({ id: r.key || "__all__", label: r.label }))}
+          idSelected={q.filters.resourceType || "__all__"}
+          onChange={(id) => q.setFilter("resourceType", id === "__all__" ? "" : id)}
+        />
         <div className="mt-3 text-xs text-muted-foreground">
           Values marked as <span className="font-mono">&lt;redacted&gt;</span> are masked by backend policy and are shown as-is.
         </div>

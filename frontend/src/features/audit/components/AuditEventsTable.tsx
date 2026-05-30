@@ -1,6 +1,8 @@
 import { Badge } from "@/shared/components/Badge";
 import AsyncState from "@/shared/components/AsyncState";
+import { Button } from "@/shared/components/Button";
 import { Table, type TableSortState } from "@/shared/components/Table";
+import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
 
 import { eventSeverity, fmtDateTime, summarizeEvent } from "../lib";
 import type { AuditEvent } from "../types";
@@ -46,40 +48,17 @@ export default function AuditEventsTable({
         <div className="text-xs text-muted-foreground font-mono">Page {page} · {rows.length} rows loaded</div>
         <div className="flex items-center gap-2">
           {setCompact ? (
-            <div className="hidden items-center gap-1 sm:flex">
-              <button
-                type="button"
-                onClick={() => setCompact(false)}
-                className={compact ? "ui-btn-secondary h-8 px-2 text-xs" : "ui-btn h-8 px-2 text-xs"}
-              >
-                Comfortable
-              </button>
-              <button
-                type="button"
-                onClick={() => setCompact(true)}
-                className={compact ? "ui-btn h-8 px-2 text-xs" : "ui-btn-secondary h-8 px-2 text-xs"}
-              >
-                Compact
-              </button>
+            <div className="hidden items-center sm:flex">
+              <ToggleSwitch label="Compact" checked={compact} onChange={(e) => setCompact(e.target.checked)} />
             </div>
           ) : null}
 
-          <button
-            type="button"
-            onClick={onPrev}
-            disabled={!hasPrev || loading}
-            className="ui-btn-secondary h-8 px-3 text-xs disabled:opacity-50"
-          >
+          <Button variant="secondary" size="sm" onClick={onPrev} disabled={!hasPrev || loading}>
             Previous
-          </button>
-          <button
-            type="button"
-            onClick={onNext}
-            disabled={!hasMore || loading}
-            className="ui-btn-secondary h-8 px-3 text-xs disabled:opacity-50"
-          >
+          </Button>
+          <Button variant="secondary" size="sm" onClick={onNext} disabled={!hasMore || loading}>
             Next
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -161,16 +140,16 @@ export default function AuditEventsTable({
               title: "Details",
               className: "text-right",
               render: (r) => (
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={(event) => {
                     event.stopPropagation();
                     onOpen(r);
                   }}
-                  className="ui-btn-secondary h-7 px-2 text-xs"
                 >
                   Open
-                </button>
+                </Button>
               ),
             },
           ]}
