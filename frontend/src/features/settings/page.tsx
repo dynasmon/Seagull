@@ -304,7 +304,7 @@ export default function SettingsPage() {
           {loginBusy ? (
             <Loading label="Loading login activity..." />
           ) : loginError ? (
-            <div className="text-sm text-danger">{loginError}</div>
+            <InlineAlert tone="danger" className="text-xs">{loginError}</InlineAlert>
           ) : loginRows.length === 0 ? (
             <div className="text-sm text-muted-foreground">No login activity available in current retention window.</div>
           ) : (
