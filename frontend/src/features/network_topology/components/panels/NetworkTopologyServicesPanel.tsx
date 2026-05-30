@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { EuiButtonGroup, EuiFieldSearch } from "@elastic/eui";
 
 import { Panel } from "@/shared/components/Panel";
 import { cx } from "@/shared/lib/cx";
@@ -645,31 +646,27 @@ export function NetworkTopologyServicesPanel({
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3 border-b border-border/50 px-4 py-2.5">
         {/* View toggle */}
-        <div className="flex overflow-hidden rounded-md border border-border/60 text-[12px]">
-          {(["host", "category"] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              className={cx(
-                "px-3 py-1 transition-colors",
-                view === v
-                  ? "bg-primary/15 text-primary"
-                  : "text-muted-foreground hover:bg-surface-2/60",
-              )}
-            >
-              {v === "host" ? "By Host" : "By Category"}
-            </button>
-          ))}
-        </div>
+        <EuiButtonGroup
+          legend="Group services by"
+          type="single"
+          buttonSize="compressed"
+          options={[
+            { id: "host", label: "By Host" },
+            { id: "category", label: "By Category" },
+          ]}
+          idSelected={view}
+          onChange={(id) => setView(id as "host" | "category")}
+        />
 
         {/* Search */}
-        <input
-          type="search"
+        <EuiFieldSearch
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Filter by name, port, IP…"
-          className="h-7 min-w-[180px] rounded-md border border-border/60 bg-background/50 px-2.5 text-[12px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40"
+          aria-label="Filter services"
+          isClearable
+          compressed
+          className="min-w-[180px]"
         />
 
         {/* Category legend */}
