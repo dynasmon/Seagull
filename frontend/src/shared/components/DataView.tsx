@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
+import { EuiCallOut, EuiFieldSearch, EuiPanel, EuiSelect, EuiStat } from "@elastic/eui";
 
+import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
 import { cx } from "@/shared/lib/cx";
 import useDebouncedValue from "@/shared/hooks/useDebouncedValue";
@@ -73,14 +75,15 @@ export function DebouncedSearchInput({
   }, [debounced, onChange, value]);
 
   return (
-    <input
-      type="search"
+    <EuiFieldSearch
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       placeholder={placeholder}
       aria-label={ariaLabel}
       disabled={disabled}
-      className={cx("ui-input font-mono text-xs", className)}
+      isClearable
+      compressed
+      className={className}
     />
   );
 }
@@ -107,51 +110,54 @@ export function DataLookbackSelect({
   ];
 
   return (
-    <select
+    <EuiSelect
       value={String(value)}
       onChange={(e) => onChange(Number(e.target.value))}
       disabled={disabled}
-      className={cx("ui-select font-mono text-xs", className)}
+      compressed
+      className={className}
       aria-label="Lookback window"
-    >
-      {resolvedOptions.map((opt) => (
-        <option key={opt.minutes} value={opt.minutes}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
+      options={resolvedOptions.map((opt) => ({ value: String(opt.minutes), text: opt.label }))}
+    />
   );
+}
+
+type StatTone = "default" | "success" | "warning" | "danger" | "info";
+
+function statTitleColor(tone?: StatTone): "default" | "success" | "warning" | "danger" | "primary" {
+  switch (tone) {
+    case "success":
+      return "success";
+    case "warning":
+      return "warning";
+    case "danger":
+      return "danger";
+    case "info":
+      return "primary";
+    default:
+      return "default";
+  }
 }
 
 export function DataStatsStrip({
   stats,
   className
 }: {
-  stats: Array<{ label: string; value: ReactNode; hint?: ReactNode; tone?: "default" | "success" | "warning" | "danger" | "info" }>;
+  stats: Array<{ label: string; value: ReactNode; hint?: ReactNode; tone?: StatTone }>;
   className?: string;
 }) {
-  function toneClass(tone?: "default" | "success" | "warning" | "danger" | "info"): string {
-    switch (tone) {
-      case "success":
-        return "text-success";
-      case "warning":
-        return "text-warning";
-      case "danger":
-        return "text-danger";
-      case "info":
-        return "text-info";
-      default:
-        return "text-foreground";
-    }
-  }
   return (
     <div className={cx("grid gap-2 sm:grid-cols-2 xl:grid-cols-4", className)}>
       {stats.map((item) => (
-        <div key={item.label} className="ui-card-shell px-3.5 py-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{item.label}</div>
-          <div className={cx("mt-1 text-lg font-semibold leading-tight tracking-tight", toneClass(item.tone))}>{item.value}</div>
+        <EuiPanel key={item.label} hasBorder hasShadow={false} paddingSize="s" borderRadius="m">
+          <EuiStat
+            title={item.value}
+            description={item.label}
+            titleSize="s"
+            titleColor={statTitleColor(item.tone)}
+          />
           {item.hint ? <div className="mt-1 text-[10px] text-muted-foreground">{item.hint}</div> : null}
-        </div>
+        </EuiPanel>
       ))}
     </div>
   );
@@ -166,24 +172,32 @@ export function DataQueryStateBanner({
   tone?: "neutral" | "warning" | "danger" | "success";
   right?: ReactNode;
 }) {
-  const toneClasses =
-    tone === "warning"
-      ? "border-warning/40 bg-warning/10 text-warning"
-      : tone === "danger"
-        ? "border-danger/45 bg-danger/10 text-danger"
-        : tone === "success"
-          ? "border-success/45 bg-success/10 text-success"
-          : "border-border/60 bg-muted/30 text-muted-foreground";
+  if (tone === "neutral") {
+    return (
+      <EuiPanel
+        color="subdued"
+        hasBorder={false}
+        hasShadow={false}
+        paddingSize="s"
+        borderRadius="m"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+          <div className="font-mono leading-relaxed">{message}</div>
+          {right ? <div className="font-mono">{right}</div> : null}
+        </div>
+      </EuiPanel>
+    );
+  }
 
   return (
-    <div
-      className={cx("flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-[11px]", toneClasses)}
-      role="status"
-      aria-live="polite"
-    >
-      <div className="font-mono leading-relaxed">{message}</div>
-      {right ? <div className="font-mono">{right}</div> : null}
-    </div>
+    <EuiCallOut color={tone} size="s" role="status">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+        <div className="font-mono leading-relaxed">{message}</div>
+        {right ? <div className="font-mono">{right}</div> : null}
+      </div>
+    </EuiCallOut>
   );
 }
 
@@ -267,38 +281,28 @@ export function DataPaginationFooter({
 
         <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
           <span>Page size</span>
-          <select
+          <EuiSelect
             value={String(pageSize)}
             onChange={(e) => onPageSizeChange(Number(e.target.value))}
-            className="ui-select h-8 w-auto min-w-[84px] px-2 text-xs"
+            compressed
             aria-label="Rows per page"
-          >
-            {pageSizeOptions.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+            options={pageSizeOptions.map((value) => ({ value, text: String(value) }))}
+          />
         </label>
       </div>
 
       <div className="flex items-center gap-2">
         {error ? <span className="text-[11px] text-danger">{error}</span> : null}
         {error && onRetry ? (
-          <button type="button" onClick={onRetry} className="ui-btn-secondary h-8 px-2.5 text-xs">
+          <Button variant="secondary" size="sm" onClick={onRetry}>
             Retry
-          </button>
+          </Button>
         ) : null}
 
         {hasMore ? (
-          <button
-            type="button"
-            onClick={onLoadMore}
-            disabled={loadingMore || !onLoadMore}
-            className={cx("ui-btn h-8 px-3 text-xs", (loadingMore || !onLoadMore) && "cursor-not-allowed opacity-65")}
-          >
+          <Button variant="subtle" size="sm" onClick={onLoadMore} disabled={loadingMore || !onLoadMore}>
             {loadingMore ? "Loading..." : loadMoreLabel}
-          </button>
+          </Button>
         ) : (
           <span className="text-[11px] text-muted-foreground">No more rows</span>
         )}
