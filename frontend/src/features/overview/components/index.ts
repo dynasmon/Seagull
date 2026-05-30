@@ -1,7 +1,6 @@
 export { SimpleTimeSeries } from "./Charts";
 export { OverviewPanel } from "./OverviewPanel";
 export { DashboardSection } from "./DashboardSection";
-export { StatLinkTile } from "./StatLinkTile";
 export { HeaderBadge } from "./HeaderBadge";
 export { FilterChip } from "./FilterChip";
 export { QuickPivot } from "./QuickPivot";
