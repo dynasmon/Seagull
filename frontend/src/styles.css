@@ -270,6 +270,17 @@ html.dark {
     @apply bg-primary/[0.08] hover:bg-primary/[0.12];
   }
 
+  .seagullTable-stickyHeader .euiTableHeaderCell {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+  }
+
+  .seagullTable-scrollX .euiTable {
+    inline-size: max-content;
+    min-inline-size: 100%;
+  }
+
   .ui-eyebrow {
     @apply text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/90;
   }
