@@ -358,7 +358,7 @@ export function TopologyFilterRail({
             min={1}
             max={99}
             fallback={DEFAULT_TOPOLOGY_FILTERS.min_confidence}
-            className="h-7 w-16 rounded-[4px] border border-border/50 bg-background/40 px-2 text-[12px]"
+            className="h-7 w-16 text-[12px]"
           />
           <span className="text-[11px] text-muted-foreground">%</span>
         </div>

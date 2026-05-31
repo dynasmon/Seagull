@@ -839,7 +839,7 @@ export default function VulnerabilitiesPage() {
               onCommit={(n) => setActiveDays(n)}
               min={1}
               max={365}
-              className="ui-input h-8 w-16 px-2 font-mono"
+              className="h-8 w-16 font-mono"
             />
             <span>days</span>
           </div>
@@ -1225,7 +1225,7 @@ export default function VulnerabilitiesPage() {
                 onCommit={(n) => setPageSize(n)}
                 min={1}
                 max={200}
-                className="ui-input h-10 w-20 font-mono"
+                className="h-10 w-20 font-mono"
               />
             </div>
 

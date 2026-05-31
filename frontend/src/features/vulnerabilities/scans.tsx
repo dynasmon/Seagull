@@ -451,11 +451,7 @@ export default function VulnerabilityScansPage() {
               onCommit={(n) => setPageSize(n)}
               min={1}
               max={200}
-              className={cx(
-                "w-24 rounded-md border border-border/60 bg-background/40 px-2 py-2",
-                "text-sm font-mono text-foreground outline-none",
-                "focus:ring-2 focus:ring-primary/30"
-              )}
+              className="w-24 font-mono text-sm"
             />
           </div>
         </div>
