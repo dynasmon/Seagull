@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { EuiHealth } from "@elastic/eui";
 
+import { cx } from "@/shared/lib/cx";
+
 export type StatusVariant =
   | "active"
   | "inactive"
@@ -34,7 +36,7 @@ export function StatusPill({
   size?: "default" | "sm";
 }) {
   return (
-    <EuiHealth color={statusEuiColor[variant]} className={className}>
+    <EuiHealth color={statusEuiColor[variant]} className={cx("shrink-0 whitespace-nowrap", className)}>
       {children}
     </EuiHealth>
   );
