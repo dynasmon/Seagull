@@ -36,14 +36,14 @@ export function AlertsTable({
         key: "alert",
         title: "Alert",
         render: (a) => (
-          <div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <SeverityPill variant={sevVariant(String(a.severity || "unknown"))} withDot>
-                {String(a.severity || "unknown")}
-              </SeverityPill>
-              <span className="break-all font-mono text-[12px] text-foreground">{a.rule_id}</span>
-            </div>
-            <div className="mt-1 font-mono text-[11px] text-muted-foreground">{fmtTs(a.created_at)}</div>
+          <div className="flex min-w-0 items-center gap-2">
+            <SeverityPill variant={sevVariant(String(a.severity || "unknown"))} withDot>
+              {String(a.severity || "unknown")}
+            </SeverityPill>
+            <span className="min-w-0 truncate font-mono text-[12px] text-foreground" title={a.rule_id}>
+              {a.rule_id}
+            </span>
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{fmtTs(a.created_at)}</span>
           </div>
         ),
       },
@@ -52,16 +52,13 @@ export function AlertsTable({
         title: "Network",
         className: "text-[12px]",
         render: (a) => (
-          <div>
-            <div>
-              <IpAddressPill ip={a.src_ip} ipContext={alertIpContext(a, "src")} compact />
-            </div>
-            <div className="mt-1 text-muted-foreground">
-              <span className="inline-flex max-w-full flex-wrap items-center gap-0.5">
-                <IpAddressPill ip={a.dst_ip} ipContext={alertIpContext(a, "dst")} compact />
-                {typeof a.dst_port === "number" ? <span>:{a.dst_port}</span> : null}
-              </span>
-            </div>
+          <div className="flex min-w-0 items-center gap-1 text-muted-foreground">
+            <IpAddressPill ip={a.src_ip} ipContext={alertIpContext(a, "src")} compact />
+            <span className="shrink-0 text-muted-foreground/70">→</span>
+            <span className="inline-flex min-w-0 items-center gap-0.5">
+              <IpAddressPill ip={a.dst_ip} ipContext={alertIpContext(a, "dst")} compact />
+              {typeof a.dst_port === "number" ? <span className="shrink-0">:{a.dst_port}</span> : null}
+            </span>
           </div>
         ),
       },
@@ -69,7 +66,9 @@ export function AlertsTable({
         key: "description",
         title: "Description",
         render: (a) => (
-          <div className="line-clamp-2 text-[12px] text-muted-foreground">{a.description || ""}</div>
+          <div className="truncate text-[12px] text-muted-foreground" title={a.description || ""}>
+            {a.description || ""}
+          </div>
         ),
       },
       {

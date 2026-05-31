@@ -37,7 +37,7 @@ export function IpAddressPill({
     <span
       className={cx(
         "inline-flex max-w-full flex-wrap items-center gap-1.5 align-middle",
-        compact && "gap-1",
+        compact && "flex-nowrap gap-1",
         className,
       )}
       title={ipClassificationTitle(classification)}
@@ -48,7 +48,7 @@ export function IpAddressPill({
       <span
         className={cx(
           "break-all font-mono text-[12px] leading-5 text-foreground",
-          compact && "text-[11px] leading-4",
+          compact && "min-w-0 truncate text-[11px] leading-4",
           !classification.ip && "text-muted-foreground",
         )}
       >
