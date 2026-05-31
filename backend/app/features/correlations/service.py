@@ -45,6 +45,7 @@ from app.features.correlations.repository import (
     list_incidents as _list_incidents,
 )
 from app.features.correlations.schemas import (
+    CorrelationEvidenceOut,
     CorrelationIncidentDetailOut,
     CorrelationIncidentStatusIn,
     CorrelationRuleIn,
@@ -552,12 +553,6 @@ def get_correlation_incident(db: Session, incident_id: int) -> CorrelationIncide
         raise HTTPException(status_code=404, detail="Incident not found")
     evidence = list_evidence_for_incident(db, incident_id)
     out = CorrelationIncidentDetailOut.from_orm(incident)
-    out.evidence = [
-        type("_Ev", (), {"__dict__": ev.__dict__})  # type: ignore[arg-type]
-        for ev in evidence
-    ]
-    # Rebuild properly using from_orm on each evidence item
-    from app.features.correlations.schemas import CorrelationEvidenceOut
     out.evidence = [CorrelationEvidenceOut.from_orm(ev) for ev in evidence]
     return out
 
