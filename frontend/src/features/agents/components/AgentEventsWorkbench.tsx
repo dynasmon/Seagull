@@ -1,4 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
+import { EuiFacetButton, EuiFacetGroup } from "@elastic/eui";
+
 import type { NetEvent } from "@/features/events/types";
 import DdosDeepDive from "@/features/events/views/ddos/DdosDeepDive";
 import EventDetailsPanel from "@/features/events/components/EventDetailsPanel";
@@ -10,7 +12,6 @@ import Loading from "@/shared/components/Loading";
 import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { TextInput } from "@/shared/components/TextInput";
-import { cx } from "@/shared/lib/cx";
 
 import { FieldLabel } from "./AgentsPageShared";
 
@@ -103,7 +104,7 @@ export default function AgentEventsWorkbench({
                   max={10080}
                   fallback={defaultWindowMinutes}
                   onCommit={(v) => setEventsCfg((p) => ({ ...p, window_minutes: v }))}
-                  className="mt-1 font-mono text-[11px]"
+                  className="mt-1 w-full font-mono text-[11px]"
                   title="Lookback window (minutes)"
                 />
               </div>
@@ -116,7 +117,7 @@ export default function AgentEventsWorkbench({
                   max={5000}
                   fallback={defaultEventsLimit}
                   onCommit={(v) => setEventsCfg((p) => ({ ...p, limit: v }))}
-                  className="mt-1 font-mono text-[11px]"
+                  className="mt-1 w-full font-mono text-[11px]"
                   title="Max events to fetch"
                 />
               </div>
@@ -146,45 +147,26 @@ export default function AgentEventsWorkbench({
         </Panel>
 
         <Panel title="Event pivots" scrollY style={{ height: 360 }}>
-          <div className="space-y-1">
-            <button
-              type="button"
+          <EuiFacetGroup layout="vertical" gutterSize="none">
+            <EuiFacetButton
+              quantity={explorerBaseCount}
+              isSelected={!eventsCfg.event_type}
               onClick={() => setEventsCfg((p) => ({ ...p, event_type: "" }))}
-              className={cx(
-                "block w-full rounded-md border bg-card px-3 py-2 text-left transition-colors hover:border-primary/30 hover:bg-surface-2/70",
-                !eventsCfg.event_type
-                  ? "border-primary/55 bg-primary/[0.08] hover:bg-primary/[0.12]"
-                  : "border-border",
-              )}
             >
-              <div className="flex items-center justify-between">
-                <div className="font-mono text-[12.5px] font-semibold">All types</div>
-                <div className="font-mono text-[10.5px] text-muted-foreground">{explorerBaseCount}</div>
-              </div>
-            </button>
+              <span className="font-mono text-[12.5px]">All types</span>
+            </EuiFacetButton>
 
-            {topTypes.map((x) => {
-              const active = eventsCfg.event_type === x.key;
-              return (
-                <button
-                  key={x.key}
-                  type="button"
-                  onClick={() => setEventsCfg((p) => ({ ...p, event_type: x.key }))}
-                  className={cx(
-                    "block w-full rounded-md border bg-card px-3 py-2 text-left transition-colors hover:border-primary/30 hover:bg-surface-2/70",
-                    active
-                      ? "border-primary/55 bg-primary/[0.08] hover:bg-primary/[0.12]"
-                      : "border-border",
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="truncate font-mono text-[12.5px]">{x.key}</div>
-                    <div className="font-mono text-[10.5px] text-muted-foreground">{x.count}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+            {topTypes.map((x) => (
+              <EuiFacetButton
+                key={x.key}
+                quantity={x.count}
+                isSelected={eventsCfg.event_type === x.key}
+                onClick={() => setEventsCfg((p) => ({ ...p, event_type: x.key }))}
+              >
+                <span className="truncate font-mono text-[12.5px]">{x.key}</span>
+              </EuiFacetButton>
+            ))}
+          </EuiFacetGroup>
         </Panel>
 
         <Panel title="Selected event detail" scrollY style={{ height: panelHeight }}>

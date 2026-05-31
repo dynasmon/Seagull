@@ -1,3 +1,5 @@
+import { EuiLink } from "@elastic/eui";
+
 import EmptyState from "@/shared/components/EmptyState";
 import { Panel } from "@/shared/components/Panel";
 import { Table } from "@/shared/components/Table";
@@ -39,13 +41,9 @@ export function InventoryWarningsPanel({ domain, domainWarnings, domainPivotRows
                 title: "AGENT",
                 className: "w-52 font-mono text-foreground",
                 render: (r: InventoryWarningRow) => (
-                  <button
-                    type="button"
-                    onClick={() => onOpenDrawer(r.agent_id)}
-                    className="text-left font-mono text-[11px] text-primary/90 underline-offset-4 hover:underline"
-                  >
+                  <EuiLink onClick={() => onOpenDrawer(r.agent_id)} className="font-mono text-[11px]">
                     {r.agent_id}
-                  </button>
+                  </EuiLink>
                 ),
               },
               {
@@ -83,13 +81,9 @@ export function InventoryWarningsPanel({ domain, domainWarnings, domainPivotRows
                 title: "AGENT",
                 className: "font-mono text-foreground w-56",
                 render: (r: FleetHealthRow) => (
-                  <button
-                    type="button"
-                    onClick={() => onOpenDrawer(r.agent_id)}
-                    className="text-left font-mono text-[11px] text-primary/90 underline-offset-4 hover:underline"
-                  >
+                  <EuiLink onClick={() => onOpenDrawer(r.agent_id)} className="font-mono text-[11px]">
                     {r.agent_id}
-                  </button>
+                  </EuiLink>
                 ),
               },
               {

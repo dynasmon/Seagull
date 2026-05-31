@@ -5,6 +5,7 @@ import { applyAgentHeartbeatRealtime } from "@/app/agents_realtime";
 import { listAgents } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
 import { AuthProvider, useAuth } from "@/features/auth/context";
+import EuiRoot from "@/app/eui/EuiRoot";
 import { PortalRealtimeProvider, useLiveRefresh, usePortalRealtime, usePortalRealtimeSubscription } from "@/shared/realtime";
 import StatusBanner from "@/shared/components/StatusBanner";
 import { getErrorMessage } from "@/shared/lib/errors";
@@ -61,9 +62,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   return (
     <ThemeContext.Provider value={value}>
-      <AuthProvider>
-        <AuthedProviders>{children}</AuthedProviders>
-      </AuthProvider>
+      <EuiRoot colorMode={theme}>
+        <AuthProvider>
+          <AuthedProviders>{children}</AuthedProviders>
+        </AuthProvider>
+      </EuiRoot>
     </ThemeContext.Provider>
   );
 }

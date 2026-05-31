@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createResponseAction, getResponseActionResult, listAgents, listResponseActions } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
 import { useAuth } from "@/features/auth/context";
+import { Button } from "@/shared/components/Button";
 import { DataQueryStateBanner } from "@/shared/components/DataView";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { isAbortError } from "@/shared/lib/http";
@@ -646,14 +647,15 @@ export default function NetworkTopologyPage() {
             </span>
           </button>
           {isAdmin && (
-            <button
-              type="button"
-              className="mr-4 rounded-[4px] border border-border/40 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/20 hover:text-foreground disabled:opacity-50"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mr-4 text-[11px]"
               onClick={() => void handleRecalculate()}
               disabled={recalculateBusy}
             >
               {recalculateBusy ? "Recalculating…" : "Recalculate"}
-            </button>
+            </Button>
           )}
         </div>
 

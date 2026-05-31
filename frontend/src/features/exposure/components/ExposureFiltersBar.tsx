@@ -1,4 +1,5 @@
 import { Button } from "@/shared/components/Button";
+import { CheckboxField } from "@/shared/components/CheckboxField";
 import { DataFilterGroup, DataViewFilterBar } from "@/shared/components/DataView";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { TextInput } from "@/shared/components/TextInput";
@@ -147,34 +148,22 @@ export function ExposureFiltersBar({
         </DataFilterGroup>
 
         <DataFilterGroup label="Signals">
-          <div className="grid gap-2 text-[11px] font-mono uppercase tracking-[0.1em] text-muted-foreground">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={filters.has_attack_chain === true}
-                onChange={(event) => onChange({ has_attack_chain: event.target.checked ? true : null })}
-                className="h-3.5 w-3.5 accent-primary"
-              />
-              Has attack chain
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={filters.has_critical_vuln === true}
-                onChange={(event) => onChange({ has_critical_vuln: event.target.checked ? true : null })}
-                className="h-3.5 w-3.5 accent-primary"
-              />
-              Critical vulnerability
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={filters.has_persistence_signal === true}
-                onChange={(event) => onChange({ has_persistence_signal: event.target.checked ? true : null })}
-                className="h-3.5 w-3.5 accent-primary"
-              />
-              Persistence signal
-            </label>
+          <div className="grid gap-2">
+            <CheckboxField
+              label="Has attack chain"
+              checked={filters.has_attack_chain === true}
+              onChange={(event) => onChange({ has_attack_chain: event.target.checked ? true : null })}
+            />
+            <CheckboxField
+              label="Critical vulnerability"
+              checked={filters.has_critical_vuln === true}
+              onChange={(event) => onChange({ has_critical_vuln: event.target.checked ? true : null })}
+            />
+            <CheckboxField
+              label="Persistence signal"
+              checked={filters.has_persistence_signal === true}
+              onChange={(event) => onChange({ has_persistence_signal: event.target.checked ? true : null })}
+            />
           </div>
         </DataFilterGroup>
       </DataViewFilterBar>

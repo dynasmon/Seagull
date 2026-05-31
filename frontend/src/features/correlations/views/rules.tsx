@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/shared/components/Button";
+import { CheckboxField } from "@/shared/components/CheckboxField";
 import {
   DataQueryStateBanner,
   DataStatsStrip,
@@ -162,15 +163,11 @@ export default function CorrelationRulesPage() {
               placeholder="Search rule, strategy, entity, config..."
               className="h-9 min-w-[280px]"
             />
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={showDisabled}
-                onChange={(event) => setShowDisabled(event.target.checked)}
-                className="h-4 w-4"
-              />
-              Show disabled
-            </label>
+            <CheckboxField
+              label="Show disabled"
+              checked={showDisabled}
+              onChange={(event) => setShowDisabled(event.target.checked)}
+            />
             <Button variant="subtle" size="lg" onClick={() => void loadRules()}>
               Refresh
             </Button>
@@ -222,7 +219,7 @@ export default function CorrelationRulesPage() {
                 key: "state",
                 title: "State",
                 render: (rule: CorrelationRule) => (
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-nowrap items-center gap-2">
                     <StatusPill variant={rule.enabled ? "active" : "inactive"}>
                       {rule.enabled ? "enabled" : "disabled"}
                     </StatusPill>
@@ -235,9 +232,9 @@ export default function CorrelationRulesPage() {
                 title: "Rule",
                 className: "min-w-[240px]",
                 render: (rule: CorrelationRule) => (
-                  <div className="space-y-1">
-                    <div className="font-medium text-foreground">{rule.name}</div>
-                    {rule.description ? <div className="text-[11px] text-muted-foreground">{rule.description}</div> : null}
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="min-w-0 max-w-[55%] shrink-0 truncate font-medium text-foreground" title={rule.name}>{rule.name}</span>
+                    {rule.description ? <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={rule.description}>{rule.description}</span> : null}
                   </div>
                 ),
               },
@@ -246,9 +243,9 @@ export default function CorrelationRulesPage() {
                 title: "Strategy",
                 className: "min-w-[180px]",
                 render: (rule: CorrelationRule) => (
-                  <div className="space-y-1">
-                    <div className="font-mono text-[12px] text-foreground">{rule.strategy}</div>
-                    <div className="text-[11px] text-muted-foreground">{rule.group_by}</div>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="shrink-0 font-mono text-[12px] text-foreground">{rule.strategy}</span>
+                    <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={rule.group_by}>{rule.group_by}</span>
                   </div>
                 ),
               },
@@ -256,9 +253,9 @@ export default function CorrelationRulesPage() {
                 key: "window",
                 title: "Window",
                 render: (rule: CorrelationRule) => (
-                  <div className="space-y-1">
-                    <div className="font-mono text-[12px] text-foreground">{rule.window_seconds}s</div>
-                    <div className="text-[11px] text-muted-foreground">min alerts {rule.min_alerts}</div>
+                  <div className="flex items-center gap-1.5 whitespace-nowrap">
+                    <span className="font-mono text-[12px] text-foreground">{rule.window_seconds}s</span>
+                    <span className="text-[11px] text-muted-foreground">min alerts {rule.min_alerts}</span>
                   </div>
                 ),
               },
@@ -267,15 +264,15 @@ export default function CorrelationRulesPage() {
                 title: "Configs",
                 className: "min-w-[200px]",
                 render: (rule: CorrelationRule) => (
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden">
                     {configFlags(rule).length > 0 ? configFlags(rule).map((item) => (
                       <span
                         key={item}
-                        className="inline-flex items-center rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px]"
+                        className="inline-flex shrink-0 items-center rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px]"
                       >
                         {item}
                       </span>
-                    )) : <span className="text-muted-foreground">-</span>}
+                    )) : <span className="shrink-0 text-muted-foreground">-</span>}
                   </div>
                 ),
               },
@@ -286,17 +283,17 @@ export default function CorrelationRulesPage() {
                 render: (rule: CorrelationRule) => {
                   const preview = (rule.include_patterns || []).slice(0, 3);
                   return (
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden">
                       {preview.length > 0 ? preview.map((item) => (
                         <span
                           key={item}
-                          className="inline-flex items-center rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px]"
+                          className="inline-flex shrink-0 items-center rounded-md border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px]"
                         >
                           {item}
                         </span>
-                      )) : <span className="text-muted-foreground">(all)</span>}
+                      )) : <span className="shrink-0 text-muted-foreground">(all)</span>}
                       {(rule.include_patterns || []).length > preview.length ? (
-                        <span className="text-[11px] text-muted-foreground">+{(rule.include_patterns || []).length - preview.length}</span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">+{(rule.include_patterns || []).length - preview.length}</span>
                       ) : null}
                     </div>
                   );
@@ -345,6 +342,7 @@ export default function CorrelationRulesPage() {
             ]}
             rows={filtered}
             rowKey={(rule) => String(rule.id)}
+            scrollX
             onRowClick={(rule) => {
               setEditingRule(rule);
               setEditorOpen(true);

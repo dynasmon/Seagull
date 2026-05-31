@@ -12,6 +12,7 @@ import { Card } from "@/shared/components/Card";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { StatusPill } from "@/shared/components/StatusPill";
 import { Table } from "@/shared/components/Table";
+import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
 import { Badge } from "@/shared/components/Badge";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
@@ -147,18 +148,10 @@ function MiniToggle({
   hint?: string;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-border bg-surface-2/40 px-3 py-2 transition-colors hover:bg-surface-2/70">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-primary"
-      />
-      <div className="min-w-0">
-        <div className="font-mono text-[12px] text-foreground">{label}</div>
-        {hint ? <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div> : null}
-      </div>
-    </label>
+    <div className="rounded-md border border-border bg-surface-2/40 px-3 py-2">
+      <ToggleSwitch label={label} checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      {hint ? <div className="mt-1 text-[11px] text-muted-foreground">{hint}</div> : null}
+    </div>
   );
 }
 

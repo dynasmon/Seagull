@@ -1,3 +1,5 @@
+import { Button } from "@/shared/components/Button";
+
 export default function InternalRefreshToolbar({
   lastUpdatedLabel,
   onRefresh,
@@ -12,14 +14,9 @@ export default function InternalRefreshToolbar({
       <div className="text-[11px] font-mono uppercase tracking-widest text-muted-foreground">
         Last update: {lastUpdatedLabel}
       </div>
-      <button
-        type="button"
-        onClick={onRefresh}
-        disabled={busy}
-        className="ui-btn-secondary h-9 px-3 text-xs font-mono uppercase tracking-widest disabled:opacity-60"
-      >
+      <Button variant="secondary" size="md" onClick={onRefresh} disabled={busy}>
         {busy ? "Refreshing..." : "Refresh now"}
-      </button>
+      </Button>
     </div>
   );
 }

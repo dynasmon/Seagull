@@ -64,7 +64,7 @@ export function InventoryScopePanel({
               max={10080}
               fallback={360}
               onCommit={onWindowChange}
-              className="ui-input mt-1 font-mono text-[11.5px]"
+              className="mt-1 w-full font-mono text-[11.5px]"
               title="Lookback window (minutes)"
             />
           </div>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
 import {
   DataPaginationFooter,
   DataQueryStateBanner,
@@ -12,7 +13,9 @@ import {
 } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
 import { Panel } from "@/shared/components/Panel";
+import { SelectInput } from "@/shared/components/SelectInput";
 import { SeverityPill } from "@/shared/components/SeverityPill";
+import { Table, type Column } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 import { useLiveRefresh } from "@/shared/realtime";
 
@@ -132,6 +135,137 @@ function sortFindings(
   });
 }
 
+const FINDING_COLUMNS: Array<Column<UebaFinding>> = [
+  {
+    key: "risk",
+    title: "Risk",
+    width: 190,
+    sortable: true,
+    sortKey: "risk_score",
+    render: (row) => (
+      <div className="flex flex-nowrap items-center gap-1.5">
+        <SeverityPill variant={severityVariant(row.severity)}>
+          {row.severity === "informational" ? "info" : row.severity}
+        </SeverityPill>
+        <Badge variant={row.status === "open" ? "medium" : "neutral"} className="text-[10px]">
+          {row.status}
+        </Badge>
+        {row.latest_verdict && (
+          <Badge variant={verdictVariant(row.latest_verdict)} className="text-[10px]">
+            {verdictLabel(row.latest_verdict)}
+          </Badge>
+        )}
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">risk {row.risk_score}</span>
+      </div>
+    ),
+  },
+  {
+    key: "entity",
+    title: "Entity",
+    width: 280,
+    render: (row) => (
+      <div
+        className="flex min-w-0 max-w-[260px] items-center gap-1.5"
+        title={`${row.entity_value}\n${row.entity_type}${row.agent_id ? ` · ${row.agent_id}` : ""}`}
+      >
+        <span className="min-w-0 truncate font-mono text-[12px] font-medium text-foreground">{row.entity_value}</span>
+        <span className="min-w-0 max-w-[55%] shrink-0 truncate font-mono text-[10px] text-muted-foreground">
+          {row.entity_type}
+          {row.agent_id ? ` · ${row.agent_id}` : ""}
+        </span>
+      </div>
+    ),
+  },
+  {
+    key: "detector",
+    title: "Detector / Metric",
+    width: 240,
+    render: (row) => (
+      <div className="flex min-w-0 max-w-[220px] items-center gap-1.5">
+        <span className="min-w-0 truncate text-[12px] text-foreground" title={detectorLabel(row.detector_id)}>
+          {detectorLabel(row.detector_id)}
+        </span>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{metricLabel(row.metric_name)}</span>
+      </div>
+    ),
+  },
+  {
+    key: "observed",
+    title: "Observed → Expected",
+    width: 260,
+    render: (row) => (
+      <div className="flex items-center gap-2 whitespace-nowrap font-mono text-[11px]">
+        <span className="font-semibold text-foreground">
+          {row.observed_value != null ? formatMetricValue(row.observed_value, row.metric_name) : "—"}
+        </span>
+        {row.expected_value != null && (
+          <span className="text-muted-foreground">
+            {" → "}
+            {formatMetricValue(row.expected_value, row.metric_name)}
+          </span>
+        )}
+        {row.deviation_score != null && (
+          <span className="flex items-center gap-1.5">
+            <span className="h-1 w-14 shrink-0 overflow-hidden rounded-full bg-muted/40">
+              <span
+                className={cx("block h-full rounded-full", riskBarClass(row.risk_score))}
+                style={{ width: `${Math.min(100, row.risk_score)}%` }}
+              />
+            </span>
+            <span className="text-[10px] text-muted-foreground">z={row.deviation_score.toFixed(1)}</span>
+          </span>
+        )}
+      </div>
+    ),
+  },
+  {
+    key: "last_seen",
+    title: "Last seen",
+    width: 120,
+    sortable: true,
+    sortKey: "last_seen_at",
+    className: "font-mono text-[11px] text-muted-foreground",
+    render: (row) => <span title={formatTimestamp(row.last_seen_at)}>{relativeTime(row.last_seen_at)}</span>,
+  },
+  {
+    key: "first_seen",
+    title: "First seen",
+    width: 120,
+    sortable: true,
+    sortKey: "first_seen_at",
+    className: "font-mono text-[11px] text-muted-foreground",
+    render: (row) => <span title={formatTimestamp(row.first_seen_at)}>{relativeTime(row.first_seen_at)}</span>,
+  },
+  {
+    key: "hits",
+    title: "Hits",
+    width: 80,
+    sortable: true,
+    sortKey: "occurrence_count",
+    align: "right",
+    className: "font-mono text-[11px] text-muted-foreground",
+    render: (row) => row.occurrence_count,
+  },
+  {
+    key: "mitre",
+    title: "MITRE",
+    width: 180,
+    render: (row) =>
+      row.mitre_technique_id ? (
+        <div className="flex min-w-0 max-w-[160px] items-center gap-1.5">
+          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{row.mitre_technique_id}</span>
+          {row.mitre_tactic ? (
+            <span className="min-w-0 truncate text-[10px] text-muted-foreground/70" title={row.mitre_tactic}>
+              {row.mitre_tactic.replace(/_/g, " ")}
+            </span>
+          ) : null}
+        </div>
+      ) : (
+        <span className="text-[10px] text-muted-foreground/40">—</span>
+      ),
+  },
+];
+
 export default function UebaFindingsPage() {
   const [summary, setSummary] = useState<UebaSummary | null>(null);
   const [findings, setFindings] = useState<UebaFinding[]>([]);
@@ -227,41 +361,6 @@ export default function UebaFindingsPage() {
 
   const sorted = sortFindings(findings, sortKey, sortDir);
 
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
-  };
-
-  const SortHeader = ({
-    col,
-    children,
-    className,
-  }: {
-    col: SortKey;
-    children: React.ReactNode;
-    className?: string;
-  }) => (
-    <button
-      type="button"
-      onClick={() => toggleSort(col)}
-      className={cx(
-        "inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground hover:text-foreground",
-        className,
-      )}
-    >
-      {children}
-      {sortKey === col ? (
-        <span>{sortDir === "desc" ? "↓" : "↑"}</span>
-      ) : (
-        <span className="opacity-30">↕</span>
-      )}
-    </button>
-  );
-
   return (
     <div className="space-y-4">
       {summary ? <SummaryStrip summary={summary} /> : null}
@@ -281,17 +380,18 @@ export default function UebaFindingsPage() {
           <DataViewToolbar
             left={
               <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={detectorId}
-                  onChange={(e) => setDetectorId(e.target.value)}
-                  className="ui-select h-8 text-xs font-mono"
-                  aria-label="Detector filter"
-                >
-                  <option value="">All detectors</option>
-                  {Object.entries(DETECTOR_LABELS).map(([id, label]) => (
-                    <option key={id} value={id}>{label}</option>
-                  ))}
-                </select>
+                <div className="w-44">
+                  <SelectInput
+                    value={detectorId}
+                    onChange={(e) => setDetectorId(e.target.value)}
+                    aria-label="Detector filter"
+                  >
+                    <option value="">All detectors</option>
+                    {Object.entries(DETECTOR_LABELS).map(([id, label]) => (
+                      <option key={id} value={id}>{label}</option>
+                    ))}
+                  </SelectInput>
+                </div>
                 <DebouncedSearchInput
                   value={agentFilter}
                   onChange={setAgentFilter}
@@ -310,39 +410,35 @@ export default function UebaFindingsPage() {
             }
             right={
               <div className="flex items-center gap-2">
-                <select
-                  value={severity}
-                  onChange={(e) => setSeverity(e.target.value as UebaSeverity | "all")}
-                  className="ui-select h-8 text-xs font-mono"
-                  aria-label="Severity filter"
-                >
-                  {SEVERITY_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as UebaFindingStatus | "all")}
-                  className="ui-select h-8 text-xs font-mono"
-                  aria-label="Status filter"
-                >
-                  {STATUS_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => load({ replace: true })}
-                  disabled={loading}
-                  className="ui-btn-secondary h-8 px-2.5 text-xs font-mono"
-                  aria-label="Refresh"
-                >
+                <div className="w-40">
+                  <SelectInput
+                    value={severity}
+                    onChange={(e) => setSeverity(e.target.value as UebaSeverity | "all")}
+                    aria-label="Severity filter"
+                  >
+                    {SEVERITY_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </SelectInput>
+                </div>
+                <div className="w-36">
+                  <SelectInput
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value as UebaFindingStatus | "all")}
+                    aria-label="Status filter"
+                  >
+                    {STATUS_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </SelectInput>
+                </div>
+                <Button variant="secondary" size="sm" onClick={() => load({ replace: true })} disabled={loading}>
                   Refresh
-                </button>
+                </Button>
               </div>
             }
           />
@@ -352,13 +448,9 @@ export default function UebaFindingsPage() {
               tone="danger"
               message={error}
               right={
-                <button
-                  type="button"
-                  onClick={() => load({ replace: true })}
-                  className="underline"
-                >
+                <Button variant="ghost" size="sm" onClick={() => load({ replace: true })}>
                   Retry
-                </button>
+                </Button>
               }
             />
           ) : null}
@@ -371,164 +463,24 @@ export default function UebaFindingsPage() {
               description="No findings match the current filters. The system will surface anomalies as baselines mature."
             />
           ) : (
-            <div className="overflow-x-hidden">
-              <table className="w-full text-[12px]" aria-label="Anomaly findings">
-                <thead>
-                  <tr className="border-b border-border/60">
-                    <th className="py-2 pl-3 pr-2 text-left">
-                      <SortHeader col="risk_score">Risk</SortHeader>
-                    </th>
-                    <th className="px-2 py-2 text-left">
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                        Entity
-                      </span>
-                    </th>
-                    <th className="px-2 py-2 text-left">
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                        Detector / Metric
-                      </span>
-                    </th>
-                    <th className="px-2 py-2 text-left">
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                        Observed → Expected
-                      </span>
-                    </th>
-                    <th className="px-2 py-2 text-left">
-                      <SortHeader col="last_seen_at">Last seen</SortHeader>
-                    </th>
-                    <th className="px-2 py-2 text-left">
-                      <SortHeader col="first_seen_at">First seen</SortHeader>
-                    </th>
-                    <th className="px-2 py-2 text-right">
-                      <SortHeader col="occurrence_count">Hits</SortHeader>
-                    </th>
-                    <th className="py-2 pl-2 pr-3 text-left">
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                        MITRE
-                      </span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map((row) => (
-                    <tr
-                      key={row.id}
-                      onClick={() => {
-                        setSelectedFinding(row);
-                        setDrawerOpen(true);
-                      }}
-                      className="cursor-pointer border-b border-border/40 hover:bg-muted/10 transition-colors"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          setSelectedFinding(row);
-                          setDrawerOpen(true);
-                        }
-                      }}
-                    >
-                      <td className="py-2.5 pl-3 pr-2">
-                        <div className="flex flex-col gap-1">
-                          <SeverityPill variant={severityVariant(row.severity)}>
-                            {row.severity === "informational" ? "info" : row.severity}
-                          </SeverityPill>
-                          <Badge variant={row.status === "open" ? "medium" : "neutral"} className="w-fit text-[10px]">
-                            {row.status}
-                          </Badge>
-                          {row.latest_verdict && (
-                            <Badge variant={verdictVariant(row.latest_verdict)} className="w-fit text-[10px]">
-                              {verdictLabel(row.latest_verdict)}
-                            </Badge>
-                          )}
-                          <span className="font-mono text-[10px] text-muted-foreground">
-                            risk {row.risk_score}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-2 py-2.5">
-                        <div className="max-w-[160px]">
-                          <div className="truncate font-mono text-[12px] font-medium text-foreground" title={row.entity_value}>
-                            {row.entity_value}
-                          </div>
-                          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                            {row.entity_type}
-                            {row.agent_id ? ` · ${row.agent_id}` : ""}
-                          </div>
-                          {row.agent_id && row.agent_id !== row.entity_value && (
-                            <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-                              {row.agent_id}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-2 py-2.5">
-                        <div className="max-w-[140px]">
-                          <div className="truncate text-[12px] text-foreground" title={detectorLabel(row.detector_id)}>
-                            {detectorLabel(row.detector_id)}
-                          </div>
-                          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                            {metricLabel(row.metric_name)}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-2 py-2.5">
-                        <div className="font-mono text-[11px]">
-                          <span className="font-semibold text-foreground">
-                            {row.observed_value != null ? formatMetricValue(row.observed_value, row.metric_name) : "—"}
-                          </span>
-                          {row.expected_value != null && (
-                            <span className="text-muted-foreground">
-                              {" → "}{formatMetricValue(row.expected_value, row.metric_name)}
-                            </span>
-                          )}
-                        </div>
-                        {row.deviation_score != null && (
-                          <div className="mt-1 flex items-center gap-1.5">
-                            <div className="h-1 w-14 overflow-hidden rounded-full bg-muted/40">
-                              <div
-                                className={cx("h-full rounded-full", riskBarClass(row.risk_score))}
-                                style={{ width: `${Math.min(100, row.risk_score)}%` }}
-                              />
-                            </div>
-                            <span className="font-mono text-[10px] text-muted-foreground">
-                              z={row.deviation_score.toFixed(1)}
-                            </span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-2 py-2.5 font-mono text-[11px] text-muted-foreground">
-                        <span title={formatTimestamp(row.last_seen_at)}>
-                          {relativeTime(row.last_seen_at)}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2.5 font-mono text-[11px] text-muted-foreground">
-                        <span title={formatTimestamp(row.first_seen_at)}>
-                          {relativeTime(row.first_seen_at)}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2.5 text-right font-mono text-[11px] text-muted-foreground">
-                        {row.occurrence_count}
-                      </td>
-                      <td className="py-2.5 pl-2 pr-3">
-                        {row.mitre_technique_id ? (
-                          <div className="max-w-[110px]">
-                            <div className="font-mono text-[10px] text-muted-foreground">
-                              {row.mitre_technique_id}
-                            </div>
-                            {row.mitre_tactic ? (
-                              <div className="mt-0.5 truncate text-[10px] text-muted-foreground/70" title={row.mitre_tactic}>
-                                {row.mitre_tactic.replace(/_/g, " ")}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground/40">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table
+              className="!shadow-none !border-0 !bg-transparent !rounded-none"
+              columns={FINDING_COLUMNS}
+              rows={sorted}
+              rowKey={(row) => String(row.id)}
+              scrollX
+              stickyHeader
+              selectedRowKey={selectedFinding ? String(selectedFinding.id) : null}
+              onRowClick={(row) => {
+                setSelectedFinding(row);
+                setDrawerOpen(true);
+              }}
+              sort={{ key: sortKey, direction: sortDir }}
+              onSortChange={(next) => {
+                setSortKey(next.key as SortKey);
+                setSortDir(next.direction);
+              }}
+            />
           )}
 
           {!loading && sorted.length > 0 && (

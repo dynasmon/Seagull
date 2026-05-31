@@ -60,6 +60,7 @@ export function useAuditQuery(opts?: Options) {
     minPageSize: 10,
     maxPageSize: 500,
     defaultSort: { key: "created_at", direction: "desc" },
+    defaultCompact: true,
   });
 
   const [state, setState] = useUrlQueryState<AuditQueryState>({

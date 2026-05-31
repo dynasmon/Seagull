@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { Table, type Column } from "@/shared/components/Table";
@@ -16,7 +17,6 @@ import {
   copyTextToClipboard,
   formatInvestigationTimestamp,
 } from "@/shared/components/investigation";
-import { cx } from "@/shared/lib/cx";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { getFlowIpContext } from "@/shared/lib/ipClassification";
 
@@ -29,13 +29,6 @@ import { pinProtocolIntelEventToWorkspace } from "@/features/investigations/api"
 
 import { getProtocolIntelSamples } from "./api";
 import type { ProtocolIntelIndicatorKind } from "./types";
-
-const btnCls = cx(
-  "inline-flex items-center rounded-md border border-border/60 bg-background/40",
-  "px-2 py-1 text-xs font-medium text-muted-foreground",
-  "hover:bg-muted/25 hover:text-foreground",
-  "focus:outline-none focus:ring-2 focus:ring-primary/30",
-);
 
 function ipEndpoint(ev: NetEvent, side: "src" | "dst") {
   const ip = side === "src" ? ev.src_ip : ev.dst_ip;
@@ -141,18 +134,18 @@ export default function ProtocolIndicatorDrawer({
         title: "",
         className: "text-right",
         render: (ev) => (
-          <button
-            type="button"
+          <Button
+            variant="subtle"
+            size="sm"
             onClick={(e) => {
               e.stopPropagation();
               setSelectedSampleId(ev.id);
               setEventDrawerEvent(ev);
               setEventDrawerOpen(true);
             }}
-            className={btnCls}
           >
             Full view
-          </button>
+          </Button>
         ),
       },
       {
@@ -160,13 +153,9 @@ export default function ProtocolIndicatorDrawer({
         title: "",
         className: "text-right",
         render: (ev) => (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setPinEvent(ev); }}
-            className={btnCls}
-          >
+          <Button variant="subtle" size="sm" onClick={(e) => { e.stopPropagation(); setPinEvent(ev); }}>
             Pin
-          </button>
+          </Button>
         ),
       },
     ];

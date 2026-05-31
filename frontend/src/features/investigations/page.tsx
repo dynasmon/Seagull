@@ -14,6 +14,7 @@ import { Badge } from "@/shared/components/Badge";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { SeverityPill } from "@/shared/components/SeverityPill";
 import { StatusPill } from "@/shared/components/StatusPill";
+import { Table, type Column } from "@/shared/components/Table";
 import { TextArea } from "@/shared/components/TextArea";
 import { TextInput } from "@/shared/components/TextInput";
 import {
@@ -25,7 +26,6 @@ import {
   formatInvestigationTimestamp,
 } from "@/shared/components/investigation";
 import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
-import { cx } from "@/shared/lib/cx";
 import { getFlowIpContext } from "@/shared/lib/ipClassification";
 import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlParams";
 import { usePortalRealtimeSubscription } from "@/shared/realtime";
@@ -1170,6 +1170,61 @@ export default function InvestigationsPage() {
     return { open, criticalHigh, assigned, evidence, notes };
   }, [rows]);
 
+  const workspaceColumns: Column<InvestigationWorkspace>[] = [
+    {
+      key: "workspace",
+      title: "Workspace",
+      render: (ws) => (
+        <div className="flex min-w-0 items-center gap-1.5">
+          <StatusPill variant={statusPillVariant(ws.status)} withDot>{ws.status}</StatusPill>
+          <SeverityPill variant={severityVariant(ws.severity)} withDot>{ws.severity}</SeverityPill>
+          <Badge variant="neutral">{ws.priority}</Badge>
+          <span className="min-w-0 truncate font-semibold" title={ws.title}>{ws.title}</span>
+          <span className="shrink-0 max-w-[12rem] truncate font-mono text-[11px] text-muted-foreground" title={ws.workspace_key}>{ws.workspace_key}</span>
+        </div>
+      ),
+    },
+    {
+      key: "assignment",
+      title: "Assignment",
+      render: (ws) => (
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate text-[12px]">{ws.assignee || <span className="text-muted-foreground">Unassigned</span>}</span>
+          <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+            {ws.linked_attack_chain_case_id ? `case #${ws.linked_attack_chain_case_id}` : "no linked case"}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "activity",
+      title: "Activity",
+      render: (ws) => (
+        <div className="flex items-center gap-1.5 whitespace-nowrap">
+          <span className="font-mono text-[12px]">{fmtTs(ws.updated_at)}</span>
+          <span className="text-[11px] text-muted-foreground">{ws.notes_count} notes · {ws.bookmarks_count} evidence</span>
+        </div>
+      ),
+    },
+    {
+      key: "action",
+      title: "Action",
+      align: "right",
+      render: (ws) => (
+        <Button
+          variant="subtle"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            openWorkspaceDrawer(ws.id);
+          }}
+        >
+          Open
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -1287,67 +1342,15 @@ export default function InvestigationsPage() {
 
           {rows.length > 0 ? (
             <div className="w-full">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-[2] bg-surface-2/95 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm">
-                  <tr>
-                    <th className="border-b border-border px-3 py-2.5">Workspace</th>
-                    <th className="border-b border-border px-3 py-2.5">Assignment</th>
-                    <th className="border-b border-border px-3 py-2.5">Activity</th>
-                    <th className="border-b border-border px-3 py-2.5 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((ws) => (
-                    <tr
-                      key={ws.id}
-                      className={cx(
-                        "cursor-pointer border-t border-border/55 ui-row",
-                        selectedId === ws.id && "ui-row-selected",
-                      )}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openWorkspaceDrawer(ws.id)}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Enter" && event.key !== " ") return;
-                        event.preventDefault();
-                        openWorkspaceDrawer(ws.id);
-                      }}
-                    >
-                      <td className="px-3 py-2.5">
-                        <div className="font-semibold">{ws.title}</div>
-                        <div className="break-all font-mono text-[11px] text-muted-foreground">{ws.workspace_key}</div>
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
-                          <StatusPill variant={statusPillVariant(ws.status)} withDot>{ws.status}</StatusPill>
-                          <SeverityPill variant={severityVariant(ws.severity)} withDot>{ws.severity}</SeverityPill>
-                          <Badge variant="neutral">{ws.priority}</Badge>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="text-[12px]">{ws.assignee || <span className="text-muted-foreground">Unassigned</span>}</div>
-                        <div className="font-mono text-[11px] text-muted-foreground">
-                          {ws.linked_attack_chain_case_id ? `case #${ws.linked_attack_chain_case_id}` : "no linked case"}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="font-mono text-[12px]">{fmtTs(ws.updated_at)}</div>
-                        <div className="text-[11px] text-muted-foreground">{ws.notes_count} notes · {ws.bookmarks_count} evidence</div>
-                      </td>
-                      <td className="px-3 py-2.5 text-right">
-                        <Button
-                          variant="subtle"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openWorkspaceDrawer(ws.id);
-                          }}
-                        >
-                          Open
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <Table
+                className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                columns={workspaceColumns}
+                rows={rows}
+                rowKey={(ws) => String(ws.id)}
+                selectedRowKey={selectedId != null ? String(selectedId) : null}
+                rowClassName={() => "cursor-pointer"}
+                onRowClick={(ws) => openWorkspaceDrawer(ws.id)}
+              />
             </div>
           ) : null}
 

@@ -19,3 +19,12 @@ export function riskScoreClasses(score: number): string {
   if (score >= 65) return "border-severity-high/50 text-severity-high";
   return "border-border/60 text-foreground";
 }
+
+export const severityEuiColor: Record<SeverityLevel, string> = {
+  critical: "danger",
+  high: "#E8730C",
+  medium: "warning",
+  low: "primary",
+  info: "primary",
+  neutral: "hollow",
+};

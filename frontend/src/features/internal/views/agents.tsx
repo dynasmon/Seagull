@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { EuiPanel } from "@elastic/eui";
 
 import { useAgentsCatalog } from "@/app/providers";
 import { getRecentEvents } from "@/features/events/api";
@@ -12,6 +13,7 @@ import { Card } from "@/shared/components/Card";
 import { DebouncedSearchInput } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
+import { JsonBlock } from "@/shared/components/JsonBlock";
 import Loading from "@/shared/components/Loading";
 import { Table } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
@@ -152,18 +154,20 @@ export default function InternalAgentsInspectorView() {
                   const status = statusOfAgent(a);
                   const active = a.agent_id === selectedAgentId;
                   return (
-                    <button
+                    <EuiPanel
                       key={a.agent_id}
-                      type="button"
                       onClick={() => {
                         const next = new URLSearchParams(sp);
                         next.set("agent_id", a.agent_id);
                         setSp(next, { replace: true });
                       }}
-                      className={cx(
-                        "w-full rounded-md border px-3 py-2 text-left",
-                        active ? "border-primary/40 bg-primary/10" : "border-border/60 bg-background/30 hover:bg-muted/10"
-                      )}
+                      hasBorder
+                      hasShadow={false}
+                      paddingSize="s"
+                      borderRadius="m"
+                      color={active ? "primary" : "plain"}
+                      className="w-full text-left"
+                      aria-pressed={active}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0 flex items-center gap-2">
@@ -173,7 +177,7 @@ export default function InternalAgentsInspectorView() {
                         <div className="text-[10px] font-mono text-muted-foreground uppercase">{status}</div>
                       </div>
                       <div className="mt-1 text-[10px] font-mono text-muted-foreground truncate">{a.agent_id}</div>
-                    </button>
+                    </EuiPanel>
                   );
                 })
               )}
@@ -215,23 +219,17 @@ export default function InternalAgentsInspectorView() {
 
           <div className="grid gap-6 xl:grid-cols-2">
             <Card title="Heartbeat / Modules">
-              <pre className="max-h-[320px] overflow-auto rounded border border-border/60 bg-background/30 p-3 text-[11px] font-mono leading-relaxed">
-                {pretty({ status: agent?.metrics?.status, modules: agent?.metrics?.modules, metrics: agent?.metrics?.metrics })}
-              </pre>
+              <JsonBlock value={pretty({ status: agent?.metrics?.status, modules: agent?.metrics?.modules, metrics: agent?.metrics?.metrics })} maxHeight="320px" />
             </Card>
 
             <Card title="Metadata">
-              <pre className="max-h-[320px] overflow-auto rounded border border-border/60 bg-background/30 p-3 text-[11px] font-mono leading-relaxed">
-                {pretty(agent?.metadata || {})}
-              </pre>
+              <JsonBlock value={pretty(agent?.metadata || {})} maxHeight="320px" />
             </Card>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-2">
             <Card title="Config (raw JSON)">
-              <pre className="max-h-[320px] overflow-auto rounded border border-border/60 bg-background/30 p-3 text-[11px] font-mono leading-relaxed">
-                {pretty(agent?.config || {})}
-              </pre>
+              <JsonBlock value={pretty(agent?.config || {})} maxHeight="320px" />
             </Card>
 
             <Card title="Latest Inventory Snapshot">

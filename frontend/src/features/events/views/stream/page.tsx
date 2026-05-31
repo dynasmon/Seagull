@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { EuiFacetButton, EuiFacetGroup } from "@elastic/eui";
 
 import { Button } from "@/shared/components/Button";
 import {
@@ -11,6 +12,7 @@ import {
 import EmptyState from "@/shared/components/EmptyState";
 import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
+import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { usePersistentState } from "@/shared/hooks/usePersistentState";
 import { useUrlQueryState } from "@/shared/hooks/useUrlQueryState";
@@ -159,22 +161,13 @@ function TopList({
     return <div className="text-[12px] text-muted-foreground">-</div>;
   }
   return (
-    <div className="space-y-1.5">
+    <EuiFacetGroup layout="vertical" gutterSize="none">
       {items.map((r) => (
-        <button
-          key={r.key}
-          type="button"
-          onClick={() => onPick(r.key)}
-          className="block w-full rounded-md border border-border bg-card px-3 py-1.5 text-left transition-colors hover:border-primary/30 hover:bg-surface-2/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
-          title="Click to search"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="truncate font-mono text-[12px] text-foreground">{r.key}</div>
-            <div className="shrink-0 font-mono text-[11.5px] text-muted-foreground">{r.count}</div>
-          </div>
-        </button>
+        <EuiFacetButton key={r.key} quantity={r.count} onClick={() => onPick(r.key)} title="Click to search">
+          <span className="truncate font-mono text-[12px]">{r.key}</span>
+        </EuiFacetButton>
       ))}
-    </div>
+    </EuiFacetGroup>
   );
 }
 
@@ -190,18 +183,10 @@ function SmallToggle({
   hint?: string;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-border bg-surface-2/40 px-3 py-2 transition-colors hover:bg-surface-2/70">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-3.5 w-3.5 cursor-pointer accent-primary"
-      />
-      <div className="min-w-0">
-        <div className="text-[12px] font-medium text-foreground">{label}</div>
-        {hint ? <div className="mt-0.5 text-[10.5px] text-muted-foreground">{hint}</div> : null}
-      </div>
-    </label>
+    <div className="rounded-md border border-border bg-surface-2/40 px-3 py-2">
+      <ToggleSwitch label={label} checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      {hint ? <div className="mt-1 text-[10.5px] text-muted-foreground">{hint}</div> : null}
+    </div>
   );
 }
 
