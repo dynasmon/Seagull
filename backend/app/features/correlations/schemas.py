@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, conint
+from pydantic import BaseModel, ConfigDict, Field, conint
 
 
 class CorrelationStage(BaseModel):
@@ -46,8 +46,7 @@ class CorrelationRuleOut(CorrelationRuleIn):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CorrelationAlertRef(BaseModel):
@@ -126,8 +125,7 @@ class CorrelationEvidenceOut(BaseModel):
     dst_port: Optional[int] = None
     details: Dict = Field(default_factory=dict)
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CorrelationIncidentListItemOut(BaseModel):
@@ -152,8 +150,7 @@ class CorrelationIncidentListItemOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CorrelationIncidentDetailOut(CorrelationIncidentListItemOut):
@@ -161,8 +158,7 @@ class CorrelationIncidentDetailOut(CorrelationIncidentListItemOut):
     context: Dict = Field(default_factory=dict)
     evidence: List[CorrelationEvidenceOut] = Field(default_factory=list)
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CorrelationIncidentStatusIn(BaseModel):
@@ -182,5 +178,4 @@ class CorrelationRuleRunOut(BaseModel):
     error: Optional[str] = None
     context: Dict = Field(default_factory=dict)
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

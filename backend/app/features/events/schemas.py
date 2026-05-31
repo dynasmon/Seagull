@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 QuerySource = Literal["clickhouse", "elasticsearch", "postgres", "recent_feed", "rollup_1s", "live_1s"]
 
@@ -43,9 +43,7 @@ class NetEvent(BaseModel):
 class NetEventDB(NetEvent):
     id: int = Field(..., description="Database event identifier")
 
-    class Config:
-        from_attributes = True
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EventHuntResponse(BaseModel):
