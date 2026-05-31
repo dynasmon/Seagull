@@ -30,7 +30,7 @@ export function useInventoryPageModel() {
     defaultPageSize: 100,
     minPageSize: 25,
     maxPageSize: 200,
-    defaultCompact: false,
+    defaultCompact: true,
   });
 
   return {

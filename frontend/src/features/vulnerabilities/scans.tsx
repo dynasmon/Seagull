@@ -61,7 +61,7 @@ export default function VulnerabilityScansPage() {
     defaultPageSize: 50,
     minPageSize: 10,
     maxPageSize: 500,
-    defaultCompact: false,
+    defaultCompact: true,
   });
   const density: Density = scansTablePrefs.compact ? "compact" : "comfortable";
   const setDensity = (next: Density) => scansTablePrefs.setCompact(next === "compact");
