@@ -41,3 +41,7 @@ agent/agent
 backend/test.db
 *.db
 .vscode/
+
+# Playwright MCP browser-QA artifacts (screenshots/snapshots)
+.playwright-mcp/
+/*.png

@@ -1,18 +1,22 @@
+import { EuiButtonGroup } from "@elastic/eui";
+
 import { Button } from "@/shared/components/Button";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import { InlineAlert } from "@/shared/components/InlineAlert";
+import { JsonBlock } from "@/shared/components/JsonBlock";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { StatusPill } from "@/shared/components/StatusPill";
+import { Table, type Column } from "@/shared/components/Table";
 import { TextArea } from "@/shared/components/TextArea";
 import { TextInput } from "@/shared/components/TextInput";
+import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
 import { InvestigationSection } from "@/shared/components/investigation";
-import { cx } from "@/shared/lib/cx";
 
 import { ALL_DAYS } from "../../constants";
 import type { AlertRuleEditor } from "../../hooks/useAlertRuleEditor";
 import type { AlertsRulesData } from "../../hooks/useAlertsRulesData";
-import { safeJsonString } from "../../lib/alertRuleEditor";
+import type { RuleGovernanceHistory } from "../../types";
 
 interface AlertRuleDrawerProps {
   rulesData: AlertsRulesData;
@@ -26,6 +30,18 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+const HISTORY_COLUMNS: Array<Column<RuleGovernanceHistory>> = [
+  {
+    key: "when",
+    title: "When",
+    className: "whitespace-nowrap font-mono text-muted-foreground",
+    render: (h) => new Date(h.created_at).toLocaleString(),
+  },
+  { key: "kind", title: "Kind", className: "font-mono", render: (h) => h.kind },
+  { key: "action", title: "Action", className: "font-mono", render: (h) => h.action },
+  { key: "actor", title: "Actor", render: (h) => h.actor_username || "-" },
+];
 
 export function AlertRuleDrawer({ rulesData, editor }: AlertRuleDrawerProps) {
   const { selected, drawerOpen, closeDrawer } = rulesData;
@@ -78,24 +94,24 @@ export function AlertRuleDrawer({ rulesData, editor }: AlertRuleDrawerProps) {
               )
             }
           >
-            {editor.saveError && (
-              <div className="rounded-md border border-danger/45 bg-danger/10 px-3 py-2 text-xs text-danger">
+            {editor.saveError ? (
+              <InlineAlert tone="danger" className="text-xs">
                 {editor.saveError}
-              </div>
-            )}
+              </InlineAlert>
+            ) : null}
 
-            {editor.validationErrors.length > 0 && (
-              <div className="mt-2 rounded-md border border-danger/50 bg-danger/[0.06] p-3 space-y-1.5">
-                <div className="text-sm font-semibold text-danger">Validation errors — fix before saving</div>
-                <ul className="space-y-1">
+            {editor.validationErrors.length > 0 ? (
+              <InlineAlert tone="danger" className="mt-2">
+                <div className="text-sm font-semibold">Validation errors — fix before saving</div>
+                <ul className="mt-1 space-y-1">
                   {editor.validationErrors.map((e, i) => (
-                    <li key={i} className="font-mono text-xs leading-relaxed text-danger">
+                    <li key={i} className="font-mono text-xs leading-relaxed">
                       {e}
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
+              </InlineAlert>
+            ) : null}
           </InvestigationSection>
 
           <InvestigationSection title="Activation">
@@ -104,12 +120,7 @@ export function AlertRuleDrawer({ rulesData, editor }: AlertRuleDrawerProps) {
                 <div className="text-sm font-semibold">Enabled</div>
                 <div className="text-[11px] text-muted-foreground">Disable to stop generating alerts for this rule.</div>
               </div>
-              <input
-                type="checkbox"
-                checked={editor.enabled}
-                onChange={(e) => editor.setEnabled(e.target.checked)}
-                className="h-4 w-4 cursor-pointer accent-primary"
-              />
+              <ToggleSwitch checked={editor.enabled} onChange={(e) => editor.setEnabled(e.target.checked)} />
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -199,15 +210,11 @@ export function AlertRuleDrawer({ rulesData, editor }: AlertRuleDrawerProps) {
             title="Schedule"
             subtitle='Optional time window to enable this rule (useful for "business hours only", etc).'
             right={
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={editor.schedEnabled}
-                  onChange={(e) => editor.setSchedEnabled(e.target.checked)}
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                />
-                enabled
-              </label>
+              <ToggleSwitch
+                label="enabled"
+                checked={editor.schedEnabled}
+                onChange={(e) => editor.setSchedEnabled(e.target.checked)}
+              />
             }
           >
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -257,23 +264,15 @@ export function AlertRuleDrawer({ rulesData, editor }: AlertRuleDrawerProps) {
                 </div>
               </div>
 
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {ALL_DAYS.map((d) => (
-                  <button
-                    key={d}
-                    onClick={() => editor.toggleDay(d)}
-                    className={cx(
-                      "h-7 rounded-md border px-2 font-mono text-[11px] transition-colors",
-                      editor.schedDays[d]
-                        ? "border-primary/45 bg-primary/12 text-primary"
-                        : "border-border bg-card text-muted-foreground hover:border-primary/30 hover:bg-muted",
-                    )}
-                    type="button"
-                    title="Toggle"
-                  >
-                    {d}
-                  </button>
-                ))}
+              <div className="mt-2">
+                <EuiButtonGroup
+                  legend="Schedule days"
+                  type="multi"
+                  buttonSize="compressed"
+                  options={ALL_DAYS.map((d) => ({ id: d, label: d }))}
+                  idToSelectedMap={editor.schedDays}
+                  onChange={(id) => editor.toggleDay(id)}
+                />
               </div>
 
               <div className="mt-2 text-[11px] text-muted-foreground">
@@ -358,28 +357,12 @@ export function AlertRuleDrawer({ rulesData, editor }: AlertRuleDrawerProps) {
               <div className="p-4 text-xs text-muted-foreground">No governance history yet.</div>
             ) : (
               <div className="max-h-[240px] overflow-auto">
-                <table className="w-full text-xs">
-                  <thead className="bg-surface-2/80">
-                    <tr className="text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                      <th className="px-3 py-2">When</th>
-                      <th className="px-3 py-2">Kind</th>
-                      <th className="px-3 py-2">Action</th>
-                      <th className="px-3 py-2">Actor</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rulesData.historyRows.map((h) => (
-                      <tr key={`${h.kind}-${h.id}`} className="border-t border-border/55">
-                        <td className="whitespace-nowrap px-3 py-2 font-mono text-muted-foreground">
-                          {new Date(h.created_at).toLocaleString()}
-                        </td>
-                        <td className="px-3 py-2 font-mono">{h.kind}</td>
-                        <td className="px-3 py-2 font-mono">{h.action}</td>
-                        <td className="px-3 py-2">{h.actor_username || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <Table
+                  className="!rounded-none !border-0 !bg-transparent !shadow-none text-xs"
+                  columns={HISTORY_COLUMNS}
+                  rows={rulesData.historyRows}
+                  rowKey={(h) => `${h.kind}-${h.id}`}
+                />
               </div>
             )}
           </InvestigationSection>
@@ -387,20 +370,18 @@ export function AlertRuleDrawer({ rulesData, editor }: AlertRuleDrawerProps) {
           <InvestigationSection
             title="Effective rule"
             right={
-              <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                <span>Show</span>
-                <input
-                  type="checkbox"
-                  checked={editor.showEffective}
-                  onChange={(e) => editor.setShowEffective(e.target.checked)}
-                  className="h-4 w-4 cursor-pointer accent-primary"
-                />
-              </label>
+              <ToggleSwitch
+                label="Show"
+                checked={editor.showEffective}
+                onChange={(e) => editor.setShowEffective(e.target.checked)}
+              />
             }
             bodyClassName="p-0"
           >
             {editor.showEffective ? (
-              <pre className="overflow-auto p-4 text-[11px] leading-relaxed">{safeJsonString(selected.effective)}</pre>
+              <div className="p-4">
+                <JsonBlock value={selected.effective} maxHeight="320px" />
+              </div>
             ) : (
               <div className="p-4 text-xs text-muted-foreground">Hidden (toggle "Show" to display).</div>
             )}

@@ -1,6 +1,7 @@
+import { EuiPanel } from "@elastic/eui";
+
 import type { AgentPublic } from "@/features/agents/types";
 import EmptyState from "@/shared/components/EmptyState";
-import { cx } from "@/shared/lib/cx";
 
 import { Dot } from "./AgentsPageShared";
 import { isOnline, fmtLastSeen } from "../lib/agentUtils";
@@ -26,19 +27,16 @@ export default function AgentsTable({ agentsFiltered, selectedAgentId, compact, 
         const active = a.agent_id === selectedAgentId;
 
         return (
-          <button
+          <EuiPanel
             key={a.agent_id}
-            type="button"
             onClick={() => onSelectAgent(a.agent_id)}
+            hasBorder
+            hasShadow={false}
+            paddingSize={compact ? "s" : "m"}
+            borderRadius="m"
+            color={active ? "primary" : "plain"}
+            className="w-full text-left"
             aria-pressed={active}
-            className={cx(
-              "block w-full rounded-md border bg-card px-3 text-left transition-colors",
-              compact ? "py-1.5" : "py-2.5",
-              active
-                ? "border-primary/55 bg-primary/[0.08] hover:bg-primary/[0.12]"
-                : "border-border hover:border-primary/30 hover:bg-surface-2/70",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
-            )}
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2.5">
@@ -69,7 +67,7 @@ export default function AgentsTable({ agentsFiltered, selectedAgentId, compact, 
                 ) : null}
               </div>
             ) : null}
-          </button>
+          </EuiPanel>
         );
       })}
     </div>

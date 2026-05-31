@@ -1,161 +1,52 @@
-import { NavLink } from "react-router-dom";
+import { useMemo, type MouseEvent } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { EuiIcon, EuiSideNav, EuiThemeProvider } from "@elastic/eui";
+import type { EuiSideNavItemType, IconType } from "@elastic/eui";
 
 import { SOC_NAV_GROUPS, type AppNavIcon } from "@/layout/navigation";
 import { cx } from "@/shared/lib/cx";
 
+const ICON_BY_NAV: Record<AppNavIcon, IconType> = {
+  overview: "dashboardApp",
+  events: "discoverApp",
+  protocol: "inputOutput",
+  ssh: "console",
+  ddos: "significantEvents",
+  alerts: "securitySignalDetected",
+  attack_chain: "timelineWithArrow",
+  correlations: "graphApp",
+  ueba: "anomalyChart",
+  investigations: "casesApp",
+  agents: "agentApp",
+  inventory: "storage",
+  vulnerabilities: "vulnerabilityManagementApp",
+  exposure: "graphApp",
+  network_topology: "cluster",
+  audit: "auditbeatApp",
+  settings: "gear",
+  internal: "processor",
+};
+
 function NavIcon({ icon }: { icon: AppNavIcon }) {
-  const base = "h-4 w-4";
-  switch (icon) {
-    case "overview":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M4 13h7V4H4v9Zm9 7h7V11h-7v9ZM4 20h7v-5H4v5Zm9-11h7V4h-7v5Z" fill="currentColor" />
-        </svg>
-      );
-    case "events":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      );
-    case "protocol":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 3v18M4 8h16M4 16h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      );
-    case "ssh":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M7.5 11.5 11 8l-3.5-3.5M11 16h5.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="2" />
-        </svg>
-      );
-    case "ddos":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M3 12h6l2-4 3 8 2-4h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      );
-    case "alerts":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 9v4m0 4h.01M10.3 4.3 3 18h18L13.7 4.3a2 2 0 0 0-3.4 0Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      );
-    case "attack_chain":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M10.5 13.5 9 15a4 4 0 0 1-5.7 0 4 4 0 0 1 0-5.7l1.5-1.5M13.5 10.5 15 9a4 4 0 0 1 5.7 0 4 4 0 0 1 0 5.7l-1.5 1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M8.5 15.5 15.5 8.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      );
-    case "correlations":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M7 7a3 3 0 1 0 0 .01V7Zm10 10a3 3 0 1 0 0 .01V17ZM9.1 8.9l5.8 5.8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      );
-    case "ueba":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M3 17l4-6 4 3 4-8 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          <circle cx="19" cy="10" r="1.5" fill="currentColor" />
-        </svg>
-      );
-    case "investigations":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M4 5h16v10H4z" stroke="currentColor" strokeWidth="2" />
-          <path d="M8 19h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      );
-    case "agents":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M7 7h10v10H7V7Zm-3 5h3m10 0h3M12 4v3m0 10v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      );
-    case "inventory":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M7 7h14M7 12h14M7 17h14M3 7h.01M3 12h.01M3 17h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        </svg>
-      );
-    case "vulnerabilities":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 2 20 6v6c0 5-3.3 9.6-8 10-4.7-.4-8-5-8-10V6l8-4Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-          <path d="M9.5 12.5 11 14l3.5-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      );
-    case "exposure":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
-          <circle cx="4" cy="7" r="2" stroke="currentColor" strokeWidth="2" />
-          <circle cx="20" cy="7" r="2" stroke="currentColor" strokeWidth="2" />
-          <circle cx="4" cy="17" r="2" stroke="currentColor" strokeWidth="2" />
-          <circle cx="20" cy="17" r="2" stroke="currentColor" strokeWidth="2" />
-          <path d="M6 8l4 3M18 8l-4 3M6 16l4-3M18 16l-4-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      );
-    case "network_topology":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="6" cy="7" r="2.2" stroke="currentColor" strokeWidth="2" />
-          <circle cx="18" cy="7" r="2.2" stroke="currentColor" strokeWidth="2" />
-          <circle cx="12" cy="17" r="2.2" stroke="currentColor" strokeWidth="2" />
-          <path d="M8 8.2 10.5 15M16 8.2 13.5 15M8.3 7h7.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        </svg>
-      );
-    case "audit":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 3 19 7v5c0 4.6-2.9 8.7-7 9.8C7.9 20.7 5 16.6 5 12V7l7-4Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-          <path d="M9.5 12.5 11 14l3.5-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      );
-    case "settings":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19.4 15a8 8 0 0 0 .1-6l-2 1.1a6.2 6.2 0 0 0-1.5-1.5L17.1 6a8 8 0 0 0-6-.1L12 8a6.2 6.2 0 0 0-2.1 0L9 5.9a8 8 0 0 0-6 .1l1.1 2a6.2 6.2 0 0 0-1.5 1.5L.6 9a8 8 0 0 0 .1 6l2-1.1a6.2 6.2 0 0 0 1.5 1.5L3.1 18a8 8 0 0 0 6 .1l.9-2.1a6.2 6.2 0 0 0 2.1 0l.9 2.1a8 8 0 0 0 6-.1l-1.1-2a6.2 6.2 0 0 0 1.5-1.5l2 1.1Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-        </svg>
-      );
-    case "internal":
-      return (
-        <svg className={base} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M6 6h12v12H6V6Zm-2 6h2m12 0h2M12 4v2m0 12v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          <path d="M9 9h6v6H9V9Z" fill="currentColor" fillOpacity="0.25" />
-        </svg>
-      );
-    default:
-      return null;
-  }
+  return <EuiIcon type={ICON_BY_NAV[icon]} color="inherit" size="m" />;
 }
 
-function NavGroupHeading({ compact, label }: { compact: boolean; label: string }) {
-  return (
-    <h2
-      className={cx(
-        "px-4 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-sidebar-muted/80",
-        compact && "sr-only"
-      )}
-    >
-      {label}
-    </h2>
-  );
+function isRouteActive(pathname: string, to: string, exact?: boolean): boolean {
+  if (exact) return pathname === to;
+  return pathname === to || pathname.startsWith(`${to}/`);
 }
 
-function NavItem({
-  compact,
+function shouldNavigateClientSide(event: MouseEvent<HTMLElement>): boolean {
+  return !event.defaultPrevented && event.button === 0 && !event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey;
+}
+
+function CompactNavItem({
   label,
   to,
   icon,
   exact,
   onNavigate,
 }: {
-  compact: boolean;
   label: string;
   to: string;
   icon: AppNavIcon;
@@ -166,12 +57,11 @@ function NavItem({
     <NavLink
       to={to}
       end={exact}
-      title={compact ? label : undefined}
+      title={label}
       onClick={onNavigate}
       className={({ isActive }) =>
         cx(
-          "group relative mx-2 flex items-center gap-3 rounded-md px-3 py-2 text-[12.5px] font-medium transition-colors",
-          compact && "justify-center px-0",
+          "group relative mx-2 flex items-center justify-center rounded-md px-0 py-2 text-[12.5px] font-medium transition-colors",
           isActive
             ? "bg-primary/15 text-white ring-1 ring-inset ring-primary/20"
             : "text-sidebar-muted hover:bg-white/[0.06] hover:text-sidebar-foreground"
@@ -183,10 +73,34 @@ function NavItem({
           <span className={cx("shrink-0", isActive ? "text-primary" : "text-sidebar-muted group-hover:text-sidebar-foreground")}>
             <NavIcon icon={icon} />
           </span>
-          {!compact ? <span className="truncate">{label}</span> : <span className="sr-only">{label}</span>}
+          <span className="sr-only">{label}</span>
         </>
       )}
     </NavLink>
+  );
+}
+
+function CompactNav({ onNavigate }: { onNavigate: () => void }) {
+  return (
+    <nav className="flex-1 space-y-5 overflow-y-auto py-4" aria-label="Portal sections">
+      {SOC_NAV_GROUPS.map((group) => (
+        <section key={group.id}>
+          <h2 className="sr-only">{group.label}</h2>
+          <div className="space-y-1">
+            {group.items.map((item) => (
+              <CompactNavItem
+                key={item.id}
+                label={item.label}
+                to={item.to}
+                icon={item.icon}
+                exact={item.exact}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </nav>
   );
 }
 
@@ -199,7 +113,33 @@ export default function Sidebar({
   mobileOpen: boolean;
   onCloseMobile: () => void;
 }) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const condensed = compact && !mobileOpen;
+
+  const sideNavItems: Array<EuiSideNavItemType<{}>> = useMemo(
+    () =>
+      SOC_NAV_GROUPS.map((group) => ({
+        id: group.id,
+        name: group.label,
+        forceOpen: true,
+        items: group.items.map((item) => ({
+          id: item.id,
+          name: item.label,
+          href: item.to,
+          icon: <NavIcon icon={item.icon} />,
+          isSelected: isRouteActive(location.pathname, item.to, item.exact),
+          onClick: (event: MouseEvent<HTMLElement>) => {
+            if (shouldNavigateClientSide(event)) {
+              event.preventDefault();
+              navigate(item.to);
+            }
+            onCloseMobile();
+          },
+        })),
+      })),
+    [location.pathname, navigate, onCloseMobile]
+  );
 
   return (
     <>
@@ -212,52 +152,49 @@ export default function Sidebar({
         onClick={onCloseMobile}
       />
 
-      <aside
-        id="primary-navigation"
-        className={cx(
-          "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-pop transition-transform lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 lg:shadow-none",
-          compact ? "w-[13rem] lg:w-[4.5rem]" : "w-[13rem] lg:w-[13.5rem]",
-          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        )}
-        aria-label="Primary navigation"
-      >
-        <div className={cx("flex h-14 shrink-0 items-center border-b border-sidebar-border px-4", condensed && "justify-center px-2")}>
-          <div className="flex items-center gap-2.5">
-            <img
-              src="/icon/seagull-icon.png"
-              alt="Seagull"
-              className="h-8 w-8 shrink-0 rounded-lg object-cover shadow-[0_6px_18px_rgb(14_165_233/0.30)] ring-1 ring-white/10"
-            />
-            {!condensed ? (
-              <div className="min-w-0">
-                <div className="truncate text-[13px] font-semibold tracking-tight text-sidebar-foreground">Seagull</div>
-                <div className="truncate text-[9px] uppercase tracking-[0.12em] text-sidebar-muted">Security Operations</div>
-              </div>
-            ) : null}
+      <EuiThemeProvider colorMode="dark" wrapperProps={{ cloneElement: true }}>
+        <aside
+          id="primary-navigation"
+          className={cx(
+            "fixed inset-y-0 left-0 z-40 flex h-screen flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-pop transition-transform lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 lg:shadow-none",
+            compact ? "w-[13rem] lg:w-[4.5rem]" : "w-[13rem] lg:w-[13.5rem]",
+            mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+          )}
+          aria-label="Primary navigation"
+        >
+          <div className={cx("flex h-14 shrink-0 items-center border-b border-sidebar-border px-4", condensed && "justify-center px-2")}>
+            <div className="flex items-center gap-2.5">
+              <img
+                src="/icon/seagull-icon.png"
+                alt="Seagull"
+                className="h-8 w-8 shrink-0 rounded-lg object-cover shadow-[0_6px_18px_rgb(14_165_233/0.30)] ring-1 ring-white/10"
+              />
+              {!condensed ? (
+                <div className="min-w-0">
+                  <div className="truncate text-[13px] font-semibold text-sidebar-foreground">Seagull</div>
+                  <div className="truncate text-[9px] uppercase tracking-[0.12em] text-sidebar-muted">Security Operations</div>
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
 
-        <nav className="flex-1 space-y-5 overflow-y-auto py-4" aria-label="Portal sections">
-          {SOC_NAV_GROUPS.map((group) => (
-            <section key={group.id}>
-              <NavGroupHeading compact={condensed} label={group.label} />
-              <div className="space-y-1">
-                {group.items.map((item) => (
-                  <NavItem
-                    key={item.id}
-                    compact={condensed}
-                    label={item.label}
-                    to={item.to}
-                    icon={item.icon}
-                    exact={item.exact}
-                    onNavigate={onCloseMobile}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-        </nav>
-      </aside>
+          {condensed ? (
+            <CompactNav onNavigate={onCloseMobile} />
+          ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 py-4">
+              <EuiSideNav
+                className="seagullSideNav"
+                items={sideNavItems}
+                heading="Portal sections"
+                headingProps={{ screenReaderOnly: true }}
+                mobileBreakpoints={undefined}
+                truncate
+                aria-label="Portal sections"
+              />
+            </div>
+          )}
+        </aside>
+      </EuiThemeProvider>
     </>
   );
 }

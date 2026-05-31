@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+import { useMemo, type MouseEvent, type ReactNode } from "react";
+import { EuiBasicTable, EuiCheckbox } from "@elastic/eui";
+import type { Criteria, EuiBasicTableColumn, EuiTableSortingType } from "@elastic/eui";
 
 import { cx } from "@/shared/lib/cx";
 
@@ -24,41 +26,14 @@ function toSelectedSet(input?: string[] | Set<string>): Set<string> {
   return new Set(input);
 }
 
-function nextDirection(current: TableSortState | null | undefined, key: string): "asc" | "desc" {
-  if (!current || current.key !== key) return "asc";
-  return current.direction === "asc" ? "desc" : "asc";
-}
-
-function SortIcon({ direction }: { direction: "asc" | "desc" | "none" }) {
-  if (direction === "asc") {
-    return (
-      <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" aria-hidden="true">
-        <path d="M2 8 6 4l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      </svg>
-    );
-  }
-  if (direction === "desc") {
-    return (
-      <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" aria-hidden="true">
-        <path d="M2 4 6 8l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 12 12" className="h-2.5 w-2.5 opacity-60" aria-hidden="true">
-      <path d="M3 5l3-3 3 3M3 7l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
-}
-
-export function Table<T>({
+export function Table<T extends object>({
   columns,
   rows,
   rowKey,
   className,
   scrollX = false,
   stickyHeader = true,
-  compact = false,
+  compact = true,
   selectedRowKey,
   selectedRowKeys,
   selectableRows = false,
@@ -69,6 +44,7 @@ export function Table<T>({
   onSortChange,
   rowClassName,
   footer,
+  expandedRowMap,
 }: {
   columns: Array<Column<T>>;
   rows: T[];
@@ -82,140 +58,113 @@ export function Table<T>({
   selectableRows?: boolean;
   onToggleRow?: (row: T, checked: boolean) => void;
   onToggleAllRows?: (checked: boolean) => void;
-  onRowClick?: (row: T, idx: number) => void;
+  onRowClick?: (row: T, idx: number, event: MouseEvent<HTMLTableRowElement>) => void;
   sort?: TableSortState | null;
   onSortChange?: (next: TableSortState) => void;
   rowClassName?: (row: T, idx: number) => string | undefined;
   footer?: ReactNode;
+  expandedRowMap?: Record<string, ReactNode>;
 }) {
   const selectedSet = toSelectedSet(selectedRowKeys);
-  const allRowsSelected = rows.length > 0 && rows.every((row, idx) => selectedSet.has(String(rowKey(row, idx))));
-  const anyRowSelected = rows.some((row, idx) => selectedSet.has(String(rowKey(row, idx))));
 
-  const cellPadding = compact ? "px-3 py-1.5" : "px-3 py-2.5";
+  const indexByRow = useMemo(() => {
+    const map = new Map<T, number>();
+    rows.forEach((row, idx) => map.set(row, idx));
+    return map;
+  }, [rows]);
+
+  const idxOf = (row: T) => indexByRow.get(row) ?? rows.indexOf(row);
+  const keyForRow = (row: T) => String(rowKey(row, idxOf(row)));
+
+  const dataColumns: Array<EuiBasicTableColumn<T>> = columns.map((c) => ({
+    field: (c.sortKey || c.key) as keyof T,
+    name: c.title,
+    align: c.align ?? "left",
+    width: c.width ? `${c.width}px` : undefined,
+    className: c.className,
+    sortable: Boolean(c.sortable && onSortChange),
+    truncateText: false,
+    render: (_value: unknown, row: T) =>
+      c.render ? c.render(row) : ((row as Record<string, unknown>)[c.key] as ReactNode),
+  }));
+
+  const allRowsSelected = rows.length > 0 && rows.every((row) => selectedSet.has(keyForRow(row)));
+  const anyRowSelected = rows.some((row) => selectedSet.has(keyForRow(row)));
+
+  const euiColumns: Array<EuiBasicTableColumn<T>> = selectableRows
+    ? [
+        {
+          name: (
+            <EuiCheckbox
+              id="seagull-table-select-all"
+              checked={allRowsSelected}
+              indeterminate={!allRowsSelected && anyRowSelected}
+              onChange={(e) => onToggleAllRows?.(e.target.checked)}
+              aria-label="Select all rows"
+            />
+          ),
+          width: "40px",
+          render: (row: T) => (
+            <span onClick={(e) => e.stopPropagation()}>
+              <EuiCheckbox
+                id={`seagull-table-select-${keyForRow(row)}`}
+                checked={selectedSet.has(keyForRow(row))}
+                onChange={(e) => onToggleRow?.(row, e.target.checked)}
+                aria-label="Select row"
+              />
+            </span>
+          ),
+        },
+        ...dataColumns,
+      ]
+    : dataColumns;
+
+  const sorting: EuiTableSortingType<T> | undefined = onSortChange
+    ? { sort: sort ? { field: sort.key as keyof T, direction: sort.direction } : undefined }
+    : undefined;
+
+  const handleChange = (criteria: Criteria<T>) => {
+    if (criteria.sort && onSortChange) {
+      onSortChange({ key: String(criteria.sort.field), direction: criteria.sort.direction });
+    }
+  };
+
+  const getRowProps = (row: T) => {
+    const idx = idxOf(row);
+    const key = keyForRow(row);
+    const isSelected = (selectedRowKey != null && key === selectedRowKey) || selectedSet.has(key);
+    return {
+      "data-seagull-row-key": key,
+      className: cx("ui-row", isSelected && "ui-row-selected", rowClassName?.(row, idx)),
+      onClick: onRowClick ? (event: MouseEvent<HTMLTableRowElement>) => onRowClick(row, idx, event) : undefined,
+    };
+  };
 
   return (
     <div
-      className={cx("ui-card-shell min-w-0 overflow-hidden", className)}
-      role="region"
-      aria-label="Data table"
-      aria-rowcount={rows.length}
+      className={cx(
+        "ui-card-shell min-w-0 overflow-hidden",
+        stickyHeader && "seagullTable-stickyHeader",
+        scrollX && "seagullTable-scrollX",
+        className
+      )}
     >
       <div className={cx("min-w-0", scrollX ? "overflow-x-auto" : "overflow-x-hidden")}>
-        <table className={cx("text-sm", scrollX ? "min-w-full w-max" : "w-full")}>
-          <thead
-            className={cx(
-              stickyHeader && "sticky top-0 z-[2]",
-              "bg-surface-2/95 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm",
-            )}
-          >
-            <tr>
-              {selectableRows ? (
-                <th className="w-10 whitespace-nowrap border-b border-border px-3 py-2.5 align-middle">
-                  <input
-                    type="checkbox"
-                    checked={allRowsSelected}
-                    ref={(el) => {
-                      if (!el) return;
-                      el.indeterminate = !allRowsSelected && anyRowSelected;
-                    }}
-                    onChange={(e) => onToggleAllRows?.(e.target.checked)}
-                    aria-label="Select all rows"
-                    className="h-3.5 w-3.5 cursor-pointer accent-primary"
-                  />
-                </th>
-              ) : null}
-
-              {columns.map((c) => {
-                const key = c.sortKey || c.key;
-                const isSortable = Boolean(c.sortable && onSortChange);
-                const isActiveSort = Boolean(sort && sort.key === key);
-                const alignClass = c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left";
-
-                return (
-                  <th
-                    key={c.key}
-                    style={c.width ? { width: c.width } : undefined}
-                    className={cx("border-b border-border align-middle font-semibold", cellPadding, alignClass, c.className || "")}
-                    aria-sort={isActiveSort ? (sort?.direction === "asc" ? "ascending" : "descending") : "none"}
-                  >
-                    {isSortable ? (
-                      <button
-                        type="button"
-                        onClick={() => onSortChange?.({ key, direction: nextDirection(sort, key) })}
-                        className={cx(
-                          "inline-flex items-center gap-1.5 rounded-sm px-1 py-0.5",
-                          "hover:bg-muted/50 hover:text-foreground",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
-                          isActiveSort && "text-foreground",
-                        )}
-                      >
-                        <span>{c.title}</span>
-                        <SortIcon direction={isActiveSort ? (sort?.direction || "asc") : "none"} />
-                      </button>
-                    ) : (
-                      c.title
-                    )}
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-
-          <tbody>
-            {(() => {
-              const renderKeyCount = new Map<string, number>();
-              return rows.map((r, i) => {
-                const logicalKey = String(rowKey(r, i));
-                const dupCount = renderKeyCount.get(logicalKey) ?? 0;
-                renderKeyCount.set(logicalKey, dupCount + 1);
-                const renderKey = dupCount === 0 ? logicalKey : `${logicalKey}__dup_${i}`;
-                const key = logicalKey;
-                const isSelected =
-                  (selectedRowKey !== undefined && selectedRowKey !== null && key === selectedRowKey) ||
-                  selectedSet.has(key);
-                const clickable = Boolean(onRowClick);
-
-                return (
-                  <tr
-                    key={renderKey}
-                    className={cx(
-                      "border-t border-border/55",
-                      clickable ? "cursor-pointer" : "",
-                      "ui-row",
-                      isSelected && "ui-row-selected",
-                      rowClassName?.(r, i),
-                    )}
-                    onClick={() => onRowClick?.(r, i)}
-                  >
-                    {selectableRows ? (
-                      <td className={cx(cellPadding, "align-middle")} onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selectedSet.has(key)}
-                          onChange={(e) => onToggleRow?.(r, e.target.checked)}
-                          aria-label={`Select row ${i + 1}`}
-                          className="h-3.5 w-3.5 cursor-pointer accent-primary"
-                        />
-                      </td>
-                    ) : null}
-
-                    {columns.map((c) => {
-                      const alignClass = c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left";
-                      return (
-                        <td key={c.key} className={cx(cellPadding, "align-middle", alignClass, c.className || "")}>
-                          {c.render ? c.render(r) : (r as Record<string, unknown>)[c.key] as ReactNode}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              });
-            })()}
-          </tbody>
-        </table>
+        <EuiBasicTable
+          tableCaption="Data table"
+          items={rows}
+          columns={euiColumns}
+          rowProps={getRowProps}
+          sorting={sorting}
+          onChange={handleChange}
+          compressed={compact}
+          tableLayout="auto"
+          responsiveBreakpoint={false}
+          noItemsMessage=""
+          itemId={expandedRowMap ? (row: T) => keyForRow(row) : undefined}
+          itemIdToExpandedRowMap={expandedRowMap}
+        />
       </div>
-
       {footer ? <div className="border-t border-border bg-surface-2/60 px-3 py-2">{footer}</div> : null}
     </div>
   );

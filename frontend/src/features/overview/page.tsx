@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { EuiStat } from "@elastic/eui";
 
 import EmptyState from "@/shared/components/EmptyState";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
-import { MetricCard } from "@/shared/components/MetricCard";
-import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
+import { DataQueryStateBanner } from "@/shared/components/DataView";
+import { PageHeader } from "@/shared/components/PageHeader";
+import { Panel } from "@/shared/components/Panel";
 import { Table } from "@/shared/components/Table";
 import { getFlowIpContext } from "@/shared/lib/ipClassification";
 import type { Alert } from "./types";
@@ -28,7 +30,6 @@ import {
   OverviewRangeControls,
   QuickPivot,
   SeverityBadge,
-  StatLinkTile,
 } from "./components";
 
 import { listAttackChainCases } from "@/features/attack_chain/api";
@@ -349,15 +350,7 @@ function OverviewPageView({
 
   return (
     <div className="space-y-4 pb-16">
-      <DataViewToolbar
-        left={
-          <div className="space-y-1">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary/90">Command center</div>
-            <div className="text-lg font-semibold tracking-tight text-foreground">Operational overview</div>
-          </div>
-        }
-        right={headerRight}
-      />
+      <PageHeader title="Operational overview" toolbarRight={headerRight} />
 
       {snapshot.query_meta ? (
         <DataQueryStateBanner
@@ -366,152 +359,103 @@ function OverviewPageView({
         />
       ) : null}
 
-      <DataStatsStrip
-        stats={[
-          { label: "Events (5m)", value: derived.events5m },
-          { label: `Events (${windowLabel})`, value: derived.events1h },
-          { label: "Active agents", value: `${derived.onlineAgents}/${derived.totalAgents}`, tone: derived.onlineAgents > 0 ? "success" : "warning" },
-          { label: "Alerts (window)", value: derived.alerts1h, tone: derived.alerts1h > 0 ? "warning" : "default" },
-          { label: "DDoS detections (5m)", value: derived.ddos5m, tone: derived.ddos5m > 0 ? "warning" : "default" },
-          { label: "DDoS peak PPS", value: fmtCompact(derived.ddosPeakPps), tone: derived.ddosPeakPps > 0 ? "warning" : "default" },
-          { label: "Storm phase", value: stormPhaseLabel, tone: stormEffectiveActive ? "warning" : "success" },
-          { label: "Ingest EPS", value: storm?.eps ?? 0 },
-        ]}
-      />
+      <Panel>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
+          <EuiStat title={fmtCompact(derived.events1h)} description={`Events (${windowLabel})`} titleSize="s" />
+          <EuiStat
+            title={`${derived.onlineAgents}/${derived.totalAgents}`}
+            description="Active agents"
+            titleSize="s"
+            titleColor={derived.onlineAgents > 0 ? "success" : "warning"}
+          />
+          <EuiStat
+            title={String(derived.alerts1h)}
+            description="Open alerts"
+            titleSize="s"
+            titleColor={derived.alerts1h > 0 ? "danger" : "default"}
+          />
+          <EuiStat
+            title={
+              <Link to="/attack-chain" className="hover:underline">
+                {acTile.loading ? "…" : acTile.hasMore ? `${acTile.openCount}+` : String(acTile.openCount)}
+              </Link>
+            }
+            description="Attack chains (open)"
+            titleSize="s"
+            titleColor={acTile.openCount > 0 ? "danger" : "default"}
+          />
+          <EuiStat
+            title={stormPhaseLabel}
+            description="Storm phase"
+            titleSize="s"
+            titleColor={stormEffectiveActive ? "warning" : "success"}
+          />
+          <EuiStat title={fmtCompact(storm?.eps ?? 0)} description="Ingest EPS" titleSize="s" />
+        </div>
+      </Panel>
 
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-        <QuickPivot to="/events" label="Event Stream" hint="Live telemetry and drilldown" />
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <QuickPivot to="/alerts/queue" label="Alerts Queue" hint="Active detections and triage" />
+        <QuickPivot to="/events" label="Event Stream" hint="Live telemetry and drilldown" />
         <QuickPivot to="/attack-chain" label="Attack Chains" hint="Open incident timelines" />
-        <QuickPivot to="/events/ddos" label="DDoS Module" hint="Detection stream and attack posture" />
-        <QuickPivot to="/events/network" label="Protocol Intel" hint="L4/L7 evidence and pivots" />
-        <QuickPivot to="/events/ssh" label="SSH Insights" hint="Auth anomalies and source IP context" />
         <QuickPivot to="/investigations" label="Investigations" hint="Workspaces and evidence tracking" />
-        <QuickPivot to="/inventory" label="Inventory" hint="Agent asset and exposure context" />
       </div>
 
-      <DashboardSection id="ingestion" title="Ingestion & health" defaultOpen>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <MetricCard size="sm" title="Events (last 5m)" value={derived.events5m} />
-          <MetricCard size="sm" title={`Events (${windowLabel})`} value={derived.events1h} />
-          <MetricCard
-            size="sm"
-            title="Active agents"
-            value={derived.onlineAgents}
-            helper={`total ${derived.totalAgents}`}
-            tone={derived.onlineAgents > 0 ? "success" : "warning"}
-          />
-          <MetricCard
-            size="sm"
-            title="Last event ts"
-            value={derived.lastEventTs}
-            tone={derived.lastEventTs === "-" ? "warning" : "default"}
-          />
-          <MetricCard
-            size="sm"
-            title="Alerts (window)"
-            value={derived.alerts1h}
-            tone={derived.alerts1h > 0 ? "warning" : "success"}
-          />
-          <StatLinkTile
-            to="/attack-chain"
-            label="Attack chains (open)"
-            value={acTile.loading ? "…" : acTile.hasMore ? `${acTile.openCount}+` : String(acTile.openCount)}
-            description={
-              acTile.error
-                ? `Error: ${acTile.error}`
-                : `last 24h · max score ${acTile.maxScore}${acTile.lastSeen ? ` · last ${fmtDateTime(acTile.lastSeen)}` : ""}`
-            }
-          />
-
-          <MetricCard
-            size="sm"
-            title="Storm mode"
-            value={
-              storm?.phase === "storm"
-                ? "ATTACK"
-                : storm?.phase === "shedding"
-                  ? "SHEDDING"
-                  : storm?.phase === "draining"
-                    ? "DRAINING"
-                    : stormEffectiveActive
-                      ? "ACTIVE"
-                      : "OK"
-            }
-            helper={
-              storm
-                ? `${storm.reason}${storm.open_alert_id ? ` · alert #${storm.open_alert_id}` : ""}`
-                : snapshot.meta?.protection_active
-                  ? "ingest protection active"
-                  : "unavailable"
-            }
-            tone={
-              storm?.phase === "storm" || storm?.phase === "shedding"
-                ? "warning"
-                : storm?.phase === "draining"
-                  ? "default"
-                  : stormEffectiveActive
-                    ? "warning"
-                    : "success"
-            }
-          />
-
-          <MetricCard
-            size="sm"
-            title="EPS (ingest)"
-            value={storm?.eps ?? 0}
-            helper={storm?.phase === "storm" ? "storm window" : "last second"}
-            tone={storm?.phase === "storm" ? "warning" : "default"}
-          />
-
-          <MetricCard
-            size="sm"
-            title="Sample (hot/warm)"
-            value={storm ? `${storm.sample_hot_percent}% / ${storm.sample_warm_percent}%` : "-"}
-            helper="hot=Postgres · warm=ES"
-            tone={stormEffectiveActive ? "warning" : "default"}
-          />
-
-          <MetricCard
-            size="sm"
-            title="Drop %"
-            value={`${stormDropPercent}%`}
-            helper="dropped from raw ingestion"
-            tone={stormDropPercent > 0 || snapshot.meta?.ddos_telemetry_dropped_per_sec > 0 ? "warning" : "success"}
-          />
-
-          <MetricCard
-            size="sm"
-            title="Backlog (events)"
-            value={stormBacklogEvents}
-            helper={`messages: ${stormBacklogMessages}`}
-            tone={stormBacklogEvents > 50000 ? "warning" : "default"}
-          />
-
-          <MetricCard
-            size="sm"
-            title="EPS (process)"
-            value={storm?.process_rate_eps ?? 0}
-            helper={storm ? `ingest: ${storm.ingest_rate_eps ?? storm.eps}` : undefined}
-            tone={storm && (storm.process_rate_eps ?? 0) < (storm.ingest_rate_eps ?? storm.eps ?? 0) ? "warning" : "success"}
-          />
-
-          <MetricCard
-            size="sm"
-            title="Workers"
-            value={storm?.workers_active ?? 0}
-            helper={storm?.processed_messages_per_sec ? `msgs/s: ${storm.processed_messages_per_sec}` : undefined}
-            tone={storm && (storm.workers_active ?? 0) > 0 ? "success" : "warning"}
-          />
-
-          <MetricCard
-            size="sm"
-            title="Drain time"
-            value={storm?.phase === "draining" ? `${storm?.draining_seconds ?? 0}s` : "-"}
-            helper={storm?.phase === "draining" ? "recovery window" : "not draining"}
-            tone={storm?.phase === "draining" ? "default" : "success"}
-          />
-        </div>
+      <DashboardSection id="pipeline" title="Pipeline health" defaultOpen>
+        <OverviewPanel
+          title="Ingest & processing"
+          right={<span className="font-mono text-[10px] text-muted-foreground">{fmtSource(ingestRatesSourceMeta)}</span>}
+        >
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
+            <EuiStat title={fmtCompact(storm?.eps ?? 0)} description="EPS (ingest)" titleSize="xs" />
+            <EuiStat
+              title={fmtCompact(storm?.process_rate_eps ?? 0)}
+              description="EPS (process)"
+              titleSize="xs"
+              titleColor={storm && (storm.process_rate_eps ?? 0) < (storm.ingest_rate_eps ?? storm.eps ?? 0) ? "warning" : "success"}
+            />
+            <EuiStat
+              title={String(storm?.workers_active ?? 0)}
+              description="Workers"
+              titleSize="xs"
+              titleColor={storm && (storm.workers_active ?? 0) > 0 ? "success" : "warning"}
+            />
+            <EuiStat
+              title={fmtCompact(stormBacklogEvents)}
+              description={`Backlog · msgs ${fmtCompact(stormBacklogMessages)}`}
+              titleSize="xs"
+              titleColor={stormBacklogEvents > 50000 ? "warning" : "default"}
+            />
+            <EuiStat
+              title={`${stormDropPercent}%`}
+              description="Drop %"
+              titleSize="xs"
+              titleColor={stormDropPercent > 0 || snapshot.meta?.ddos_telemetry_dropped_per_sec > 0 ? "warning" : "success"}
+            />
+            <EuiStat
+              title={storm ? `${storm.sample_hot_percent}% / ${storm.sample_warm_percent}%` : "-"}
+              description="Sample hot/warm"
+              titleSize="xs"
+            />
+            <EuiStat
+              title={storm?.phase === "draining" ? `${storm?.draining_seconds ?? 0}s` : "-"}
+              description="Drain time"
+              titleSize="xs"
+            />
+            <EuiStat
+              title={derived.lastEventTs}
+              description="Last event"
+              titleSize="xs"
+              titleColor={derived.lastEventTs === "-" ? "warning" : "default"}
+            />
+          </div>
+          {storm?.reason ? (
+            <div className="mt-3 font-mono text-[11px] text-muted-foreground">
+              storm: {storm.reason}
+              {storm.open_alert_id ? ` · alert #${storm.open_alert_id}` : ""}
+            </div>
+          ) : null}
+        </OverviewPanel>
 
         <OverviewPanel title="Telemetry quality" right={<span className="text-[10px] text-muted-foreground">rolling window</span>}>
           {qualityRows.length === 0 ? (
@@ -835,36 +779,32 @@ function OverviewPageView({
         </OverviewPanel>
       </DashboardSection>
 
-      <DashboardSection id="ddos" title="DoS / DDoS posture" defaultOpen>
+      <DashboardSection id="ddos" title="DoS / DDoS posture" defaultOpen={false}>
         <div className="space-y-3">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-            <MetricCard
-              size="sm"
-              title="DoS/DDoS detections (5m)"
-              value={derived.ddos5m}
-              tone={derived.ddos5m > 0 ? "warning" : "success"}
-            />
-            <MetricCard
-              size="sm"
-              title="DDoS packets est. (5m)"
-              value={derived.ddosPackets5m}
-              helper={`peak pps: ${fmtCompact(derived.ddosPeakPps)}`}
-              tone={derived.ddosPackets5m > 0 ? "warning" : "success"}
-            />
-            <MetricCard
-              size="sm"
-              title="Last attack kind"
-              value={derived.ddosLastKind}
-              helper={`peak pps: ${fmtCompact(derived.ddosPeakPps)}`}
-            />
-            <MetricCard size="sm" title="Last target" value={derived.ddosLastTarget} />
-            <MetricCard
-              size="sm"
-              title="Alerts (crit/high)"
-              value={snapshot.ddos_alerts.length}
-              tone={snapshot.ddos_alerts.length > 0 ? "warning" : "success"}
-            />
-          </div>
+          <OverviewPanel title="DoS / DDoS summary">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
+              <EuiStat
+                title={String(derived.ddos5m)}
+                description="Detections (5m)"
+                titleSize="xs"
+                titleColor={derived.ddos5m > 0 ? "warning" : "success"}
+              />
+              <EuiStat
+                title={fmtCompact(derived.ddosPackets5m)}
+                description={`Packets est. (5m) · peak ${fmtCompact(derived.ddosPeakPps)} pps`}
+                titleSize="xs"
+                titleColor={derived.ddosPackets5m > 0 ? "warning" : "success"}
+              />
+              <EuiStat title={derived.ddosLastKind} description="Last attack kind" titleSize="xs" />
+              <EuiStat title={derived.ddosLastTarget} description="Last target" titleSize="xs" />
+              <EuiStat
+                title={String(snapshot.ddos_alerts.length)}
+                description="Alerts (crit/high)"
+                titleSize="xs"
+                titleColor={snapshot.ddos_alerts.length > 0 ? "warning" : "success"}
+              />
+            </div>
+          </OverviewPanel>
 
           <OverviewRangeControls
             label="DDoS chart range"

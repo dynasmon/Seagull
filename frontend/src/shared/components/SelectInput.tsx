@@ -1,25 +1,32 @@
-import type { ReactNode, SelectHTMLAttributes } from "react";
-
-import { cx } from "@/shared/lib/cx";
+import { Children, isValidElement, type OptionHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
+import { EuiSelect } from "@elastic/eui";
+import type { EuiSelectOption } from "@elastic/eui";
 
 interface SelectInputProps extends SelectHTMLAttributes<HTMLSelectElement> {
   error?: boolean;
   children: ReactNode;
 }
 
-export function SelectInput({ error, disabled, className, children, ...rest }: SelectInputProps) {
+function toOptions(children: ReactNode): EuiSelectOption[] {
+  const options: EuiSelectOption[] = [];
+  Children.forEach(children, (child) => {
+    if (!isValidElement(child) || child.type !== "option") return;
+    const { children: text, ...optionProps } = child.props as OptionHTMLAttributes<HTMLOptionElement> & { children?: ReactNode };
+    options.push({ ...optionProps, text });
+  });
+  return options;
+}
+
+export function SelectInput({ error, className, children, value, ...rest }: SelectInputProps) {
   return (
-    <select
-      disabled={disabled}
-      className={cx(
-        "ui-select transition-colors",
-        error && "border-danger/60 bg-danger/5",
-        disabled && "cursor-not-allowed opacity-60",
-        className,
-      )}
+    <EuiSelect
+      compressed
+      isInvalid={error}
+      fullWidth
+      className={className}
+      value={value as string | number | undefined}
+      options={toOptions(children)}
       {...rest}
-    >
-      {children}
-    </select>
+    />
   );
 }

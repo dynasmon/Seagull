@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 
-import { cx } from "@/shared/lib/cx";
+import { Button } from "@/shared/components/Button";
 import { DataFilterGroup, DataViewFilterBar } from "@/shared/components/DataView";
+import { SelectInput } from "@/shared/components/SelectInput";
+import { TextInput } from "@/shared/components/TextInput";
 
 import type { AuditFilters } from "../types";
 
@@ -44,95 +46,94 @@ export default function AuditFiltersBar({
     >
       <DataViewFilterBar className="md:grid-cols-2 xl:grid-cols-4">
         <DataFilterGroup label="Text query">
-          <input
+          <TextInput
             value={draft.query}
             onChange={(e) => patch("query", e.target.value)}
             placeholder="id, action, resource, trace id..."
-            className="ui-input"
           />
         </DataFilterGroup>
 
         <DataFilterGroup label="Actor">
-          <input
+          <TextInput
             value={draft.actor}
             onChange={(e) => patch("actor", e.target.value)}
             placeholder="admin"
-            className="ui-input font-mono"
+            className="font-mono"
           />
         </DataFilterGroup>
 
         <DataFilterGroup label="Action">
-          <input
+          <TextInput
             value={draft.action}
             onChange={(e) => patch("action", e.target.value)}
             placeholder="create, update, delete"
-            className="ui-input font-mono"
+            className="font-mono"
           />
         </DataFilterGroup>
 
         <DataFilterGroup label="Outcome">
-          <input
+          <TextInput
             value={draft.outcome}
             onChange={(e) => patch("outcome", e.target.value)}
             placeholder="success, failure, denied"
-            className="ui-input font-mono"
+            className="font-mono"
           />
         </DataFilterGroup>
 
         {!hideEventType ? (
           <DataFilterGroup label="Category">
-            <input
+            <TextInput
               value={draft.eventType}
               onChange={(e) => patch("eventType", e.target.value)}
               placeholder="admin_action, auth"
-              className="ui-input font-mono"
+              className="font-mono"
             />
           </DataFilterGroup>
         ) : null}
 
         {!hideResourceType ? (
           <DataFilterGroup label="Resource">
-            <input
+            <TextInput
               value={draft.resourceType}
               onChange={(e) => patch("resourceType", e.target.value)}
               placeholder="user, alert_rule..."
-              className="ui-input font-mono"
+              className="font-mono"
             />
           </DataFilterGroup>
         ) : null}
 
         <DataFilterGroup label="Origin (IP/UA)">
-          <input
+          <TextInput
             value={draft.origin}
             onChange={(e) => patch("origin", e.target.value)}
             placeholder="10.0.0.1"
-            className="ui-input font-mono"
+            className="font-mono"
           />
         </DataFilterGroup>
 
         <DataFilterGroup label="From">
-          <input
+          <TextInput
             type="datetime-local"
             value={draft.from}
             onChange={(e) => patch("from", e.target.value)}
-            className="ui-input font-mono"
+            className="font-mono"
           />
         </DataFilterGroup>
 
         <DataFilterGroup label="To">
-          <input
+          <TextInput
             type="datetime-local"
             value={draft.to}
             onChange={(e) => patch("to", e.target.value)}
-            className="ui-input font-mono"
+            className="font-mono"
           />
         </DataFilterGroup>
 
         <DataFilterGroup label="Rows per page">
-          <select
+          <SelectInput
             value={String(draft.limit)}
             onChange={(e) => patch("limit", Number(e.target.value))}
-            className="ui-select font-mono"
+            className="font-mono"
           >
             {hasCustomLimit ? (
               <option value={String(draft.limit)}>
@@ -144,43 +145,37 @@ export default function AuditFiltersBar({
                 {opt}
               </option>
             ))}
-          </select>
+          </SelectInput>
         </DataFilterGroup>
 
         <DataFilterGroup label="Order">
-          <select
+          <SelectInput
             value={draft.sort}
             onChange={(e) => patch("sort", e.target.value as AuditFilters["sort"])}
-            className="ui-select font-mono"
+            className="font-mono"
           >
             <option value="desc">Newest first</option>
             <option value="asc">Oldest first</option>
-          </select>
+          </SelectInput>
         </DataFilterGroup>
       </DataViewFilterBar>
 
       <div className="flex flex-wrap items-center gap-2 pt-1">
-        <button
-          type="submit"
-          disabled={loading}
-          className={cx(
-            "ui-btn h-9 border-primary/60 bg-primary/95 px-3 text-primary-foreground",
-            "hover:bg-primary disabled:opacity-60"
-          )}
-        >
+        <Button type="submit" variant="primary" size="md" disabled={loading}>
           {loading ? "Applying..." : "Apply filters"}
-        </button>
+        </Button>
 
-        <button
+        <Button
           type="button"
+          variant="secondary"
+          size="md"
           onClick={() => {
             setDraft(filters);
             onClear();
           }}
-          className="ui-btn-secondary h-9 px-3"
         >
           Clear
-        </button>
+        </Button>
 
         <div className="text-xs text-muted-foreground font-mono">
           Text/origin filters are applied to loaded page; other filters are server-side.

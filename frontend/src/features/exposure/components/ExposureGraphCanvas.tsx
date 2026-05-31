@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/shared/components/Button";
+import { CheckboxField } from "@/shared/components/CheckboxField";
 import EmptyState from "@/shared/components/EmptyState";
 import { InlineAlert } from "@/shared/components/InlineAlert";
 import { JsonBlock } from "@/shared/components/JsonBlock";
@@ -670,15 +671,11 @@ export function ExposureGraphCanvas({ graph, onNodeClick }: Props) {
               placeholder="Search graph nodes"
               className="h-8 min-w-[240px] font-mono text-xs"
             />
-            <label className="inline-flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.12em] text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={filterMatches}
-                onChange={(event) => setFilterMatches(event.target.checked)}
-                className="h-3.5 w-3.5 accent-primary"
-              />
-              Filter matches
-            </label>
+            <CheckboxField
+              label="Filter matches"
+              checked={filterMatches}
+              onChange={(event) => setFilterMatches(event.target.checked)}
+            />
             <Button variant="ghost" size="sm" onClick={fitGraph}>
               Fit graph
             </Button>

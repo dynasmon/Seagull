@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { EuiEmptyPrompt } from "@elastic/eui";
 
 import { cx } from "@/shared/lib/cx";
 
@@ -21,16 +22,15 @@ export default function EmptyState({
 
   return (
     <div className={cx("flex h-full w-full items-center justify-center", className)}>
-      <div className="ui-empty-state max-w-[560px]">
-        {icon ? (
-          <div className="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-muted-foreground">
-            {icon}
-          </div>
-        ) : null}
-        <div className="text-[14px] font-semibold tracking-tight text-foreground">{title}</div>
-        {text ? <div className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">{text}</div> : null}
-        {action ? <div className="mt-3 inline-flex">{action}</div> : null}
-      </div>
+      <EuiEmptyPrompt
+        icon={icon ? <span aria-hidden="true">{icon}</span> : undefined}
+        color="transparent"
+        paddingSize="m"
+        titleSize="xs"
+        title={<h2>{title}</h2>}
+        body={text ? <p>{text}</p> : undefined}
+        actions={action ?? undefined}
+      />
     </div>
   );
 }

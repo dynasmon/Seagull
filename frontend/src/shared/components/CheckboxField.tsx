@@ -1,6 +1,5 @@
-import type { InputHTMLAttributes, ReactNode } from "react";
-
-import { cx } from "@/shared/lib/cx";
+import { useId, type InputHTMLAttributes, type ReactNode } from "react";
+import { EuiCheckbox } from "@elastic/eui";
 
 interface CheckboxFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "type"> {
   label: ReactNode;
@@ -8,38 +7,19 @@ interface CheckboxFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>,
   error?: string | null;
 }
 
-export function CheckboxField({
-  label,
-  helper,
-  error,
-  disabled,
-  className,
-  ...rest
-}: CheckboxFieldProps) {
+export function CheckboxField({ label, helper, error, id, className, checked, onChange, disabled }: CheckboxFieldProps) {
+  const generatedId = useId();
+
   return (
-    <label
-      className={cx(
-        "flex cursor-pointer items-start gap-2.5",
-        disabled && "cursor-not-allowed opacity-60",
-        className,
-      )}
-    >
-      <input
-        type="checkbox"
-        disabled={disabled}
-        className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-        {...rest}
-      />
-      <div className="min-w-0">
-        <span className="text-sm text-foreground">{label}</span>
-        {error ? (
-          <p className="text-[11px] text-danger" role="alert">
-            {error}
-          </p>
-        ) : helper ? (
-          <p className="text-[11px] text-muted-foreground">{helper}</p>
-        ) : null}
-      </div>
-    </label>
+    <div className={className}>
+      <EuiCheckbox id={id ?? generatedId} label={label} checked={checked} onChange={onChange ?? (() => undefined)} disabled={disabled} />
+      {error ? (
+        <p className="mt-1 text-[11px] text-danger" role="alert">
+          {error}
+        </p>
+      ) : helper ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">{helper}</p>
+      ) : null}
+    </div>
   );
 }

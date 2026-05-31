@@ -5,6 +5,7 @@ import { Button } from "@/shared/components/Button";
 import { Card } from "@/shared/components/Card";
 import { InlineAlert } from "@/shared/components/InlineAlert";
 import { SelectInput } from "@/shared/components/SelectInput";
+import { Table, type Column } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
 import type { AgentPublic } from "@/features/agents/types";
 
@@ -26,7 +27,7 @@ import type { VulnScan } from "./types";
 
 const KNOWN_STAT_KEYS = new Set(STAT_DISPLAY.flatMap((d) => d.keys));
 
-export const ScanStats = memo(function ScanStats({ stats }: { stats: Record<string, any> }) {
+export const ScanStats = memo(function ScanStats({ stats, nowrap = false }: { stats: Record<string, any>; nowrap?: boolean }) {
   const chips = useMemo(() => {
     if (!stats || typeof stats !== "object") return [];
     const rendered = new Set<string>();
@@ -59,11 +60,14 @@ export const ScanStats = memo(function ScanStats({ stats }: { stats: Record<stri
   if (!chips.length) return null;
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div
+      className={cx("flex gap-1.5", nowrap ? "min-w-0 flex-nowrap overflow-hidden" : "flex-wrap")}
+      title={nowrap ? chips.map((x) => `${x.label} ${x.value}`).join(" · ") : undefined}
+    >
       {chips.map((x) => (
         <span
           key={x.key}
-          className="inline-flex items-center gap-1.5 rounded border border-border bg-surface-2 px-2 py-0.5"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded border border-border bg-surface-2 px-2 py-0.5"
         >
           <span className="text-[9.5px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/85">{x.label}</span>
           <span className="font-mono text-[11px] text-foreground">{x.value}</span>
@@ -182,127 +186,122 @@ const RecentScansTable = memo(function RecentScansTable({
     );
   }
 
+  const columns: Column<VulnScan>[] = [
+    {
+      key: "status",
+      title: "Status / Phase",
+      render: (s) => {
+        const live = isLiveScan(String(s.lifecycle_state || "").toLowerCase());
+        return (
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Badge variant={scanVariant(String(s.lifecycle_state || "").toLowerCase())}>{scanLifecycleLabel(s.lifecycle_state)}</Badge>
+            {s.current_phase && s.current_phase !== s.lifecycle_state ? (
+              <span className={cx("min-w-0 truncate text-[10px]", live ? "text-primary/80" : "text-muted-foreground/70")}>
+                {scanPhaseLabel(s.current_phase)}
+              </span>
+            ) : null}
+          </div>
+        );
+      },
+    },
+    {
+      key: "reporter",
+      title: "Reporter / Target",
+      render: (s) => (
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0 font-mono text-[10px] text-foreground">{s.reporter_agent_id || "—"}</span>
+          <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/70" title={s.target || ""}>
+            {s.target || "—"}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "trigger",
+      title: "Trigger",
+      render: (s) => (
+        <span
+          className={cx(
+            "rounded border px-1 py-0.5 text-[10px] font-mono uppercase tracking-widest",
+            s.trigger_source === "manual" ? "border-info/30 text-info/70" : "border-border/40 text-muted-foreground/50"
+          )}
+        >
+          {scanTriggerLabel(s.trigger_source)}
+        </span>
+      ),
+    },
+    {
+      key: "started",
+      title: "Started",
+      className: "font-mono text-[10px] text-muted-foreground",
+      render: (s) => (
+        <div className="flex items-center gap-1.5 whitespace-nowrap" title={fmtAbsoluteAndAge(s.started_at || s.queued_at)}>
+          <span>{fmtWhen(s.started_at || s.queued_at)}</span>
+          <span className="text-muted-foreground/60">{fmtAge(s.started_at || s.queued_at)}</span>
+        </div>
+      ),
+    },
+    {
+      key: "duration",
+      title: "Duration",
+      className: "font-mono text-[10px]",
+      render: (s) => {
+        const live = isLiveScan(String(s.lifecycle_state || "").toLowerCase());
+        const hasStaticDuration =
+          (typeof s.duration_ms === "number" && Number.isFinite(s.duration_ms)) ||
+          Boolean(s.started_at && s.finished_at);
+        return live && !hasStaticDuration ? (
+          <LiveElapsedText startIso={s.started_at ?? s.queued_at} endIso={s.finished_at} className="text-primary/90" />
+        ) : hasStaticDuration ? (
+          <span className="text-muted-foreground">
+            {typeof s.duration_ms === "number" && Number.isFinite(s.duration_ms)
+              ? fmtSec(s.duration_ms / 1000)
+              : fmtSec(Math.max(0, (Date.parse(s.finished_at!) - Date.parse(s.started_at!)) / 1000))}
+          </span>
+        ) : live ? (
+          <LiveElapsedText startIso={s.started_at ?? s.queued_at} endIso={null} className="text-primary/90" />
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        );
+      },
+    },
+    {
+      key: "findings",
+      title: "Findings",
+      className: "font-mono text-[10px] text-muted-foreground",
+      render: (s) => (s.stats as any)?.findings_emitted ?? (s.stats as any)?.emitted_findings ?? "—",
+    },
+    {
+      key: "actions",
+      title: "",
+      align: "right",
+      render: (s) => (
+        <Button
+          variant="subtle"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            onViewScan(s);
+          }}
+        >
+          View
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <div className="max-h-[280px] overflow-auto rounded-md border border-border bg-card">
-      <table className="w-full text-[11px]">
-        <thead className="sticky top-0 z-[2] bg-surface-2/95 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm">
-          <tr>
-            <th className="border-b border-border px-2 py-1.5">Status / Phase</th>
-            <th className="border-b border-border px-2 py-1.5">Reporter / Target</th>
-            <th className="border-b border-border px-2 py-1.5">Trigger</th>
-            <th className="border-b border-border px-2 py-1.5">Started</th>
-            <th className="border-b border-border px-2 py-1.5">Duration</th>
-            <th className="border-b border-border px-2 py-1.5">Findings</th>
-            <th className="border-b border-border px-2 py-1.5" />
-          </tr>
-        </thead>
-        <tbody>
-          {visible.map((s) => {
-            const state = String(s.lifecycle_state || "").toLowerCase();
-            const live = isLiveScan(state);
-            const hasStaticDuration =
-              (typeof s.duration_ms === "number" && Number.isFinite(s.duration_ms)) ||
-              Boolean(s.started_at && s.finished_at);
-
-            return (
-              <tr
-                key={s.id || s.scan_uuid}
-                className={cx(
-                  "cursor-pointer border-t border-border/55 ui-row",
-                  live && "bg-primary/[0.04] hover:bg-primary/[0.08]",
-                )}
-                onClick={() => onViewScan(s)}
-              >
-                <td className="px-2 py-1.5">
-                  <div className="flex flex-col gap-0.5">
-                    <Badge variant={scanVariant(state)}>{scanLifecycleLabel(s.lifecycle_state)}</Badge>
-                    {s.current_phase && s.current_phase !== s.lifecycle_state ? (
-                      <span className={cx(
-                        "text-[10px]",
-                        live ? "text-primary/80" : "text-muted-foreground/70"
-                      )}>
-                        {scanPhaseLabel(s.current_phase)}
-                      </span>
-                    ) : null}
-                  </div>
-                </td>
-                <td className="px-2 py-1.5">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="font-mono text-[10px] text-foreground">{s.reporter_agent_id || "—"}</span>
-                    <span className="truncate font-mono text-[10px] text-muted-foreground/70" title={s.target || ""}>
-                      {s.target || "—"}
-                    </span>
-                  </div>
-                </td>
-                <td className="px-2 py-1.5">
-                  <span
-                    className={cx(
-                      "rounded border px-1 py-0.5 text-[10px] font-mono uppercase tracking-widest",
-                      s.trigger_source === "manual"
-                        ? "border-info/30 text-info/70"
-                        : "border-border/40 text-muted-foreground/50"
-                    )}
-                  >
-                    {scanTriggerLabel(s.trigger_source)}
-                  </span>
-                </td>
-                <td
-                  className="px-2 py-1.5 font-mono text-[10px] text-muted-foreground"
-                  title={fmtAbsoluteAndAge(s.started_at || s.queued_at)}
-                >
-                  <div>{fmtWhen(s.started_at || s.queued_at)}</div>
-                  <div className="text-muted-foreground/60">{fmtAge(s.started_at || s.queued_at)}</div>
-                </td>
-                <td className="px-2 py-1.5 font-mono text-[10px]">
-                  {live && !hasStaticDuration ? (
-                    <LiveElapsedText
-                      startIso={s.started_at ?? s.queued_at}
-                      endIso={s.finished_at}
-                      className="text-primary/90"
-                    />
-                  ) : hasStaticDuration ? (
-                    <span className="text-muted-foreground">
-                      {typeof s.duration_ms === "number" && Number.isFinite(s.duration_ms)
-                        ? fmtSec(s.duration_ms / 1000)
-                        : fmtSec(
-                            Math.max(
-                              0,
-                              (Date.parse(s.finished_at!) - Date.parse(s.started_at!)) / 1000
-                            )
-                          )}
-                    </span>
-                  ) : live ? (
-                    <LiveElapsedText
-                      startIso={s.started_at ?? s.queued_at}
-                      endIso={null}
-                      className="text-primary/90"
-                    />
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </td>
-                <td className="px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
-                  {(s.stats as any)?.findings_emitted ??
-                    (s.stats as any)?.emitted_findings ??
-                    "—"}
-                </td>
-                <td className="px-2 py-1.5 text-right">
-                  <Button
-                    variant="subtle"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onViewScan(s);
-                    }}
-                  >
-                    View
-                  </Button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <Table
+        className="!shadow-none !border-0 !bg-transparent !rounded-none"
+        columns={columns}
+        rows={visible}
+        rowKey={(s) => String(s.id || s.scan_uuid)}
+        rowClassName={(s) =>
+          cx("cursor-pointer", isLiveScan(String(s.lifecycle_state || "").toLowerCase()) && "bg-primary/[0.04] hover:bg-primary/[0.08]")
+        }
+        onRowClick={(s) => onViewScan(s)}
+      />
     </div>
   );
 });

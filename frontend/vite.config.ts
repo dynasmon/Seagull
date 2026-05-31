@@ -5,11 +5,25 @@ import { fileURLToPath } from "url"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+const proxyTarget = process.env.SEAGULL_API_PROXY_TARGET || "http://seagull-backend:8000"
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("@elastic/eui") && id.includes("/icon/assets/")) {
+            return "eui-icons";
+          }
+          return undefined;
+        },
+      },
     },
   },
   server: {
@@ -20,7 +34,7 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://seagull-backend:8000',
+        target: proxyTarget,
         changeOrigin: true,
         ws: true,
         cookiePathRewrite: {

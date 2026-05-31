@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
+import { EuiCodeBlock } from "@elastic/eui";
 
 import { cx } from "@/shared/lib/cx";
-import { copyTextToClipboard, safeJson } from "./investigation/utils";
+import { safeJson } from "./investigation/utils";
 
 export function JsonBlock({
   value,
@@ -17,16 +18,12 @@ export function JsonBlock({
   className?: string;
 }) {
   const [wrap, setWrap] = useState(initialWrap);
-  const [copied, setCopied] = useState<null | "ok" | "fail">(null);
-  const text = useMemo(
-    () => (typeof value === "string" ? value : safeJson(value)),
-    [value],
-  );
+  const text = useMemo(() => (typeof value === "string" ? value : safeJson(value)), [value]);
 
   return (
     <div className={cx("space-y-2", className)}>
       {showControls ? (
-        <div className="flex items-center justify-end gap-3">
+        <div className="flex items-center justify-end">
           <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
             <input
               type="checkbox"
@@ -36,28 +33,18 @@ export function JsonBlock({
             />
             Wrap
           </label>
-          <button
-            type="button"
-            onClick={async () => {
-              const ok = await copyTextToClipboard(text);
-              setCopied(ok ? "ok" : "fail");
-              window.setTimeout(() => setCopied(null), 1200);
-            }}
-            className="text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {copied === "ok" ? "Copied" : copied === "fail" ? "Failed" : "Copy"}
-          </button>
         </div>
       ) : null}
-      <pre
-        style={{ maxHeight }}
-        className={cx(
-          "overflow-auto rounded-md border border-border/60 bg-background/30 p-3 text-[11px] leading-relaxed",
-          wrap ? "whitespace-pre-wrap break-words" : "whitespace-pre",
-        )}
+      <EuiCodeBlock
+        language="json"
+        fontSize="s"
+        paddingSize="m"
+        overflowHeight={maxHeight}
+        whiteSpace={wrap ? "pre-wrap" : "pre"}
+        isCopyable={showControls}
       >
         {text}
-      </pre>
+      </EuiCodeBlock>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { Table, type Column } from "@/shared/components/Table";
 import { Tabs } from "@/shared/components/Tabs";
+import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
 import { TextInput } from "@/shared/components/TextInput";
 import { getErrorMessage } from "@/shared/lib/errors";
 import { clampInt } from "@/shared/lib/filters";
@@ -547,15 +548,13 @@ export default function ProtocolIntelPage() {
                 </div>
 
                 <div className="flex items-end">
-                  <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-border bg-card px-3">
-                    <input
-                      type="checkbox"
+                  <div className="inline-flex h-9 w-full items-center rounded-md border border-border bg-card px-3">
+                    <ToggleSwitch
+                      label="Auto refresh"
                       checked={draft.auto_refresh}
                       onChange={(e) => setDraft((s) => ({ ...s, auto_refresh: e.target.checked }))}
-                      className="h-3.5 w-3.5 cursor-pointer accent-primary"
                     />
-                    <span className="text-[11.5px] text-foreground/85">Auto refresh</span>
-                  </label>
+                  </div>
                 </div>
               </div>
 
