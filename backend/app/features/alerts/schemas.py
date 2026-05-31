@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AlertOut(BaseModel):
@@ -39,8 +39,7 @@ class AlertOut(BaseModel):
     triage_notes: Optional[str] = None
     risk_score: Optional[int] = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AlertEvidenceOut(BaseModel):
@@ -57,8 +56,7 @@ class AlertEvidenceOut(BaseModel):
     raw_context: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AlertTriageIn(BaseModel):
@@ -74,7 +72,7 @@ class AlertTriageIn(BaseModel):
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RuleSchedule(BaseModel):
