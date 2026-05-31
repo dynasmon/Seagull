@@ -22,7 +22,7 @@ export function safeLoadView(): ViewCfg {
       page_size: clampInt(parsed.page_size, 10, 200, DEFAULTS.page_size),
       infinite_scroll: Boolean(parsed.infinite_scroll),
       wrap_json: Boolean(parsed.wrap_json),
-      density: parsed.density === "compact" ? "compact" : "comfortable",
+      density: parsed.density === "comfortable" ? "comfortable" : "compact",
     };
   } catch {
     return DEFAULTS;

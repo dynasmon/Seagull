@@ -1,9 +1,10 @@
+import { EuiPanel } from "@elastic/eui";
+
 import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { SeverityPill } from "@/shared/components/SeverityPill";
 import { StatusPill } from "@/shared/components/StatusPill";
-import { cx } from "@/shared/lib/cx";
 
 import { sevVariant } from "../lib/alertSeverity";
 import type { RuleOut } from "../types";
@@ -27,15 +28,15 @@ export function AlertsRulesList({ loading, filtered, selectedId, onEdit }: Alert
       {filtered.map((r) => {
         const isSel = selectedId === r.id;
         return (
-          <button
-            type="button"
+          <EuiPanel
             key={r.id}
             onClick={() => onEdit(r)}
-            className={cx(
-              "block w-full rounded-md border bg-card px-3 py-2.5 text-left transition-colors",
-              "hover:border-primary/35 hover:bg-surface-2/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35",
-              isSel ? "border-primary/55 bg-primary/[0.08]" : "border-border",
-            )}
+            hasBorder
+            hasShadow={false}
+            paddingSize="s"
+            borderRadius="m"
+            color={isSel ? "primary" : "plain"}
+            className="w-full text-left"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -81,7 +82,7 @@ export function AlertsRulesList({ loading, filtered, selectedId, onEdit }: Alert
                 </Button>
               </div>
             </div>
-          </button>
+          </EuiPanel>
         );
       })}
     </div>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import Drawer from "@/shared/components/Drawer";
 import { Button } from "@/shared/components/Button";
+import { CheckboxField } from "@/shared/components/CheckboxField";
 import { InlineAlert } from "@/shared/components/InlineAlert";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { TextArea } from "@/shared/components/TextArea";
@@ -296,15 +297,11 @@ export default function CorrelationRuleEditor({
           </label>
         </div>
 
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(event) => setEnabled(event.target.checked)}
-            className="h-4 w-4"
-          />
-          Enabled
-        </label>
+        <CheckboxField
+          label="Enabled"
+          checked={enabled}
+          onChange={(event) => setEnabled(event.target.checked)}
+        />
 
         <div className="grid gap-3 md:grid-cols-2">
           <label className="block">

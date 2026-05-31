@@ -109,7 +109,7 @@ function EventsFiltersImpl(props: Props) {
             value={effectiveCfg.agent_id ?? ""}
             onChange={(e) => patch({ agent_id: e.target.value ? e.target.value : null })}
             disabled={busy}
-            className={cx("mt-1 font-mono text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
+            className={cx("mt-1 w-full font-mono text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
           >
             <option value="">All agents</option>
             {agents.map((a) => (
@@ -191,7 +191,7 @@ function EventsFiltersImpl(props: Props) {
             fallback={DEFAULTS.limit}
             onCommit={(v) => patch({ limit: v })}
             disabled={busy}
-            className={cx("ui-input mt-1 font-mono text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
+            className={cx("mt-1 font-mono text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
             title="Max events to fetch"
           />
         </div>

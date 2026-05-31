@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
 import { Card } from "@/shared/components/Card";
+import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
 
 import AuditEventDrawer from "../components/AuditEventDrawer";
 import AuditFiltersBar from "../components/AuditFiltersBar";
@@ -44,38 +46,15 @@ export default function AuditTimelineView() {
       <div className="ui-toolbar-shell flex items-center justify-between">
         <div className="text-xs text-muted-foreground font-mono">Timeline grouped by day · Page {q.page}</div>
         <div className="flex items-center gap-2">
-          <div className="hidden items-center gap-1 sm:flex">
-            <button
-              type="button"
-              onClick={() => q.setCompact(false)}
-              className={q.compact ? "ui-btn-secondary h-8 px-2 text-xs" : "ui-btn h-8 px-2 text-xs"}
-            >
-              Comfortable
-            </button>
-            <button
-              type="button"
-              onClick={() => q.setCompact(true)}
-              className={q.compact ? "ui-btn h-8 px-2 text-xs" : "ui-btn-secondary h-8 px-2 text-xs"}
-            >
-              Compact
-            </button>
+          <div className="hidden items-center sm:flex">
+            <ToggleSwitch label="Compact" checked={q.compact} onChange={(e) => q.setCompact(e.target.checked)} />
           </div>
-          <button
-            type="button"
-            onClick={q.prevPage}
-            disabled={!q.hasPrev || q.loading}
-            className="ui-btn-secondary h-8 px-3 text-xs disabled:opacity-50"
-          >
+          <Button variant="secondary" size="sm" onClick={q.prevPage} disabled={!q.hasPrev || q.loading}>
             Previous
-          </button>
-          <button
-            type="button"
-            onClick={q.nextPage}
-            disabled={!q.hasMore || q.loading}
-            className="ui-btn-secondary h-8 px-3 text-xs disabled:opacity-50"
-          >
+          </Button>
+          <Button variant="secondary" size="sm" onClick={q.nextPage} disabled={!q.hasMore || q.loading}>
             Next
-          </button>
+          </Button>
         </div>
       </div>
 

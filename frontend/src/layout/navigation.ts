@@ -45,40 +45,51 @@ export type RouteMeta = {
 
 export const SOC_NAV_GROUPS: AppNavGroup[] = [
   {
-    id: "overview",
-    label: "Overview",
+    id: "security-overview",
+    label: "Security Overview",
     items: [{ id: "overview", label: "Overview", to: "/overview", icon: "overview" }],
   },
   {
-    id: "threat-monitoring",
-    label: "Threat Monitoring",
-    items: [
-      { id: "events-stream", label: "Events", to: "/events", icon: "events", exact: true },
-      { id: "events-protocol", label: "Protocol Intel", to: "/events/network", icon: "protocol" },
-      { id: "events-ssh", label: "SSH Insights", to: "/events/ssh", icon: "ssh" },
-      { id: "events-ddos", label: "DDoS", to: "/events/ddos", icon: "ddos" },
-    ],
-  },
-  {
-    id: "detection-investigation",
-    label: "Detection & Investigation",
+    id: "alerts-triage",
+    label: "Alerts & Triage",
     items: [
       { id: "alerts", label: "Alerts", to: "/alerts", icon: "alerts" },
-      { id: "ueba", label: "Anomaly Detection", to: "/ueba", icon: "ueba" },
-      { id: "attack-chain", label: "Attack Chains", to: "/attack-chain", icon: "attack_chain" },
       { id: "correlations", label: "Correlations", to: "/correlations", icon: "correlations" },
-      { id: "investigations", label: "Investigations", to: "/investigations", icon: "investigations" },
+      { id: "ueba", label: "Anomaly Detection", to: "/ueba", icon: "ueba" },
     ],
   },
   {
-    id: "assets-exposure",
-    label: "Assets & Exposure",
+    id: "events-hunt",
+    label: "Events & Hunt",
+    items: [{ id: "events", label: "Events", to: "/events", icon: "events" }],
+  },
+  {
+    id: "entities",
+    label: "Entities",
     items: [
       { id: "agents", label: "Agents", to: "/agents", icon: "agents" },
       { id: "inventory", label: "Inventory", to: "/inventory", icon: "inventory" },
+    ],
+  },
+  {
+    id: "network",
+    label: "Network",
+    items: [{ id: "network-topology", label: "Network Topology", to: "/network-topology", icon: "network_topology" }],
+  },
+  {
+    id: "exposure-vulnerabilities",
+    label: "Exposure & Vulnerabilities",
+    items: [
       { id: "vulnerabilities", label: "Vulnerabilities", to: "/vulnerabilities", icon: "vulnerabilities" },
       { id: "exposure", label: "Exposure Graph", to: "/exposure", icon: "exposure" },
-      { id: "network-topology", label: "Network Topology", to: "/network-topology", icon: "network_topology" },
+    ],
+  },
+  {
+    id: "investigations-cases",
+    label: "Investigations & Cases",
+    items: [
+      { id: "investigations", label: "Investigations", to: "/investigations", icon: "investigations" },
+      { id: "attack-chain", label: "Attack Chains", to: "/attack-chain", icon: "attack_chain" },
     ],
   },
   {
@@ -86,9 +97,13 @@ export const SOC_NAV_GROUPS: AppNavGroup[] = [
     label: "Governance & Platform",
     items: [
       { id: "audit", label: "Audit", to: "/audit", icon: "audit" },
-      { id: "settings", label: "Settings", to: "/settings", icon: "settings" },
       { id: "internal", label: "Internal", to: "/internal", icon: "internal" },
     ],
+  },
+  {
+    id: "settings",
+    label: "Settings",
+    items: [{ id: "settings", label: "Settings", to: "/settings", icon: "settings" }],
   },
 ];
 
@@ -105,7 +120,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
     meta: {
       title: "Overview",
       subtitle: "Realtime operational summary with health and backlog posture.",
-      breadcrumbs: [{ label: "Overview", to: "/overview" }],
+      breadcrumbs: [{ label: "Security Overview", to: "/overview" }],
     },
   },
   {
@@ -114,7 +129,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "DDoS",
       subtitle: "Volumetric and application-layer denial telemetry.",
       breadcrumbs: [
-        { label: "Threat Monitoring" },
+        { label: "Events & Hunt", to: "/events" },
         { label: "DDoS", to: "/events/ddos" },
       ],
     },
@@ -125,7 +140,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Protocol Intel",
       subtitle: "Protocol-level indicators and network evidence pivots.",
       breadcrumbs: [
-        { label: "Threat Monitoring" },
+        { label: "Events & Hunt", to: "/events" },
         { label: "Protocol Intel", to: "/events/network" },
       ],
     },
@@ -136,7 +151,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "SSH Insights",
       subtitle: "Authentication outcomes, source distribution, and brute-force context.",
       breadcrumbs: [
-        { label: "Threat Monitoring" },
+        { label: "Events & Hunt", to: "/events" },
         { label: "SSH Insights", to: "/events/ssh" },
       ],
     },
@@ -147,8 +162,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Events",
       subtitle: "Primary telemetry stream with filterable investigation pivots.",
       breadcrumbs: [
-        { label: "Threat Monitoring" },
-        { label: "Events", to: "/events" },
+        { label: "Events & Hunt", to: "/events" },
       ],
     },
   },
@@ -158,7 +172,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Alert Rules",
       subtitle: "Operational rule catalog and runtime status.",
       breadcrumbs: [
-        { label: "Detection & Investigation" },
+        { label: "Alerts & Triage" },
         { label: "Alerts", to: "/alerts/queue" },
         { label: "Rules", to: "/alerts/rules" },
       ],
@@ -170,7 +184,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Alerts",
       subtitle: "Triage queue and lifecycle tracking for detections.",
       breadcrumbs: [
-        { label: "Detection & Investigation" },
+        { label: "Alerts & Triage" },
         { label: "Alerts", to: "/alerts/queue" },
       ],
     },
@@ -181,7 +195,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Correlation Rules",
       subtitle: "Rule definitions and signal-composition controls.",
       breadcrumbs: [
-        { label: "Detection & Investigation" },
+        { label: "Alerts & Triage" },
         { label: "Correlations", to: "/correlations/incidents" },
         { label: "Rules", to: "/correlations/rules" },
       ],
@@ -193,7 +207,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Correlation Incidents",
       subtitle: "Durable incident queue with lifecycle, evidence, and MITRE context.",
       breadcrumbs: [
-        { label: "Detection & Investigation" },
+        { label: "Alerts & Triage" },
         { label: "Correlations", to: "/correlations/incidents" },
       ],
     },
@@ -204,7 +218,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Correlations",
       subtitle: "Durable incident investigations across detections and telemetry sources.",
       breadcrumbs: [
-        { label: "Detection & Investigation" },
+        { label: "Alerts & Triage" },
         { label: "Correlations", to: "/correlations/incidents" },
       ],
     },
@@ -215,7 +229,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Detector Health",
       subtitle: "Behavioral detector status, run history, and baseline maturity.",
       breadcrumbs: [
-        { label: "Detection & Investigation" },
+        { label: "Alerts & Triage" },
         { label: "Anomaly Detection", to: "/ueba/findings" },
         { label: "Detector Health", to: "/ueba/detectors" },
       ],
@@ -227,7 +241,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Anomaly Detection",
       subtitle: "Behavioral baselines and statistical anomaly detection across user and entity activity.",
       breadcrumbs: [
-        { label: "Detection & Investigation" },
+        { label: "Alerts & Triage" },
         { label: "Anomaly Detection", to: "/ueba/findings" },
       ],
     },
@@ -238,7 +252,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Attack Chains",
       subtitle: "Kill-chain progression and contextual stage evidence.",
       breadcrumbs: [
-        { label: "Detection & Investigation" },
+        { label: "Investigations & Cases" },
         { label: "Attack Chains", to: "/attack-chain" },
       ],
     },
@@ -249,7 +263,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Investigations",
       subtitle: "Workspace-centric case management and evidence timelines.",
       breadcrumbs: [
-        { label: "Detection & Investigation" },
+        { label: "Investigations & Cases" },
         { label: "Investigations", to: "/investigations" },
       ],
     },
@@ -260,7 +274,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Vulnerability Scans",
       subtitle: "Scan execution history and pipeline outcomes.",
       breadcrumbs: [
-        { label: "Assets & Exposure" },
+        { label: "Exposure & Vulnerabilities" },
         { label: "Vulnerabilities", to: "/vulnerabilities" },
         { label: "Scans", to: "/vulnerabilities/scans" },
       ],
@@ -272,7 +286,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Vulnerabilities",
       subtitle: "Exposure inventory with package, host, and severity context.",
       breadcrumbs: [
-        { label: "Assets & Exposure" },
+        { label: "Exposure & Vulnerabilities" },
         { label: "Vulnerabilities", to: "/vulnerabilities" },
       ],
     },
@@ -283,7 +297,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Exposure Graph",
       subtitle: "Asset risk, evidence relationships, and attack-path prioritization.",
       breadcrumbs: [
-        { label: "Assets & Exposure" },
+        { label: "Exposure & Vulnerabilities" },
         { label: "Exposure Graph", to: "/exposure" },
       ],
     },
@@ -294,7 +308,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Network Topology",
       subtitle: "Internal network map, observed flows, services, and security context.",
       breadcrumbs: [
-        { label: "Assets & Exposure" },
+        { label: "Network" },
         { label: "Network Topology", to: "/network-topology" },
       ],
     },
@@ -305,7 +319,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Agents",
       subtitle: "Endpoint health, heartbeat, and control-plane status.",
       breadcrumbs: [
-        { label: "Assets & Exposure" },
+        { label: "Entities" },
         { label: "Agents", to: "/agents" },
       ],
     },
@@ -316,7 +330,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Inventory",
       subtitle: "Fleet software, host, and metadata inventory.",
       breadcrumbs: [
-        { label: "Assets & Exposure" },
+        { label: "Entities" },
         { label: "Inventory", to: "/inventory" },
       ],
     },
@@ -374,7 +388,6 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       title: "Settings",
       subtitle: "Portal and platform configuration controls.",
       breadcrumbs: [
-        { label: "Governance & Platform" },
         { label: "Settings", to: "/settings" },
       ],
     },
@@ -420,7 +433,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
     meta: {
       title: "Overview",
       subtitle: "Realtime operational summary with health and backlog posture.",
-      breadcrumbs: [{ label: "Overview", to: "/overview" }],
+      breadcrumbs: [{ label: "Security Overview", to: "/overview" }],
     },
   },
 ];
@@ -428,7 +441,7 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
 const DEFAULT_ROUTE_META: RouteMeta = {
   title: "Seagull",
   subtitle: "Security operations portal",
-  breadcrumbs: [{ label: "Overview", to: "/overview" }],
+  breadcrumbs: [{ label: "Security Overview", to: "/overview" }],
 };
 
 function matchesPath(pathname: string, entry: RouteMetaEntry): boolean {

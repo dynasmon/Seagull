@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { EuiPanel } from "@elastic/eui";
 
 import { cx } from "@/shared/lib/cx";
 
@@ -30,16 +31,18 @@ export function Panel({
   tone?: "default" | "muted" | "raised";
 }) {
   const hasHeader = Boolean(title || subtitle || actions);
-  const shellTone =
-    tone === "raised"
-      ? "ui-card-shell shadow-elevated"
-      : tone === "muted"
-        ? "rounded-lg border border-border bg-surface-2/70"
-        : "ui-card-shell";
   const padClass = padded ? (compact ? "p-3" : "p-4") : "";
 
   return (
-    <section className={cx(shellTone, "flex flex-col overflow-hidden", className)} style={style}>
+    <EuiPanel
+      color={tone === "muted" ? "subdued" : "plain"}
+      hasBorder
+      hasShadow={tone === "raised"}
+      paddingSize="none"
+      borderRadius="m"
+      className={cx("flex flex-col overflow-hidden", className)}
+      style={style}
+    >
       {hasHeader && (
         <header className="ui-panel-header shrink-0">
           <div className="min-w-0">
@@ -55,6 +58,6 @@ export function Panel({
       >
         {children}
       </div>
-    </section>
+    </EuiPanel>
   );
 }

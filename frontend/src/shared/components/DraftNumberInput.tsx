@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-
-import { cx } from "@/shared/lib/cx";
+import { EuiFieldNumber } from "@elastic/eui";
 
 type Props = {
   value: number;
@@ -14,9 +13,6 @@ type Props = {
   placeholder?: string;
   title?: string;
 
-  /**
-   * Tailwind classes for the <input/>.
-   */
   className?: string;
 };
 
@@ -26,25 +22,18 @@ function digitsOnly(v: string): string {
 
 function clampInt(n: number, min?: number, max?: number) {
   let x = Math.trunc(n);
-  if (Number.isFinite(min as any)) x = Math.max(min as number, x);
-  if (Number.isFinite(max as any)) x = Math.min(max as number, x);
+  if (typeof min === "number" && Number.isFinite(min)) x = Math.max(min, x);
+  if (typeof max === "number" && Number.isFinite(max)) x = Math.min(max, x);
   return x;
 }
 
-/**
- * Numeric input that does NOT "jump" while typing.
- *
- * Controlled <input type="number"/> + Number()/clamp on each keypress will snap values
- * when users delete, paste, or type partial numbers. This component keeps a draft string
- * while focused and only commits on blur/Enter.
- */
 export default function DraftNumberInput(props: Props) {
-  const { value, onCommit, disabled, placeholder, title, className } = props;
+  const { value, onCommit, min, max, fallback, disabled, placeholder, title, className } = props;
 
   const safeValue = useMemo(() => {
-    const base = Number.isFinite(value) ? value : (props.fallback ?? 0);
-    return clampInt(base, props.min, props.max);
-  }, [value, props.fallback, props.min, props.max]);
+    const base = Number.isFinite(value) ? value : (fallback ?? 0);
+    return clampInt(base, min, max);
+  }, [value, fallback, min, max]);
 
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState<string>(String(safeValue));
@@ -56,18 +45,23 @@ export default function DraftNumberInput(props: Props) {
 
   function commit(raw: string) {
     const parsed = Number.parseInt(String(raw ?? "").trim(), 10);
-    const fallback = Number.isFinite(props.fallback as any) ? (props.fallback as number) : safeValue;
-    const next = Number.isFinite(parsed) ? parsed : fallback;
-    const clamped = clampInt(next, props.min, props.max);
+    const resolvedFallback = typeof fallback === "number" && Number.isFinite(fallback) ? fallback : safeValue;
+    const next = Number.isFinite(parsed) ? parsed : resolvedFallback;
+    const clamped = clampInt(next, min, max);
     setDraft(String(clamped));
     if (clamped !== safeValue) onCommit(clamped);
   }
 
   return (
-    <input
-      type="text"
+    <EuiFieldNumber
+      compressed
+      fullWidth
+      controlOnly
       inputMode="numeric"
       pattern="[0-9]*"
+      min={min}
+      max={max}
+      step={1}
       value={draft}
       placeholder={placeholder}
       title={title}
@@ -87,7 +81,7 @@ export default function DraftNumberInput(props: Props) {
           e.currentTarget.blur();
         }
       }}
-      className={cx(className)}
+      className={className}
     />
   );
 }

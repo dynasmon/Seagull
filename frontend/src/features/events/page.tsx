@@ -7,7 +7,7 @@ export default function EventsLayout() {
     <div className="space-y-4">
       <PageHeader
         title="Events"
-        breadcrumb={["Threat Monitoring"]}
+        breadcrumb={["Events & Hunt"]}
         description="Operational telemetry modules for stream triage, SSH authentication intelligence, protocol evidence, and DDoS posture."
         tabs={[
           { label: "Event Stream", to: "/events" },

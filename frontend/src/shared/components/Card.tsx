@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { EuiPanel } from "@elastic/eui";
 
 import { cx } from "@/shared/lib/cx";
 
@@ -16,7 +17,7 @@ export function Card({
   const hasHeader = Boolean(title || right);
 
   return (
-    <section className={cx("ui-card-shell overflow-hidden", className)}>
+    <EuiPanel hasBorder hasShadow={false} paddingSize="none" className={cx("overflow-hidden", className)}>
       {hasHeader && (
         <header className="ui-panel-header">
           <div className="ui-panel-eyebrow truncate">{title}</div>
@@ -24,6 +25,6 @@ export function Card({
         </header>
       )}
       <div className="p-4">{children}</div>
-    </section>
+    </EuiPanel>
   );
 }

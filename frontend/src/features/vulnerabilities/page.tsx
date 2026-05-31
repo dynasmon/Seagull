@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { EuiPanel } from "@elastic/eui";
 
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
@@ -9,6 +10,7 @@ import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { SeverityPill } from "@/shared/components/SeverityPill";
+import { Table, type Column } from "@/shared/components/Table";
 import { TextInput } from "@/shared/components/TextInput";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { cx } from "@/shared/lib/cx";
@@ -177,7 +179,7 @@ export default function VulnerabilitiesPage() {
     defaultPageSize: 50,
     minPageSize: 10,
     maxPageSize: 500,
-    defaultCompact: false,
+    defaultCompact: true,
   });
   const density: Density = findingsTablePrefs.compact ? "compact" : "comfortable";
   const setDensity = (next: Density) => findingsTablePrefs.setCompact(next === "compact");
@@ -596,6 +598,105 @@ export default function VulnerabilitiesPage() {
 
   const dense = density === "compact";
 
+  const findingColumns: Column<VulnFinding>[] = [
+    {
+      key: "finding",
+      title: "Finding",
+      render: (f) => {
+        const installedVersion = findingInstalledVersion(f);
+        const fixedVersion = findingFixedVersion(f);
+        const component = findingComponentLabel(f);
+        const versionLine = `${installedVersion ? `installed ${installedVersion}` : "installed version unknown"}${fixedVersion ? ` · fix ${fixedVersion}` : " · no fix version recorded"}`;
+        const summary = f.risk_summary || f.title;
+        return (
+          <div
+            className="flex min-w-0 items-center gap-1.5"
+            title={`${component} · ${versionLine}${f.cve ? ` · ${f.cve}` : ""}\n${summary}`}
+          >
+            <RiskScorePill score={f.priority?.score} />
+            <SeverityPill variant={sevVariant(f.severity)} withDot>{f.severity}</SeverityPill>
+            <span className="min-w-0 max-w-[14rem] truncate font-mono text-[12px]">{component}</span>
+            {f.cve ? <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{f.cve}</span> : null}
+            <span className="min-w-0 flex-1 truncate text-[12px] text-foreground/85">{summary}</span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">conf {f.confidence}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: "asset",
+      title: "Asset / Context",
+      render: (f) => {
+        const svc = (f.exposure?.service_hints || []).slice(0, 2);
+        const asset = findingAssetLabel(f);
+        const exposure = `${findingExposureLabel(f)}${svc.length ? ` · ${svc.join(", ")}` : ""}`;
+        const context = f.asset_context?.length ? f.asset_context.join(" · ") : "";
+        return (
+          <div
+            className="flex min-w-0 items-center gap-1.5"
+            title={`${asset} · ${exposure}${context ? `\n${context}` : ""}`}
+          >
+            <span className="min-w-0 truncate font-mono text-[12px]">{asset}</span>
+            <span className="min-w-0 max-w-[14rem] shrink-0 truncate text-[11px] text-muted-foreground">{exposure}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: "status",
+      title: "Status",
+      render: (f) => {
+        const remediation = f.remediation_guidance || "Await scanner evidence or analyst disposition.";
+        return (
+          <div className="flex min-w-0 items-center gap-1.5" title={remediation}>
+            <Badge variant={observationVariant(f.observation_state)}>
+              {findingObservationLabel(f)}
+            </Badge>
+            {f.operator_disposition !== "open" && (
+              <Badge variant={dispositionVariant(f.operator_disposition)}>
+                {findingDispositionLabel(f)}
+              </Badge>
+            )}
+            <span className="min-w-0 truncate text-[11px] text-muted-foreground">{remediation}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: "seen",
+      title: "Seen / Hits",
+      className: "font-mono text-[12px]",
+      render: (f) => (
+        <div
+          className="flex items-center gap-1.5 whitespace-nowrap"
+          title={`last ${fmtWhen(f.last_seen_at)} · first ${fmtWhen(f.first_seen_at)}`}
+        >
+          <span>{fmtAge(f.last_seen_at)}</span>
+          <span className="text-[11px] text-muted-foreground">first {fmtAge(f.first_seen_at)}</span>
+          <span className="text-[11px] text-muted-foreground">· {f.occurrences} hits</span>
+        </div>
+      ),
+    },
+    {
+      key: "actions",
+      title: "Actions",
+      align: "right",
+      render: (f) => (
+        <Button
+          variant="subtle"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelected(f);
+            setDrawerOpen(true);
+          }}
+        >
+          View
+        </Button>
+      ),
+    },
+  ];
+
   const selectedAgentRecentScans = useMemo(
     () => (recentScans || []).filter((s) => (s.reporter_agent_id || "") === (scanTargetAgent || "")),
     [recentScans, scanTargetAgent]
@@ -732,7 +833,7 @@ export default function VulnerabilitiesPage() {
               onCommit={(n) => setActiveDays(n)}
               min={1}
               max={365}
-              className="ui-input h-8 w-16 px-2 font-mono"
+              className="h-8 w-16 font-mono"
             />
             <span>days</span>
           </div>
@@ -860,10 +961,13 @@ export default function VulnerabilitiesPage() {
           ) : (
             <div className="space-y-2">
               {posture.top_risks.map((x) => (
-                <button
+                <EuiPanel
                   key={x.id}
-                  type="button"
-                  className="w-full rounded-md border border-border bg-card p-3 text-left transition-colors hover:border-primary/30 hover:bg-surface-2/70"
+                  hasBorder
+                  hasShadow={false}
+                  paddingSize="s"
+                  borderRadius="m"
+                  className="w-full text-left"
                   onClick={() => {
                     const row = items.find((it) => it.id === x.id);
                     if (row) {
@@ -916,7 +1020,7 @@ export default function VulnerabilitiesPage() {
                       <div className="mt-1">seen {fmtAge(x.last_seen_at)}</div>
                     </div>
                   </div>
-                </button>
+                </EuiPanel>
               ))}
             </div>
           )}
@@ -936,9 +1040,13 @@ export default function VulnerabilitiesPage() {
           ) : (
             <div className="space-y-2">
               {posture.top_assets.map((a) => (
-                <button
+                <EuiPanel
                   key={`${a.asset_key}-${a.asset_agent_id || "-"}`}
-                  type="button"
+                  hasBorder
+                  hasShadow={false}
+                  paddingSize="s"
+                  borderRadius="m"
+                  className="w-full text-left"
                   onClick={() => {
                     const next = {
                       ...draft,
@@ -948,7 +1056,6 @@ export default function VulnerabilitiesPage() {
                     setDraft(next);
                     setFilters(next);
                   }}
-                  className="w-full rounded-md border border-border bg-card p-3 text-left transition-colors hover:border-primary/30 hover:bg-surface-2/70"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div
@@ -965,7 +1072,7 @@ export default function VulnerabilitiesPage() {
                     open {a.open_findings} · critical/high {a.critical_high} · avg{" "}
                     {fmtRisk(a.avg_risk)} · seen {fmtAge(a.last_seen_at)}
                   </div>
-                </button>
+                </EuiPanel>
               ))}
             </div>
           )}
@@ -1112,7 +1219,7 @@ export default function VulnerabilitiesPage() {
                 onCommit={(n) => setPageSize(n)}
                 min={1}
                 max={200}
-                className="ui-input h-10 w-20 font-mono"
+                className="h-10 w-20 font-mono"
               />
             </div>
 
@@ -1225,107 +1332,19 @@ export default function VulnerabilitiesPage() {
           </div>
         ) : (
           <div className="w-full">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 z-[2] bg-surface-2/95 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm">
-                <tr>
-                  <th className="border-b border-border px-3 py-2.5">Finding</th>
-                  <th className="border-b border-border px-3 py-2.5">Asset / Context</th>
-                  <th className="border-b border-border px-3 py-2.5">Status</th>
-                  <th className="border-b border-border px-3 py-2.5">Seen / Hits</th>
-                  <th className="border-b border-border px-3 py-2.5 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((f) => {
-                  const selectedRow = selected?.id === f.id;
-                  const rowPad = dense ? "py-1.5" : "py-2.5";
-                  const svc = (f.exposure?.service_hints || []).slice(0, 2);
-                  const installedVersion = findingInstalledVersion(f);
-                  const fixedVersion = findingFixedVersion(f);
-                  return (
-                    <tr
-                      key={f.id}
-                      className={cx(
-                        "cursor-pointer border-t border-border/55 align-top ui-row",
-                        selectedRow && "ui-row-selected",
-                      )}
-                      onClick={() => {
-                        setSelected(f);
-                        setDrawerOpen(true);
-                      }}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <td className={cx("px-3", rowPad)}>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <RiskScorePill score={f.priority?.score} />
-                          <SeverityPill variant={sevVariant(f.severity)} withDot>{f.severity}</SeverityPill>
-                          <span className="text-[11px] text-muted-foreground">conf {f.confidence}</span>
-                        </div>
-                        <div className="mt-1 font-mono text-[12px] break-all" title={findingComponentLabel(f)}>
-                          {findingComponentLabel(f)}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground">
-                          {installedVersion ? `installed ${installedVersion}` : "installed version unknown"}
-                          {fixedVersion ? ` · fix ${fixedVersion}` : " · no fix version recorded"}
-                          {f.cve ? ` · ${f.cve}` : ""}
-                        </div>
-                        <div className="mt-1 line-clamp-2 text-sm text-foreground/85">
-                          {f.risk_summary || f.title}
-                        </div>
-                      </td>
-                      <td className={cx("px-3", rowPad)}>
-                        <div className="font-mono text-[12px] break-all" title={findingAssetLabel(f)}>
-                          {findingAssetLabel(f)}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground">
-                          {findingExposureLabel(f)}
-                          {svc.length ? ` · ${svc.join(", ")}` : ""}
-                        </div>
-                        <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
-                          {f.asset_context?.length ? f.asset_context.join(" · ") : "-"}
-                        </div>
-                      </td>
-                      <td className={cx("px-3", rowPad)}>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Badge variant={observationVariant(f.observation_state)}>
-                            {findingObservationLabel(f)}
-                          </Badge>
-                          {f.operator_disposition !== "open" && (
-                            <Badge variant={dispositionVariant(f.operator_disposition)}>
-                              {findingDispositionLabel(f)}
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
-                          {f.remediation_guidance || "Await scanner evidence or analyst disposition."}
-                        </div>
-                      </td>
-                      <td className={cx("px-3 font-mono text-[12px]", rowPad)}>
-                        <div title={fmtWhen(f.last_seen_at)}>{fmtAge(f.last_seen_at)}</div>
-                        <div className="text-[11px] text-muted-foreground" title={fmtWhen(f.first_seen_at)}>
-                          first {fmtAge(f.first_seen_at)}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground">{f.occurrences} hits</div>
-                      </td>
-                      <td className={cx("px-3 text-right", rowPad)}>
-                        <Button
-                          variant="subtle"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelected(f);
-                            setDrawerOpen(true);
-                          }}
-                        >
-                          View
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <Table
+              className="!shadow-none !border-0 !bg-transparent !rounded-none"
+              columns={findingColumns}
+              rows={items}
+              rowKey={(f) => String(f.id)}
+              compact={dense}
+              selectedRowKey={selected?.id != null ? String(selected.id) : null}
+              rowClassName={() => "cursor-pointer align-top"}
+              onRowClick={(f) => {
+                setSelected(f);
+                setDrawerOpen(true);
+              }}
+            />
 
             {hasMore && (
               <div className="mt-4 flex justify-center">

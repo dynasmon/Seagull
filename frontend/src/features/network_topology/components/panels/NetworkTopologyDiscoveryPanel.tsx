@@ -1,4 +1,5 @@
 import { Button } from "@/shared/components/Button";
+import { InlineAlert } from "@/shared/components/InlineAlert";
 import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { StatusPill } from "@/shared/components/StatusPill";
@@ -114,15 +115,9 @@ export function NetworkTopologyDiscoveryPanel({
           </div>
         </div>
 
-        {lastError ? (
-          <div className="rounded-md border border-danger/40 bg-danger/10 p-3 text-[12px] text-danger">{lastError}</div>
-        ) : null}
+        {lastError ? <InlineAlert tone="danger">{lastError}</InlineAlert> : null}
 
-        {warnings.length ? (
-          <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-[12px] text-warning">
-            {warnings.join(" · ")}
-          </div>
-        ) : null}
+        {warnings.length ? <InlineAlert tone="warning">{warnings.join(" · ")}</InlineAlert> : null}
 
         {latestAction ? (
           <div className="rounded-md border border-border/70 bg-background/35 p-3 text-[12px] text-muted-foreground">

@@ -1,6 +1,8 @@
 import { Badge } from "@/shared/components/Badge";
 import AsyncState from "@/shared/components/AsyncState";
+import { Button } from "@/shared/components/Button";
 import { Table, type TableSortState } from "@/shared/components/Table";
+import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
 
 import { eventSeverity, fmtDateTime, summarizeEvent } from "../lib";
 import type { AuditEvent } from "../types";
@@ -46,40 +48,17 @@ export default function AuditEventsTable({
         <div className="text-xs text-muted-foreground font-mono">Page {page} · {rows.length} rows loaded</div>
         <div className="flex items-center gap-2">
           {setCompact ? (
-            <div className="hidden items-center gap-1 sm:flex">
-              <button
-                type="button"
-                onClick={() => setCompact(false)}
-                className={compact ? "ui-btn-secondary h-8 px-2 text-xs" : "ui-btn h-8 px-2 text-xs"}
-              >
-                Comfortable
-              </button>
-              <button
-                type="button"
-                onClick={() => setCompact(true)}
-                className={compact ? "ui-btn h-8 px-2 text-xs" : "ui-btn-secondary h-8 px-2 text-xs"}
-              >
-                Compact
-              </button>
+            <div className="hidden items-center sm:flex">
+              <ToggleSwitch label="Compact" checked={compact} onChange={(e) => setCompact(e.target.checked)} />
             </div>
           ) : null}
 
-          <button
-            type="button"
-            onClick={onPrev}
-            disabled={!hasPrev || loading}
-            className="ui-btn-secondary h-8 px-3 text-xs disabled:opacity-50"
-          >
+          <Button variant="secondary" size="sm" onClick={onPrev} disabled={!hasPrev || loading}>
             Previous
-          </button>
-          <button
-            type="button"
-            onClick={onNext}
-            disabled={!hasMore || loading}
-            className="ui-btn-secondary h-8 px-3 text-xs disabled:opacity-50"
-          >
+          </Button>
+          <Button variant="secondary" size="sm" onClick={onNext} disabled={!hasMore || loading}>
             Next
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -114,9 +93,9 @@ export default function AuditEventsTable({
               title: "Event",
               className: "font-mono text-xs",
               render: (r) => (
-                <div className="space-y-1">
-                  <div>{r.event_type}</div>
-                  <div className="text-[11px] text-muted-foreground">{r.action}</div>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="shrink-0">{r.event_type}</span>
+                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">{r.action}</span>
                 </div>
               ),
             },
@@ -125,9 +104,9 @@ export default function AuditEventsTable({
               title: "Resource",
               className: "font-mono text-xs",
               render: (r) => (
-                <div className="space-y-1">
-                  <div>{r.resource_type}</div>
-                  <div className="text-[11px] text-muted-foreground break-all">{r.resource_id || "-"}</div>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="shrink-0">{r.resource_type}</span>
+                  <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={r.resource_id || ""}>{r.resource_id || "-"}</span>
                 </div>
               ),
             },
@@ -143,7 +122,10 @@ export default function AuditEventsTable({
               key: "summary",
               title: "Summary",
               className: "text-xs",
-              render: (r) => <div className="line-clamp-2">{summarizeEvent(r)}</div>,
+              render: (r) => {
+                const summary = summarizeEvent(r);
+                return <div className="truncate" title={summary}>{summary}</div>;
+              },
             },
             {
               key: "badges",
@@ -161,16 +143,16 @@ export default function AuditEventsTable({
               title: "Details",
               className: "text-right",
               render: (r) => (
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={(event) => {
                     event.stopPropagation();
                     onOpen(r);
                   }}
-                  className="ui-btn-secondary h-7 px-2 text-xs"
                 >
                   Open
-                </button>
+                </Button>
               ),
             },
           ]}

@@ -1,5 +1,9 @@
+import { EuiPanel } from "@elastic/eui";
+
 import EmptyState from "@/shared/components/EmptyState";
 import Drawer from "@/shared/components/Drawer";
+import { Button } from "@/shared/components/Button";
+import { InlineAlert } from "@/shared/components/InlineAlert";
 import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { TextInput } from "@/shared/components/TextInput";
@@ -15,7 +19,6 @@ import {
   InvestigationSummaryGrid,
   InvestigationTabs,
 } from "@/shared/components/investigation";
-import { cx } from "@/shared/lib/cx";
 import PinToWorkspaceDrawer from "@/features/investigations/PinToWorkspaceDrawer";
 import { pinResponseResultToWorkspace } from "@/features/investigations/api";
 
@@ -157,16 +160,12 @@ export default function ResponseActionDrawer({ controller, user, isAdmin, agents
               </InvestigationActionButton>
             </InvestigationActionBar>
 
-            {responseActionError && (
-              <div className="rounded-lg border border-danger/50 bg-danger/10 px-4 py-3 text-[12px] text-danger">
-                {responseActionError}
-              </div>
-            )}
+            {responseActionError && <InlineAlert tone="danger">{responseActionError}</InlineAlert>}
 
             {responseActionCreated && (
-              <div className="rounded-lg border border-success/50 bg-success/10 px-4 py-3 text-[12px] text-success">
+              <InlineAlert tone="success">
                 Response action #{responseActionCreated.id} queued for {responseActionCreated.agent_id} with status {responseActionCreated.status}.
-              </div>
+              </InlineAlert>
             )}
 
             {responseActionMode === "create" ? (
@@ -209,46 +208,24 @@ export default function ResponseActionDrawer({ controller, user, isAdmin, agents
                           disabled={responseActionBusy}
                         />
                         <div className="mt-2 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setResponseActionExpiryOffset(15)}
-                            disabled={responseActionBusy}
-                            className={cx(
-                              "rounded border border-border/60 bg-background/30 px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
-                              "hover:bg-muted/10",
-                              responseActionBusy && "opacity-60 cursor-not-allowed"
-                            )}
-                          >
+                          <Button variant="ghost" size="sm" onClick={() => setResponseActionExpiryOffset(15)} disabled={responseActionBusy}>
                             +15m
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setResponseActionExpiryOffset(60)}
-                            disabled={responseActionBusy}
-                            className={cx(
-                              "rounded border border-border/60 bg-background/30 px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
-                              "hover:bg-muted/10",
-                              responseActionBusy && "opacity-60 cursor-not-allowed"
-                            )}
-                          >
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => setResponseActionExpiryOffset(60)} disabled={responseActionBusy}>
                             +1h
-                          </button>
-                          <button
-                            type="button"
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => {
                               setResponseActionExpiresAt("");
                               setResponseActionError(null);
                               setResponseActionCreated(null);
                             }}
                             disabled={responseActionBusy}
-                            className={cx(
-                              "rounded border border-border/60 bg-background/30 px-2 py-1 text-[10px] font-mono uppercase tracking-widest",
-                              "hover:bg-muted/10",
-                              responseActionBusy && "opacity-60 cursor-not-allowed"
-                            )}
                           >
                             Clear
-                          </button>
+                          </Button>
                         </div>
                         {responseActionExpirationInvalid && (
                           <div className="mt-1 text-[11px] text-danger">Expiration must be a valid date and time.</div>
@@ -306,22 +283,18 @@ export default function ResponseActionDrawer({ controller, user, isAdmin, agents
                     <div className="rounded border border-border/60 bg-background/30 px-3 py-2 text-[12px] text-muted-foreground">
                       Payload is optional. Guided mode sends defaults from the server-side action schema.
                     </div>
-                    <button
-                      type="button"
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       onClick={() => {
                         setResponseActionAdvancedOpen((prev) => !prev);
                         setResponseActionError(null);
                         setResponseActionCreated(null);
                       }}
                       disabled={responseActionBusy}
-                      className={cx(
-                        "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                        "hover:bg-primary/5",
-                        responseActionBusy && "opacity-60 cursor-not-allowed"
-                      )}
                     >
                       {responseActionAdvancedOpen ? "Hide advanced payload" : "Show advanced payload JSON"}
-                    </button>
+                    </Button>
                     {responseActionAdvancedOpen && (
                       <div>
                         <TextArea
@@ -368,30 +341,12 @@ export default function ResponseActionDrawer({ controller, user, isAdmin, agents
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="text-[11px] text-muted-foreground">Queue this request to start the execution lifecycle.</div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={closeResponseActionDrawer}
-                        disabled={responseActionBusy}
-                        className={cx(
-                          "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                          "hover:bg-primary/5",
-                          responseActionBusy && "opacity-60 cursor-not-allowed"
-                        )}
-                      >
+                      <Button variant="secondary" size="sm" onClick={closeResponseActionDrawer} disabled={responseActionBusy}>
                         Close
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onSubmitResponseAction}
-                        disabled={!canSubmitResponseAction}
-                        className={cx(
-                          "border border-primary/60 bg-primary/20 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest text-foreground",
-                          "hover:bg-primary/30",
-                          (!canSubmitResponseAction || responseActionBusy) && "opacity-60 cursor-not-allowed"
-                        )}
-                      >
+                      </Button>
+                      <Button variant="primary" size="sm" onClick={onSubmitResponseAction} disabled={!canSubmitResponseAction}>
                         {responseActionBusy ? "Queueing..." : "Queue response action"}
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -473,8 +428,9 @@ export default function ResponseActionDrawer({ controller, user, isAdmin, agents
                               ))}
                             </SelectInput>
                           </div>
-                          <button
-                            type="button"
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             onClick={() => {
                               if (responseActionSelectedId) {
                                 loadResponseActionLive(responseActionSelectedId);
@@ -482,16 +438,12 @@ export default function ResponseActionDrawer({ controller, user, isAdmin, agents
                               }
                               loadResponseActionHistory(responseActionAgentId);
                             }}
-                            className={cx(
-                              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                              "hover:bg-primary/5"
-                            )}
                           >
                             Refresh status
-                          </button>
+                          </Button>
                         </div>
 
-                        {responseActionLiveError && <div className="text-[11px] text-danger">{responseActionLiveError}</div>}
+                        {responseActionLiveError && <InlineAlert tone="danger">{responseActionLiveError}</InlineAlert>}
 
                         {!responseActionLiveView ? (
                           <EmptyState title="No action selected" hint="Queue an action or select one from history." />
@@ -535,30 +487,22 @@ export default function ResponseActionDrawer({ controller, user, isAdmin, agents
                         )}
 
                         <div className="flex flex-wrap items-center gap-3">
-                          <button
-                            type="button"
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             onClick={onCancelSelectedResponseAction}
                             disabled={!responseActionSelectedId || !responseActionCanCancel || responseActionBusy}
-                            className={cx(
-                              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                              "hover:bg-primary/5",
-                              (!responseActionSelectedId || !responseActionCanCancel || responseActionBusy) && "opacity-60 cursor-not-allowed"
-                            )}
                           >
                             {responseActionBusy ? "Working..." : "Cancel action"}
-                          </button>
-                          <button
-                            type="button"
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             onClick={() => setResponseActionTab("result")}
                             disabled={!responseActionSelectedId}
-                            className={cx(
-                              "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                              "hover:bg-primary/5",
-                              !responseActionSelectedId && "opacity-60 cursor-not-allowed"
-                            )}
                           >
                             Open result viewer
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     </Panel>
@@ -588,7 +532,7 @@ export default function ResponseActionDrawer({ controller, user, isAdmin, agents
                           </div>
                         </div>
 
-                        {responseActionResultError && <div className="text-[11px] text-danger">{responseActionResultError}</div>}
+                        {responseActionResultError && <InlineAlert tone="danger">{responseActionResultError}</InlineAlert>}
 
                         {!responseActionResult ? (
                           <EmptyState title="Result unavailable" hint="This action has not reported a result yet." />
@@ -619,46 +563,18 @@ export default function ResponseActionDrawer({ controller, user, isAdmin, agents
                             </div>
 
                             <div className="flex flex-wrap items-center gap-3">
-                              <button
-                                type="button"
-                                onClick={onCopyResponseResultJson}
-                                className={cx(
-                                  "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                                  "hover:bg-primary/5"
-                                )}
-                              >
+                              <Button variant="secondary" size="sm" onClick={onCopyResponseResultJson}>
                                 Copy JSON
-                              </button>
-                              <button
-                                type="button"
-                                onClick={onDownloadResponseResultJson}
-                                className={cx(
-                                  "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                                  "hover:bg-primary/5"
-                                )}
-                              >
+                              </Button>
+                              <Button variant="secondary" size="sm" onClick={onDownloadResponseResultJson}>
                                 Download result
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setPinResponseResultId(responseActionResult.id)}
-                                className={cx(
-                                  "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                                  "hover:bg-primary/5"
-                                )}
-                              >
+                              </Button>
+                              <Button variant="secondary" size="sm" onClick={() => setPinResponseResultId(responseActionResult.id)}>
                                 Pin to workspace
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setResponseActionResultRawOpen((prev) => !prev)}
-                                className={cx(
-                                  "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                                  "hover:bg-primary/5"
-                                )}
-                              >
+                              </Button>
+                              <Button variant="secondary" size="sm" onClick={() => setResponseActionResultRawOpen((prev) => !prev)}>
                                 {responseActionResultRawOpen ? "Hide details" : "Open details"}
-                              </button>
+                              </Button>
                             </div>
 
                             {responseActionResultRawOpen ? (
@@ -676,7 +592,7 @@ export default function ResponseActionDrawer({ controller, user, isAdmin, agents
                   actions={<span className="text-[10px] font-mono text-muted-foreground">{responseActionHistoryLoading ? "Loading" : responseActionHistory.length ? String(responseActionHistory.length) : "Empty"}</span>}
                 >
                   {responseActionHistoryError ? (
-                    <div className="text-[11px] text-danger">{responseActionHistoryError}</div>
+                    <InlineAlert tone="danger">{responseActionHistoryError}</InlineAlert>
                   ) : responseActionHistory.length === 0 ? (
                     <div className="text-[12px] text-muted-foreground">No actions found for this agent.</div>
                   ) : (
@@ -684,21 +600,23 @@ export default function ResponseActionDrawer({ controller, user, isAdmin, agents
                       {responseActionHistory.map((x) => {
                         const active = x.id === responseActionSelectedId;
                         return (
-                          <button
+                          <EuiPanel
                             key={x.id}
-                            type="button"
                             onClick={() => onSelectResponseAction(x.id)}
-                            className={cx(
-                              "w-full rounded border px-3 py-2 text-left",
-                              active ? "border-primary/60 bg-primary/10" : "border-border/60 bg-background/30 hover:bg-muted/10"
-                            )}
+                            hasBorder
+                            hasShadow={false}
+                            paddingSize="s"
+                            borderRadius="m"
+                            color={active ? "primary" : "plain"}
+                            className="w-full text-left"
+                            aria-pressed={active}
                           >
                             <div className="flex items-center justify-between gap-3">
                               <div className="text-[12px] font-mono">#{x.id} {x.action_type}</div>
                               <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">{x.status}</div>
                             </div>
                             <div className="mt-1 text-[11px] text-muted-foreground">requested {fmtMaybeIso(x.requested_at)}</div>
-                          </button>
+                          </EuiPanel>
                         );
                       })}
                     </div>
@@ -712,18 +630,9 @@ export default function ResponseActionDrawer({ controller, user, isAdmin, agents
                 <div className="text-[11px] text-muted-foreground">
                   Request, execution, and result are available in a single operator console.
                 </div>
-                <button
-                  type="button"
-                  onClick={closeResponseActionDrawer}
-                  disabled={responseActionBusy}
-                  className={cx(
-                    "border border-border/60 bg-background/40 px-3 py-2 text-[10px] font-mono font-bold uppercase tracking-widest",
-                    "hover:bg-primary/5",
-                    responseActionBusy && "opacity-60 cursor-not-allowed"
-                  )}
-                >
+                <Button variant="secondary" size="sm" onClick={closeResponseActionDrawer} disabled={responseActionBusy}>
                   Close
-                </button>
+                </Button>
               </div>
             </div>
           </InvestigationShell>

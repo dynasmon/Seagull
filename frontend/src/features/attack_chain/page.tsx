@@ -11,8 +11,8 @@ import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { SeverityPill } from "@/shared/components/SeverityPill";
 import { StatusPill } from "@/shared/components/StatusPill";
+import { Table, type Column } from "@/shared/components/Table";
 import { TextInput } from "@/shared/components/TextInput";
-import { cx } from "@/shared/lib/cx";
 
 import { listAgents } from "@/features/agents/api";
 import type { AgentPublic } from "@/features/agents/types";
@@ -293,6 +293,68 @@ export default function AttackChainPage() {
 
   const density = applied.density;
   const dense = density === "compact";
+
+  const caseColumns: Column<AttackChainCase>[] = [
+    {
+      key: "risk",
+      title: "Risk",
+      render: (r) => (
+        <div className="flex flex-nowrap items-center gap-1.5">
+          <StatusPill variant={statusPillVariant(r.status)} withDot>{r.status}</StatusPill>
+          <SeverityPill variant={scoreVariant(r.score)} withDot>score {r.score}</SeverityPill>
+        </div>
+      ),
+    },
+    {
+      key: "stage",
+      title: "Stage / Agent",
+      render: (r) => (
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0 text-sm font-semibold">{stageLabel(r.max_stage)}</span>
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground">{r.step_count} steps · agent {r.agent_id}</span>
+        </div>
+      ),
+    },
+    {
+      key: "suspect",
+      title: "Suspect / Seen",
+      render: (r) => (
+        <div className="flex min-w-0 items-center gap-1.5 font-mono">
+          <span className="min-w-0 truncate text-[12px]" title={r.suspect_ip || ""}>
+            {r.suspect_ip || "-"}
+          </span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {fmtTs(r.last_seen_at)}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "actions",
+      title: "Actions",
+      align: "right",
+      render: (r) => (
+        <div className="flex flex-nowrap items-center justify-end gap-2">
+          <Button
+            variant="subtle"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); openCase(r.id); }}
+            title="Open attack-chain drawer"
+          >
+            View
+          </Button>
+          <Button
+            variant="subtle"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); pivotToInvestigations(r.id); }}
+            title="Pivot case into investigations workspace"
+          >
+            Investigate
+          </Button>
+        </div>
+      ),
+    },
+  ];
   const openCases = useMemo(() => rows.filter((row) => String(row.status).toLowerCase() === "open").length, [rows]);
   const closedCases = useMemo(() => rows.filter((row) => String(row.status).toLowerCase() === "closed").length, [rows]);
   const highRiskCases = useMemo(() => rows.filter((row) => Number(row.score) >= 60).length, [rows]);
@@ -503,72 +565,16 @@ export default function AttackChainPage() {
 
           {!error && rows.length > 0 ? (
             <div className="w-full">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-[2] bg-surface-2/95 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur-sm">
-                  <tr>
-                    <th className="border-b border-border px-3 py-2.5">Risk</th>
-                    <th className="border-b border-border px-3 py-2.5">Stage / Agent</th>
-                    <th className="border-b border-border px-3 py-2.5">Suspect / Seen</th>
-                    <th className="border-b border-border px-3 py-2.5 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => {
-                    const selected = selectedId !== null && r.id === selectedId;
-                    return (
-                      <tr
-                        key={r.id}
-                        className={cx(
-                          "cursor-pointer border-t border-border/55 ui-row",
-                          selected && "ui-row-selected",
-                        )}
-                        onClick={() => openCase(r.id)}
-                        role="button"
-                        tabIndex={0}
-                      >
-                        <td className={cx("px-3", dense ? "py-1.5" : "py-2.5")}>
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <StatusPill variant={statusPillVariant(r.status)} withDot>{r.status}</StatusPill>
-                            <SeverityPill variant={scoreVariant(r.score)} withDot>score {r.score}</SeverityPill>
-                          </div>
-                        </td>
-                        <td className={cx("px-3", dense ? "py-1.5" : "py-2.5")}>
-                          <div className="text-sm font-semibold">{stageLabel(r.max_stage)}</div>
-                          <div className="text-[11px] text-muted-foreground">{r.step_count} steps · agent {r.agent_id}</div>
-                        </td>
-                        <td className={cx("px-3", dense ? "py-1.5" : "py-2.5")}>
-                          <div className="break-all font-mono text-[12px]" title={r.suspect_ip || ""}>
-                            {r.suspect_ip || "-"}
-                          </div>
-                          <div className="font-mono text-[11px] text-muted-foreground">
-                            {fmtTs(r.last_seen_at)}
-                          </div>
-                        </td>
-                        <td className={cx("px-3 text-right", dense ? "py-1.5" : "py-2.5")}>
-                          <div className="flex flex-wrap items-center justify-end gap-2">
-                            <Button
-                              variant="subtle"
-                              size="sm"
-                              onClick={(e) => { e.stopPropagation(); openCase(r.id); }}
-                              title="Open attack-chain drawer"
-                            >
-                              View
-                            </Button>
-                            <Button
-                              variant="subtle"
-                              size="sm"
-                              onClick={(e) => { e.stopPropagation(); pivotToInvestigations(r.id); }}
-                              title="Pivot case into investigations workspace"
-                            >
-                              Investigate
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <Table
+                className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                columns={caseColumns}
+                rows={rows}
+                rowKey={(r) => String(r.id)}
+                compact={dense}
+                selectedRowKey={selectedId !== null ? String(selectedId) : null}
+                rowClassName={() => "cursor-pointer"}
+                onRowClick={(r) => openCase(r.id)}
+              />
             </div>
           ) : null}
 

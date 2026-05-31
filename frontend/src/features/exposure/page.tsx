@@ -9,6 +9,7 @@ import { Card } from "@/shared/components/Card";
 import { DataQueryStateBanner } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
 import PageHeader from "@/shared/components/PageHeader";
+import { Tabs } from "@/shared/components/Tabs";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { isAbortError } from "@/shared/lib/http";
 import { usePortalRealtimeSubscription } from "@/shared/realtime";
@@ -671,7 +672,7 @@ export default function ExposurePage() {
     <div className="space-y-6">
       <PageHeader
         title="Exposure Graph"
-        breadcrumb={["Assets & Exposure", "Exposure Graph"]}
+        breadcrumb={["Exposure & Vulnerabilities", "Exposure Graph"]}
         description="Asset risk, evidence relationships, and attack-path prioritization."
         toolbarRight={
           isAdmin ? (
@@ -702,18 +703,7 @@ export default function ExposurePage() {
       </div>
 
       <div className="px-4 sm:px-5">
-        <div className="ui-tab-shell border-b border-border/60">
-          {tabs.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setTab(item.id)}
-              className={`ui-tab-item${tab === item.id ? " ui-tab-item-active" : ""}`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        <Tabs value={tab} onChange={setTab} tabs={tabs.map((item) => ({ key: item.id, label: item.label }))} />
       </div>
 
       <div className="px-4 sm:px-5">
