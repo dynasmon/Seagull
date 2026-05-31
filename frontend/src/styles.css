@@ -238,10 +238,6 @@ html.dark {
     @apply inline-flex h-8 items-center justify-center rounded-md border border-danger/50 bg-danger/10 px-3 text-[11.5px] font-semibold text-danger transition-colors hover:bg-danger/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/35;
   }
 
-  .ui-input {
-    @apply h-9 w-full rounded-md border border-border bg-card px-3 text-[12px] text-foreground placeholder:text-muted-foreground/70 transition-colors focus:border-primary focus:bg-card focus:outline-none focus:ring-2 focus:ring-primary/25;
-  }
-
   .ui-select {
     @apply h-9 w-full rounded-md border border-border bg-card px-3 text-[12px] text-foreground transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25;
   }

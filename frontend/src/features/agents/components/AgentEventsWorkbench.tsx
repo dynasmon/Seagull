@@ -104,7 +104,7 @@ export default function AgentEventsWorkbench({
                   max={10080}
                   fallback={defaultWindowMinutes}
                   onCommit={(v) => setEventsCfg((p) => ({ ...p, window_minutes: v }))}
-                  className="mt-1 font-mono text-[11px]"
+                  className="mt-1 w-full font-mono text-[11px]"
                   title="Lookback window (minutes)"
                 />
               </div>
@@ -117,7 +117,7 @@ export default function AgentEventsWorkbench({
                   max={5000}
                   fallback={defaultEventsLimit}
                   onCommit={(v) => setEventsCfg((p) => ({ ...p, limit: v }))}
-                  className="mt-1 font-mono text-[11px]"
+                  className="mt-1 w-full font-mono text-[11px]"
                   title="Max events to fetch"
                 />
               </div>
