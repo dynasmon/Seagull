@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, type MouseEvent, type ReactNode } from "react";
 import { EuiBasicTable, EuiCheckbox } from "@elastic/eui";
 import type { Criteria, EuiBasicTableColumn, EuiTableSortingType } from "@elastic/eui";
 
@@ -44,6 +44,7 @@ export function Table<T extends object>({
   onSortChange,
   rowClassName,
   footer,
+  expandedRowMap,
 }: {
   columns: Array<Column<T>>;
   rows: T[];
@@ -57,11 +58,12 @@ export function Table<T extends object>({
   selectableRows?: boolean;
   onToggleRow?: (row: T, checked: boolean) => void;
   onToggleAllRows?: (checked: boolean) => void;
-  onRowClick?: (row: T, idx: number) => void;
+  onRowClick?: (row: T, idx: number, event: MouseEvent<HTMLTableRowElement>) => void;
   sort?: TableSortState | null;
   onSortChange?: (next: TableSortState) => void;
   rowClassName?: (row: T, idx: number) => string | undefined;
   footer?: ReactNode;
+  expandedRowMap?: Record<string, ReactNode>;
 }) {
   const selectedSet = toSelectedSet(selectedRowKeys);
 
@@ -132,8 +134,9 @@ export function Table<T extends object>({
     const key = keyForRow(row);
     const isSelected = (selectedRowKey != null && key === selectedRowKey) || selectedSet.has(key);
     return {
+      "data-seagull-row-key": key,
       className: cx("ui-row", isSelected && "ui-row-selected", rowClassName?.(row, idx)),
-      onClick: onRowClick ? () => onRowClick(row, idx) : undefined,
+      onClick: onRowClick ? (event: MouseEvent<HTMLTableRowElement>) => onRowClick(row, idx, event) : undefined,
     };
   };
 
@@ -158,6 +161,8 @@ export function Table<T extends object>({
           tableLayout="auto"
           responsiveBreakpoint={false}
           noItemsMessage=""
+          itemId={expandedRowMap ? (row: T) => keyForRow(row) : undefined}
+          itemIdToExpandedRowMap={expandedRowMap}
         />
       </div>
       {footer ? <div className="border-t border-border bg-surface-2/60 px-3 py-2">{footer}</div> : null}
