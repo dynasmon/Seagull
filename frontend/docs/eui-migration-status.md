@@ -4,7 +4,20 @@
 
 Branch: `spike/elastic-eui` · Goal: migrate the Seagull frontend to **real `@elastic/eui`** (Borealis theme), faithfully Kibana-like. **The human commits/pushes — never run `git commit`/`push`.** Nothing is auto-committed by the assistant.
 
-Last updated: 2026-05-30 (default table density → EUI `compressed`; `ResponseActionDrawer` → EUI done; `DraftNumberInput` → `EuiFieldNumber` done; ALL 8 feature areas done).
+Last updated: 2026-05-30 EOD (Kibana-density pass started: compressed default + **single-line rows on Alerts**; ResponseActionDrawer, DraftNumberInput, all 8 feature areas done). **Browser QA now available via Playwright MCP.**
+
+---
+
+## ▶ NEXT SESSION — resume here (paused 2026-05-30 EOD)
+
+**In flight: the Kibana row-density pass ("Option 1 — single-line rows").** Goal: collapse stacked table cells to one line so data rows are ~40px (Kibana-dense), keeping all info (truncate long values with a hover `title`).
+
+- **DONE & committed:** default density → EUI `compressed` (`4e4f237`/`f683381`); **Alerts** table single-line — Alert (severity pill · rule · timestamp) + Network (src→dst) on one line, Description truncates (`aa7bdda`); shared **`IpAddressPill` compact** is now inline (`flex-nowrap` + `min-w-0` truncation chain), which also densified Events/Inventory/Topology pills; **port-overflow fix** so the dst `:port` can't spill into the next column (`0fe0002`). Alerts rows went **70px → 41px**, verified in-browser.
+- **⟶ FIRST THING TOMORROW — the open decision (unanswered):** how far to propagate single-line rows? **Full pass** vs **high-traffic three first (Events, Vulnerabilities, Inventory)**. Remaining multi-line tables to collapse: Events stream/ssh/ddos (`EventsTable`, `DdosEventsTable`), Vulnerabilities findings + scans, Inventory tables, Investigations workspaces, Attack-chain cases, Audit, Correlations, UEBA, Internal.
+  - **How:** in each table's column `render`, put the primary value + its secondary line(s) on one row (`flex items-center gap-2 min-w-0`; secondary text muted + `shrink-0`; long text `truncate` + `title`). Reuse the now-inline compact `IpAddressPill`. **After each table, check the browser for cell overflow** — the Alerts `:port` bug pattern was content `scrollWidth > clientWidth` spilling into the next column; fix by completing the `min-w-0` chain on every flex ancestor. Verify build/lint/tests + screenshot, commit per area.
+- **Then the other remaining items** (unchanged, below): bundle + EUI icon tree-shaking; optional `DataView` layout shells; full **dark + light** QA sweep (now doable in-browser).
+
+**Browser QA is now wired up (Playwright MCP):** `.mcp.json` at repo root runs `@playwright/mcp` on the Google **Chrome channel** (installed via `sudo npx playwright install --with-deps chrome`). **Run Claude Code inside the VM** so `localhost:5173` (Vite dev) / `:8000` (backend) resolve. Local dev login: the **admin** user on the **Password** tab (no OTP in dev). Drive via `browser_navigate` / `browser_snapshot` / `browser_evaluate` (great for measuring row heights / detecting overflow) / `browser_take_screenshot`. **Untracked git items:** commit `.mcp.json` to share the config; add `.playwright-mcp/` to `.gitignore`.
 
 ---
 
@@ -13,9 +26,10 @@ Last updated: 2026-05-30 (default table density → EUI `compressed`; `ResponseA
 Phases **1, 2, 3, 4 are DONE**, and **all 8 Phase 5 feature areas are DONE** (1 Alerts · 2 Events · 3 Entities/Inventory · 4 Network/Topology · 5 Exposure & Vulnerabilities · 6 Investigations & Cases · 7 Governance & Platform · 8 Settings), plus the shared **`DataView` primitives** (cross-cutting, ~21 pages), the shared **`DraftNumberInput`** cross-cutting batch, and the **`ResponseActionDrawer`** (Response & Automation). **The per-feature migration is complete — every feature page now renders on the shared EUI adapters; what remains is cross-cutting cleanup + final visual QA.** All work passed the verification baseline at every batch (build 0, lint 0-err/12-warn, tests at baseline, eager entry ~114.6 KB gz).
 
 **Remaining (not feature areas):**
+0. **(IN FLIGHT) Kibana row-density pass** — single-line rows across all data tables. Alerts done; see the **▶ NEXT SESSION** block at the top for the open scope decision, the table list, and the how-to.
 1. Optionally finish the `DataView` **layout shells** on EUI (`DataViewToolbar`→`EuiPanel`, `DataTableSkeleton`→`EuiSkeleton*`) — kept as-is so far.
 2. Bundle re-measure + EUI icon tree-shaking (`appendIconComponentCache`); reconsider the `code_block` highlighter lazy chunk.
-3. The full **dark + light browser QA SWEEP** across every page (no browser in this env) — see the per-area checklists below.
+3. The full **dark + light browser QA SWEEP** across every page (**browser now available** via Playwright MCP — see the NEXT SESSION block) — see the per-area checklists below.
 
 ---
 
