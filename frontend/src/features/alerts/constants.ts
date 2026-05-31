@@ -21,7 +21,7 @@ export const DEFAULTS: ViewCfg = {
   page_size: 200,
   infinite_scroll: false,
   wrap_json: true,
-  density: "comfortable",
+  density: "compact",
 };
 
 export const ALERTS_RT_FLUSH_MS = 220;

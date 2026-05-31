@@ -33,7 +33,7 @@ export function Table<T extends object>({
   className,
   scrollX = false,
   stickyHeader = true,
-  compact = false,
+  compact = true,
   selectedRowKey,
   selectedRowKeys,
   selectableRows = false,

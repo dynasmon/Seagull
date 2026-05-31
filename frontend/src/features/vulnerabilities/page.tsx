@@ -179,7 +179,7 @@ export default function VulnerabilitiesPage() {
     defaultPageSize: 50,
     minPageSize: 10,
     maxPageSize: 500,
-    defaultCompact: false,
+    defaultCompact: true,
   });
   const density: Density = findingsTablePrefs.compact ? "compact" : "comfortable";
   const setDensity = (next: Density) => findingsTablePrefs.setCompact(next === "compact");

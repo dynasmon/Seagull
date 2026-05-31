@@ -50,7 +50,7 @@ function mergeView(prev: ViewCfg, next: Partial<ViewCfg>): ViewCfg {
   merged.page_size = clampInt(merged.page_size, 10, 200, DEFAULTS.page_size);
   merged.infinite_scroll = Boolean(merged.infinite_scroll);
   merged.wrap_json = Boolean(merged.wrap_json);
-  merged.density = merged.density === "compact" ? "compact" : "comfortable";
+  merged.density = merged.density === "comfortable" ? "comfortable" : "compact";
   return merged;
 }
 
