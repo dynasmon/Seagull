@@ -4,7 +4,7 @@
 
 Branch: `spike/elastic-eui` · Goal: migrate the Seagull frontend to **real `@elastic/eui`** (Borealis theme), faithfully Kibana-like. **The human commits/pushes — never run `git commit`/`push`.** Nothing is auto-committed by the assistant.
 
-Last updated: 2026-05-30 (`ResponseActionDrawer` → EUI done; cross-cutting `DraftNumberInput` → `EuiFieldNumber` done; ALL 8 feature areas done).
+Last updated: 2026-05-30 (default table density → EUI `compressed`; `ResponseActionDrawer` → EUI done; `DraftNumberInput` → `EuiFieldNumber` done; ALL 8 feature areas done).
 
 ---
 
@@ -100,6 +100,13 @@ The Response-action operator console (`agents/components/ResponseActionDrawer.ts
 - **Block + section status `<div>`s → `InlineAlert`** (EuiCallOut): the top create error/success (danger/success) and the live/result/history data-fetch errors (danger) — 5 callouts.
 - **Intentionally KEPT:** the 4 top `InvestigationActionButton`s (already on the kit); the 3 inline field-validation hints (expiration invalid/in-past, payload error) as field micro-copy (tightly bound to their input, sibling to the existing `text-muted-foreground` hints — same rationale as the Alerts "all/none" / FieldLabel affordances); `FieldLabel`; the summary/info display tiles; the two footer container `<div>`s (layout shells, `Toolbar` rationale). Removed the now-unused `cx` import.
 - Verification: build exit 0; lint 0-err/12-warn; tests at baseline (16 failed files, 3 failed assertions, 81 passed); eager entry `dist/assets/index-*.js` **111.31 KB gzip** (under baseline — the drawer stays route-split, nothing leaked eager). Net −91 lines (57 ins / 148 del).
+
+### Cross-cutting — default table density → EUI `compressed` (Kibana-dense rows)
+Make the dense Elastic/Kibana table look the app default. The shared `Table` adapter's `compact` prop (which maps to `EuiBasicTable` `compressed`) now **defaults to `true`**, so every table that doesn't manage its own density renders compressed (~12px font + tight cell padding) instead of EUI "comfortable".
+- Per-page density-toggle defaults flipped comfortable→compact: **Inventory**, **Vulnerabilities** findings + scans, **Audit** (added `defaultCompact: true` to its `useDataTablePreferences`), and the **Alerts queue** (its `constants.ts` `DEFAULTS.density` + the two parse fallbacks in `alertQuery.ts` / `useAlertsQueryState.ts`, which now default unset density to compact unless explicitly `"comfortable"`). **Agents** fleet and **Exposure** assets were already `defaultCompact: true`.
+- **Events stream keeps `defaultCompact: false` on purpose** — its `compact` toggle also adds the details column (rule/user/pps/entropy), a separate UX, so flipping it would change default columns.
+- Density toggles still work; persisted explicit prefs are respected (a saved "comfortable" is kept — so an existing localStorage value may need a one-time toggle/clear to pick up the new default). Storage keys intentionally NOT bumped (avoids wiping saved page-size/sort/filters).
+- Verification: build 0, lint 0-err/12-warn, tests at baseline, eager entry 111.29 KB gz.
 
 ### Phase 5 — Area 2: Events & Hunt (`src/features/events/`)
 The 4 lenses (stream/ssh/network/ddos) already consumed the now-EUI `DataView` + shared `Table`/`Panel`/form adapters; this pass migrated the views' own remaining raw bits. All behavior (realtime, filters, scope draft/apply, drawers, pagination, deep-links) preserved.
