@@ -1175,37 +1175,35 @@ export default function InvestigationsPage() {
       key: "workspace",
       title: "Workspace",
       render: (ws) => (
-        <>
-          <div className="font-semibold">{ws.title}</div>
-          <div className="break-all font-mono text-[11px] text-muted-foreground">{ws.workspace_key}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-1">
-            <StatusPill variant={statusPillVariant(ws.status)} withDot>{ws.status}</StatusPill>
-            <SeverityPill variant={severityVariant(ws.severity)} withDot>{ws.severity}</SeverityPill>
-            <Badge variant="neutral">{ws.priority}</Badge>
-          </div>
-        </>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <StatusPill variant={statusPillVariant(ws.status)} withDot>{ws.status}</StatusPill>
+          <SeverityPill variant={severityVariant(ws.severity)} withDot>{ws.severity}</SeverityPill>
+          <Badge variant="neutral">{ws.priority}</Badge>
+          <span className="min-w-0 truncate font-semibold" title={ws.title}>{ws.title}</span>
+          <span className="shrink-0 max-w-[12rem] truncate font-mono text-[11px] text-muted-foreground" title={ws.workspace_key}>{ws.workspace_key}</span>
+        </div>
       ),
     },
     {
       key: "assignment",
       title: "Assignment",
       render: (ws) => (
-        <>
-          <div className="text-[12px]">{ws.assignee || <span className="text-muted-foreground">Unassigned</span>}</div>
-          <div className="font-mono text-[11px] text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate text-[12px]">{ws.assignee || <span className="text-muted-foreground">Unassigned</span>}</span>
+          <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
             {ws.linked_attack_chain_case_id ? `case #${ws.linked_attack_chain_case_id}` : "no linked case"}
-          </div>
-        </>
+          </span>
+        </div>
       ),
     },
     {
       key: "activity",
       title: "Activity",
       render: (ws) => (
-        <>
-          <div className="font-mono text-[12px]">{fmtTs(ws.updated_at)}</div>
-          <div className="text-[11px] text-muted-foreground">{ws.notes_count} notes · {ws.bookmarks_count} evidence</div>
-        </>
+        <div className="flex items-center gap-1.5 whitespace-nowrap">
+          <span className="font-mono text-[12px]">{fmtTs(ws.updated_at)}</span>
+          <span className="text-[11px] text-muted-foreground">{ws.notes_count} notes · {ws.bookmarks_count} evidence</span>
+        </div>
       ),
     },
     {

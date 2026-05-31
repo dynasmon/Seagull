@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Badge } from "@/shared/components/Badge";
+import { Button } from "@/shared/components/Button";
+import { CheckboxField } from "@/shared/components/CheckboxField";
 import Drawer from "@/shared/components/Drawer";
+import { InlineAlert } from "@/shared/components/InlineAlert";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { TextArea } from "@/shared/components/TextArea";
 import {
@@ -302,23 +305,19 @@ function VerdictPanel({
             ["false_positive", "Mark False Positive"],
             ["benign_acknowledged", "Acknowledge as Benign"],
           ] as Array<[UebaVerdict, string]>).map(([verdict, label]) => (
-            <button
+            <Button
               key={verdict}
-              type="button"
+              variant={pendingVerdict === verdict ? "primary" : "secondary"}
+              size="sm"
               disabled={busy}
               onClick={() => {
                 setPendingVerdict((current) => (current === verdict ? null : verdict));
                 setError(null);
               }}
-              className={cx(
-                "rounded-md border px-3 py-2 text-left text-[12px] transition-colors",
-                pendingVerdict === verdict
-                  ? "border-severity-medium/60 bg-severity-medium/10 text-foreground"
-                  : "border-border/60 bg-background/30 text-muted-foreground hover:text-foreground",
-              )}
+              className="w-full"
             >
               {label}
-            </button>
+            </Button>
           ))}
         </div>
 
@@ -349,34 +348,21 @@ function VerdictPanel({
               className="min-h-[72px] text-xs"
             />
             {latestVerdict && latestVerdict !== pendingVerdict && (
-              <label className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={override}
-                  onChange={(event) => setOverride(event.target.checked)}
-                  className="h-3.5 w-3.5"
-                />
-                Record override
-              </label>
+              <CheckboxField
+                label="Record override"
+                checked={override}
+                onChange={(event) => setOverride(event.target.checked)}
+                className="font-mono text-[11px] text-muted-foreground"
+              />
             )}
-            {error && <div className="font-mono text-[11px] text-severity-high">{error}</div>}
+            {error && <InlineAlert tone="danger">{error}</InlineAlert>}
             <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setPendingVerdict(null)}
-                disabled={busy}
-                className="ui-btn-secondary h-8 px-3 text-xs"
-              >
+              <Button variant="secondary" size="sm" onClick={() => setPendingVerdict(null)} disabled={busy}>
                 Cancel
-              </button>
-              <button
-                type="button"
-                onClick={submit}
-                disabled={busy}
-                className="ui-btn-primary h-8 px-3 text-xs"
-              >
+              </Button>
+              <Button variant="primary" size="sm" onClick={submit} disabled={busy}>
                 {busy ? "Submitting..." : "Confirm"}
-              </button>
+              </Button>
             </div>
           </div>
         )}

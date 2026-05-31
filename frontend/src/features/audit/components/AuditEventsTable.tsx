@@ -93,9 +93,9 @@ export default function AuditEventsTable({
               title: "Event",
               className: "font-mono text-xs",
               render: (r) => (
-                <div className="space-y-1">
-                  <div>{r.event_type}</div>
-                  <div className="text-[11px] text-muted-foreground">{r.action}</div>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="shrink-0">{r.event_type}</span>
+                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">{r.action}</span>
                 </div>
               ),
             },
@@ -104,9 +104,9 @@ export default function AuditEventsTable({
               title: "Resource",
               className: "font-mono text-xs",
               render: (r) => (
-                <div className="space-y-1">
-                  <div>{r.resource_type}</div>
-                  <div className="text-[11px] text-muted-foreground break-all">{r.resource_id || "-"}</div>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="shrink-0">{r.resource_type}</span>
+                  <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={r.resource_id || ""}>{r.resource_id || "-"}</span>
                 </div>
               ),
             },
@@ -122,7 +122,10 @@ export default function AuditEventsTable({
               key: "summary",
               title: "Summary",
               className: "text-xs",
-              render: (r) => <div className="line-clamp-2">{summarizeEvent(r)}</div>,
+              render: (r) => {
+                const summary = summarizeEvent(r);
+                return <div className="truncate" title={summary}>{summary}</div>;
+              },
             },
             {
               key: "badges",
