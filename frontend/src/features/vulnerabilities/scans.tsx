@@ -209,23 +209,21 @@ export default function VulnerabilityScansPage() {
       render: (s) => {
         const live = isLiveScan(String(s.lifecycle_state || "").toLowerCase());
         return (
-          <>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant={scanVariant(s.lifecycle_state)}>{scanLifecycleLabel(s.lifecycle_state)}</Badge>
-              <span
-                className={cx(
-                  "inline-flex rounded border px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-widest",
-                  s.trigger_source === "manual" ? "border-info/30 text-info/70" : "border-border/40 text-muted-foreground/60"
-                )}
-              >
-                {scanTriggerLabel(s.trigger_source)}
-              </span>
-            </div>
-            <div className="mt-1 font-mono text-[12px]">{s.tool}{s.tool_version ? `@${s.tool_version}` : ""}</div>
-            <div className={cx("text-[11px]", live ? "text-primary/80" : "text-muted-foreground")}>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Badge variant={scanVariant(s.lifecycle_state)}>{scanLifecycleLabel(s.lifecycle_state)}</Badge>
+            <span
+              className={cx(
+                "shrink-0 inline-flex rounded border px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-widest",
+                s.trigger_source === "manual" ? "border-info/30 text-info/70" : "border-border/40 text-muted-foreground/60"
+              )}
+            >
+              {scanTriggerLabel(s.trigger_source)}
+            </span>
+            <span className="min-w-0 truncate font-mono text-[12px]">{s.tool}{s.tool_version ? `@${s.tool_version}` : ""}</span>
+            <span className={cx("shrink-0 text-[11px]", live ? "text-primary/80" : "text-muted-foreground")}>
               {scanPhaseLabel(s.current_phase)}
-            </div>
-          </>
+            </span>
+          </div>
         );
       },
     },
@@ -244,9 +242,9 @@ export default function VulnerabilityScansPage() {
               : NaN;
         const live = isLiveScan(String(s.lifecycle_state || "").toLowerCase());
         return (
-          <>
-            <div className="text-foreground">{fmtWhen(s.started_at || s.queued_at)}</div>
-            <div className="text-muted-foreground">
+          <div className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className="text-foreground">{fmtWhen(s.started_at || s.queued_at)}</span>
+            <span className="text-muted-foreground">
               {live ? (
                 <LiveElapsedText startIso={s.started_at ?? s.queued_at} endIso={s.finished_at} className="text-primary/90" />
               ) : Number.isFinite(dur) ? (
@@ -254,9 +252,9 @@ export default function VulnerabilityScansPage() {
               ) : (
                 "—"
               )}
-            </div>
-            <div className="text-muted-foreground">last progress {fmtAge(s.last_progress_at)}</div>
-          </>
+            </span>
+            <span className="text-muted-foreground">· last {fmtAge(s.last_progress_at)}</span>
+          </div>
         );
       },
     },
@@ -264,12 +262,12 @@ export default function VulnerabilityScansPage() {
       key: "agent",
       title: "Agent / Target",
       render: (s) => (
-        <>
-          <div className="font-mono text-[12px]">{s.reporter_agent_id || "-"}</div>
-          <div className="break-all text-[11px] text-muted-foreground" title={s.target || ""}>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0 font-mono text-[12px]">{s.reporter_agent_id || "-"}</span>
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={s.target || ""}>
             {s.target || s.scan_uuid}
-          </div>
-        </>
+          </span>
+        </div>
       ),
     },
     {
@@ -279,7 +277,7 @@ export default function VulnerabilityScansPage() {
         const hasNumericStats = Object.values(s.stats || {}).some(
           (value) => typeof value === "number" && Number.isFinite(value)
         );
-        return hasNumericStats ? <ScanStats stats={s.stats} /> : <span className="text-xs text-muted-foreground">-</span>;
+        return hasNumericStats ? <ScanStats stats={s.stats} nowrap /> : <span className="text-xs text-muted-foreground">-</span>;
       },
     },
     {

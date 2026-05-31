@@ -14,7 +14,6 @@ import {
   exposureStatusVariant,
   formatExposureConfidence,
   formatExposureTimestamp,
-  truncateText,
 } from "../utils";
 import { ExposureReasonCodes } from "./ExposureReasonCodes";
 
@@ -51,9 +50,9 @@ export function ExposureFindingList({
         title: "Finding",
         width: 220,
         render: (finding) => (
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-foreground">{finding.title}</div>
-            <div className="mt-1 font-mono text-[11px] text-muted-foreground">{finding.finding_type}</div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate text-sm font-semibold text-foreground" title={finding.title}>{finding.title}</span>
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{finding.finding_type}</span>
           </div>
         ),
       },
@@ -90,8 +89,8 @@ export function ExposureFindingList({
         title: "Summary",
         width: 320,
         render: (finding) => (
-          <div className="text-[12px] text-muted-foreground">
-            {truncateText(finding.summary || finding.title, 180)}
+          <div className="truncate text-[12px] text-muted-foreground" title={finding.summary || finding.title}>
+            {finding.summary || finding.title}
           </div>
         ),
       },
@@ -106,7 +105,7 @@ export function ExposureFindingList({
         key: "reason_codes",
         title: "Reason Codes",
         width: 220,
-        render: (finding) => <ExposureReasonCodes codes={finding.reason_codes.slice(0, 4)} />,
+        render: (finding) => <ExposureReasonCodes codes={finding.reason_codes.slice(0, 4)} nowrap />,
       },
       {
         key: "status",
@@ -119,8 +118,8 @@ export function ExposureFindingList({
         title: "Related Nodes",
         width: 220,
         render: (finding) => (
-          <div className="text-[11px] text-muted-foreground">
-            {finding.related_node_keys.length > 0 ? truncateText(finding.related_node_keys.join(" · "), 100) : "No related nodes"}
+          <div className="truncate text-[11px] text-muted-foreground" title={finding.related_node_keys.join(" · ")}>
+            {finding.related_node_keys.length > 0 ? finding.related_node_keys.join(" · ") : "No related nodes"}
           </div>
         ),
       },
@@ -182,6 +181,7 @@ export function ExposureFindingList({
         rows={rows}
         rowKey={(finding) => finding.finding_key}
         stickyHeader
+        scrollX
         selectedRowKey={selectedFindingKey ?? null}
         onRowClick={(finding) => onSelect?.(finding)}
         className="text-sm"

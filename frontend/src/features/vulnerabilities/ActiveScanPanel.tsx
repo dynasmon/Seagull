@@ -27,7 +27,7 @@ import type { VulnScan } from "./types";
 
 const KNOWN_STAT_KEYS = new Set(STAT_DISPLAY.flatMap((d) => d.keys));
 
-export const ScanStats = memo(function ScanStats({ stats }: { stats: Record<string, any> }) {
+export const ScanStats = memo(function ScanStats({ stats, nowrap = false }: { stats: Record<string, any>; nowrap?: boolean }) {
   const chips = useMemo(() => {
     if (!stats || typeof stats !== "object") return [];
     const rendered = new Set<string>();
@@ -60,11 +60,14 @@ export const ScanStats = memo(function ScanStats({ stats }: { stats: Record<stri
   if (!chips.length) return null;
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div
+      className={cx("flex gap-1.5", nowrap ? "min-w-0 flex-nowrap overflow-hidden" : "flex-wrap")}
+      title={nowrap ? chips.map((x) => `${x.label} ${x.value}`).join(" · ") : undefined}
+    >
       {chips.map((x) => (
         <span
           key={x.key}
-          className="inline-flex items-center gap-1.5 rounded border border-border bg-surface-2 px-2 py-0.5"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded border border-border bg-surface-2 px-2 py-0.5"
         >
           <span className="text-[9.5px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/85">{x.label}</span>
           <span className="font-mono text-[11px] text-foreground">{x.value}</span>
@@ -190,10 +193,10 @@ const RecentScansTable = memo(function RecentScansTable({
       render: (s) => {
         const live = isLiveScan(String(s.lifecycle_state || "").toLowerCase());
         return (
-          <div className="flex flex-col gap-0.5">
+          <div className="flex min-w-0 items-center gap-1.5">
             <Badge variant={scanVariant(String(s.lifecycle_state || "").toLowerCase())}>{scanLifecycleLabel(s.lifecycle_state)}</Badge>
             {s.current_phase && s.current_phase !== s.lifecycle_state ? (
-              <span className={cx("text-[10px]", live ? "text-primary/80" : "text-muted-foreground/70")}>
+              <span className={cx("min-w-0 truncate text-[10px]", live ? "text-primary/80" : "text-muted-foreground/70")}>
                 {scanPhaseLabel(s.current_phase)}
               </span>
             ) : null}
@@ -205,9 +208,9 @@ const RecentScansTable = memo(function RecentScansTable({
       key: "reporter",
       title: "Reporter / Target",
       render: (s) => (
-        <div className="flex flex-col gap-0.5">
-          <span className="font-mono text-[10px] text-foreground">{s.reporter_agent_id || "—"}</span>
-          <span className="truncate font-mono text-[10px] text-muted-foreground/70" title={s.target || ""}>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0 font-mono text-[10px] text-foreground">{s.reporter_agent_id || "—"}</span>
+          <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/70" title={s.target || ""}>
             {s.target || "—"}
           </span>
         </div>
@@ -232,9 +235,9 @@ const RecentScansTable = memo(function RecentScansTable({
       title: "Started",
       className: "font-mono text-[10px] text-muted-foreground",
       render: (s) => (
-        <div title={fmtAbsoluteAndAge(s.started_at || s.queued_at)}>
-          <div>{fmtWhen(s.started_at || s.queued_at)}</div>
-          <div className="text-muted-foreground/60">{fmtAge(s.started_at || s.queued_at)}</div>
+        <div className="flex items-center gap-1.5 whitespace-nowrap" title={fmtAbsoluteAndAge(s.started_at || s.queued_at)}>
+          <span>{fmtWhen(s.started_at || s.queued_at)}</span>
+          <span className="text-muted-foreground/60">{fmtAge(s.started_at || s.queued_at)}</span>
         </div>
       ),
     },

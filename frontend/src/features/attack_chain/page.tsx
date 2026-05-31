@@ -299,7 +299,7 @@ export default function AttackChainPage() {
       key: "risk",
       title: "Risk",
       render: (r) => (
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-nowrap items-center gap-1.5">
           <StatusPill variant={statusPillVariant(r.status)} withDot>{r.status}</StatusPill>
           <SeverityPill variant={scoreVariant(r.score)} withDot>score {r.score}</SeverityPill>
         </div>
@@ -309,24 +309,24 @@ export default function AttackChainPage() {
       key: "stage",
       title: "Stage / Agent",
       render: (r) => (
-        <>
-          <div className="text-sm font-semibold">{stageLabel(r.max_stage)}</div>
-          <div className="text-[11px] text-muted-foreground">{r.step_count} steps · agent {r.agent_id}</div>
-        </>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0 text-sm font-semibold">{stageLabel(r.max_stage)}</span>
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground">{r.step_count} steps · agent {r.agent_id}</span>
+        </div>
       ),
     },
     {
       key: "suspect",
       title: "Suspect / Seen",
       render: (r) => (
-        <>
-          <div className="break-all font-mono text-[12px]" title={r.suspect_ip || ""}>
+        <div className="flex min-w-0 items-center gap-1.5 font-mono">
+          <span className="min-w-0 truncate text-[12px]" title={r.suspect_ip || ""}>
             {r.suspect_ip || "-"}
-          </div>
-          <div className="font-mono text-[11px] text-muted-foreground">
+          </span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">
             {fmtTs(r.last_seen_at)}
-          </div>
-        </>
+          </span>
+        </div>
       ),
     },
     {
@@ -334,7 +334,7 @@ export default function AttackChainPage() {
       title: "Actions",
       align: "right",
       render: (r) => (
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-nowrap items-center justify-end gap-2">
           <Button
             variant="subtle"
             size="sm"

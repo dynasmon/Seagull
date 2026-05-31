@@ -35,9 +35,9 @@ export default function DdosEventsTable({
         render: (e) => {
           const d = extractDdosFields(e.extra);
           return (
-            <div>
-              <div className="font-mono text-muted-foreground">{fmtDateTime(new Date(e.timestamp))}</div>
-              <div className="font-mono text-foreground">{ddosLabel(d)}</div>
+            <div className="flex min-w-0 items-center gap-1.5 font-mono">
+              <span className="shrink-0 text-muted-foreground">{fmtDateTime(new Date(e.timestamp))}</span>
+              <span className="min-w-0 truncate text-foreground" title={ddosLabel(d)}>{ddosLabel(d)}</span>
             </div>
           );
         },
@@ -45,11 +45,10 @@ export default function DdosEventsTable({
       {
         key: "target",
         title: "Target",
-        className: "break-all",
         render: (e) => (
-          <span className="inline-flex max-w-full flex-wrap items-center gap-0.5 font-mono">
+          <span className="inline-flex min-w-0 max-w-full flex-nowrap items-center gap-0.5 font-mono">
             <IpAddressPill ip={e.dst_ip} ipContext={getFlowIpContext(e.extra?.ip_context, "dst")} compact />
-            <span className="text-muted-foreground">
+            <span className="shrink-0 text-muted-foreground">
               :{e.dst_port ?? "-"}/{e.proto || "-"}
             </span>
           </span>
@@ -62,10 +61,10 @@ export default function DdosEventsTable({
         render: (e) => {
           const d = extractDdosFields(e.extra);
           return (
-            <div className="font-mono">
-              <div className="text-foreground">{d.pps === null ? "-" : fmtHumanRate(d.pps)} pps</div>
-              <div className="text-foreground">{d.bps === null ? "-" : fmtHumanRate(d.bps)} bps</div>
-              <div className="text-muted-foreground">{num(d.unique_src_ips)} src IPs</div>
+            <div className="flex items-center justify-end gap-2 whitespace-nowrap font-mono">
+              <span className="text-foreground">{d.pps === null ? "-" : fmtHumanRate(d.pps)} pps</span>
+              <span className="text-foreground">{d.bps === null ? "-" : fmtHumanRate(d.bps)} bps</span>
+              <span className="text-muted-foreground">{num(d.unique_src_ips)} src</span>
             </div>
           );
         },
@@ -76,9 +75,9 @@ export default function DdosEventsTable({
         render: (e) => {
           const d = extractDdosFields(e.extra);
           return (
-            <div className="font-mono">
-              <div className="text-foreground">{d.confidence === null ? "-" : d.confidence.toFixed(2)} conf</div>
-              <div className="text-muted-foreground">{d.severity || "-"}</div>
+            <div className="flex items-center gap-2 whitespace-nowrap font-mono">
+              <span className="text-foreground">{d.confidence === null ? "-" : d.confidence.toFixed(2)} conf</span>
+              <span className="text-muted-foreground">{d.severity || "-"}</span>
             </div>
           );
         },

@@ -40,9 +40,9 @@ type Props = {
 function AssetConfidenceCell({ confidence }: { confidence: number }) {
   const value = Math.max(0, Math.min(100, Math.round(confidence)));
   return (
-    <div className="min-w-[104px]">
-      <div className="font-mono text-[12px] text-foreground">{formatExposureConfidence(value)}</div>
-      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted/60">
+    <div className="flex min-w-[104px] items-center gap-2">
+      <span className="shrink-0 font-mono text-[12px] text-foreground">{formatExposureConfidence(value)}</span>
+      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted/60">
         <div
           className={value >= 85 ? "h-full bg-success" : value >= 60 ? "h-full bg-primary" : "h-full bg-warning"}
           style={{ width: `${value}%` }}
@@ -79,13 +79,13 @@ export function ExposureAssetTable({
         width: 96,
         className: "font-mono",
         render: (asset) => (
-          <div className="space-y-1">
-            <div className="text-base font-semibold leading-none text-foreground">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-base font-semibold leading-none text-foreground">
               {formatExposureScore(asset.risk_score)}
-            </div>
-            <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+            </span>
+            <span className="min-w-0 truncate text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
               {asset.criticality}
-            </div>
+            </span>
           </div>
         ),
       },
@@ -99,22 +99,18 @@ export function ExposureAssetTable({
         key: "display_name",
         title: "Asset",
         width: 260,
-        render: (asset) => (
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-foreground" title={asset.display_name}>
-              {asset.display_name}
+        render: (asset) => {
+          const hostEnv = [asset.hostname, asset.environment].filter(Boolean).join(" · ");
+          return (
+            <div
+              className="flex min-w-0 items-center gap-1.5"
+              title={`${asset.display_name}\n${asset.asset_key}${hostEnv ? `\n${hostEnv}` : ""}`}
+            >
+              <span className="min-w-0 truncate text-sm font-semibold text-foreground">{asset.display_name}</span>
+              <span className="min-w-0 max-w-[50%] shrink-0 truncate font-mono text-[11px] text-muted-foreground">{asset.asset_key}</span>
             </div>
-            <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground" title={asset.asset_key}>
-              {asset.asset_key}
-            </div>
-            {!compact && (asset.hostname || asset.environment) ? (
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                {asset.hostname ? <span className="font-mono">{asset.hostname}</span> : null}
-                {asset.environment ? <span>{asset.environment}</span> : null}
-              </div>
-            ) : null}
-          </div>
-        ),
+          );
+        },
       },
       {
         key: "agent_id",
@@ -139,16 +135,16 @@ export function ExposureAssetTable({
         key: "reason_codes",
         title: "Reason Codes",
         width: 240,
-        render: (asset) => <ExposureReasonCodes codes={asset.reason_codes.slice(0, compact ? 2 : 4)} />,
+        render: (asset) => <ExposureReasonCodes codes={asset.reason_codes.slice(0, compact ? 2 : 4)} nowrap />,
       },
       {
         key: "evidence_counts",
         title: "Evidence",
         width: 180,
         render: (asset) => (
-          <div className="space-y-1 text-[11px]">
-            <div className="font-mono text-foreground">{totalEvidenceCount(asset.evidence_counts)} refs</div>
-            <div className="text-muted-foreground">{summarizeEvidenceCounts(asset.evidence_counts, { limit: compact ? 2 : 3 })}</div>
+          <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
+            <span className="shrink-0 font-mono text-foreground">{totalEvidenceCount(asset.evidence_counts)} refs</span>
+            <span className="min-w-0 truncate text-muted-foreground">{summarizeEvidenceCounts(asset.evidence_counts, { limit: compact ? 2 : 3 })}</span>
           </div>
         ),
       },
@@ -160,14 +156,13 @@ export function ExposureAssetTable({
           const top = asset.top_recommendations[0];
           if (!top) return <span className="text-muted-foreground">No recommendation</span>;
           return (
-            <div className="min-w-0">
-              <div className="truncate text-[12px] font-medium text-foreground" title={top.title}>
-                {top.title}
-              </div>
-              {!compact ? (
-                <div className="mt-1 truncate text-[11px] text-muted-foreground" title={top.reason}>
-                  {top.reason}
-                </div>
+            <div
+              className="flex min-w-0 items-center gap-1.5"
+              title={`${top.title}${!compact && top.reason ? `\n${top.reason}` : ""}`}
+            >
+              <span className="min-w-0 truncate text-[12px] font-medium text-foreground">{top.title}</span>
+              {!compact && top.reason ? (
+                <span className="min-w-0 max-w-[55%] shrink-0 truncate text-[11px] text-muted-foreground">{top.reason}</span>
               ) : null}
             </div>
           );
@@ -264,6 +259,7 @@ export function ExposureAssetTable({
         rowKey={(asset) => asset.asset_key}
         compact={compact}
         stickyHeader
+        scrollX
         selectedRowKey={selectedAssetKey ?? null}
         onRowClick={(asset) => onSelect?.(asset)}
         className="text-sm"

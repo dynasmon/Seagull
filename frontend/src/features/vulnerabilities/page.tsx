@@ -605,25 +605,21 @@ export default function VulnerabilitiesPage() {
       render: (f) => {
         const installedVersion = findingInstalledVersion(f);
         const fixedVersion = findingFixedVersion(f);
+        const component = findingComponentLabel(f);
+        const versionLine = `${installedVersion ? `installed ${installedVersion}` : "installed version unknown"}${fixedVersion ? ` · fix ${fixedVersion}` : " · no fix version recorded"}`;
+        const summary = f.risk_summary || f.title;
         return (
-          <>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <RiskScorePill score={f.priority?.score} />
-              <SeverityPill variant={sevVariant(f.severity)} withDot>{f.severity}</SeverityPill>
-              <span className="text-[11px] text-muted-foreground">conf {f.confidence}</span>
-            </div>
-            <div className="mt-1 font-mono text-[12px] break-all" title={findingComponentLabel(f)}>
-              {findingComponentLabel(f)}
-            </div>
-            <div className="text-[11px] text-muted-foreground">
-              {installedVersion ? `installed ${installedVersion}` : "installed version unknown"}
-              {fixedVersion ? ` · fix ${fixedVersion}` : " · no fix version recorded"}
-              {f.cve ? ` · ${f.cve}` : ""}
-            </div>
-            <div className="mt-1 line-clamp-2 text-sm text-foreground/85">
-              {f.risk_summary || f.title}
-            </div>
-          </>
+          <div
+            className="flex min-w-0 items-center gap-1.5"
+            title={`${component} · ${versionLine}${f.cve ? ` · ${f.cve}` : ""}\n${summary}`}
+          >
+            <RiskScorePill score={f.priority?.score} />
+            <SeverityPill variant={sevVariant(f.severity)} withDot>{f.severity}</SeverityPill>
+            <span className="min-w-0 max-w-[14rem] truncate font-mono text-[12px]">{component}</span>
+            {f.cve ? <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{f.cve}</span> : null}
+            <span className="min-w-0 flex-1 truncate text-[12px] text-foreground/85">{summary}</span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">conf {f.confidence}</span>
+          </div>
         );
       },
     },
@@ -632,28 +628,27 @@ export default function VulnerabilitiesPage() {
       title: "Asset / Context",
       render: (f) => {
         const svc = (f.exposure?.service_hints || []).slice(0, 2);
+        const asset = findingAssetLabel(f);
+        const exposure = `${findingExposureLabel(f)}${svc.length ? ` · ${svc.join(", ")}` : ""}`;
+        const context = f.asset_context?.length ? f.asset_context.join(" · ") : "";
         return (
-          <>
-            <div className="font-mono text-[12px] break-all" title={findingAssetLabel(f)}>
-              {findingAssetLabel(f)}
-            </div>
-            <div className="text-[11px] text-muted-foreground">
-              {findingExposureLabel(f)}
-              {svc.length ? ` · ${svc.join(", ")}` : ""}
-            </div>
-            <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
-              {f.asset_context?.length ? f.asset_context.join(" · ") : "-"}
-            </div>
-          </>
+          <div
+            className="flex min-w-0 items-center gap-1.5"
+            title={`${asset} · ${exposure}${context ? `\n${context}` : ""}`}
+          >
+            <span className="min-w-0 truncate font-mono text-[12px]">{asset}</span>
+            <span className="min-w-0 max-w-[14rem] shrink-0 truncate text-[11px] text-muted-foreground">{exposure}</span>
+          </div>
         );
       },
     },
     {
       key: "status",
       title: "Status",
-      render: (f) => (
-        <>
-          <div className="flex flex-wrap items-center gap-1.5">
+      render: (f) => {
+        const remediation = f.remediation_guidance || "Await scanner evidence or analyst disposition.";
+        return (
+          <div className="flex min-w-0 items-center gap-1.5" title={remediation}>
             <Badge variant={observationVariant(f.observation_state)}>
               {findingObservationLabel(f)}
             </Badge>
@@ -662,25 +657,24 @@ export default function VulnerabilitiesPage() {
                 {findingDispositionLabel(f)}
               </Badge>
             )}
+            <span className="min-w-0 truncate text-[11px] text-muted-foreground">{remediation}</span>
           </div>
-          <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
-            {f.remediation_guidance || "Await scanner evidence or analyst disposition."}
-          </div>
-        </>
-      ),
+        );
+      },
     },
     {
       key: "seen",
       title: "Seen / Hits",
       className: "font-mono text-[12px]",
       render: (f) => (
-        <>
-          <div title={fmtWhen(f.last_seen_at)}>{fmtAge(f.last_seen_at)}</div>
-          <div className="text-[11px] text-muted-foreground" title={fmtWhen(f.first_seen_at)}>
-            first {fmtAge(f.first_seen_at)}
-          </div>
-          <div className="text-[11px] text-muted-foreground">{f.occurrences} hits</div>
-        </>
+        <div
+          className="flex items-center gap-1.5 whitespace-nowrap"
+          title={`last ${fmtWhen(f.last_seen_at)} · first ${fmtWhen(f.first_seen_at)}`}
+        >
+          <span>{fmtAge(f.last_seen_at)}</span>
+          <span className="text-[11px] text-muted-foreground">first {fmtAge(f.first_seen_at)}</span>
+          <span className="text-[11px] text-muted-foreground">· {f.occurrences} hits</span>
+        </div>
       ),
     },
     {
