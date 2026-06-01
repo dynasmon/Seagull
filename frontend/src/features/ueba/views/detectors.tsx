@@ -1,20 +1,29 @@
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { EuiPanel, EuiStat } from "@elastic/eui";
 
 import { Badge, type BadgeVariant } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
-import { DataPaginationFooter, DataQueryStateBanner, DataTableSkeleton } from "@/shared/components/DataView";
+import {
+  DataPaginationFooter,
+  DataQueryStateBanner,
+  DataStatsStrip,
+  DataTableSkeleton,
+} from "@/shared/components/DataView";
+import EmptyState from "@/shared/components/EmptyState";
+import { InlineAlert } from "@/shared/components/InlineAlert";
+import { MetricCard } from "@/shared/components/MetricCard";
+import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
+import { StatusPill, type StatusVariant } from "@/shared/components/StatusPill";
 import { Table, type Column } from "@/shared/components/Table";
-import { cx } from "@/shared/lib/cx";
 import { useLiveRefresh } from "@/shared/realtime";
 
 import { listUebaDetectors, listUebaRuns } from "../api";
-import type { UebaDetectorRun, UebaDetectorState } from "../types";
+import type { UebaDetectorRun, UebaDetectorState, UebaDetectorStatus } from "../types";
 import {
   detectorDescription,
   detectorLabel,
-  detectorStatusVariant,
   formatTimestamp,
   mlModelStatusVariant,
   relativeTime,
@@ -28,6 +37,15 @@ function runStatusVariant(status: string): BadgeVariant {
   if (status === "completed") return "low";
   if (status === "running") return "medium";
   return "critical";
+}
+
+function detectorHealthVariant(status: UebaDetectorStatus | string): StatusVariant {
+  switch (status) {
+    case "healthy": return "success";
+    case "degraded": return "warning";
+    case "failing": return "danger";
+    default: return "neutral";
+  }
 }
 
 function outputVariant(value: number): BadgeVariant {
@@ -58,6 +76,22 @@ function countToneClass(value: number, activeClass = "text-severity-medium") {
   return value > 0 ? activeClass : "text-muted-foreground";
 }
 
+function MetaRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+        {label}
+      </span>
+      <span
+        className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground"
+        title={typeof value === "string" ? value : undefined}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
 function DetectorCard({
   d,
   onViewFindings,
@@ -65,159 +99,94 @@ function DetectorCard({
   d: UebaDetectorState;
   onViewFindings: (detectorId: string) => void;
 }) {
+  const meta: Array<{ label: string; value: ReactNode }> = [
+    { label: "Last run", value: d.last_run_at ? relativeTime(d.last_run_at) : "—" },
+    { label: "Next run", value: d.next_run_at ? relativeTime(d.next_run_at) : "—" },
+  ];
+  if (d.ml_model_status !== "unavailable") {
+    meta.push({
+      label: "ML model",
+      value: `${d.ml_model_status}${d.ml_model_trained_at ? ` · ${relativeTime(d.ml_model_trained_at)}` : ""}`,
+    });
+  }
+  if (d.last_success_at) {
+    meta.push({ label: "Last success", value: relativeTime(d.last_success_at) });
+  }
+  if (d.last_window_started_at || d.last_window_ended_at) {
+    meta.push({
+      label: "Last window",
+      value: `${d.last_window_started_at ? relativeTime(d.last_window_started_at) : "—"} → ${d.last_window_ended_at ? relativeTime(d.last_window_ended_at) : "—"}`,
+    });
+  }
+
   return (
-    <div className="rounded-lg border border-border/60 bg-surface-1/60 p-4 space-y-3">
+    <EuiPanel hasBorder hasShadow={false} paddingSize="m" borderRadius="m" className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate font-mono text-[13px] font-semibold text-foreground">
-            {detectorLabel(d.detector_id)}
-          </div>
+          <div className="truncate text-[13px] font-semibold text-foreground">{detectorLabel(d.detector_id)}</div>
           <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{d.detector_id}</div>
-          <div className="mt-0.5 text-[11px] text-muted-foreground max-w-xs">
+          <div className="mt-1 max-w-prose text-[11px] leading-snug text-muted-foreground">
             {detectorDescription(d.detector_id)}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
           {!d.enabled && <Badge variant="neutral">disabled</Badge>}
           {d.ml_model_status !== "unavailable" && (
-            <Badge variant={mlModelStatusVariant(d.ml_model_status)}>
-              ML {d.ml_model_status}
-            </Badge>
+            <Badge variant={mlModelStatusVariant(d.ml_model_status)}>ML {d.ml_model_status}</Badge>
           )}
-          <Badge variant={detectorStatusVariant(d.status)}>{d.status}</Badge>
+          <StatusPill variant={detectorHealthVariant(d.status)}>{d.status}</StatusPill>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-md border border-border/40 bg-background/20 px-3 py-2">
-          <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Baselines</div>
-          <div className="mt-1 font-mono text-sm font-semibold text-foreground">{d.baseline_count}</div>
-        </div>
-        <div className="rounded-md border border-border/40 bg-background/20 px-3 py-2">
-          <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Mature</div>
-          <div className="mt-1 font-mono text-sm text-foreground">{d.mature_baseline_count}</div>
-        </div>
-        <button
-          type="button"
+        <MetricCard size="sm" title="Baselines" value={d.baseline_count} />
+        <MetricCard size="sm" title="Mature" value={d.mature_baseline_count} />
+        <EuiPanel
+          hasBorder
+          hasShadow={false}
+          paddingSize="s"
+          borderRadius="m"
+          className="min-w-0 text-left"
           onClick={() => onViewFindings(d.detector_id)}
-          className="group rounded-md border border-border/40 bg-background/20 px-3 py-2 text-left w-full"
+          aria-label={`View open anomalies for ${detectorLabel(d.detector_id)}`}
         >
-          <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground group-hover:text-foreground transition-colors">
-            Open findings
+          <EuiStat
+            title={d.open_findings}
+            description="Open findings"
+            titleColor={d.open_findings > 0 ? "warning" : "default"}
+            titleSize="s"
+            reverse
+          />
+          <div className="mt-1.5 text-[10px] text-muted-foreground">
+            {d.open_findings > 0 ? "View anomalies ↗" : "none open"}
           </div>
-          <div
-            className={cx(
-              "mt-1 font-mono text-sm font-semibold transition-colors",
-              d.open_findings > 0
-                ? "text-severity-medium group-hover:text-severity-high"
-                : "text-foreground",
-            )}
-          >
-            {d.open_findings}
-          </div>
-        </button>
-        <div className="rounded-md border border-border/40 bg-background/20 px-3 py-2">
-          <div className="text-[9px] font-mono uppercase tracking-widest text-muted-foreground">Failures</div>
-          <div className={`mt-1 font-mono text-sm ${d.consecutive_failures > 0 ? "text-severity-high" : "text-foreground"}`}>
-            {d.consecutive_failures}
-          </div>
-        </div>
+        </EuiPanel>
+        <MetricCard
+          size="sm"
+          title="Failures"
+          value={d.consecutive_failures}
+          tone={d.consecutive_failures > 0 ? "danger" : "default"}
+          helper={d.last_error_at ? `last ${relativeTime(d.last_error_at)}` : undefined}
+        />
       </div>
 
-      <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
-        <div className="flex items-center justify-between rounded border border-border/40 bg-background/20 px-2.5 py-1.5">
-          <span className="text-muted-foreground">Last run</span>
-          <span className="text-foreground">{d.last_run_at ? relativeTime(d.last_run_at) : "—"}</span>
-        </div>
-        <div className="flex items-center justify-between rounded border border-border/40 bg-background/20 px-2.5 py-1.5">
-          <span className="text-muted-foreground">Next run</span>
-          <span className="text-foreground">{d.next_run_at ? relativeTime(d.next_run_at) : "—"}</span>
-        </div>
-        {d.ml_model_status !== "unavailable" && (
-          <div className="col-span-2 flex items-center justify-between rounded border border-border/40 bg-background/20 px-2.5 py-1.5">
-            <span className="text-muted-foreground">ML model</span>
-            <span className="text-foreground">
-              {d.ml_model_status}
-              {d.ml_model_trained_at ? ` · ${relativeTime(d.ml_model_trained_at)}` : ""}
-            </span>
-          </div>
-        )}
-        {d.last_success_at && (
-          <div className="flex items-center justify-between rounded border border-border/40 bg-background/20 px-2.5 py-1.5">
-            <span className="text-muted-foreground">Last success</span>
-            <span className="text-foreground">{relativeTime(d.last_success_at)}</span>
-          </div>
-        )}
-        {d.last_error_at && (
-          <div className="flex items-center justify-between rounded border border-border/40 bg-background/20 px-2.5 py-1.5">
-            <span className="text-muted-foreground">Last error</span>
-            <span className="text-severity-high">{relativeTime(d.last_error_at)}</span>
-          </div>
-        )}
-        {(d.last_window_started_at || d.last_window_ended_at) && (
-          <div className="col-span-2 flex items-center justify-between rounded border border-border/40 bg-background/20 px-2.5 py-1.5">
-            <span className="font-mono text-[11px] text-muted-foreground">Last window</span>
-            <span className="font-mono text-[11px] text-foreground">
-              {d.last_window_started_at ? relativeTime(d.last_window_started_at) : "—"}
-              {" → "}
-              {d.last_window_ended_at ? relativeTime(d.last_window_ended_at) : "—"}
-            </span>
-          </div>
-        )}
+      <div className="grid gap-x-4 gap-y-1.5 sm:grid-cols-2">
+        {meta.map((m) => (
+          <MetaRow key={m.label} label={m.label} value={m.value} />
+        ))}
       </div>
 
       {d.error_message && (
-        <div className="rounded-md border border-severity-high/30 bg-severity-high/5 px-3 py-2 font-mono text-[11px]">
-          {d.error_type && (
-            <div className="mb-1 text-[9px] uppercase tracking-widest text-severity-high/60">
-              {d.error_type}
-            </div>
-          )}
-          <div className="text-severity-high/90 break-words">{d.error_message}</div>
-        </div>
+        <InlineAlert tone="danger">
+          <div className="space-y-0.5">
+            {d.error_type && (
+              <div className="font-mono text-[10px] uppercase tracking-[0.08em]">{d.error_type}</div>
+            )}
+            <div className="break-words font-mono text-[11px]">{d.error_message}</div>
+          </div>
+        </InlineAlert>
       )}
-    </div>
-  );
-}
-
-function DetailMetric({
-  label,
-  value,
-  hint,
-  tone = "text-foreground",
-}: {
-  label: string;
-  value: string | number;
-  hint?: string;
-  tone?: string;
-}) {
-  return (
-    <div className="rounded-md border border-border/40 bg-background/20 px-3 py-2">
-      <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className={cx("mt-1 font-mono text-[13px] font-semibold", tone)}>{value}</div>
-      {hint ? <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{hint}</div> : null}
-    </div>
-  );
-}
-
-function DetailLine({
-  label,
-  children,
-  className,
-}: {
-  label: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className="flex min-w-0 items-center justify-between gap-3 rounded border border-border/40 bg-background/20 px-2.5 py-1.5">
-      <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-        {label}
-      </span>
-      <span className={cx("min-w-0 truncate font-mono text-[11px] text-foreground", className)}>
-        {children}
-      </span>
-    </div>
+    </EuiPanel>
   );
 }
 
@@ -226,8 +195,8 @@ function RunDetail({ run }: { run: UebaDetectorRun }) {
 
   return (
     <div className="w-full bg-muted/10 px-3 py-3">
-      <div className="w-full rounded-md border border-border/50 bg-surface-1/70 p-3 shadow-sm">
-        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+      <EuiPanel hasBorder hasShadow={false} paddingSize="m" borderRadius="m" className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-1.5">
               <span className="truncate text-[12px] font-medium text-foreground" title={detectorLabel(run.detector_id)}>
@@ -251,71 +220,58 @@ function RunDetail({ run }: { run: UebaDetectorRun }) {
           </div>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-4">
-          <DetailMetric label="Events" value={formatCount(run.scanned_events)} />
-          <DetailMetric label="Entities" value={formatCount(run.evaluated_entities)} />
-          <DetailMetric
-            label="Findings"
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <MetricCard size="sm" title="Events" value={formatCount(run.scanned_events)} />
+          <MetricCard size="sm" title="Entities" value={formatCount(run.evaluated_entities)} />
+          <MetricCard
+            size="sm"
+            title="Findings"
             value={run.findings_created > 0 ? `+${formatCount(run.findings_created)}` : "—"}
-            hint={run.findings_updated > 0 ? `${formatCount(run.findings_updated)} updated` : undefined}
-            tone={countToneClass(run.findings_created)}
+            tone={run.findings_created > 0 ? "warning" : "default"}
+            helper={run.findings_updated > 0 ? `${formatCount(run.findings_updated)} updated` : undefined}
           />
-          <DetailMetric
-            label="Alerts"
+          <MetricCard
+            size="sm"
+            title="Alerts"
             value={run.alerts_created > 0 ? `+${formatCount(run.alerts_created)}` : "—"}
-            hint={run.suppressions_applied > 0 ? `${formatCount(run.suppressions_applied)} suppressed` : undefined}
-            tone={countToneClass(run.alerts_created)}
+            tone={run.alerts_created > 0 ? "warning" : "default"}
+            helper={run.suppressions_applied > 0 ? `${formatCount(run.suppressions_applied)} suppressed` : undefined}
           />
         </div>
 
-        <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          <DetailLine label="Window">
-            {run.window_started_at ? formatTimestamp(run.window_started_at) : "—"}
-            {" → "}
-            {run.window_ended_at ? formatTimestamp(run.window_ended_at) : "—"}
-          </DetailLine>
-          <DetailLine label="Duration">{formatDuration(run.duration_ms)}</DetailLine>
-          <DetailLine label="Baselines">
-            {formatCount(run.baselines_created)} created
-            {" · "}
-            {formatCount(run.baselines_updated)} updated
-          </DetailLine>
-          <DetailLine label="Version">
-            {run.detector_version != null ? `v${run.detector_version}` : "—"}
-          </DetailLine>
+        <div className="grid gap-x-4 gap-y-1.5 sm:grid-cols-2">
+          <MetaRow
+            label="Window"
+            value={`${run.window_started_at ? formatTimestamp(run.window_started_at) : "—"} → ${run.window_ended_at ? formatTimestamp(run.window_ended_at) : "—"}`}
+          />
+          <MetaRow label="Duration" value={formatDuration(run.duration_ms)} />
+          <MetaRow
+            label="Baselines"
+            value={`${formatCount(run.baselines_created)} created · ${formatCount(run.baselines_updated)} updated`}
+          />
+          <MetaRow label="Version" value={run.detector_version != null ? `v${run.detector_version}` : "—"} />
         </div>
 
         {run.error_message ? (
-          <div className="mt-3 rounded-md border border-severity-high/35 bg-severity-high/5 px-3 py-2">
-            <div className="mb-1 flex items-center gap-2">
-              <Badge variant="critical" className="text-[10px]">
-                {run.error_type ?? "run error"}
-              </Badge>
-              <span className="font-mono text-[10px] uppercase tracking-widest text-severity-high/70">
-                Detector failure
-              </span>
+          <InlineAlert tone="danger">
+            <div className="space-y-0.5">
+              <div className="font-mono text-[10px] uppercase tracking-[0.08em]">{run.error_type ?? "run error"}</div>
+              <div className="break-words font-mono text-[11px]">{run.error_message}</div>
             </div>
-            <div className="break-words font-mono text-[11px] text-severity-high">
-              {run.error_message}
-            </div>
-          </div>
+          </InlineAlert>
         ) : null}
 
         {contextEntries.length > 0 ? (
-          <div className="mt-3">
-            <div className="mb-1.5 font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
-              Run context
-            </div>
-            <div className="grid gap-1.5 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <div className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground">Run context</div>
+            <div className="grid gap-x-4 gap-y-1.5 sm:grid-cols-2">
               {contextEntries.map(([key, value]) => (
-                <DetailLine key={key} label={key.replace(/_/g, " ")}>
-                  {formatRunValue(value)}
-                </DetailLine>
+                <MetaRow key={key} label={key.replace(/_/g, " ")} value={formatRunValue(value)} />
               ))}
             </div>
           </div>
         ) : null}
-      </div>
+      </EuiPanel>
     </div>
   );
 }
@@ -476,6 +432,7 @@ function RunsTable({
 
   return (
     <Table
+      className="!shadow-none !border-0 !bg-transparent !rounded-none"
       columns={RUN_COLUMNS}
       rows={runs}
       rowKey={(run) => String(run.id)}
@@ -506,6 +463,26 @@ export default function DetectorsView() {
   const [runsLoading, setRunsLoading] = useState(true);
 
   const navigate = useNavigate();
+
+  const summary = useMemo(() => {
+    let healthy = 0;
+    let degraded = 0;
+    let failing = 0;
+    let enabled = 0;
+    let openFindings = 0;
+    let baselines = 0;
+    let mature = 0;
+    for (const d of detectors) {
+      if (d.status === "healthy") healthy += 1;
+      if (d.status === "degraded") degraded += 1;
+      if (d.status === "failing") failing += 1;
+      if (d.enabled) enabled += 1;
+      openFindings += d.open_findings;
+      baselines += d.baseline_count;
+      mature += d.mature_baseline_count;
+    }
+    return { total: detectors.length, healthy, degraded, failing, enabled, openFindings, baselines, mature };
+  }, [detectors]);
 
   const load = (signal?: AbortSignal) => {
     setLoading(true);
@@ -566,8 +543,10 @@ export default function DetectorsView() {
 
   useLiveRefresh({ refresh: () => load() });
 
+  const attention = summary.failing + summary.degraded;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {error && (
         <DataQueryStateBanner
           message={error}
@@ -580,14 +559,52 @@ export default function DetectorsView() {
         />
       )}
 
-      <div>
-        <h3 className="mb-3 font-mono text-[11px] uppercase tracking-widest text-muted-foreground">Detector Status</h3>
+      {detectors.length > 0 && (
+        <DataStatsStrip
+          stats={[
+            {
+              label: "Detectors",
+              value: summary.total,
+              hint: `${summary.healthy} healthy · ${summary.enabled} enabled`,
+            },
+            {
+              label: "Needs attention",
+              value: attention,
+              tone: summary.failing > 0 ? "danger" : summary.degraded > 0 ? "warning" : "default",
+              hint: attention > 0 ? `${summary.failing} failing · ${summary.degraded} degraded` : "all operational",
+            },
+            {
+              label: "Open anomalies",
+              value: summary.openFindings,
+              tone: summary.openFindings > 0 ? "warning" : "default",
+              hint: "across detectors",
+            },
+            {
+              label: "Baselines",
+              value: summary.baselines,
+              hint: `${summary.mature} mature`,
+            },
+          ]}
+        />
+      )}
+
+      <Panel
+        title="Detectors"
+        subtitle={
+          !loading ? (
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {detectors.length} registered
+            </span>
+          ) : null
+        }
+      >
         {loading && detectors.length === 0 ? (
           <DataTableSkeleton rows={2} columns={4} />
         ) : detectors.length === 0 ? (
-          <div className="rounded-lg border border-border/60 bg-muted/10 px-4 py-8 text-center font-mono text-[12px] text-muted-foreground">
-            No detectors registered.
-          </div>
+          <EmptyState
+            title="No detectors registered"
+            description="Detectors will appear here once the anomaly engine registers them."
+          />
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
             {detectors.map((d) => (
@@ -599,18 +616,23 @@ export default function DetectorsView() {
             ))}
           </div>
         )}
-      </div>
+      </Panel>
 
-      <div>
-        <div className="flex items-center gap-3 mb-3">
-          <h3 className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
-            Recent Runs
-          </h3>
-          <div className="ml-auto w-56">
+      <Panel
+        title="Recent Runs"
+        subtitle={
+          !runsLoading ? (
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {runs.length} run{runs.length !== 1 ? "s" : ""}
+              {runsHasMore ? "+" : ""}
+            </span>
+          ) : null
+        }
+        actions={
+          <div className="w-56">
             <SelectInput
               value={runsDetectorFilter}
               onChange={(e) => setRunsDetectorFilter(e.target.value)}
-              className="text-xs font-mono"
               aria-label="Filter runs by detector"
             >
               <option value="">All detectors</option>
@@ -621,36 +643,41 @@ export default function DetectorsView() {
               ))}
             </SelectInput>
           </div>
+        }
+      >
+        <div className="space-y-3">
+          {runsLoading && runs.length === 0 ? (
+            <DataTableSkeleton rows={5} columns={7} />
+          ) : runs.length > 0 ? (
+            <RunsTable
+              runs={runs}
+              expandedRunId={expandedRunId}
+              onToggleRun={(id) => setExpandedRunId((prev) => (prev === id ? null : id))}
+            />
+          ) : (
+            <EmptyState
+              title="No runs recorded yet"
+              description="Detector executions will appear here as the anomaly engine runs."
+            />
+          )}
+
+          {!runsLoading && runs.length > 0 && (
+            <DataPaginationFooter
+              totalCount={runs.length}
+              pageSize={50}
+              onPageSizeChange={() => {}}
+              pageSizeOptions={[50]}
+              hasMore={runsHasMore}
+              loadingMore={runsLoadingMore}
+              onLoadMore={() => {
+                if (runsCursor && !runsLoadingMore) {
+                  loadRuns(runsDetectorFilter, { replace: false, appendCursor: runsCursor });
+                }
+              }}
+            />
+          )}
         </div>
-        {runsLoading && runs.length === 0 ? (
-          <DataTableSkeleton rows={5} columns={7} />
-        ) : runs.length > 0 ? (
-          <RunsTable
-            runs={runs}
-            expandedRunId={expandedRunId}
-            onToggleRun={(id) => setExpandedRunId((prev) => (prev === id ? null : id))}
-          />
-        ) : (
-          <div className="rounded-lg border border-border/60 bg-muted/10 px-4 py-8 text-center font-mono text-[12px] text-muted-foreground">
-            No runs recorded yet.
-          </div>
-        )}
-        {!runsLoading && runs.length > 0 && (
-          <DataPaginationFooter
-            totalCount={runs.length}
-            pageSize={50}
-            onPageSizeChange={() => {}}
-            pageSizeOptions={[50]}
-            hasMore={runsHasMore}
-            loadingMore={runsLoadingMore}
-            onLoadMore={() => {
-              if (runsCursor && !runsLoadingMore) {
-                loadRuns(runsDetectorFilter, { replace: false, appendCursor: runsCursor });
-              }
-            }}
-          />
-        )}
-      </div>
+      </Panel>
     </div>
   );
 }
