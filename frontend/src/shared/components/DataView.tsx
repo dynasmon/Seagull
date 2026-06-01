@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { EuiCallOut, EuiFieldSearch, EuiPanel, EuiSelect, EuiStat } from "@elastic/eui";
+import { EuiCallOut, EuiFieldSearch, EuiPanel, EuiSelect, EuiSkeletonRectangle, EuiStat } from "@elastic/eui";
 
 import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
@@ -17,15 +17,21 @@ export function DataViewToolbar({
   className?: string;
 }) {
   return (
-    <div className={cx("ui-toolbar-shell flex flex-wrap items-center justify-between gap-3", className)}>
-      <div className="min-w-0 grow">{left}</div>
-      {right ? <div className="shrink-0">{right}</div> : null}
-    </div>
+    <EuiPanel hasBorder hasShadow={false} paddingSize="none" borderRadius="m" className={className}>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
+        <div className="min-w-0 grow">{left}</div>
+        {right ? <div className="shrink-0">{right}</div> : null}
+      </div>
+    </EuiPanel>
   );
 }
 
 export function DataViewFilterBar({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cx("ui-toolbar-shell grid gap-3 md:grid-cols-2 xl:grid-cols-4", className)}>{children}</div>;
+  return (
+    <EuiPanel hasBorder hasShadow={false} paddingSize="none" borderRadius="m">
+      <div className={cx("grid gap-3 px-3 py-2.5 md:grid-cols-2 xl:grid-cols-4", className)}>{children}</div>
+    </EuiPanel>
+  );
 }
 
 export function DataFilterGroup({
@@ -210,23 +216,29 @@ export function DataTableSkeleton({
   columns?: number;
   className?: string;
 }) {
+  const cols = Math.max(1, columns);
   return (
-    <div className={cx("ui-card-shell overflow-hidden", className)} aria-hidden="true">
-      <div className="animate-pulse">
-        <div className="border-b border-border/60 bg-muted/35 px-3 py-2">
-          <div className="h-3 w-40 rounded bg-muted/65" />
-        </div>
-        <div className="space-y-2 p-3">
-          {Array.from({ length: rows }).map((_, rowIdx) => (
-            <div key={rowIdx} className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.max(1, columns)}, minmax(0, 1fr))` }}>
-              {Array.from({ length: columns }).map((__, colIdx) => (
-                <div key={colIdx} className="h-4 rounded bg-muted/60" />
-              ))}
-            </div>
-          ))}
-        </div>
+    <EuiPanel
+      hasBorder
+      hasShadow={false}
+      paddingSize="none"
+      borderRadius="m"
+      className={cx("overflow-hidden", className)}
+      aria-hidden="true"
+    >
+      <div className="border-b border-border/60 bg-muted/35 px-3 py-2.5">
+        <EuiSkeletonRectangle width="160px" height="12px" borderRadius="s" />
       </div>
-    </div>
+      <div className="space-y-2 p-3">
+        {Array.from({ length: rows }).map((_, rowIdx) => (
+          <div key={rowIdx} className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+            {Array.from({ length: cols }).map((__, colIdx) => (
+              <EuiSkeletonRectangle key={colIdx} width="100%" height="16px" borderRadius="s" />
+            ))}
+          </div>
+        ))}
+      </div>
+    </EuiPanel>
   );
 }
 
@@ -273,40 +285,42 @@ export function DataPaginationFooter({
   className?: string;
 }) {
   return (
-    <div className={cx("ui-toolbar-shell flex flex-wrap items-center justify-between gap-3", className)}>
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="text-[11px] text-muted-foreground">
-          Showing <span className="font-semibold text-foreground">{totalCount}</span> rows
+    <EuiPanel hasBorder hasShadow={false} paddingSize="none" borderRadius="m" className={className}>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="text-[11px] text-muted-foreground">
+            Showing <span className="font-semibold text-foreground">{totalCount}</span> rows
+          </div>
+
+          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <span>Page size</span>
+            <EuiSelect
+              value={String(pageSize)}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+              compressed
+              aria-label="Rows per page"
+              options={pageSizeOptions.map((value) => ({ value, text: String(value) }))}
+            />
+          </label>
         </div>
 
-        <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          <span>Page size</span>
-          <EuiSelect
-            value={String(pageSize)}
-            onChange={(e) => onPageSizeChange(Number(e.target.value))}
-            compressed
-            aria-label="Rows per page"
-            options={pageSizeOptions.map((value) => ({ value, text: String(value) }))}
-          />
-        </label>
-      </div>
+        <div className="flex items-center gap-2">
+          {error ? <span className="text-[11px] text-danger">{error}</span> : null}
+          {error && onRetry ? (
+            <Button variant="secondary" size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+          ) : null}
 
-      <div className="flex items-center gap-2">
-        {error ? <span className="text-[11px] text-danger">{error}</span> : null}
-        {error && onRetry ? (
-          <Button variant="secondary" size="sm" onClick={onRetry}>
-            Retry
-          </Button>
-        ) : null}
-
-        {hasMore ? (
-          <Button variant="subtle" size="sm" onClick={onLoadMore} disabled={loadingMore || !onLoadMore}>
-            {loadingMore ? "Loading..." : loadMoreLabel}
-          </Button>
-        ) : (
-          <span className="text-[11px] text-muted-foreground">No more rows</span>
-        )}
+          {hasMore ? (
+            <Button variant="subtle" size="sm" onClick={onLoadMore} disabled={loadingMore || !onLoadMore}>
+              {loadingMore ? "Loading..." : loadMoreLabel}
+            </Button>
+          ) : (
+            <span className="text-[11px] text-muted-foreground">No more rows</span>
+          )}
+        </div>
       </div>
-    </div>
+    </EuiPanel>
   );
 }
