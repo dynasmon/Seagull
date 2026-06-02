@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { EuiPanel, EuiStat } from "@elastic/eui";
+import { EuiPanel, EuiStat, useEuiTheme } from "@elastic/eui";
 
 import { Badge, type BadgeVariant } from "@/shared/components/Badge";
+import { DonutChart } from "@/shared/components/charts";
 import { Button } from "@/shared/components/Button";
 import {
   DataPaginationFooter,
@@ -545,6 +546,23 @@ export default function DetectorsView() {
 
   const attention = summary.failing + summary.degraded;
 
+  const { euiTheme } = useEuiTheme();
+  const healthDonutData = useMemo(
+    () =>
+      [
+        { label: "Healthy", value: summary.healthy },
+        { label: "Degraded", value: summary.degraded },
+        { label: "Failing", value: summary.failing },
+      ].filter((x) => x.value > 0),
+    [summary]
+  );
+  const healthColorFor = (label: string) =>
+    label === "Healthy"
+      ? euiTheme.colors.success
+      : label === "Degraded"
+        ? euiTheme.colors.warning
+        : euiTheme.colors.danger;
+
   return (
     <div className="space-y-4">
       {error && (
@@ -588,35 +606,52 @@ export default function DetectorsView() {
         />
       )}
 
-      <Panel
-        title="Detectors"
-        subtitle={
-          !loading ? (
-            <span className="font-mono text-[11px] text-muted-foreground">
-              {detectors.length} registered
-            </span>
-          ) : null
-        }
-      >
-        {loading && detectors.length === 0 ? (
-          <DataTableSkeleton rows={2} columns={4} />
-        ) : detectors.length === 0 ? (
-          <EmptyState
-            title="No detectors registered"
-            description="Detectors will appear here once the anomaly engine registers them."
-          />
-        ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
-            {detectors.map((d) => (
-              <DetectorCard
-                key={d.detector_id}
-                d={d}
-                onViewFindings={(id) => navigate(`/ueba/findings?detector_id=${encodeURIComponent(id)}`)}
-              />
-            ))}
-          </div>
-        )}
-      </Panel>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Panel title="Detector health" className="lg:col-span-1">
+          {healthDonutData.length === 0 ? (
+            <EmptyState title="No detectors" description="Health breakdown appears once detectors register." />
+          ) : (
+            <DonutChart
+              data={healthDonutData}
+              height={260}
+              legendPosition="bottom"
+              colorFor={healthColorFor}
+              valueFormatter={(v) => `${v}`}
+            />
+          )}
+        </Panel>
+
+        <Panel
+          title="Detectors"
+          className="lg:col-span-2"
+          subtitle={
+            !loading ? (
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {detectors.length} registered
+              </span>
+            ) : null
+          }
+        >
+          {loading && detectors.length === 0 ? (
+            <DataTableSkeleton rows={2} columns={4} />
+          ) : detectors.length === 0 ? (
+            <EmptyState
+              title="No detectors registered"
+              description="Detectors will appear here once the anomaly engine registers them."
+            />
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-2">
+              {detectors.map((d) => (
+                <DetectorCard
+                  key={d.detector_id}
+                  d={d}
+                  onViewFindings={(id) => navigate(`/ueba/findings?detector_id=${encodeURIComponent(id)}`)}
+                />
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
 
       <Panel
         title="Recent Runs"
