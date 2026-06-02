@@ -15,6 +15,7 @@ import { InlineAlert } from "@/shared/components/InlineAlert";
 import Loading from "@/shared/components/Loading";
 import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
+import { FilterBar, FilterButtonSelect } from "@/shared/components/FilterBar";
 import { Toolbar } from "@/shared/components/Toolbar";
 import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
@@ -370,17 +371,20 @@ export default function CorrelationIncidentsPage() {
               placeholder="Search incident, entity, dedup key, MITRE..."
               className="h-9 min-w-[280px]"
             />
-            <SelectInput
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as CorrelationLifecycleStatus | "all")}
-              className="h-9"
-            >
-              <option value="all">All statuses</option>
-              <option value="open">Open</option>
-              <option value="triaged">Triaged</option>
-              <option value="closed">Closed</option>
-              <option value="suppressed">Suppressed</option>
-            </SelectInput>
+            <FilterBar>
+              <FilterButtonSelect
+                label="Status"
+                value={statusFilter}
+                options={[
+                  { value: "all", label: "All statuses" },
+                  { value: "open", label: "Open" },
+                  { value: "triaged", label: "Triaged" },
+                  { value: "closed", label: "Closed" },
+                  { value: "suppressed", label: "Suppressed" },
+                ]}
+                onChange={(v) => setStatusFilter(v as CorrelationLifecycleStatus | "all")}
+              />
+            </FilterBar>
             <SeverityFilter value={severityFilter} onChange={setSeverityFilter} />
             <SelectInput value={String(pageSize)} onChange={(event) => setPageSize(Number(event.target.value))} className="h-9">
               <option value="25">25 incidents</option>
