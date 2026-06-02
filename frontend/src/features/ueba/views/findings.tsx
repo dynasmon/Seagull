@@ -13,7 +13,7 @@ import {
 } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
 import { Panel } from "@/shared/components/Panel";
-import { SelectInput } from "@/shared/components/SelectInput";
+import { FilterBar, FilterButtonSelect } from "@/shared/components/FilterBar";
 import { SeverityPill } from "@/shared/components/SeverityPill";
 import { Table, type Column } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
@@ -380,18 +380,30 @@ export default function UebaFindingsPage() {
           <DataViewToolbar
             left={
               <div className="flex flex-wrap items-center gap-2">
-                <div className="w-44">
-                  <SelectInput
-                    value={detectorId}
-                    onChange={(e) => setDetectorId(e.target.value)}
-                    aria-label="Detector filter"
-                  >
-                    <option value="">All detectors</option>
-                    {Object.entries(DETECTOR_LABELS).map(([id, label]) => (
-                      <option key={id} value={id}>{label}</option>
-                    ))}
-                  </SelectInput>
-                </div>
+                <FilterBar>
+                  <FilterButtonSelect
+                    label="Detector"
+                    value={detectorId || "all"}
+                    options={[
+                      { value: "all", label: "All detectors" },
+                      ...Object.entries(DETECTOR_LABELS).map(([id, label]) => ({ value: id, label })),
+                    ]}
+                    onChange={(v) => setDetectorId(v === "all" ? "" : v)}
+                    searchable
+                  />
+                  <FilterButtonSelect
+                    label="Severity"
+                    value={severity}
+                    options={SEVERITY_OPTIONS}
+                    onChange={(v) => setSeverity(v as UebaSeverity | "all")}
+                  />
+                  <FilterButtonSelect
+                    label="Status"
+                    value={status}
+                    options={STATUS_OPTIONS}
+                    onChange={(v) => setStatus(v as UebaFindingStatus | "all")}
+                  />
+                </FilterBar>
                 <DebouncedSearchInput
                   value={agentFilter}
                   onChange={setAgentFilter}
@@ -409,37 +421,9 @@ export default function UebaFindingsPage() {
               </div>
             }
             right={
-              <div className="flex items-center gap-2">
-                <div className="w-40">
-                  <SelectInput
-                    value={severity}
-                    onChange={(e) => setSeverity(e.target.value as UebaSeverity | "all")}
-                    aria-label="Severity filter"
-                  >
-                    {SEVERITY_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </div>
-                <div className="w-36">
-                  <SelectInput
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value as UebaFindingStatus | "all")}
-                    aria-label="Status filter"
-                  >
-                    {STATUS_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </div>
-                <Button variant="secondary" size="sm" onClick={() => load({ replace: true })} disabled={loading}>
-                  Refresh
-                </Button>
-              </div>
+              <Button variant="secondary" size="sm" onClick={() => load({ replace: true })} disabled={loading}>
+                Refresh
+              </Button>
             }
           />
 
