@@ -1,14 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
+import { TimeSeriesChart, useSeverityChartColors } from "@/shared/components/charts";
 import Loading from "@/shared/components/Loading";
 import Drawer from "@/shared/components/Drawer";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
@@ -64,11 +56,11 @@ function severityVariant(value: ExposureSeverity) {
 }
 
 function ScoreHistoryChart({ detail }: { detail: ExposureAssetDetail }) {
+  const severityColors = useSeverityChartColors();
   const data = useMemo(
     () =>
       detail.recent_score_history.map((point) => ({
         t: formatExposureTimestamp(point.bucket_ts).slice(11),
-        ts: formatExposureTimestamp(point.bucket_ts),
         risk: point.risk_score,
         confidence: point.confidence,
       })),
@@ -80,18 +72,14 @@ function ScoreHistoryChart({ detail }: { detail: ExposureAssetDetail }) {
   }
 
   return (
-    <div className="h-[240px] w-full min-w-0">
-      <ResponsiveContainer width="100%" height="100%" debounce={80}>
-        <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-          <XAxis dataKey="t" tick={{ fontSize: 11 }} minTickGap={20} />
-          <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
-          <Tooltip />
-          <Line type="monotone" dataKey="risk" stroke="#ef4444" strokeWidth={2.2} dot={false} isAnimationActive={false} />
-          <Line type="monotone" dataKey="confidence" stroke="#0ea5e9" strokeWidth={1.8} dot={false} isAnimationActive={false} />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
+    <TimeSeriesChart
+      data={data}
+      seriesKeys={["risk", "confidence"]}
+      seriesNames={{ risk: "Risk score", confidence: "Confidence" }}
+      height={240}
+      curve="monotone"
+      colorFor={(key) => (key === "risk" ? severityColors.critical : severityColors.low)}
+    />
   );
 }
 
