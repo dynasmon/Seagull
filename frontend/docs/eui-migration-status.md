@@ -4,7 +4,35 @@
 
 Branch: `spike/elastic-eui` · Goal: migrate the Seagull frontend to **real `@elastic/eui`** (Borealis theme), faithfully Kibana-like. **The human commits/pushes — never run `git commit`/`push`.** Nothing is auto-committed by the assistant.
 
-Last updated: 2026-06-01 (**shared `DataView` layout shells migrated to EUI** — `DataViewToolbar`/`DataViewFilterBar`/`DataPaginationFooter` → `EuiPanel`, `DataTableSkeleton` → `EuiSkeletonRectangle`; see the ▶ NEXT SESSION block. Prior: UEBA Detector Health refined; Kibana row-density pass **COMPLETE**; UEBA/Anomaly Detection "Area 9" **COMPLETE**; ResponseActionDrawer, DraftNumberInput, all 8 original feature areas done). **Browser QA via Playwright MCP, dark+light verified.**
+Last updated: 2026-06-02 (**real charts on `@elastic/charts` + Kibana `EuiFilterGroup` filter bar** — new `src/shared/components/charts/` kit (line/area/bar/column/donut) on the Kibana-native charting lib, theme-bridged to EUI dark/light; `recharts` removed; new `src/shared/components/FilterBar.tsx` (EuiFilterGroup + EuiFilterButton + EuiSelectable popovers) rolled out to UEBA findings, Alerts queue, Correlations incidents via the shared `SeverityFilter`. See the ▶ CHARTS & FILTERS block below. Prior: shared `DataView` layout shells → EuiPanel/EuiSkeletonRectangle; UEBA Detector Health refined; Kibana row-density pass; UEBA Area 9; ResponseActionDrawer; DraftNumberInput; all 8 feature areas.) **Browser QA via Playwright MCP, dark+light verified.**
+
+---
+
+## ▶ CHARTS & FILTERS — real `@elastic/charts` + Kibana filter bar (2026-06-02)
+
+**Goal of this pass (user request):** professional, best-practice graphics on every chart-bearing page — **pie/donut (composition), bar/column (ranked comparison), line/area (trends)** — plus **filters that read like Kibana** (`EuiFilterGroup` dropdown bar). Both done on the authentic Elastic libraries.
+
+**New dependency:** `@elastic/charts@71.7.0` (the Kibana-native charting lib). `recharts` **removed** (0 usages left). Charts stay **lazy** — the whole `@elastic/charts` lib lands in one shared lazy chunk (`DonutChart-*.js` ≈ **356 KB gz**) + a lazy CSS chunk (≈33 KB); **eager entry held at ~114.6 KB gz** (NOT modulepreloaded, verified).
+
+**Shared chart kit — `src/shared/components/charts/`** (every chart routes through this; EUI-theme-bridged so dark/light is automatic):
+- `chartTheme.ts` — `useEuiChartTheme()` builds a `@elastic/charts` `baseTheme`(DARK/LIGHT_THEME)+`PartialTheme` from `useEuiTheme()` tokens (transparent bg, EUI `subduedText`/`lightShade` axes+grid, `euiPaletteColorBlind()` viz colors, donut `emptySizeRatio`, font). `useSeverityChartColors()` (critical→danger, high→#E8730C, medium→warning, low/info→primary, neutral→mediumShade) + `useSeriesColorResolver()` (severity-named series keep their color, else palette — replicates the old recharts `pickStroke`).
+- `ChartFrame.tsx` — sizing/empty-state wrapper; **imports the lazy `@elastic/charts/dist/theme_light.css`** (so it stays in the lazy chunk). `TimeSeriesChart.tsx` (line/area, `stacked`, multi-series, trailing-null masking preserved), `BarChart.tsx` (vertical column / `horizontal`, single-color or `colorFor` per-category via `splitSeriesAccessors`, optional `onBarClick` via `onElementClick`), `DonutChart.tsx` (`Partition` sunburst; `donut` hole; `colorFor`; legend). `maskTrailingNoData.ts` extracted from the old Charts.tsx. Barrel `index.ts`.
+- **Dark-mode DOM-chrome overrides in `styles.css` (UNLAYERED — the charts CSS is unlayered, so `@layer` rules would lose; `html.dark .echLegendItem/.echTooltip*` win on specificity):** legend + tooltip text/bg use the app's `--foreground`/`--card`/`--border` triplets. The canvas itself adapts via the JS `DARK_THEME`.
+
+**Chart types applied (best-practice per data):**
+- **Overview** (`features/overview/page.tsx`): hero "Events per minute by type" → **stacked AREA** (volume + breakdown); single-series ssh/ingest/ddos stay **lines**; "Top source IPs" table → **horizontal BARS**; "Top destination ports" gauge → **vertical COLUMNS**. `SimpleTimeSeries` (`components/Charts.tsx`) is now a thin adapter over `TimeSeriesChart` (kept its exact API → every existing line chart upgraded: overview, agents telemetry, ddos deep-dive, inventory snapshots).
+- **Inventory** (`InventoryDistributionsPanel.tsx`): OS + package-manager tables → **DONUTS** (top-8 + "Other"); top-agents bar-gauges → **horizontal BARS** with `onBarClick`→drawer. Deleted orphaned `primitives/InventoryBarGaugeList.tsx`.
+- **Exposure** (`ExposureAssetDrawer.tsx`): score-history `ScoreHistoryChart` → `TimeSeriesChart` (monotone, risk=danger/confidence=primary). Removes the last raw recharts.
+- **Vulnerabilities** (`page.tsx`): added a **"Findings by severity" DONUT** card (severity colors) as the first column of the posture grid (now `xl:grid-cols-3`: donut + Priority Queue + Most exposed). Data-gated (empty in dev dataset — needs real-data QA).
+- **UEBA** (`views/detectors.tsx`): added a **"Detector health" status DONUT** (healthy→success/degraded→warning/failing→danger) in a 2-col layout beside the detector cards. Validated green "Healthy 9" in dev.
+- Alerts intentionally **kept** its compact `DataStatsStrip` (dense triage console — a donut would fight the row-density preference).
+
+**Kibana filter bar — `src/shared/components/FilterBar.tsx`** (`FilterBar`=EuiFilterGroup; `FilterButtonSelect`=single-select drop-in for SelectInput; `FilterButtonMultiSelect`=string[]; both = EuiFilterButton + EuiPopover + EuiSelectable checkable list, active-value/badge on the button, optional `searchable`, count `append`). **Rolled out to immediate-apply horizontal toolbars only:**
+- **UEBA findings** (`views/findings.tsx`): detector(searchable)/severity/status SelectInputs → one `FilterBar`.
+- **Alerts queue** + **Correlations incidents**: via the shared **`SeverityFilter`** (now renders a self-contained `FilterBar`+`FilterButtonSelect`) + each page's status SelectInput → `FilterButtonSelect`.
+- **Intentionally NOT converted:** draft→Apply server-fetch forms (**Vulnerabilities**, **Audit**) and **vertical** scope rails (**Events** `EventsFilters`, **Topology**) — the joined EuiFilterGroup is a horizontal/immediate-apply pattern; forcing it there would break the compose-then-apply UX or look wrong stacked. Page-size selects left as plain selects (display control, not a filter).
+
+**Verification:** build 0 · lint 0-err/12-warn · tests at baseline (16 failed files / 3 failed / 81 passed) · eager `index-*.js` **114.70 KB gz** (≈baseline; charts lazy). **Browser QA (Playwright MCP, dark+light):** Overview stacked-area+bars+lines, Inventory donuts+bars, UEBA health donut + findings filter bar, Alerts filter bar (severity+status popovers, single-select applies+closes), Vulnerabilities 3-col posture. **Remaining/optional:** multi-slice donut visuals are dev-data-gated (fleet has 1 OS/agent, all-healthy detectors, empty vuln findings) — real-data QA owed there; the filter bar can extend to more immediate-apply toolbars if desired.
 
 ---
 
