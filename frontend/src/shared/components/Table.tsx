@@ -143,13 +143,13 @@ export function Table<T extends object>({
   return (
     <div
       className={cx(
-        "ui-card-shell min-w-0 overflow-hidden",
+        "ui-card-shell min-w-0 overflow-visible",
         stickyHeader && "seagullTable-stickyHeader",
         scrollX && "seagullTable-scrollX",
         className
       )}
     >
-      <div className={cx("min-w-0", scrollX ? "overflow-x-auto" : "overflow-x-hidden")}>
+      <div className={cx("min-w-0", scrollX ? "overflow-x-auto" : "overflow-visible")}>
         <EuiBasicTable
           tableCaption="Data table"
           items={rows}
