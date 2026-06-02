@@ -10,6 +10,7 @@ import Loading from "@/shared/components/Loading";
 import PageHeader from "@/shared/components/PageHeader";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { SeverityPill } from "@/shared/components/SeverityPill";
+import { DonutChart, useSeverityChartColors } from "@/shared/components/charts";
 import { Table, type Column } from "@/shared/components/Table";
 import { TextInput } from "@/shared/components/TextInput";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
@@ -596,6 +597,17 @@ export default function VulnerabilitiesPage() {
     return out;
   }, [summary]);
 
+  const severityChartColors = useSeverityChartColors();
+  const severityDonutData = useMemo(
+    () => severityBlocks.filter((x) => x.v > 0).map((x) => ({ label: x.k, value: x.v })),
+    [severityBlocks]
+  );
+  const severityColorFor = useCallback(
+    (label: string) =>
+      severityChartColors[label as keyof typeof severityChartColors] ?? severityChartColors.neutral,
+    [severityChartColors]
+  );
+
   const dense = density === "compact";
 
   const findingColumns: Column<VulnFinding>[] = [
@@ -946,7 +958,21 @@ export default function VulnerabilitiesPage() {
       </Card>
 
       {/* ── Posture detail tables ── */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Card title="Findings by severity" className="rounded-xl">
+          {severityDonutData.length === 0 ? (
+            <EmptyState title="No severity data" description="No open findings to break down." />
+          ) : (
+            <DonutChart
+              data={severityDonutData}
+              height={260}
+              legendPosition="bottom"
+              colorFor={severityColorFor}
+              valueFormatter={(v) => `${v}`}
+            />
+          )}
+        </Card>
+
         <Card
           title="Priority Queue"
           right={
