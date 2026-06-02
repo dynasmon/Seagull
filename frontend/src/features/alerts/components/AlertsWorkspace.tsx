@@ -11,7 +11,7 @@ import {
 import EmptyState from "@/shared/components/EmptyState";
 import Loading from "@/shared/components/Loading";
 import { Panel } from "@/shared/components/Panel";
-import { SelectInput } from "@/shared/components/SelectInput";
+import { FilterBar, FilterButtonSelect } from "@/shared/components/FilterBar";
 import { TextInput } from "@/shared/components/TextInput";
 import { cx } from "@/shared/lib/cx";
 
@@ -83,18 +83,20 @@ export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
               onChange={(value) => patch({ severity: value })}
               className="h-9 w-[160px]"
             />
-            <SelectInput
-              value={view.status}
-              onChange={(event) => patch({ status: event.target.value })}
-              className="h-9 w-[150px]"
-              title="Alert lifecycle status"
-            >
-              <option value="all">All status</option>
-              <option value="open">Open</option>
-              <option value="acknowledged">Acknowledged</option>
-              <option value="investigating">Investigating</option>
-              <option value="closed">Closed</option>
-            </SelectInput>
+            <FilterBar>
+              <FilterButtonSelect
+                label="Status"
+                value={view.status}
+                options={[
+                  { value: "all", label: "All status" },
+                  { value: "open", label: "Open" },
+                  { value: "acknowledged", label: "Acknowledged" },
+                  { value: "investigating", label: "Investigating" },
+                  { value: "closed", label: "Closed" },
+                ]}
+                onChange={(v) => patch({ status: v })}
+              />
+            </FilterBar>
             <TextInput
               value={view.rule_id}
               onChange={(event) => patch({ rule_id: event.target.value })}

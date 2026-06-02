@@ -1,4 +1,13 @@
-import { SelectInput } from "@/shared/components/SelectInput";
+import { FilterBar, FilterButtonSelect } from "@/shared/components/FilterBar";
+
+const SEVERITY_OPTIONS = [
+  { value: "all", label: "All severities" },
+  { value: "critical", label: "Critical" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
+  { value: "unknown", label: "Unknown" },
+];
 
 export default function SeverityFilter(props: {
   value: string;
@@ -6,19 +15,13 @@ export default function SeverityFilter(props: {
   className?: string;
 }) {
   return (
-    <SelectInput
-      value={props.value}
-      onChange={(e) => props.onChange(e.target.value)}
-      className={props.className}
-      title="Severity filter"
-      aria-label="Severity filter"
-    >
-      <option value="all">All severities</option>
-      <option value="critical">Critical</option>
-      <option value="high">High</option>
-      <option value="medium">Medium</option>
-      <option value="low">Low</option>
-      <option value="unknown">Unknown</option>
-    </SelectInput>
+    <FilterBar>
+      <FilterButtonSelect
+        label="Severity"
+        value={props.value}
+        options={SEVERITY_OPTIONS}
+        onChange={props.onChange}
+      />
+    </FilterBar>
   );
 }
