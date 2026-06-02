@@ -9,6 +9,7 @@ import { DataQueryStateBanner } from "@/shared/components/DataView";
 import { PageHeader } from "@/shared/components/PageHeader";
 import { Panel } from "@/shared/components/Panel";
 import { Table } from "@/shared/components/Table";
+import { BarChart, TimeSeriesChart } from "@/shared/components/charts";
 import { getFlowIpContext } from "@/shared/lib/ipClassification";
 import type { Alert } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
@@ -527,11 +528,12 @@ function OverviewPageView({
             ) : (
               <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
                 <div className="flex w-full max-w-full justify-center">
-                  <SimpleTimeSeries
+                  <TimeSeriesChart
                     data={trafficChart.data}
                     seriesKeys={trafficChart.series}
                     height={190}
-                    allowHorizontalScroll={false}
+                    variant="area"
+                    stacked
                   />
                 </div>
               </div>
@@ -685,48 +687,24 @@ function OverviewPageView({
 
       <DashboardSection id="talkers" title="Top talkers & ports" defaultOpen>
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-          <OverviewPanel title="Top source IPs (events)" style={{ height: H_PANEL_TABLE }} scrollY>
-            {snapshot.top_sources.length === 0 ? (
-              <EmptyState title="No data" hint="No source IPs available." />
-            ) : (
-              <Table
-                className="text-xs"
-                columns={[
-                  {
-                    key: "src_ip",
-                    title: "Src IP",
-                    className: "font-mono text-foreground",
-                    render: (r: any) => <IpAddressPill ip={r.src_ip} ipContext={overviewIpContext(r, "src")} compact />,
-                  },
-                  { key: "count", title: "Events", className: "text-right font-mono text-primary w-24" },
-                ]}
-                rows={snapshot.top_sources}
-                rowKey={(r, i) => `${r.src_ip || "na"}-${i}`}
-              />
-            )}
+          <OverviewPanel title="Top source IPs (events)" style={{ height: H_PANEL_TABLE }}>
+            <BarChart
+              data={snapshot.top_sources.slice(0, 12).map((r) => ({ x: r.src_ip || "—", y: r.count }))}
+              height={H_PANEL_TABLE - 52}
+              horizontal
+              categoryFormatter={(v) => (v.length > 18 ? `…${v.slice(-17)}` : v)}
+              valueFormatter={fmtCompact}
+              emptyLabel="No source IPs available"
+            />
           </OverviewPanel>
 
-          <OverviewPanel title="Top destination ports (flows)" style={{ height: H_PANEL_TABLE }} scrollY>
-            {snapshot.ports.length === 0 ? (
-              <EmptyState title="No data" hint="No port activity available." />
-            ) : (
-              <div className="space-y-2.5">
-                {snapshot.ports.map((p) => (
-                  <div key={p.port} className="flex items-center gap-3 text-xs">
-                    <div className="w-14 text-right font-mono text-muted-foreground">:{p.port}</div>
-                    <div className="h-1.5 flex-1 overflow-hidden rounded bg-muted/30">
-                      <div
-                        className="h-full rounded bg-primary/70"
-                        style={{
-                          width: `${Math.min(100, (p.count / Math.max(1, snapshot.ports[0]?.count || 1)) * 100)}%`,
-                        }}
-                      />
-                    </div>
-                    <div className="w-12 text-right font-mono text-foreground">{p.count}</div>
-                  </div>
-                ))}
-              </div>
-            )}
+          <OverviewPanel title="Top destination ports (flows)" style={{ height: H_PANEL_TABLE }}>
+            <BarChart
+              data={snapshot.ports.slice(0, 15).map((p) => ({ x: `:${p.port}`, y: p.count }))}
+              height={H_PANEL_TABLE - 52}
+              valueFormatter={fmtCompact}
+              emptyLabel="No port activity available"
+            />
           </OverviewPanel>
         </div>
       </DashboardSection>
