@@ -9,6 +9,7 @@ from typing import Any, Iterable, List, Mapping, Optional, Sequence
 
 from app.features.alerts.models import AlertModel
 from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
+from app.features.detections.domain.scoring import severity_baseline_score
 from app.features.correlations.schemas import CorrelationAlertRef, CorrelationEvidenceMatch, CorrelationIncidentOut
 from app.features.events.models import NetEventModel
 from app.features.exposure.models import ExposureFindingModel
@@ -166,18 +167,7 @@ def alert_ref(a: AlertModel) -> CorrelationAlertRef:
 
 
 def severity_score(value: Any) -> int:
-    sev = str(value or "").strip().lower()
-    if sev == "critical":
-        return 95
-    if sev == "high":
-        return 78
-    if sev == "medium":
-        return 52
-    if sev == "low":
-        return 30
-    if sev == "info":
-        return 12
-    return 40
+    return severity_baseline_score(value)
 
 
 def stable_json(data: Any) -> str:
