@@ -56,10 +56,11 @@ export function AlertsRulesWorkspace() {
           { label: "Filtered", value: rulesData.filtered.length },
           { label: "Enabled", value: rulesData.ruleStats.enabled, tone: "success" },
           { label: "Overrides", value: rulesData.ruleStats.overrides, tone: "info" },
-          { label: "Critical/High", value: rulesData.ruleStats.criticalHigh, tone: rulesData.ruleStats.criticalHigh > 0 ? "danger" : "default" },
-          { label: "Selected", value: rulesData.selectedId || "-" },
-          { label: "Editor", value: rulesData.drawerOpen ? "open" : "closed" },
-          { label: "View", value: editor.showEffective ? "effective visible" : "effective hidden" },
+          {
+            label: "Critical/High",
+            value: rulesData.ruleStats.criticalHigh,
+            tone: rulesData.ruleStats.criticalHigh > 0 ? "danger" : "default",
+          },
         ]}
       />
 
@@ -68,6 +69,7 @@ export function AlertsRulesWorkspace() {
         actions={<span className="text-[10.5px] text-muted-foreground">{headerRight}</span>}
         scrollY
         className={cx(panelHeightClass)}
+        padded={false}
       >
         <AlertsRulesList
           loading={rulesData.loading}
