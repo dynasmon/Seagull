@@ -24,6 +24,7 @@ from app.features.detections.domain.condition_ast import (
     SelectionReference,
     UnaryExpression,
 )
+from app.features.detections.domain.scoring import build_rule_provenance, resolve_alert_risk_score
 from app.features.events.worker_runtime import NetEventModel
 from app.workers.intelligence.rules.conditions import (
     _ALLOWED_EVENT_FIELDS,
@@ -215,12 +216,9 @@ def _build_v2_details(
         "group_key": group_key,
         "window_seconds": int(window.total_seconds()),
         "enrichment": enrichment,
-        "rule_meta": {
-            "pack": rule.get("pack"),
-            "category": rule.get("category"),
-            "rule_version": int(rule.get("rule_version") or 1),
-        },
+        "rule_meta": build_rule_provenance(rule),
     }
+    details["risk_score"] = resolve_alert_risk_score(rule, eff_severity)
     if count is not None:
         details["count"] = count
     if distinct_field is not None:
@@ -430,6 +428,7 @@ def execute_v2_rule(
             alert = AlertModel(
                 rule_id=rule_id,
                 severity=eff_severity,
+                risk_score=details.get("risk_score"),
                 src_ip=src_ip,
                 dst_ip=dst_ip,
                 dst_port=dst_port,
@@ -513,6 +512,7 @@ def execute_v2_rule(
             alert = AlertModel(
                 rule_id=rule_id,
                 severity=eff_severity,
+                risk_score=details.get("risk_score"),
                 src_ip=src_ip,
                 dst_ip=dst_ip,
                 dst_port=dst_port,
@@ -606,6 +606,7 @@ def execute_v2_rule(
             alert = AlertModel(
                 rule_id=rule_id,
                 severity=eff_severity,
+                risk_score=details.get("risk_score"),
                 src_ip=src_ip,
                 dst_ip=dst_ip,
                 dst_port=dst_port,
