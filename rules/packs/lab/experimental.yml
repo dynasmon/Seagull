@@ -9,6 +9,9 @@ rules:
   - id: beaconing_fixed_tuple_candidate_v1
     name: "Potential beaconing on fixed tuple"
     description: "Many low-byte flows on a fixed src/dst/port tuple in a short interval."
+    false_positives: "Monitoring agents, software-update pollers, and chat/VoIP keepalives that poll a fixed endpoint on a regular cadence."
+    response: "Correlate the fixed tuple against known management/update infrastructure; if the destination is untrusted, capture the periodic flows and inspect payload entropy and jitter before escalating."
+    risk_score: 52
     mitre:
       tactic: "command_and_control"
       technique_id: "T1071"
@@ -36,6 +39,9 @@ rules:
   - id: egress_high_volume_candidate_v1
     name: "Potential high-volume exfiltration"
     description: "Repeated high-byte outbound flows from one source to one destination."
+    false_positives: "Scheduled backups, container image pulls/pushes, and large dataset transfers to approved storage or CI endpoints."
+    response: "Confirm whether the destination and data volume match an approved transfer window; if not, identify the source process and account and contain the host pending review."
+    risk_score: 68
     mitre:
       tactic: "exfiltration"
       technique_id: "T1048"
@@ -64,6 +70,9 @@ rules:
   - id: dns_tunnel_candidate_v1
     name: "DNS tunnel candidate"
     description: "Suspiciously high volume of DNS-like flows between the same endpoints."
+    false_positives: "Internal resolvers and split-horizon DNS forwarders that legitimately carry high query volume between fixed endpoints."
+    response: "Verify the source/destination are an authorized resolver pair; inspect query-name length and entropy for tunneling indicators before escalating."
+    risk_score: 54
     mitre:
       tactic: "command_and_control"
       technique_id: "T1071.004"
@@ -91,6 +100,9 @@ rules:
   - id: low_and_slow_port_scan_candidate_v1
     name: "Low-and-slow scan candidate"
     description: "Slow accumulation of destination-port diversity from one source to one target."
+    false_positives: "Authorized vulnerability scanners and asset-inventory sweeps configured for low-rate probing."
+    response: "Check the source against the approved scanner inventory; if unrecognized, review the accumulated port set and correlate with later connection attempts."
+    risk_score: 30
     mitre:
       tactic: "discovery"
       technique_id: "T1046"
@@ -118,6 +130,9 @@ rules:
   - id: rpc_fanout_candidate_v1
     name: "RPC fan-out candidate"
     description: "Source touches many targets on RPC service (port 135)."
+    false_positives: "Domain controllers, monitoring servers, and configuration-management hosts that legitimately fan out to many endpoints over RPC."
+    response: "Validate whether the source host's role explains broad RPC contact; if not, review authentication outcomes and correlate with lateral-movement or recon signals from the same source."
+    risk_score: 53
     mitre:
       tactic: "lateral_movement"
       technique_id: "T1021"
@@ -144,6 +159,9 @@ rules:
   - id: smb_ssh_combo_pivot_candidate_v1
     name: "SMB+SSH combo pivot candidate"
     description: "Source combines SMB and SSH attempts across multiple destinations."
+    false_positives: "Backup, deployment, and orchestration hosts that routinely reach many targets over both SMB and SSH."
+    response: "Confirm the source's role accounts for mixed SMB/SSH fan-out; otherwise treat as a pivot candidate and correlate with credential-access or recon activity from the same source."
+    risk_score: 55
     mitre:
       tactic: "lateral_movement"
       technique_id: "T1021"
