@@ -20,6 +20,7 @@ from app.features.alerts.rule_registry_runtime import (
     load_baseline_rules,
     normalize_rule_list,
 )
+from app.features.detections.domain.scoring import build_rule_provenance, resolve_alert_risk_score
 from app.features.detections.repository import get_rule_health_map
 from app.features.detections.rules.compiler import execute_v2_rule
 from app.shared.taxonomy.catalog import technique_name
@@ -354,11 +355,7 @@ def run_rules_once():
                             "count": count,
                             "window_seconds": int(window.total_seconds()),
                             "enrichment": enrichment,
-                            "rule_meta": {
-                                "pack": rule.get("pack"),
-                                "category": rule.get("category"),
-                                "rule_version": int(rule.get("rule_version") or 1),
-                            },
+                            "rule_meta": build_rule_provenance(rule),
                         }
                         if eval_cfg.get("applied_scopes"):
                             details["tuning"] = {
@@ -374,9 +371,12 @@ def run_rules_once():
 
                         if mitre:
                             details["mitre"] = mitre
+                        alert_risk_score = resolve_alert_risk_score(rule, eff_severity)
+                        details["risk_score"] = alert_risk_score
                         alert = AlertModel(
                             rule_id=rule_id,
                             severity=eff_severity,
+                            risk_score=alert_risk_score,
                             src_ip=src_ip,
                             dst_ip=dst_ip,
                             dst_port=dst_port,
@@ -497,11 +497,7 @@ def run_rules_once():
                             "event_count": event_count,
                             "window_seconds": int(window.total_seconds()),
                             "enrichment": enrichment,
-                            "rule_meta": {
-                                "pack": rule.get("pack"),
-                                "category": rule.get("category"),
-                                "rule_version": int(rule.get("rule_version") or 1),
-                            },
+                            "rule_meta": build_rule_provenance(rule),
                         }
                         if eval_cfg.get("applied_scopes"):
                             details["tuning"] = {
@@ -517,9 +513,12 @@ def run_rules_once():
 
                         if mitre:
                             details["mitre"] = mitre
+                        alert_risk_score = resolve_alert_risk_score(rule, eff_severity)
+                        details["risk_score"] = alert_risk_score
                         alert = AlertModel(
                             rule_id=rule_id,
                             severity=eff_severity,
+                            risk_score=alert_risk_score,
                             src_ip=src_ip,
                             dst_ip=dst_ip,
                             dst_port=dst_port,
@@ -650,11 +649,7 @@ def run_rules_once():
                             "distinct": distinct_result,
                             "window_seconds": int(window.total_seconds()),
                             "enrichment": enrichment,
-                            "rule_meta": {
-                                "pack": rule.get("pack"),
-                                "category": rule.get("category"),
-                                "rule_version": int(rule.get("rule_version") or 1),
-                            },
+                            "rule_meta": build_rule_provenance(rule),
                         }
                         if eval_cfg.get("applied_scopes"):
                             details["tuning"] = {
@@ -670,9 +665,12 @@ def run_rules_once():
 
                         if mitre:
                             details["mitre"] = mitre
+                        alert_risk_score = resolve_alert_risk_score(rule, eff_severity)
+                        details["risk_score"] = alert_risk_score
                         alert = AlertModel(
                             rule_id=rule_id,
                             severity=eff_severity,
+                            risk_score=alert_risk_score,
                             src_ip=src_ip,
                             dst_ip=dst_ip,
                             dst_port=dst_port,
