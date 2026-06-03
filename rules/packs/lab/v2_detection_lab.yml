@@ -44,6 +44,7 @@ rules:
     tuning: {}
     response:
       playbook: Investigate the source IP for repeated SSH activity.
+      false_positives: Automation or health-check accounts performing frequent scripted SSH logins from a fixed management host.
 
   - schema_version: 2
     id: v2_lab_port_scan_cardinality_v1
@@ -81,6 +82,9 @@ rules:
       cooldown: 30m
       rules: []
     tuning: {}
+    response:
+      playbook: Validate the source against the approved scanner inventory and review the probed port set before escalating.
+      false_positives: Authorized vulnerability scanners or asset-inventory sweeps probing many ports at a low rate.
 
   - schema_version: 2
     id: v2_lab_lateral_multi_cardinality_v1
@@ -124,3 +128,6 @@ rules:
       cooldown: 30m
       rules: []
     tuning: {}
+    response:
+      playbook: Confirm whether the source host's role explains broad multi-service fan-out; otherwise treat as a lateral-movement pivot and correlate with recon or credential-access signals.
+      false_positives: Backup, deployment, or orchestration hosts that legitimately reach many targets across SSH/SMB/RDP.

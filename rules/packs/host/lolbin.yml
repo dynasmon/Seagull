@@ -9,6 +9,7 @@ rules:
     name: "Remote fetch piped into shell"
     description: "Process execution indicates download-and-execute pipeline into shell interpreter."
     status: "active"
+    risk_score: 82
     source: "proc_exec"
     false_positives: "Controlled bootstrap scripts from trusted internal package infrastructure."
     response: "Validate command source and destination trust, then isolate host if payload origin is unapproved."
@@ -36,6 +37,7 @@ rules:
     name: "Base64 decode-and-execute chain"
     description: "Process command line includes decode-and-execute primitives with interpreter or shell context."
     status: "active"
+    risk_score: 75
     source: "proc_exec"
     false_positives: "Build systems decoding small trusted blobs during package installation."
     response: "Review decoded payload source and confirm execution target path legitimacy."
@@ -66,6 +68,7 @@ rules:
     name: "Interpreter eval abuse"
     description: "Interpreter execution includes eval-like primitives commonly seen in post-exploitation."
     status: "active"
+    risk_score: 60
     source: "proc_exec"
     false_positives: "Developer tooling wrappers in sandboxed non-production environments."
     response: "Inspect script origin, parent lineage, and whether execution occurred on a sensitive host role."
@@ -93,6 +96,7 @@ rules:
     name: "chmod +x staging followed by execution path"
     description: "Command modifies execute bits in temporary paths with shell/interpreter execution context."
     status: "active"
+    risk_score: 74
     source: "proc_exec"
     false_positives: "Packaging scripts building temporary artifacts on CI hosts."
     response: "Verify whether modified temporary artifact is trusted and expected for the host role."
@@ -120,6 +124,7 @@ rules:
     name: "Shell spawned from network-facing service chain"
     description: "Shell is spawned from service lineage associated with network-facing workloads."
     status: "active"
+    risk_score: 76
     source: "proc_exec"
     false_positives: "Rare live-debug sessions on application servers."
     response: "Review parent process and network session context to confirm whether this execution path is authorized."
