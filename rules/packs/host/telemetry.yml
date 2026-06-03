@@ -33,17 +33,17 @@ rules:
 
   - id: proc_service_shell_child_v1
     name: "Shell spawned by network-facing service"
-    description: "A shell process appears as a child of a network-facing service process."
-    status: "active"
+    description: "Deprecated in favor of lotl_network_service_shell_spawn_chain_v1 (host/lotl), which detects the same service-spawned shell with a more specific ATT&CK sub-technique."
+    status: "deprecated"
     source: "proc_exec"
-    false_positives: "Rare maintenance shells from web service workers during troubleshooting."
-    response: "Investigate parent process lineage and isolate host if command execution is unauthorized."
+    false_positives: "Superseded by lotl_network_service_shell_spawn_chain_v1."
+    response: "Use lotl_network_service_shell_spawn_chain_v1 for active triage of service-spawned shells."
     mitre:
       tactic: "execution"
       technique_id: "T1059"
       technique: "Command and Scripting Interpreter"
       confidence: 82
-    enabled: true
+    enabled: false
     severity: "high"
     type: "aggregate_count"
     window: "4m"

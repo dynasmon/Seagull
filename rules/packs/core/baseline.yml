@@ -9,6 +9,7 @@ rules:
     name: "SSH brute force (authlog-based, fast detector)"
     description: "Fast detector for concentrated SSH failures from one source to one target."
     status: "active"
+    risk_score: 74
     source: "ssh_auth"
     false_positives: "Bursted login mistakes from jump hosts; use tuning allowlist for trusted automation origins."
     response: "Investigate source identity, block abusive source, and validate hardening on target SSH service."
@@ -40,17 +41,17 @@ rules:
 
   - id: port_scan_pcap_v1
     name: "Vertical port scan (pcap baseline)"
-    description: "Distinct destination ports per source IP and destination with high-confidence TCP scan probes."
-    status: "active"
+    description: "Deprecated in favor of tcp_vertical_port_scan_v3 (network/discovery), which detects the same vertical TCP scan with tuned anti-noise thresholds."
+    status: "deprecated"
     source: "scan_probe"
-    false_positives: "Approved vulnerability scanning or network inventory sweeps."
-    response: "Validate source against authorized scanner inventory and investigate unauthorized probe campaigns."
+    false_positives: "Superseded by tcp_vertical_port_scan_v3."
+    response: "Use tcp_vertical_port_scan_v3 for active vertical TCP scan triage."
     mitre:
       tactic: "discovery"
       technique_id: "T1046"
       technique: "Network Service Scanning"
       confidence: 86
-    enabled: true
+    enabled: false
     severity: "high"
     type: "distinct_count"
     window: "2m"
