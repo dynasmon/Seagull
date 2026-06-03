@@ -51,6 +51,35 @@ def _has_false_positive_guidance(rule: Mapping[str, Any]) -> bool:
     return bool(str(rule.get("false_positives") or "").strip())
 
 
+def _status(rule: Mapping[str, Any]) -> str:
+    return str(rule.get("status") or "").strip().lower()
+
+
+def _is_actionable(rule: Mapping[str, Any]) -> bool:
+    if rule.get("enabled", True) is False:
+        return False
+    return _status(rule) not in {"deprecated", "disabled"}
+
+
+def _confidence(rule: Mapping[str, Any]) -> int | None:
+    mitre = _rule_mitre(rule)
+    for candidate in (rule.get("confidence"), mitre.get("confidence")):
+        try:
+            if candidate is not None:
+                return int(candidate)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _risk_score(rule: Mapping[str, Any]) -> int | None:
+    try:
+        value = rule.get("risk_score")
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _warning(*, rule: Mapping[str, Any] | None, code: str, message: str) -> dict[str, Any]:
     return {
         "code": code,
@@ -143,8 +172,40 @@ def collect_quality_warnings(rules: list[Mapping[str, Any]]) -> list[dict[str, A
                 )
             )
 
+        severity = _severity(rule)
+        actionable = _is_actionable(rule)
+        confidence = _confidence(rule)
+        if actionable and confidence is not None:
+            if severity in {"high", "critical"} and confidence < 60:
+                warnings.append(
+                    _warning(
+                        rule=rule,
+                        code="severity_confidence_mismatch",
+                        message=f"{severity} severity but low rule confidence ({confidence}); align severity/confidence/risk or downgrade.",
+                    )
+                )
+            elif severity in {"low", "info"} and confidence >= 85:
+                warnings.append(
+                    _warning(
+                        rule=rule,
+                        code="severity_confidence_mismatch",
+                        message=f"low severity but high confidence ({confidence}); raise severity or document why this stays a low-severity signal.",
+                    )
+                )
+
+        if actionable and severity in {"medium", "high", "critical"} and _risk_score(rule) is None:
+            warnings.append(
+                _warning(
+                    rule=rule,
+                    code="missing_risk_score",
+                    message="Actionable rule has no risk_score; add an explicit risk_score aligned to severity, confidence, and evidence quality.",
+                )
+            )
+
     by_signature: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for rule in rules:
+        if not _is_actionable(rule):
+            continue
         signature = _detection_signature(rule)
         if signature:
             by_signature[signature].append(rule)
