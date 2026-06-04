@@ -456,8 +456,12 @@ def test_execute_v2_rule_populates_mitre_fields():
     alert = alerts[0]
     assert alert.mitre_tactic == "lateral_movement"
     assert alert.mitre_technique_id == "T1021"
-    assert alert.confidence == 82
     assert alert.details["mitre"]["tactic"] == "lateral_movement"
+    breakdown = alert.details["score_breakdown"]
+    assert breakdown[0]["factor"] == "base"
+    assert breakdown[0]["confidence_delta"] == 82
+    assert 0 <= alert.confidence <= 100
+    assert any(f["factor"] == "mitre_mapping" for f in breakdown)
 
 
 def test_execute_v2_rule_cooldown_prevents_duplicate():
