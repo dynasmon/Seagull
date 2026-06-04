@@ -9,6 +9,11 @@ os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from tests.detection_rule_harness import evaluate_rule, load_rule_index
 
+# Programmatic coverage for catalog rules whose thresholds (min_events 10-2500)
+# make a faithful positive impractical to express as inline YAML. Each rule is
+# checked at three points: fires at threshold, stays quiet below threshold, and
+# stays quiet when a discriminating predicate fails.
+
 _RULES_DIR = Path(__file__).resolve().parents[2] / "rules"
 _RULES = load_rule_index(str(_RULES_DIR))
 _NOW = datetime.now(timezone.utc)
@@ -83,7 +88,66 @@ def _scan_summary(
     }
 
 
-# --- discovery: vertical/spray scans (rules/packs/network/scan.yml) ---
+def _ssh_auth(
+    *,
+    src_ip: str = "198.51.100.7",
+    dst_ip: str = "10.0.0.5",
+    dst_port: int = 22,
+    username: str = "root",
+    action: str = "failed_password",
+    source: str = "auth.log",
+    src_port: int = 40000,
+) -> dict:
+    return {
+        "agent_id": "sensor-1",
+        "event_type": "ssh_auth",
+        "timestamp": _TS,
+        "src_ip": src_ip,
+        "dst_ip": dst_ip,
+        "dst_port": dst_port,
+        "extra": {"source": source, "action": action, "username": username, "src_port": src_port},
+    }
+
+
+def _sudo_cmd(
+    *,
+    agent_id: str = "sensor-1",
+    src_ip: str = "10.0.0.5",
+    username: str = "alice",
+    target_user: str = "root",
+    action: str = "sudo",
+    command: str = "systemctl status app",
+) -> dict:
+    return {
+        "agent_id": agent_id,
+        "event_type": "sudo_cmd",
+        "timestamp": _TS,
+        "src_ip": src_ip,
+        "extra": {"action": action, "target_user": target_user, "username": username, "command": command},
+    }
+
+
+def _flow(
+    *,
+    src_ip: str = "10.0.0.5",
+    dst_ip: str = "203.0.113.9",
+    dst_port: int = 4444,
+    proto: str = "tcp",
+    nbytes: int = 100,
+) -> dict:
+    return {
+        "agent_id": "sensor-1",
+        "event_type": "flow",
+        "timestamp": _TS,
+        "src_ip": src_ip,
+        "dst_ip": dst_ip,
+        "dst_port": dst_port,
+        "proto": proto,
+        "bytes": nbytes,
+    }
+
+
+# network/scan.yml — vertical / spray scans
 
 def test_tcp_vertical_port_scan_threshold() -> None:
     rule = _RULES["tcp_vertical_port_scan_v3"]
@@ -121,7 +185,7 @@ def test_tcp_scan_spray_requires_port_diversity() -> None:
     assert evaluate_rule(rule, no_src_diversity, _NOW) == []
 
 
-# --- discovery: recon sweeps (rules/packs/network/recon.yml) ---
+# network/recon.yml — discovery sweeps
 
 def test_admin_ports_vertical_recon_threshold() -> None:
     rule = _RULES["admin_ports_vertical_recon_v1"]
@@ -198,7 +262,7 @@ def test_icmp_sweep_recon_threshold() -> None:
     assert evaluate_rule(rule, non_icmp, _NOW) == []
 
 
-# --- lateral movement (rules/packs/network/lateral.yml) ---
+# network/lateral.yml — lateral movement fan-out / pivots
 
 def test_lateral_admin_spray_threshold() -> None:
     rule = _RULES["lateral_admin_spray_v1"]
@@ -302,7 +366,7 @@ def test_lateral_rpc_netbios_combo_threshold() -> None:
     assert evaluate_rule(rule, single_port, _NOW) == []
 
 
-# --- impact: probe-storm summaries (rules/packs/network/ddos.yml) ---
+# network/ddos.yml — probe-storm summaries
 
 def test_ddos_scan_summary_fanout_threshold() -> None:
     rule = _RULES["ddos_scan_summary_fanout_v1"]
@@ -326,3 +390,169 @@ def test_dos_scan_summary_volume_threshold() -> None:
 
     no_probes = [_scan_summary(total_probes=0) for _ in range(5)]
     assert evaluate_rule(rule, no_probes, _NOW) == []
+
+
+# core/auth.yml + core/baseline.yml — SSH brute-force / spray / sudo bursts
+
+def test_ssh_invalid_user_burst_threshold() -> None:
+    rule = _RULES["ssh_invalid_user_burst_v1"]
+    fires = [_ssh_auth(action="invalid_user") for _ in range(14)]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [_ssh_auth(action="invalid_user") for _ in range(10)]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    wrong_action = [_ssh_auth(action="failed_password") for _ in range(14)]
+    assert evaluate_rule(rule, wrong_action, _NOW) == []
+
+
+def test_ssh_distributed_bruteforce_target_threshold() -> None:
+    rule = _RULES["ssh_distributed_bruteforce_target_v1"]
+    fires = [_ssh_auth(src_ip=_distinct_ip("198.51", i)) for i in range(45)]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [_ssh_auth(src_ip=_distinct_ip("198.51", i)) for i in range(30)]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    wrong_port = [_ssh_auth(src_ip=_distinct_ip("198.51", i), dst_port=2222) for i in range(45)]
+    assert evaluate_rule(rule, wrong_port, _NOW) == []
+
+
+def test_ssh_failed_password_burst_target_threshold() -> None:
+    rule = _RULES["ssh_failed_password_burst_target_v1"]
+    fires = [_ssh_auth(action="failed_password") for _ in range(20)]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [_ssh_auth(action="failed_password") for _ in range(14)]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    accepted = [_ssh_auth(action="accepted") for _ in range(20)]
+    assert evaluate_rule(rule, accepted, _NOW) == []
+
+
+def test_ssh_single_source_multi_target_fail_threshold() -> None:
+    rule = _RULES["ssh_single_source_multi_target_fail_v1"]
+    fires = [_ssh_auth(dst_ip=_distinct_ip("10.60", i)) for i in range(50)]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [_ssh_auth(dst_ip=_distinct_ip("10.60", i)) for i in range(30)]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    wrong_source = [_ssh_auth(dst_ip=_distinct_ip("10.60", i), source="syslog") for i in range(50)]
+    assert evaluate_rule(rule, wrong_source, _NOW) == []
+
+
+def test_sudo_root_command_burst_threshold() -> None:
+    rule = _RULES["sudo_root_command_burst_v1"]
+    fires = [_sudo_cmd() for _ in range(10)]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [_sudo_cmd() for _ in range(5)]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    root_invoked = [_sudo_cmd(username="root") for _ in range(10)]
+    assert evaluate_rule(rule, root_invoked, _NOW) == []
+
+
+def test_ssh_password_spray_distinct_username_threshold() -> None:
+    rule = _RULES["ssh_password_spray_distinct_username_v1"]
+    fires = [_ssh_auth(username=f"user{i}") for i in range(12)]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [_ssh_auth(username=f"user{i}") for i in range(8)]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    accepted = [_ssh_auth(username=f"user{i}", action="accepted") for i in range(12)]
+    assert evaluate_rule(rule, accepted, _NOW) == []
+
+
+def test_ssh_bruteforce_authlog_fast_detector_threshold() -> None:
+    rule = _RULES["ssh_bruteforce_authlog_v2"]
+    fires = [_ssh_auth(action="failed_password") for _ in range(10)]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [_ssh_auth(action="failed_password") for _ in range(6)]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    wrong_port = [_ssh_auth(action="failed_password", dst_port=2222) for _ in range(10)]
+    assert evaluate_rule(rule, wrong_port, _NOW) == []
+
+
+# lab/experimental.yml — experimental behavior candidates (volume)
+
+def test_beaconing_fixed_tuple_candidate_threshold() -> None:
+    rule = _RULES["beaconing_fixed_tuple_candidate_v1"]
+    fires = [_flow(nbytes=100) for _ in range(140)]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [_flow(nbytes=100) for _ in range(100)]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    large_flows = [_flow(nbytes=5000) for _ in range(140)]
+    assert evaluate_rule(rule, large_flows, _NOW) == []
+
+
+def test_egress_high_volume_candidate_threshold() -> None:
+    rule = _RULES["egress_high_volume_candidate_v1"]
+    fires = [_flow(nbytes=5_000_000) for _ in range(10)]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [_flow(nbytes=5_000_000) for _ in range(6)]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    small_flows = [_flow(nbytes=1000) for _ in range(10)]
+    assert evaluate_rule(rule, small_flows, _NOW) == []
+
+
+def test_dns_tunnel_candidate_threshold() -> None:
+    rule = _RULES["dns_tunnel_candidate_v1"]
+    fires = [_flow(proto="udp", dst_port=53, nbytes=100) for _ in range(260)]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [_flow(proto="udp", dst_port=53, nbytes=100) for _ in range(100)]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    large_flows = [_flow(proto="udp", dst_port=53, nbytes=5000) for _ in range(260)]
+    assert evaluate_rule(rule, large_flows, _NOW) == []
+
+
+def test_low_and_slow_port_scan_candidate_threshold() -> None:
+    rule = _RULES["low_and_slow_port_scan_candidate_v1"]
+    fires = [_scan_probe(dst_port=1000 + i, scan_confidence=70) for i in range(30)]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [_scan_probe(dst_port=1000 + i, scan_confidence=70) for i in range(20)]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    low_conf = [_scan_probe(dst_port=1000 + i, scan_confidence=50) for i in range(30)]
+    assert evaluate_rule(rule, low_conf, _NOW) == []
+
+
+def test_rpc_fanout_candidate_threshold() -> None:
+    rule = _RULES["rpc_fanout_candidate_v1"]
+    fires = [_lateral_conn(dst_ip=_distinct_ip("10.61", i), dst_port=135, lateral_confidence=70) for i in range(20)]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [_lateral_conn(dst_ip=_distinct_ip("10.61", i), dst_port=135, lateral_confidence=70) for i in range(12)]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    wrong_port = [_lateral_conn(dst_ip=_distinct_ip("10.61", i), dst_port=22, lateral_confidence=70) for i in range(20)]
+    assert evaluate_rule(rule, wrong_port, _NOW) == []
+
+
+def test_smb_ssh_combo_pivot_candidate_threshold() -> None:
+    rule = _RULES["smb_ssh_combo_pivot_candidate_v1"]
+    fires = [
+        _lateral_conn(dst_ip=_distinct_ip("10.62", i % 10), dst_port=22 if i % 2 == 0 else 445, lateral_confidence=70)
+        for i in range(25)
+    ]
+    assert len(evaluate_rule(rule, fires, _NOW)) == 1
+
+    below = [
+        _lateral_conn(dst_ip=_distinct_ip("10.62", i % 10), dst_port=22 if i % 2 == 0 else 445, lateral_confidence=70)
+        for i in range(15)
+    ]
+    assert evaluate_rule(rule, below, _NOW) == []
+
+    single_port = [_lateral_conn(dst_ip=_distinct_ip("10.62", i % 10), dst_port=445, lateral_confidence=70) for i in range(25)]
+    assert evaluate_rule(rule, single_port, _NOW) == []
