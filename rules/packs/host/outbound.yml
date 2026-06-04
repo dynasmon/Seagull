@@ -9,6 +9,7 @@ rules:
     name: "Outbound DNS application protocol on non-DNS port"
     description: "Outbound L7 flow is classified as DNS but destination port is outside expected DNS ports."
     status: "active"
+    risk_score: 70
     source: "l7_flow"
     false_positives: "Custom service-mesh forwarding where DNS-over-nonstandard ports is explicitly approved."
     response: "Validate destination service profile and inspect payload patterns for tunneling or C2 behavior."
@@ -32,11 +33,30 @@ rules:
     condition:
       operator: ">="
       value: 3
+    tests:
+      - name: "repeated DNS app-proto on non-DNS port fires"
+        expected: match
+        events:
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 4444, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "dns"}}
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 4444, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "dns"}}
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 4444, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "dns"}}
+      - name: "two events stay below threshold"
+        expected: no_match
+        events:
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 4444, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "dns"}}
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 4444, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "dns"}}
+      - name: "DNS on standard DNS port does not fire"
+        expected: no_match
+        events:
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 53, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "dns"}}
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 53, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "dns"}}
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 53, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "dns"}}
 
   - id: outbound_http_on_admin_or_control_ports_v1
     name: "Outbound HTTP on admin/control ports"
     description: "Outbound HTTP traffic repeatedly targets ports atypical for HTTP usage."
     status: "active"
+    risk_score: 54
     source: "l7_flow"
     false_positives: "Internal diagnostics services using alternate HTTP control ports."
     response: "Check destination ownership and inspect request metadata for command-and-control behavior."
@@ -60,11 +80,27 @@ rules:
     condition:
       operator: ">="
       value: 2
+    tests:
+      - name: "repeated HTTP on SSH port fires"
+        expected: match
+        events:
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 22, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "http"}}
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 22, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "http"}}
+      - name: "single event stays below threshold"
+        expected: no_match
+        events:
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 22, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "http"}}
+      - name: "HTTP on standard web port does not fire"
+        expected: no_match
+        events:
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "http"}}
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "http"}}
 
   - id: outbound_tls_on_suspicious_ports_v1
     name: "Outbound TLS on suspicious protocol/port combination"
     description: "Outbound TLS is observed on ports commonly associated with non-TLS traffic or control channels."
     status: "active"
+    risk_score: 68
     source: "l7_flow"
     false_positives: "Approved encrypted overlays using custom control-plane ports."
     response: "Validate destination profile and inspect SNI/host evidence for newly observed encrypted channels."
@@ -88,11 +124,27 @@ rules:
     condition:
       operator: ">="
       value: 2
+    tests:
+      - name: "repeated TLS on SSDP port fires"
+        expected: match
+        events:
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 1900, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "tls"}}
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 1900, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "tls"}}
+      - name: "single event stays below threshold"
+        expected: no_match
+        events:
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 1900, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "tls"}}
+      - name: "non-TLS app proto does not fire"
+        expected: no_match
+        events:
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 1900, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "http"}}
+          - {event_type: "l7_flow", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 1900, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {flow_direction: "outbound_from_local", app_proto: "http"}}
 
   - id: outbound_contextual_rare_destination_v1
     name: "Contextual rare outbound destination anomaly"
     description: "Derived egress anomaly indicates rare destination correlated with suspicious local execution or persistence."
     status: "active"
+    risk_score: 74
     source: "egress_anomaly"
     false_positives: "One-time onboarding to newly approved external services without baseline warm-up."
     response: "Validate destination trust, inspect local suspicious chain, and block egress if destination is unapproved."
@@ -118,11 +170,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "rare destination after suspicious exec fires"
+        expected: match
+        events:
+          - {event_type: "egress_anomaly", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {reason_kind: "rare_destination_after_suspicious_exec", confidence: 82}}
+      - name: "low confidence does not fire"
+        expected: no_match
+        events:
+          - {event_type: "egress_anomaly", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {reason_kind: "rare_destination_after_suspicious_exec", confidence: 60}}
+      - name: "unrelated reason does not fire"
+        expected: no_match
+        events:
+          - {event_type: "egress_anomaly", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {reason_kind: "known_destination", confidence: 90}}
 
   - id: outbound_contextual_bursty_upload_anomaly_v1
     name: "Contextual bursty outbound upload anomaly"
     description: "Derived egress anomaly reports bursty outbound bytes with baseline deviation."
     status: "active"
+    risk_score: 72
     source: "egress_anomaly"
     false_positives: "Scheduled backup jobs to newly provisioned endpoints on approved backup hosts."
     response: "Confirm transfer intent and inspect associated process lineage and destination ownership."
@@ -160,11 +226,25 @@ rules:
           when:
             host_roles: ["egress-gateway", "proxy"]
             environments: ["dev", "lab"]
+    tests:
+      - name: "large bursty upload fires"
+        expected: match
+        events:
+          - {event_type: "egress_anomaly", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {reason_kind: "bursty_outbound", recent_bytes: 8388608, confidence: 80}}
+      - name: "small transfer below byte threshold does not fire"
+        expected: no_match
+        events:
+          - {event_type: "egress_anomaly", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {reason_kind: "bursty_outbound", recent_bytes: 4096, confidence: 80}}
+      - name: "unrelated reason does not fire"
+        expected: no_match
+        events:
+          - {event_type: "egress_anomaly", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {reason_kind: "steady_baseline", recent_bytes: 8388608, confidence: 80}}
 
   - id: outbound_contextual_suspicious_host_pattern_v1
     name: "Contextual suspicious SNI/host pattern"
     description: "Derived egress anomaly identifies suspicious destination host naming patterns."
     status: "active"
+    risk_score: 50
     source: "egress_anomaly"
     false_positives: "Legitimate CDNs with deep subdomain labels in specific SaaS integrations."
     response: "Inspect DNS/SNI profile, JA3/JA4 metadata, and whether destination was previously trusted for this host."
@@ -187,6 +267,19 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "many-label host pattern fires"
+        expected: match
+        events:
+          - {event_type: "egress_anomaly", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {host_suspicion_reason: "many_labels", confidence: 70}}
+      - name: "low confidence does not fire"
+        expected: no_match
+        events:
+          - {event_type: "egress_anomaly", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {host_suspicion_reason: "many_labels", confidence: 50}}
+      - name: "benign host pattern does not fire"
+        expected: no_match
+        events:
+          - {event_type: "egress_anomaly", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {host_suspicion_reason: "known_cdn", confidence: 90}}
 
   - schema_version: 2
     id: tls_ja4_on_http_port_v2
