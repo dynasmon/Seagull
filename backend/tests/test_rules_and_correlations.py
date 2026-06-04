@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from app.core.config import settings
-from app.features.correlations.api import _segment_by_window, _stage_requirements_met
+from app.features.correlations.engines.base import segment_by_window, stage_requirements_met
 from app.workers.intelligence.rules.conditions import _evaluate_condition
 from app.workers.intelligence.rules.dedup import _normalize_dedup_key
 from app.workers.intelligence.rules.loader import load_rules
@@ -39,7 +39,7 @@ def test_normalize_dedup_key_rule_specific_behavior() -> None:
 def test_segment_by_window_splits_on_window_limit() -> None:
     t0 = datetime(2026, 1, 1, 0, 0, 0)
     rows = [_Alert(t0), _Alert(t0 + timedelta(seconds=10)), _Alert(t0 + timedelta(seconds=70))]
-    segs = _segment_by_window(rows, window_seconds=60)
+    segs = segment_by_window(rows, window_seconds=60)
     assert len(segs) == 2
     assert len(segs[0]) == 2
     assert len(segs[1]) == 1
@@ -48,7 +48,7 @@ def test_segment_by_window_splits_on_window_limit() -> None:
 def test_stage_requirements_met() -> None:
     hits = {"Recon": 2, "Credential": 1}
     stages = [{"name": "Recon", "min_count": 1}, {"name": "Credential", "min_count": 1}]
-    assert _stage_requirements_met(hits, stages)
+    assert stage_requirements_met(hits, stages)
 
 
 def test_load_rules_supports_packs_and_versioning(tmp_path) -> None:
