@@ -6,11 +6,12 @@ import {
   InvestigationSummaryGrid,
 } from "@/shared/components/investigation";
 
-import { alertIpContext } from "../../lib/alertPresenters";
+import { alertIpContext, formatScoreDelta, riskBreakdown } from "../../lib/alertPresenters";
 import { sevVariant } from "../../lib/alertSeverity";
 import type { Alert } from "../../types";
 
 export function AlertDrawerSummaryTab({ selected }: { selected: Alert }) {
+  const breakdown = riskBreakdown(selected);
   return (
     <InvestigationSection title="Alert summary" subtitle="Highest-value triage facts first.">
       <InvestigationSummaryGrid>
@@ -26,6 +27,11 @@ export function AlertDrawerSummaryTab({ selected }: { selected: Alert }) {
         <InvestigationFactCard
           label="Confidence"
           value={typeof selected.confidence === "number" ? String(selected.confidence) : "-"}
+          mono
+        />
+        <InvestigationFactCard
+          label="Risk score"
+          value={typeof selected.risk_score === "number" ? String(selected.risk_score) : "-"}
           mono
         />
         <InvestigationFactCard
@@ -57,6 +63,35 @@ export function AlertDrawerSummaryTab({ selected }: { selected: Alert }) {
         <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">Description</div>
         <div className="mt-1 text-sm leading-relaxed">{selected.description || "No description."}</div>
       </div>
+      {breakdown.length > 0 ? (
+        <div className="mt-4 rounded-lg border border-border/60 bg-background/35 px-3 py-2">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+            Why this fired
+          </div>
+          <ul className="mt-2 space-y-1">
+            {breakdown.map((factor, index) => (
+              <li key={`${factor.factor}-${index}`} className="flex items-baseline gap-2 text-sm">
+                <span
+                  className={`min-w-[2.75rem] text-right font-mono text-xs ${
+                    factor.factor === "base" || factor.riskDelta === 0
+                      ? "text-muted-foreground"
+                      : factor.riskDelta > 0
+                        ? "text-rose-400"
+                        : "text-emerald-400"
+                  }`}
+                >
+                  {formatScoreDelta(factor)}
+                </span>
+                <span className="leading-snug">{factor.detail}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 text-[10px] text-muted-foreground">
+            Final risk {typeof selected.risk_score === "number" ? selected.risk_score : "-"} · confidence{" "}
+            {typeof selected.confidence === "number" ? selected.confidence : "-"}
+          </div>
+        </div>
+      ) : null}
     </InvestigationSection>
   );
 }
