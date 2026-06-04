@@ -9,6 +9,7 @@ rules:
     name: "TCP vertical port scan"
     description: "One source probing many TCP ports on the same target with high-confidence scan metadata."
     status: "active"
+    risk_score: 66
     source: "scan_probe"
     false_positives: "Authorized vulnerability scanners and red-team exercises."
     response: "Confirm source authorization and inspect process lineage on scanning origin."
@@ -39,6 +40,7 @@ rules:
     name: "UDP vertical port scan"
     description: "One source probing many UDP ports on the same target."
     status: "active"
+    risk_score: 62
     source: "scan_probe"
     false_positives: "Legitimate UDP service discovery tooling."
     response: "Validate scanner authorization and inspect unusual destination-port spread."
@@ -68,6 +70,7 @@ rules:
     name: "TCP scan spray (ports + source ports diversity)"
     description: "High-confidence scan pattern requiring destination-port and source-port diversity."
     status: "active"
+    risk_score: 48
     source: "scan_probe"
     false_positives: "High-throughput authorized scanners running distributed probe workers."
     response: "Compare source against scanner inventory and inspect burst cadence and target concentration."
