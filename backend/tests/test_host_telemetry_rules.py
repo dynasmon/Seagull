@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
@@ -16,7 +16,7 @@ def _base_event(event_type: str, extra: dict) -> dict:
     return {
         "agent_id": "agent-host-1",
         "event_type": event_type,
-        "timestamp": datetime.now(timezone.utc),
+        "timestamp": datetime.now(timezone.utc) - timedelta(seconds=1),
         "src_ip": "10.1.0.5",
         "dst_ip": "198.51.100.10",
         "src_port": 54123,
