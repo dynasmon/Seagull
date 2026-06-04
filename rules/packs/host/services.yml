@@ -9,6 +9,7 @@ rules:
     name: "Systemd unit changed by non-root UID"
     description: "Systemd unit file changed and reported UID is non-root, indicating potential service abuse."
     status: "active"
+    risk_score: 74
     source: "persistence_systemd"
     false_positives: "Delegated service management in controlled development hosts."
     response: "Validate delegated permissions and inspect service payload for unexpected interpreters or shell execution."
@@ -32,11 +33,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "non-root systemd unit change fires"
+        expected: match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/app.service", path_category: "systemd_unit", action: "modify", uid: 1000}}
+      - name: "root-owned unit change does not fire"
+        expected: no_match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/app.service", path_category: "systemd_unit", action: "modify", uid: 0}}
+      - name: "override change does not match unit rule"
+        expected: no_match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/app.service.d/override.conf", path_category: "systemd_override", action: "modify", uid: 1000}}
 
   - id: service_systemd_override_abuse_v1
     name: "Systemd override/drop-in abuse"
     description: "Systemd override/drop-in file changed in a way consistent with service execution hijacking."
     status: "active"
+    risk_score: 72
     source: "persistence_systemd"
     false_positives: "Expected service tuning updates through approved infra-as-code pipelines."
     response: "Review override directives and correlate with suspicious outbound/process activity from same host."
@@ -59,11 +74,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "override drop-in modify fires"
+        expected: match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/app.service.d/override.conf", path_category: "systemd_override", action: "modify"}}
+      - name: "plain unit change does not match override rule"
+        expected: no_match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/app.service", path_category: "systemd_unit", action: "modify"}}
+      - name: "override delete does not fire"
+        expected: no_match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/app.service.d/override.conf", path_category: "systemd_override", action: "delete"}}
 
   - id: service_enablement_from_shell_chain_v1
     name: "Service enablement from shell chain"
     description: "systemctl enable/reenable command is executed from shell/interpreter lineage."
     status: "active"
+    risk_score: 54
     source: "proc_exec"
     false_positives: "Manual service onboarding by infrastructure engineers during approved windows."
     response: "Verify target service legitimacy and validate that the parent process and operator are expected."
@@ -86,11 +115,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "shell-driven service enable fires"
+        expected: match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {cmdline: "systemctl enable payload.service", parent_exe_name: "bash", exe_name: "systemctl"}}
+      - name: "enable from systemd lineage does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {cmdline: "systemctl enable payload.service", parent_exe_name: "systemd", exe_name: "systemctl"}}
+      - name: "service status query does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {cmdline: "systemctl status payload.service", parent_exe_name: "bash", exe_name: "systemctl"}}
 
   - id: service_shell_execstart_control_v1
     name: "Shell-driven service control chain"
     description: "Shell/interpreter lineage repeatedly starts or restarts services, a common post-exploitation persistence pattern."
     status: "active"
+    risk_score: 50
     source: "proc_exec"
     false_positives: "Service fleet orchestration scripts on designated automation hosts."
     response: "Validate host role and inspect whether service control chain introduced unusual network or persistence behavior."
@@ -113,3 +156,21 @@ rules:
     condition:
       operator: ">="
       value: 3
+    tests:
+      - name: "repeated shell-driven service control fires"
+        expected: match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {cmdline: "systemctl restart app", parent_exe_name: "bash", exe_name: "systemctl"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {cmdline: "systemctl start app", parent_exe_name: "bash", exe_name: "systemctl"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {cmdline: "service app restart", parent_exe_name: "bash", exe_name: "service"}}
+      - name: "two events stay below threshold"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {cmdline: "systemctl restart app", parent_exe_name: "bash", exe_name: "systemctl"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {cmdline: "systemctl start app", parent_exe_name: "bash", exe_name: "systemctl"}}
+      - name: "service control from systemd lineage does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {cmdline: "systemctl restart app", parent_exe_name: "systemd", exe_name: "systemctl"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {cmdline: "systemctl start app", parent_exe_name: "systemd", exe_name: "systemctl"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {cmdline: "service app restart", parent_exe_name: "systemd", exe_name: "service"}}

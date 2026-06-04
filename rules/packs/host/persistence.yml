@@ -9,6 +9,7 @@ rules:
     name: "Unprivileged cron persistence write"
     description: "Cron persistence files were created or modified by a non-root account."
     status: "active"
+    risk_score: 74
     source: "persistence_cron"
     false_positives: "Rare automation agents with delegated cron ownership on non-production hosts."
     response: "Validate actor identity, review cron payload, and confirm whether host role expects delegated cron control."
@@ -44,11 +45,25 @@ rules:
           when:
             host_roles: ["config-mgmt", "automation"]
             environments: ["dev", "lab"]
+    tests:
+      - name: "non-root cron create fires"
+        expected: match
+        events:
+          - {event_type: "persistence_cron", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/cron.d/backup", path_category: "cron", action: "create", uid: 1000}}
+      - name: "root-owned cron change does not fire"
+        expected: no_match
+        events:
+          - {event_type: "persistence_cron", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/cron.d/backup", path_category: "cron", action: "create", uid: 0}}
+      - name: "cron delete does not fire"
+        expected: no_match
+        events:
+          - {event_type: "persistence_cron", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/cron.d/backup", path_category: "cron", action: "delete", uid: 1000}}
 
   - id: persistence_systemd_unit_create_modify_v1
     name: "Systemd unit create/modify persistence"
     description: "Systemd unit file was created, modified, or renamed in persistence paths."
     status: "active"
+    risk_score: 56
     source: "persistence_systemd"
     false_positives: "Expected service rollout windows and package upgrades."
     response: "Inspect unit diff and ensure ExecStart target and owner align with approved deployment policy."
@@ -71,11 +86,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "new systemd unit fires"
+        expected: match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/payload.service", path_category: "systemd_unit", action: "create"}}
+      - name: "override change does not match unit rule"
+        expected: no_match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/payload.service.d/override.conf", path_category: "systemd_override", action: "create"}}
+      - name: "unit delete does not fire"
+        expected: no_match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/payload.service", path_category: "systemd_unit", action: "delete"}}
 
   - id: persistence_systemd_override_dropin_change_v1
     name: "Systemd override/drop-in persistence change"
     description: "Systemd override/drop-in content changed and may alter service startup behavior."
     status: "active"
+    risk_score: 72
     source: "persistence_systemd"
     false_positives: "Legitimate service hardening with approved override snippets."
     response: "Review override directives and verify whether changed directives are expected for this host role."
@@ -98,11 +127,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "override drop-in modify fires"
+        expected: match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/ssh.service.d/override.conf", path_category: "systemd_override", action: "modify"}}
+      - name: "plain unit change does not match override rule"
+        expected: no_match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/ssh.service", path_category: "systemd_unit", action: "modify"}}
+      - name: "override read access does not fire"
+        expected: no_match
+        events:
+          - {event_type: "persistence_systemd", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/systemd/system/ssh.service.d/override.conf", path_category: "systemd_override", action: "access"}}
 
   - id: persistence_authorized_keys_nonroot_change_v1
     name: "authorized_keys change by non-root user"
     description: "authorized_keys was changed and recorded UID is non-root."
     status: "active"
+    risk_score: 76
     source: "ssh_key_change"
     false_positives: "Self-service key enrollment on non-privileged user accounts with approved workflows."
     response: "Validate account ownership and key provenance, then review lateral movement indicators from the same host."
@@ -125,11 +168,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "non-root authorized_keys modify fires"
+        expected: match
+        events:
+          - {event_type: "ssh_key_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/home/dev/.ssh/authorized_keys", path_category: "ssh_authorized_keys", action: "modify", uid: 1000}}
+      - name: "root-owned key change does not fire"
+        expected: no_match
+        events:
+          - {event_type: "ssh_key_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/root/.ssh/authorized_keys", path_category: "ssh_authorized_keys", action: "modify", uid: 0}}
+      - name: "read access does not fire"
+        expected: no_match
+        events:
+          - {event_type: "ssh_key_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/home/dev/.ssh/authorized_keys", path_category: "ssh_authorized_keys", action: "access", uid: 1000}}
 
   - id: persistence_ssh_config_tamper_v1
     name: "SSH configuration tamper"
     description: "SSH daemon or client configuration changed in a security-sensitive way."
     status: "active"
+    risk_score: 54
     source: "fim_change"
     false_positives: "Approved SSH hardening change windows."
     response: "Confirm authorized change request and inspect adjacent account/persistence activity on host."
@@ -152,11 +209,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "sshd_config modify fires"
+        expected: match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/ssh/sshd_config", path_category: "ssh_config", action: "modify"}}
+      - name: "non-ssh config does not fire"
+        expected: no_match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/nginx/nginx.conf", path_category: "config_file", action: "modify"}}
+      - name: "fresh config create does not fire"
+        expected: no_match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/ssh/sshd_config", path_category: "ssh_config", action: "create"}}
 
   - id: persistence_shell_profile_startup_change_v1
     name: "Shell startup/profile persistence"
     description: "Shell profile startup files changed, indicating potential user-level persistence."
     status: "active"
+    risk_score: 50
     source: "fim_change"
     false_positives: "Expected shell profile customization by developers on workstation hosts."
     response: "Review modified profile command content and correlate with suspicious process execution from the same user context."
@@ -179,11 +250,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "bashrc modify fires"
+        expected: match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/home/dev/.bashrc", path_category: "shell_profile", action: "modify"}}
+      - name: "non-profile file does not fire"
+        expected: no_match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/home/dev/notes.txt", path_category: "user_file", action: "modify"}}
+      - name: "profile delete does not fire"
+        expected: no_match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/home/dev/.bashrc", path_category: "shell_profile", action: "delete"}}
 
   - id: persistence_rc_local_reactivation_v1
     name: "rc.local persistence reactivation"
     description: "rc.local changed, potentially re-enabling startup execution."
     status: "active"
+    risk_score: 72
     source: "fim_change"
     false_positives: "Legacy init compatibility changes during approved maintenance."
     response: "Validate rc.local ownership, execution bits, and command payload legitimacy."
@@ -206,11 +291,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "rc.local modify fires"
+        expected: match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/rc.local", path_category: "rc_local", action: "modify"}}
+      - name: "non-rc-local file does not fire"
+        expected: no_match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/hosts", path_category: "config_file", action: "modify"}}
+      - name: "rc.local read access does not fire"
+        expected: no_match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/rc.local", path_category: "rc_local", action: "access"}}
 
   - id: persistence_unusual_tmp_staging_path_v1
     name: "Persistence staging in temporary execution paths"
     description: "Persistence-related file change occurred under temporary or memory-backed execution paths."
     status: "active"
+    risk_score: 72
     source: "fim_change"
     false_positives: "Ephemeral test automation creating temporary bootstrap scripts."
     response: "Inspect artifact contents and process lineage that created the file; isolate host if unapproved."
@@ -234,3 +333,16 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "persistence artifact staged in tmp fires"
+        expected: match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/dev/shm/startup.sh", path_category: "tmp_exec", action: "create", persistence_related: true}}
+      - name: "non-persistence tmp change does not fire"
+        expected: no_match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/dev/shm/startup.sh", path_category: "tmp_exec", action: "create", persistence_related: false}}
+      - name: "persistence change outside tmp does not fire"
+        expected: no_match
+        events:
+          - {event_type: "fim_change", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {path: "/etc/profile.d/app.sh", path_category: "shell_profile", action: "create", persistence_related: true}}
