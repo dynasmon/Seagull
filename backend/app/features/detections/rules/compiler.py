@@ -24,7 +24,7 @@ from app.features.detections.domain.condition_ast import (
     SelectionReference,
     UnaryExpression,
 )
-from app.features.detections.domain.scoring import build_rule_provenance, resolve_alert_risk_score
+from app.features.detections.domain.scoring import build_rule_provenance, score_alert_for_endpoints
 from app.features.events.worker_runtime import NetEventModel
 from app.workers.intelligence.rules.conditions import (
     _ALLOWED_EVENT_FIELDS,
@@ -218,7 +218,6 @@ def _build_v2_details(
         "enrichment": enrichment,
         "rule_meta": build_rule_provenance(rule),
     }
-    details["risk_score"] = resolve_alert_risk_score(rule, eff_severity)
     if count is not None:
         details["count"] = count
     if distinct_field is not None:
@@ -326,6 +325,7 @@ def execute_v2_rule(
     now: datetime,
     recent_idx: Dict,
     agent_ctx_map: Dict[str, Dict[str, Any]],
+    fp_rates: Optional[Dict[str, tuple]] = None,
 ) -> List[AlertModel]:
     detection = rule.get("detection")
     if not isinstance(detection, DetectionBlock):
@@ -425,17 +425,23 @@ def execute_v2_rule(
                 mitre=mitre,
                 count=count,
             )
+            scored = score_alert_for_endpoints(
+                rule, rule_id, eff_severity, details, src_ip=src_ip, dst_ip=dst_ip, fp_rates=fp_rates
+            )
+            details["risk_score"] = scored.risk_score
+            details["confidence"] = scored.confidence
+            details["score_breakdown"] = scored.breakdown
             alert = AlertModel(
                 rule_id=rule_id,
                 severity=eff_severity,
-                risk_score=details.get("risk_score"),
+                risk_score=scored.risk_score,
                 src_ip=src_ip,
                 dst_ip=dst_ip,
                 dst_port=dst_port,
                 mitre_tactic=mitre.get("tactic"),
                 mitre_technique_id=mitre.get("technique_id"),
                 mitre_technique=mitre.get("technique"),
-                confidence=int(mitre.get("confidence", 50) or 50),
+                confidence=scored.confidence,
                 description=description,
                 details=details,
                 detector_type="rule",
@@ -509,17 +515,23 @@ def execute_v2_rule(
                 distinct_count=distinct_count,
                 event_count=event_count,
             )
+            scored = score_alert_for_endpoints(
+                rule, rule_id, eff_severity, details, src_ip=src_ip, dst_ip=dst_ip, fp_rates=fp_rates
+            )
+            details["risk_score"] = scored.risk_score
+            details["confidence"] = scored.confidence
+            details["score_breakdown"] = scored.breakdown
             alert = AlertModel(
                 rule_id=rule_id,
                 severity=eff_severity,
-                risk_score=details.get("risk_score"),
+                risk_score=scored.risk_score,
                 src_ip=src_ip,
                 dst_ip=dst_ip,
                 dst_port=dst_port,
                 mitre_tactic=mitre.get("tactic"),
                 mitre_technique_id=mitre.get("technique_id"),
                 mitre_technique=mitre.get("technique"),
-                confidence=int(mitre.get("confidence", 50) or 50),
+                confidence=scored.confidence,
                 description=description,
                 details=details,
                 detector_type="rule",
@@ -603,17 +615,23 @@ def execute_v2_rule(
                 event_count=event_count,
                 distinct_results=distinct_results,
             )
+            scored = score_alert_for_endpoints(
+                rule, rule_id, eff_severity, details, src_ip=src_ip, dst_ip=dst_ip, fp_rates=fp_rates
+            )
+            details["risk_score"] = scored.risk_score
+            details["confidence"] = scored.confidence
+            details["score_breakdown"] = scored.breakdown
             alert = AlertModel(
                 rule_id=rule_id,
                 severity=eff_severity,
-                risk_score=details.get("risk_score"),
+                risk_score=scored.risk_score,
                 src_ip=src_ip,
                 dst_ip=dst_ip,
                 dst_port=dst_port,
                 mitre_tactic=mitre.get("tactic"),
                 mitre_technique_id=mitre.get("technique_id"),
                 mitre_technique=mitre.get("technique"),
-                confidence=int(mitre.get("confidence", 50) or 50),
+                confidence=scored.confidence,
                 description=description,
                 details=details,
                 detector_type="rule",
