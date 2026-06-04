@@ -264,3 +264,16 @@ rules:
       allowlist:
         src_cidrs: []
         src_ips: []
+    tests:
+      - name: "accepted login from ephemeral source fires"
+        expected: match
+        events:
+          - {event_type: "ssh_auth", agent_id: "agent-1", src_ip: "198.51.100.10", dst_ip: "10.0.0.5", dst_port: 22, timestamp: "2026-06-01T00:00:00Z", extra: {action: "accepted", src_port: 40000, username: "deploy"}}
+      - name: "failed password does not fire this signal"
+        expected: no_match
+        events:
+          - {event_type: "ssh_auth", agent_id: "agent-1", src_ip: "198.51.100.10", dst_ip: "10.0.0.5", dst_port: 22, timestamp: "2026-06-01T00:00:00Z", extra: {action: "failed_password", src_port: 40000, username: "deploy"}}
+      - name: "privileged source port does not fire"
+        expected: no_match
+        events:
+          - {event_type: "ssh_auth", agent_id: "agent-1", src_ip: "198.51.100.10", dst_ip: "10.0.0.5", dst_port: 22, timestamp: "2026-06-01T00:00:00Z", extra: {action: "accepted", src_port: 22, username: "deploy"}}
