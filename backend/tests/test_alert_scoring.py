@@ -2,12 +2,22 @@ from __future__ import annotations
 
 from app.features.correlations.engines.base import severity_score
 from app.features.detections.domain.scoring import (
+    ScoreSignals,
     build_rule_provenance,
     clamp_score,
+    evidence_field_count,
     resolve_alert_risk_score,
+    score_alert,
+    score_alert_for_endpoints,
+    score_alert_from_details,
     severity_baseline_score,
+    severity_confidence_baseline,
 )
 from app.features.detections.testing.quality import collect_quality_warnings
+
+
+def _factors(result):
+    return {f["factor"]: f for f in result.breakdown}
 
 
 def test_severity_baseline_score_values():
@@ -106,3 +116,163 @@ def test_overlap_warning_skips_deprecated_and_disabled():
     assert len(overlaps) == 1
     assert "active1" in overlaps[0]["message"] and "active2" in overlaps[0]["message"]
     assert "dep" not in overlaps[0]["message"]
+
+
+# --- contextual scorer (Increment 2) ---
+
+
+def test_score_alert_base_is_declared_or_severity_baseline():
+    declared = score_alert(ScoreSignals(severity="high", declared_risk_score=70))
+    assert declared.breakdown[0]["factor"] == "base"
+    assert declared.breakdown[0]["risk_delta"] == 70
+    assert declared.breakdown[0]["confidence_delta"] == severity_confidence_baseline("high")
+    assert declared.breakdown[0]["detail"] == "declared risk_score 70"
+
+    sev = score_alert(ScoreSignals(severity="medium"))
+    assert sev.breakdown[0]["risk_delta"] == 52
+    assert sev.breakdown[0]["confidence_delta"] == 55
+    assert sev.breakdown[0]["detail"].startswith("severity 'medium'")
+
+
+def test_score_alert_rule_confidence_is_confidence_base():
+    assert score_alert(ScoreSignals(severity="high", rule_confidence=82)).breakdown[0]["confidence_delta"] == 82
+
+
+def test_score_alert_positive_factors_raise_score():
+    r = score_alert(
+        ScoreSignals(
+            severity="medium",
+            declared_risk_score=52,
+            rule_confidence=55,
+            event_count=30,
+            threshold=5,
+            src_is_public=True,
+            dst_is_internal=True,
+            has_mitre=True,
+            evidence_field_count=4,
+            maturity="stable",
+        )
+    )
+    factors = _factors(r)
+    assert factors["aggregation_strength"]["risk_delta"] == 6
+    assert factors["locality"]["risk_delta"] == 6
+    assert factors["evidence_richness"]["risk_delta"] == 6
+    assert factors["mitre_mapping"]["risk_delta"] == 3
+    assert factors["maturity"]["risk_delta"] == 2
+    assert r.risk_score == clamp_score(52 + 6 + 6 + 6 + 3 + 2)
+    assert r.risk_score > 52
+
+
+def test_score_alert_negative_factors_lower_score():
+    r = score_alert(
+        ScoreSignals(
+            severity="high",
+            maturity="experimental",
+            src_scope="loopback",
+            dst_scope="loopback",
+            has_mitre=False,
+            evidence_field_count=0,
+        )
+    )
+    factors = _factors(r)
+    assert factors["locality"]["risk_delta"] == -8
+    assert factors["evidence_richness"]["risk_delta"] == -4
+    assert factors["mitre_mapping"]["risk_delta"] == -2
+    assert factors["maturity"]["risk_delta"] == -5
+    assert r.risk_score == 78 - 8 - 4 - 2 - 5
+    assert r.risk_score < 78
+
+
+def test_fp_feedback_requires_min_samples_and_scales():
+    strong = score_alert(ScoreSignals(severity="high", declared_risk_score=78, fp_close_rate=0.8, fp_close_samples=20))
+    assert _factors(strong)["fp_feedback"]["risk_delta"] == -15
+    too_few = score_alert(ScoreSignals(severity="high", declared_risk_score=78, fp_close_rate=0.8, fp_close_samples=3))
+    assert "fp_feedback" not in _factors(too_few)
+    trusted = score_alert(ScoreSignals(severity="high", declared_risk_score=78, fp_close_rate=0.05, fp_close_samples=40))
+    assert _factors(trusted)["fp_feedback"]["risk_delta"] == 3
+
+
+def test_score_alert_clamped_0_100():
+    hi = score_alert(
+        ScoreSignals(
+            severity="critical",
+            declared_risk_score=100,
+            event_count=99,
+            threshold=1,
+            src_is_public=True,
+            dst_is_internal=True,
+            has_mitre=True,
+            evidence_field_count=9,
+            maturity="stable",
+            correlated=True,
+        )
+    )
+    assert hi.risk_score == 100 and hi.confidence == 100
+    lo = score_alert(
+        ScoreSignals(
+            severity="info",
+            declared_risk_score=0,
+            src_scope="loopback",
+            dst_scope="loopback",
+            has_mitre=False,
+            evidence_field_count=0,
+            maturity="experimental",
+            fp_close_rate=0.9,
+            fp_close_samples=50,
+        )
+    )
+    assert lo.risk_score == 0 and 0 <= lo.confidence <= 100
+
+
+def test_score_alert_is_deterministic_and_serializable():
+    import json
+
+    signals = ScoreSignals(severity="high", event_count=12, threshold=3, has_mitre=True, evidence_field_count=2)
+    first, second = score_alert(signals), score_alert(signals)
+    assert first.risk_score == second.risk_score
+    assert first.confidence == second.confidence
+    assert first.breakdown == second.breakdown
+    assert first.breakdown[0]["factor"] == "base"
+    for factor in first.breakdown:
+        assert set(factor.keys()) == {"factor", "risk_delta", "confidence_delta", "detail"}
+    json.dumps(first.breakdown)
+
+
+def test_evidence_field_count():
+    rich = {"group_key": {"src_ip": "1.1.1.1", "dst_port": 443}, "distinct_count": 5, "enrichment": {"unique_src_ips": 4}}
+    assert evidence_field_count(rich) == 4
+    assert evidence_field_count({"group_key": {"src_ip": None, "x": "-"}}) == 0
+    assert evidence_field_count({}) == 0
+
+
+def test_score_alert_from_details_resolves_signals():
+    details = {
+        "type": "aggregate_count",
+        "count": 40,
+        "group_key": {"src_ip": "8.8.8.8", "dst_port": 443},
+        "mitre": {"confidence": 70},
+        "enrichment": {"unique_src_ips": 3},
+    }
+    r = score_alert_from_details({"risk_score": 78, "maturity": "stable"}, "high", details)
+    factors = _factors(r)
+    assert factors["base"]["risk_delta"] == 78
+    assert factors["base"]["confidence_delta"] == 70
+    assert "aggregation_strength" in factors
+    assert "mitre_mapping" in factors
+    assert "evidence_richness" in factors
+
+
+def test_score_alert_for_endpoints_locality_and_fp_feedback():
+    details = {"count": 10, "group_key": {"src_ip": "8.8.8.8"}, "mitre": {"confidence": 70}}
+    external = score_alert_for_endpoints(
+        {"risk_score": 78}, "rid", "high", details,
+        src_ip="8.8.8.8", dst_ip="10.0.0.5", fp_rates={"rid": (0.8, 30)},
+    )
+    factors = _factors(external)
+    assert factors["locality"]["risk_delta"] == 6
+    assert factors["fp_feedback"]["risk_delta"] == -15
+
+    loopback = score_alert_for_endpoints(
+        {"risk_score": 78}, "x", "high", {"count": 1}, src_ip="127.0.0.1", dst_ip="127.0.0.1"
+    )
+    assert _factors(loopback)["locality"]["risk_delta"] == -8
