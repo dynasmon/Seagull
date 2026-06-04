@@ -63,3 +63,32 @@ export function alertIpContext(alert: Alert, side: "src" | "dst") {
   const details = alert.details && typeof alert.details === "object" ? alert.details : null;
   return getFlowIpContext(details?.ip_context, side);
 }
+
+export type ScoreFactor = {
+  factor: string;
+  riskDelta: number;
+  confidenceDelta: number;
+  detail: string;
+};
+
+export function riskBreakdown(alert: Alert): ScoreFactor[] {
+  const details = alert.details && typeof alert.details === "object" ? alert.details : null;
+  const raw = details?.score_breakdown;
+  if (!Array.isArray(raw)) return [];
+  const out: ScoreFactor[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    out.push({
+      factor: String((item as Record<string, unknown>).factor ?? ""),
+      riskDelta: Number((item as Record<string, unknown>).risk_delta ?? 0),
+      confidenceDelta: Number((item as Record<string, unknown>).confidence_delta ?? 0),
+      detail: String((item as Record<string, unknown>).detail ?? ""),
+    });
+  }
+  return out;
+}
+
+export function formatScoreDelta(factor: ScoreFactor): string {
+  if (factor.factor === "base") return String(factor.riskDelta);
+  return factor.riskDelta >= 0 ? `+${factor.riskDelta}` : String(factor.riskDelta);
+}
