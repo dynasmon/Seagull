@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.features.alerts.models import (
@@ -85,6 +85,30 @@ def list_mitre_coverage_rows(db: Session, *, threshold: datetime) -> list[Any]:
         .order_by(AlertModel.mitre_tactic.asc(), func.count().desc())
     )
     return db.execute(stmt).all()
+
+
+def rule_false_positive_rates(
+    db: Session, *, since: datetime, min_samples: int = 5
+) -> dict[str, tuple[float, int]]:
+    stmt = (
+        select(
+            AlertModel.rule_id.label("rule_id"),
+            func.count().label("closed"),
+            func.sum(case((AlertModel.disposition == "false_positive", 1), else_=0)).label("fp"),
+        )
+        .where(AlertModel.disposition.in_(("true_positive", "false_positive", "benign")))
+        .where(AlertModel.closed_at.is_not(None))
+        .where(AlertModel.closed_at >= since)
+        .where(AlertModel.rule_id.is_not(None))
+        .group_by(AlertModel.rule_id)
+    )
+    out: dict[str, tuple[float, int]] = {}
+    for row in db.execute(stmt).all():
+        closed = int(row.closed or 0)
+        fp = int(row.fp or 0)
+        if closed >= min_samples and row.rule_id:
+            out[str(row.rule_id)] = (fp / closed, closed)
+    return out
 
 
 # Event-derived detection candidate queries
