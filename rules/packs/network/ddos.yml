@@ -9,6 +9,7 @@ rules:
     name: "DDoS detected (high confidence)"
     description: "High-confidence distributed DoS event that is not already covered by specific vector rules."
     status: "active"
+    risk_score: 76
     source: "dos_attack"
     false_positives: "Large legitimate load tests against exposed services."
     response: "Validate target ownership, assess upstream mitigation, and confirm vector with packet telemetry."
@@ -31,11 +32,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "high-confidence generic ddos fires"
+        expected: match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", confidence: 90, vector: "generic_flood"}}
+      - name: "low confidence does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", confidence: 50, vector: "generic_flood"}}
+      - name: "specific vector is handled by vector rules"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", confidence: 90, vector: "tcp_syn_flood"}}
 
   - id: dos_attack_high_conf_v1
     name: "DoS detected (high confidence)"
     description: "High confidence non-distributed DoS event not covered by specific vector rules."
     status: "active"
+    risk_score: 54
     source: "dos_attack"
     false_positives: "Application stress tests and synthetic benchmark traffic."
     response: "Correlate with maintenance windows and validate single-source saturation evidence."
@@ -58,11 +73,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "high-confidence single-source dos fires"
+        expected: match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "dos", confidence: 85, vector: "volumetric"}}
+      - name: "distributed attack does not match single-source rule"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", confidence: 85, vector: "volumetric"}}
+      - name: "specific L7 vector is handled elsewhere"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "dos", confidence: 85, vector: "http_flood"}}
 
   - id: l7_http_flood_v1
     name: "HTTP flood (L7)"
     description: "HTTP request flood heuristics (request-line rate) detected."
     status: "active"
+    risk_score: 74
     source: "dos_attack"
     false_positives: "Sudden promotional traffic spikes on public APIs."
     response: "Confirm request entropy, geodiversity and User-Agent patterns, then apply L7 rate controls."
@@ -84,11 +113,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "confident http flood fires"
+        expected: match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "dos", vector: "http_flood", confidence: 88}}
+      - name: "low confidence does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "dos", vector: "http_flood", confidence: 60}}
+      - name: "different vector does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "dos", vector: "tls_handshake_flood", confidence: 88}}
 
   - id: l7_tls_handshake_flood_v1
     name: "TLS handshake flood (L7)"
     description: "TLS ClientHello/handshake flood heuristics detected."
     status: "active"
+    risk_score: 74
     source: "dos_attack"
     false_positives: "Legitimate TLS handshakes after load balancer restart."
     response: "Inspect handshake source cardinality and edge TLS termination metrics."
@@ -110,11 +153,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "confident tls handshake flood fires"
+        expected: match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "dos", vector: "tls_handshake_flood", confidence: 88}}
+      - name: "low confidence does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "dos", vector: "tls_handshake_flood", confidence: 60}}
+      - name: "different vector does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "dos", vector: "http_flood", confidence: 88}}
 
   - id: ddos_udp_amp_high_conf_v1
     name: "DDoS UDP amplification (high confidence)"
     description: "Distributed UDP amplification flood signal with high confidence."
     status: "active"
+    risk_score: 90
     source: "dos_attack"
     false_positives: "Misconfigured UDP reflection tests in controlled labs."
     response: "Engage upstream filtering and block reflected protocols at perimeter."
@@ -138,11 +195,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "distributed udp amplification fires"
+        expected: match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 53, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", vector: "udp_amp_flood", confidence: 95, unique_src_ips: 30}}
+      - name: "low source cardinality does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 53, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", vector: "udp_amp_flood", confidence: 95, unique_src_ips: 4}}
+      - name: "low confidence does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 53, proto: "udp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", vector: "udp_amp_flood", confidence: 60, unique_src_ips: 30}}
 
   - id: ddos_tcp_syn_high_conf_v1
     name: "DDoS TCP SYN flood (high confidence)"
     description: "Distributed SYN flood signal with high confidence."
     status: "active"
+    risk_score: 90
     source: "dos_attack"
     false_positives: "Large flash crowds against TCP services with atypical SYN retransmissions."
     response: "Activate SYN cookies/scrubbing and validate packet-level SYN/ACK asymmetry."
@@ -166,11 +237,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "distributed syn flood fires"
+        expected: match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", vector: "tcp_syn_flood", confidence: 90, unique_src_ips: 25}}
+      - name: "low source cardinality does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", vector: "tcp_syn_flood", confidence: 90, unique_src_ips: 3}}
+      - name: "different vector does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", vector: "udp_amp_flood", confidence: 90, unique_src_ips: 25}}
 
   - id: ddos_icmp_flood_high_conf_v1
     name: "DDoS ICMP flood (high confidence)"
     description: "Distributed ICMP flood signal with high source cardinality and confidence."
     status: "active"
+    risk_score: 74
     source: "dos_attack"
     false_positives: "Rare in production; can appear in controlled network stress tests."
     response: "Rate-limit ICMP at edge and validate whether target should accept high ICMP traffic."
@@ -194,11 +279,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "distributed icmp flood fires"
+        expected: match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 0, proto: "icmp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", vector: "icmp_flood", confidence: 85, unique_src_ips: 20}}
+      - name: "low source cardinality does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 0, proto: "icmp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", vector: "icmp_flood", confidence: 85, unique_src_ips: 3}}
+      - name: "low confidence does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 0, proto: "icmp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", vector: "icmp_flood", confidence: 50, unique_src_ips: 20}}
 
   - id: ddos_distributed_high_cardinality_v1
     name: "Distributed DDoS with high source cardinality"
     description: "DDoS events with high distinct source-IP cardinality and sustained confidence."
     status: "active"
+    risk_score: 76
     source: "dos_attack"
     false_positives: "Traffic surges from globally distributed client populations."
     response: "Check origin ASN distribution and compare with baseline traffic geography."
@@ -222,11 +321,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "high-cardinality distributed ddos fires"
+        expected: match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", distributed: true, unique_src_ips: 40, confidence: 85}}
+      - name: "non-distributed event does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", distributed: false, unique_src_ips: 40, confidence: 85}}
+      - name: "low source cardinality does not fire"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 443, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", distributed: true, unique_src_ips: 6, confidence: 85}}
 
   - id: dos_repeated_same_target_v1
     name: "Repeated DoS events on same target"
     description: "Repeated high-confidence DoS events to same destination indicate sustained impact activity."
     status: "active"
+    risk_score: 54
     source: "dos_attack"
     false_positives: "Controlled load/performance tests against a single service."
     response: "Confirm event recurrence pattern and engage adaptive mitigation controls if unplanned."
@@ -248,11 +361,27 @@ rules:
     condition:
       operator: ">="
       value: 2
+    tests:
+      - name: "two dos events on same target fire"
+        expected: match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "dos", confidence: 80}}
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "dos", confidence: 80}}
+      - name: "single event stays below threshold"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "dos", confidence: 80}}
+      - name: "distributed attack does not match this rule"
+        expected: no_match
+        events:
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", confidence: 80}}
+          - {event_type: "dos_attack", agent_id: "agent-1", dst_ip: "203.0.113.20", dst_port: 80, proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {attack: "ddos", confidence: 80}}
 
   - id: ddos_scan_summary_fanout_v1
     name: "Distributed probe storm against target"
     description: "High-volume probe summaries from many source IPs against the same target, consistent with DDoS-style fanout or noisy flood tooling."
     status: "active"
+    risk_score: 70
     source: "scan_summary"
     false_positives: "Large authorized distributed scanner jobs and synthetic DDoS tests."
     response: "Confirm whether the source set is expected, then rate-limit at edge or upstream if traffic is unauthorized."
@@ -275,11 +404,23 @@ rules:
     condition:
       operator: ">="
       value: 80
+    tests:
+      - name: "a handful of summaries stays below fanout threshold"
+        expected: no_match
+        events:
+          - {event_type: "scan_summary", agent_id: "agent-1", src_ip: "203.0.113.1", dst_ip: "10.0.0.9", proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {total_probes: 100}}
+          - {event_type: "scan_summary", agent_id: "agent-1", src_ip: "203.0.113.2", dst_ip: "10.0.0.9", proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {total_probes: 100}}
+          - {event_type: "scan_summary", agent_id: "agent-1", src_ip: "203.0.113.3", dst_ip: "10.0.0.9", proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {total_probes: 100}}
+      - name: "summaries without probes do not fire"
+        expected: no_match
+        events:
+          - {event_type: "scan_summary", agent_id: "agent-1", src_ip: "203.0.113.1", dst_ip: "10.0.0.9", proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {total_probes: 0}}
 
   - id: dos_scan_summary_volume_v1
     name: "High-volume probe storm against target"
     description: "Large volume of probe summaries against one target within a short window, treated as DoS-impact telemetry when packet DDoS classification is absent."
     status: "active"
+    risk_score: 50
     source: "scan_summary"
     false_positives: "Authorized high-rate scanner tests and controlled benchmark traffic."
     response: "Validate test window and source ownership; if unexpected, apply temporary perimeter filtering."
@@ -300,3 +441,14 @@ rules:
     condition:
       operator: ">="
       value: 2500
+    tests:
+      - name: "a handful of summaries stays below volume threshold"
+        expected: no_match
+        events:
+          - {event_type: "scan_summary", agent_id: "agent-1", src_ip: "203.0.113.1", dst_ip: "10.0.0.9", proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {total_probes: 100}}
+          - {event_type: "scan_summary", agent_id: "agent-1", src_ip: "203.0.113.2", dst_ip: "10.0.0.9", proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {total_probes: 100}}
+          - {event_type: "scan_summary", agent_id: "agent-1", src_ip: "203.0.113.3", dst_ip: "10.0.0.9", proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {total_probes: 100}}
+      - name: "summaries without probes do not fire"
+        expected: no_match
+        events:
+          - {event_type: "scan_summary", agent_id: "agent-1", src_ip: "203.0.113.1", dst_ip: "10.0.0.9", proto: "tcp", timestamp: "2026-06-01T00:00:00Z", extra: {total_probes: 0}}

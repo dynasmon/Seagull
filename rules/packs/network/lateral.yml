@@ -9,6 +9,7 @@ rules:
     name: "Lateral admin-port spray"
     description: "One source attempts admin protocols against multiple internal targets with sustained confidence."
     status: "active"
+    risk_score: 72
     source: "lateral_conn"
     false_positives: "Automated IT inventory or management scanners can trigger this rule."
     response: "Validate source role, inspect connection fan-out, and isolate unauthorized lateral reconnaissance."
@@ -42,6 +43,7 @@ rules:
     name: "RDP lateral burst"
     description: "Concentrated internal RDP attempts from one source to one target."
     status: "active"
+    risk_score: 56
     source: "lateral_conn"
     false_positives: "Remote administration bursts during patch windows."
     response: "Correlate with change ticket and verify source identity against approved RDP jump hosts."
@@ -71,6 +73,7 @@ rules:
     name: "SMB fan-out movement"
     description: "SMB attempts fan out from one source to many internal systems."
     status: "active"
+    risk_score: 72
     source: "lateral_conn"
     false_positives: "Asset management hosts traversing SMB shares."
     response: "Review source process owner and isolate if SMB fan-out is unexpected for that host profile."
@@ -101,6 +104,7 @@ rules:
     name: "WinRM fan-out movement"
     description: "WinRM attempts fan out from one source to multiple targets."
     status: "active"
+    risk_score: 56
     source: "lateral_conn"
     false_positives: "Legitimate orchestration tools using WinRM at scale."
     response: "Cross-check source against management infrastructure and inspect credential usage pattern."
@@ -131,6 +135,7 @@ rules:
     name: "SSH lateral fan-out"
     description: "A single source attempts SSH access across multiple internal targets."
     status: "active"
+    risk_score: 56
     source: "lateral_conn"
     false_positives: "Bastion host inventory scans and controlled SSH compliance checks."
     response: "Validate source authorization and correlate with credential-guessing telemetry."
@@ -161,6 +166,7 @@ rules:
     name: "Admin multi-service pivot"
     description: "Source pivots laterally using multiple admin services and many targets."
     status: "active"
+    risk_score: 74
     source: "lateral_conn"
     false_positives: "Large-scale patch orchestration across mixed management protocols."
     response: "Investigate service spread and confirm that protocol mix aligns with expected automation behavior."
@@ -194,6 +200,7 @@ rules:
     name: "RPC/NetBIOS combo probing"
     description: "Source repeatedly targets RPC and NetBIOS services across endpoints."
     status: "active"
+    risk_score: 52
     source: "lateral_conn"
     false_positives: "Legacy discovery tooling and asset inventory routines."
     response: "Validate source baseline and investigate unusual service traversal sequence."

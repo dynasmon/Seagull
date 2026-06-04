@@ -9,6 +9,7 @@ rules:
     name: "Suspicious sudo manipulation of sensitive auth files"
     description: "Sudo command targets root and touches sensitive local authentication or elevation files."
     status: "active"
+    risk_score: 78
     source: "sudo_cmd"
     false_positives: "Planned identity-management maintenance performed by privileged platform teams."
     response: "Validate operator intent and correlate with new account, key, or sudoers changes."
@@ -41,11 +42,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "non-root user editing sudoers fires"
+        expected: match
+        events:
+          - {event_type: "sudo_cmd", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {action: "sudo", target_user: "root", username: "alice", command: "sudoedit /etc/sudoers"}}
+      - name: "benign privileged command does not fire"
+        expected: no_match
+        events:
+          - {event_type: "sudo_cmd", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {action: "sudo", target_user: "root", username: "alice", command: "tail -n 100 /var/log/syslog"}}
+      - name: "root invoking the command does not fire"
+        expected: no_match
+        events:
+          - {event_type: "sudo_cmd", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {action: "sudo", target_user: "root", username: "root", command: "sudoedit /etc/sudoers"}}
 
   - id: privilege_sudo_root_shell_or_interpreter_v1
     name: "Sudo root shell/interpreter abuse"
     description: "Non-root user invokes sudo to run shell or interpreter payload as root."
     status: "active"
+    risk_score: 78
     source: "sudo_cmd"
     false_positives: "Break-glass troubleshooting sessions on hardened servers."
     response: "Confirm break-glass approval and inspect recent command history for post-escalation actions."
@@ -77,11 +92,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "sudo to root bash fires"
+        expected: match
+        events:
+          - {event_type: "sudo_cmd", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {action: "sudo", target_user: "root", username: "alice", command: "/bin/bash -i"}}
+      - name: "benign editor command does not fire"
+        expected: no_match
+        events:
+          - {event_type: "sudo_cmd", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {action: "sudo", target_user: "root", username: "alice", command: "/usr/bin/vim /etc/hosts"}}
+      - name: "root invoking the shell does not fire"
+        expected: no_match
+        events:
+          - {event_type: "sudo_cmd", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {action: "sudo", target_user: "root", username: "root", command: "/bin/bash -i"}}
 
   - id: privilege_proc_euid_root_nonroot_uid_chain_v1
     name: "Process chain with non-root UID and root EUID"
     description: "Process execution shows UID-to-EUID pivot to root with suspicious interpreter or LOLBin context."
     status: "active"
+    risk_score: 80
     source: "proc_exec"
     false_positives: "Setuid helper binaries during controlled maintenance tasks."
     response: "Inspect parent-child chain and binary provenance; treat unknown chains as probable privilege abuse."
@@ -105,11 +134,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "non-root uid pivoting to root euid via interpreter fires"
+        expected: match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {uid: 1000, euid: 0, exec_pattern: "interpreter", exe_name: "python3"}}
+      - name: "non-root euid does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {uid: 1000, euid: 1000, exec_pattern: "interpreter", exe_name: "python3"}}
+      - name: "benign exec pattern does not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {uid: 1000, euid: 0, exec_pattern: "normal_exec", exe_name: "ls"}}
 
   - id: privilege_repeated_root_exec_after_user_context_v1
     name: "Repeated risky root execution after user context"
     description: "Root-context process execution repeatedly uses high-risk execution patterns on the same host."
     status: "active"
+    risk_score: 56
     source: "proc_exec"
     false_positives: "Short-lived response playbooks executed by security automation agents."
     response: "Validate automation identity and investigate if execution source is untrusted or newly observed."
@@ -144,11 +187,30 @@ rules:
             host_roles: ["jump", "bastion"]
           min_events: 5
           condition: {operator: ">=", value: 5}
+    tests:
+      - name: "three risky root execs fire"
+        expected: match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {euid: 0, exec_pattern: "lolbin", exe_name: "curl"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {euid: 0, exec_pattern: "remote_fetch_exec", exe_name: "wget"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {euid: 0, exec_pattern: "reverse_shell", exe_name: "bash"}}
+      - name: "two events stay below threshold"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {euid: 0, exec_pattern: "lolbin", exe_name: "curl"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {euid: 0, exec_pattern: "lolbin", exe_name: "wget"}}
+      - name: "non-root euid execs do not fire"
+        expected: no_match
+        events:
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {euid: 1000, exec_pattern: "lolbin", exe_name: "curl"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {euid: 1000, exec_pattern: "lolbin", exe_name: "wget"}}
+          - {event_type: "proc_exec", agent_id: "agent-1", timestamp: "2026-06-01T00:00:00Z", extra: {euid: 1000, exec_pattern: "lolbin", exe_name: "nc"}}
 
   - id: privilege_sudo_service_control_abuse_v1
     name: "Suspicious sudo service control abuse"
     description: "Sudo command manipulates service states in a way aligned with privilege abuse and control takeover."
     status: "active"
+    risk_score: 52
     source: "sudo_cmd"
     false_positives: "Legitimate emergency service maintenance by platform SRE on designated hosts."
     response: "Validate service change approval and inspect whether service action was followed by suspicious process execution."
@@ -177,3 +239,18 @@ rules:
     condition:
       operator: ">="
       value: 2
+    tests:
+      - name: "repeated sudo service control fires"
+        expected: match
+        events:
+          - {event_type: "sudo_cmd", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {action: "sudo", target_user: "root", username: "alice", command: "systemctl stop nginx"}}
+          - {event_type: "sudo_cmd", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {action: "sudo", target_user: "root", username: "alice", command: "systemctl disable nginx"}}
+      - name: "single service control stays below threshold"
+        expected: no_match
+        events:
+          - {event_type: "sudo_cmd", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {action: "sudo", target_user: "root", username: "alice", command: "systemctl stop nginx"}}
+      - name: "service status queries do not fire"
+        expected: no_match
+        events:
+          - {event_type: "sudo_cmd", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {action: "sudo", target_user: "root", username: "alice", command: "systemctl status nginx"}}
+          - {event_type: "sudo_cmd", agent_id: "agent-1", src_ip: "10.1.0.5", timestamp: "2026-06-01T00:00:00Z", extra: {action: "sudo", target_user: "root", username: "alice", command: "systemctl is-active nginx"}}

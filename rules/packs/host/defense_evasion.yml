@@ -9,6 +9,7 @@ rules:
     name: "Log tampering via privileged command"
     description: "Privileged command sequence indicates log truncation, shredding, or aggressive cleanup."
     status: "active"
+    risk_score: 80
     source: "sudo_cmd"
     false_positives: "Approved retention maintenance for controlled forensic data lifecycle."
     response: "Verify maintenance authorization and inspect for adjacent malicious execution or persistence signals."
@@ -37,11 +38,37 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "root log vacuum via sudo fires"
+        expected: match
+        events:
+          - event_type: "sudo_cmd"
+            agent_id: "agent-1"
+            src_ip: "10.1.0.5"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {action: "sudo", target_user: "root", username: "ops", command: "journalctl --vacuum-time=1s"}
+      - name: "benign sudo command does not fire"
+        expected: no_match
+        events:
+          - event_type: "sudo_cmd"
+            agent_id: "agent-1"
+            src_ip: "10.1.0.5"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {action: "sudo", target_user: "root", username: "ops", command: "apt-get update"}
+      - name: "non-root target does not fire"
+        expected: no_match
+        events:
+          - event_type: "sudo_cmd"
+            agent_id: "agent-1"
+            src_ip: "10.1.0.5"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {action: "sudo", target_user: "deploy", username: "ops", command: "shred /tmp/x"}
 
   - id: defense_disable_security_services_cmd_v1
     name: "Disable security telemetry services"
     description: "Privileged command disables core security or observability services."
     status: "active"
+    risk_score: 92
     source: "sudo_cmd"
     false_positives: "Rare emergency service migration with explicit incident ticketing."
     response: "Immediately validate operator intent, recover service state, and scope potential impact window."
@@ -74,11 +101,37 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "stopping auditd fires"
+        expected: match
+        events:
+          - event_type: "sudo_cmd"
+            agent_id: "agent-1"
+            src_ip: "10.1.0.5"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {action: "sudo", target_user: "root", username: "ops", command: "systemctl stop auditd"}
+      - name: "restarting an app service does not fire"
+        expected: no_match
+        events:
+          - event_type: "sudo_cmd"
+            agent_id: "agent-1"
+            src_ip: "10.1.0.5"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {action: "sudo", target_user: "root", username: "ops", command: "systemctl restart nginx"}
+      - name: "non-sudo action does not fire"
+        expected: no_match
+        events:
+          - event_type: "sudo_cmd"
+            agent_id: "agent-1"
+            src_ip: "10.1.0.5"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {action: "run", target_user: "root", username: "ops", command: "ufw disable"}
 
   - id: defense_security_file_permission_tamper_v1
     name: "Security file permission/ownership tamper"
     description: "Permission or ownership changes on security-sensitive files were detected."
     status: "active"
+    risk_score: 76
     source: "fim_change"
     false_positives: "Authorized hardening actions performed under strict change control."
     response: "Confirm authorized baseline drift and inspect whether tamper was followed by privilege or persistence activity."
@@ -101,11 +154,34 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "permission change on security file fires"
+        expected: match
+        events:
+          - event_type: "fim_change"
+            agent_id: "agent-1"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {path: "/etc/shadow", path_category: "security_file", action: "permission_change"}
+      - name: "plain content modify does not fire"
+        expected: no_match
+        events:
+          - event_type: "fim_change"
+            agent_id: "agent-1"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {path: "/etc/shadow", path_category: "security_file", action: "modify"}
+      - name: "non-security file does not fire"
+        expected: no_match
+        events:
+          - event_type: "fim_change"
+            agent_id: "agent-1"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {path: "/etc/motd", path_category: "config_file", action: "permission_change"}
 
   - id: defense_hidden_artifact_persistence_path_v1
     name: "Hidden artifact in persistence-sensitive path"
     description: "File path indicates hidden payload-style naming inside persistence-sensitive locations."
     status: "active"
+    risk_score: 56
     source: "fim_change"
     false_positives: "Temporary hidden state files from trusted package tooling."
     response: "Review file content/hash and origin process; quarantine host when artifact is untrusted."
@@ -128,11 +204,34 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "hidden artifact created in tmp fires"
+        expected: match
+        events:
+          - event_type: "fim_change"
+            agent_id: "agent-1"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {path: "/var/tmp/.bootstrap", path_category: "tmp_exec", action: "create"}
+      - name: "visible file in standard path does not fire"
+        expected: no_match
+        events:
+          - event_type: "fim_change"
+            agent_id: "agent-1"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {path: "/etc/hosts", path_category: "config_file", action: "modify"}
+      - name: "delete action on hidden path does not fire"
+        expected: no_match
+        events:
+          - event_type: "fim_change"
+            agent_id: "agent-1"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {path: "/var/tmp/.bootstrap", path_category: "tmp_exec", action: "delete"}
 
   - id: defense_tmp_cleanup_after_exec_v1
     name: "Suspicious cleanup in temporary execution paths"
     description: "Command execution indicates artifact cleanup in temporary paths after potential payload staging."
     status: "active"
+    risk_score: 52
     source: "proc_exec"
     false_positives: "Routine ephemeral workspace cleanup in CI hosts."
     response: "Correlate with recent payload download/decode activity and investigate if cleanup hides malicious binaries."
@@ -160,3 +259,25 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - name: "shell cleanup of tmp staging fires"
+        expected: match
+        events:
+          - event_type: "proc_exec"
+            agent_id: "agent-1"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {exec_pattern: "shell_spawn", exe_name: "bash", cmdline: "rm -rf /tmp/stage"}
+      - name: "listing tmp does not fire"
+        expected: no_match
+        events:
+          - event_type: "proc_exec"
+            agent_id: "agent-1"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {exec_pattern: "shell_spawn", exe_name: "bash", cmdline: "ls -la /tmp/"}
+      - name: "non-shell exec pattern does not fire"
+        expected: no_match
+        events:
+          - event_type: "proc_exec"
+            agent_id: "agent-1"
+            timestamp: "2026-06-01T00:00:00Z"
+            extra: {exec_pattern: "service_start", exe_name: "systemd", cmdline: "rm -rf /tmp/stage"}
