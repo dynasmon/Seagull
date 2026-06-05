@@ -1160,6 +1160,20 @@ def get_overview_payload(
             if agent_id:
                 src_where += " AND agent_id = {agent_id:String}"
                 src_params["agent_id"] = agent_id
+            if not use_ingest_rollups:
+                ports_ch_rows = _ch_query_dicts(
+                    ch,
+                    f"SELECT dst_port AS port, count() AS count "
+                    f"FROM {clickhouse_events_table_ref()} "
+                    f"WHERE {src_where} AND dst_port IS NOT NULL "
+                    "GROUP BY dst_port ORDER BY count DESC LIMIT 10",
+                    src_params,
+                )
+                ports = [
+                    {"port": int(r.get("port")), "count": int(r.get("count") or 0)}
+                    for r in ports_ch_rows
+                    if r.get("port") is not None
+                ]
             src_rows = _ch_query_dicts(
                 ch,
                 f"SELECT src_ip, count() AS count "
