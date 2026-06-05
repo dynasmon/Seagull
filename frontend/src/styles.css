@@ -223,7 +223,7 @@ html.dark {
   }
 
   .ui-btn {
-    @apply inline-flex h-8 items-center justify-center rounded-md border border-border bg-card px-3 text-[11.5px] font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35;
+    @apply inline-flex h-8 items-center justify-center whitespace-nowrap rounded-md border border-border bg-card px-3 text-[11.5px] font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35;
   }
 
   .ui-btn-secondary {
@@ -275,6 +275,14 @@ html.dark {
   .seagullTable-scrollX .euiTable {
     inline-size: max-content;
     min-inline-size: 100%;
+  }
+
+  /* EuiAccordion animates its height from a JS-measured value; under React
+     StrictMode (dev) the internal ResizeObserver can misfire and leave an
+     open section clipped to 0. Pin open sections to their natural height so
+     content is always visible (collapsed sections keep the inline 0 height). */
+  .nw-overview-section.euiAccordion-isOpen .euiAccordion__childWrapper {
+    block-size: auto !important;
   }
 
   .ui-eyebrow {
