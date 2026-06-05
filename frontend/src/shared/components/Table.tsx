@@ -32,6 +32,7 @@ export function Table<T extends object>({
   rowKey,
   className,
   scrollX = false,
+  layout = "auto",
   stickyHeader = true,
   compact = true,
   selectedRowKey,
@@ -51,6 +52,8 @@ export function Table<T extends object>({
   rowKey: (row: T, idx: number) => string;
   className?: string;
   scrollX?: boolean;
+  /** "fixed" keeps columns within the container (flex columns truncate) instead of growing to content. */
+  layout?: "auto" | "fixed";
   stickyHeader?: boolean;
   compact?: boolean;
   selectedRowKey?: string | null;
@@ -158,7 +161,7 @@ export function Table<T extends object>({
           sorting={sorting}
           onChange={handleChange}
           compressed={compact}
-          tableLayout="auto"
+          tableLayout={layout}
           responsiveBreakpoint={false}
           noItemsMessage=""
           itemId={expandedRowMap ? (row: T) => keyForRow(row) : undefined}

@@ -9,6 +9,8 @@ export type ButtonSize = "sm" | "md" | "lg" | "icon";
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  /** Override EUI's default button min-width (e.g. 0 for compact action cells). */
+  minWidth?: number;
   children?: ReactNode;
   leadingIcon?: ReactNode;
   trailingIcon?: ReactNode;
@@ -46,6 +48,7 @@ function ButtonContent({
 export function Button({
   variant = "secondary",
   size = "md",
+  minWidth,
   disabled,
   className,
   children,
@@ -115,6 +118,7 @@ export function Button({
       fill={variant === "primary"}
       color={color}
       size={euiSize(size)}
+      minWidth={minWidth}
       type={buttonType}
       isDisabled={disabled}
       className={className}
