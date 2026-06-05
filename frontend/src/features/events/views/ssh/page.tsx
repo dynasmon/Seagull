@@ -513,41 +513,46 @@ function RecentAuthEventsCard({
       {
         key: "timestamp",
         title: "When",
-        width: 180,
+        width: 140,
         render: (r: SshAuthEvent) => <span className="font-mono text-xs">{fmtWhen(r.timestamp)}</span>,
       },
       {
         key: "action",
         title: "Action",
-        width: 160,
+        width: 132,
         render: (r: SshAuthEvent) => <SshActionBadge action={r.action} />,
       },
       {
         key: "src_ip",
-        title: "Source",
-        width: 210,
-        render: (r: SshAuthEvent) => (
-          <div className="min-w-0">
-            <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />
-            <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{r.agent_id}</div>
-          </div>
-        ),
+        title: "Source / Geo",
+        render: (r: SshAuthEvent) => {
+          const country = (r.geo_country || "").trim();
+          const org = (r.geo_org || "").trim();
+          const asn = (r.asn || "").trim();
+          const asnLine = asn ? `${r.asn}${r.asn_org ? ` • ${r.asn_org}` : ""}` : "";
+          return (
+            <div className="min-w-0 space-y-0.5">
+              <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />
+              <div className="flex min-w-0 items-center gap-1.5">
+                <Badge variant={country ? "info" : "neutral"}>{country || ipFallbackLabel(r)}</Badge>
+                {org ? <span className="min-w-0 truncate text-[11px] text-muted-foreground" title={org}>{org}</span> : null}
+              </div>
+              {asnLine ? <div className="truncate font-mono text-[11px] text-muted-foreground" title={asnLine}>{asnLine}</div> : null}
+              <div className="truncate font-mono text-[11px] text-muted-foreground" title={r.agent_id}>{r.agent_id}</div>
+            </div>
+          );
+        },
       },
       {
         key: "username",
         title: "Username",
-        width: 140,
-        render: (r: SshAuthEvent) => <span className="font-mono">{r.username || "-"}</span>,
-      },
-      {
-        key: "meta",
-        title: "Geo / ASN",
-        render: (r: SshAuthEvent) => <SshGeoCell row={r} fallbackLabel={ipFallbackLabel(r)} />,
+        width: 80,
+        render: (r: SshAuthEvent) => <span className="block truncate font-mono">{r.username || "-"}</span>,
       },
       {
         key: "actions",
         title: "Actions",
-        width: 220,
+        width: 124,
         render: (r: SshAuthEvent) => {
           const search = (r.src_ip || "").trim() || (r.username || "").trim();
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: search || undefined });
@@ -556,6 +561,7 @@ function RecentAuthEventsCard({
               <Button
                 variant="subtle"
                 size="sm"
+                minWidth={0}
                 title="Open IP profile drawer"
                 onClick={() => {
                   const ip = (r.src_ip || "").trim();
@@ -592,7 +598,7 @@ function RecentAuthEventsCard({
       {rows.length === 0 ? (
         <EmptyState title="No SSH auth events" hint="No ssh_auth entries matched the selected window." />
       ) : (
-        <Table columns={cols} rows={rows} rowKey={(r, i) => `${r.timestamp}-${r.agent_id}-${r.src_ip || "no-ip"}-${i}`} className="text-sm" />
+        <Table columns={cols} rows={rows} rowKey={(r, i) => `${r.timestamp}-${r.agent_id}-${r.src_ip || "no-ip"}-${i}`} className="text-sm" layout="fixed" />
       )}
     </Card>
   );
@@ -618,37 +624,33 @@ function IpTableCard({
       {
         key: "count",
         title: "Count",
-        width: 80,
+        width: 52,
         className: "text-right font-mono",
         render: (r: SshIpStat) => <span className="font-mono">{r.count}</span>,
       },
       {
         key: "src_ip",
-        title: "Source IP",
-        width: 200,
-        render: (r: SshIpStat) => (
-          <div className="flex flex-wrap items-center gap-2">
-            <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />
-            {r.geo_country ? <Badge variant={countryVariant}>{r.geo_country}</Badge> : null}
-          </div>
-        ),
-      },
-      {
-        key: "org",
-        title: "Org",
-        render: (r: SshIpStat) => (
-          <div className="min-w-0">
-            <div className="truncate">{(r.geo_org || "").trim() || "-"}</div>
-            <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
-              {(r.asn || "").trim() ? `${r.asn}${r.asn_org ? ` • ${r.asn_org}` : ""}` : "-"}
+        title: "Source IP / Org",
+        render: (r: SshIpStat) => {
+          const org = (r.geo_org || "").trim();
+          const asn = (r.asn || "").trim();
+          const asnLine = asn ? `${r.asn}${r.asn_org ? ` • ${r.asn_org}` : ""}` : "";
+          return (
+            <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />
+                {r.geo_country ? <Badge variant={countryVariant}>{r.geo_country}</Badge> : null}
+              </div>
+              {org ? <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={org}>{org}</div> : null}
+              {asnLine ? <div className="truncate font-mono text-[11px] text-muted-foreground" title={asnLine}>{asnLine}</div> : null}
             </div>
-          </div>
-        ),
+          );
+        },
       },
       {
         key: "actions",
         title: "Actions",
-        width: 220,
+        width: 124,
         render: (r: SshIpStat) => {
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: r.src_ip });
           return (
@@ -656,6 +658,7 @@ function IpTableCard({
               <Button
                 variant="subtle"
                 size="sm"
+                minWidth={0}
                 title="Open IP profile drawer"
                 onClick={() => onViewIp?.(r)}
                 disabled={!onViewIp}
@@ -676,7 +679,7 @@ function IpTableCard({
       {rows.length === 0 ? (
         <EmptyState title="No rows" hint="Nothing matched the selected window." />
       ) : (
-        <Table columns={cols} rows={rows} rowKey={(r) => r.src_ip} className="text-sm" />
+        <Table columns={cols} rows={rows} rowKey={(r) => r.src_ip} className="text-sm" layout="fixed" />
       )}
     </Card>
   );
@@ -688,19 +691,20 @@ function UserTableCard({ title, rows, viewAgentId }: { title: string; rows: SshU
       {
         key: "count",
         title: "Count",
-        width: 80,
+        width: 64,
         className: "text-right font-mono",
         render: (r: SshUserStat) => <span className="font-mono">{r.count}</span>,
       },
       {
         key: "username",
         title: "Username",
-        render: (r: SshUserStat) => <span className="font-mono">{r.username}</span>,
+        render: (r: SshUserStat) => <span className="block truncate font-mono" title={r.username}>{r.username}</span>,
       },
       {
         key: "actions",
         title: "Actions",
-        width: 120,
+        width: 92,
+        className: "text-right",
         render: (r: SshUserStat) => {
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: r.username });
           return <EventsLinkButton to={to}>Open</EventsLinkButton>;
@@ -715,7 +719,7 @@ function UserTableCard({ title, rows, viewAgentId }: { title: string; rows: SshU
       {rows.length === 0 ? (
         <EmptyState title="No users" hint="No failed/invalid usernames in the selected window." />
       ) : (
-        <Table columns={cols} rows={rows} rowKey={(r, i) => `${r.username}-${i}`} className="text-sm" />
+        <Table columns={cols} rows={rows} rowKey={(r, i) => `${r.username}-${i}`} className="text-sm" layout="fixed" />
       )}
     </Card>
   );
@@ -735,31 +739,21 @@ function RootLoginsCard({
   const cols = useMemo(
     () => [
       {
-        key: "timestamp",
-        title: "When",
-        width: 180,
-        render: (r: SshLoginEvent) => <span className="font-mono text-xs">{fmtWhen(r.timestamp)}</span>,
-      },
-      {
-        key: "src_ip",
-        title: "IP",
-        width: 180,
-        render: (r: SshLoginEvent) => <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />,
-      },
-      {
-        key: "meta",
-        title: "Geo / ASN",
+        key: "login",
+        title: "Login",
         render: (r: SshLoginEvent) => (
           <div className="min-w-0 space-y-1">
+            <div className="font-mono text-xs text-muted-foreground">{fmtWhen(r.timestamp)}</div>
+            <IpAddressPill ip={r.src_ip} ipContext={sshIpContext(r)} compact />
             <SshGeoCell row={r} fallbackLabel={ipFallbackLabel(r)} countryVariant="critical" />
-            <div className="text-[11px] font-mono text-muted-foreground">agent: {r.agent_id}</div>
+            <div className="truncate text-[11px] font-mono text-muted-foreground" title={r.agent_id}>agent: {r.agent_id}</div>
           </div>
         ),
       },
       {
         key: "actions",
         title: "Actions",
-        width: 220,
+        width: 124,
         render: (r: SshLoginEvent) => {
           const search = r.src_ip ? r.src_ip : "root";
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search });
@@ -768,6 +762,7 @@ function RootLoginsCard({
               <Button
                 variant="subtle"
                 size="sm"
+                minWidth={0}
                 title="Open IP profile drawer"
                 onClick={() => {
                   const ip = (r.src_ip || "").trim();
@@ -803,7 +798,7 @@ function RootLoginsCard({
       {rows.length === 0 ? (
         <EmptyState title="No root logins" hint="No accepted root logins found." />
       ) : (
-        <Table columns={cols} rows={rows} rowKey={(r, i) => `${r.timestamp}-${i}`} className="text-sm" />
+        <Table columns={cols} rows={rows} rowKey={(r, i) => `${r.timestamp}-${i}`} className="text-sm" layout="fixed" />
       )}
     </Card>
   );
@@ -840,7 +835,7 @@ function SudoRecentCard({ title, rows, viewAgentId }: { title: string; rows: Sud
       {
         key: "actions",
         title: "",
-        width: 90,
+        width: 84,
         className: "text-right",
         render: (r: SudoEventSummary) => {
           const search = r.command ? r.command.split(" ")[0] : "sudo";
@@ -858,7 +853,7 @@ function SudoRecentCard({ title, rows, viewAgentId }: { title: string; rows: Sud
         <EmptyState title="No sudo activity" hint="No sudo commands found in the selected window." />
       ) : (
         <div className="max-h-[520px] overflow-y-auto">
-          <Table columns={cols} rows={rows} rowKey={(r, i) => `${r.timestamp}-${i}`} className="text-sm" compact />
+          <Table columns={cols} rows={rows} rowKey={(r, i) => `${r.timestamp}-${i}`} className="text-sm" compact layout="fixed" />
         </div>
       )}
     </Card>
