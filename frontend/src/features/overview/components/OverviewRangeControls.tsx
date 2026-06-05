@@ -1,7 +1,15 @@
-import { Button } from "@/shared/components/Button";
+import { EuiButtonGroup, EuiPanel } from "@elastic/eui";
 
-import { FilterChip } from "./FilterChip";
+import { Button } from "@/shared/components/Button";
+import { TextInput } from "@/shared/components/TextInput";
+
 import type { OverviewQueryState } from "../query";
+
+const WINDOW_OPTIONS: Array<{ id: string; label: string; minutes: number }> = [
+  { id: "w60", label: "60m", minutes: 60 },
+  { id: "w360", label: "6h", minutes: 360 },
+  { id: "w1440", label: "24h", minutes: 1440 },
+];
 
 function fmtDurationCompact(totalMinutes: number): string {
   const minutes = Math.max(1, Math.trunc(Number(totalMinutes) || 0));
@@ -34,42 +42,49 @@ export function OverviewRangeControls({
   applyDisabled: boolean;
 }) {
   const historical = Boolean(query.from || query.to);
+  const selectedWindowId = historical
+    ? ""
+    : WINDOW_OPTIONS.find((o) => o.minutes === query.windowMinutes)?.id ?? "";
 
   return (
-    <div className="rounded-md border border-border bg-surface-2/50 px-3 py-2">
-      <div className="flex flex-col gap-2 2xl:flex-row 2xl:items-end 2xl:justify-between">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            {label}
-          </div>
-          <div className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground/85">
-            {historical ? "Historical paused" : `Live · ${fmtDurationCompact(query.windowMinutes)}`}
-          </div>
-          <div className="ml-1 flex items-center gap-1">
-            <FilterChip active={!historical && query.windowMinutes === 60} onClick={() => onSetLiveWindow(60)}>60m</FilterChip>
-            <FilterChip active={!historical && query.windowMinutes === 360} onClick={() => onSetLiveWindow(360)}>6h</FilterChip>
-            <FilterChip active={!historical && query.windowMinutes === 1440} onClick={() => onSetLiveWindow(1440)}>24h</FilterChip>
-          </div>
+    <EuiPanel hasBorder hasShadow={false} paddingSize="none" borderRadius="m">
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
+          <EuiButtonGroup
+            legend="Live time window"
+            type="single"
+            buttonSize="compressed"
+            options={WINDOW_OPTIONS.map((o) => ({ id: o.id, label: o.label }))}
+            idSelected={selectedWindowId}
+            onChange={(id) => {
+              const opt = WINDOW_OPTIONS.find((o) => o.id === id);
+              if (opt) onSetLiveWindow(opt.minutes);
+            }}
+          />
+          <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground/85">
+            {historical ? "Historical · paused" : `Live · ${fmtDurationCompact(query.windowMinutes)}`}
+          </span>
         </div>
 
         <div className="flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1">
-            <div className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">From</div>
-            <input
+            <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">From</span>
+            <TextInput
               type="datetime-local"
+              className="font-mono sm:w-[12rem]"
               value={draft.from}
               onChange={(e) => onDraftChange("from", e.target.value)}
-              className="h-8 rounded-md border border-border bg-card px-2 text-[11.5px] text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25 sm:w-[11rem]"
             />
           </label>
 
           <label className="flex flex-col gap-1">
-            <div className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">To</div>
-            <input
+            <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">To</span>
+            <TextInput
               type="datetime-local"
+              className="font-mono sm:w-[12rem]"
               value={draft.to}
               onChange={(e) => onDraftChange("to", e.target.value)}
-              className="h-8 rounded-md border border-border bg-card px-2 text-[11.5px] text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25 sm:w-[11rem]"
             />
           </label>
 
@@ -81,6 +96,6 @@ export function OverviewRangeControls({
           </Button>
         </div>
       </div>
-    </div>
+    </EuiPanel>
   );
 }
