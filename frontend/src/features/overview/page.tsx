@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { EuiStat } from "@elastic/eui";
+import { EuiHealth, EuiStat } from "@elastic/eui";
 
 import EmptyState from "@/shared/components/EmptyState";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
@@ -11,7 +11,7 @@ import { Panel } from "@/shared/components/Panel";
 import { Table } from "@/shared/components/Table";
 import { BarChart, TimeSeriesChart } from "@/shared/components/charts";
 import { getFlowIpContext } from "@/shared/lib/ipClassification";
-import type { Alert } from "./types";
+import type { Alert, StormStatus } from "./types";
 import { SimpleTimeSeries } from "./components/Charts";
 import { timeSeriesHasSignal } from "./dashboard_state";
 import { OverviewLiveProvider, useOverviewLive } from "./live";
@@ -134,6 +134,22 @@ function fmtCompact(value: number): string {
   return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
+function fmtPercent(value: number): string {
+  if (!Number.isFinite(value)) return "—";
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? `${rounded}%` : `${rounded.toFixed(1)}%`;
+}
+
+// Health tone for the retained-telemetry ratio: full retention is healthy,
+// partial retention means sampling/shedding pressure worth surfacing.
+function telemetryKeptColor(keptPercent: number): "success" | "warning" | "danger" {
+  if (keptPercent >= 99) return "success";
+  if (keptPercent >= 80) return "warning";
+  return "danger";
+}
+
+type TelemetryQualityRow = NonNullable<StormStatus["quality_by_event_type"]>[number];
+
 function fmtSource(meta?: { source?: string; source_freshness_seconds?: number | null; degraded_reason?: string | null }) {
   if (!meta) return "source: -";
   const src = String(meta.source || "unknown");
@@ -186,8 +202,9 @@ function OverviewPageView({
   resolvedQuery: OverviewResolvedQuery;
 }) {
   const { snapshot, storm, isLoading, error, lastUpdatedAt } = useOverviewLive();
-  const trafficWindow = useOverviewLiteWindow({ baseQuery: resolvedQuery });
-  const ddosWindow = useOverviewLiteWindow({ baseQuery: resolvedQuery });
+  // A single page-level time window drives both the event-volume and DoS/DDoS
+  // charts (one lite snapshot fetch, one range control).
+  const dataWindow = useOverviewLiteWindow({ baseQuery: resolvedQuery });
 
   const derived = useMemo(() => {
     if (!snapshot) {
@@ -254,8 +271,10 @@ function OverviewPageView({
     };
   }, [snapshot]);
 
-  const qualityRows = useMemo(() => {
-    return (storm?.quality_by_event_type || []).slice(0, 8);
+  const qualityRows = useMemo<TelemetryQualityRow[]>(() => {
+    return [...(storm?.quality_by_event_type || [])]
+      .sort((a, b) => (b.received ?? 0) - (a.received ?? 0))
+      .slice(0, 8);
   }, [storm]);
 
   const [acTile, setAcTile] = useState<{
@@ -297,12 +316,12 @@ function OverviewPageView({
   }, [snapshot, lastUpdatedAt]);
 
   const trafficSourceMeta = snapshot?.meta?.sources?.traffic;
-  const trafficChart = trafficWindow.snapshot?.traffic ?? snapshot?.traffic;
-  const trafficChartSourceMeta = trafficWindow.snapshot?.meta?.sources?.traffic ?? trafficSourceMeta;
+  const trafficChart = dataWindow.snapshot?.traffic ?? snapshot?.traffic;
+  const trafficChartSourceMeta = dataWindow.snapshot?.meta?.sources?.traffic ?? trafficSourceMeta;
   const ddosVolumeBaseSourceMeta = snapshot?.meta?.sources?.ddos_volume;
-  const ddosChart = ddosWindow.snapshot?.ddos ?? snapshot?.ddos;
-  const ddosVolumeChart = ddosWindow.snapshot?.ddos_volume ?? snapshot?.ddos_volume;
-  const ddosVolumeSourceMeta = ddosWindow.snapshot?.meta?.sources?.ddos_volume ?? ddosVolumeBaseSourceMeta;
+  const ddosChart = dataWindow.snapshot?.ddos ?? snapshot?.ddos;
+  const ddosVolumeChart = dataWindow.snapshot?.ddos_volume ?? snapshot?.ddos_volume;
+  const ddosVolumeSourceMeta = dataWindow.snapshot?.meta?.sources?.ddos_volume ?? ddosVolumeBaseSourceMeta;
   const ingestRatesSourceMeta = snapshot?.meta?.sources?.ingest_rates;
   const degradedSources = [trafficSourceMeta, ddosVolumeBaseSourceMeta, ingestRatesSourceMeta].filter(
     (x) => Boolean(x?.degraded_reason),
@@ -352,6 +371,17 @@ function OverviewPageView({
   return (
     <div className="space-y-4 pb-16">
       <PageHeader title="Operational overview" toolbarRight={headerRight} />
+
+      <OverviewRangeControls
+        label="Range"
+        query={dataWindow.query}
+        draft={dataWindow.draft}
+        onDraftChange={dataWindow.onDraftChange}
+        onApplyRange={dataWindow.onApplyRange}
+        onSetLiveWindow={dataWindow.onSetLiveWindow}
+        onResetToLive={dataWindow.onResetToLive}
+        applyDisabled={dataWindow.applyDisabled}
+      />
 
       {snapshot.query_meta ? (
         <DataQueryStateBanner
@@ -458,34 +488,78 @@ function OverviewPageView({
           ) : null}
         </OverviewPanel>
 
-        <OverviewPanel title="Telemetry quality" right={<span className="text-[10px] text-muted-foreground">rolling window</span>}>
+        <OverviewPanel
+          title="Telemetry quality"
+          right={<span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">rolling window · by event type</span>}
+        >
           {qualityRows.length === 0 ? (
-            <div className="text-xs text-muted-foreground">Quality breakdown unavailable right now.</div>
+            <EmptyState title="No telemetry quality" hint="Per-event-type quality breakdown is unavailable right now." />
           ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {qualityRows.map((q) => (
-                <div key={q.event_type} className="rounded-md border border-border bg-surface-2/40 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="truncate text-sm font-semibold tracking-tight">{q.event_type}</div>
-                    <div className="font-mono text-[11px] text-muted-foreground">{q.received}</div>
-                  </div>
-                  <div className="mt-2 grid grid-cols-3 gap-1 text-[10px] font-mono">
-                    <div className="rounded border border-success/40 bg-success/10 px-2 py-1 text-center text-success">
-                      keep {q.kept_percent}%
-                    </div>
-                    <div className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-center text-danger">
-                      drop {q.drop_percent}%
-                    </div>
-                    <div className="rounded border border-info/40 bg-info/10 px-2 py-1 text-center text-info">
-                      analytics {q.analytics_percent}%
-                    </div>
-                  </div>
-                  <div className="mt-2 font-mono text-[11px] text-muted-foreground">
-                    hot {q.hot_kept} · warm {q.warm_kept} · analytics {q.analytics_kept}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <Table
+              scrollX={false}
+              className="text-xs"
+              columns={[
+                {
+                  key: "event_type",
+                  title: "Event type",
+                  className: "font-mono text-foreground",
+                  render: (q: TelemetryQualityRow) => q.event_type,
+                },
+                {
+                  key: "received",
+                  title: "Received",
+                  className: "font-mono text-muted-foreground w-24",
+                  align: "right",
+                  render: (q: TelemetryQualityRow) => fmtCompact(q.received),
+                },
+                {
+                  key: "kept",
+                  title: "Kept",
+                  className: "w-28",
+                  render: (q: TelemetryQualityRow) => (
+                    <EuiHealth color={telemetryKeptColor(q.kept_percent)} textSize="xs">
+                      {fmtPercent(q.kept_percent)}
+                    </EuiHealth>
+                  ),
+                },
+                {
+                  key: "dropped",
+                  title: "Dropped",
+                  className: "font-mono w-36",
+                  render: (q: TelemetryQualityRow) =>
+                    q.drop_percent > 0 || q.dropped_estimated > 0 ? (
+                      <span className="text-danger">
+                        {fmtPercent(q.drop_percent)} · {fmtCompact(q.dropped_estimated)}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">0%</span>
+                    ),
+                },
+                {
+                  key: "hot",
+                  title: "Hot",
+                  className: "font-mono text-muted-foreground w-20",
+                  align: "right",
+                  render: (q: TelemetryQualityRow) => fmtCompact(q.hot_kept),
+                },
+                {
+                  key: "warm",
+                  title: "Warm",
+                  className: "font-mono text-muted-foreground w-20",
+                  align: "right",
+                  render: (q: TelemetryQualityRow) => fmtCompact(q.warm_kept),
+                },
+                {
+                  key: "analytics",
+                  title: "Analytics",
+                  className: "font-mono text-muted-foreground w-24",
+                  align: "right",
+                  render: (q: TelemetryQualityRow) => fmtCompact(q.analytics_kept),
+                },
+              ]}
+              rows={qualityRows}
+              rowKey={(q: TelemetryQualityRow) => q.event_type}
+            />
           )}
         </OverviewPanel>
       </DashboardSection>
@@ -498,10 +572,10 @@ function OverviewPageView({
             style={{ height: H_PANEL_BIG }}
             right={
               <div className="flex items-center gap-3">
-                {trafficWindow.isLoading ? (
+                {dataWindow.isLoading ? (
                   <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">syncing</span>
                 ) : null}
-                {trafficWindow.error ? (
+                {dataWindow.error ? (
                   <span className="text-[10px] uppercase tracking-[0.1em] text-danger">refresh error</span>
                 ) : null}
                 <span className="font-mono text-[10px] text-muted-foreground">{fmtSource(trafficChartSourceMeta)}</span>
@@ -511,16 +585,6 @@ function OverviewPageView({
               </div>
             }
           >
-            <OverviewRangeControls
-              label="Event chart range"
-              query={trafficWindow.query}
-              draft={trafficWindow.draft}
-              onDraftChange={trafficWindow.onDraftChange}
-              onApplyRange={trafficWindow.onApplyRange}
-              onSetLiveWindow={trafficWindow.onSetLiveWindow}
-              onResetToLive={trafficWindow.onResetToLive}
-              applyDisabled={trafficWindow.applyDisabled}
-            />
             {!trafficChart || trafficChart.data.length === 0 ? (
               <div className="flex min-h-0 flex-1 items-center justify-center">
                 <EmptyState title="No signal" hint="Waiting for telemetry..." />
@@ -531,7 +595,7 @@ function OverviewPageView({
                   <TimeSeriesChart
                     data={trafficChart.data}
                     seriesKeys={trafficChart.series}
-                    height={190}
+                    height={260}
                     variant="area"
                     stacked
                   />
@@ -784,25 +848,14 @@ function OverviewPageView({
             </div>
           </OverviewPanel>
 
-          <OverviewRangeControls
-            label="DDoS chart range"
-            query={ddosWindow.query}
-            draft={ddosWindow.draft}
-            onDraftChange={ddosWindow.onDraftChange}
-            onApplyRange={ddosWindow.onApplyRange}
-            onSetLiveWindow={ddosWindow.onSetLiveWindow}
-            onResetToLive={ddosWindow.onResetToLive}
-            applyDisabled={ddosWindow.applyDisabled}
-          />
-
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
             <OverviewPanel
               title="DoS/DDoS detections per minute"
               style={{ height: H_PANEL_SM }}
               right={
-                ddosWindow.isLoading ? (
+                dataWindow.isLoading ? (
                   <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">syncing</span>
-                ) : ddosWindow.error ? (
+                ) : dataWindow.error ? (
                   <span className="text-[10px] uppercase tracking-[0.1em] text-danger">refresh error</span>
                 ) : null
               }
@@ -828,10 +881,10 @@ function OverviewPageView({
               style={{ height: H_PANEL_SM }}
               right={
                 <div className="flex items-center gap-3">
-                  {ddosWindow.isLoading ? (
+                  {dataWindow.isLoading ? (
                     <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">syncing</span>
                   ) : null}
-                  {ddosWindow.error ? (
+                  {dataWindow.error ? (
                     <span className="text-[10px] uppercase tracking-[0.1em] text-danger">refresh error</span>
                   ) : null}
                   <span className="font-mono text-[10px] text-muted-foreground">{fmtSource(ddosVolumeSourceMeta)}</span>
