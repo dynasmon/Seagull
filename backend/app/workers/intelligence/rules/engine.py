@@ -7,10 +7,11 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
-from app.core.observability import log_event
+from app.core.observability import incr_counter, log_event, observe_hist
 from app.features.alerts.evidence import extract_evidence_specs
 from app.features.alerts.models import AlertEvidenceModel, AlertModel
 from app.features.alerts.realtime import publish_alert_created_from_row
+from app.features.alerts.repository import rule_false_positive_rates
 from app.features.alerts.rule_registry_runtime import (
     apply_override,
     apply_tuning_and_suppressions,
@@ -20,7 +21,6 @@ from app.features.alerts.rule_registry_runtime import (
     load_baseline_rules,
     normalize_rule_list,
 )
-from app.features.alerts.repository import rule_false_positive_rates
 from app.features.detections.domain.scoring import build_rule_provenance, score_alert_for_endpoints
 from app.features.detections.repository import get_rule_health_map
 from app.features.detections.rules.compiler import execute_v2_rule
@@ -152,8 +152,23 @@ def _correlate_ddos_incidents(db: Session, now: datetime, created_alerts: List[A
     return out
 
 
+def _emit_detection_metrics(health_results: List[RuleExecResult], cycle_seconds: float) -> None:
+    incr_counter("detection_cycles_total")
+    observe_hist("detection_cycle_duration_seconds", max(0.0, cycle_seconds))
+    for r in health_results:
+        if getattr(r, "disabled", False):
+            continue
+        incr_counter("detection_rule_evaluations_total")
+        observe_hist("detection_rule_eval_latency_seconds", max(0.0, float(getattr(r, "duration_ms", 0) or 0) / 1000.0))
+        if getattr(r, "error", None) is not None:
+            incr_counter("detection_rule_errors_total")
+        elif int(getattr(r, "alerts_created", 0) or 0) > 0:
+            incr_counter("detection_rule_matches_total")
+
+
 def run_rules_once():
     now = datetime.utcnow()
+    cycle_started = time.perf_counter()
     created_alerts: List[AlertModel] = []
     health_results: List[RuleExecResult] = []
 
@@ -759,6 +774,7 @@ def run_rules_once():
     finally:
         db.close()
 
+    _emit_detection_metrics(health_results, time.perf_counter() - cycle_started)
     return created_alerts
 
 
