@@ -1,7 +1,7 @@
 import logging
 import time
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from starlette import status
@@ -24,10 +24,10 @@ from app.core.observability import (
     new_request_id,
     normalize_trace_id,
     observe_hist,
+    render_exposition,
     request_id,
     set_request_context,
     setup_logging,
-    snapshot_metrics,
 )
 from app.features.account.api import router as account_router
 from app.features.admin.api import router as admin_router
@@ -36,7 +36,6 @@ from app.features.alerts.api import router as alerts_router
 from app.features.attack_chain.api import router as attack_chain_router
 from app.features.auth.api import router as auth_router
 from app.features.auth.bootstrap import bootstrap_portal_admin
-from app.features.auth.session import require_admin
 from app.features.correlations.api import router as correlations_router
 from app.features.correlations.bootstrap import bootstrap_correlation_rules
 from app.features.detections.api import router as detections_router
@@ -95,6 +94,21 @@ async def request_size_guard(request: Request, call_next):
     return await call_next(request)
 
 
+def _route_label(request: Request) -> str:
+    route = request.scope.get("route")
+    path_format = getattr(route, "path_format", None)
+    if path_format:
+        return str(path_format)[:128]
+    return "unmatched"
+
+
+def _status_class(status_code: int) -> str:
+    try:
+        return f"{int(status_code) // 100}xx"
+    except Exception:
+        return "5xx"
+
+
 @app.middleware("http")
 async def request_context_middleware(request: Request, call_next):
     rid = (request.headers.get("X-Request-Id") or request.headers.get("x-request-id") or "").strip() or new_request_id()
@@ -106,8 +120,9 @@ async def request_context_middleware(request: Request, call_next):
         response = await call_next(request)
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        incr_counter("http_requests_total", method=request.method, path=request.url.path, status="500")
-        observe_hist("http_request_duration_ms", elapsed_ms, method=request.method, path=request.url.path, status="500")
+        route_label = _route_label(request)
+        incr_counter("http_requests_total", method=request.method, route=route_label, status_class="5xx")
+        observe_hist("http_request_duration_ms", elapsed_ms, method=request.method, route=route_label, status_class="5xx")
         # Keep request context until exception handlers run, so request_id is preserved.
         log_event(
             logger,
@@ -124,14 +139,15 @@ async def request_context_middleware(request: Request, call_next):
 
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     status_code = int(getattr(response, "status_code", 500))
-    status_label = str(status_code)
+    route_label = _route_label(request)
+    status_class = _status_class(status_code)
 
     response.headers.setdefault("X-Request-Id", rid)
     response.headers.setdefault("X-Trace-Id", tid)
     response.headers.setdefault("X-Response-Time-Ms", f"{elapsed_ms:.2f}")
 
-    incr_counter("http_requests_total", method=request.method, path=request.url.path, status=status_label)
-    observe_hist("http_request_duration_ms", elapsed_ms, method=request.method, path=request.url.path, status=status_label)
+    incr_counter("http_requests_total", method=request.method, route=route_label, status_class=status_class)
+    observe_hist("http_request_duration_ms", elapsed_ms, method=request.method, route=route_label, status_class=status_class)
 
     log_event(
         logger,
@@ -354,8 +370,11 @@ async def health_ready(response: Response):
 
 
 @app.get("/metrics")
-async def metrics(_: object = Depends(require_admin)):
-    return snapshot_metrics()
+async def metrics():
+    if not settings.SEAGULL_METRICS_ENABLED:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    body, content_type = render_exposition()
+    return Response(content=body, media_type=content_type)
 
 
 app.include_router(ingest_router)
