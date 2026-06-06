@@ -7,6 +7,7 @@ volumes:
   redis-data:
   elastic-data:
   clickhouse-data:
+  prometheus-data:
   caddy-data:
   caddy-config:
   agent-core-state:
@@ -273,7 +274,7 @@ services:
       SEAGULL_TRUST_PROXY_HEADERS: ${SEAGULL_TRUST_PROXY_HEADERS:-false}
       SEAGULL_TRUSTED_PROXY_CIDRS: ${SEAGULL_TRUSTED_PROXY_CIDRS:-127.0.0.1,::1}
       SEAGULL_INTERNAL_NETWORK_CIDRS: ${SEAGULL_INTERNAL_NETWORK_CIDRS:-}
-      SEAGULL_ALLOWED_HOSTS: ${SEAGULL_ALLOWED_HOSTS:-${SEAGULL_ALLOWED_HOSTS_PROD:-localhost,127.0.0.1}}
+      SEAGULL_ALLOWED_HOSTS: ${SEAGULL_ALLOWED_HOSTS:-${SEAGULL_ALLOWED_HOSTS_PROD:-localhost,127.0.0.1,seagull-backend}}
       SEAGULL_AUDIT_HASH_PEPPER: ${SEAGULL_AUDIT_HASH_PEPPER:-${NETWATCH_AUDIT_HASH_PEPPER:-}}
       SEAGULL_AUDIT_HASH_PEPPER_FILE: ${SEAGULL_AUDIT_HASH_PEPPER_FILE:-}
       SEAGULL_AUDIT_RETENTION_ENABLED: ${SEAGULL_AUDIT_RETENTION_ENABLED:-true}
@@ -360,8 +361,19 @@ services:
       SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES: ${SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES:-1}
       SEAGULL_VULN_MAX_FINDINGS_PER_INGEST: ${SEAGULL_VULN_MAX_FINDINGS_PER_INGEST:-2000}
       SEAGULL_VULN_MAX_EVIDENCE_BYTES: ${SEAGULL_VULN_MAX_EVIDENCE_BYTES:-32768}
+      # Observability: aggregate metrics across uvicorn workers (multiprocess).
+      PROMETHEUS_MULTIPROC_DIR: /tmp/seagull-metrics
+      SEAGULL_METRICS_ENABLED: ${SEAGULL_METRICS_ENABLED:-true}
+      SEAGULL_PROMETHEUS_ENABLED: ${SEAGULL_PROMETHEUS_ENABLED:-true}
+      SEAGULL_PROMETHEUS_URL: ${SEAGULL_PROMETHEUS_URL:-http://prometheus:9090}
+      SEAGULL_PROMETHEUS_TIMEOUT_SECONDS: ${SEAGULL_PROMETHEUS_TIMEOUT_SECONDS:-5}
+      SEAGULL_OBSERVABILITY_CACHE_TTL_SECONDS: ${SEAGULL_OBSERVABILITY_CACHE_TTL_SECONDS:-10}
     volumes:
       - ./rules:/app/rules:ro
+    tmpfs:
+      # Fresh on every container (re)start so multiprocess series don't carry
+      # over stale per-pid files. Default tmpfs mode (1777) is writable by uid 10001.
+      - /tmp/seagull-metrics
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -450,6 +462,12 @@ services:
       SEAGULL_RULES_ENV: ${SEAGULL_RULES_ENV:-${SEAGULL_ENV:-${SEAGULL_MODE:-dev}}}
       SEAGULL_RULES_ENABLED_PACKS: ${SEAGULL_RULES_ENABLED_PACKS:-core,network,lab}
       SEAGULL_RULES_INCLUDE_EXPERIMENTAL: ${SEAGULL_RULES_INCLUDE_EXPERIMENTAL:-true}
+      # Observability: group manager exposes aggregated child metrics on :9100.
+      PROMETHEUS_MULTIPROC_DIR: /tmp/seagull-metrics
+      SEAGULL_METRICS_ENABLED: ${SEAGULL_METRICS_ENABLED:-true}
+      SEAGULL_WORKER_METRICS_PORT: ${SEAGULL_WORKER_METRICS_PORT:-9100}
+    tmpfs:
+      - /tmp/seagull-metrics
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -523,9 +541,15 @@ services:
       SEAGULL_NETWORK_TOPOLOGY_REFRESH_SECONDS: ${SEAGULL_NETWORK_TOPOLOGY_REFRESH_SECONDS:-3600}
       SEAGULL_NETWORK_TOPOLOGY_WINDOW_MINUTES: ${SEAGULL_NETWORK_TOPOLOGY_WINDOW_MINUTES:-60}
       SEAGULL_NETWORK_TOPOLOGY_MAX_EVENTS_PER_RUN: ${SEAGULL_NETWORK_TOPOLOGY_MAX_EVENTS_PER_RUN:-500}
+      # Observability: group manager exposes aggregated child metrics on :9100.
+      PROMETHEUS_MULTIPROC_DIR: /tmp/seagull-metrics
+      SEAGULL_METRICS_ENABLED: ${SEAGULL_METRICS_ENABLED:-true}
+      SEAGULL_WORKER_METRICS_PORT: ${SEAGULL_WORKER_METRICS_PORT:-9100}
     volumes:
       - ./rules:/app/rules:ro
       - ./backend/data/geoip:/app/data/geoip:ro
+    tmpfs:
+      - /tmp/seagull-metrics
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -580,10 +604,16 @@ services:
       SEAGULL_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS: ${SEAGULL_BOOTSTRAP_ROTATOR_REFRESH_BEFORE_SECONDS:-86400}
       SEAGULL_BOOTSTRAP_ROTATOR_OUTPUT_DIR: ${SEAGULL_BOOTSTRAP_ROTATOR_OUTPUT_DIR:-/etc/seagull/bootstrap}
       SEAGULL_BOOTSTRAP_ROTATOR_STATE_DIR: ${SEAGULL_BOOTSTRAP_ROTATOR_STATE_DIR:-/var/lib/seagull/bootstrap-rotator}
+      # Observability: group manager exposes aggregated child metrics on :9100.
+      PROMETHEUS_MULTIPROC_DIR: /tmp/seagull-metrics
+      SEAGULL_METRICS_ENABLED: ${SEAGULL_METRICS_ENABLED:-true}
+      SEAGULL_WORKER_METRICS_PORT: ${SEAGULL_WORKER_METRICS_PORT:-9100}
     volumes:
       - ./scripts/pki/agent_bootstrap_token_rotator.py:/scripts/agent_bootstrap_token_rotator.py:ro
       - ./secrets/bootstrap:/etc/seagull/bootstrap
       - ./secrets/runtime:/var/lib/seagull
+    tmpfs:
+      - /tmp/seagull-metrics
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -867,25 +897,36 @@ services:
       - seagull
     restart: unless-stopped
 
-  grafana:
-    image: grafana/grafana-oss:latest
-    container_name: seagull-grafana
-    profiles: ["observability"]
+  # Internal metrics store. Scrapes Seagull services over the private `seagull`
+  # network and is queried only by the backend observability API (server-side).
+  # Intentionally NOT published to the host (no `ports:`) and NOT profile-gated:
+  # it is core infrastructure for the native observability feature.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: seagull-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${SEAGULL_PROMETHEUS_RETENTION:-15d}
+      - --web.listen-address=0.0.0.0:9090
+      - --web.enable-lifecycle
     depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "${GRAFANA_PORT:-}:3000"
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-}
-      GF_SECURITY_ADMIN_PASSWORD__FILE: ${GF_SECURITY_ADMIN_PASSWORD_FILE:-}
-      POSTGRES_USER: ${POSTGRES_USER:-seagull}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
-      POSTGRES_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
-      POSTGRES_DB: ${POSTGRES_DB:-seagull}
+      - seagull-backend
     volumes:
-      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    cpus: "0.50"
     networks:
       - seagull
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
