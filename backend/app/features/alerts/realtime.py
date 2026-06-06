@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict
 
+from app.core.observability import incr_counter
 from app.features.network_topology import realtime as topology_realtime
 from app.features.realtime.projectors import project_alerts_delta_patch
 from app.features.realtime.service import publish_realtime
@@ -118,6 +119,14 @@ def publish_alert_created_payload(payload: Dict[str, Any]) -> None:
 
 
 def publish_alert_created_from_row(row: Any) -> None:
+    try:
+        incr_counter(
+            "alert_created_total",
+            severity=getattr(row, "severity", None),
+            detector_type=getattr(row, "detector_type", None),
+        )
+    except Exception:
+        pass
     try:
         payload = build_alert_realtime_payload_from_row(row)
     except Exception:
