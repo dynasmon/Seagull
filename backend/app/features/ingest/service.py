@@ -15,7 +15,7 @@ from app.core.integrations.clickhouse import (
     ensure_clickhouse_events_schema,
     get_clickhouse_client,
 )
-from app.core.observability import log_event
+from app.core.observability import incr_counter, log_event
 from app.features.agents.auth import AgentPrincipal
 from app.features.alerts.models import AlertModel
 from app.features.alerts.realtime import publish_alert_created_from_row
@@ -1108,6 +1108,17 @@ def ingest_events(
     }
 
     enqueued = enqueue_ingest_message(message=msg, received=len(events))
+
+    try:
+        received_count = len(events)
+        incr_counter("ingest_batches_received_total", outcome="enqueued" if enqueued else "fallback")
+        incr_counter("ingest_events_received_total", value=float(received_count))
+        # Events not forwarded to the hot store are shed by the sampling policy.
+        sampled_out = max(0, received_count - len(hot_events))
+        if sampled_out:
+            incr_counter("ingest_events_sampled_total", value=float(sampled_out))
+    except Exception:
+        pass
 
     # Redis unavailable: fail open to direct DB insert.
     if not enqueued:
