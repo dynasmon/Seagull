@@ -1,0 +1,36 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: seagull
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          component: prometheus
+
+  - job_name: seagull-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["seagull-backend:8000"]
+        labels:
+          component: backend
+
+  - job_name: seagull-workers
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["seagull-ingest-pipeline:9100"]
+        labels:
+          component: worker
+          worker_group: ingest
+      - targets: ["seagull-intelligence-worker:9100"]
+        labels:
+          component: worker
+          worker_group: intelligence
+      - targets: ["seagull-maintenance-worker:9100"]
+        labels:
+          component: worker
+          worker_group: maintenance
