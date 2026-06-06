@@ -15,7 +15,15 @@ from pathlib import Path
 from typing import Deque, Dict, List, Sequence
 
 from app.core.config.env_secrets import getenv_compat
-from app.core.observability import log_event, setup_logging
+from app.core.observability import (
+    incr_counter,
+    log_event,
+    mark_process_dead,
+    observe_hist,
+    set_gauge,
+    setup_logging,
+    start_metrics_server,
+)
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -162,8 +170,31 @@ class WorkerGroupManager:
         for spec in GROUPS[group]:
             self.children[spec.name] = ChildRuntime(spec=spec)
 
+    def _start_metrics_server(self) -> None:
+        """Expose this group's aggregated child metrics on an internal port.
+
+        Child workers inherit ``PROMETHEUS_MULTIPROC_DIR`` and write per-process
+        metrics there; this manager serves the multiprocess aggregate so a single
+        Prometheus target covers the whole group. Best-effort — a bind failure is
+        logged but never takes the group down.
+        """
+        if not _env_bool("SEAGULL_METRICS_ENABLED", True):
+            return
+        try:
+            port = int(_env_float("SEAGULL_WORKER_METRICS_PORT", 9100.0))
+        except Exception:
+            port = 9100
+        if port <= 0:
+            return
+        try:
+            start_metrics_server(port)
+            log_event(self.logger, "info", "worker_metrics_server_started", group=self.group, port=port)
+        except Exception as exc:
+            log_event(self.logger, "warning", "worker_metrics_server_failed", group=self.group, port=port, error=repr(exc))
+
     def run(self) -> int:
         self._install_signal_handlers()
+        self._start_metrics_server()
         self._write_state()
 
         enabled = [child for child in self.children.values() if child.spec.is_enabled()]
@@ -261,6 +292,9 @@ class WorkerGroupManager:
         child.last_exit_code = None
         child.next_start_monotonic = 0.0
 
+        incr_counter("worker_starts_total", worker_group=self.group, worker=child.spec.name)
+        set_gauge("worker_up", 1, worker_group=self.group, worker=child.spec.name)
+
         log_event(
             self.logger,
             "info",
@@ -282,11 +316,19 @@ class WorkerGroupManager:
         if rc is None:
             return False
 
+        dead_pid = proc.pid
         child.process = None
         child.last_exit_code = int(rc)
         child.last_exit_monotonic = now
         child.last_exit_wall_time = time.time()
         runtime = max(0.0, now - child.last_start_monotonic)
+
+        set_gauge("worker_up", 0, worker_group=self.group, worker=child.spec.name)
+        incr_counter("worker_exits_total", worker_group=self.group, worker=child.spec.name,
+                     outcome="ok" if rc == 0 else "error")
+        observe_hist("worker_child_runtime_seconds", runtime, worker_group=self.group, worker=child.spec.name)
+        # Reclaim the exited process's multiprocess metric files (gauge cleanup).
+        mark_process_dead(dead_pid)
 
         quick_failure = runtime < self.quick_fail_seconds
         if quick_failure:
@@ -435,6 +477,8 @@ class WorkerGroupManager:
                 else:
                     status = "starting"
 
+            set_gauge("worker_up", 1 if (enabled and child.running) else 0,
+                      worker_group=self.group, worker=child.spec.name)
             statuses.append(
                 {
                     "name": child.spec.name,
