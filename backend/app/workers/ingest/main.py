@@ -13,8 +13,9 @@ from app.core.cache import get_redis
 from app.core.config import settings
 from app.core.db import engine
 from app.core.db.lifecycle import ensure_database_ready
-from app.core.observability import log_event, observe_hist, setup_logging
+from app.core.observability import incr_counter, log_event, observe_hist, set_gauge, setup_logging
 from app.features.ingest.control.service import (
+    get_storm_status,
     record_worker_progress,
     storm_maybe_close_alert,
     storm_maybe_open_alert,
@@ -104,10 +105,25 @@ def main() -> None:
     sink_runtime.start()
 
     backoff = 0.25
+    last_metrics_sample = 0.0
 
     while True:
         try:
             worker_heartbeat(worker_id)
+
+            now_mono = time.monotonic()
+            if now_mono - last_metrics_sample >= 5.0:
+                last_metrics_sample = now_mono
+                try:
+                    set_gauge("ingest_queue_depth", int(r.llen(cfg.queue_key) or 0), queue="pending")
+                    set_gauge("ingest_queue_depth", int(r.llen(cfg.processing_key) or 0), queue="processing")
+                    storm = get_storm_status()
+                    phase = str(storm.get("phase") or "").lower()
+                    set_gauge("ingest_storm_active", 1 if storm.get("active") else 0)
+                    backpressured = bool(storm.get("active")) or (phase not in {"", "ok", "normal", "recovered"})
+                    set_gauge("ingest_backpressure_active", 1 if backpressured else 0)
+                except Exception:
+                    pass
 
             item = r.brpoplpush(cfg.queue_key, cfg.processing_key, timeout=1)
             if not item:
@@ -238,9 +254,13 @@ def main() -> None:
                     processed_events=removed_received,
                     processed_messages=removed_messages,
                 )
+                incr_counter("ingest_batches_processed_total")
+                incr_counter("ingest_events_processed_total", value=float(removed_received))
             elif ack_ok:
                 _decr_backlog_events(r, total_received)
                 record_worker_progress(processed_events=max(0, total_received), processed_messages=len(items))
+                incr_counter("ingest_batches_processed_total")
+                incr_counter("ingest_events_processed_total", value=float(max(0, total_received)))
             else:
                 try:
                     plen = int(r.llen(cfg.processing_key) or 0)
@@ -263,6 +283,7 @@ def main() -> None:
             backoff = 0.25
 
         except Exception as e:
+            incr_counter("ingest_loop_errors_total")
             try:
                 _requeue_processing_with_retry_cap(r, cfg)
             except Exception:
