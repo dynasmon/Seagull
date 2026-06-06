@@ -61,6 +61,16 @@ class Settings:
     SEAGULL_SKIP_STARTUP_BOOTSTRAP: bool = _env_bool("SEAGULL_SKIP_STARTUP_BOOTSTRAP", False)
     SEAGULL_LOG_LEVEL: str = (_env_str("SEAGULL_LOG_LEVEL", "INFO") or "INFO").upper()
 
+    # Observability / Prometheus.
+    # Metrics emission + the internal /metrics exposition endpoint.
+    SEAGULL_METRICS_ENABLED: bool = _env_bool("SEAGULL_METRICS_ENABLED", True)
+    # Server-side Prometheus query layer (used by the observability API). When
+    # disabled or unreachable the API degrades gracefully instead of erroring.
+    SEAGULL_PROMETHEUS_ENABLED: bool = _env_bool("SEAGULL_PROMETHEUS_ENABLED", True)
+    SEAGULL_PROMETHEUS_URL: str = _env_str("SEAGULL_PROMETHEUS_URL", "http://prometheus:9090") or "http://prometheus:9090"
+    SEAGULL_PROMETHEUS_TIMEOUT_SECONDS: float = _env_float("SEAGULL_PROMETHEUS_TIMEOUT_SECONDS", 5.0)
+    SEAGULL_OBSERVABILITY_CACHE_TTL_SECONDS: float = _env_float("SEAGULL_OBSERVABILITY_CACHE_TTL_SECONDS", 10.0)
+
     SEAGULL_REDIS_HOST: str = _env_str("SEAGULL_REDIS_HOST", "redis") or "redis"
     SEAGULL_REDIS_PORT: int = _env_int("SEAGULL_REDIS_PORT", 6379)
     SEAGULL_REDIS_USERNAME: str | None = _env_str("SEAGULL_REDIS_USERNAME", None)
@@ -599,6 +609,13 @@ class Settings:
                 "recent_feed_max_push_per_call": self.SEAGULL_INGEST_RECENT_FEED_MAX_PUSH_PER_CALL,
                 "queue_key": self.SEAGULL_INGEST_QUEUE_KEY,
                 "processing_key": self.SEAGULL_INGEST_PROCESSING_KEY,
+            },
+            "observability": {
+                "metrics_enabled": bool(self.SEAGULL_METRICS_ENABLED),
+                "prometheus_enabled": bool(self.SEAGULL_PROMETHEUS_ENABLED),
+                "prometheus_url": self.SEAGULL_PROMETHEUS_URL,
+                "prometheus_timeout_seconds": float(self.SEAGULL_PROMETHEUS_TIMEOUT_SECONDS),
+                "cache_ttl_seconds": float(self.SEAGULL_OBSERVABILITY_CACHE_TTL_SECONDS),
             },
             "security": {
                 "cookie_secure": bool(self.SEAGULL_COOKIE_SECURE),
