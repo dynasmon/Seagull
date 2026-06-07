@@ -45,6 +45,7 @@ from app.features.ingest.api import router as ingest_router
 from app.features.inventory.api import router as inventory_router
 from app.features.investigations.api import router as investigations_router
 from app.features.network_topology.api import router as network_topology_router
+from app.features.observability.api import router as observability_router
 from app.features.overview.api import router as overview_router
 from app.features.realtime.api import router as realtime_router
 from app.features.response.api import router as response_router
@@ -398,3 +399,4 @@ app.include_router(overview_router)
 app.include_router(investigations_router)
 app.include_router(exposure_router)
 app.include_router(network_topology_router)
+app.include_router(observability_router)
