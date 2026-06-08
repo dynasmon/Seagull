@@ -140,7 +140,7 @@ features.*.worker_runtime → features.*.repository (OK)
 
 A worker that needs database access gets a `SessionLocal()` from `app.core.db` and passes it into feature-layer functions. The worker never builds ORM queries directly.
 
-## What not to do
+## Architectural guardrails
 
 - Do not add DB migrations to a worker module. Migrations live in `alembic/`.
 - Do not import `features.*.api` from a worker.
