@@ -1,808 +1,277 @@
-# Dynasmon Seagull
+# Seagull
 
-Dynasmon Seagull is a threat hunting platform designed as a lightweight, opinionated mini‑SIEM. It started as a network telemetry pipeline and is evolving toward an “XDR‑foundation” architecture inspired by Wazuh endpoint management.
+![GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)
+![Python 3.12](https://img.shields.io/badge/backend-Python%203.12-3776AB)
+![React](https://img.shields.io/badge/portal-React%20%2B%20Vite-61DAFB)
+![Go](https://img.shields.io/badge/agent-Go-00ADD8)
+![Docker Compose](https://img.shields.io/badge/runtime-Docker%20Compose-2496ED)
 
-At this stage, Seagull provides an end‑to‑end pipeline:
+Seagull is an open security operations platform for collecting endpoint and
+network telemetry, detecting suspicious behavior, and giving analysts a focused
+SOC portal for investigation.
 
-- Multiple Go agents that capture and ship telemetry (proc/authlog + PCAP‑based collectors + endpoint syscollector)
-- A FastAPI backend that ingests and persists events into PostgreSQL
-- A rules engine executed by the grouped intelligence worker container
-- A **Seagull Portal** (React) with authentication and an operator‑friendly UI
-- Optional search indexing into Elasticsearch (Postgres → ES) for fast hunting
-- Grouped background worker services for ingest, intelligence, and maintenance domains
+It combines a Go endpoint/network agent, a FastAPI control plane, detection and
+enrichment workers, PostgreSQL/ClickHouse/Elasticsearch storage, and a React
+portal built for alert triage, hunting, topology, exposure, vulnerabilities,
+audit, and operational observability.
 
-## Recent changes (already implemented)
+![Seagull Portal](docs/assets/seagull-portal-overview.png)
 
-These items used to be “future work” and are now part of the project:
+## What Seagull Provides
 
-- **Seagull Portal (React)** with login, RBAC (admin vs. user), and a consistent “SOC console” UI.
-- **Cursor (keyset) pagination** for heavy timelines:
-  - Events: `GET /events`
-  - Alerts (admin‑only): `GET /alerts`
-  - Inventory history paging: `GET /inventory/{agent_id}/history/page`
-- **Lupe SSH Insights** (`GET /events/ssh/summary`) + optional `ip-intel` worker process (inside `seagull-intelligence-worker`) that adds Geo/ASN metadata, using my personal tool: https://github.com/dynasmon/lupe.
-- **Correlation Rules / Incidents** (admin‑only): CRUD correlation rules + run correlation to produce incident‑like findings.
-- **1-minute rollup worker logic** (now hosted in `seagull-ingest-pipeline`) that pre‑aggregates data to reduce dashboard query cost.
-- **Redis is now actively used** for portal rate‑limiting (best‑effort fail‑open) instead of being “reserved”.
-- **Administrative audit/governance**:
-  - append-only admin audit timeline (`admin_audit_events`)
-  - login/auth evidence with persistence and queryability
-  - audit coverage for users, allowlists, rule governance, agent admin actions, and platform settings
-  - dedicated retention worker logic (now hosted in `seagull-maintenance-worker`)
-
----
-
-## High‑Level Architecture
-
-Dynasmon Seagull is composed of multiple services, orchestrated with Docker Compose:
-
-Backend modular-monolith boundaries and contribution guardrails are documented in
-`backend/docs/architecture.md`.
-
-- **seagull-agent-*** (Go)
-  - Runs close to the network (host or segment).
-  - Supports multiple telemetry sources (selected via `SEAGULL_SOURCES`), including:
-    - `proc` (flows from `/proc/net/tcp*`)
-    - `authlog` (SSH/auth log parsing)
-    - `scan` (PCAP‑based scan detection)
-    - `lateral` (PCAP + proc‑assisted lateral movement telemetry)
-    - `ddos` (PCAP‑based DoS/DDoS heuristics)
-    - `syscollector` (OS + package inventory snapshots)
-  - Sends batched events to the backend over HTTPS with rotating agent credentials plus a persisted self-recovery token (both bound to `agent_id`).
-
-- **seagull-backend** (FastAPI)
-  - Ingestion API (agent‑auth): `POST /ingest/events`
-  - Control plane (agent‑auth): `/agents/enroll`, `/agents/heartbeat`, `/agents/config`
-  - Portal APIs (user/admin): `/events`, `/inventory`, `/overview`, `/auth/*`, `/account/*`, `/admin/*`
-  - Normalizes and persists to PostgreSQL.
-  - Adds baseline hardening headers + GZip for JSON.
-
-- **seagull-portal** (React + Vite)
-  - Operator UI: Overview, Agents, Events (with pagination), SSH Insights, Inventory, Alerts, Correlations, Settings.
-  - Uses portal auth (`/auth/login`, `/auth/refresh`, `/auth/me`) and does not rely on localStorage roles.
-
-- **caddy** (public reverse proxy with automatic HTTPS)
-  - Terminates HTTPS for externally exposed entrypoints.
-  - Routes `/` -> portal, `/api/*` -> backend, `/agent/*` -> backend.
-  - Adds HSTS + security headers and forwards `X-Forwarded-*` headers to upstream services.
-
-- **seagull-ingest-pipeline**
-  - Runs ingest queue draining, Elasticsearch indexing, and 1-minute rollups in one supervised group.
-  - Child modules: `app.workers.ingest.main`, `app.workers.indexing.elasticsearch`, `app.workers.analytics.rollup_1m`.
-
-- **seagull-intelligence-worker**
-  - Runs rule evaluation and enrichment/correlation workers in one supervised group.
-  - Child modules: `app.workers.intelligence.rules.runner`, `app.workers.intelligence.ip_intel.main`, `app.workers.intelligence.protocol.main`, `app.workers.intelligence.attack_chain.main`, `app.workers.intelligence.exposure.main`, `app.workers.intelligence.network_topology.main`, `app.workers.intelligence.correlations.main`, `app.workers.intelligence.ueba.main`.
-
-- **seagull-maintenance-worker**
-  - Runs administrative maintenance loops.
-  - Child modules: `app.workers.maintenance.audit_retention` and (in production when enabled) the bootstrap token rotator.
-
-- **PostgreSQL**
-  - Stores raw events in `net_events`.
-  - Stores alerts in `alerts`.
-  - Stores portal users/sessions, agent inventory snapshots, correlation rules, and offsets for workers.
-
-- **Redis**
-  - Used for portal rate‑limiting (login/OTP) with short TTL keys.
-  - Can be extended later for Streams/queues if needed.
-
-- **Grafana (optional)**
-  - Provisioned automatically (datasources + dashboards) via `infra/grafana/provisioning`.
-  - Reads Postgres for rollups/events/alerts and Elasticsearch for indexed hunting (optional).
-
-- **Elasticsearch (optional)**
-  - Stores indexed events for fast hunting and flexible aggregations (index pattern `seagull-events-*`).
-  - Fed asynchronously by the `es-indexer` child inside `seagull-ingest-pipeline` (Postgres → Elasticsearch).
-
-Worker group manager entrypoints:
-
-- `python -m app.workers.manager ingest`
-- `python -m app.workers.manager intelligence`
-- `python -m app.workers.manager maintenance`
-
----
-
-## Detection Engineering
-
-| Document | What it covers |
+| Area | What matters |
 |---|---|
-| [docs/detections/architecture.md](docs/detections/architecture.md) | Module boundaries, data flow, import rules, layer responsibilities |
-| [docs/detections/rule_format_v2.md](docs/detections/rule_format_v2.md) | v2 rule schema, detection blocks, aggregation types, tuning, migration from v1 |
-| [docs/detections/canonical_fields.md](docs/detections/canonical_fields.md) | Supported telemetry fields, operators, how to add a new field |
-| [docs/detections/correlation_engine.md](docs/detections/correlation_engine.md) | Correlation strategies, durable incidents, how to write a correlation rule |
-| [docs/detections/attack_stories.md](docs/detections/attack_stories.md) | Kill-chain story templates, stage matching, scoring, how to write a story |
-| [docs/detections/backtesting.md](docs/detections/backtesting.md) | Backtesting via API and Python, YAML unit tests, tuning / suppression |
-| [docs/detections/sigma_import.md](docs/detections/sigma_import.md) | Sigma → v2 importer, supported subset, field mapping, review process |
-| [docs/workers/architecture.md](docs/workers/architecture.md) | Worker groups, manager behaviour, per-worker env vars, import rules |
+| Telemetry collection | Go agents collect process/network flows, SSH auth logs, PCAP-based scan/DDoS/L7 signals, syscollector inventory, and vulnerability context. |
+| Detection engineering | YAML rule packs, correlation incidents, attack-chain stories, Sigma import support, backtesting, and rule health/governance. |
+| Analyst portal | Overview, alerts, event hunting, SSH insights, protocol intelligence, agents, inventory, vulnerabilities, exposure graph, network topology, investigations, UEBA, audit, and settings. |
+| Agent control plane | Bootstrap enrollment, rotating credentials, heartbeats, remote config, response-action staging, and optional native `systemd` deployment. |
+| Data pipeline | Fast ingest API, Redis backpressure queue, PostgreSQL operational store, ClickHouse analytics sink, Elasticsearch hunting index, and worker groups for ingest/intelligence/maintenance. |
+| Security operations | RBAC, HttpOnly refresh cookies, admin audit events, login audit trail, hardened headers, rate limiting, and production-oriented secret handling through `*_FILE` variables. |
+| Observability | Health endpoints, Prometheus-format metrics, internal Prometheus scraping, and authenticated observability APIs in the portal. |
 
----
+## Architecture
 
-## Technology Stack
-
-### Agent
-
-- **Language:** Go
-- **Telemetry:** `/proc/net/tcp*`, authlog parsing, gopacket PCAP capture
-- **Security:** HTTPS edge + rotating per-agent credential hashes with durable agent-side identity state (no client cert operation for agents).
-
-### Backend
-
-- **Language:** Python
-- **Framework:** FastAPI (Pydantic + OpenAPI)
-- **DB:** SQLAlchemy + PostgreSQL
-- **Auth (Portal):** access/refresh tokens with HttpOnly cookies + Bearer access token
-- **Auth (Agents):** one-time bootstrap enrollment, overlapping rotating credentials, and recovery-token self-healing (hash-only persistence, `agent_id` binding).
-- **Perf:** bulk inserts for ingest, optional rollups for dashboard load reduction
-
-### Portal
-
-- **React + TypeScript**, Vite
-- **Tailwind CSS** (UI tuned for “SOC console” layout)
-- **Auth‑aware routing** (ProtectedLayout) + admin‑only sections
-
-### Observability / Search
-
-- **Grafana** (optional, provisioned dashboards)
-- **Elasticsearch + Kibana** (optional)
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Docker with Compose plugin (`docker compose version`)
-- Python 3.9+
-- Git
-
-### 1. Clone the repository
-
-```bash
-git clone https://gitlab.com/nathanmblima/dynasmon-seagull.git
-cd dynasmon-seagull
+```text
+Go agents
+  proc / authlog / pcap / syscollector / vuln
+        |
+        | HTTPS agent API
+        v
+Caddy edge  --->  FastAPI backend  ---> PostgreSQL
+        |              |   |             ClickHouse
+        |              |   |             Elasticsearch
+        |              |   |
+        |              |   +-- Redis ingest queue / rate limit
+        |              |
+        |              +-- ingest / intelligence / maintenance workers
+        |
+        +-- React portal
 ```
 
-### 2. Start (single command)
+Core services are declared in [`compose.yml`](compose.yml):
+
+| Service | Role |
+|---|---|
+| `seagull-portal` | React/Vite single-page portal served by nginx. |
+| `seagull-backend` | FastAPI API for ingest, auth, agents, detections, triage, inventory, topology, exposure, and admin operations. |
+| `seagull-ingest-pipeline` | Queue draining, indexing, rollups, ClickHouse/Elasticsearch sink work. |
+| `seagull-intelligence-worker` | Rules, correlations, protocol intelligence, IP enrichment, attack chains, exposure, topology, and UEBA. |
+| `seagull-maintenance-worker` | Audit retention and recurring maintenance tasks. |
+| `postgres`, `redis`, `clickhouse`, `elasticsearch`, `prometheus` | Runtime data and observability infrastructure. |
+| `caddy` | HTTPS edge for portal, API, and agent routes. |
+| `seagull-agent-core`, `seagull-agent-sensor` | Default Docker agents for host and network telemetry. |
+
+## Quickstart
+
+### Requirements
+
+- Linux host recommended for agent telemetry and PCAP collectors.
+- Docker with the Compose plugin.
+- Git.
+- Python, Node, and Go are only required for local development outside Docker.
+
+### Start the Stack
 
 ```bash
+git clone https://gitlab.com/nathanmblima/seagull.git
+cd seagull
 ./seagull up
 ```
 
-This is the only command you need for first run and all subsequent reruns. It:
+`./seagull up` bootstraps `.env` from [`.env.example`](.env.example), validates
+the environment, builds the containers, waits for core services, creates
+short-lived agent bootstrap tokens, and starts the default agents.
 
-- Creates `.env` from `.env.example` when missing, and syncs new keys on reruns
-- Runs preflight checks (Docker daemon, TLS files, compose config)
-- Builds and starts the full stack
-- Mints short-lived per-agent bootstrap tokens and starts agent containers
+### Access
 
-### 3. Common commands
+The effective ports come from `.env`. The defaults in `.env.example` are:
 
-```bash
-./seagull up                        # start (dev mode by default)
-./seagull up --mode dev             # explicit dev mode
-./seagull up --mode prod            # production mode (Caddy HTTPS edge)
-./seagull up --agent-mode systemd   # start platform only; host systemd agent handles collection
-./seagull down                      # stop the stack
-./seagull status                    # show running container status
-./seagull logs                      # follow all service logs
-./seagull logs seagull-backend      # follow a specific service
-./seagull doctor                    # check deps, TLS, secrets, compose config
-./seagull restart                   # rebuild and restart
-./seagull restart --quick           # recreate containers without rebuild
-./seagull reset --volumes           # stop and remove all containers and volumes (DANGEROUS)
-```
+| Endpoint | URL |
+|---|---|
+| Portal | `http://localhost:8080` |
+| HTTPS edge | `https://localhost:8443` |
+| Backend health | `http://localhost:8000/health/ready` |
+| API docs in dev | `http://localhost:8000/docs` |
 
-### 4. Environment variables
-
-No manual `.env` setup is required. `./seagull up` handles it automatically.
-
-To pre-customize values before first startup:
+If your local `.env` overrides ports, run:
 
 ```bash
-cp .env.example .env
-# edit .env
+./seagull status
 ```
 
-Minimum required for a secure bootstrap:
+Login uses the bootstrap admin configured in `.env`:
 
-- `SEAGULL_JWT_SECRET` or `SEAGULL_JWT_SECRET_FILE` (auto-generated if weak/missing in prod mode)
-- `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD` or `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE`
-- In dev, `SEAGULL_BOOTSTRAP_ADMIN_RESET_ON_START=true` re-syncs the admin password on startup.
+- Username: value of `SEAGULL_BOOTSTRAP_ADMIN_USERNAME`
+- Password: value of `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD`
 
-Recommended production hardening:
+Do not keep the development password for production.
 
-- Use `*_FILE` variants with Docker secrets for all credentials.
-- Set `SEAGULL_COOKIE_SECURE=true` behind HTTPS.
-- Configure Caddy domain: `SEAGULL_CADDY_DOMAIN`, `SEAGULL_CADDY_EMAIL`.
-- Set `SEAGULL_AUDIT_HASH_PEPPER` / `SEAGULL_AUDIT_HASH_PEPPER_FILE`.
+## Common Commands
 
-For production setup wizard (interactive):
+```bash
+./seagull up                         # start dev stack
+./seagull up --mode prod             # production-oriented startup
+./seagull up --agent-mode systemd    # platform in Docker, host agent via systemd
+./seagull down                       # stop containers
+./seagull restart --quick            # recreate without rebuild
+./seagull status                     # service health summary
+./seagull logs                       # follow all logs
+./seagull logs seagull-backend       # follow one service
+./seagull doctor                     # preflight and config checks
+./seagull db upgrade                 # run Alembic migrations
+./seagull agent tokens               # mint agent bootstrap tokens
+./seagull admin reset                # reset bootstrap admin from .env
+./seagull test                       # backend, agent, and portal smoke tests
+./seagull lint                       # Python, frontend, and Go checks
+./seagull ci                         # lint + tests + image build
+./seagull reset --volumes            # destructive local reset
+```
+
+Makefile targets wrap the same CLI:
+
+```bash
+make up
+make status
+make test
+```
+
+## Configuration
+
+`./seagull up` creates and syncs `.env` automatically. For production, use the
+wizard and then review the generated values:
 
 ```bash
 ./seagull env wizard
-./seagull up --mode prod
+./seagull env prepare
 ```
 
-### 5. Native Linux `systemd` agent deployment
+Important production settings:
 
-Run the agent directly on a Linux host instead of in a container. The platform services (backend, portal, workers) still run in Docker; only the agent runs as a systemd service.
-
-```bash
-# Install (from repo root, as root):
-./seagull agent install-systemd
-
-# Start platform without Docker agent containers:
-./seagull up --agent-mode systemd
-
-# Agent management:
-./seagull agent status-systemd
-./seagull agent restart-systemd
-./seagull agent validate-systemd
-```
-
-#### Installed paths
-
-| Purpose | Path |
+| Variable | Purpose |
 |---|---|
-| Agent binary | `/usr/local/bin/seagull-agent` |
-| Service unit | `/etc/systemd/system/seagull-agent.service` |
-| Environment config | `/etc/seagull/agent.env` |
-| CA file | `/etc/seagull/pki/root_ca.crt` |
-| CA sync helper | `/usr/local/lib/seagull/seagull-agent-sync-ca.sh` |
-| CA sync timer | `seagull-agent-ca-sync.timer` |
-| State files | `/var/lib/seagull` (`agent.identity.json`, `agent.credential`, `agent.config.json`) |
-| Runtime logs | `journalctl -u seagull-agent` |
+| `SEAGULL_JWT_SECRET` or `SEAGULL_JWT_SECRET_FILE` | Portal token signing secret. |
+| `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD` or `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE` | Initial admin password. |
+| `SEAGULL_COOKIE_SECURE=true` | Required when serving through HTTPS. |
+| `SEAGULL_ALLOWED_HOSTS` | Restrict accepted hostnames outside local development. |
+| `SEAGULL_CADDY_DOMAIN`, `SEAGULL_CADDY_EMAIL` | Public TLS/domain configuration for Caddy. |
+| `SEAGULL_AUDIT_HASH_PEPPER` or `SEAGULL_AUDIT_HASH_PEPPER_FILE` | Audit hashing pepper. |
+| `SEAGULL_PCAP_IFACE`, `SEAGULL_L7_PCAP_IFACE` | Interfaces used by packet collectors. |
+| `SEAGULL_CLICKHOUSE_ENABLED` | Enable/disable ClickHouse analytics sink. |
+| `SEAGULL_SEARCH_BACKEND`, `SEAGULL_ES_URL` | Hunting/search backend behavior. |
 
-After install, edit `/etc/seagull/agent.env` and set at minimum:
+Prefer `*_FILE` variables with Docker secrets for real deployments.
 
-- `SEAGULL_AGENT_ID`
-- `SEAGULL_API_URL`
-- `SEAGULL_AGENT_BOOTSTRAP_TOKEN` or `SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE`
-- `SEAGULL_TLS_CA_FILE` (default: `/etc/seagull/pki/root_ca.crt`)
+## Agent Modes
 
-Install modes:
+The default deployment starts two Docker agents:
 
-```bash
-# Default: build from source
-./seagull agent install-systemd
+| Agent | Sources |
+|---|---|
+| `seagull-agent-core` | `proc`, `authlog`, `syscollector`, `vuln` |
+| `seagull-agent-sensor` | `scan`, `ddos`, `l7` |
 
-# Use a pre-built binary:
-BUILD_FROM_SOURCE=0 SOURCE_BINARY=/path/to/seagull-agent ./seagull agent install-systemd
-
-# Auto-start when prerequisites are met:
-AUTO_START_IF_READY=1 ./seagull agent install-systemd
-```
-
-The installer is idempotent: preserves existing `agent.env`, migrates legacy token paths, normalizes permissions, installs the CA sync timer.
-
-### 6. Clean reset
+Optional lateral movement collection is behind the `extra` profile:
 
 ```bash
-./seagull nuke    # remove all containers and volumes
-./seagull up      # fresh start
-```
-
-### 7. Open the Portal
-
-- Dev: `https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}`
-- Prod: `https://<SEAGULL_CADDY_DOMAIN>`
-- Login: `SEAGULL_BOOTSTRAP_ADMIN_USERNAME` / `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD`
-
-If login gets out of sync with `.env`:
-
-```bash
-./seagull admin reset
-```
-
-### 8. Verify the backend
-
-```bash
-curl -k https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}/api/health
-# {"status":"ok"}
-
-curl -k https://localhost:${SEAGULL_EDGE_HTTPS_PORT:-8443}/api/health/ready
-```
-
-### 9. Optional profiles
-
-```bash
-# Observability (Grafana + Kibana):
-./seagull observability
-
-# Extra agent collectors (lateral movement):
 ./seagull dev --extra
 ```
 
-Grafana: `http://localhost:${GRAFANA_PORT:-3000}` (auto-provisioned from `infra/grafana/provisioning`).
-
-### 10. Redis modes
-
-- **Dev (default)**: ephemeral — restarts are clean by default.
-- **Dev persistent**: `./seagull up --mode dev --persist` — survives restarts.
-- **Prod**: persistent, requires `SEAGULL_REDIS_PASSWORD`.
-
-AOF recovery (stop Redis first):
+For production hosts, the native service flow keeps the platform in Docker and
+runs the agent through `systemd`:
 
 ```bash
-./seagull redis repair-aof
+sudo ./seagull agent install-systemd
+./seagull up --agent-mode systemd
+./seagull agent status-systemd
 ```
 
-### 11. Developer quality pipeline
+PCAP collectors require Linux capture permissions and the right interface
+configuration. Start with `SEAGULL_PCAP_IFACE` and keep collectors scoped to the
+network segment you intend to monitor.
+
+## Development
+
+Run the full quality pipeline:
 
 ```bash
-./seagull lint          # ruff + eslint + gofmt + go vet
-./seagull test          # pytest + go test + npm smoke
-./seagull test --detections   # detection catalog + rule unit tests only
-./seagull build         # build all service images
-./seagull deps-check    # pip-audit + npm audit + govulncheck
-./seagull ci            # lint + test + build
+./seagull ci
 ```
 
-CI (`.gitlab-ci.yml`) runs lint/tests, image build, dependency audit, and secret scanning (`gitleaks`) on push and merge request pipelines.
-
-### 12. Database migrations and lifecycle (Alembic)
-
-The project now uses Alembic for schema versioning.
-
-- Migration files live in `backend/alembic/versions/`
-- Initial baseline migration: `20260308_0001`
-- Rule governance migration: `20260309_0002`
-- Admin audit/governance migration: `20260311_0003`
-- Runtime no longer depends on `Base.metadata.create_all()` for schema evolution
-
-Lifecycle flow:
-
-- **Initial bootstrap (dev)**: `SEAGULL_DB_AUTO_UPGRADE=true` is set in dev mode, so services apply `alembic upgrade head` automatically.
-- **Upgrade before prod deploy**: run migrations explicitly, then start services.
-
-Useful commands:
+Run focused checks:
 
 ```bash
-./seagull db upgrade    # run alembic upgrade head via backend container
-./seagull db current    # show current revision
+cd backend && python3 -m pytest -q
+cd frontend && npm test
+cd frontend && npm run build
+cd agent && go test ./...
 ```
 
-In production mode, `SEAGULL_DB_AUTO_UPGRADE=false` by default.
+For a faster local portal/backend loop:
 
-### 13. Administrative Audit and Governance
-
-Administrative evidence is persisted in Postgres with the same architecture in dev and prod:
-
-- `admin_audit_events`: append-only administrative and auth timeline
-- `portal_login_events`: login evidence (success/failure, method, source)
-- `alert_rule_tuning_history` / `alert_rule_suppressions_history`: rule governance history
-
-Administrative governance/query endpoints:
-
-- `GET /admin/audit/events` (filters by time/user/action/resource/outcome)
-- `GET /admin/login-history`
-- `GET|POST|PUT|DELETE /users`
-- `GET|PUT|DELETE /settings`
-
-Frontend audit/governance console:
-
-- Route: `/audit` (admin-only)
-- Subroutes:
-  - `/audit/admin-actions`
-  - `/audit/logins`
-  - `/audit/changes`
-  - `/audit/timeline`
-- UX capabilities:
-  - URL-persisted filters (period, actor, action, category, resource, outcome, free text, origin)
-  - server-side timeline paging through `until` cursor windows (same endpoint contract in dev/prod)
-  - per-event investigation drawer (`before/after/context`, changed fields, request/correlation metadata, hash-chain references)
-  - retention visibility from `GET /admin/runtime-config` security policy fields
-
-Retention enforcement:
-
-- worker group: `seagull-maintenance-worker` (child: `audit-retention`)
-- same retention mechanism in dev/prod; only windows/volume change by config
-- defaults:
-  - dev: 30 days
-  - prod: 365 days (compose prod defaults)
-
-Config knobs:
-
-- `SEAGULL_AUDIT_RETENTION_ENABLED`
-- `SEAGULL_AUDIT_RETENTION_DAYS`
-- `SEAGULL_LOGIN_AUDIT_RETENTION_DAYS`
-- `SEAGULL_GOVERNANCE_RETENTION_DAYS`
-- `SEAGULL_AUDIT_RETENTION_EVERY_SECONDS`
-- `SEAGULL_AUDIT_RETENTION_DELETE_BATCH`
-
-Troubleshooting (Postgres auth failed):
-
-- If you see `password authentication failed for user "seagull"` after changing `POSTGRES_PASSWORD`, your existing `postgres-data` volume still has the old password.
-- Option 1 (keep data): set `.env` `POSTGRES_PASSWORD` back to the password used when that volume was first created.
-- Option 2 (reset disposable local state): run `./seagull nuke` and then `./seagull up`.
-
-Other common first-run issues:
-
-- `Bootstrap admin password rejected`: your `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD` does not meet policy (12+ chars, upper/lower/digit/symbol, cannot include username).
-- Portal loads but UI fails behind TLS edge: check `infra/caddy/Caddyfile.dev` (dev CSP/HMR policy) and restart with `./seagull restart`.
-- Optional workers degraded while API is available: this is expected when optional services (for example Elasticsearch/ClickHouse) are unavailable and not required.
-
-### 14. Development observability
-
-Backend and workers now emit structured JSON logs with a common shape:
-
-- `ts`, `level`, `service`, `logger`, `event`, and contextual fields
-- request context on API logs (`request_id`, `trace_id`)
-
-API runtime observability:
-
-- `X-Request-Id`, `X-Trace-Id`, `X-Response-Time-Ms` response headers
-- clearer error payloads with `request_id`
-- in-memory debugging metrics at `GET /metrics`
-- realtime counters in `GET /metrics` for stream opens/reconnects/disconnects, publish/drop paths, topic publishes, coalescing, cursor gaps, and replay overflow recovery
-
-Hybrid realtime operations:
-
-- portal realtime stays on the existing `/api/realtime/portal` (SSE) and `/api/realtime/portal/ws` (WebSocket) routes in both dev and prod
-- Caddy dev and prod force non-buffered SSE delivery with `flush_interval -1`, `Cache-Control: no-cache, no-transform`, and `X-Accel-Buffering: no`
-- websocket failures, invalid tokens, unauthorized topics, Redis unavailability, cursor gaps, and replay overflow now emit explicit logs/counters instead of silently degrading
-- the frontend keeps bounded reconnect backoff and falls back to reconciliation/polling when live delivery is degraded; the internal debug view exposes the client-side fallback/reconnect counters
-
-Tracing (local/simple):
-
-- Send `X-Trace-Id` in requests to correlate logs across calls
-- If missing, backend generates one automatically
-
----
-
-## Packet Capture Requirements (PCAP Agents)
-
-The `scan`, `lateral`, and `ddos` agents use packet capture and require elevated capabilities. In Docker Compose, those services run with `network_mode: host` and `cap_add: NET_RAW, NET_ADMIN`.
-
-If you do not want to run PCAP‑based collectors, disable those services (or don’t start the `extra` profile).
-
----
-
-## DoS/DDoS (Reducing False Positives)
-
-The `seagull-agent-ddos` collector supports hard thresholds to avoid emitting low‑signal detections.
-
-Key environment variables:
-
-- `SEAGULL_DDOS_MIN_PACKETS`  
-  Minimum packet count in the evaluation window required to emit a detection.
-
-- `SEAGULL_DDOS_MIN_REQUESTS`  
-  Minimum L7 “request‑like” count (e.g., HTTP indicators / TLS handshakes) in the evaluation window required to emit L7 detections.
-
-- `SEAGULL_DDOS_MIN_CONFIDENCE`  
-  Minimum confidence score required to emit a `dos_attack` event.
-
-Noise control for lab environments:
-
-- `SEAGULL_PROC_DROP_LIKELY_OUTBOUND=true`
-- `SEAGULL_EPHEMERAL_PORT_MIN=49152`
-
-These settings help drop traffic likely related to outbound connections where the local host is using ephemeral destination ports.
-
----
-
-## SSH Insights (Lupe)
-
-Seagull includes an SSH Insights endpoint:
-
-- `GET /events/ssh/summary`
-
-When enrichment is enabled (via the `ip-intel` child inside `seagull-intelligence-worker`), SSH auth events can be enriched with:
-
-- Country/region/city (Geo)
-- ASN and ASN org
-- Organization
-
-The worker maintains a small Postgres cache (`ip_enrichment_cache`) to respect rate limits.
-
----
-
-## Cursor Pagination (recommended for UIs)
-
-Timelines can grow fast. Prefer the cursor endpoints for UIs/infinite scroll:
-
-- Events: `GET /events?page_size=50&cursor=<opaque>`
-- Alerts (admin): `GET /alerts?page_size=50&cursor=<opaque>`
-- Inventory history: `GET /inventory/{agent_id}/history/page?page_size=50&cursor=<opaque>`
-
-Responses return:
-
-- `items`: the page results
-- `next_cursor`: pass this to fetch the next page
-- `has_more`: whether more results exist
-
----
-
-## Exposure & Attack Path Graph
-
-The Exposure & Attack Path Graph feature computes per-asset risk posture by projecting evidence from agents, vulnerability scans, alerts, attack-chain cases, and response actions into a scored graph model.
-
-### What it does
-
-- Scores every monitored asset on a 0–100 risk scale with severity banding (informational / low / medium / high / critical).
-- Projects asset telemetry into an attack-path graph: asset nodes link to vulnerability nodes, service/package nodes, alert nodes, attack-chain case nodes, investigation nodes, and response-action nodes.
-- Generates findings with reason codes, evidence references, confidence levels, and prioritised remediation recommendations.
-- Maintains per-asset score history so operators can track risk trend over time.
-- Emits realtime SSE/WebSocket events when asset posture or findings change.
-
-### Enabling the worker
-
-The worker runs inside `seagull-intelligence-worker` as the `exposure-graph` child process. It is enabled by default:
-
-```
-SEAGULL_EXPOSURE_ENABLED=true
+```bash
+./seagull up --mode dev --dev-reload
 ```
 
-Set to `false` to disable it without affecting other intelligence workers.
+The frontend expects Node 20+ and npm 10+. The backend container runs Python
+3.12. The agent module targets Go 1.22+.
 
-### Key environment variables
+## Documentation
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `SEAGULL_EXPOSURE_ENABLED` | `true` | Enable/disable the worker |
-| `SEAGULL_EXPOSURE_EVERY_SECONDS` | `300` | Full refresh cycle interval |
-| `SEAGULL_EXPOSURE_EVENT_BATCH_SIZE` | `500` | Events processed per incremental pass |
-| `SEAGULL_EXPOSURE_LOOKBACK_HOURS` | `48` | Event window for bootstrap scan |
-| `SEAGULL_EXPOSURE_MAX_FINDINGS_PER_ASSET` | `100` | Max open findings per asset |
-| `SEAGULL_EXPOSURE_SCORE_HISTORY_EVERY_SECONDS` | `3600` | Score history snapshot interval |
-| `SEAGULL_EXPOSURE_STALE_AGENT_MINUTES` | `60` | Agent staleness threshold |
-| `SEAGULL_EXPOSURE_STALE_INVENTORY_HOURS` | `24` | Inventory staleness threshold |
-| `SEAGULL_EXPOSURE_MAX_GRAPH_NODES_PER_ASSET` | `200` | Hard node limit per graph response |
-| `SEAGULL_EXPOSURE_MAX_GRAPH_EDGES_PER_ASSET` | `300` | Hard edge limit per graph response |
-
-### API routes
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `GET` | `/exposure/summary` | user | Fleet-wide risk summary and top reason codes |
-| `GET` | `/exposure/assets` | user | Paginated asset posture list with filters |
-| `GET` | `/exposure/assets/{key}` | user | Full asset detail with linked evidence |
-| `GET` | `/exposure/assets/{key}/graph` | user | Attack-path graph for an asset |
-| `GET` | `/exposure/paths` | user | Paginated attack path list |
-| `GET` | `/exposure/findings` | user | Paginated findings list |
-| `POST` | `/exposure/recalculate` | admin | Trigger a forced full refresh |
-| `POST` | `/exposure/assets/{key}/investigation` | admin | Open an investigation from an asset |
-| `POST` | `/exposure/assets/{key}/response-actions/triage` | admin | Create a triage response action |
-
-Pagination follows the same cursor (keyset) contract as other list endpoints: `items`, `next_cursor`, `has_more`.
-
-### Portal UI
-
-Navigate to **Assets & Exposure → Exposure Graph** (`/exposure`) in the Seagull Portal.
-
-The page provides:
-- Summary cards (critical / high / medium / low asset counts, active findings, attack paths)
-- Filterable asset table with risk score, severity, and reason-code columns
-- Attack-path timeline tab
-- Findings tab
-- Per-asset drawer with score breakdown, recommendations, linked evidence, and score history
-- Interactive attack-path graph canvas
-- Realtime refresh on posture and finding updates
-- Admin-only actions (recalculate, open investigation, create triage response action)
-
----
-
-## Network Topology
-
-The Network Topology feature builds a live network graph from agent telemetry — no additional containers, no network scanners, and no unsafe active probing by default.
-
-### What it does
-
-- Builds a graph of **nodes** (agents, hosts, subnets, interfaces, services, external IPs, Docker networks) and **edges** (subnet membership, observed flows, listening services, DNS resolutions, alerts, exposure paths) directly from the data Seagull already collects.
-- Projects topology incrementally on a configurable schedule and on-demand via `POST /network-topology/recalculate` (admin).
-- Scores every node with a severity band and confidence level derived from associated alerts and exposure findings.
-- Exposes cursor-paginated subnet and observation lists and a bounded graph endpoint with optional filters (agent, node types, edge types, IP scope, time window, confidence floor).
-- Emits realtime SSE/WebSocket invalidation events when the projected graph changes.
-
-### Data sources
-
-| Source | What it contributes |
+| Document | Topic |
 |---|---|
-| Agent inventory (`netcontext`) | Agent node, host nodes, interface nodes, subnet nodes, ARP neighbors, routes, resolvers |
-| `net_events` flow table | `observed_flow` edges between hosts for the configured time window |
-| Alert table | `alert_related` edges from source/destination IPs referenced in active alerts |
-| Exposure posture | `exposure_related` edges from assets with open high/critical findings |
-| Docker network metadata | `docker_network` nodes and membership edges |
+| [docs/detections/architecture.md](docs/detections/architecture.md) | Detection module boundaries and runtime architecture. |
+| [docs/detections/rule_format_v2.md](docs/detections/rule_format_v2.md) | Detection rule schema and supported blocks. |
+| [docs/detections/canonical_fields.md](docs/detections/canonical_fields.md) | Canonical event fields and operators. |
+| [docs/detections/correlation_engine.md](docs/detections/correlation_engine.md) | Correlation strategies and durable incidents. |
+| [docs/detections/attack_stories.md](docs/detections/attack_stories.md) | Attack-chain story templates and scoring. |
+| [docs/detections/backtesting.md](docs/detections/backtesting.md) | Detection validation and backtesting architecture. |
+| [docs/detections/sigma_import.md](docs/detections/sigma_import.md) | Sigma import support and review process. |
+| [docs/workers/architecture.md](docs/workers/architecture.md) | Worker group manager behavior. |
+| [docs/observability/architecture.md](docs/observability/architecture.md) | Internal Prometheus and observability API model. |
 
-### What topology cannot know
+Detection content lives in [`rules/`](rules/).
 
-Without SNMP/LLDP/CDP polling or MAC address table access, the topology graph has inherent gaps:
+## API Surface
 
-- **L2/physical topology** — switch-to-switch links, port assignments, trunk/access VLAN membership
-- **MAC address tables** — which physical port a host is actually connected to
-- **VLAN segmentation** — hosts on the same IP subnet but different VLANs appear identical
-- **MPLS/SD-WAN paths** — overlay routing topology is invisible to passive flow analysis
-- **NAT internals** — connections that traverse NAT appear as flows to/from the NAT gateway IP
+Primary backend route groups:
 
-These are logged as known limitations; the graph is still operationally useful for east-west flow visibility, subnet mapping, and correlated alert evidence.
+```text
+/auth               portal login, refresh, logout, OTP
+/agents             enrollment, heartbeat, config, admin agent operations
+/ingest             agent event ingestion
+/events             hunting, event stream, SSH/protocol/DDoS views
+/alerts             alert queue, lifecycle, evidence, rule operations
+/correlations       correlation rules, findings, incidents
+/attack-chain       attack-chain timelines and story evidence
+/vuln               vulnerability findings and scans
+/inventory          host inventory snapshots
+/exposure           exposure graph and attack paths
+/network-topology   topology graph, services, subnets, insights
+/ueba               anomaly findings and detector state
+/investigations     workspaces and evidence tracking
+/admin              runtime config, system status, audit events, login evidence
+/users              admin user management
+/account            current-user account operations
+/settings           platform settings
+/response           response-action console and execution state
+/realtime           portal realtime streams
+/observability      authenticated metrics query facade
+```
 
-### Passive vs active discovery
+OpenAPI is available at `/docs` in development mode.
 
-| Mode | Trigger | What happens |
-|---|---|---|
-| **Passive** (default) | Always on | Topology is built from existing telemetry — agent check-ins, flow events, alerts, inventory. Zero additional network traffic. |
-| **Active** | Opt-in per agent | Agent performs ARP sweeps and port probes on the local subnet. Must be explicitly enabled in agent runtime config. |
+## Production Notes
 
-Active discovery is disabled by default and requires setting `topology_active_discovery_mode = "active_enabled"` in the agent's runtime config. It never runs unless explicitly configured; there is no fallback activation.
-
-### Key environment variables
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `SEAGULL_NETWORK_TOPOLOGY_ENABLED` | `true` | Enable/disable the topology worker |
-| `SEAGULL_NETWORK_TOPOLOGY_REFRESH_SECONDS` | `300` | Full projection cycle interval |
-| `SEAGULL_NETWORK_TOPOLOGY_WINDOW_MINUTES` | `1440` | Flow event lookback window (minutes) |
-| `SEAGULL_NETWORK_TOPOLOGY_STALE_AFTER_MINUTES` | `60` | Minutes after which a node is marked stale |
-| `SEAGULL_NETWORK_TOPOLOGY_MAX_EVENTS_PER_RUN` | `5000` | Max flow rows processed per projection run |
-| `SEAGULL_NETWORK_TOPOLOGY_GRAPH_PATCH_MAX_NODES` | `50` | Max nodes per realtime graph patch |
-
-### API routes
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `GET` | `/network-topology/summary` | user | Counts by node type, stale nodes, alert/exposure edges |
-| `GET` | `/network-topology/graph` | user | Bounded graph (nodes + edges + health metadata) |
-| `GET` | `/network-topology/nodes/{node_key}` | user | Node detail with connected nodes, edges, observations |
-| `GET` | `/network-topology/edges/{edge_key}` | user | Edge detail with source/target nodes and observations |
-| `GET` | `/network-topology/subnets` | user | Cursor-paginated subnet list |
-| `GET` | `/network-topology/observations` | user | Cursor-paginated raw observation list |
-| `POST` | `/network-topology/recalculate` | admin | Trigger a forced full projection |
-
-Graph query parameters: `max_nodes` (1–2000, default 200), `max_edges` (1–3000, default 300), `min_confidence` (1–99), `agent_id`, `node_types`, `edge_types`, `ip_scope`, `since`, `until`, `include_stale`.
-
-### Portal UI
-
-Navigate to **Assets & Exposure → Network Topology** (`/network-topology`) in the Seagull Portal.
-
-The page provides:
-- Summary cards (node counts by type, stale nodes, alert-related and exposure-related edges)
-- Interactive graph canvas with node/edge filtering and detail drawers
-- Subnet list with cursor pagination
-- IP classification legend: internal / loopback / link-local / docker / public / unknown
-- Edge type legend: observed\_flow / same\_agent / member\_of\_subnet / listens\_on / resolved\_dns / alert\_related / exposure\_related / inferred\_relationship
-- Staleness indicators — nodes/edges that have not been re-observed in the configured window are visually dimmed
-- Realtime refresh on graph changes (debounced, bounded patch size)
-- Admin-only recalculate action
-
-### Safety notes
-
-- Passive mode adds zero network traffic; only agent telemetry already flowing into Seagull is used.
-- Active mode requires explicit per-agent opt-in (`topology_active_discovery_mode = active_enabled`) and only probes the local subnet of the agent.
-- No new container, no external scanner process, and no root/CAP_NET_RAW requirement beyond what the agent already holds.
-- The hard graph limits (`max_nodes`, `max_edges`) and realtime patch caps prevent unbounded memory use even on large networks.
-
----
-
-## Roadmap and Future Work
-
-Planned enhancements (not yet implemented):
-
-1. **Deeper Network Enrichment**
-   - DNS metadata, HTTP host/method, TLS fingerprints (JA3/JA4), protocol‑aware parsing.
-
-2. **Broader Endpoint Inventory**
-   - Extend syscollector to include services, users, running processes, and persistence points.
-
-3. **Optional Redis Streams Pipeline**
-   - Stream ingestion → enrich → correlate → alert as separate workers.
-
-4. **Correlation Automation**
-   - Scheduled correlation runs, MITRE‑mapped incident summaries, and better “case” lifecycle.
-
-5. **Production Hardening**
-   - Expanded RBAC scopes and policy-as-code governance workflows.
-
-6. **Scalable Database**
-   - Use of Cassandra for better escallability and log analyses (Write-Heavy, Schema-free, Compliance)
-   
----
-
-## Security Considerations
-
-Even in a lab environment, Seagull touches sensitive areas:
-
-- Packet capture and low‑level hooks can expose network metadata.
-- Logs and events may contain IPs, hostnames, and user identifiers.
-- PCAP‑based agents may require elevated privileges (NET_RAW/NET_ADMIN and/or root).
-
-Use this project responsibly:
-
-- Prefer isolated or lab networks for traffic capture.
-- Do not deploy in environments where you do not have explicit authorization.
-- Treat collected data as sensitive and protect access to the database, portal, and dashboards.
-
-Portal security notes:
-
-- Use strong runtime secrets (prefer `*_FILE` + Docker secrets in prod).
-- Use a strong `SEAGULL_JWT_SECRET` and rotate it if leaked.
-- Set `SEAGULL_AUDIT_HASH_PEPPER` (or `_FILE`) to strengthen audit-chain integrity hashes.
-- Run behind HTTPS and set `SEAGULL_COOKIE_SECURE=true`.
-- Keep bootstrap tokens short-lived and one-time; avoid long-lived shared enroll secrets.
-
-### Agent Identity Lifecycle
-
-Control-plane path for agents remains `https://<edge>/agent/*`.
-
-1. Create a short-lived bootstrap token per agent:
-   - `POST /api/agents/{agent_id}/bootstrap-tokens`
-2. Start/restart the agent with:
-   - `SEAGULL_AGENT_BOOTSTRAP_TOKEN` (or `_FILE`) for first enroll
-   - `SEAGULL_AGENT_ID`
-3. Agent enrolls with the bootstrap token (`POST /agent/agents/enroll`) and receives:
-   - a rotating credential
-   - a long-lived one-time recovery token
-4. Agent persists identity state under `/var/lib/seagull` and keeps the legacy credential file for compatibility.
-5. Agent uses `X-Agent-ID` + `X-Agent-Credential` for `/agent/*` requests.
-6. Backend stores only salted credential/recovery-token hashes and binds them to `agent_id`.
-7. The agent rotates the credential before expiry via `POST /agent/agents/credential/rotate`.
-8. If the active credential is expired, revoked, or lost during switchover, the agent automatically reenrolls with the recovery token, then falls back to the bootstrap token if still available.
-
-Operational notes:
-
-- Keep bootstrap tokens short-lived and low-use.
-- Credential rotation keeps a short overlap window so switchover is crash-safe.
-- Disabling an agent revokes active credentials and all recovery/bootstrap tokens.
-- Operators can hard-reset an agent identity with `POST /api/agents/{agent_id}/identity/reissue`.
-- No step-ca, edge reloader, or runtime edge cert/key issuance is required for public edge.
-
-### Detection Content Engineering
-
-Catalog layout:
-
-- `rules/packs/core/*`: stable detections for auth/baseline.
-- `rules/packs/network/*`: stable detections for recon/lateral/impact.
-- `rules/packs/lab/*`: experimental detections for dev/lab rollout.
-
-Pack activation by environment (same loader/motor, different activation only):
-
-- `SEAGULL_RULES_ENV`: logical environment label used by rule filters (`dev`, `homolog`, `prod`, `lab`).
-- `SEAGULL_RULES_ENABLED_PACKS`: CSV allowlist of packs to load (e.g. `core,network`).
-- `SEAGULL_RULES_DISABLED_PACKS`: optional CSV denylist.
-- `SEAGULL_RULES_INCLUDE_EXPERIMENTAL`: enables/disables rules with `maturity: experimental`.
-
-Recommended defaults:
-
-- Dev/Lab: `SEAGULL_RULES_ENABLED_PACKS=core,network,lab` and `SEAGULL_RULES_INCLUDE_EXPERIMENTAL=true`.
-- Prod: `SEAGULL_RULES_ENABLED_PACKS=core,network` and `SEAGULL_RULES_INCLUDE_EXPERIMENTAL=false`.
-
-False-positive reduction controls:
-
-- Per-rule `tuning.allowlist` supports `src_ips`, `dst_ips`, `agent_ids`, `dst_ports`, `protos`, `src_cidrs`, `dst_cidrs`.
-- Rule suppressions and schedules remain available through portal governance APIs.
-- Prefer precise group keys and higher thresholds for stable packs; keep noisier analytics in `lab`.
-- Agents now enrich telemetry with confidence/context fields consumed by stable rules:
-  - `scan_probe`: `extra.scan_confidence`, `extra.scan_type`, `extra.syn_only`, `extra.collector`
-  - `lateral_conn`: `extra.lateral_confidence`, `extra.lateral_kind`, `extra.syn_only`, `extra.collector`
-  - `flow`: `extra.flow_state_class`, `extra.flow_confidence`, `extra.tcp_state_name`, `extra.collector`
-
-Validation suite:
-
-- Rule behavior/unit tests: `backend/tests/test_rules_and_correlations.py`
-- Catalog quality checks (schema/severity/ATT&CK mapping + pack filtering): `backend/tests/test_detection_catalog.py`
-- Run only detection validation:
-  - `./seagull test --detections`
-
----
-
-## Performance: Rollups (Grafana/Postgres CPU reduction)
-
-Seagull includes an optional rollup worker that pre‑aggregates `net_events` into 1‑minute buckets.
-This significantly reduces CPU usage caused by Grafana dashboards that run COUNT/GROUP BY queries over large windows.
-
-- Worker group: `seagull-ingest-pipeline` (child: `rollup-1m`)
-- Tables: `event_rollups_1m`, `ssh_fail_rollups_1m`
-- Offsets: `search_index_offsets` (`rollup_events_1m`, `rollup_ssh_fail_1m`)
-
-Tune via `.env`:
-
-- `SEAGULL_ROLLUP_EVERY_SECONDS`, `SEAGULL_ROLLUP_MAX_ROWS`
+- Rotate all development secrets before exposing the service.
+- Use HTTPS through Caddy and set secure cookie settings.
+- Keep bootstrap admin reset/sync disabled after first setup.
+- Restrict `SEAGULL_ALLOWED_HOSTS` and trusted proxy ranges.
+- Scope agent capture interfaces intentionally.
+- Use short-lived agent bootstrap tokens and prefer file-backed secrets.
+- Review audit retention windows for your compliance needs.
+- Validate storage sizing for PostgreSQL, ClickHouse, Elasticsearch, and
+  Prometheus before high-volume collection.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0.
-
-Copyright (C) 2026 Nathan Menezes
-
-See the LICENSE file for details.
+Seagull is licensed under the [GNU General Public License v3.0](LICENSE).
