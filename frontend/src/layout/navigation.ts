@@ -393,6 +393,18 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
     },
   },
   {
+    path: "/internal/observability",
+    meta: {
+      title: "Observability",
+      subtitle: "Prometheus-derived platform metrics: HTTP, ingest, detection, alerts, and workers.",
+      breadcrumbs: [
+        { label: "Governance & Platform" },
+        { label: "Internal", to: "/internal/debug" },
+        { label: "Observability", to: "/internal/observability" },
+      ],
+    },
+  },
+  {
     path: "/internal/health",
     meta: {
       title: "Internal Health",
