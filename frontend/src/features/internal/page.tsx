@@ -11,6 +11,7 @@ export default function InternalLayout() {
         description="Engineering diagnostics for platform health, agent inspection, and debugging signals."
         tabs={[
           { label: "Debug Dashboards", to: "/internal/debug" },
+          { label: "Observability", to: "/internal/observability" },
           { label: "Agent Inspector", to: "/internal/agents" },
           { label: "Health / Status", to: "/internal/health" }
         ]}
