@@ -59,7 +59,7 @@ Workers call features through `worker_runtime` modules. This keeps worker entryp
 
 The `worker_runtime` modules are the stable API contract between workers and features. They may call `features.*.service` and `features.*.repository` internally. Workers must not bypass them.
 
-## Rule lifecycle
+## Rule runtime lifecycle
 
 ```
 YAML file
@@ -69,6 +69,11 @@ YAML file
                  └─ engine.py (v1) or compiler.py (v2) executes query
                       └─ AlertModel created and committed
 ```
+
+`status` and `maturity` are rule metadata, not separate infrastructure. The
+loader preserves those fields, the registry applies runtime governance overlays,
+and the portal/API use them to show whether a rule is active, experimental,
+stable, or deprecated.
 
 ## Governance overlay
 
@@ -123,7 +128,7 @@ The attack chain worker maintains durable `AttackChainCaseModel` records per sus
 | `frontend/src/features/*/components/` | Focused reusable UI |
 | `frontend/src/shared/components/` | Generic reusable components |
 
-## What not to do
+## Architectural guardrails
 
 - Do not add a new container for a new worker. Add a child spec to `app.workers.manager.GROUPS`.
 - Do not import `features.*.repository` directly from a worker entrypoint.
