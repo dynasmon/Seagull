@@ -45,6 +45,7 @@ const loadInternalLayout = () => import("@/features/internal/page");
 const loadInternalDebugPage = () => import("@/features/internal/views/debug");
 const loadInternalAgentsPage = () => import("@/features/internal/views/agents");
 const loadInternalHealthPage = () => import("@/features/internal/views/health");
+const loadObservabilityPage = () => import("@/features/observability/page");
 
 const LoginPage = lazy(loadLoginPage);
 const ProtectedLayout = lazy(loadProtectedLayout);
@@ -89,6 +90,7 @@ const InternalLayout = lazy(loadInternalLayout);
 const InternalDebugPage = lazy(loadInternalDebugPage);
 const InternalAgentsPage = lazy(loadInternalAgentsPage);
 const InternalHealthPage = lazy(loadInternalHealthPage);
+const ObservabilityPage = lazy(loadObservabilityPage);
 
 const routeWarmers: Array<() => Promise<unknown>> = [
   loadOverviewPage,
@@ -108,6 +110,7 @@ const routeWarmers: Array<() => Promise<unknown>> = [
   loadInternalLayout,
   loadInternalDebugPage,
   loadInternalHealthPage,
+  loadObservabilityPage,
 ];
 
 function Fallback() {
@@ -202,6 +205,7 @@ export function Routes() {
             <Route path="/internal" element={<InternalLayout />}>
               <Route index element={<Navigate to="/internal/debug" replace />} />
               <Route path="debug" element={<InternalDebugPage />} />
+              <Route path="observability" element={<ObservabilityPage />} />
               <Route path="agents" element={<InternalAgentsPage />} />
               <Route path="health" element={<InternalHealthPage />} />
             </Route>
