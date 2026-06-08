@@ -1,6 +1,12 @@
-# Backtesting and Rule Validation
+# Detection Validation Architecture
 
 Backtesting lets you simulate a detection rule against historical event data before enabling it in production.
+
+Validation is part of the detections feature, not a separate worker. The same
+rule loading, compatibility, canonical-field mapping, detection, aggregation,
+and evidence-building code paths are used by rule execution and by backtesting.
+`dry_run` controls whether matched results are returned as a simulation or
+persisted as alert records.
 
 ## Backtest via API
 
@@ -163,15 +169,20 @@ print(report)
 PY
 ```
 
-## Pre-enablement checklist
+## How validation fits the runtime
 
-1. Write the rule with `enabled: false` and `maturity: experimental`.
-2. Run validation (`load_and_validate_rules(strict=True)`).
-3. Run a backtest over a representative historical window.
-4. Review `match_count`, `matched_entities`, and `sample_evidence`.
-5. Check the false-positive rate. If it is high, tighten the detection or add tuning suppressions.
-6. Add or update the `tests:` block with at least one positive and one negative case.
-7. Set `enabled: true` and `maturity: stable` only when the rule behaves as expected.
+| Surface | Uses | Persists alerts |
+|---|---|---|
+| YAML loader | Parses rule files, applies compatibility handling, validates schema shape. | No |
+| YAML `tests:` block | Runs rule logic against inline event fixtures in memory. | No |
+| In-memory backtest | Runs one rule against caller-provided event dictionaries. | No |
+| API backtest with `dry_run: true` | Runs one rule against historical database events and returns match evidence. | No |
+| API backtest with `dry_run: false` | Runs one rule against historical database events through the alert creation path. | Yes |
+| Rules worker | Runs enabled rules continuously on live telemetry. | Yes |
+
+Rule metadata such as `enabled`, `status`, and `maturity` is loaded with the
+rule definition. Runtime governance overlays can disable, tune, or suppress a
+rule without changing the YAML file.
 
 ## Tuning after deployment
 
@@ -183,9 +194,11 @@ If a rule fires on known-benign traffic after deployment:
 
 Changes to inline YAML tuning require a rules reload (the worker picks up the new file on the next cycle).
 
-## What not to do
+## Safety properties
 
-- Do not enable a rule before running at least one backtest.
-- Do not set `limit` to a very small value in backtests — truncated results hide false positive volume.
-- Do not remove a rule's `tests:` block when refactoring the rule logic.
-- Do not use `dry_run: false` in automated CI. Dry runs are safe; live runs create alert records.
+- `dry_run: true` never creates alerts.
+- Truncated backtests report `truncated: true` so callers know match volume may
+  be incomplete.
+- YAML tests run in memory and are safe for CI.
+- `dry_run: false` uses the live alert persistence path and should be treated as
+  a data-changing operation.
