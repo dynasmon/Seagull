@@ -19,7 +19,7 @@ volumes:
   agent-vuln-state:
 
 x-agent-env: &agent-env
-  SEAGULL_API_URL: ${SEAGULL_API_URL:-https://127.0.0.1:${SEAGULL_EDGE_HTTPS_PORT:-8443}/agent}
+  SEAGULL_API_URL: ${SEAGULL_API_URL:-https://127.0.0.1:${SEAGULL_AGENT_MTLS_PORT:-8444}/agent}
   SEAGULL_HTTP_TIMEOUT: ${SEAGULL_HTTP_TIMEOUT:-}
   SEAGULL_CONTROL_HEARTBEAT_EVERY: ${SEAGULL_CONTROL_HEARTBEAT_EVERY:-}
   SEAGULL_CONTROL_HEARTBEAT_JITTER: ${SEAGULL_CONTROL_HEARTBEAT_JITTER:-5s}
@@ -68,6 +68,8 @@ x-agent-env: &agent-env
   SEAGULL_FORCE_ENROLL_ON_START: ${SEAGULL_FORCE_ENROLL_ON_START:-true}
   SEAGULL_TLS_SERVER_NAME: ${SEAGULL_AGENT_TLS_SERVER_NAME:-localhost}
   SEAGULL_TLS_CA_FILE: /etc/seagull/server-ca.crt
+  SEAGULL_TLS_CERT_FILE: ${SEAGULL_AGENT_MTLS_CERT_FILE:-/etc/seagull/agent-mtls/agent.crt}
+  SEAGULL_TLS_KEY_FILE: ${SEAGULL_AGENT_MTLS_KEY_FILE:-/etc/seagull/agent-mtls/agent.key}
   SEAGULL_AGENT_IDENTITY_STATE_FILE: ${SEAGULL_AGENT_IDENTITY_STATE_FILE:-/var/lib/seagull/agent.identity.json}
   SEAGULL_AGENT_CREDENTIAL_FILE: ${SEAGULL_AGENT_CREDENTIAL_FILE:-/var/lib/seagull/agent.credential}
   SEAGULL_CONTROL_CREDENTIAL_ROTATE_EVERY: ${SEAGULL_CONTROL_CREDENTIAL_ROTATE_EVERY:-5m}
@@ -249,6 +251,7 @@ services:
       - "${SEAGULL_BACKEND_PORT:-}:8000"
     environment:
       SEAGULL_ENV: ${SEAGULL_ENV:-${SEAGULL_MODE:-dev}}
+      SEAGULL_AGENT_MTLS_IDENTITY_BINDING: ${SEAGULL_AGENT_MTLS_IDENTITY_BINDING:-enforce}
       SEAGULL_DB_HOST: postgres
       SEAGULL_DB_PORT: "5432"
       SEAGULL_DB_NAME: ${POSTGRES_DB:-seagull}
@@ -672,6 +675,7 @@ services:
     ports:
       - "${SEAGULL_EDGE_HTTP_PORT:-8081}:${SEAGULL_CADDY_HTTP_INTERNAL_PORT:-8081}"
       - "${SEAGULL_EDGE_HTTPS_PORT:-8443}:${SEAGULL_CADDY_HTTPS_INTERNAL_PORT:-8443}"
+      - "${SEAGULL_AGENT_MTLS_PORT:-8444}:8444"
     environment:
       SEAGULL_CADDY_DOMAIN: ${SEAGULL_CADDY_DOMAIN:-}
       SEAGULL_CADDY_EMAIL: ${SEAGULL_CADDY_EMAIL:-}
@@ -680,6 +684,9 @@ services:
       - ${SEAGULL_CADDY_CONFIG_FILE:-./infra/caddy/Caddyfile}:/etc/caddy/Caddyfile:ro
       - ${SEAGULL_TLS_CERT_FILE:-./secrets/tls/tls.crt}:/etc/seagull/tls/tls.crt:ro
       - ${SEAGULL_TLS_KEY_FILE:-./secrets/tls/tls.key}:/etc/seagull/tls/tls.key:ro
+      - ${SEAGULL_AGENT_MTLS_CA_FILE:-./secrets/pki/agent-ca.crt}:/etc/seagull/mtls/agent-ca.crt:ro
+      - ${SEAGULL_AGENT_MTLS_SERVER_CERT_FILE:-./secrets/pki/server/mtls.crt}:/etc/seagull/mtls/server.crt:ro
+      - ${SEAGULL_AGENT_MTLS_SERVER_KEY_FILE:-./secrets/pki/server/mtls.key}:/etc/seagull/mtls/server.key:ro
       - caddy-data:/data
       - caddy-config:/config
     security_opt:
@@ -710,6 +717,7 @@ services:
   seagull-agent-core:
     <<: *agent-core-base
     container_name: seagull-agent-core-1
+    profiles: ["docker-agents"]
     depends_on:
       seagull-backend:
         condition: service_healthy
@@ -738,10 +746,13 @@ services:
       - agent-core-state:/var/lib/seagull
       - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
       - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_CORE_ID:-agent-core-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_CORE_ID:-agent-core-1}.key:/etc/seagull/agent-mtls/agent.key:ro
 
   seagull-agent-sensor:
     <<: *agent-sensor-base
     container_name: seagull-agent-sensor-1
+    profiles: ["docker-agents"]
     depends_on:
       seagull-backend:
         condition: service_healthy
@@ -757,6 +768,8 @@ services:
       - agent-sensor-state:/var/lib/seagull
       - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
       - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_SENSOR_ID:-agent-sensor-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_SENSOR_ID:-agent-sensor-1}.key:/etc/seagull/agent-mtls/agent.key:ro
 
   # Agents (optional — profile: extra)
 
@@ -783,6 +796,8 @@ services:
       - agent-lateral-state:/var/lib/seagull
       - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
       - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_LATERAL_ID:-agent-lateral-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_LATERAL_ID:-agent-lateral-1}.key:/etc/seagull/agent-mtls/agent.key:ro
 
   # Agents (legacy split — profile: legacy-agents)
 
@@ -805,6 +820,8 @@ services:
       - agent-proc-state:/var/lib/seagull
       - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
       - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_PROC_ID:-agent-proc-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_PROC_ID:-agent-proc-1}.key:/etc/seagull/agent-mtls/agent.key:ro
 
   seagull-agent-scan:
     <<: *agent-sensor-base
@@ -823,6 +840,8 @@ services:
       - agent-scan-state:/var/lib/seagull
       - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
       - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_SCAN_ID:-agent-scan-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_SCAN_ID:-agent-scan-1}.key:/etc/seagull/agent-mtls/agent.key:ro
 
   seagull-agent-ddos:
     <<: *agent-sensor-base
@@ -843,6 +862,8 @@ services:
       - agent-ddos-state:/var/lib/seagull
       - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
       - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_DDOS_ID:-agent-ddos-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_DDOS_ID:-agent-ddos-1}.key:/etc/seagull/agent-mtls/agent.key:ro
 
   seagull-agent-vuln:
     <<: *agent-core-base
@@ -874,6 +895,8 @@ services:
       - agent-vuln-state:/var/lib/seagull
       - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
       - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_VULN_ID:-agent-vuln-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
+      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_VULN_ID:-agent-vuln-1}.key:/etc/seagull/agent-mtls/agent.key:ro
 
   # Observability (optional — profile: observability)
 
