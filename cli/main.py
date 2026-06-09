@@ -5,15 +5,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import env as _env
-from . import compose as _compose
-from . import state as _state
-from . import tokens as _tokens
-from . import preflight as _preflight
-from . import prepare as _prepare
-from . import health as _health
-from . import wizard as _wizard
-from . import systemd as _systemd
+from .config import env as _env
+from .stack import compose as _compose
+from .config import state as _state
+from .security import tokens as _tokens
+from .stack import preflight as _preflight
+from .stack import prepare as _prepare
+from .stack import health as _health
+from .config import wizard as _wizard
+from .stack import systemd as _systemd
 
 
 def _clear_bootstrap_tokens() -> None:
