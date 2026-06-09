@@ -1,4 +1,5 @@
 import hashlib
+import re
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
@@ -7,9 +8,44 @@ from typing import Optional, Tuple
 from fastapi import HTTPException, Request, status
 from sqlalchemy import or_
 
+from app.core.config.env_secrets import getenv_compat
 from app.core.db import SessionLocal
 from app.core.observability import incr_counter
 from app.features.agents.models import AgentCredentialModel, AgentModel
+
+
+_CERT_CN_RE = re.compile(r"CN\s*=\s*([^,/]+)")
+
+
+def _identity_binding_mode() -> str:
+    mode = (getenv_compat("SEAGULL_AGENT_MTLS_IDENTITY_BINDING", "warn") or "warn").strip().lower()
+    if mode not in ("off", "warn", "enforce"):
+        return "warn"
+    return mode
+
+
+def _extract_cert_cn(request: Request) -> Optional[str]:
+    raw = (request.headers.get("X-Agent-Cert-CN") or "").strip()
+    if not raw:
+        return None
+    match = _CERT_CN_RE.search(raw)
+    value = match.group(1) if match else raw
+    return value.strip() or None
+
+
+def _enforce_cert_identity(request: Request, agent_id: str) -> None:
+    mode = _identity_binding_mode()
+    if mode == "off":
+        return
+    cert_cn = _extract_cert_cn(request)
+    if cert_cn is None or cert_cn == agent_id:
+        return
+    incr_counter("agent_auth_requests_total", outcome="failure", reason="cert_identity_mismatch")
+    if mode == "enforce":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Agent certificate identity does not match agent id",
+        )
 
 
 @dataclass(frozen=True)
@@ -101,6 +137,8 @@ def get_current_agent(request: Request) -> AgentPrincipal:
         if int(matched.used_uses or 0) >= int(matched.max_uses or 1):
             incr_counter("agent_auth_requests_total", outcome="failure", reason="exhausted")
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Agent credential exhausted")
+
+        _enforce_cert_identity(request, agent_id)
 
         matched.used_uses = int(matched.used_uses or 0) + 1
         matched.last_used_at = now
