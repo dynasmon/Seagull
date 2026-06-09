@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from . import env as _env
+from ..config import env as _env
 
 
 STACK_FILES = ["compose.yml"]

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-import os
-import subprocess
-import tempfile
+import ipaddress
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import ExtendedKeyUsageOID, ExtensionOID, NameOID
 
 
 def _is_ipv4(value: str) -> bool:
@@ -13,59 +17,69 @@ def _is_ipv4(value: str) -> bool:
 
 def cert_has_san(cert_path: Path, server_name: str) -> bool:
     try:
-        result = subprocess.run(
-            ["openssl", "x509", "-in", str(cert_path), "-noout", "-ext", "subjectAltName"],
-            capture_output=True, text=True, check=True,
-        )
-    except (FileNotFoundError, subprocess.CalledProcessError):
+        cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
+    except (FileNotFoundError, ValueError):
         return False
-    text = result.stdout
+    try:
+        san = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+    except x509.ExtensionNotFound:
+        return False
     if _is_ipv4(server_name):
-        return f"IP Address:{server_name}" in text
-    return f"DNS:{server_name}" in text
+        return ipaddress.ip_address(server_name) in san.value.get_values_for_type(x509.IPAddress)
+    return server_name in san.value.get_values_for_type(x509.DNSName)
 
 
 def generate_dev_cert(cert_path: Path, key_path: Path, server_name: str) -> None:
     cert_path.parent.mkdir(parents=True, exist_ok=True)
     key_path.parent.mkdir(parents=True, exist_ok=True)
 
-    san_line = f"IP.2 = {server_name}" if _is_ipv4(server_name) else f"DNS.2 = {server_name}"
-    cfg_content = f"""[ req ]
-default_bits       = 4096
-distinguished_name = req_distinguished_name
-x509_extensions    = v3_req
-prompt             = no
+    key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
 
-[ req_distinguished_name ]
-CN = localhost
+    loopback = ipaddress.ip_address("127.0.0.1")
+    san_entries: list[x509.GeneralName] = [x509.DNSName("localhost"), x509.IPAddress(loopback)]
+    if _is_ipv4(server_name):
+        addr = ipaddress.ip_address(server_name)
+        if addr != loopback:
+            san_entries.append(x509.IPAddress(addr))
+    elif server_name and server_name != "localhost":
+        san_entries.append(x509.DNSName(server_name))
 
-[ v3_req ]
-subjectAltName = @alt_names
-keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
-
-[ alt_names ]
-DNS.1 = localhost
-IP.1 = 127.0.0.1
-{san_line}
-"""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".cnf", delete=False) as f:
-        f.write(cfg_content)
-        cfg_path = f.name
-
-    try:
-        subprocess.run(
-            [
-                "openssl", "req", "-x509", "-nodes", "-newkey", "rsa:4096",
-                "-days", "365",
-                "-keyout", str(key_path),
-                "-out", str(cert_path),
-                "-config", cfg_path,
-            ],
-            capture_output=True, check=True,
+    now = datetime.now(timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")]))
+        .issuer_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")]))
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(days=365))
+        .add_extension(x509.SubjectAlternativeName(san_entries), critical=False)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=True,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=False,
+                crl_sign=False,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
         )
-    finally:
-        os.unlink(cfg_path)
+        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+
+    key_path.write_bytes(
+        key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+    )
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
 
     cert_path.chmod(0o644)
     key_path.chmod(0o644)
