@@ -28,9 +28,12 @@ DEFAULT_CA_SOURCE_FILE=""
 DEFAULT_BOOTSTRAP_TOKEN_FILE="/var/lib/seagull/bootstrap.token"
 LEGACY_BOOTSTRAP_TOKEN_FILE="/etc/seagull/bootstrap.token"
 
+INSTALL_CLIENT_CERT_FILE="/etc/seagull/pki/agent.crt"
+INSTALL_CLIENT_KEY_FILE="/etc/seagull/pki/agent.key"
+
 # If CA file is missing, optionally seed it from local dev cert.
 AUTO_INSTALL_DEV_CA="${AUTO_INSTALL_DEV_CA:-1}"
-DEV_CA_SOURCE="${DEV_CA_SOURCE:-${REPO_ROOT}/secrets/dev-tls/tls.crt}"
+DEV_CA_SOURCE="${DEV_CA_SOURCE:-${REPO_ROOT}/secrets/pki/server-ca.crt}"
 CA_SYNC_SCRIPT_SOURCE="${SCRIPT_DIR}/seagull-agent-sync-ca.sh"
 CA_SYNC_SCRIPT_TARGET="${INSTALL_LIBEXEC_DIR}/seagull-agent-sync-ca.sh"
 CA_SYNC_SERVICE_SOURCE="${SCRIPT_DIR}/seagull-agent-ca-sync.service"
@@ -496,6 +499,81 @@ normalize_tls_ca_settings() {
   fi
 }
 
+discover_pki_dir() {
+  local repo_value
+  repo_value="$(discover_repo_env_value SEAGULL_PKI_DIR)"
+  if [[ -n "${repo_value}" ]]; then
+    resolve_repo_path "${repo_value}"
+    return
+  fi
+  printf '%s' "${REPO_ROOT}/secrets/pki"
+}
+
+mtls_is_enabled() {
+  local value
+  value="$(discover_repo_env_value SEAGULL_MTLS_ENABLED | tr '[:upper:]' '[:lower:]')"
+  [[ -z "${value}" || "${value}" == "true" || "${value}" == "1" ]]
+}
+
+normalize_tls_client_cert_settings() {
+  if [[ ! -f "${INSTALL_ENV_PATH}" ]]; then
+    return
+  fi
+
+  normalize_env_key SEAGULL_TLS_CERT_FILE "${INSTALL_ENV_PATH}"
+  normalize_env_key SEAGULL_TLS_KEY_FILE "${INSTALL_ENV_PATH}"
+
+  if ! mtls_is_enabled; then
+    set_env_value SEAGULL_TLS_CERT_FILE "" "${INSTALL_ENV_PATH}"
+    set_env_value SEAGULL_TLS_KEY_FILE "" "${INSTALL_ENV_PATH}"
+    echo "[install] mTLS disabled (SEAGULL_MTLS_ENABLED=false); cleared agent client certificate"
+    return
+  fi
+
+  local agent_id pki_dir cert_source key_source api_url
+  agent_id="$(trim "$(read_env_value SEAGULL_AGENT_ID "${INSTALL_ENV_PATH}")")"
+  if [[ -z "${agent_id}" ]]; then
+    agent_id="$(trim "$(discover_repo_env_value AGENT_CORE_ID)")"
+  fi
+  if [[ -z "${agent_id}" ]]; then
+    agent_id="agent-core-1"
+  fi
+
+  pki_dir="$(discover_pki_dir)"
+  cert_source="${pki_dir}/agents/${agent_id}.crt"
+  key_source="${pki_dir}/agents/${agent_id}.key"
+
+  if [[ ! -f "${cert_source}" || ! -f "${key_source}" ]]; then
+    echo "[install] warning: mTLS enabled but client certificate for ${agent_id} not found"
+    echo "[install] expected ${cert_source} and ${key_source}"
+    echo "[install] run ./seagull up to generate the agent PKI, then re-run this install"
+    return
+  fi
+
+  install -d -m 0755 "${INSTALL_PKI_DIR}"
+  install -o root -g root -m 0644 "${cert_source}" "${INSTALL_CLIENT_CERT_FILE}"
+  install -o root -g seagull -m 0640 "${key_source}" "${INSTALL_CLIENT_KEY_FILE}"
+  set_env_value SEAGULL_TLS_CERT_FILE "${INSTALL_CLIENT_CERT_FILE}" "${INSTALL_ENV_PATH}"
+  set_env_value SEAGULL_TLS_KEY_FILE "${INSTALL_CLIENT_KEY_FILE}" "${INSTALL_ENV_PATH}"
+  echo "[install] installed mTLS client certificate for ${agent_id}"
+
+  local server_ca_source="${pki_dir}/server-ca.crt"
+  if [[ -f "${server_ca_source}" ]]; then
+    install -o root -g root -m 0644 "${server_ca_source}" "${DEFAULT_CA_FILE}"
+    set_env_value SEAGULL_TLS_CA_FILE "${DEFAULT_CA_FILE}" "${INSTALL_ENV_PATH}"
+    set_env_value SEAGULL_TLS_CA_SOURCE_FILE "${server_ca_source}" "${INSTALL_ENV_PATH}"
+    echo "[install] installed internal mTLS server CA (agent now trusts the server CA)"
+  else
+    echo "[install] warning: server CA ${server_ca_source} not found; run ./seagull up to generate it"
+  fi
+
+  api_url="$(discover_repo_env_value SEAGULL_API_URL)"
+  if [[ -n "${api_url}" ]]; then
+    set_env_value SEAGULL_API_URL "${api_url}" "${INSTALL_ENV_PATH}"
+    echo "[install] aligned SEAGULL_API_URL with repo value ${api_url}"
+  fi
+}
+
 install_ca_sync_assets() {
   if [[ ! -f "${CA_SYNC_SCRIPT_SOURCE}" || ! -f "${CA_SYNC_SERVICE_SOURCE}" || ! -f "${CA_SYNC_TIMER_SOURCE}" ]]; then
     echo "[install] missing CA sync assets in deploy/systemd"
@@ -572,6 +650,17 @@ validate_runtime_readiness() {
     echo "[install] warning: CA file missing: ${ca_file:-<empty>}"
     echo "[install] place your server CA bundle before starting the service"
   fi
+
+  local cert_file key_file
+  cert_file="$(trim "$(read_env_value SEAGULL_TLS_CERT_FILE "${INSTALL_ENV_PATH}")")"
+  key_file="$(trim "$(read_env_value SEAGULL_TLS_KEY_FILE "${INSTALL_ENV_PATH}")")"
+  if [[ -n "${cert_file}" || -n "${key_file}" ]]; then
+    if [[ -z "${cert_file}" || -z "${key_file}" ]]; then
+      echo "[install] warning: set SEAGULL_TLS_CERT_FILE and SEAGULL_TLS_KEY_FILE together for mTLS"
+    elif [[ ! -f "${cert_file}" || ! -f "${key_file}" ]]; then
+      echo "[install] warning: mTLS client certificate missing (${cert_file}, ${key_file})"
+    fi
+  fi
 }
 
 is_runtime_ready() {
@@ -608,6 +697,15 @@ is_runtime_ready() {
 
   if [[ -z "${ca_file}" || ! -f "${ca_file}" ]]; then
     return 1
+  fi
+
+  local cert_file key_file
+  cert_file="$(trim "$(read_env_value SEAGULL_TLS_CERT_FILE "${INSTALL_ENV_PATH}")")"
+  key_file="$(trim "$(read_env_value SEAGULL_TLS_KEY_FILE "${INSTALL_ENV_PATH}")")"
+  if [[ -n "${cert_file}" || -n "${key_file}" ]]; then
+    if [[ -z "${cert_file}" || -z "${key_file}" || ! -f "${cert_file}" || ! -f "${key_file}" ]]; then
+      return 1
+    fi
   fi
 
   if [[ "${has_credential}" == "1" || "${has_bootstrap}" == "1" ]]; then
@@ -658,6 +756,7 @@ main() {
   normalize_agent_runtime_defaults
   normalize_bootstrap_token_settings
   normalize_tls_ca_settings
+  normalize_tls_client_cert_settings
   sanitize_service_dropins
   install_ca_sync_assets
   install_service_file
