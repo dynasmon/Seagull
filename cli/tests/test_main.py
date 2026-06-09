@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from cli import main as cli_main
-from cli import systemd as cli_systemd
+from cli.stack import systemd as cli_systemd
 
 
 def test_up_prod_stops_on_failed_core_health(monkeypatch) -> None:

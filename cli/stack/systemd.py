@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import env as _env
+from ..config import env as _env
 
 
 BINARY            = Path("/usr/local/bin/seagull-agent")
@@ -156,6 +156,22 @@ def _validate_live_tls(api_url: str, ca_file: Path) -> str | None:
             f"failed to load agent CA file {ca_file}: {exc}\n"
             "  fix: replace SEAGULL_TLS_CA_FILE with a valid PEM certificate bundle"
         )
+
+    cert_file = (_read_agent_env("SEAGULL_TLS_CERT_FILE") or "").strip()
+    key_file = (_read_agent_env("SEAGULL_TLS_KEY_FILE") or "").strip()
+    if cert_file and key_file:
+        if not Path(cert_file).exists() or not Path(key_file).exists():
+            return (
+                f"mTLS client certificate not found ({cert_file}, {key_file})\n"
+                "  fix: run ./seagull up to generate the agent PKI, then re-run install-agent.sh"
+            )
+        try:
+            context.load_cert_chain(certfile=cert_file, keyfile=key_file)
+        except (ssl.SSLError, OSError) as exc:
+            return (
+                f"failed to load mTLS client certificate {cert_file}: {exc}\n"
+                "  fix: verify SEAGULL_TLS_CERT_FILE and SEAGULL_TLS_KEY_FILE form a valid keypair"
+            )
 
     try:
         with socket.create_connection((host, port), timeout=2.5) as sock:

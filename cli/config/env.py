@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 
 _DEPRECATED_KEYS = ["COMPOSE_IGNORE_ORPHANS"]
 

@@ -4,8 +4,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from . import env as _env
-from . import secrets as _secrets
+from ..config import env as _env
+from ..security import secrets as _secrets
 from . import compose as _compose
 
 
@@ -123,6 +123,19 @@ def run(auto_fix: Optional[bool] = None) -> None:
     _reject_pair_conflict("SEAGULL_ES_PASSWORD", "SEAGULL_ES_PASSWORD_FILE")
     _reject_pair_conflict("SEAGULL_JWT_SECRET", "SEAGULL_JWT_SECRET_FILE")
     _reject_pair_conflict("SEAGULL_BOOTSTRAP_ADMIN_PASSWORD", "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE")
+
+    mtls_enabled = _env.read("SEAGULL_MTLS_ENABLED", "true").lower() in ("true", "1")
+    if mtls_enabled:
+        from ..security import pki as _pki
+
+        renewed = _pki.ensure_agent_pki()
+        if renewed:
+            print(f"[prod-prepare] mTLS: generated/renewed agent certs for: {', '.join(renewed)}")
+        if _pki.ensure_server_pki():
+            print(f"[prod-prepare] mTLS: generated/renewed mTLS server cert for: {', '.join(_pki.resolve_server_names())}")
+        print("[prod-prepare] mTLS: agent + server PKI ready")
+    else:
+        print("[prod-prepare] mTLS: disabled (SEAGULL_MTLS_ENABLED=false); skipping agent PKI")
 
     if not _compose.validate(_compose.STACK_FILES):
         raise RuntimeError("[prod-prepare] docker compose config validation failed")
