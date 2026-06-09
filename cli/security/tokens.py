@@ -8,7 +8,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from . import env as _env
+from ..config import env as _env
 
 
 _AGENT_MAP: list[tuple[str, str]] = [

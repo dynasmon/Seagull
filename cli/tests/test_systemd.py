@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from cli import systemd
+from cli.stack import systemd
 
 
 def _configure_systemd_install(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, env_lines: list[str]) -> dict[str, Path]:
