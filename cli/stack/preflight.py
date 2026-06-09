@@ -5,15 +5,24 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import env as _env
-from . import tls as _tls
-from . import secrets as _secrets
+from ..config import env as _env
+from ..security import tls as _tls
+from ..security import secrets as _secrets
 from . import compose as _compose
 
 
 def _require_cmd(name: str) -> None:
     if not shutil.which(name):
         raise RuntimeError(f"[preflight] missing required command: {name}")
+
+
+def _check_caddyfile_mtls(caddy_cfg: Path) -> None:
+    if "client_auth" not in caddy_cfg.read_text():
+        raise RuntimeError(
+            f"[preflight] {caddy_cfg.name} does not enable mTLS (no client_auth block); "
+            f"set SEAGULL_MTLS_ENABLED=false to disable agent mTLS, or use a Caddyfile "
+            f"that enforces client certificates on the agent listener"
+        )
 
 
 def _check_caddyfile_port(caddy_cfg: Path, https_port: int) -> None:
@@ -44,7 +53,7 @@ def _abs(p: str) -> Path:
 
 
 def run() -> None:
-    for cmd in ("docker", "openssl", "curl", "jq"):
+    for cmd in ("docker", "curl", "jq"):
         _require_cmd(cmd)
 
     if subprocess.run(["docker", "compose", "version"], capture_output=True).returncode != 0:
@@ -55,9 +64,13 @@ def run() -> None:
 
     ev = _env.read
 
+    mtls_enabled = ev("SEAGULL_MTLS_ENABLED", "true").lower() in ("true", "1")
+
     caddy_cfg = _abs(ev("SEAGULL_CADDY_CONFIG_FILE", "./infra/caddy/Caddyfile"))
     caddy_https_port = int(ev("SEAGULL_CADDY_HTTPS_INTERNAL_PORT", "8443") or "8443")
     _check_caddyfile_port(caddy_cfg, caddy_https_port)
+    if mtls_enabled:
+        _check_caddyfile_mtls(caddy_cfg)
 
     tls_cert = ev("SEAGULL_TLS_CERT_FILE", "./secrets/tls/tls.crt")
     tls_key = ev("SEAGULL_TLS_KEY_FILE", "./secrets/tls/tls.key")
@@ -143,7 +156,19 @@ def run() -> None:
                 f"run: chmod 644 {path}"
             )
 
+    if mtls_enabled:
+        from ..security import pki as _pki
+
+        renewed = _pki.ensure_agent_pki()
+        if renewed:
+            print(f"[preflight] mTLS: generated/renewed agent certs for: {', '.join(renewed)}")
+        if _pki.ensure_server_pki():
+            print(f"[preflight] mTLS: generated/renewed mTLS server cert for: {', '.join(_pki.resolve_server_names())}")
+        print("[preflight] mTLS: agent + server PKI ready")
+    else:
+        print("[preflight] mTLS: disabled (SEAGULL_MTLS_ENABLED=false); skipping agent PKI")
+
     if not _compose.validate(_compose.STACK_FILES):
         raise RuntimeError("[preflight] docker compose config validation failed")
 
-    print("[preflight] ok: docker, compose, openssl, curl, jq and compose config are ready")
+    print("[preflight] ok: docker, compose, curl, jq and compose config are ready")

@@ -6,7 +6,7 @@ import sys
 import time
 
 from . import compose as _compose
-from . import env as _env
+from ..config import env as _env
 
 
 ESSENTIAL_DEV = ["postgres", "redis", "seagull-backend", "caddy"]

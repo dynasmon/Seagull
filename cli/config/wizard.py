@@ -4,7 +4,7 @@ import getpass
 import sys
 
 from . import env as _env
-from . import secrets as _secrets
+from ..security import secrets as _secrets
 
 
 def _status(value: str, min_len: int) -> str:
