@@ -11,6 +11,7 @@ elasticsearch==8.15.1
 clickhouse-connect==0.7.16
 alembic==1.13.2
 PyJWT==2.10.1
+cryptography==44.0.2
 passlib[argon2]==1.7.4
 argon2-cffi==23.1.0
 geoip2==5.2.0
