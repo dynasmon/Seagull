@@ -660,6 +660,27 @@ def get_overview_payload(
     data_end_ts = min(requested_end_ts, last_roll_ts) if (use_ingest_rollups and last_roll_ts is not None) else requested_end_ts
     start_ts = requested_start_ts if fixed_range else (data_end_ts - timedelta(minutes=requested_window_minutes))
     ch = _ch_client_or_none()
+    if ch is not None and not fixed_range:
+        ch_latest_rows = _ch_query_dicts(
+            ch,
+            f"SELECT max(timestamp) AS last_ts FROM {clickhouse_events_table_ref()} "
+            + ("WHERE agent_id = {agent_id:String}" if agent_id else ""),
+            ({"agent_id": agent_id} if agent_id else None),
+        )
+        ch_latest_ts = _to_utc((ch_latest_rows or [{}])[0].get("last_ts"))
+        pg_latest_ts = _pg_latest_event_ts(db, agent_id=agent_id)
+        stale_margin_s = int(getattr(settings, "SEAGULL_EVENTS_ES_STALE_MARGIN_SECONDS", 15) or 15)
+        if pg_latest_ts is not None and (
+            ch_latest_ts is None or (pg_latest_ts - ch_latest_ts).total_seconds() > float(max(1, stale_margin_s))
+        ):
+            log_event(
+                logger,
+                "warning",
+                "overview_clickhouse_stale_fallback",
+                ch_last_ts=(ch_latest_ts.isoformat() if ch_latest_ts else None),
+                pg_last_ts=pg_latest_ts.isoformat(),
+            )
+            ch = None
     recent_feed = [] if fixed_range else fetch_recent_feed_events(limit=30, agent_id=agent_id)
     recent_health = {} if fixed_range else recent_feed_health(agent_id=agent_id)
 
@@ -717,30 +738,6 @@ def get_overview_payload(
         ev_row = (ev_rows or [{}])[0]
         events_5m = int(ev_row.get("events_5m") or 0)
         last_event_ts = _to_utc(ev_row.get("last_event_ts"))
-
-        # If ClickHouse lags behind hot storage, fallback to fresher sources for this response.
-        ch_latest_rows = _ch_query_dicts(
-            ch,
-            f"SELECT max(timestamp) AS last_ts FROM {clickhouse_events_table_ref()} "
-            + ("WHERE agent_id = {agent_id:String}" if agent_id else ""),
-            ({"agent_id": agent_id} if agent_id else None),
-        )
-        ch_latest_ts = _to_utc((ch_latest_rows or [{}])[0].get("last_ts"))
-        pg_latest_ts = _pg_latest_event_ts(db, agent_id=agent_id)
-        stale_margin_s = int(getattr(settings, "SEAGULL_EVENTS_ES_STALE_MARGIN_SECONDS", 15) or 15)
-        if pg_latest_ts is not None and (
-            ch_latest_ts is None or (pg_latest_ts - ch_latest_ts).total_seconds() > float(max(1, stale_margin_s))
-        ):
-            log_event(
-                logger,
-                "warning",
-                "overview_clickhouse_stale_fallback",
-                ch_last_ts=(ch_latest_ts.isoformat() if ch_latest_ts else None),
-                pg_last_ts=pg_latest_ts.isoformat(),
-            )
-            ch = None
-            last_event_ts = None
-            events_5m = 0
 
     elif ch is None:
         ev_stmt2 = select(func.count(), func.max(NetEventModel.timestamp)).where(True)
