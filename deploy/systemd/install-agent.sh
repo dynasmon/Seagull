@@ -28,8 +28,11 @@ DEFAULT_CA_SOURCE_FILE=""
 DEFAULT_BOOTSTRAP_TOKEN_FILE="/var/lib/seagull/bootstrap.token"
 LEGACY_BOOTSTRAP_TOKEN_FILE="/etc/seagull/bootstrap.token"
 
-INSTALL_CLIENT_CERT_FILE="/etc/seagull/pki/agent.crt"
-INSTALL_CLIENT_KEY_FILE="/etc/seagull/pki/agent.key"
+INSTALL_RUNTIME_PKI_DIR="/var/lib/seagull/pki"
+INSTALL_CLIENT_CERT_FILE="${INSTALL_RUNTIME_PKI_DIR}/client.crt"
+INSTALL_CLIENT_KEY_FILE="${INSTALL_RUNTIME_PKI_DIR}/client.key"
+LEGACY_CLIENT_CERT_FILE="/etc/seagull/pki/agent.crt"
+LEGACY_CLIENT_KEY_FILE="/etc/seagull/pki/agent.key"
 
 # If CA file is missing, optionally seed it from local dev cert.
 AUTO_INSTALL_DEV_CA="${AUTO_INSTALL_DEV_CA:-1}"
@@ -550,12 +553,18 @@ normalize_tls_client_cert_settings() {
     return
   fi
 
-  install -d -m 0755 "${INSTALL_PKI_DIR}"
-  install -o root -g root -m 0644 "${cert_source}" "${INSTALL_CLIENT_CERT_FILE}"
-  install -o root -g seagull -m 0640 "${key_source}" "${INSTALL_CLIENT_KEY_FILE}"
+  install -d -m 0700 "${INSTALL_RUNTIME_PKI_DIR}"
+  chown seagull:seagull "${INSTALL_RUNTIME_PKI_DIR}"
+  install -o seagull -g seagull -m 0644 "${cert_source}" "${INSTALL_CLIENT_CERT_FILE}"
+  install -o seagull -g seagull -m 0600 "${key_source}" "${INSTALL_CLIENT_KEY_FILE}"
   set_env_value SEAGULL_TLS_CERT_FILE "${INSTALL_CLIENT_CERT_FILE}" "${INSTALL_ENV_PATH}"
   set_env_value SEAGULL_TLS_KEY_FILE "${INSTALL_CLIENT_KEY_FILE}" "${INSTALL_ENV_PATH}"
-  echo "[install] installed mTLS client certificate for ${agent_id}"
+  echo "[install] installed mTLS client certificate for ${agent_id} (agent-managed renewal at ${INSTALL_RUNTIME_PKI_DIR})"
+
+  if [[ -f "${LEGACY_CLIENT_CERT_FILE}" || -f "${LEGACY_CLIENT_KEY_FILE}" ]]; then
+    rm -f "${LEGACY_CLIENT_CERT_FILE}" "${LEGACY_CLIENT_KEY_FILE}"
+    echo "[install] removed legacy client certificate from /etc/seagull/pki (identity now lives in ${INSTALL_RUNTIME_PKI_DIR})"
+  fi
 
   local server_ca_source="${pki_dir}/server-ca.crt"
   if [[ -f "${server_ca_source}" ]]; then
