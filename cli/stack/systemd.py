@@ -324,7 +324,7 @@ def validate() -> None:
             print(f"[systemd-agent] error: {err}", file=sys.stderr)
         raise ValidationError(
             f"systemd agent mode has {len(errors)} unresolved issue(s) — "
-            "resolve them before running ./seagull up --agent-mode systemd"
+            "resolve them before running ./seagull up"
         )
 
 

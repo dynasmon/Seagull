@@ -20,9 +20,15 @@ class TestGenerateCA:
         assert constraints.value.ca is True
         assert constraints.value.path_length == 0
 
-    def test_ca_key_is_owner_only(self, tmp_path):
+    def test_ca_key_is_backend_readable_in_locked_dir(self, tmp_path):
         pki.generate_ca(tmp_path)
-        assert ((tmp_path / "agent-ca.key").stat().st_mode & 0o777) == 0o600
+        assert ((tmp_path / "agent-ca.key").stat().st_mode & 0o777) == 0o644
+
+    def test_ensure_agent_pki_migrates_ca_key_mode(self, tmp_path):
+        pki.generate_ca(tmp_path)
+        (tmp_path / "agent-ca.key").chmod(0o600)
+        pki.ensure_agent_pki(tmp_path)
+        assert ((tmp_path / "agent-ca.key").stat().st_mode & 0o777) == 0o644
 
     def test_idempotent_does_not_overwrite(self, tmp_path):
         pki.generate_ca(tmp_path)

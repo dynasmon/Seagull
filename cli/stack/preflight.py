@@ -13,7 +13,9 @@ from . import compose as _compose
 
 def _require_cmd(name: str) -> None:
     if not shutil.which(name):
-        raise RuntimeError(f"[preflight] missing required command: {name}")
+        raise RuntimeError(
+            f"[preflight] missing required command: {name} — fix: ./seagull -d --install"
+        )
 
 
 def _check_caddyfile_mtls(caddy_cfg: Path) -> None:
@@ -57,7 +59,9 @@ def run() -> None:
         _require_cmd(cmd)
 
     if subprocess.run(["docker", "compose", "version"], capture_output=True).returncode != 0:
-        raise RuntimeError("[preflight] docker compose plugin is not available")
+        raise RuntimeError(
+            "[preflight] docker compose plugin is not available — fix: ./seagull -d --install"
+        )
 
     if subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
         raise RuntimeError("[preflight] docker daemon is not reachable (is Docker running?)")

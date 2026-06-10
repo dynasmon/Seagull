@@ -108,6 +108,7 @@ def _build_ca(
     key_name: str,
     cert_name: str,
     validity_days: int,
+    key_mode: int = 0o600,
 ) -> Tuple[rsa.RSAPrivateKey, x509.Certificate]:
     pki_dir = Path(pki_dir)
     pki_dir.mkdir(parents=True, exist_ok=True)
@@ -148,7 +149,7 @@ def _build_ca(
         .sign(key, hashes.SHA256())
     )
 
-    _write_key(key, pki_dir / key_name)
+    _write_key(key, pki_dir / key_name, key_mode)
     _write_cert(cert, pki_dir / cert_name)
     return key, cert
 
@@ -160,6 +161,7 @@ def generate_ca(pki_dir: Path) -> Tuple[rsa.RSAPrivateKey, x509.Certificate]:
         CA_KEY_NAME,
         CA_CERT_NAME,
         _cfg_int("SEAGULL_AGENT_CA_VALIDITY_DAYS", 3650),
+        key_mode=0o644,
     )
 
 
@@ -418,6 +420,7 @@ def ensure_agent_pki(pki_dir: Optional[Path] = None) -> List[str]:
         ca_key, ca_cert = load_ca(pki_dir)
     else:
         ca_key, ca_cert = generate_ca(pki_dir)
+    _chmod(pki_dir / CA_KEY_NAME, 0o644)
 
     renew_before_days = _cfg_int("SEAGULL_AGENT_CERT_RENEW_BEFORE_DAYS", 30)
     renewed: List[str] = []
