@@ -13,6 +13,8 @@ from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.features.agents.schemas import (
     AgentBootstrapTokenCreateIn,
     AgentBootstrapTokenOut,
+    AgentCertificateRenewIn,
+    AgentCertificateRenewOut,
     AgentConfigUpdateIn,
     AgentCredentialOut,
     AgentDetail,
@@ -80,6 +82,23 @@ async def enroll_agent(request: Request, payload: AgentEnrollIn, db: Session = D
 async def rotate_agent_credential(agent: AgentPrincipal = Depends(get_current_agent), db: Session = Depends(get_db)):
     with managed_session(db) as db_session:
         return service.rotate_credential(db_session, agent=agent)
+
+
+@router.post("/certificate/renew", response_model=AgentCertificateRenewOut)
+async def renew_agent_certificate(
+    payload: AgentCertificateRenewIn,
+    request: Request,
+    agent: AgentPrincipal = Depends(get_current_agent),
+    db: Session = Depends(get_db),
+):
+    with managed_session(db) as db_session:
+        return service.renew_agent_certificate(
+            db_session,
+            payload=payload,
+            request=request,
+            agent=agent,
+            audit_writer=write_audit_event,
+        )
 
 
 @router.put("/{agent_id}/config", status_code=status.HTTP_204_NO_CONTENT)
