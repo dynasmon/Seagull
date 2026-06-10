@@ -18,17 +18,6 @@ PROD_CORE_SERVICES = [
     "seagull-portal", "caddy",
 ]
 
-DOCKER_AGENT_SERVICES = ["seagull-agent-core", "seagull-agent-sensor"]
-PROD_AGENT_SERVICES = DOCKER_AGENT_SERVICES
-DEV_AGENT_SERVICES = DOCKER_AGENT_SERVICES
-
-
-def agent_scale_zero_args() -> list[str]:
-    args: list[str] = []
-    for svc in DOCKER_AGENT_SERVICES:
-        args += ["--scale", f"{svc}=0"]
-    return args
-
 
 def _file_flags(files: list[str]) -> list[str]:
     flags: list[str] = []

@@ -15,9 +15,9 @@ def test_up_prod_stops_on_failed_core_health(monkeypatch) -> None:
     monkeypatch.setattr(cli_main._prepare, "run", lambda: None)
     monkeypatch.setattr(cli_main._state, "check", lambda: (cli_main._state.OK, ""))
     monkeypatch.setattr(cli_main._state, "commit", lambda: commit_calls.append(True))
+    monkeypatch.setattr(cli_main._systemd, "sync_ca", lambda: 0)
     monkeypatch.setattr(cli_main._compose, "STACK_FILES", ["compose.yml"])
     monkeypatch.setattr(cli_main._compose, "PROD_CORE_SERVICES", ["postgres"])
-    monkeypatch.setattr(cli_main._compose, "PROD_AGENT_SERVICES", ["seagull-agent-core"])
     monkeypatch.setattr(
         cli_main._compose,
         "run",
@@ -28,7 +28,7 @@ def test_up_prod_stops_on_failed_core_health(monkeypatch) -> None:
     monkeypatch.setattr(cli_main._health, "print_summary", lambda *args, **kwargs: summary_calls.append((args, kwargs)))
     monkeypatch.setattr(cli_main._tokens, "mint", lambda *args, **kwargs: mint_calls.append((args, kwargs)))
 
-    rc = cli_main._up_prod(fresh=False, systemd_agent=False)
+    rc = cli_main._up_prod(fresh=False)
 
     assert rc == 1
     assert len(run_calls) == 1
@@ -93,8 +93,6 @@ def test_cmd_restart_systemd_reconciles_after_compose_up(monkeypatch) -> None:
             persist=False,
             quick=False,
             dev_reload=False,
-            systemd_agent=False,
-            agent_mode="systemd",
         )
     )
 
