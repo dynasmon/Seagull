@@ -58,29 +58,50 @@ Core services are declared in [`compose.yml`](compose.yml):
 | `seagull-intelligence-worker` | Rules, correlations, protocol intelligence, IP enrichment, attack chains, exposure, topology, and UEBA. |
 | `seagull-maintenance-worker` | Audit retention and recurring maintenance tasks. |
 | `postgres`, `redis`, `clickhouse`, `elasticsearch`, `prometheus` | Runtime data and observability infrastructure. |
-| `caddy` | HTTPS edge for portal, API, and agent routes. |
-| `seagull-agent-core`, `seagull-agent-sensor` | Default Docker agents for host and network telemetry. |
+| `caddy` | HTTPS edge for portal, API, and the dedicated agent mTLS listener. |
+
+Agents are not containers: they run as a native `systemd` service
+(`seagull-agent`) on each monitored host and reach the platform through the
+mTLS listener on port 8444.
 
 ## Quickstart
 
 ### Requirements
 
-- Linux host recommended for agent telemetry and PCAP collectors.
+- Linux host with `systemd` (required for the agent and PCAP collectors).
 - Docker with the Compose plugin.
-- Git.
-- Python, Node, and Go are only required for local development outside Docker.
+- Git, curl, jq.
+- Python 3 with the `cryptography` package (internal PKI generation).
+- Go >= 1.21, gcc, and libpcap headers (the host agent is built from source).
+
+On a new machine, install everything in one step:
+
+```bash
+./seagull -d --install
+```
+
+`./seagull -d` (or `./seagull deps`) reports the status of each host
+dependency; `--install` runs [`deploy/install-deps.sh`](deploy/install-deps.sh)
+via sudo (Debian/Ubuntu fully supported, Fedora/RHEL best-effort). If Docker was
+just installed, log out and back in (or run `newgrp docker`) so your user picks
+up the `docker` group.
+
+- Node is only required for frontend development outside Docker.
 
 ### Start the Stack
 
 ```bash
 git clone https://gitlab.com/nathanmblima/seagull.git
 cd seagull
+./seagull -d --install
 ./seagull up
 ```
 
-`./seagull up` bootstraps `.env` from [`.env.example`](.env.example), validates
-the environment, builds the containers, waits for core services, creates
-short-lived agent bootstrap tokens, and starts the default agents.
+`./seagull up` is the only command needed from then on: it bootstraps `.env`
+from [`.env.example`](.env.example), validates the environment, generates the
+TLS/mTLS PKI, builds the containers, waits for core services, creates
+short-lived agent bootstrap tokens, and reconciles the host `systemd` agent
+(building and installing it automatically when missing).
 
 ### Access
 
@@ -109,9 +130,9 @@ Do not keep the development password for production.
 ## Common Commands
 
 ```bash
-./seagull up                         # start dev stack
+./seagull -d --install               # one-time host dependency install (new machines)
+./seagull up                         # start dev stack (platform in Docker, agent via systemd)
 ./seagull up --mode prod             # production-oriented startup
-./seagull up --agent-mode systemd    # platform in Docker, host agent via systemd
 ./seagull down                       # stop containers
 ./seagull restart --quick            # recreate without rebuild
 ./seagull status                     # service health summary
@@ -155,39 +176,39 @@ Important production settings:
 | `SEAGULL_ALLOWED_HOSTS` | Restrict accepted hostnames outside local development. |
 | `SEAGULL_CADDY_DOMAIN`, `SEAGULL_CADDY_EMAIL` | Public TLS/domain configuration for Caddy. |
 | `SEAGULL_AUDIT_HASH_PEPPER` or `SEAGULL_AUDIT_HASH_PEPPER_FILE` | Audit hashing pepper. |
-| `SEAGULL_PCAP_IFACE`, `SEAGULL_L7_PCAP_IFACE` | Interfaces used by packet collectors. |
 | `SEAGULL_CLICKHOUSE_ENABLED` | Enable/disable ClickHouse analytics sink. |
 | `SEAGULL_SEARCH_BACKEND`, `SEAGULL_ES_URL` | Hunting/search backend behavior. |
 
 Prefer `*_FILE` variables with Docker secrets for real deployments.
 
-## Agent Modes
+## Agents (systemd)
 
-The default deployment starts two Docker agents:
+Agents run exclusively as a native `systemd` service on each monitored host —
+never as containers. The default identity collects
+`authlog`, `proc`, `scan`, `ddos`, `l7`, `syscollector`, and `vuln`; sources are
+configured per host in `/etc/seagull/agent.env` (`SEAGULL_SOURCES`).
 
-| Agent | Sources |
-|---|---|
-| `seagull-agent-core` | `proc`, `authlog`, `syscollector`, `vuln` |
-| `seagull-agent-sensor` | `scan`, `ddos`, `l7` |
-
-Optional lateral movement collection is behind the `extra` profile:
-
-```bash
-./seagull dev --extra
-```
-
-For production hosts, the native service flow keeps the platform in Docker and
-runs the agent through `systemd`:
+On the platform host, `./seagull up` installs and reconciles the local agent
+automatically. To manage it directly:
 
 ```bash
 sudo ./seagull agent install-systemd
-./seagull up --agent-mode systemd
 ./seagull agent status-systemd
+./seagull agent validate-systemd
+journalctl -u seagull-agent -f
 ```
 
+For additional monitored hosts, deliver `secrets/pki/server-ca.crt` plus the
+per-agent client certificate and run
+`sudo ./deploy/systemd/install-agent.sh` — see
+[`secrets/README.md`](secrets/README.md) for the full distributed rollout and
+the mTLS trust model. Client certificates renew automatically over the mTLS
+channel (CSR-based, zero-touch).
+
 PCAP collectors require Linux capture permissions and the right interface
-configuration. Start with `SEAGULL_PCAP_IFACE` and keep collectors scoped to the
-network segment you intend to monitor.
+configuration. Set the interfaces in `/etc/seagull/agent.env`
+(`SEAGULL_L7_PCAP_IFACE`) and keep collectors scoped to the network segment you
+intend to monitor.
 
 ## Development
 
