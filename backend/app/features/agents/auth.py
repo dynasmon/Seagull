@@ -13,7 +13,6 @@ from app.core.db import SessionLocal
 from app.core.observability import incr_counter
 from app.features.agents.models import AgentCredentialModel, AgentModel
 
-
 _CERT_CN_RE = re.compile(r"CN\s*=\s*([^,/]+)")
 
 
@@ -42,6 +41,22 @@ def _enforce_cert_identity(request: Request, agent_id: str) -> None:
         return
     incr_counter("agent_auth_requests_total", outcome="failure", reason="cert_identity_mismatch")
     if mode == "enforce":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Agent certificate identity does not match agent id",
+        )
+
+
+def require_cert_identity(request: Request, agent_id: str) -> None:
+    cert_cn = _extract_cert_cn(request)
+    if cert_cn is None:
+        incr_counter("agent_auth_requests_total", outcome="failure", reason="cert_identity_missing")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A verified client certificate is required for this operation",
+        )
+    if cert_cn != agent_id:
+        incr_counter("agent_auth_requests_total", outcome="failure", reason="cert_identity_mismatch")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Agent certificate identity does not match agent id",
