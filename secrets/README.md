@@ -11,7 +11,10 @@ ignored by git except this file; never commit private keys.
 - `pki/` — internal PKI for agent mTLS, auto-generated and refreshed by `./seagull up`
   - `agent-ca.crt` / `agent-ca.key` — CA that signs agent **client** certificates;
     `agent-ca.crt` is mounted into Caddy as the mTLS `trust_pool`; `agent-ca.key`
-    never leaves the server host and is never committed
+    never leaves the server host and is never committed. It is mounted read-only
+    into the backend container, which acts as the issuing service for CSR-based
+    renewal; the key is `0644` inside the `0700` `pki/` directory for the same
+    capability-dropped-container reason as the server key below.
   - `agents/<agent-id>.crt` / `.key` — per-agent clientAuth certificate (CN = agent id)
   - `server-ca.crt` / `server-ca.key` — CA that signs the mTLS **server** certificate;
     agents trust `server-ca.crt` to verify the 8444 listener
@@ -63,20 +66,63 @@ literals, and Caddy's strict SNI-Host check (enabled under client auth) returns 
 when the request Host does not match the SNI. The hostname must resolve (DNS) and be
 present in the server cert SAN.
 
-## Certificate rotation
+## Certificate rotation (zero-touch, CSR-based)
 
-`./seagull up` (preflight/prepare) reissues any agent or server certificate within
-`SEAGULL_*_CERT_RENEW_BEFORE_DAYS` of expiry. The Go agent transport hot-reloads
-cert/key/CA by stat, so a refreshed file is picked up without a restart.
+Client certificates renew automatically. The agent owns its keypair and rotates it
+without operator action or service restarts:
 
-- **Co-located / provisioning host:** schedule `./seagull up` (or re-run
-  `install-agent.sh`) to refresh certificates before expiry.
-- **Distributed hosts:** the agent host holds no CA key and cannot self-issue. The
-  recommended zero-touch design is CSR-based enrollment (the agent generates its own
-  keypair, sends a CSR over the existing mTLS + credential channel, the server CA
-  signs and returns the certificate) — this is the planned enhancement. Until then,
-  rotate by re-issuing on the server host, re-delivering the agent cert/key, and
-  re-running `install-agent.sh`. Monitor expiry via the agent's certificate file.
+1. Every `SEAGULL_CONTROL_CERT_ROTATE_EVERY` (default `1h`) the agent inspects its
+   certificate; when it is within `SEAGULL_CONTROL_CERT_ROTATE_BEFORE` (default
+   `720h` = 30 days) of expiry, it generates a fresh ECDSA P-256 keypair and a CSR
+   (`CN = agent id`).
+2. The CSR travels over the existing authenticated channel —
+   `POST /agents/certificate/renew` on the 8444 mTLS listener — so issuance is gated
+   by all three factors at once: a valid current client certificate (Caddy
+   `require_and_verify`), a valid rotating agent credential, and the cert↔identity
+   binding (the endpoint hard-requires `X-Agent-Cert-CN == agent id`, regardless of
+   the global binding mode).
+3. The backend signs with `agent-ca.key` (mounted read-only into the container; the
+   same issuing-service model as Vault/step-ca). The subject is server-authoritative:
+   only the public key is taken from the CSR; CN/O are set from the authenticated
+   identity. CSRs are rejected on bad signature (proof-of-possession), CN mismatch,
+   or weak keys (`RSA < 2048`, curves other than P-256/P-384).
+4. The agent atomically persists the new pair to `/var/lib/seagull/pki/client.{crt,key}`
+   (tmp + rename; the pair is verified to match before the swap). The transport
+   hot-reloads by stat and falls back to the last-good pair if it ever observes a
+   half-written state, so rotation is hitless.
+
+Issuance and outcomes are observable end to end: backend metric
+`agent_cert_renew_total{outcome,reason}` plus an `agents.certificate.renew` audit
+event; agent heartbeat metrics `tls_client_cert_serial`, `tls_client_cert_not_after`,
+`tls_client_cert_seconds_remaining`, `tls_client_cert_renewals_total` and
+`tls_client_cert_renew_errors_total`.
+
+File layout on the agent host: the trust anchor `/etc/seagull/pki/root_ca.crt` stays
+root-owned and read-only to the service (the agent cannot alter what it trusts),
+while the rotating identity lives in `/var/lib/seagull/pki` (0700, owned by the
+`seagull` user). Re-running `install-agent.sh` re-seeds the identity from the
+provisioning source deterministically.
+
+Server-side material is still refreshed by `./seagull up` (preflight/prepare): the
+8444 server certificate and any provisioning-time agent certificates reissue within
+`SEAGULL_*_CERT_RENEW_BEFORE_DAYS` of expiry. Set `SEAGULL_AGENT_CERT_RENEWAL=disabled`
+to turn the renewal endpoint off (the metric then reports `reason="disabled"`).
+
+### Revocation and containment
+
+There is no CRL/OCSP: a stolen certificate alone only reaches the TLS layer — every
+API call additionally requires the live rotating credential bound to the same CN. To
+evict a compromised agent, revoke/disable it in the backend (credential checks fail
+immediately) — certificate possession grants nothing after that. Keep
+`SEAGULL_AGENT_CERT_VALIDITY_DAYS` modest (default 365; lower is safer) since renewal
+is automatic anyway.
+
+### CA rotation (manual runbook)
+
+Rotating `agent-ca` or `server-ca` is an operator action: generate the new CA,
+temporarily trust old+new (concatenate PEMs in Caddy's `trust_pool` file for clients,
+or in `root_ca.crt` on agent hosts for the server side), let agents roll their leaf
+certificates onto the new CA, then drop the old PEM from the bundle.
 
 ## Disabling mTLS (not the supported path)
 
