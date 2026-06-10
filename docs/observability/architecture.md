@@ -33,8 +33,9 @@ EUI observability  ──auth'd JSON──►  backend observability API ──�
 ## Security model
 
 - **Prometheus is internal-only.** No host port is published; only services on
-  the `seagull` docker network reach it. Caddy proxies `/api/*` and `/agent/*`
-  to the backend, never `/metrics`.
+  the `seagull` docker network reach it. Caddy proxies `/api/*` (portal
+  listener) and `/agent/*` (dedicated mTLS listener, port 8444) to the backend,
+  never `/metrics`.
 - **No arbitrary PromQL.** The browser asks for a named query from the allowlist;
   the backend builds the PromQL. Range requests are capped (min step 15s, max
   span 7d, max 1500 points) so a client cannot request an enormous matrix.
@@ -69,7 +70,7 @@ Declared in `app/core/observability/registry.py` (source of truth). Counters end
 |---|---|
 | HTTP | `http_requests_total`, `http_request_duration_ms` |
 | API | `api_cache_hit_total`, `api_route_latency_seconds` |
-| Agent auth/identity | `agent_auth_requests_total`, `agent_bootstrap_token_*`, `agent_identity_enroll_total`, `agent_credential_rotate_total`, `agent_identity_reissue_total`, `agent_disable_total`, `agent_enable_total` |
+| Agent auth/identity | `agent_auth_requests_total`, `agent_bootstrap_token_*`, `agent_identity_enroll_total`, `agent_credential_rotate_total`, `agent_cert_renew_total`, `agent_identity_reissue_total`, `agent_disable_total`, `agent_enable_total` |
 | Realtime | `realtime_publish_topic_total`, `realtime_publish_dropped_total`, `realtime_stream_connections_total`, `realtime_stream_reconnect_total`, `realtime_stream_disconnect_total`, `realtime_cursor_gap_total`, `realtime_unauthorized_topic_total`, `realtime_delivery_coalesced_total` |
 | Ingest (receive) | `ingest_batches_received_total`, `ingest_events_received_total`, `ingest_events_sampled_total` |
 | Ingest (worker) | `ingest_batches_processed_total`, `ingest_events_processed_total`, `ingest_loop_errors_total`, `ingest_hot_path_latency_seconds`, `ingest_optional_sink_latency_seconds`, `ingest_optional_sink_queue_depth`, `ingest_optional_sink_dropped_total`, `ingest_queue_depth`, `ingest_backpressure_active`, `ingest_storm_active` |
