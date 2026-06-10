@@ -10,108 +10,6 @@ volumes:
   prometheus-data:
   caddy-data:
   caddy-config:
-  agent-core-state:
-  agent-sensor-state:
-  agent-lateral-state:
-  agent-proc-state:
-  agent-scan-state:
-  agent-ddos-state:
-  agent-vuln-state:
-
-x-agent-env: &agent-env
-  SEAGULL_API_URL: ${SEAGULL_API_URL:-https://127.0.0.1:${SEAGULL_AGENT_MTLS_PORT:-8444}/agent}
-  SEAGULL_HTTP_TIMEOUT: ${SEAGULL_HTTP_TIMEOUT:-}
-  SEAGULL_CONTROL_HEARTBEAT_EVERY: ${SEAGULL_CONTROL_HEARTBEAT_EVERY:-}
-  SEAGULL_CONTROL_HEARTBEAT_JITTER: ${SEAGULL_CONTROL_HEARTBEAT_JITTER:-5s}
-  SEAGULL_CONTROL_CONFIG_EVERY: ${SEAGULL_CONTROL_CONFIG_EVERY:-}
-  SEAGULL_CONTROL_CONFIG_JITTER: ${SEAGULL_CONTROL_CONFIG_JITTER:-30s}
-  SEAGULL_PCAP_IFACE: ${SEAGULL_PCAP_IFACE:-}
-  SEAGULL_L7_PCAP_IFACE: ${SEAGULL_L7_PCAP_IFACE:-}
-  SEAGULL_L7_DEDUP_TTL: ${SEAGULL_L7_DEDUP_TTL:-20s}
-  SEAGULL_L7_MAX_BATCH: ${SEAGULL_L7_MAX_BATCH:-400}
-  SEAGULL_L7_MAX_PAYLOAD_BYTES: ${SEAGULL_L7_MAX_PAYLOAD_BYTES:-512}
-  SEAGULL_L7_INCLUDE_PAYLOAD: ${SEAGULL_L7_INCLUDE_PAYLOAD:-false}
-  SEAGULL_DDOS_SUSTAIN_WINDOWS: ${SEAGULL_DDOS_SUSTAIN_WINDOWS:-}
-  SEAGULL_DDOS_COOLDOWN: ${SEAGULL_DDOS_COOLDOWN:-}
-  SEAGULL_DDOS_MIN_PPS: ${SEAGULL_DDOS_MIN_PPS:-}
-  SEAGULL_DDOS_MIN_BPS: ${SEAGULL_DDOS_MIN_BPS:-}
-  SEAGULL_DDOS_MIN_CONFIDENCE: ${SEAGULL_DDOS_MIN_CONFIDENCE:-}
-  SEAGULL_DDOS_MIN_SRC_IPS: ${SEAGULL_DDOS_MIN_SRC_IPS:-}
-  SEAGULL_DDOS_MIN_SRC_ENTROPY_NORM: ${SEAGULL_DDOS_MIN_SRC_ENTROPY_NORM:-}
-  SEAGULL_DDOS_BASELINE_WARMUP_WINDOWS: ${SEAGULL_DDOS_BASELINE_WARMUP_WINDOWS:-}
-  SEAGULL_DDOS_BASELINE_FACTOR: ${SEAGULL_DDOS_BASELINE_FACTOR:-}
-  SEAGULL_DDOS_MIN_HTTP_RPS: ${SEAGULL_DDOS_MIN_HTTP_RPS:-}
-  SEAGULL_DDOS_MIN_TLS_HS_RPS: ${SEAGULL_DDOS_MIN_TLS_HS_RPS:-}
-  SEAGULL_DDOS_MAX_BATCH: ${SEAGULL_DDOS_MAX_BATCH:-}
-  SEAGULL_DDOS_BACKPRESSURE_HIGH_WATERMARK: ${SEAGULL_DDOS_BACKPRESSURE_HIGH_WATERMARK:-}
-  SEAGULL_DDOS_BACKPRESSURE_SAMPLE_EVERY: ${SEAGULL_DDOS_BACKPRESSURE_SAMPLE_EVERY:-}
-  SEAGULL_SKIP_LOOPBACK: ${SEAGULL_SKIP_LOOPBACK:-}
-  SEAGULL_SKIP_LINK_LOCAL: ${SEAGULL_SKIP_LINK_LOCAL:-}
-  SEAGULL_DENY_CIDRS: ${SEAGULL_DENY_CIDRS:-}
-  SEAGULL_DENY_DST_PORTS: ${SEAGULL_DENY_DST_PORTS:-}
-  SEAGULL_AGENT_CONFIG_FILE: ${SEAGULL_AGENT_CONFIG_FILE:-}
-  SEAGULL_SYSCOLLECT_EVERY: ${SEAGULL_SYSCOLLECT_EVERY:-}
-  SEAGULL_SYSCOLLECT_STARTUP_JITTER: ${SEAGULL_SYSCOLLECT_STARTUP_JITTER:-45s}
-  SEAGULL_SYSCOLLECT_CMD_TIMEOUT: ${SEAGULL_SYSCOLLECT_CMD_TIMEOUT:-}
-  SEAGULL_SYSCOLLECT_MAX_OUTPUT_BYTES: ${SEAGULL_SYSCOLLECT_MAX_OUTPUT_BYTES:-}
-  SEAGULL_SYSCOLLECT_MAX_PACKAGES: ${SEAGULL_SYSCOLLECT_MAX_PACKAGES:-}
-  SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_ENABLED: ${SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_ENABLED:-false}
-  SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_CIDRS: ${SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_CIDRS:-}
-  SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_ALLOW_PUBLIC: ${SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_ALLOW_PUBLIC:-false}
-  SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_INTERVAL: ${SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_INTERVAL:-30m}
-  SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_MAX_HOSTS: ${SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_MAX_HOSTS:-256}
-  SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_RATE_LIMIT: ${SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_RATE_LIMIT:-20}
-  SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_TIMEOUT: ${SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_TIMEOUT:-30s}
-  SEAGULL_AUTHLOG_DEDUP_TTL: ${SEAGULL_AUTHLOG_DEDUP_TTL:-}
-  SEAGULL_AUTHLOG_INCLUDE_ACCEPTED: ${SEAGULL_AUTHLOG_INCLUDE_ACCEPTED:-}
-  SEAGULL_VULN_STARTUP_JITTER: ${SEAGULL_VULN_STARTUP_JITTER:-2m}
-  SEAGULL_FORCE_ENROLL_ON_START: ${SEAGULL_FORCE_ENROLL_ON_START:-true}
-  SEAGULL_TLS_SERVER_NAME: ${SEAGULL_AGENT_TLS_SERVER_NAME:-localhost}
-  SEAGULL_TLS_CA_FILE: /etc/seagull/server-ca.crt
-  SEAGULL_TLS_CERT_FILE: ${SEAGULL_AGENT_MTLS_CERT_FILE:-/etc/seagull/agent-mtls/agent.crt}
-  SEAGULL_TLS_KEY_FILE: ${SEAGULL_AGENT_MTLS_KEY_FILE:-/etc/seagull/agent-mtls/agent.key}
-  SEAGULL_AGENT_IDENTITY_STATE_FILE: ${SEAGULL_AGENT_IDENTITY_STATE_FILE:-/var/lib/seagull/agent.identity.json}
-  SEAGULL_AGENT_CREDENTIAL_FILE: ${SEAGULL_AGENT_CREDENTIAL_FILE:-/var/lib/seagull/agent.credential}
-  SEAGULL_CONTROL_CREDENTIAL_ROTATE_EVERY: ${SEAGULL_CONTROL_CREDENTIAL_ROTATE_EVERY:-5m}
-  SEAGULL_CONTROL_CREDENTIAL_ROTATE_BEFORE: ${SEAGULL_CONTROL_CREDENTIAL_ROTATE_BEFORE:-24h}
-
-x-agent-build: &agent-build
-  build:
-    context: ./agent
-    dockerfile: Dockerfile
-
-x-agent-common: &agent-common
-  <<: *agent-build
-  network_mode: host
-  user: "0:0"
-  group_add:
-    - "${SEAGULL_HOST_ADM_GID:-4}"
-  security_opt:
-    - no-new-privileges:true
-  restart: unless-stopped
-
-x-agent-core-base: &agent-core-base
-  <<: *agent-common
-  cap_drop:
-    - ALL
-  read_only: true
-  tmpfs:
-    - /tmp
-  mem_limit: 384m
-  cpus: "0.75"
-
-x-agent-sensor-base: &agent-sensor-base
-  <<: *agent-common
-  cap_drop:
-    - ALL
-  cap_add:
-    - NET_RAW
-    - NET_ADMIN
-  read_only: true
-  tmpfs:
-    - /tmp
-  mem_limit: 512m
-  cpus: "1.50"
 
 services:
 
@@ -252,6 +150,10 @@ services:
     environment:
       SEAGULL_ENV: ${SEAGULL_ENV:-${SEAGULL_MODE:-dev}}
       SEAGULL_AGENT_MTLS_IDENTITY_BINDING: ${SEAGULL_AGENT_MTLS_IDENTITY_BINDING:-enforce}
+      SEAGULL_AGENT_CERT_RENEWAL: ${SEAGULL_AGENT_CERT_RENEWAL:-enabled}
+      SEAGULL_AGENT_CERT_VALIDITY_DAYS: ${SEAGULL_AGENT_CERT_VALIDITY_DAYS:-365}
+      SEAGULL_AGENT_MTLS_CA_CERT_FILE: /etc/seagull/pki/agent-ca.crt
+      SEAGULL_AGENT_MTLS_CA_KEY_FILE: /etc/seagull/pki/agent-ca.key
       SEAGULL_DB_HOST: postgres
       SEAGULL_DB_PORT: "5432"
       SEAGULL_DB_NAME: ${POSTGRES_DB:-seagull}
@@ -373,6 +275,8 @@ services:
       SEAGULL_OBSERVABILITY_CACHE_TTL_SECONDS: ${SEAGULL_OBSERVABILITY_CACHE_TTL_SECONDS:-10}
     volumes:
       - ./rules:/app/rules:ro
+      - ./secrets/pki/agent-ca.crt:/etc/seagull/pki/agent-ca.crt:ro
+      - ./secrets/pki/agent-ca.key:/etc/seagull/pki/agent-ca.key:ro
     tmpfs:
       # Fresh on every container (re)start so multiprocess series don't carry
       # over stale per-pid files. Default tmpfs mode (1777) is writable by uid 10001.
@@ -711,192 +615,6 @@ services:
       retries: 20
       start_period: 20s
     restart: unless-stopped
-
-  # Agents (core)
-
-  seagull-agent-core:
-    <<: *agent-core-base
-    container_name: seagull-agent-core-1
-    profiles: ["docker-agents"]
-    depends_on:
-      seagull-backend:
-        condition: service_healthy
-    environment:
-      <<: *agent-env
-      SEAGULL_AGENT_ID: ${AGENT_CORE_ID:-agent-core-1}
-      SEAGULL_SOURCES: proc,authlog,syscollector,vuln
-      SEAGULL_AUTHLOG_PATH: /var/log/auth.log
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_CORE_BOOTSTRAP_TOKEN:-}
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_CORE_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_CORE_ID:-agent-core-1}.token}
-      SEAGULL_HOST_ROOT: ${SEAGULL_VULN_HOST_ROOT:-}
-      SEAGULL_VULN_SCAN_EVERY: ${SEAGULL_VULN_SCAN_EVERY:-}
-      SEAGULL_VULN_HTTP_TIMEOUT: ${SEAGULL_VULN_HTTP_TIMEOUT:-}
-      SEAGULL_VULN_OSV_URL: ${SEAGULL_VULN_OSV_URL:-}
-      SEAGULL_VULN_MIN_SEVERITY: ${SEAGULL_VULN_MIN_SEVERITY:-}
-      SEAGULL_VULN_ANALYSIS_PROFILE: ${SEAGULL_VULN_ANALYSIS_PROFILE:-}
-      SEAGULL_VULN_EXPOSURE_ENABLED: ${SEAGULL_VULN_EXPOSURE_ENABLED:-}
-      SEAGULL_VULN_QUERY_BATCH_SIZE: ${SEAGULL_VULN_QUERY_BATCH_SIZE:-}
-      SEAGULL_VULN_CMD_TIMEOUT: ${SEAGULL_VULN_CMD_TIMEOUT:-}
-      SEAGULL_VULN_MAX_PACKAGES: ${SEAGULL_VULN_MAX_PACKAGES:-}
-      SEAGULL_VULN_HOST_ROOT: ${SEAGULL_VULN_HOST_ROOT:-}
-      SEAGULL_VULN_EMIT_SUMMARY_EVENT: ${SEAGULL_VULN_EMIT_SUMMARY_EVENT:-}
-    volumes:
-      - /var/log:/host/var/log:ro
-      - /:/host:ro
-      - agent-core-state:/var/lib/seagull
-      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
-      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_CORE_ID:-agent-core-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_CORE_ID:-agent-core-1}.key:/etc/seagull/agent-mtls/agent.key:ro
-
-  seagull-agent-sensor:
-    <<: *agent-sensor-base
-    container_name: seagull-agent-sensor-1
-    profiles: ["docker-agents"]
-    depends_on:
-      seagull-backend:
-        condition: service_healthy
-    environment:
-      <<: *agent-env
-      SEAGULL_AGENT_ID: ${AGENT_SENSOR_ID:-agent-sensor-1}
-      SEAGULL_SOURCES: scan,ddos,l7
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_SENSOR_BOOTSTRAP_TOKEN:-}
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SENSOR_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_SENSOR_ID:-agent-sensor-1}.token}
-      SEAGULL_DDOS_SUSTAIN_WINDOWS: ${SEAGULL_DDOS_SUSTAIN_WINDOWS:-}
-      SEAGULL_DDOS_COOLDOWN: ${SEAGULL_DDOS_COOLDOWN:-}
-    volumes:
-      - agent-sensor-state:/var/lib/seagull
-      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
-      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_SENSOR_ID:-agent-sensor-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_SENSOR_ID:-agent-sensor-1}.key:/etc/seagull/agent-mtls/agent.key:ro
-
-  # Agents (optional — profile: extra)
-
-  seagull-agent-lateral:
-    <<: *agent-sensor-base
-    container_name: seagull-agent-lateral
-    profiles: ["extra"]
-    depends_on:
-      seagull-backend:
-        condition: service_healthy
-    environment:
-      <<: *agent-env
-      SEAGULL_AGENT_ID: ${AGENT_LATERAL_ID:-agent-lateral-1}
-      SEAGULL_SOURCES: lateral
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_LATERAL_BOOTSTRAP_TOKEN:-}
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_LATERAL_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_LATERAL_ID:-agent-lateral-1}.token}
-      SEAGULL_LATERAL_MODE: ${SEAGULL_LATERAL_MODE:-}
-      SEAGULL_LATERAL_PCAP_IFACE: ${SEAGULL_LATERAL_PCAP_IFACE:-}
-      SEAGULL_LATERAL_PORTS: ${SEAGULL_LATERAL_PORTS:-}
-      SEAGULL_LATERAL_INCLUDE_ESTABLISHED: ${SEAGULL_LATERAL_INCLUDE_ESTABLISHED:-}
-      SEAGULL_LATERAL_DEDUP_TTL: ${SEAGULL_LATERAL_DEDUP_TTL:-}
-      SEAGULL_LATERAL_MAX_BATCH: ${SEAGULL_LATERAL_MAX_BATCH:-}
-    volumes:
-      - agent-lateral-state:/var/lib/seagull
-      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
-      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_LATERAL_ID:-agent-lateral-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_LATERAL_ID:-agent-lateral-1}.key:/etc/seagull/agent-mtls/agent.key:ro
-
-  # Agents (legacy split — profile: legacy-agents)
-
-  seagull-agent-proc:
-    <<: *agent-core-base
-    container_name: seagull-agent-proc-legacy
-    profiles: ["legacy-agents"]
-    depends_on:
-      seagull-backend:
-        condition: service_healthy
-    environment:
-      <<: *agent-env
-      SEAGULL_AGENT_ID: ${AGENT_PROC_ID:-agent-proc-1}
-      SEAGULL_SOURCES: proc,authlog,syscollector
-      SEAGULL_AUTHLOG_PATH: /var/log/auth.log
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_PROC_BOOTSTRAP_TOKEN:-}
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_PROC_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_PROC_ID:-agent-proc-1}.token}
-    volumes:
-      - /var/log:/host/var/log:ro
-      - agent-proc-state:/var/lib/seagull
-      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
-      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_PROC_ID:-agent-proc-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_PROC_ID:-agent-proc-1}.key:/etc/seagull/agent-mtls/agent.key:ro
-
-  seagull-agent-scan:
-    <<: *agent-sensor-base
-    container_name: seagull-agent-scan-legacy
-    profiles: ["legacy-agents"]
-    depends_on:
-      seagull-backend:
-        condition: service_healthy
-    environment:
-      <<: *agent-env
-      SEAGULL_AGENT_ID: ${AGENT_SCAN_ID:-agent-scan-1}
-      SEAGULL_SOURCES: scan
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_SCAN_BOOTSTRAP_TOKEN:-}
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_SCAN_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_SCAN_ID:-agent-scan-1}.token}
-    volumes:
-      - agent-scan-state:/var/lib/seagull
-      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
-      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_SCAN_ID:-agent-scan-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_SCAN_ID:-agent-scan-1}.key:/etc/seagull/agent-mtls/agent.key:ro
-
-  seagull-agent-ddos:
-    <<: *agent-sensor-base
-    container_name: seagull-agent-ddos-legacy
-    profiles: ["legacy-agents"]
-    depends_on:
-      seagull-backend:
-        condition: service_healthy
-    environment:
-      <<: *agent-env
-      SEAGULL_AGENT_ID: ${AGENT_DDOS_ID:-agent-ddos-1}
-      SEAGULL_SOURCES: ddos
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_DDOS_BOOTSTRAP_TOKEN:-}
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_DDOS_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_DDOS_ID:-agent-ddos-1}.token}
-      SEAGULL_DDOS_SUSTAIN_WINDOWS: ${SEAGULL_DDOS_SUSTAIN_WINDOWS:-}
-      SEAGULL_DDOS_COOLDOWN: ${SEAGULL_DDOS_COOLDOWN:-}
-    volumes:
-      - agent-ddos-state:/var/lib/seagull
-      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
-      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_DDOS_ID:-agent-ddos-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_DDOS_ID:-agent-ddos-1}.key:/etc/seagull/agent-mtls/agent.key:ro
-
-  seagull-agent-vuln:
-    <<: *agent-core-base
-    container_name: seagull-agent-vuln-legacy
-    profiles: ["legacy-agents"]
-    depends_on:
-      seagull-backend:
-        condition: service_healthy
-    environment:
-      <<: *agent-env
-      SEAGULL_AGENT_ID: ${AGENT_VULN_ID:-agent-vuln-1}
-      SEAGULL_SOURCES: vuln
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN: ${AGENT_VULN_BOOTSTRAP_TOKEN:-}
-      SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE: ${AGENT_VULN_BOOTSTRAP_TOKEN_FILE:-/etc/seagull/bootstrap/${AGENT_VULN_ID:-agent-vuln-1}.token}
-      SEAGULL_HOST_ROOT: ${SEAGULL_VULN_HOST_ROOT:-}
-      SEAGULL_VULN_SCAN_EVERY: ${SEAGULL_VULN_SCAN_EVERY:-}
-      SEAGULL_VULN_HTTP_TIMEOUT: ${SEAGULL_VULN_HTTP_TIMEOUT:-}
-      SEAGULL_VULN_OSV_URL: ${SEAGULL_VULN_OSV_URL:-}
-      SEAGULL_VULN_MIN_SEVERITY: ${SEAGULL_VULN_MIN_SEVERITY:-}
-      SEAGULL_VULN_ANALYSIS_PROFILE: ${SEAGULL_VULN_ANALYSIS_PROFILE:-}
-      SEAGULL_VULN_EXPOSURE_ENABLED: ${SEAGULL_VULN_EXPOSURE_ENABLED:-}
-      SEAGULL_VULN_QUERY_BATCH_SIZE: ${SEAGULL_VULN_QUERY_BATCH_SIZE:-}
-      SEAGULL_VULN_CMD_TIMEOUT: ${SEAGULL_VULN_CMD_TIMEOUT:-}
-      SEAGULL_VULN_MAX_PACKAGES: ${SEAGULL_VULN_MAX_PACKAGES:-}
-      SEAGULL_VULN_HOST_ROOT: ${SEAGULL_VULN_HOST_ROOT:-}
-      SEAGULL_VULN_EMIT_SUMMARY_EVENT: ${SEAGULL_VULN_EMIT_SUMMARY_EVENT:-}
-    volumes:
-      - /:/host:ro
-      - agent-vuln-state:/var/lib/seagull
-      - ./secrets/bootstrap:/etc/seagull/bootstrap:ro
-      - ${SEAGULL_AGENT_SERVER_CA_FILE:-./secrets/tls/ca.crt}:/etc/seagull/server-ca.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_VULN_ID:-agent-vuln-1}.crt:/etc/seagull/agent-mtls/agent.crt:ro
-      - ${SEAGULL_PKI_DIR:-./secrets/pki}/agents/${AGENT_VULN_ID:-agent-vuln-1}.key:/etc/seagull/agent-mtls/agent.key:ro
 
   # Observability (optional — profile: observability)
 
