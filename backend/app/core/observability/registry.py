@@ -96,6 +96,7 @@ _SPECS: Tuple[MetricSpec, ...] = (
     _spec("agent_bootstrap_token_admin_issue_total", "counter", "Admin-issued agent bootstrap tokens.", ("outcome",)),
     _spec("agent_identity_enroll_total", "counter", "Agent identity enrollments.", ("outcome", "token_type")),
     _spec("agent_credential_rotate_total", "counter", "Agent credential rotations.", ("outcome",)),
+    _spec("agent_cert_renew_total", "counter", "Agent certificate renewals via CSR.", ("outcome", "reason")),
     _spec("agent_identity_reissue_total", "counter", "Agent identity re-issues.", ("outcome",)),
     _spec("agent_disable_total", "counter", "Agents disabled.", ("outcome",)),
     _spec("agent_enable_total", "counter", "Agents enabled.", ("outcome",)),
