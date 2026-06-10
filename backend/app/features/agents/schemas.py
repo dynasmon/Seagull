@@ -64,6 +64,19 @@ class AgentUpdateIn(BaseModel):
     metadata: Optional[Dict[str, Any]] = Field(default=None)
 
 
+class AgentCertificateRenewIn(BaseModel):
+    csr_pem: str = Field(..., min_length=1, max_length=16384)
+
+
+class AgentCertificateRenewOut(BaseModel):
+    agent_id: str
+    certificate_pem: str
+    ca_pem: str
+    serial_hex: str
+    not_before: datetime
+    not_after: datetime
+
+
 class AgentBootstrapTokenCreateIn(BaseModel):
     ttl_seconds: Optional[int] = Field(default=None, ge=60, le=86400)
     max_uses: Optional[int] = Field(default=None, ge=1, le=100)

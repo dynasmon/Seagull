@@ -12,17 +12,20 @@ from sqlalchemy.orm import Session
 from app.core.audit import audit_actor, write_audit_event
 from app.core.config import settings
 from app.core.observability import incr_counter
-from app.features.agents import repository
+from app.features.agents import certs, repository
 from app.features.agents.auth import (
     AgentPrincipal,
     generate_agent_credential,
     generate_bootstrap_token,
     hash_bootstrap_token,
+    require_cert_identity,
 )
 from app.features.agents.models import AgentBootstrapTokenModel, AgentCredentialModel, AgentModel
 from app.features.agents.schemas import (
     AgentBootstrapTokenCreateIn,
     AgentBootstrapTokenOut,
+    AgentCertificateRenewIn,
+    AgentCertificateRenewOut,
     AgentConfigUpdateIn,
     AgentCredentialOut,
     AgentDetail,
@@ -437,6 +440,70 @@ def rotate_credential(db: Session, *, agent: AgentPrincipal) -> AgentCredentialO
         used_uses=int(cred_row.used_uses or 0),
         renewal_token=renewal_token,
         renewal_token_expires_at=renewal_row.expires_at,
+    )
+
+
+def renew_agent_certificate(
+    db: Session,
+    *,
+    payload: AgentCertificateRenewIn,
+    request,
+    agent: AgentPrincipal,
+    audit_writer=write_audit_event,
+) -> AgentCertificateRenewOut:
+    require_cert_identity(request, agent.agent_id)
+
+    row = repository.get_agent_by_id(db, agent.id)
+    if not row or row.is_revoked:
+        incr_counter("agent_cert_renew_total", outcome="failure", reason="unknown_or_revoked_agent")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
+
+    try:
+        issued = certs.renew_agent_certificate(agent.agent_id, payload.csr_pem)
+    except certs.CertificateRenewalDisabled:
+        incr_counter("agent_cert_renew_total", outcome="failure", reason="disabled")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Agent certificate renewal is disabled",
+        ) from None
+    except certs.CertificateAuthorityUnavailable:
+        incr_counter("agent_cert_renew_total", outcome="failure", reason="ca_unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Certificate authority unavailable",
+        ) from None
+    except certs.CertificateRequestError as exc:
+        incr_counter("agent_cert_renew_total", outcome="failure", reason=exc.reason)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid certificate request: {exc.detail}",
+        ) from exc
+
+    audit_writer(
+        db,
+        request=request,
+        actor=audit_actor(None, agent.agent_id),
+        event_type="agent_action",
+        action="agents.certificate.renew",
+        resource_type="agent",
+        resource_id=agent.agent_id,
+        outcome="success",
+        after={
+            "agent_id": agent.agent_id,
+            "serial_hex": issued.serial_hex,
+            "not_before": issued.not_before.isoformat(),
+            "not_after": issued.not_after.isoformat(),
+        },
+    )
+    repository.commit(db)
+    incr_counter("agent_cert_renew_total", outcome="success")
+    return AgentCertificateRenewOut(
+        agent_id=issued.agent_id,
+        certificate_pem=issued.certificate_pem,
+        ca_pem=issued.ca_pem,
+        serial_hex=issued.serial_hex,
+        not_before=issued.not_before,
+        not_after=issued.not_after,
     )
 
 
