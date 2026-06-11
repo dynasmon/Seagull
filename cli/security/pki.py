@@ -31,6 +31,8 @@ SERVER_CERT_NAME = "mtls.crt"
 SERVER_KEY_NAME = "mtls.key"
 DEFAULT_SERVER_NAMES = "localhost,127.0.0.1"
 
+MTLS_SHARED_KEY_MODE = 0o640
+
 
 def _cfg(key: str, default: str) -> str:
     value = os.environ.get(key)
@@ -161,7 +163,7 @@ def generate_ca(pki_dir: Path) -> Tuple[rsa.RSAPrivateKey, x509.Certificate]:
         CA_KEY_NAME,
         CA_CERT_NAME,
         _cfg_int("SEAGULL_AGENT_CA_VALIDITY_DAYS", 3650),
-        key_mode=0o644,
+        key_mode=MTLS_SHARED_KEY_MODE,
     )
 
 
@@ -368,7 +370,7 @@ def issue_server_cert(
         .sign(ca_key, hashes.SHA256())
     )
 
-    _write_key(key, server_dir / SERVER_KEY_NAME, 0o644)
+    _write_key(key, server_dir / SERVER_KEY_NAME, MTLS_SHARED_KEY_MODE)
     _write_cert(cert, server_dir / SERVER_CERT_NAME)
     return cert
 
@@ -404,6 +406,8 @@ def ensure_server_pki(pki_dir: Optional[Path] = None) -> bool:
 
     if reissue:
         issue_server_cert(ca_key, ca_cert, server_names, pki_dir)
+    if key_path.exists():
+        _chmod(key_path, MTLS_SHARED_KEY_MODE)
     return reissue
 
 
@@ -420,7 +424,7 @@ def ensure_agent_pki(pki_dir: Optional[Path] = None) -> List[str]:
         ca_key, ca_cert = load_ca(pki_dir)
     else:
         ca_key, ca_cert = generate_ca(pki_dir)
-    _chmod(pki_dir / CA_KEY_NAME, 0o644)
+    _chmod(pki_dir / CA_KEY_NAME, MTLS_SHARED_KEY_MODE)
 
     renew_before_days = _cfg_int("SEAGULL_AGENT_CERT_RENEW_BEFORE_DAYS", 30)
     renewed: List[str] = []
