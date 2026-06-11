@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+from sqlalchemy.orm import Session
 
 from app.core.config.env_secrets import getenv_compat
+from app.features.agents import repository
+from app.features.agents.models import AgentCertificateModel, AgentCertificateStatus
 
 DEFAULT_CA_CERT_FILE = "/etc/seagull/pki/agent-ca.crt"
 DEFAULT_CA_KEY_FILE = "/etc/seagull/pki/agent-ca.key"
@@ -39,6 +43,8 @@ class IssuedCertificate:
     certificate_pem: str
     ca_pem: str
     serial_hex: str
+    fingerprint_sha256: str
+    public_key_sha256: str
     not_before: datetime
     not_after: datetime
 
@@ -121,7 +127,35 @@ def validate_csr(csr_pem: str, agent_id: str) -> x509.CertificateSigningRequest:
     return csr
 
 
-def sign_agent_csr(csr: x509.CertificateSigningRequest, agent_id: str) -> IssuedCertificate:
+def _public_key_sha256(public_key) -> str:
+    der = public_key.public_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return hashlib.sha256(der).hexdigest()
+
+
+def _record_issued_certificate(db: Session, cert: x509.Certificate, issued: IssuedCertificate) -> None:
+    repository.save_certificate(
+        db,
+        AgentCertificateModel(
+            agent_id=issued.agent_id,
+            serial_hex=issued.serial_hex,
+            fingerprint_sha256=issued.fingerprint_sha256,
+            subject=cert.subject.rfc4514_string(),
+            public_key_sha256=issued.public_key_sha256,
+            issued_at=issued.not_before,
+            expires_at=issued.not_after,
+            status=AgentCertificateStatus.active.value,
+        ),
+    )
+
+
+def sign_agent_csr(
+    csr: x509.CertificateSigningRequest,
+    agent_id: str,
+    db: Optional[Session] = None,
+) -> IssuedCertificate:
     ca_key, ca_cert, ca_pem = load_signing_ca()
     public_key = csr.public_key()
     subject = x509.Name(
@@ -164,18 +198,27 @@ def sign_agent_csr(csr: x509.CertificateSigningRequest, agent_id: str) -> Issued
         )
         .sign(ca_key, hashes.SHA256())
     )
-    return IssuedCertificate(
+    issued = IssuedCertificate(
         agent_id=agent_id,
         certificate_pem=cert.public_bytes(serialization.Encoding.PEM).decode("utf-8"),
         ca_pem=ca_pem,
         serial_hex=format(cert.serial_number, "x"),
+        fingerprint_sha256=cert.fingerprint(hashes.SHA256()).hex(),
+        public_key_sha256=_public_key_sha256(public_key),
         not_before=not_before,
         not_after=not_after,
     )
+    if db is not None:
+        _record_issued_certificate(db, cert, issued)
+    return issued
 
 
-def renew_agent_certificate(agent_id: str, csr_pem: str) -> IssuedCertificate:
+def renew_agent_certificate(
+    agent_id: str,
+    csr_pem: str,
+    db: Optional[Session] = None,
+) -> IssuedCertificate:
     if not renewal_enabled():
         raise CertificateRenewalDisabled("agent certificate renewal is disabled")
     csr = validate_csr(csr_pem, agent_id)
-    return sign_agent_csr(csr, agent_id)
+    return sign_agent_csr(csr, agent_id, db=db)
