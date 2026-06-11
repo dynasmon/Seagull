@@ -20,15 +20,15 @@ class TestGenerateCA:
         assert constraints.value.ca is True
         assert constraints.value.path_length == 0
 
-    def test_ca_key_is_backend_readable_in_locked_dir(self, tmp_path):
+    def test_ca_key_is_group_readable_not_world(self, tmp_path):
         pki.generate_ca(tmp_path)
-        assert ((tmp_path / "agent-ca.key").stat().st_mode & 0o777) == 0o644
+        assert ((tmp_path / "agent-ca.key").stat().st_mode & 0o777) == 0o640
 
-    def test_ensure_agent_pki_migrates_ca_key_mode(self, tmp_path):
+    def test_ensure_agent_pki_normalizes_world_readable_ca_key(self, tmp_path):
         pki.generate_ca(tmp_path)
-        (tmp_path / "agent-ca.key").chmod(0o600)
+        (tmp_path / "agent-ca.key").chmod(0o644)
         pki.ensure_agent_pki(tmp_path)
-        assert ((tmp_path / "agent-ca.key").stat().st_mode & 0o777) == 0o644
+        assert ((tmp_path / "agent-ca.key").stat().st_mode & 0o777) == 0o640
 
     def test_idempotent_does_not_overwrite(self, tmp_path):
         pki.generate_ca(tmp_path)
@@ -204,13 +204,18 @@ class TestServerPki:
             tmp_path / "server" / "mtls.crt", tmp_path / "agent-ca.crt"
         )
 
-    def test_server_key_is_caddy_readable_in_locked_dir(self, tmp_path, monkeypatch):
+    def test_server_key_is_group_readable_in_locked_dir(self, tmp_path, monkeypatch):
         monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_NAMES", "localhost")
         pki.ensure_server_pki(tmp_path)
         key_mode = (tmp_path / "server" / "mtls.key").stat().st_mode & 0o777
         dir_mode = (tmp_path / "server").stat().st_mode & 0o777
-        assert key_mode == 0o644
+        assert key_mode == 0o640
         assert dir_mode == 0o700
+
+    def test_server_ca_key_stays_owner_only(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_NAMES", "localhost")
+        pki.ensure_server_pki(tmp_path)
+        assert ((tmp_path / "server-ca.key").stat().st_mode & 0o777) == 0o600
 
     def test_idempotent(self, tmp_path, monkeypatch):
         monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_NAMES", "localhost")

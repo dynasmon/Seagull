@@ -144,7 +144,7 @@ def run() -> None:
             raise RuntimeError(f"[preflight] missing {label} file at {path}")
 
     _tls.ensure_readable(abs_cert)
-    _tls.ensure_readable(abs_key)
+    _tls.harden_key_perms(abs_key)
 
     if not _tls.cert_has_san(abs_cert, server_name):
         _tls.generate_dev_cert(abs_cert, abs_key, server_name)
@@ -156,8 +156,8 @@ def run() -> None:
     ]:
         if not _tls.is_group_or_world_readable(path):
             raise RuntimeError(
-                f"[preflight] {label} is not readable by group/others at {path}; "
-                f"run: chmod 644 {path}"
+                f"[preflight] {label} is not readable by the edge container at {path}; "
+                f"run: chmod g+r {path}"
             )
 
     if mtls_enabled:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -76,15 +78,39 @@ def _reconcile_systemd_agent() -> int:
     return 0 if _systemd.is_active() else 1
 
 
+def _agent_reconcile_enabled() -> bool:
+    flag = (os.environ.get("SEAGULL_SKIP_AGENT_RECONCILE") or _env.read("SEAGULL_SKIP_AGENT_RECONCILE", "false"))
+    if flag.strip().lower() in ("true", "1", "yes", "on"):
+        print("[systemd-agent] SEAGULL_SKIP_AGENT_RECONCILE set; skipping host agent reconcile")
+        return False
+    if shutil.which("systemctl") is None:
+        print("[systemd-agent] systemd not available on this host; skipping host agent reconcile (Docker stack unaffected)")
+        return False
+    return True
+
+
+def _reconcile_host_agent_best_effort() -> None:
+    """Sync the CA and reconcile the host systemd agent without ever failing `up`.
+
+    The Docker stack is the success criterion; the host agent is a separate
+    integration that must not block a fresh machine from bringing the stack up.
+    """
+    if not _agent_reconcile_enabled():
+        return
+    try:
+        if _systemd.sync_ca() != 0:
+            print("[systemd-agent] warning: CA sync did not complete; continuing (Docker stack is up)", file=sys.stderr)
+        if _reconcile_systemd_agent() != 0:
+            print("[systemd-agent] warning: host agent reconcile incomplete; Docker stack is up regardless", file=sys.stderr)
+    except Exception as exc:
+        print(f"[systemd-agent] warning: host agent reconcile skipped ({exc}); Docker stack is up regardless", file=sys.stderr)
+
 
 def _up_dev(
     files: list[str],
     persist: bool,
 ) -> int:
     _preflight.run()
-
-    if _systemd.sync_ca() != 0:
-        return 1
 
     rc = _compose.run(
         files, ["up", "-d", "--build", "--remove-orphans"], persist_redis=persist
@@ -98,9 +124,7 @@ def _up_dev(
         _health.print_summary(files)
         return 1
 
-    rc = _reconcile_systemd_agent()
-    if rc != 0:
-        return rc
+    _reconcile_host_agent_best_effort()
 
     print()
     _health.print_summary(files)
@@ -109,9 +133,6 @@ def _up_dev(
 
 def _up_prod(fresh: bool) -> int:
     _prepare.run()
-
-    if _systemd.sync_ca() != 0:
-        return 1
 
     if fresh:
         _compose.run(_compose.STACK_FILES, ["down", "-v", "--remove-orphans"])
@@ -141,9 +162,7 @@ def _up_prod(fresh: bool) -> int:
 
     _tokens.mint(output_dir=_env.root() / "secrets" / "bootstrap")
 
-    rc = _reconcile_systemd_agent()
-    if rc != 0:
-        return rc
+    _reconcile_host_agent_best_effort()
 
     _state.commit()
     print()
@@ -236,9 +255,6 @@ def cmd_restart(args: argparse.Namespace) -> int:
     _env.bootstrap()
     _preflight.run()
 
-    if _systemd.sync_ca() != 0:
-        return 1
-
     files = _compose.DEV_RELOAD_FILES if dev_reload else _compose.STACK_FILES
 
     if quick:
@@ -249,7 +265,8 @@ def cmd_restart(args: argparse.Namespace) -> int:
         ).returncode
         if rc != 0:
             return rc
-        return _reconcile_systemd_agent()
+        _reconcile_host_agent_best_effort()
+        return 0
 
     _compose.run(files, ["down", "--remove-orphans"], persist_redis=persist)
     rc = _compose.run(
@@ -259,7 +276,8 @@ def cmd_restart(args: argparse.Namespace) -> int:
     ).returncode
     if rc != 0:
         return rc
-    return _reconcile_systemd_agent()
+    _reconcile_host_agent_best_effort()
+    return 0
 
 
 def cmd_ps(args: argparse.Namespace) -> int:
