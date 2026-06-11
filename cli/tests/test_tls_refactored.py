@@ -44,11 +44,14 @@ class TestGenerateDevCert:
         eku = cert.extensions.get_extension_for_oid(ExtensionOID.EXTENDED_KEY_USAGE)
         assert ExtendedKeyUsageOID.SERVER_AUTH in eku.value
 
-    def test_files_are_world_readable(self, tmp_path):
+    def test_cert_world_readable_key_group_only(self, tmp_path):
         cert_path = tmp_path / "tls.crt"
         key_path = tmp_path / "tls.key"
         tls.generate_dev_cert(cert_path, key_path, "localhost")
         assert tls.is_group_or_world_readable(cert_path)
+        key_mode = key_path.stat().st_mode & 0o777
+        assert key_mode == 0o640
+        assert not (key_mode & 0o004)
 
 
 class TestPermissionHelpers:
@@ -58,3 +61,24 @@ class TestPermissionHelpers:
         p.chmod(0o600)
         tls.ensure_readable(p)
         assert tls.is_group_or_world_readable(p)
+
+    def test_harden_key_perms_tightens_world_readable_key(self, tmp_path):
+        p = tmp_path / "k"
+        p.write_text("x")
+        p.chmod(0o644)
+        tls.harden_key_perms(p)
+        assert (p.stat().st_mode & 0o777) == 0o640
+
+    def test_harden_key_perms_grants_group_read(self, tmp_path):
+        p = tmp_path / "k"
+        p.write_text("x")
+        p.chmod(0o600)
+        tls.harden_key_perms(p)
+        assert (p.stat().st_mode & 0o777) == 0o640
+
+    def test_harden_key_perms_idempotent(self, tmp_path):
+        p = tmp_path / "k"
+        p.write_text("x")
+        p.chmod(0o640)
+        tls.harden_key_perms(p)
+        assert (p.stat().st_mode & 0o777) == 0o640
