@@ -5,7 +5,12 @@ from datetime import datetime
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.features.agents.models import AgentBootstrapTokenModel, AgentCredentialModel, AgentModel
+from app.features.agents.models import (
+    AgentBootstrapTokenModel,
+    AgentCertificateModel,
+    AgentCredentialModel,
+    AgentModel,
+)
 from app.features.response.models import ResponseActionModel, ResponseActionResultModel
 
 
@@ -68,6 +73,11 @@ def list_active_credentials(db: Session, agent_id: str) -> list[AgentCredentialM
 
 
 def save_credential(db: Session, row: AgentCredentialModel) -> AgentCredentialModel:
+    db.add(row)
+    return row
+
+
+def save_certificate(db: Session, row: AgentCertificateModel) -> AgentCertificateModel:
     db.add(row)
     return row
 
