@@ -11,6 +11,7 @@ from .logging import JsonFormatter, log_event, setup_logging
 from .metrics import (
     METRICS_CONTENT_TYPE,
     incr_counter,
+    init_counter,
     observe_hist,
     render_exposition,
     set_gauge,
@@ -24,6 +25,7 @@ __all__ = [
     "METRICS_CONTENT_TYPE",
     "clear_request_context",
     "incr_counter",
+    "init_counter",
     "log_event",
     "mark_process_dead",
     "new_request_id",

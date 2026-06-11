@@ -52,6 +52,12 @@ class TestEnforceCertIdentity:
         monkeypatch.setenv("SEAGULL_AGENT_MTLS_IDENTITY_BINDING", "enforce")
         auth._enforce_cert_identity(_req("CN=agent-core-1,O=Seagull Agents"), "agent-core-1")
 
-    def test_enforce_allows_absent_header(self, monkeypatch):
+    def test_enforce_rejects_absent_header(self, monkeypatch):
         monkeypatch.setenv("SEAGULL_AGENT_MTLS_IDENTITY_BINDING", "enforce")
+        with pytest.raises(HTTPException) as exc:
+            auth._enforce_cert_identity(_req(None), "agent-core-1")
+        assert exc.value.status_code == 403
+
+    def test_warn_allows_absent_header(self, monkeypatch):
+        monkeypatch.setenv("SEAGULL_AGENT_MTLS_IDENTITY_BINDING", "warn")
         auth._enforce_cert_identity(_req(None), "agent-core-1")
