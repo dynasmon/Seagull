@@ -17,6 +17,7 @@ from typing import Deque, Dict, List, Sequence
 from app.core.config.env_secrets import getenv_compat
 from app.core.observability import (
     incr_counter,
+    init_counter,
     log_event,
     mark_process_dead,
     observe_hist,
@@ -293,6 +294,8 @@ class WorkerGroupManager:
         child.next_start_monotonic = 0.0
 
         incr_counter("worker_starts_total", worker_group=self.group, worker=child.spec.name)
+        init_counter("worker_exits_total", worker_group=self.group, worker=child.spec.name, outcome="ok")
+        init_counter("worker_exits_total", worker_group=self.group, worker=child.spec.name, outcome="error")
         set_gauge("worker_up", 1, worker_group=self.group, worker=child.spec.name)
 
         log_event(

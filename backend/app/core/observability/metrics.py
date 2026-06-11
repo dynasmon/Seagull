@@ -57,6 +57,10 @@ def incr_counter(name: str, value: float = 1.0, **labels: Any) -> None:
         pass
 
 
+def init_counter(name: str, **labels: Any) -> None:
+    incr_counter(name, 0.0, **labels)
+
+
 def observe_hist(name: str, value: float, **labels: Any) -> None:
     spec, instrument = get_instrument(name)
     if spec is None or instrument is None:
