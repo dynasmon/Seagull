@@ -16,6 +16,7 @@ INSTALL_ENV_PATH="/etc/seagull/agent.env"
 INSTALL_CONFIG_DIR="/etc/seagull"
 INSTALL_PKI_DIR="/etc/seagull/pki"
 INSTALL_STATE_DIR="/var/lib/seagull"
+INSTALL_QUARANTINE_DIR="/var/lib/seagull/quarantine"
 INSTALL_LOG_DIR="/var/log/seagull"
 INSTALL_LIBEXEC_DIR="/usr/local/lib/seagull"
 
@@ -77,10 +78,12 @@ create_directories() {
   install -d -m 0755 "${INSTALL_CONFIG_DIR}"
   install -d -m 0755 "${INSTALL_PKI_DIR}"
   install -d -m 0755 "${INSTALL_STATE_DIR}"
+  install -d -m 0700 "${INSTALL_QUARANTINE_DIR}"
   install -d -m 0755 "${INSTALL_LOG_DIR}"
   install -d -m 0755 "${INSTALL_LIBEXEC_DIR}"
 
   chown seagull:seagull "${INSTALL_STATE_DIR}"
+  chown seagull:seagull "${INSTALL_QUARANTINE_DIR}"
   chown seagull:seagull "${INSTALL_LOG_DIR}"
 }
 
