@@ -57,7 +57,7 @@ _SPECS: Tuple[QuerySpec, ...] = (
     QuerySpec(
         "http_error_ratio", "HTTP 5xx ratio", "Fraction of requests returning a 5xx status.",
         "ratio",
-        lambda w: f"sum(rate(http_requests_total{{status_class=\"5xx\"}}[{w}])) / sum(rate(http_requests_total[{w}]))",
+        lambda w: f"(sum(rate(http_requests_total{{status_class=\"5xx\"}}[{w}])) or vector(0)) / sum(rate(http_requests_total[{w}]))",
     ),
     QuerySpec(
         "http_latency_p95_ms", "HTTP latency p95", "95th percentile request latency.",

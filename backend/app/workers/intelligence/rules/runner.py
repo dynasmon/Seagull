@@ -4,7 +4,7 @@ import time
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
-from app.core.observability import log_event, setup_logging
+from app.core.observability import init_counter, log_event, setup_logging
 from app.features.alerts.rule_runtime import run_all_rules
 
 setup_logging("worker-rules")
@@ -20,6 +20,8 @@ def _get_interval_seconds() -> float:
 
 def main() -> None:
     settings.validate_for_service("worker-rules")
+    init_counter("detection_rule_matches_total")
+    init_counter("detection_rule_errors_total")
     every = _get_interval_seconds()
     backoff = 1.0
     while True:
