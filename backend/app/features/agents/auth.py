@@ -37,7 +37,15 @@ def _enforce_cert_identity(request: Request, agent_id: str) -> None:
     if mode == "off":
         return
     cert_cn = _extract_cert_cn(request)
-    if cert_cn is None or cert_cn == agent_id:
+    if cert_cn is None:
+        if mode == "enforce":
+            incr_counter("agent_auth_requests_total", outcome="failure", reason="cert_identity_missing")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="A verified client certificate is required in enforce mode",
+            )
+        return
+    if cert_cn == agent_id:
         return
     incr_counter("agent_auth_requests_total", outcome="failure", reason="cert_identity_mismatch")
     if mode == "enforce":

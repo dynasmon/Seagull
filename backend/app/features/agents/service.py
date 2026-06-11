@@ -459,7 +459,7 @@ def renew_agent_certificate(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
 
     try:
-        issued = certs.renew_agent_certificate(agent.agent_id, payload.csr_pem)
+        issued = certs.renew_agent_certificate(agent.agent_id, payload.csr_pem, db=db)
     except certs.CertificateRenewalDisabled:
         incr_counter("agent_cert_renew_total", outcome="failure", reason="disabled")
         raise HTTPException(
