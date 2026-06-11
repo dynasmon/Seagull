@@ -1,9 +1,16 @@
+import enum
 from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
+
+
+class AgentCertificateStatus(str, enum.Enum):
+    active = "active"
+    revoked = "revoked"
+    expired = "expired"
 
 
 class AgentModel(Base):
@@ -72,3 +79,22 @@ class AgentBootstrapTokenModel(Base):
     created_by_user_id = Column(Integer, nullable=True)
     description = Column(String(256), nullable=True)
     token_metadata = Column("metadata", JSONB, nullable=False, default=dict)
+
+
+class AgentCertificateModel(Base):
+    __tablename__ = "agent_certificates"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    agent_id = Column(String(64), ForeignKey("agents.agent_id", ondelete="CASCADE"), index=True, nullable=False)
+    serial_hex = Column(String(64), index=True, nullable=False)
+    fingerprint_sha256 = Column(String(64), unique=True, index=True, nullable=False)
+    subject = Column(String(256), nullable=False)
+    public_key_sha256 = Column(String(64), index=True, nullable=False)
+
+    issued_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    revoked_reason = Column(String(256), nullable=True)
+
+    status = Column(String(16), nullable=False, default=AgentCertificateStatus.active.value)
