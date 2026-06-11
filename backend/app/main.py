@@ -20,6 +20,7 @@ from app.core.integrations.es import es_is_available, search_backend_mode
 from app.core.observability import (
     clear_request_context,
     incr_counter,
+    init_counter,
     log_event,
     new_request_id,
     normalize_trace_id,
@@ -232,6 +233,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 def on_startup():
     try:
         settings.validate_for_service("backend-api")
+
+        for severity in ("critical", "high", "medium", "low"):
+            init_counter("alert_created_total", severity=severity, detector_type="none")
 
         if settings.SEAGULL_SKIP_STARTUP_BOOTSTRAP:
             return

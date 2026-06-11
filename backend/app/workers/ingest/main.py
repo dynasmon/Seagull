@@ -13,7 +13,7 @@ from app.core.cache import get_redis
 from app.core.config import settings
 from app.core.db import engine
 from app.core.db.lifecycle import ensure_database_ready
-from app.core.observability import incr_counter, log_event, observe_hist, set_gauge, setup_logging
+from app.core.observability import incr_counter, init_counter, log_event, observe_hist, set_gauge, setup_logging
 from app.features.ingest.control.service import (
     get_storm_status,
     record_worker_progress,
@@ -89,6 +89,7 @@ def _parse_warm_doc(ev: List[Any]) -> Dict[str, Any] | None:
 
 def main() -> None:
     settings.validate_for_service("worker-ingest")
+    init_counter("ingest_events_sampled_total")
     cfg = load_config()
 
     ensure_database_ready()
