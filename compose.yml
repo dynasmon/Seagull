@@ -277,6 +277,10 @@ services:
       - ./rules:/app/rules:ro
       - ./secrets/pki/agent-ca.crt:/etc/seagull/pki/agent-ca.crt:ro
       - ./secrets/pki/agent-ca.key:/etc/seagull/pki/agent-ca.key:ro
+    # agent-ca.key is 0640 (host owner + PKI group); uid 10001 reads it via this
+    # supplementary group instead of the key being world-readable.
+    group_add:
+      - "${SEAGULL_PKI_GID:-0}"
     tmpfs:
       # Fresh on every container (re)start so multiprocess series don't carry
       # over stale per-pid files. Default tmpfs mode (1777) is writable by uid 10001.
@@ -593,6 +597,10 @@ services:
       - ${SEAGULL_AGENT_MTLS_SERVER_KEY_FILE:-./secrets/pki/server/mtls.key}:/etc/seagull/mtls/server.key:ro
       - caddy-data:/data
       - caddy-config:/config
+    # server/mtls.key is 0640 (host owner + PKI group); Caddy (cap_drop ALL, no
+    # DAC_OVERRIDE) reads it via this supplementary group, not via world-read.
+    group_add:
+      - "${SEAGULL_PKI_GID:-0}"
     security_opt:
       - no-new-privileges:true
     cap_drop:
