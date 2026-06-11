@@ -82,7 +82,7 @@ def generate_dev_cert(cert_path: Path, key_path: Path, server_name: str) -> None
     cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
 
     cert_path.chmod(0o644)
-    key_path.chmod(0o644)
+    key_path.chmod(0o640)
     print("[preflight] regenerated dev TLS cert/key with SAN entries")
 
 
@@ -92,6 +92,13 @@ def ensure_readable(path: Path) -> None:
     other_read = mode & 4
     if not group_read and not other_read:
         path.chmod(0o644)
+
+
+def harden_key_perms(path: Path) -> None:
+    mode = path.stat().st_mode & 0o777
+    new_mode = (mode | 0o040) & ~0o007
+    if new_mode != mode:
+        path.chmod(new_mode)
 
 
 def is_group_or_world_readable(path: Path) -> bool:

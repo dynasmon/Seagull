@@ -33,6 +33,21 @@ def _persist_redis_env() -> dict[str, str]:
     }
 
 
+def pki_group_id() -> int:
+    root = _env.root()
+    candidates = (
+        root / "secrets" / "pki" / "agent-ca.key",
+        root / "secrets" / "pki" / "server" / "mtls.key",
+        root / "secrets" / "pki",
+    )
+    for path in candidates:
+        try:
+            return os.stat(path).st_gid
+        except OSError:
+            continue
+    return os.getgid()
+
+
 def run(
     files: list[str],
     args: list[str],
@@ -41,6 +56,7 @@ def run(
     cwd: Optional[Path] = None,
 ) -> subprocess.CompletedProcess:
     env = {**os.environ}
+    env.setdefault("SEAGULL_PKI_GID", str(pki_group_id()))
     if persist_redis:
         env.update(_persist_redis_env())
     cmd = ["docker", "compose"] + _file_flags(files) + args
