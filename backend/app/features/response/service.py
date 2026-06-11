@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict
+from typing import Any, Dict, List
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -11,7 +12,8 @@ from app.core.audit import audit_actor, write_audit_event
 from app.features.response import repository
 from app.features.response.models import ResponseActionModel, ResponseActionResultModel
 from app.features.response.realtime import publish_response_action_lifecycle
-from app.features.response.schemas import ResponseActionCreateIn
+from app.features.response.registry import ACTION_REGISTRY, action_catalog
+from app.features.response.schemas import BatchDispatchIn, ResponseActionCreateIn
 
 _ACTION_TYPE_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,31}$")
 _RUNNABLE_STATUSES = {"pending", "delivered"}
@@ -36,178 +38,27 @@ def _normalize_action_type(action_type: str) -> str:
     return s
 
 
-def _as_dict(v: Any, field: str) -> Dict[str, Any]:
-    if v is None:
-        return {}
-    if not isinstance(v, dict):
-        raise HTTPException(status_code=422, detail=f"{field} must be an object")
-    return dict(v)
-
-
-def _as_bool(v: Any, field: str) -> bool:
-    if isinstance(v, bool):
-        return v
-    raise HTTPException(status_code=422, detail=f"{field} must be a boolean")
-
-
-def _as_int(v: Any, field: str, *, min_value: int, max_value: int) -> int:
-    if isinstance(v, bool):
-        raise HTTPException(status_code=422, detail=f"{field} must be an integer")
-    try:
-        n = int(v)
-    except Exception:
-        raise HTTPException(status_code=422, detail=f"{field} must be an integer") from None
-    if n < min_value or n > max_value:
-        raise HTTPException(status_code=422, detail=f"{field} must be between {min_value} and {max_value}")
-    return n
-
-
-def _validate_collect_triage_bundle_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
-    payload = _as_dict(raw_payload, "payload")
-    allowed_root = {"collectors", "limits", "redaction"}
-    unknown = sorted([k for k in payload.keys() if k not in allowed_root])
-    if unknown:
-        raise HTTPException(status_code=422, detail=f"payload has unsupported keys: {', '.join(unknown)}")
-
-    out: Dict[str, Any] = {}
-
-    collectors_in = _as_dict(payload.get("collectors"), "payload.collectors")
-    collectors_allowed = {
-        "runtime",
-        "host",
-        "processes",
-        "network",
-        "auth_log",
-        "recent_events",
-        "effective_config",
-    }
-    collectors_unknown = sorted([k for k in collectors_in.keys() if k not in collectors_allowed])
-    if collectors_unknown:
-        raise HTTPException(
-            status_code=422,
-            detail=f"payload.collectors has unsupported keys: {', '.join(collectors_unknown)}",
-        )
-    out["collectors"] = {
-        "runtime": _as_bool(collectors_in.get("runtime", True), "payload.collectors.runtime"),
-        "host": _as_bool(collectors_in.get("host", True), "payload.collectors.host"),
-        "processes": _as_bool(collectors_in.get("processes", True), "payload.collectors.processes"),
-        "network": _as_bool(collectors_in.get("network", True), "payload.collectors.network"),
-        "auth_log": _as_bool(collectors_in.get("auth_log", True), "payload.collectors.auth_log"),
-        "recent_events": _as_bool(collectors_in.get("recent_events", True), "payload.collectors.recent_events"),
-        "effective_config": _as_bool(
-            collectors_in.get("effective_config", True),
-            "payload.collectors.effective_config",
-        ),
-    }
-
-    limits_in = _as_dict(payload.get("limits"), "payload.limits")
-    out["limits"] = {
-        "max_auth_log_lines": _as_int(
-            limits_in.get("max_auth_log_lines", 500),
-            "payload.limits.max_auth_log_lines",
-            min_value=10,
-            max_value=5000,
-        ),
-        "max_processes": _as_int(
-            limits_in.get("max_processes", 200),
-            "payload.limits.max_processes",
-            min_value=10,
-            max_value=2000,
-        ),
-        "max_connections": _as_int(
-            limits_in.get("max_connections", 200),
-            "payload.limits.max_connections",
-            min_value=10,
-            max_value=2000,
-        ),
-        "max_event_count": _as_int(
-            limits_in.get("max_event_count", 300),
-            "payload.limits.max_event_count",
-            min_value=10,
-            max_value=5000,
-        ),
-    }
-
-    redaction_in = _as_dict(payload.get("redaction"), "payload.redaction")
-    out["redaction"] = {
-        "mask_secrets": _as_bool(redaction_in.get("mask_secrets", True), "payload.redaction.mask_secrets"),
-    }
-    return out
-
-
-def _validate_refresh_runtime_config_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
-    payload = _as_dict(raw_payload, "payload")
-    if payload:
-        unknown = ", ".join(sorted(payload.keys()))
-        raise HTTPException(
-            status_code=422,
-            detail=f"payload has unsupported keys for refresh_runtime_config: {unknown}",
-        )
-    return {}
-
-
-def _validate_trigger_inventory_snapshot_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
-    payload = _as_dict(raw_payload, "payload")
-    allowed_root = {"limits"}
-    unknown = sorted([k for k in payload.keys() if k not in allowed_root])
-    if unknown:
-        raise HTTPException(
-            status_code=422,
-            detail=f"payload has unsupported keys: {', '.join(unknown)}",
-        )
-    limits_in = _as_dict(payload.get("limits"), "payload.limits")
-    limits_unknown = sorted([k for k in limits_in.keys() if k not in {"max_processes", "max_connections"}])
-    if limits_unknown:
-        raise HTTPException(
-            status_code=422,
-            detail=f"payload.limits has unsupported keys: {', '.join(limits_unknown)}",
-        )
-    return {
-        "limits": {
-            "max_processes": _as_int(
-                limits_in.get("max_processes", 200),
-                "payload.limits.max_processes",
-                min_value=10,
-                max_value=2000,
-            ),
-            "max_connections": _as_int(
-                limits_in.get("max_connections", 200),
-                "payload.limits.max_connections",
-                min_value=10,
-                max_value=2000,
-            ),
-        }
-    }
-
-
-def _validate_trigger_topology_discovery_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
-    payload = _as_dict(raw_payload, "payload")
-    allowed_root = {"reason"}
-    unknown = sorted([k for k in payload.keys() if k not in allowed_root])
-    if unknown:
-        raise HTTPException(
-            status_code=422,
-            detail=f"payload has unsupported keys: {', '.join(unknown)}",
-        )
-    reason = str(payload.get("reason") or "").strip()
-    if len(reason) > 160:
-        raise HTTPException(status_code=422, detail="payload.reason must be at most 160 characters")
-    return {"reason": reason} if reason else {}
-
-
-_ACTION_PAYLOAD_VALIDATORS: dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {
-    "collect_triage_bundle": _validate_collect_triage_bundle_payload,
-    "refresh_runtime_config": _validate_refresh_runtime_config_payload,
-    "trigger_inventory_snapshot": _validate_trigger_inventory_snapshot_payload,
-    "trigger_topology_discovery": _validate_trigger_topology_discovery_payload,
-}
-
-
 def _validate_payload_for_action(action_type: str, raw_payload: Dict[str, Any]) -> Dict[str, Any]:
-    validator = _ACTION_PAYLOAD_VALIDATORS.get(action_type)
-    if validator is None:
+    definition = ACTION_REGISTRY.get(action_type)
+    if definition is None:
         raise HTTPException(status_code=422, detail="action_type is not supported")
-    return validator(raw_payload)
+    return definition.validate_payload(raw_payload)
+
+
+def _action_types_for(category: str | None, risk_level: str | None) -> list[str] | None:
+    c = (category or "").strip().lower() or None
+    r = (risk_level or "").strip().lower() or None
+    if c is None and r is None:
+        return None
+    return [
+        key
+        for key, definition in ACTION_REGISTRY.items()
+        if (c is None or definition.category == c) and (r is None or definition.risk_level == r)
+    ]
+
+
+def list_action_types() -> List[Dict[str, Any]]:
+    return action_catalog()
 
 
 def _apply_expired_status(row: ResponseActionModel, *, now: datetime) -> bool:
@@ -295,17 +146,108 @@ def create_response_action(
     return row
 
 
+def create_response_action_batch(
+    db: Session,
+    *,
+    payload: BatchDispatchIn,
+    request,
+    admin,
+    audit_writer=write_audit_event,
+) -> Dict[str, Any]:
+    action_type = _normalize_action_type(payload.action_type)
+    if action_type not in ACTION_REGISTRY:
+        raise HTTPException(status_code=422, detail="action_type is not supported")
+
+    agent_ids: list[str] = []
+    seen: set[str] = set()
+    for raw_agent_id in payload.agent_ids or []:
+        candidate = str(raw_agent_id or "").strip()
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            agent_ids.append(candidate)
+    if not agent_ids:
+        raise HTTPException(status_code=422, detail="agent_ids must not be empty")
+
+    now = _utc_now()
+    expires_at = _to_utc(payload.expires_at)
+    if expires_at is not None and expires_at <= now:
+        raise HTTPException(status_code=422, detail="expires_at must be in the future")
+    normalized_payload = _validate_payload_for_action(action_type, dict(payload.payload or {}))
+
+    batch_id = f"batch_{now:%Y%m%d}_{uuid.uuid4().hex[:8]}"
+    created_rows: list[ResponseActionModel] = []
+    skipped: list[Dict[str, str]] = []
+    for agent_id in agent_ids:
+        row_agent = repository.get_agent(db, agent_id=agent_id)
+        if not row_agent:
+            skipped.append({"agent_id": agent_id, "reason": "not_found"})
+            continue
+        if bool(row_agent.is_revoked):
+            skipped.append({"agent_id": agent_id, "reason": "revoked"})
+            continue
+        created_rows.append(
+            repository.create_action(
+                db,
+                action_type=action_type,
+                agent_id=agent_id,
+                status="pending",
+                payload=normalized_payload,
+                requested_by=admin.username,
+                requested_at=now,
+                expires_at=expires_at,
+                batch_id=batch_id,
+            )
+        )
+    repository.flush(db)
+
+    queued = [{"agent_id": row.agent_id, "action_id": row.id} for row in created_rows]
+    audit_writer(
+        db,
+        request=request,
+        actor=audit_actor(admin.id, admin.username),
+        event_type="admin_action",
+        action="response.actions.batch_create",
+        resource_type="response_action",
+        resource_id=batch_id,
+        outcome="success",
+        before={},
+        after={
+            "batch_id": batch_id,
+            "action_type": action_type,
+            "total": len(agent_ids),
+            "queued": len(created_rows),
+            "skipped": len(skipped),
+        },
+        context={"agent_ids": agent_ids, "skipped": skipped},
+    )
+    repository.commit(db)
+    for row in created_rows:
+        repository.refresh(db, row)
+        publish_response_action_lifecycle(action=row, lifecycle_event="queued")
+
+    return {"batch_id": batch_id, "total": len(agent_ids), "queued": queued, "skipped": skipped}
+
+
 def list_response_actions(
     db: Session,
     *,
     agent_id: str | None = None,
+    agent_ids: list[str] | None = None,
     status: str | None = None,
+    category: str | None = None,
+    risk_level: str | None = None,
+    batch_id: str | None = None,
+    since: datetime | None = None,
     limit: int = 100,
 ) -> list[ResponseActionModel]:
     rows = repository.list_actions(
         db,
         agent_id=(agent_id or None),
+        agent_ids=(agent_ids or None),
         status=(status or None),
+        action_types=_action_types_for(category, risk_level),
+        batch_id=(batch_id or None),
+        since=_to_utc(since),
         limit=max(1, min(int(limit), 500)),
     )
     _apply_expired_statuses(db, rows, now=_utc_now())
@@ -325,6 +267,42 @@ def get_response_action(
         repository.commit(db)
         repository.refresh(db, row)
     return row
+
+
+def build_action_timeline(row: ResponseActionModel) -> List[Dict[str, Any]]:
+    agent_actor = f"agent/{row.agent_id}"
+    events: list[Dict[str, Any]] = []
+
+    def add(at: datetime | None, event: str, actor: str | None, detail: str | None = None) -> None:
+        if at is None:
+            return
+        events.append({"at": _to_utc(at), "event": event, "actor": (actor or "system"), "detail": detail})
+
+    add(row.requested_at, "queued", row.requested_by)
+    add(row.delivered_at, "delivered", agent_actor)
+    add(row.started_at, "started", agent_actor)
+
+    status = str(row.status or "").strip().lower()
+    if status == "success":
+        add(row.finished_at, "completed", agent_actor)
+    elif status == "failed":
+        add(row.finished_at, "failed", agent_actor, row.last_error)
+    elif status == "cancelled":
+        add(row.cancelled_at or row.finished_at, "cancelled", row.cancelled_by)
+    elif status == "expired":
+        add(row.finished_at, "expired", "system", row.last_error)
+
+    events.sort(key=lambda e: e["at"])
+    return events
+
+
+def get_response_action_timeline(
+    db: Session,
+    *,
+    action_id: int,
+) -> List[Dict[str, Any]]:
+    row = get_response_action(db, action_id=action_id)
+    return build_action_timeline(row)
 
 
 def get_latest_response_action_result(
