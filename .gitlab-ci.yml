@@ -1,0 +1,57 @@
+# Seagull CI — initialization reproducibility.
+#
+# Two layers:
+#   1. cli-reproducibility-tests  — fast, runs everywhere, on every MR + default
+#      branch. Locks the host-side init invariants (env bootstrap, PKI/TLS perms,
+#      compose variable completeness, best-effort agent reconcile) so a change can
+#      never silently make a fresh machine fail.
+#   2. seagull-up-fresh-machine   — heavy, on-demand (manual or scheduled). Brings
+#      the WHOLE stack up from a clean checkout via `./seagull up` and asserts it
+#      becomes healthy. This is the true "new machine" gate.
+
+stages:
+  - test
+  - reproducibility
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+cli-reproducibility-tests:
+  stage: test
+  image: python:3.12-slim
+  interruptible: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  before_script:
+    - pip install --no-cache-dir cryptography pytest
+  script:
+    - python -m pytest cli/tests -q
+
+# True end-to-end: a clean checkout -> `./seagull up` -> healthy -> teardown.
+#
+# REQUIRES a runner that has Docker AND keeps the checkout on the Docker host
+# (a `shell` executor / self-hosted runner / clean VM). The stack uses bind
+# mounts, so plain `docker:dind` on shared runners will NOT work (the dind
+# daemon cannot see the job's checkout). It also needs ~8GB RAM (full stack:
+# Postgres, Redis, Elasticsearch, ClickHouse, backend + 3 workers, portal,
+# Caddy, Prometheus). See scripts/ci/README.md.
+seagull-up-fresh-machine:
+  stage: reproducibility
+  # EDIT this tag to match your Docker-capable runner (shell executor / self-hosted).
+  tags:
+    - seagull-docker-host
+  timeout: 60m
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'       # run manually from the GitLab UI
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'  # or via a CI/CD schedule (e.g. nightly)
+  variables:
+    SEAGULL_MODE: "dev"
+    SEAGULL_SKIP_AGENT_RECONCILE: "true"       # validate the Docker stack only
+    GIT_DEPTH: "1"
+  script:
+    - bash scripts/ci/seagull-up-smoke.sh
