@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, validator
 
@@ -32,6 +32,7 @@ class ResponseActionOut(BaseModel):
     action_type: str
     agent_id: str
     status: str
+    batch_id: Optional[str] = None
     payload: Dict[str, Any] = Field(default_factory=dict)
     requested_by: str
     requested_at: datetime
@@ -100,3 +101,53 @@ class AgentResponseActionResultIn(BaseModel):
             return None
         s = str(v).strip()
         return s or None
+
+
+class ActionTypeOut(BaseModel):
+    key: str
+    label: str
+    category: str
+    risk_level: str
+    reversible: bool
+    requires_confirmation: bool
+    estimated_duration_seconds: int
+    undo_action: Optional[str] = None
+    description: str
+
+
+class BatchDispatchIn(BaseModel):
+    action_type: str = Field(..., min_length=1, max_length=32)
+    agent_ids: List[str] = Field(default_factory=list)
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    expires_at: Optional[datetime] = None
+
+    @validator("action_type", pre=True)
+    def _v_action_type(cls, v):
+        s = str(v or "").strip().lower()
+        if not s:
+            raise ValueError("action_type is required")
+        return s
+
+
+class BatchQueuedItem(BaseModel):
+    agent_id: str
+    action_id: int
+
+
+class BatchSkippedItem(BaseModel):
+    agent_id: str
+    reason: str
+
+
+class BatchDispatchOut(BaseModel):
+    batch_id: str
+    total: int
+    queued: List[BatchQueuedItem] = Field(default_factory=list)
+    skipped: List[BatchSkippedItem] = Field(default_factory=list)
+
+
+class TimelineEventOut(BaseModel):
+    at: datetime
+    event: str
+    actor: str
+    detail: Optional[str] = None

@@ -14,6 +14,7 @@ class ResponseActionModel(Base):
     action_type = Column(String(32), nullable=False)
     agent_id = Column(String(64), ForeignKey("agents.agent_id", ondelete="CASCADE"), index=True, nullable=False)
     status = Column(String(16), index=True, nullable=False, default="pending")
+    batch_id = Column(String(64), nullable=True, index=True)
 
     payload = Column(JSONB, nullable=False, default=dict)
     requested_by = Column(String(64), nullable=False)

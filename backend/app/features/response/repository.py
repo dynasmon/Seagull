@@ -20,6 +20,7 @@ def create_action(
     requested_by: str,
     requested_at,
     expires_at,
+    batch_id: str | None = None,
 ) -> ResponseActionModel:
     row = ResponseActionModel(
         action_type=action_type,
@@ -29,6 +30,7 @@ def create_action(
         requested_by=requested_by,
         requested_at=requested_at,
         expires_at=expires_at,
+        batch_id=batch_id,
     )
     db.add(row)
     return row
@@ -51,14 +53,26 @@ def list_actions(
     db: Session,
     *,
     agent_id: str | None = None,
+    agent_ids: list[str] | None = None,
     status: str | None = None,
+    action_types: list[str] | None = None,
+    batch_id: str | None = None,
+    since=None,
     limit: int = 100,
 ) -> list[ResponseActionModel]:
     q = db.query(ResponseActionModel)
     if agent_id:
         q = q.filter(ResponseActionModel.agent_id == agent_id)
+    if agent_ids:
+        q = q.filter(ResponseActionModel.agent_id.in_(list(agent_ids)))
     if status:
         q = q.filter(ResponseActionModel.status == status)
+    if action_types is not None:
+        q = q.filter(ResponseActionModel.action_type.in_(list(action_types)))
+    if batch_id:
+        q = q.filter(ResponseActionModel.batch_id == batch_id)
+    if since is not None:
+        q = q.filter(ResponseActionModel.requested_at >= since)
     return q.order_by(ResponseActionModel.requested_at.desc(), ResponseActionModel.id.desc()).limit(int(limit)).all()
 
 
