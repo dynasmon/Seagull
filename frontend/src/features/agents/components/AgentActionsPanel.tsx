@@ -1,3 +1,5 @@
+import { useNavigate } from "react-router-dom";
+
 import type { AgentDetail } from "@/features/agents/types";
 import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
@@ -10,7 +12,6 @@ export default function AgentActionsPanel({
   toggleBusy,
   agentError,
   onOpenConfig,
-  onOpenResponseAction,
   onToggleRevoked,
 }: {
   agent: AgentDetail | null;
@@ -18,9 +19,9 @@ export default function AgentActionsPanel({
   toggleBusy: boolean;
   agentError: string | null;
   onOpenConfig: () => void;
-  onOpenResponseAction: () => void;
   onToggleRevoked: () => void;
 }) {
+  const navigate = useNavigate();
   return (
     <Panel
       title="Response actions"
@@ -49,7 +50,12 @@ export default function AgentActionsPanel({
             </Button>
 
             {isAdmin && (
-              <Button variant="subtle" size="md" onClick={onOpenResponseAction} className="w-full">
+              <Button
+                variant="subtle"
+                size="md"
+                onClick={() => navigate(`/response-center?agent_id=${encodeURIComponent(agent.agent_id)}&mode=dispatch`)}
+                className="w-full"
+              >
                 Queue response action
               </Button>
             )}
