@@ -1,3 +1,4 @@
+import ResponseActionMiniWidget from "@/features/response_center/ResponseActionMiniWidget";
 import { InlineAlert } from "@/shared/components/InlineAlert";
 
 import AgentFleetPanel from "./AgentFleetPanel";
@@ -12,7 +13,7 @@ interface AgentsMainLayoutProps {
 }
 
 export default function AgentsMainLayout({ model }: AgentsMainLayoutProps) {
-  const { agents, config, actions, telemetry, isAdmin, compact, openConfig } = model;
+  const { agents, config, telemetry, isAdmin, compact, openConfig } = model;
 
   return (
     <div className="grid min-w-0 gap-4 xl:grid-cols-12">
@@ -35,7 +36,6 @@ export default function AgentsMainLayout({ model }: AgentsMainLayoutProps) {
           toggleBusy={config.toggleBusy}
           agentError={config.agentError}
           onOpenConfig={openConfig}
-          onOpenResponseAction={actions.openResponseActionDrawer}
           onToggleRevoked={config.onToggleRevoked}
         />
       </div>
@@ -48,6 +48,8 @@ export default function AgentsMainLayout({ model }: AgentsMainLayoutProps) {
           lastEventAge={telemetry.lastEventAge}
           disabled={Boolean(agents.selectedAgentRow?.is_revoked)}
         />
+
+        <ResponseActionMiniWidget agentId={agents.selectedAgentId || null} enabled={isAdmin} />
 
         {agents.snapshotError && (
           <InlineAlert tone="danger" className="text-xs">
