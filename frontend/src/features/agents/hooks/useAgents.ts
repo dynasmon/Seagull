@@ -18,15 +18,7 @@ import {
   DEFAULT_EVENTS_LIMIT,
   type EventsCfg,
   safeNumber,
-  parsePositiveInt,
 } from "../lib/agentUtils";
-
-export type UrlResponseActionTrigger = {
-  agentId: string;
-  actionId: number | null;
-  tab: "create" | "execution" | "result";
-  shouldOpen: boolean;
-} | null;
 
 export function useAgents() {
   const { agents, selectedAgentId, setSelectedAgentId, refresh } = useAgentsCatalog();
@@ -92,9 +84,6 @@ export function useAgents() {
   const detailLiveDidBootRef = useRef(false);
 
   const lastUrlId = useRef<string | null>(null);
-  const responseUrlHandledRef = useRef<string | null>(null);
-
-  const [urlResponseActionTrigger, setUrlResponseActionTrigger] = useState<UrlResponseActionTrigger>(null);
 
   useEffect(() => {
     const q = (searchParams.get("agent_id") || "").trim();
@@ -104,28 +93,6 @@ export function useAgents() {
       lastUrlId.current = q;
       setSelectedAgentId(q);
     }
-
-    const responseActionId = parsePositiveInt(searchParams.get("response_action_id"));
-    const responseTab = (searchParams.get("response_tab") || "").trim().toLowerCase();
-    const shouldOpenResponse = String(searchParams.get("open_response_action") || "").trim() === "1" || !!responseActionId;
-    const responseKey = `${q}:${responseActionId || ""}:${responseTab}:${shouldOpenResponse ? "1" : "0"}`;
-    if (!shouldOpenResponse) return;
-    if (responseUrlHandledRef.current === responseKey) return;
-    responseUrlHandledRef.current = responseKey;
-
-    let tab: "create" | "execution" | "result" = "execution";
-    if (responseTab === "result" || responseTab === "execution" || responseTab === "create") {
-      tab = responseTab as "create" | "execution" | "result";
-    } else if (responseActionId) {
-      tab = "result";
-    }
-
-    setUrlResponseActionTrigger({
-      agentId: q || "",
-      actionId: responseActionId,
-      tab,
-      shouldOpen: true,
-    });
   }, [searchParams, setSelectedAgentId]);
 
   const selectedAgentRow = useMemo<AgentPublic | null>(() => {
@@ -329,7 +296,6 @@ export function useAgents() {
     refreshSelectedAgent,
     reloadSelectedTelemetry,
     detailLive,
-    urlResponseActionTrigger,
   };
 }
 

@@ -5,7 +5,6 @@ import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences"
 
 import { useAgents } from "./useAgents";
 import { useAgentConfig } from "./useAgentConfig";
-import { useAgentActions } from "./useAgentActions";
 import { useAgentTelemetryViewModel } from "./useAgentTelemetryViewModel";
 import { useAgentEventsExplorer } from "./useAgentEventsExplorer";
 
@@ -31,16 +30,6 @@ export function useAgentsPageModel() {
     onAgentUpdate: agents.setAgent,
     onRefreshCatalog: agents.refresh,
   });
-  const actions = useAgentActions({
-    selectedAgentId: agents.selectedAgentId,
-    agents: agents.agents,
-    agentsSorted: agents.agentsSorted,
-    isAdmin,
-    user,
-    onRefreshCatalog: agents.refresh,
-    urlResponseActionTrigger: agents.urlResponseActionTrigger,
-  });
-
   const telemetry = useAgentTelemetryViewModel({
     snapshot: agents.snapshot,
     selectedAgentRow: agents.selectedAgentRow,
@@ -59,7 +48,6 @@ export function useAgentsPageModel() {
     setCompact: tablePrefs.setCompact,
     agents,
     config,
-    actions,
     telemetry,
     events,
     configOpen,
