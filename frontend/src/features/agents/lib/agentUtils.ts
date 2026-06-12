@@ -1,4 +1,3 @@
-import type { ResponseActionOut, ResponseActionResultOut } from "../types";
 import type { NetEvent } from "@/features/events/types";
 
 // Grafana-like fixed panel heights.
@@ -7,33 +6,6 @@ export const H_PANEL_TALL = 860;
 
 export const DEFAULT_WINDOW_MINUTES = 60;
 export const DEFAULT_EVENTS_LIMIT = 500;
-
-export const RESPONSE_ACTION_TYPES = [
-  {
-    key: "collect_triage_bundle",
-    label: "Collect triage bundle",
-    hint: "Collect host and runtime triage data from the selected agent.",
-    effect: "The agent receives an operator-initiated collection request and starts execution when it polls pending actions.",
-    expectedResult: "Execution status and result payload are reported back through the response action result channel.",
-    auditNote: "This operation is auditable as an administrative response action request."
-  },
-  {
-    key: "refresh_runtime_config",
-    label: "Refresh runtime config",
-    hint: "Pull and apply the latest runtime config from the control plane immediately.",
-    effect: "The agent performs an immediate config pull outside the regular config ticker.",
-    expectedResult: "Result returns whether the runtime config changed, how many keys were pulled, and the resulting config hash.",
-    auditNote: "This operation is auditable as an administrative response action request."
-  },
-  {
-    key: "trigger_inventory_snapshot",
-    label: "Trigger inventory snapshot",
-    hint: "Collect a lightweight host/runtime inventory snapshot from the selected agent.",
-    effect: "The agent captures a focused inventory payload without waiting for another collector cadence.",
-    expectedResult: "Result includes runtime, host interfaces, process list, and network connection snapshot.",
-    auditNote: "This operation is auditable as an administrative response action request."
-  }
-] as const;
 
 export type EventsCfg = {
   event_type: string; // empty = all
@@ -86,23 +58,6 @@ export function fmtDateTime(d: Date) {
   const mi = String(d.getMinutes()).padStart(2, "0");
   const ss = String(d.getSeconds()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
-}
-
-export function toIsoOrNullFromLocalInput(value: string): string | null {
-  const raw = (value || "").trim();
-  if (!raw) return null;
-  const dt = new Date(raw);
-  if (Number.isNaN(dt.getTime())) return null;
-  return dt.toISOString();
-}
-
-export function toLocalDateTimeInput(d: Date): string {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
 export function safeJsonParse(text: string): { ok: true; value: any } | { ok: false; error: string } {
@@ -209,89 +164,6 @@ export function normalizePositiveFloat(v: any, fallback: number, min = 0) {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, n);
-}
-
-export function mergeResponseActionPatch(
-  current: ResponseActionOut | null | undefined,
-  patch: Record<string, any> | null | undefined,
-  actionIdFallback?: number | null,
-): ResponseActionOut | null {
-  const actionId = Number(patch?.id ?? actionIdFallback ?? current?.id ?? 0);
-  if (!Number.isFinite(actionId) || actionId <= 0) return current ?? null;
-
-  const actionType = String(patch?.action_type ?? current?.action_type ?? "").trim();
-  const agentId = String(patch?.agent_id ?? current?.agent_id ?? "").trim();
-  const status = String(patch?.status ?? current?.status ?? "").trim();
-  const requestedBy = String(patch?.requested_by ?? current?.requested_by ?? "").trim();
-  const requestedAt = String(patch?.requested_at ?? current?.requested_at ?? "").trim();
-  const createdAt = String(patch?.created_at ?? current?.created_at ?? "").trim();
-  const updatedAt = String(patch?.updated_at ?? current?.updated_at ?? "").trim();
-  if (!actionType || !agentId || !status || !requestedBy || !requestedAt || !createdAt || !updatedAt) {
-    return current ?? null;
-  }
-
-  return {
-    id: actionId,
-    action_type: actionType,
-    agent_id: agentId,
-    status,
-    payload: current?.payload || {},
-    requested_by: requestedBy,
-    requested_at: requestedAt,
-    delivered_at: patch?.delivered_at ?? current?.delivered_at ?? null,
-    started_at: patch?.started_at ?? current?.started_at ?? null,
-    finished_at: patch?.finished_at ?? current?.finished_at ?? null,
-    cancelled_at: patch?.cancelled_at ?? current?.cancelled_at ?? null,
-    cancelled_by: patch?.cancelled_by ?? current?.cancelled_by ?? null,
-    last_error: patch?.last_error ?? current?.last_error ?? null,
-    created_at: createdAt,
-    updated_at: updatedAt,
-    expires_at: patch?.expires_at ?? current?.expires_at ?? null,
-  };
-}
-
-export function upsertResponseAction(rows: ResponseActionOut[], next: ResponseActionOut): ResponseActionOut[] {
-  const remaining = rows.filter((row) => row.id !== next.id);
-  return [next, ...remaining].slice(0, 25);
-}
-
-export function mergeResponseActionResultSummary(
-  current: ResponseActionResultOut | null | undefined,
-  patch: Record<string, any> | null | undefined,
-  actionIdFallback?: number | null,
-): ResponseActionResultOut | null {
-  const actionId = Number(patch?.response_action_id ?? actionIdFallback ?? current?.response_action_id ?? 0);
-  if (!Number.isFinite(actionId) || actionId <= 0) return current ?? null;
-
-  const resultId = Number(patch?.id ?? current?.id ?? 0);
-  const status = String(patch?.status ?? current?.status ?? "").trim();
-  const agentId = String(patch?.agent_id ?? current?.agent_id ?? "").trim();
-  const createdAt = String(patch?.created_at ?? current?.created_at ?? "").trim();
-  const updatedAt = String(patch?.updated_at ?? current?.updated_at ?? "").trim();
-  if (!Number.isFinite(resultId) || resultId <= 0 || !status || !agentId || !createdAt || !updatedAt) {
-    return current ?? null;
-  }
-
-  return {
-    id: resultId,
-    response_action_id: actionId,
-    agent_id: agentId,
-    status,
-    result_payload: current?.result_payload || {},
-    error: patch?.error ?? current?.error ?? null,
-    started_at: patch?.started_at ?? current?.started_at ?? null,
-    finished_at: patch?.finished_at ?? current?.finished_at ?? null,
-    created_at: createdAt,
-    updated_at: updatedAt,
-  };
-}
-
-export function parsePositiveInt(v: string | null): number | null {
-  const raw = String(v || "").trim();
-  if (!raw) return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return Math.trunc(n);
 }
 
 export function getDdosConfig(cfg: Record<string, any>): DdosConfigDraft {
