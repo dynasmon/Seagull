@@ -11,6 +11,7 @@ class ResponseActionCreateIn(BaseModel):
     agent_id: str = Field(..., min_length=1, max_length=64)
     payload: Dict[str, Any] = Field(default_factory=dict)
     expires_at: Optional[datetime] = None
+    justification: Optional[str] = Field(default=None, max_length=2000)
 
     @validator("action_type", pre=True)
     def _v_action_type(cls, v):
@@ -25,6 +26,13 @@ class ResponseActionCreateIn(BaseModel):
         if not s:
             raise ValueError("agent_id is required")
         return s
+
+    @validator("justification", pre=True)
+    def _v_justification(cls, v):
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s or None
 
 
 class ResponseActionOut(BaseModel):
@@ -102,6 +110,12 @@ class AgentResponseActionResultIn(BaseModel):
         s = str(v).strip()
         return s or None
 
+    @validator("started_at", "finished_at")
+    def _v_zero_timestamps(cls, v):
+        if v is not None and v.year < 1970:
+            return None
+        return v
+
 
 class ActionTypeOut(BaseModel):
     key: str
@@ -120,6 +134,7 @@ class BatchDispatchIn(BaseModel):
     agent_ids: List[str] = Field(default_factory=list)
     payload: Dict[str, Any] = Field(default_factory=dict)
     expires_at: Optional[datetime] = None
+    justification: Optional[str] = Field(default=None, max_length=2000)
 
     @validator("action_type", pre=True)
     def _v_action_type(cls, v):
@@ -127,6 +142,13 @@ class BatchDispatchIn(BaseModel):
         if not s:
             raise ValueError("action_type is required")
         return s
+
+    @validator("justification", pre=True)
+    def _v_justification(cls, v):
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s or None
 
 
 class BatchQueuedItem(BaseModel):
