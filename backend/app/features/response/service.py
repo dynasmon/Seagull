@@ -117,6 +117,12 @@ def create_response_action(
         expires_at=expires_at,
     )
     repository.flush(db)
+    audit_context: Dict[str, Any] = {
+        "payload_keys": sorted(list((row.payload or {}).keys())) if isinstance(row.payload, dict) else [],
+        "payload_size": len(row.payload or {}) if isinstance(row.payload, dict) else 0,
+    }
+    if payload.justification:
+        audit_context["justification"] = payload.justification
     audit_writer(
         db,
         request=request,
@@ -135,10 +141,7 @@ def create_response_action(
             "requested_by": row.requested_by,
             "expires_at": (row.expires_at.isoformat() if row.expires_at else None),
         },
-        context={
-            "payload_keys": sorted(list((row.payload or {}).keys())) if isinstance(row.payload, dict) else [],
-            "payload_size": len(row.payload or {}) if isinstance(row.payload, dict) else 0,
-        },
+        context=audit_context,
     )
     repository.commit(db)
     repository.refresh(db, row)
@@ -201,6 +204,9 @@ def create_response_action_batch(
     repository.flush(db)
 
     queued = [{"agent_id": row.agent_id, "action_id": row.id} for row in created_rows]
+    audit_context: Dict[str, Any] = {"agent_ids": agent_ids, "skipped": skipped}
+    if payload.justification:
+        audit_context["justification"] = payload.justification
     audit_writer(
         db,
         request=request,
@@ -218,7 +224,7 @@ def create_response_action_batch(
             "queued": len(created_rows),
             "skipped": len(skipped),
         },
-        context={"agent_ids": agent_ids, "skipped": skipped},
+        context=audit_context,
     )
     repository.commit(db)
     for row in created_rows:
