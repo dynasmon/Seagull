@@ -170,6 +170,33 @@ def test_agent_report_response_action_result_persists(monkeypatch) -> None:
         app.dependency_overrides.pop(get_current_agent, None)
 
 
+def test_agent_report_normalizes_zero_timestamps(monkeypatch) -> None:
+    fake_db = _ResultDB()
+    monkeypatch.setattr(agents_api, "write_audit_event", lambda *args, **kwargs: None)
+    app.dependency_overrides[get_db] = lambda: fake_db
+    app.dependency_overrides[get_current_agent] = lambda: AgentPrincipal(id=1, agent_id="agent-1", auth_method="credential")
+    try:
+        with TestClient(app) as client:
+            r = client.post(
+                "/agents/response-actions/results",
+                json={
+                    "response_action_id": 202,
+                    "agent_id": "agent-1",
+                    "status": "success",
+                    "result_payload": {"schema_version": "v1"},
+                    "started_at": "2026-03-29T15:00:00Z",
+                    "finished_at": "0001-01-01T00:00:00Z",
+                },
+            )
+            assert r.status_code == 201
+            assert fake_db.result_row.finished_at is None
+            assert fake_db.action.finished_at is not None
+            assert fake_db.action.finished_at.year >= 2026
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_agent, None)
+
+
 def test_agent_report_response_action_failure_emits_audit(monkeypatch) -> None:
     fake_db = _ResultDB()
     audits = []
