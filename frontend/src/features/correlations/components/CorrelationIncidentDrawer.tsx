@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
+import { useAuth } from "@/features/auth/context";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
@@ -78,6 +80,21 @@ function evidenceAlerts(rows: CorrelationEvidence[]) {
   }));
 }
 
+function incidentAgentId(
+  incident: CorrelationDurableIncident | null,
+  detail: CorrelationIncidentDetail | null,
+): string {
+  const resolved = detail || incident;
+  if (!resolved) return "";
+  if (String(resolved.entity_type || "") === "agent_id") return String(resolved.entity_value || "").trim();
+  if (String(resolved.group_by || "") === "agent_id") return String(resolved.group_value || "").trim();
+  for (const item of detail?.evidence ?? []) {
+    const candidate = String(item.details?.agent_id || item.details?.asset_agent_id || "").trim();
+    if (candidate) return candidate;
+  }
+  return "";
+}
+
 export default function CorrelationIncidentDrawer({
   open,
   incident,
@@ -107,6 +124,10 @@ export default function CorrelationIncidentDrawer({
 }) {
   const [tab, setTab] = useState<DrawerTab>("overview");
   const [summaryDraft, setSummaryDraft] = useState("");
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const responseAgentId = useMemo(() => incidentAgentId(incident, detail), [incident, detail]);
+  const canRespond = String(user?.role || "").toLowerCase() === "admin" && Boolean(responseAgentId);
 
   useEffect(() => {
     if (!open) {
@@ -167,6 +188,16 @@ export default function CorrelationIncidentDrawer({
             <Button variant="subtle" size="lg" onClick={onOpenInvestigations}>
               Search investigations
             </Button>
+            {canRespond ? (
+              <Button
+                variant="subtle"
+                size="lg"
+                onClick={() => navigate(`/response-center?agent_id=${encodeURIComponent(responseAgentId)}&mode=dispatch`)}
+                title={`Dispatch a response action on ${responseAgentId}`}
+              >
+                Respond
+              </Button>
+            ) : null}
           </div>
 
           <Tabs

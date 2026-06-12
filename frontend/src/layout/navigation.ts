@@ -16,7 +16,8 @@ export type AppNavIcon =
   | "network_topology"
   | "audit"
   | "settings"
-  | "internal";
+  | "internal"
+  | "response_center";
 
 export type AppNavItem = {
   id: string;
@@ -56,6 +57,7 @@ export const SOC_NAV_GROUPS: AppNavGroup[] = [
       { id: "alerts", label: "Alerts", to: "/alerts", icon: "alerts" },
       { id: "correlations", label: "Correlations", to: "/correlations", icon: "correlations" },
       { id: "ueba", label: "Anomaly Detection", to: "/ueba", icon: "ueba" },
+      { id: "response-center", label: "Response Center", to: "/response-center", icon: "response_center" },
     ],
   },
   {
@@ -321,6 +323,17 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
       breadcrumbs: [
         { label: "Entities" },
         { label: "Agents", to: "/agents" },
+      ],
+    },
+  },
+  {
+    path: "/response-center",
+    meta: {
+      title: "Response Center",
+      subtitle: "Dispatch and track audited agent-side response actions.",
+      breadcrumbs: [
+        { label: "Alerts & Triage" },
+        { label: "Response Center", to: "/response-center" },
       ],
     },
   },
