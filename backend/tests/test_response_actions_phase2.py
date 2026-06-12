@@ -173,6 +173,7 @@ def test_create_response_action_batch(monkeypatch) -> None:
         action_type="block_outbound_ip",
         agent_ids=["agent-1", "agent-2", "agent-3", "agent-1"],
         payload={"ip": "185.220.101.45", "protocol": "tcp"},
+        justification="bulk containment for incident 42",
     )
     admin = SimpleNamespace(id=1, username="root")
 
@@ -193,6 +194,7 @@ def test_create_response_action_batch(monkeypatch) -> None:
     assert created[0].batch_id == out["batch_id"]
     assert len(audits) == 1
     assert audits[0]["action"] == "response.actions.batch_create"
+    assert audits[0]["context"]["justification"] == "bulk containment for incident 42"
 
 
 def test_action_types_endpoint() -> None:

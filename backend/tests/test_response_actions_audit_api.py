@@ -88,6 +88,32 @@ def test_response_action_create_emits_request_audit(monkeypatch) -> None:
             assert audits[0]["context"]["payload_size"] == 3
             assert sorted(audits[0]["context"]["payload_keys"]) == ["collectors", "limits", "redaction"]
             assert "payload" not in audits[0]["context"]
+            assert "justification" not in audits[0]["context"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(require_admin, None)
+
+
+def test_response_action_create_records_justification_in_audit(monkeypatch) -> None:
+    fake_db = _FakeDB()
+    audits = []
+    monkeypatch.setattr(response_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
+    app.dependency_overrides[get_db] = lambda: fake_db
+    app.dependency_overrides[require_admin] = lambda: PortalPrincipal(id=9, username="root", role="admin")
+    try:
+        with TestClient(app) as client:
+            r = client.post(
+                "/response/actions",
+                json={
+                    "action_type": "collect_triage_bundle",
+                    "agent_id": "agent-1",
+                    "payload": {},
+                    "justification": "  investigating C2 beacon on agent-1  ",
+                },
+            )
+            assert r.status_code == 201
+            assert len(audits) == 1
+            assert audits[0]["context"]["justification"] == "investigating C2 beacon on agent-1"
     finally:
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(require_admin, None)
