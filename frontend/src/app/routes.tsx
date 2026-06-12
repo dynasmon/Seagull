@@ -7,6 +7,7 @@ const loadProtectedLayout = () => import("@/app/ProtectedLayout");
 
 const loadOverviewPage = () => import("@/features/overview/page");
 const loadAgentsPage = () => import("@/features/agents/page");
+const loadResponseCenterPage = () => import("@/features/response_center/page");
 const loadEventsLayout = () => import("@/features/events/page");
 const loadEventsStreamPage = () => import("@/features/events/views/stream/page");
 const loadSshInsightsPage = () => import("@/features/events/views/ssh/page");
@@ -52,6 +53,7 @@ const ProtectedLayout = lazy(loadProtectedLayout);
 
 const OverviewPage = lazy(loadOverviewPage);
 const AgentsPage = lazy(loadAgentsPage);
+const ResponseCenterPage = lazy(loadResponseCenterPage);
 const EventsLayout = lazy(loadEventsLayout);
 const EventsStreamPage = lazy(loadEventsStreamPage);
 const SshInsightsPage = lazy(loadSshInsightsPage);
@@ -159,6 +161,7 @@ export function Routes() {
             <Route path="/" element={<Navigate to="/overview" replace />} />
             <Route path="/overview" element={<OverviewPage />} />
             <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/response-center" element={<ResponseCenterPage />} />
             <Route path="/events" element={<EventsLayout />}>
               <Route index element={<EventsStreamPage />} />
               <Route path="ssh" element={<SshInsightsPage />} />
