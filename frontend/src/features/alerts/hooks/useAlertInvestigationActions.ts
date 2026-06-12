@@ -18,6 +18,13 @@ interface UseAlertInvestigationActionsParams {
   onCopied: () => void;
 }
 
+export function alertAgentId(alert: Alert | null): string {
+  const details = alert?.details || {};
+  const groupKey = (details.group_key || {}) as Record<string, any>;
+  const candidate = groupKey.agent_id ?? details.agent_id ?? "";
+  return String(candidate || "").trim();
+}
+
 export function useAlertInvestigationActions({
   selected,
   triageNotes,
@@ -102,6 +109,13 @@ export function useAlertInvestigationActions({
     nav(`/events${sp.toString() ? `?${sp.toString()}` : ""}`);
   }
 
+  const responseAgentId = alertAgentId(selected);
+
+  function openResponsePivot() {
+    if (!responseAgentId) return;
+    nav(`/response-center?agent_id=${encodeURIComponent(responseAgentId)}&mode=dispatch`);
+  }
+
   function openSelectedRuleEditor(alert: Alert) {
     const ruleId = String(alert.rule_id || "").trim();
     if (!ruleId) return;
@@ -128,6 +142,8 @@ export function useAlertInvestigationActions({
     copyDetailsJson,
     openRuleEditor,
     openEventsPivot,
+    responseAgentId,
+    openResponsePivot,
     openSelectedRuleEditor,
     pivotToEvents,
     triageStatusAction: (status: AlertStatus) => void handleTriage({ status }),

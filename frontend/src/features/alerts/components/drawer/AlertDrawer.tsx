@@ -1,3 +1,4 @@
+import { useAuth } from "@/features/auth/context";
 import Drawer from "@/shared/components/Drawer";
 import EmptyState from "@/shared/components/EmptyState";
 import {
@@ -19,6 +20,8 @@ import { AlertDrawerTriageTab } from "./AlertDrawerTriageTab";
 export function AlertDrawer({ model }: { model: AlertsPageModel }) {
   const { drawer, evidence, actions, query } = model;
   const { selected } = drawer;
+  const { user } = useAuth();
+  const canRespond = String(user?.role || "").toLowerCase() === "admin" && Boolean(actions.responseAgentId);
 
   return (
     <Drawer
@@ -60,6 +63,14 @@ export function AlertDrawer({ model }: { model: AlertsPageModel }) {
             <InvestigationActionButton onClick={actions.openEventsPivot} title="Pivot into Events">
               Open in Events
             </InvestigationActionButton>
+            {canRespond ? (
+              <InvestigationActionButton
+                onClick={actions.openResponsePivot}
+                title={`Dispatch a response action on ${actions.responseAgentId}`}
+              >
+                Respond
+              </InvestigationActionButton>
+            ) : null}
             <InvestigationActionButton onClick={actions.copyDetailsJson} title="Copy JSON to clipboard">
               {drawer.copied ? "Copied" : "Copy JSON"}
             </InvestigationActionButton>
