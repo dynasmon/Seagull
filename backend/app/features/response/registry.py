@@ -286,6 +286,34 @@ def _validate_quarantine_file_payload(raw_payload: Dict[str, Any]) -> Dict[str, 
     return out
 
 
+def _validate_run_shell_command_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
+    payload = _as_dict(raw_payload, "payload")
+    allowed_root = {"command", "timeout_seconds", "working_dir"}
+    unknown = sorted([k for k in payload.keys() if k not in allowed_root])
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"payload has unsupported keys: {', '.join(unknown)}")
+
+    command = _as_str(payload.get("command"), "payload.command", max_length=4096) if payload.get("command") is not None else ""
+    if not command:
+        raise HTTPException(status_code=422, detail="payload.command is required")
+
+    out: Dict[str, Any] = {"command": command}
+    if payload.get("timeout_seconds") is not None:
+        out["timeout_seconds"] = _as_int(
+            payload.get("timeout_seconds"),
+            "payload.timeout_seconds",
+            min_value=1,
+            max_value=300,
+        )
+    if payload.get("working_dir") is not None:
+        working_dir = _as_str(payload.get("working_dir"), "payload.working_dir", max_length=4096)
+        if working_dir:
+            if not working_dir.startswith("/"):
+                raise HTTPException(status_code=422, detail="payload.working_dir must be absolute")
+            out["working_dir"] = working_dir
+    return out
+
+
 @dataclass(frozen=True)
 class ActionDefinition:
     key: str
@@ -396,6 +424,18 @@ ACTION_REGISTRY: Dict[str, ActionDefinition] = {
         undo_action=None,
         description="Move a file to the agent quarantine directory with 000 permissions.",
         validate_payload=_validate_quarantine_file_payload,
+    ),
+    "run_shell_command": ActionDefinition(
+        key="run_shell_command",
+        label="Run Shell Command",
+        category="containment",
+        risk_level="critical",
+        reversible=False,
+        requires_confirmation=True,
+        estimated_duration_seconds=30,
+        undo_action=None,
+        description="Execute a shell command on the agent host. Gated by agent config and an optional command allowlist.",
+        validate_payload=_validate_run_shell_command_payload,
     ),
 }
 
