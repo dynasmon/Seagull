@@ -80,4 +80,5 @@ export const PAYLOAD_TEMPLATES: Record<string, Record<string, any>> = {
   block_outbound_ip: { ip: "", protocol: "tcp", dry_run: true },
   unblock_outbound_ip: { ip: "", protocol: "tcp" },
   quarantine_file: { path: "", compute_hash: true, dry_run: true },
+  run_shell_command: { command: "", timeout_seconds: 30 },
 };
