@@ -25,7 +25,7 @@ const ICON_BY_NAV: Record<AppNavIcon, IconType> = {
   audit: "auditbeatApp",
   settings: "gear",
   internal: "processor",
-  response_center: "securitySignalAlerted",
+  response_center: "securitySignal",
 };
 
 function NavIcon({ icon }: { icon: AppNavIcon }) {
