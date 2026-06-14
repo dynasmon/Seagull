@@ -325,6 +325,7 @@ class ActionDefinition:
     estimated_duration_seconds: int
     undo_action: Optional[str]
     description: str
+    payload_template: Dict[str, Any]
     validate_payload: Callable[[Dict[str, Any]], Dict[str, Any]]
 
 
@@ -339,6 +340,7 @@ ACTION_REGISTRY: Dict[str, ActionDefinition] = {
         estimated_duration_seconds=30,
         undo_action=None,
         description="Collect host and runtime triage data from the selected agent.",
+        payload_template={},
         validate_payload=_validate_collect_triage_bundle_payload,
     ),
     "trigger_inventory_snapshot": ActionDefinition(
@@ -351,6 +353,7 @@ ACTION_REGISTRY: Dict[str, ActionDefinition] = {
         estimated_duration_seconds=15,
         undo_action=None,
         description="Capture a focused host and runtime inventory snapshot from the agent.",
+        payload_template={},
         validate_payload=_validate_trigger_inventory_snapshot_payload,
     ),
     "refresh_runtime_config": ActionDefinition(
@@ -363,6 +366,7 @@ ACTION_REGISTRY: Dict[str, ActionDefinition] = {
         estimated_duration_seconds=10,
         undo_action=None,
         description="Pull and apply the latest runtime configuration immediately.",
+        payload_template={},
         validate_payload=_validate_refresh_runtime_config_payload,
     ),
     "trigger_topology_discovery": ActionDefinition(
@@ -375,6 +379,7 @@ ACTION_REGISTRY: Dict[str, ActionDefinition] = {
         estimated_duration_seconds=60,
         undo_action=None,
         description="Run an on-demand network topology discovery sweep.",
+        payload_template={},
         validate_payload=_validate_trigger_topology_discovery_payload,
     ),
     "kill_process": ActionDefinition(
@@ -387,6 +392,7 @@ ACTION_REGISTRY: Dict[str, ActionDefinition] = {
         estimated_duration_seconds=5,
         undo_action=None,
         description="Send a termination signal to one or more processes by PID or name.",
+        payload_template={"target": {"pid": 0}, "signal": "SIGTERM", "dry_run": True},
         validate_payload=_validate_kill_process_payload,
     ),
     "block_outbound_ip": ActionDefinition(
@@ -399,6 +405,7 @@ ACTION_REGISTRY: Dict[str, ActionDefinition] = {
         estimated_duration_seconds=5,
         undo_action="unblock_outbound_ip",
         description="Drop outbound traffic to a specific IP via the host firewall.",
+        payload_template={"ip": "", "protocol": "tcp", "dry_run": True},
         validate_payload=_validate_firewall_payload,
     ),
     "unblock_outbound_ip": ActionDefinition(
@@ -411,6 +418,7 @@ ACTION_REGISTRY: Dict[str, ActionDefinition] = {
         estimated_duration_seconds=5,
         undo_action=None,
         description="Remove a previously added outbound block rule from the host firewall.",
+        payload_template={"ip": "", "protocol": "tcp"},
         validate_payload=_validate_firewall_payload,
     ),
     "quarantine_file": ActionDefinition(
@@ -423,6 +431,7 @@ ACTION_REGISTRY: Dict[str, ActionDefinition] = {
         estimated_duration_seconds=10,
         undo_action=None,
         description="Move a file to the agent quarantine directory with 000 permissions.",
+        payload_template={"path": "", "compute_hash": True, "dry_run": True},
         validate_payload=_validate_quarantine_file_payload,
     ),
     "run_shell_command": ActionDefinition(
@@ -435,6 +444,7 @@ ACTION_REGISTRY: Dict[str, ActionDefinition] = {
         estimated_duration_seconds=30,
         undo_action=None,
         description="Execute a shell command on the agent host. Gated by agent config and an optional command allowlist.",
+        payload_template={"command": "", "timeout_seconds": 30},
         validate_payload=_validate_run_shell_command_payload,
     ),
 }
@@ -456,6 +466,7 @@ def action_catalog() -> List[Dict[str, Any]]:
             "estimated_duration_seconds": d.estimated_duration_seconds,
             "undo_action": d.undo_action,
             "description": d.description,
+            "payload_template": d.payload_template,
         }
         for d in ACTION_REGISTRY.values()
     ]
