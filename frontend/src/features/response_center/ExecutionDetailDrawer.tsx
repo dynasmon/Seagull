@@ -119,6 +119,18 @@ export default function ExecutionDetailDrawer({ detailId, onClose, onChanged, on
                   Pin to workspace
                 </Button>
               ) : null}
+              {action?.status === "failed" && onPivot ? (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() =>
+                    onPivot({ actionKey: action.action_type, agentId: action.agent_id, payload: action.payload })
+                  }
+                >
+                  Retry
+                </Button>
+              ) : null}
               <Button variant="secondary" size="sm" onClick={handleCancel} disabled={!canCancel || busy}>
                 {busy ? "Working…" : "Cancel action"}
               </Button>

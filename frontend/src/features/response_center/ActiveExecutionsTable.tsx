@@ -9,6 +9,7 @@ import { InlineAlert } from "@/shared/components/InlineAlert";
 import { Panel } from "@/shared/components/Panel";
 import { StatusPill } from "@/shared/components/StatusPill";
 import { Table, type Column } from "@/shared/components/Table";
+import { TextInput } from "@/shared/components/TextInput";
 import type { UrlQueryUpdater } from "@/shared/hooks/useUrlQueryState";
 import type { LiveRefreshState } from "@/shared/realtime/useLiveRefresh";
 
@@ -160,6 +161,25 @@ export default function ActiveExecutionsTable({
             options={SINCE_OPTIONS}
             onChange={(next) => setFilters((prev) => ({ ...prev, since: next }))}
           />
+          <div className="flex items-center gap-1">
+            <TextInput
+              className="max-w-[140px] font-mono text-[11px]"
+              aria-label="Batch ID"
+              placeholder="batch_…"
+              value={filters.batchId}
+              onChange={(event) => setFilters((prev) => ({ ...prev, batchId: event.target.value }))}
+            />
+            {filters.batchId ? (
+              <button
+                type="button"
+                aria-label="Clear batch ID"
+                className="rounded border border-border/60 px-1.5 text-[12px] leading-none text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                onClick={() => setFilters((prev) => ({ ...prev, batchId: "" }))}
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
         </FilterBar>
       </div>
 

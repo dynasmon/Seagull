@@ -34,6 +34,14 @@ function authLineVariant(line: string): AuthVariant {
   return "neutral";
 }
 
+function parseAuthLine(line: string): { timestamp: string | null; body: string } {
+  const tokens = line.split(/\s+/);
+  if (tokens.length < 4) {
+    return { timestamp: null, body: line };
+  }
+  return { timestamp: `${tokens[0]} ${tokens[1]} ${tokens[2]}`, body: tokens.slice(3).join(" ") };
+}
+
 export default function TriageBundleResultRenderer({ result }: { result: ResponseActionResultOut }) {
   const payload = result.result_payload || {};
   const [tab, setTab] = useState<TriageTab>("host");
@@ -177,11 +185,23 @@ export default function TriageBundleResultRenderer({ result }: { result: Respons
           <div className="space-y-2">
             {authLog.source ? <div className="font-mono text-[10.5px] text-muted-foreground">{String(authLog.source)}</div> : null}
             <div className="max-h-[420px] space-y-1 overflow-y-auto rounded-md border border-border/60 bg-background/30 p-2">
-              {authLines.map((line, idx) => (
-                <div key={idx} className={`font-mono text-[10.5px] ${AUTH_LINE_CLASS[authLineVariant(line)]}`}>
-                  {line}
-                </div>
-              ))}
+              {authLines.map((line, idx) => {
+                const parsed = parseAuthLine(line);
+                const variant = authLineVariant(line);
+                if (parsed.timestamp === null) {
+                  return (
+                    <div key={idx} className={`font-mono text-[10.5px] ${AUTH_LINE_CLASS[variant]}`}>
+                      {parsed.body}
+                    </div>
+                  );
+                }
+                return (
+                  <div key={idx} className="flex gap-2">
+                    <div className="w-[80px] shrink-0 font-mono text-[10px] text-muted-foreground">{parsed.timestamp}</div>
+                    <div className={`min-w-0 flex-1 font-mono text-[10.5px] ${AUTH_LINE_CLASS[variant]}`}>{parsed.body}</div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )
