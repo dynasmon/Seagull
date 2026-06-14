@@ -17,7 +17,7 @@ import ActionCatalogPanel from "./ActionCatalogPanel";
 import { createResponseAction, createResponseActionBatch } from "./api";
 import DispatchModal from "./DispatchModal";
 import { categoryLabel, riskVariant } from "./lib";
-import { PAYLOAD_TEMPLATES, type ActionTypeOut, type BatchDispatchOut } from "./types";
+import { type ActionTypeOut, type BatchDispatchOut } from "./types";
 
 type TargetMode = "single" | "multi";
 
@@ -32,11 +32,6 @@ interface DispatchFlyoutProps {
   prefillPayload?: Record<string, any> | null;
   onDispatched: () => void;
   onOpenAction?: (actionId: number) => void;
-}
-
-function templateFor(actionType: string): string {
-  const template = PAYLOAD_TEMPLATES[actionType];
-  return template ? JSON.stringify(template, null, 2) : "{}";
 }
 
 function toIso(localValue: string): string {
@@ -84,11 +79,12 @@ export default function DispatchFlyout({
   const definition = useMemo(() => catalog.find((d) => d.key === actionType) || null, [catalog, actionType]);
 
   useEffect(() => {
-    setPayloadText(prefillPayload ? JSON.stringify(prefillPayload, null, 2) : templateFor(actionType));
+    const template = definition?.payload_template ?? {};
+    setPayloadText(prefillPayload ? JSON.stringify(prefillPayload, null, 2) : JSON.stringify(template, null, 2));
     setError(null);
     setSuccess(null);
     setBatchResult(null);
-  }, [actionType, prefillPayload]);
+  }, [actionType, prefillPayload, definition]);
 
   useEffect(() => {
     if (defaultAgentId) setAgentId(defaultAgentId);
