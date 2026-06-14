@@ -16,13 +16,38 @@ import pytest
 
 from app.features.detections.domain.condition_ast import parse_detection_block
 from app.features.detections.domain.rule_types import V2_RULE_SCHEMA_VERSION
+from app.features.detections.executors.v2_executor import V2RuleExecutor
+from app.features.detections.pipeline import (
+    AlertPipeline,
+    EnrichmentStage,
+    GovernanceStage,
+    ScoringStage,
+    SuppressionStage,
+    build_default_registry,
+)
 from app.features.detections.rules.compiler import (
     _v2_mitre_meta,
     _v2_resolve_params,
     _v2_suppressions,
     compile_detection_filters,
-    execute_v2_rule,
 )
+
+_ENRICHMENT_REGISTRY = build_default_registry()
+
+
+def execute_v2_rule(db, rule, now, recent_idx, agent_ctx_map, fp_rates=None):
+    window = _v2_resolve_params(rule)[0]
+    candidates = V2RuleExecutor().execute(rule, db=db, since=now - window, until=now)
+    if not candidates:
+        return []
+    meta = candidates[0].extra
+    pipeline = AlertPipeline([
+        GovernanceStage(recent_idx, agent_ctx_map, now),
+        SuppressionStage(meta.get("effective_suppressions") or []),
+        EnrichmentStage(_ENRICHMENT_REGISTRY),
+        ScoringStage(fp_rates, meta.get("mitre") or {}),
+    ])
+    return pipeline.run(candidates, db=db, recent_idx=recent_idx)
 
 # ---------------------------------------------------------------------------
 # Helpers
