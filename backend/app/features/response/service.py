@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
@@ -17,6 +17,22 @@ from app.features.response.schemas import BatchDispatchIn, ResponseActionCreateI
 
 _ACTION_TYPE_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,31}$")
 _RUNNABLE_STATUSES = {"pending", "delivered"}
+
+_SHELL_EXEC_ACTION_TYPE = "run_shell_command"
+_SHELL_EXEC_RATE_WINDOW = timedelta(minutes=5)
+_SHELL_EXEC_RATE_MAX = 3
+_SHELL_EXEC_RATE_STATUSES = ["pending", "delivered"]
+
+
+def _shell_exec_rate_exceeded(db: Session, *, agent_id: str, now: datetime) -> bool:
+    recent = repository.count_recent_actions(
+        db,
+        agent_id=agent_id,
+        action_type=_SHELL_EXEC_ACTION_TYPE,
+        since=now - _SHELL_EXEC_RATE_WINDOW,
+        statuses=_SHELL_EXEC_RATE_STATUSES,
+    )
+    return recent >= _SHELL_EXEC_RATE_MAX
 
 
 def _utc_now() -> datetime:
@@ -106,6 +122,9 @@ def create_response_action(
         raise HTTPException(status_code=422, detail="expires_at must be in the future")
     normalized_payload = _validate_payload_for_action(action_type, dict(payload.payload or {}))
 
+    if action_type == _SHELL_EXEC_ACTION_TYPE and _shell_exec_rate_exceeded(db, agent_id=payload.agent_id, now=now):
+        raise HTTPException(status_code=429, detail="Too many shell exec actions queued for this agent")
+
     row = repository.create_action(
         db,
         action_type=action_type,
@@ -187,6 +206,9 @@ def create_response_action_batch(
             continue
         if bool(row_agent.is_revoked):
             skipped.append({"agent_id": agent_id, "reason": "revoked"})
+            continue
+        if action_type == _SHELL_EXEC_ACTION_TYPE and _shell_exec_rate_exceeded(db, agent_id=agent_id, now=now):
+            skipped.append({"agent_id": agent_id, "reason": "rate_limited"})
             continue
         created_rows.append(
             repository.create_action(

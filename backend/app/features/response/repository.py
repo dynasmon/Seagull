@@ -76,6 +76,26 @@ def list_actions(
     return q.order_by(ResponseActionModel.requested_at.desc(), ResponseActionModel.id.desc()).limit(int(limit)).all()
 
 
+def count_recent_actions(
+    db: Session,
+    *,
+    agent_id: str,
+    action_type: str,
+    since,
+    statuses: list[str],
+) -> int:
+    return (
+        db.query(ResponseActionModel)
+        .filter(
+            ResponseActionModel.agent_id == agent_id,
+            ResponseActionModel.action_type == action_type,
+            ResponseActionModel.requested_at >= since,
+            ResponseActionModel.status.in_(list(statuses)),
+        )
+        .count()
+    )
+
+
 def get_action(db: Session, *, action_id: int, for_update: bool = False) -> ResponseActionModel | None:
     q = db.query(ResponseActionModel).filter(ResponseActionModel.id == int(action_id))
     if for_update:
