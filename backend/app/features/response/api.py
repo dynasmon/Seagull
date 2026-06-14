@@ -9,8 +9,14 @@ from sqlalchemy.orm import Session
 from app.core.audit import write_audit_event
 from app.core.db import get_db
 from app.core.db.session import managed_session
-from app.features.auth.session import PortalPrincipal, require_admin
+from app.features.auth.session import (
+    PortalPrincipal,
+    get_current_user,
+    require_admin,
+    require_min_risk_level,
+)
 from app.features.response import service
+from app.features.response.registry import ACTION_REGISTRY
 from app.features.response.schemas import (
     ActionTypeOut,
     BatchDispatchIn,
@@ -22,6 +28,26 @@ from app.features.response.schemas import (
 )
 
 router = APIRouter(prefix="/response", tags=["response"])
+
+
+def _gate_action_risk(
+    payload: ResponseActionCreateIn,
+    user: PortalPrincipal = Depends(get_current_user),
+) -> PortalPrincipal:
+    definition = ACTION_REGISTRY.get(payload.action_type)
+    if definition is not None:
+        return require_min_risk_level(definition.risk_level)(user)
+    return user
+
+
+def _gate_batch_action_risk(
+    payload: BatchDispatchIn,
+    user: PortalPrincipal = Depends(get_current_user),
+) -> PortalPrincipal:
+    definition = ACTION_REGISTRY.get(payload.action_type)
+    if definition is not None:
+        return require_min_risk_level(definition.risk_level)(user)
+    return user
 
 
 @router.get("/action-types", response_model=List[ActionTypeOut], status_code=status.HTTP_200_OK)
@@ -36,6 +62,7 @@ def create_response_action(
     payload: ResponseActionCreateIn,
     request: Request,
     admin: PortalPrincipal = Depends(require_admin),
+    _risk_gate: PortalPrincipal = Depends(_gate_action_risk),
     db: Session = Depends(get_db),
 ):
     with managed_session(db) as db_session:
@@ -53,6 +80,7 @@ def create_response_action_batch(
     payload: BatchDispatchIn,
     request: Request,
     admin: PortalPrincipal = Depends(require_admin),
+    _risk_gate: PortalPrincipal = Depends(_gate_batch_action_risk),
     db: Session = Depends(get_db),
 ):
     with managed_session(db) as db_session:
