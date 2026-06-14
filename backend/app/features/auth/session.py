@@ -96,6 +96,29 @@ def require_admin(user: PortalPrincipal = Depends(get_current_user)) -> PortalPr
     return user
 
 
+_RISK_LEVEL_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+_ROLE_MAX_RISK = {"admin": "critical", "analyst": "medium"}
+
+
+def _role_max_risk_rank(role: str) -> int:
+    max_risk = _ROLE_MAX_RISK.get((role or "").lower(), "low")
+    return _RISK_LEVEL_ORDER[max_risk]
+
+
+def require_min_risk_level(min_risk: str):
+    required_rank = _RISK_LEVEL_ORDER.get((min_risk or "").lower(), 0)
+
+    def _dependency(user: PortalPrincipal = Depends(get_current_user)) -> PortalPrincipal:
+        if _role_max_risk_rank(user.role) < required_rank:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient privilege for this action risk level",
+            )
+        return user
+
+    return _dependency
+
+
 def _cookie_kwargs() -> dict:
     same_site = (settings.SEAGULL_COOKIE_SAMESITE or "lax").lower()
     if same_site not in {"lax", "strict", "none"}:
