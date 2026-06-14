@@ -19,6 +19,7 @@ export type ActionTypeOut = {
   estimated_duration_seconds: number;
   undo_action: string | null;
   description: string;
+  payload_template: Record<string, any>;
 };
 
 export type TimelineEventOut = {
@@ -69,16 +70,5 @@ export type ExecutionFilters = {
   category: string;
   agentId: string;
   since: string;
-};
-
-export const PAYLOAD_TEMPLATES: Record<string, Record<string, any>> = {
-  collect_triage_bundle: {},
-  trigger_inventory_snapshot: {},
-  refresh_runtime_config: {},
-  trigger_topology_discovery: {},
-  kill_process: { target: { pid: 0 }, signal: "SIGTERM", dry_run: true },
-  block_outbound_ip: { ip: "", protocol: "tcp", dry_run: true },
-  unblock_outbound_ip: { ip: "", protocol: "tcp" },
-  quarantine_file: { path: "", compute_hash: true, dry_run: true },
-  run_shell_command: { command: "", timeout_seconds: 30 },
+  batchId: string;
 };

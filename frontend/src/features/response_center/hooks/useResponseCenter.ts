@@ -22,6 +22,7 @@ function parseFilters(sp: URLSearchParams): ExecutionFilters {
     category: sp.get("category") || "",
     agentId: sp.get("agent") || "",
     since: sp.get("since") || "",
+    batchId: sp.get("batch_id") || "",
   };
 }
 
@@ -31,6 +32,7 @@ function serializeFilters(state: ExecutionFilters): URLSearchParams {
   if (state.category) sp.set("category", state.category);
   if (state.agentId) sp.set("agent", state.agentId);
   if (state.since) sp.set("since", state.since);
+  if (state.batchId) sp.set("batch_id", state.batchId);
   return sp;
 }
 
@@ -111,6 +113,7 @@ export function useResponseCenter({ enabled = true }: { enabled?: boolean } = {}
       const params: ResponseActionListParams = {
         category: f.category || undefined,
         agent_id: f.agentId || undefined,
+        batch_id: f.batchId || undefined,
         since: sinceTokenToIso(f.since) || undefined,
         limit: 200,
       };
@@ -134,7 +137,7 @@ export function useResponseCenter({ enabled = true }: { enabled?: boolean } = {}
       return;
     }
     invalidate("dependency", { immediate: true });
-  }, [filters.category, filters.agentId, filters.since, invalidate]);
+  }, [filters.category, filters.agentId, filters.since, filters.batchId, invalidate]);
 
   const executions = useMemo(() => {
     if (!filters.statuses.length) return allExecutions;
