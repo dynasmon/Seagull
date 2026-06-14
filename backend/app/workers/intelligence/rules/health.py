@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
+from app.core.observability import incr_counter, observe_hist
 from app.features.detections.models import DetectionRuleHealthModel
 from app.features.detections.repository import upsert_rule_health_batch
 
@@ -91,3 +92,17 @@ def flush_cycle_health(
 ) -> None:
     records = build_health_records(results, existing, now)
     upsert_rule_health_batch(db, records)
+
+
+def emit_detection_metrics(health_results: list[RuleExecResult], cycle_seconds: float) -> None:
+    incr_counter("detection_cycles_total")
+    observe_hist("detection_cycle_duration_seconds", max(0.0, cycle_seconds))
+    for r in health_results:
+        if getattr(r, "disabled", False):
+            continue
+        incr_counter("detection_rule_evaluations_total")
+        observe_hist("detection_rule_eval_latency_seconds", max(0.0, float(getattr(r, "duration_ms", 0) or 0) / 1000.0))
+        if getattr(r, "error", None) is not None:
+            incr_counter("detection_rule_errors_total")
+        elif int(getattr(r, "alerts_created", 0) or 0) > 0:
+            incr_counter("detection_rule_matches_total")
