@@ -326,3 +326,16 @@ rules:
     response:
       playbook: "Inspect the JA4 fingerprint and destination profile. A TLS ClientHello on port 80 is inconsistent with normal HTTP traffic and may indicate C2 tunneling or deliberate HTTPS-to-HTTP downgrade evasion. Correlate with recent process execution and persistence signals on the same agent."
       false_positives: "Service mesh or reverse proxy configurations deliberately using mTLS on port 80 for internal traffic. Add the agent.id or destination.ip to allowlist if the behavior is expected and approved."
+    tests:
+      - id: ja4_on_http_port_fires
+        description: "Two TLS ClientHello fingerprints on port 80 to one destination trip the evasion rule."
+        expect: hit
+        events:
+          - {"event_type": "l7_flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 80, "proto": "tcp", "extra": {"ja4": "t13d1516h2_8daaf6152771_b186095e22b6"}}
+          - {"event_type": "l7_flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 80, "proto": "tcp", "extra": {"ja4": "t13d1516h2_8daaf6152771_b186095e22b6"}}
+      - id: ja4_on_https_port_stays_quiet
+        description: "TLS fingerprints on a standard HTTPS port are outside the cleartext-port selection."
+        expect: no_hit
+        events:
+          - {"event_type": "l7_flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "extra": {"ja4": "t13d1516h2_8daaf6152771_b186095e22b6"}}
+          - {"event_type": "l7_flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "extra": {"ja4": "t13d1516h2_8daaf6152771_b186095e22b6"}}
