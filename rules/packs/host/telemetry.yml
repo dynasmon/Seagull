@@ -70,6 +70,17 @@ rules:
     condition:
       operator: ">="
       value: 1
+    tests:
+      - id: service_spawned_shell_fires
+        description: "A shell spawned from a network-facing service trips the deprecated detector."
+        expect: hit
+        events:
+          - {"event_type": "proc_exec", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "extra": {"exec_pattern": "service_shell_child", "exe_name": "sh", "parent_exe_name": "nginx"}}
+      - id: interpreter_pattern_ignored
+        description: "An interpreter execution pattern does not match the service-shell detector."
+        expect: no_hit
+        events:
+          - {"event_type": "proc_exec", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "extra": {"exec_pattern": "interpreter", "exe_name": "python3", "parent_exe_name": "cron"}}
 
   - id: persistence_authorized_keys_change_v1
     name: "Suspicious authorized_keys change"
