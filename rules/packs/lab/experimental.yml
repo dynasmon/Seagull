@@ -35,6 +35,165 @@ rules:
         src_cidrs: []
         dst_cidrs: []
         dst_ports: []
+    tests:
+      - id: fixed_tuple_beacon_fires
+        description: "One hundred forty low-byte flows on a fixed tuple cross the beaconing threshold."
+        expect: hit
+        events:
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+      - id: few_flows_stay_quiet
+        description: "Ten low-byte flows stay below the beaconing threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 8443, "proto": "tcp", "bytes": 200}
 
   - id: egress_high_volume_candidate_v1
     name: "Potential high-volume exfiltration"
@@ -66,6 +225,35 @@ rules:
         dst_ips: []
         src_cidrs: []
         dst_cidrs: []
+    tests:
+      - id: high_volume_egress_fires
+        description: "Ten high-byte outbound flows to one destination cross the exfiltration threshold."
+        expect: hit
+        events:
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 5000000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 5000000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 5000000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 5000000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 5000000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 5000000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 5000000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 5000000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 5000000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 5000000}
+      - id: small_flows_stay_quiet
+        description: "Outbound flows below the byte floor do not count toward exfiltration."
+        expect: no_hit
+        events:
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 1000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 1000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 1000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 1000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 1000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 1000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 1000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 1000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 1000}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 443, "proto": "tcp", "bytes": 1000}
 
   - id: dns_tunnel_candidate_v1
     name: "DNS tunnel candidate"
@@ -96,6 +284,285 @@ rules:
       allowlist:
         src_cidrs: []
         dst_ips: []
+    tests:
+      - id: high_volume_dns_fires
+        description: "Two hundred sixty small DNS flows between one pair cross the tunneling threshold."
+        expect: hit
+        events:
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+      - id: few_dns_flows_stay_quiet
+        description: "Ten DNS flows stay below the tunneling threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
+          - {"event_type": "flow", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "203.0.113.20", "dst_port": 53, "proto": "udp", "bytes": 200}
 
   - id: low_and_slow_port_scan_candidate_v1
     name: "Low-and-slow scan candidate"
@@ -126,6 +593,50 @@ rules:
       allowlist:
         src_cidrs: []
         dst_cidrs: []
+    tests:
+      - id: slow_port_diversity_fires
+        description: "Thirty probes across thirty ports accumulate enough diversity to fire."
+        expect: hit
+        events:
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1000, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1001, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1002, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1003, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1004, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1005, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1006, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1007, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1008, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1009, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1010, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1011, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1012, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1013, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1014, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1015, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1016, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1017, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1018, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1019, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1020, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1021, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1022, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1023, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1024, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1025, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1026, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1027, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1028, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1029, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+      - id: few_probes_stay_quiet
+        description: "Five probes stay below the slow-scan diversity threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1000, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1001, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1002, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1003, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1004, "proto": "tcp", "extra": {"scan_confidence": 75, "scan_type": "tcp_syn"}}
 
   - id: rpc_fanout_candidate_v1
     name: "RPC fan-out candidate"
@@ -155,6 +666,40 @@ rules:
     condition:
       operator: ">="
       value: 8
+    tests:
+      - id: rpc_fanout_fires
+        description: "Twenty RPC attempts across eight or more hosts cross the fan-out threshold."
+        expect: hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.1", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.2", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.3", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.4", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.5", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.6", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.7", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.8", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.9", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.10", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.11", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.12", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.13", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.14", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.15", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.16", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.17", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.18", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.19", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.20", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+      - id: few_targets_stay_quiet
+        description: "RPC attempts against a few hosts stay below the fan-out threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.1", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.2", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.3", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.4", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.5", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
 
   - id: smb_ssh_combo_pivot_candidate_v1
     name: "SMB+SSH combo pivot candidate"
@@ -187,3 +732,62 @@ rules:
       - field: "dst_port"
         operator: ">="
         value: 2
+    tests:
+      - id: smb_ssh_combo_fires
+        description: "Twenty-five attempts spanning many hosts on both SMB and SSH cross the pivot threshold."
+        expect: hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.1", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.2", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.3", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.4", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.5", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.6", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.7", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.8", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.9", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.10", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.11", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.12", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.13", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.14", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.15", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.16", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.17", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.18", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.19", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.20", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.21", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.22", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.23", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.24", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.25", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+      - id: single_service_stays_quiet
+        description: "Attempts on a single service do not meet the dual-service pivot threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.1", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.2", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.3", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.4", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.5", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.6", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.7", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.8", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.9", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.10", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.11", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.12", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.13", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.14", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.15", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.16", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.17", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.18", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.19", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.20", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.21", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.22", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.23", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.24", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.5", "dst_ip": "10.0.0.25", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 70}}

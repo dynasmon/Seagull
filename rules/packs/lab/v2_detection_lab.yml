@@ -45,6 +45,40 @@ rules:
     response:
       playbook: Investigate the source IP for repeated SSH activity.
       false_positives: Automation or health-check accounts performing frequent scripted SSH logins from a fixed management host.
+    tests:
+      - id: ssh_volume_threshold_fires
+        description: "Twenty SSH auth events from one source to one target cross the v2 threshold."
+        expect: hit
+        events:
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+      - id: low_volume_stays_quiet
+        description: "Five SSH auth events stay below the v2 threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
+          - {"event_type": "ssh_auth", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.10", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "src_port": 50000, "username": "user"}}
 
   - schema_version: 2
     id: v2_lab_port_scan_cardinality_v1
@@ -85,6 +119,50 @@ rules:
     response:
       playbook: Validate the source against the approved scanner inventory and review the probed port set before escalating.
       false_positives: Authorized vulnerability scanners or asset-inventory sweeps probing many ports at a low rate.
+    tests:
+      - id: port_cardinality_fires
+        description: "Thirty probes across thirty ports cross the v2 cardinality threshold."
+        expect: hit
+        events:
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1000, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1001, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1002, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1003, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1004, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1005, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1006, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1007, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1008, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1009, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1010, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1011, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1012, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1013, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1014, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1015, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1016, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1017, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1018, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1019, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1020, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1021, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1022, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1023, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1024, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1025, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1026, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1027, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1028, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1029, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+      - id: few_ports_stay_quiet
+        description: "Five probes stay below the v2 cardinality threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1000, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1001, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1002, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1003, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
+          - {"event_type": "scan_probe", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "198.51.100.10", "dst_ip": "10.0.0.5", "src_port": 50000, "dst_port": 1004, "proto": "tcp", "extra": {"scan_confidence": 90, "scan_type": "tcp_syn"}}
 
   - schema_version: 2
     id: v2_lab_lateral_multi_cardinality_v1
@@ -131,3 +209,52 @@ rules:
     response:
       playbook: Confirm whether the source host's role explains broad multi-service fan-out; otherwise treat as a lateral-movement pivot and correlate with recon or credential-access signals.
       false_positives: Backup, deployment, or orchestration hosts that legitimately reach many targets across SSH/SMB/RDP.
+    tests:
+      - id: lateral_multi_cardinality_fires
+        description: "Twenty attempts spanning many hosts and two ports cross the v2 multi-cardinality threshold."
+        expect: hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.6", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.7", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.8", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.9", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.10", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.11", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.12", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.13", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.14", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.15", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.16", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.17", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.18", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.19", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.20", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+      - id: single_port_stays_quiet
+        description: "Attempts on a single port do not meet the v2 multi-cardinality threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.6", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.7", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.8", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.9", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.10", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.11", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.12", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.13", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.14", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.15", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.16", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.17", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.18", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.19", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.20", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
