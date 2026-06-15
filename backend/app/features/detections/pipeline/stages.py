@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Protocol
 
 from sqlalchemy.orm import Session
@@ -89,13 +89,14 @@ class GovernanceStage:
 
 
 class SuppressionStage:
-    def __init__(self, effective_suppressions: list) -> None:
+    def __init__(self, effective_suppressions: list, now: datetime) -> None:
         self.effective_suppressions = list(effective_suppressions or [])
+        self.now = now
 
     def process(self, ctx: AlertContext, *, db: Session) -> AlertContext:
         cand = ctx.candidate
         rule_for_sup = {**cand.rule, "suppressions": self.effective_suppressions}
-        suppressed, _ = _is_suppressed(rule_for_sup, ctx.rule_context, cand.until)
+        suppressed, _ = _is_suppressed(rule_for_sup, ctx.rule_context, self.now)
         if suppressed:
             ctx.reject("suppressed")
         return ctx
