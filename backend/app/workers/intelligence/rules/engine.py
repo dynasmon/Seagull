@@ -20,12 +20,13 @@ from app.features.detections.pipeline import (
     build_default_registry,
 )
 from app.features.detections.repository import get_rule_health_map
-from app.features.detections.rules.compiler import _v2_resolve_params
+from app.features.detections.rules.compiler import _v2_mitre_meta, _v2_resolve_params
 
 from .conditions import _parse_window
 from .dedup import _recent_alert_index
 from .health import RuleExecResult, _content_hash, emit_detection_metrics, flush_cycle_health
 from .heuristics import _emit_heuristic_signals
+from .mitre import _extract_mitre_meta
 from .suppression import _schedule_allows
 from .tuning import _load_agent_context
 
@@ -57,13 +58,17 @@ def _run_rule(executor, rule, *, db, now, recent_idx, agent_ctx_map, fp_rates):
     since, until = _rule_since_until(rule, now)
     candidates = executor.execute(rule, db=db, since=since, until=until)
     alerts: List[AlertModel] = []
+    if int(rule.get("schema_version") or 1) == 2:
+        mitre = _v2_mitre_meta(rule)
+    else:
+        mitre = _extract_mitre_meta(rule)
     if candidates:
         meta = candidates[0].extra
         alerts = AlertPipeline([
             GovernanceStage(recent_idx, agent_ctx_map, now),
-            SuppressionStage(meta.get("effective_suppressions") or []),
+            SuppressionStage(meta.get("effective_suppressions") or [], now),
             EnrichmentStage(_ENRICHMENT_REGISTRY),
-            ScoringStage(fp_rates, meta.get("mitre") or {}),
+            ScoringStage(fp_rates, mitre),
         ]).run(candidates, db=db, recent_idx=recent_idx)
     return alerts, sum(int(c.extra.get("event_count") or c.count_value or 0) for c in candidates)
 
