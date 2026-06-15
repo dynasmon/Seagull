@@ -43,7 +43,7 @@ def execute_v2_rule(db, rule, now, recent_idx, agent_ctx_map, fp_rates=None):
     meta = candidates[0].extra
     pipeline = AlertPipeline([
         GovernanceStage(recent_idx, agent_ctx_map, now),
-        SuppressionStage(meta.get("effective_suppressions") or []),
+        SuppressionStage(meta.get("effective_suppressions") or [], now),
         EnrichmentStage(_ENRICHMENT_REGISTRY),
         ScoringStage(fp_rates, meta.get("mitre") or {}),
     ])
