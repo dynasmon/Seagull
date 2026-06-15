@@ -38,6 +38,46 @@ rules:
       allowlist:
         src_cidrs: []
         src_ips: []
+    tests:
+      - id: admin_spray_fires
+        description: "Twenty-six admin-port attempts across distinct hosts cross the spray threshold."
+        expect: hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.6", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.7", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.8", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.9", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.10", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.11", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.12", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.13", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.14", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.15", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.16", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.17", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.18", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.19", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.20", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.21", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.22", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.23", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.24", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.25", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.26", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+      - id: few_hosts_stay_quiet
+        description: "Admin-port attempts against a few hosts stay below the spray threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
 
   - id: lateral_rdp_burst_v1
     name: "RDP lateral burst"
@@ -68,6 +108,34 @@ rules:
     condition:
       operator: ">="
       value: 14
+    tests:
+      - id: rdp_burst_fires
+        description: "Fourteen RDP attempts from one source to one target trip the burst rule."
+        expect: hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+      - id: few_attempts_stay_quiet
+        description: "Five RDP attempts stay below the burst threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
 
   - id: lateral_smb_fanout_v1
     name: "SMB fan-out movement"
@@ -99,6 +167,48 @@ rules:
     condition:
       operator: ">="
       value: 7
+    tests:
+      - id: smb_fanout_fires
+        description: "Twenty-eight SMB attempts across distinct hosts cross the fan-out threshold."
+        expect: hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.6", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.7", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.8", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.9", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.10", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.11", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.12", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.13", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.14", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.15", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.16", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.17", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.18", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.19", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.20", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.21", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.22", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.23", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.24", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.25", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.26", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.27", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.28", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+      - id: few_hosts_stay_quiet
+        description: "SMB attempts against a few hosts stay below the fan-out threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
 
   - id: lateral_winrm_fanout_v1
     name: "WinRM fan-out movement"
@@ -130,6 +240,39 @@ rules:
     condition:
       operator: ">="
       value: 5
+    tests:
+      - id: winrm_fanout_fires
+        description: "Twenty WinRM attempts across distinct hosts cross the fan-out threshold."
+        expect: hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.6", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.7", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.8", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.9", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.10", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.11", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.12", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.13", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.14", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.15", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.16", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.17", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.18", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.19", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.20", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+      - id: few_hosts_stay_quiet
+        description: "WinRM attempts against a few hosts stay below the fan-out threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
 
   - id: lateral_ssh_fanout_v1
     name: "SSH lateral fan-out"
@@ -161,6 +304,42 @@ rules:
     condition:
       operator: ">="
       value: 6
+    tests:
+      - id: ssh_fanout_fires
+        description: "Twenty-two SSH attempts across distinct hosts cross the fan-out threshold."
+        expect: hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.6", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.7", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.8", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.9", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.10", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.11", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.12", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.13", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.14", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.15", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.16", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.17", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.18", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.19", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.20", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.21", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.22", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+      - id: few_hosts_stay_quiet
+        description: "SSH attempts against a few hosts stay below the fan-out threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
 
   - id: lateral_admin_multi_service_pivot_v1
     name: "Admin multi-service pivot"
@@ -195,6 +374,125 @@ rules:
       - field: "dst_port"
         operator: ">="
         value: 3
+    tests:
+      - id: multi_service_pivot_fires
+        description: "Fifty-five attempts spanning many hosts and admin services trip the multi-service pivot rule."
+        expect: hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.6", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.7", "dst_port": 5986, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.8", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.9", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.10", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.11", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.12", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.13", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.14", "dst_port": 5986, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.15", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.16", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.17", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.18", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.19", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.20", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.21", "dst_port": 5986, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.22", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.23", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.24", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.25", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.26", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.27", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.28", "dst_port": 5986, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.29", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.30", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.31", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.32", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.33", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.34", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.35", "dst_port": 5986, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.36", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.37", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.38", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.39", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.40", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.41", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.42", "dst_port": 5986, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.43", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.44", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.45", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.46", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.47", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.48", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.49", "dst_port": 5986, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.50", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.51", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.52", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.53", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.54", "dst_port": 3389, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.55", "dst_port": 5985, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+      - id: single_service_stays_quiet
+        description: "Attempts on a single admin service do not meet the multi-service threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.6", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.7", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.8", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.9", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.10", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.11", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.12", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.13", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.14", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.15", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.16", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.17", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.18", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.19", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.20", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.21", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.22", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.23", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.24", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.25", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.26", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.27", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.28", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.29", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.30", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.31", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.32", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.33", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.34", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.35", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.36", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.37", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.38", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.39", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.40", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.41", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.42", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.43", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.44", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.45", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.46", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.47", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.48", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.49", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.50", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.51", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.52", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.53", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.54", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.55", "dst_port": 445, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
 
   - id: lateral_rpc_netbios_combo_v1
     name: "RPC/NetBIOS combo probing"
@@ -229,3 +527,68 @@ rules:
       - field: "dst_port"
         operator: ">="
         value: 2
+    tests:
+      - id: rpc_netbios_combo_fires
+        description: "Twenty-eight attempts spanning many hosts on RPC and NetBIOS trip the combo rule."
+        expect: hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.6", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.7", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.8", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.9", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.10", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.11", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.12", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.13", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.14", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.15", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.16", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.17", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.18", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.19", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.20", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.21", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.22", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.23", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.24", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.25", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.26", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.27", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.28", "dst_port": 139, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+      - id: single_port_stays_quiet
+        description: "Attempts on a single port do not meet the dual-service combo threshold."
+        expect: no_hit
+        events:
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.1", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.2", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.3", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.4", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.5", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.6", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.7", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.8", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.9", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.10", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.11", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.12", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.13", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.14", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.15", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.16", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.17", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.18", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.19", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.20", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.21", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.22", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.23", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.24", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.25", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.26", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.27", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+          - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.28", "dst_port": 135, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
