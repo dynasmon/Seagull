@@ -6,7 +6,6 @@ from functools import reduce
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import and_, case, func, not_, or_
-from sqlalchemy.orm import Session
 
 from app.features.detections.domain.condition_ast import (
     BinaryExpression,
@@ -21,19 +20,10 @@ from app.features.detections.domain.scoring import build_rule_provenance
 from app.features.events.worker_runtime import NetEventModel
 from app.workers.intelligence.rules.conditions import (
     _ALLOWED_EVENT_FIELDS,
-    _evaluate_condition,
-    _extract_alert_key,
     _parse_window,
     _safe_col,
 )
-from app.workers.intelligence.rules.dedup import _recent_alert_last_at
 from app.workers.intelligence.rules.mitre import _extract_mitre_meta
-from app.workers.intelligence.rules.suppression import _is_suppressed
-from app.workers.intelligence.rules.tuning import (
-    _build_rule_context,
-    _is_tuning_allowlisted,
-    _resolve_tuning_eval,
-)
 
 
 def _v2_mitre_meta(rule: Dict[str, Any]) -> Dict[str, Any]:
@@ -232,71 +222,3 @@ def _build_v2_details(
     if mitre:
         details["mitre"] = mitre
     return details
-
-
-def _run_governance(
-    *,
-    db: Session,
-    rule: Dict[str, Any],
-    rule_id: str,
-    group_key: Dict[str, Any],
-    match_hints: Dict[str, Any],
-    since: datetime,
-    until: datetime,
-    base_condition: Dict[str, Any],
-    base_min_events: int,
-    cooldown: timedelta,
-    severity: str,
-    now: datetime,
-    recent_idx: Dict,
-    agent_ctx_map: Dict[str, Dict[str, Any]],
-    effective_suppressions: List[Dict[str, Any]],
-    count_value: int,
-    min_events_check: int,
-) -> Optional[Tuple[Optional[str], Optional[str], Optional[int], Dict[str, Any], Dict[str, Any], timedelta, str]]:
-    src_ip, dst_ip, dst_port = _extract_alert_key(group_key, match_hints)
-    enrichment: Dict[str, Any] = {}
-
-    sup_ctx = _build_rule_context(
-        group_key=group_key,
-        match=match_hints,
-        rule_id=rule_id,
-        severity=severity,
-        src_ip=src_ip,
-        dst_ip=dst_ip,
-        dst_port=dst_port,
-        agent_ctx_map=agent_ctx_map,
-    )
-    eval_cfg = _resolve_tuning_eval(
-        rule,
-        ctx=sup_ctx,
-        base_min_events=base_min_events,
-        base_condition=base_condition,
-        base_cooldown_seconds=int(cooldown.total_seconds()),
-        base_severity=severity,
-    )
-    eff_min_events = int(eval_cfg.get("min_events") or 0)
-    eff_condition = eval_cfg.get("condition") if isinstance(eval_cfg.get("condition"), dict) else base_condition
-    eff_cooldown = timedelta(seconds=max(0, int(eval_cfg.get("cooldown_seconds") or 0)))
-    eff_severity = str(eval_cfg.get("severity") or severity)
-    sup_ctx["severity"] = eff_severity
-
-    if eff_min_events and min_events_check < eff_min_events:
-        return None
-    if not _evaluate_condition(count_value, eff_condition):
-        return None
-
-    last_at = _recent_alert_last_at(recent_idx, rule_id, src_ip, dst_ip, dst_port)
-    if last_at and eff_cooldown.total_seconds() > 0 and (now - last_at) < eff_cooldown:
-        return None
-
-    allowlisted, _ = _is_tuning_allowlisted(rule, sup_ctx)
-    if allowlisted:
-        return None
-
-    rule_for_sup = {**rule, "suppressions": effective_suppressions}
-    suppressed, _ = _is_suppressed(rule_for_sup, sup_ctx, now)
-    if suppressed:
-        return None
-
-    return src_ip, dst_ip, dst_port, enrichment, eval_cfg, eff_min_events, eff_condition, eff_cooldown, eff_severity
