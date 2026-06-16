@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
@@ -118,3 +118,20 @@ class CorrelationEntityStateModel(Base):
     last_context = Column(JSONB, nullable=False, default=dict)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class EntityBaselineModel(Base):
+    __tablename__ = "entity_baseline"
+    __table_args__ = (
+        Index("ix_entity_baseline_last_seen", "last_seen_at"),
+        Index("ix_entity_baseline_type_feature", "entity_type", "feature"),
+    )
+
+    entity_type = Column(String(64), primary_key=True, nullable=False)
+    entity_value = Column(String(255), primary_key=True, nullable=False)
+    feature = Column(String(64), primary_key=True, nullable=False, default="presence", server_default="presence")
+    first_seen_at = Column(DateTime, nullable=False)
+    last_seen_at = Column(DateTime, nullable=False)
+    count_7d = Column(Integer, nullable=False, default=0, server_default="0")
+    count_30d = Column(Integer, nullable=False, default=0, server_default="0")
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, server_default=func.now())
