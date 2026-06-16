@@ -1,0 +1,80 @@
+schema_version: 1
+
+pattern_lists:
+  - id: lolbins
+    enabled: true
+    patterns:
+      - bash
+      - sh
+      - python3?
+      - perl
+      - php
+      - ruby
+      - node
+      - nc
+      - ncat
+      - socat
+      - curl
+      - wget
+      - openssl
+      - base64
+
+  - id: shells
+    enabled: true
+    patterns:
+      - bash
+      - sh
+      - dash
+      - zsh
+      - ksh
+      - fish
+
+  - id: suspicious_log_tamper
+    enabled: true
+    patterns:
+      - "truncate"
+      - "shred"
+      - "rm"
+      - "unlink"
+      - "sed -i"
+      - "logrotate"
+      - "journalctl --vacuum"
+      - "> /var/log/"
+
+  - id: disable_security
+    enabled: true
+    patterns:
+      - "systemctl stop auditd"
+      - "systemctl disable auditd"
+      - "systemctl stop rsyslog"
+      - "setenforce 0"
+
+  - id: sudo_priv_esc
+    enabled: true
+    patterns:
+      - "visudo"
+      - "sudoedit"
+      - "pkexec"
+      - "doas"
+      - "/etc/sudoers"
+      - "/etc/passwd"
+      - "/etc/shadow"
+      - "/root/.ssh/authorized_keys"
+
+  - id: remote_fetch_exec
+    enabled: true
+    patterns:
+      - "curl.*|.*sh"
+      - "wget.*|.*bash"
+
+  - id: net_service_parents
+    enabled: true
+    patterns:
+      - nginx
+      - apache2
+      - httpd
+      - php-fpm
+      - gunicorn
+      - uwsgi
+      - caddy
+      - traefik
