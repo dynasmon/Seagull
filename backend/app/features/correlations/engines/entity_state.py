@@ -68,13 +68,14 @@ class NewEntityEngine(BaseCorrelationEngine):
             if not selected:
                 continue
 
-            state = dataset.entity_state_for(entity_type, entity_value)
+            baseline = dataset.entity_baseline_for(entity_type, entity_value)
+            preferred = baseline if baseline is not None else dataset.entity_state_for(entity_type, entity_value)
             latest_ts = record_timestamp(selected[-1], source, dataset)
             reason = None
-            if state is None:
+            if preferred is None:
                 reason = "first_seen"
             elif long_absent_seconds > 0:
-                last_seen_at = getattr(state, "last_seen_at", None)
+                last_seen_at = getattr(preferred, "last_seen_at", None)
                 if last_seen_at is not None:
                     gap_seconds = int((latest_ts - last_seen_at).total_seconds())
                     if gap_seconds >= long_absent_seconds:
@@ -113,7 +114,7 @@ class NewEntityEngine(BaseCorrelationEngine):
                         "source": source,
                         "reason": reason,
                         "long_absent_seconds": long_absent_seconds,
-                        "previous_last_seen_at": getattr(state, "last_seen_at", None).isoformat() if state and getattr(state, "last_seen_at", None) else None,
+                        "previous_last_seen_at": getattr(preferred, "last_seen_at", None).isoformat() if preferred and getattr(preferred, "last_seen_at", None) else None,
                     },
                     sample_alert_rows=dedupe_alert_rows(alert_rows, sample_limit) if alert_rows else [],
                     evidence_items=[build_evidence_item(record=row, source=source, dataset=dataset) for row in selected],
@@ -176,6 +177,10 @@ class RareEntityEngine(BaseCorrelationEngine):
                     group_value = f"{scope_value} | {target_value}"
                     entity_value = group_value
 
+                baseline = dataset.entity_baseline_for(entity_type, entity_value)
+                if baseline is not None and int(getattr(baseline, "count_30d", 0) or 0) > max_occurrences:
+                    continue
+
                 alert_rows = [row for row in target_rows if hasattr(row, "rule_id")]
                 out.append(
                     CorrelationMatch(
@@ -212,6 +217,8 @@ class RareEntityEngine(BaseCorrelationEngine):
                             "distinct_values": len(value_to_rows),
                             "max_occurrences": max_occurrences,
                             "baseline_window_seconds": window_seconds,
+                            "baseline_last_seen_at": baseline.last_seen_at.isoformat() if baseline is not None and getattr(baseline, "last_seen_at", None) else None,
+                            "baseline_count_30d": int(getattr(baseline, "count_30d", 0) or 0) if baseline is not None else None,
                         },
                         sample_alert_rows=dedupe_alert_rows(alert_rows, sample_limit) if alert_rows else [],
                         evidence_items=[build_evidence_item(record=row, source=source, dataset=dataset) for row in target_rows],
