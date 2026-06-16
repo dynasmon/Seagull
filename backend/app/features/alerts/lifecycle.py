@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
+from app.features.alerts.fp_reasons import FalsePositiveReason
+
 _VALID_TRANSITIONS: dict[str, frozenset[str]] = {
     "open": frozenset({"acknowledged", "investigating", "closed"}),
     "acknowledged": frozenset({"investigating", "closed", "open"}),
@@ -43,6 +45,7 @@ def apply_triage(
     fields_set: set[str],
     status: Optional[str],
     disposition: Optional[str],
+    false_positive_reason: Optional[FalsePositiveReason] = None,
     priority: Optional[int],
     assigned_to: Optional[str],
     triage_notes: Optional[str],
@@ -77,6 +80,9 @@ def apply_triage(
 
     if "disposition" in fields_set and disposition is not None:
         row.disposition = disposition
+
+    if false_positive_reason is not None and str(row.disposition or "") == "false_positive":
+        row.false_positive_reason = str(false_positive_reason)
 
     if "priority" in fields_set and priority is not None:
         if not 1 <= priority <= 4:

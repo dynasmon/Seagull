@@ -19,7 +19,7 @@ class AlertModel(Base):
     dst_ip = Column(String(45), nullable=True, index=True)
     dst_port = Column(Integer, nullable=True)
 
-    # MITRE ATT&CK metadata (optional but first-class)
+    # MITRE ATT&CK metadata
     mitre_tactic = Column(String(64), nullable=True, index=True)
     mitre_technique_id = Column(String(32), nullable=True, index=True)
     mitre_technique = Column(String(128), nullable=True)
@@ -46,6 +46,7 @@ class AlertModel(Base):
     closed_by = Column(String(64), nullable=True)
     triage_notes = Column(Text, nullable=True)
     risk_score = Column(Integer, nullable=True)
+    false_positive_reason = Column(String(64), nullable=True, index=False)
 
 from datetime import datetime
 
