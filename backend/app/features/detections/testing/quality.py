@@ -11,7 +11,7 @@ from app.features.detections.rules.loader import (
     _rules_dir_path,
     load_and_validate_rules,
 )
-from app.features.detections.testing.yaml_tests import run_yaml_rule_suite
+from app.features.detections.testing.yaml_tests import run_inline_rule_tests, run_yaml_rule_suite
 from app.features.events.worker_runtime import NetEventModel
 
 
@@ -172,6 +172,15 @@ def collect_quality_warnings(rules: list[Mapping[str, Any]]) -> list[dict[str, A
                 )
             )
 
+        if _is_actionable(rule) and not list(rule.get("tests") or []):
+            warnings.append(
+                _warning(
+                    rule=rule,
+                    code="missing_inline_tests",
+                    message="Active rule has no inline tests; add at least one hit and one no_hit case.",
+                )
+            )
+
         severity = _severity(rule)
         actionable = _is_actionable(rule)
         confidence = _confidence(rule)
@@ -271,6 +280,24 @@ def validate_detection_content(
             )
         )
 
+    inline_test_failures: list[dict[str, Any]] = []
+    if execute_yaml_tests:
+        for rule in rules:
+            if not rule.get("tests"):
+                continue
+            for result in run_inline_rule_tests(rule):
+                if result.passed:
+                    continue
+                inline_test_failures.append(
+                    {
+                        "rule_id": result.rule_id,
+                        "test_id": result.test_id,
+                        "expect": result.expect,
+                        "outcome": result.outcome,
+                        "failure_reason": result.failure_reason,
+                    }
+                )
+
     return {
         "passed": len(errors) == 0,
         "rules_dir": str(base_dir),
@@ -280,9 +307,11 @@ def validate_detection_content(
         "warning_count": len(warnings),
         "yaml_test_count": len(yaml_results),
         "yaml_failed_count": sum(1 for result in yaml_results if not result.get("passed")),
+        "inline_test_failure_count": len(inline_test_failures),
         "errors": errors,
         "warnings": warnings,
         "yaml_tests": yaml_results,
+        "inline_test_failures": inline_test_failures,
     }
 
 
