@@ -6,7 +6,7 @@ from sqlalchemy import and_, cast, func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.sqltypes import Float
 
-from app.features.detections.worker_runtime import SUPPORTED_RUNTIME_EVENT_FIELDS
+from app.features.detections.worker_runtime import SUPPORTED_RUNTIME_EVENT_FIELDS, resolve_runtime_field
 from app.features.events.worker_runtime import NetEventModel
 
 _ALLOWED_EVENT_FIELDS = set(SUPPORTED_RUNTIME_EVENT_FIELDS)
@@ -33,7 +33,7 @@ def _as_int(v: Any, default: int = 0) -> int:
 def _extra_flow_direction(extra: Dict[str, Any]) -> str:
     if not isinstance(extra, dict):
         return ""
-    return str(extra.get("flow_direction") or "").strip().lower()
+    return str(extra.get(resolve_runtime_field("network.flow.direction")) or "").strip().lower()
 
 
 def _extra_indicator_host(extra: Dict[str, Any]) -> str:
