@@ -9,6 +9,7 @@ from app.core.audit.retention import purge_admin_evidence
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.observability import log_event, setup_logging
+from app.features.alerts.fp_suppression import suggest_suppressions_from_fp_feedback
 
 setup_logging("worker-audit-retention")
 logger = logging.getLogger("seagull.worker.audit_retention")
@@ -26,13 +27,20 @@ def main() -> None:
     while True:
         try:
             db = SessionLocal()
+            suggested = 0
             try:
                 deleted = purge_admin_evidence(db)
                 db.commit()
+                try:
+                    suggested = len(suggest_suppressions_from_fp_feedback(db))
+                    db.commit()
+                except Exception as exc:
+                    db.rollback()
+                    log_event(logger, "error", "fp_suppression_suggestion_error", error=repr(exc))
             finally:
                 db.close()
 
-            log_event(logger, "info", "audit_retention_cycle_ok", every_seconds=every, deleted=deleted)
+            log_event(logger, "info", "audit_retention_cycle_ok", every_seconds=every, deleted=deleted, fp_suggestions=suggested)
             backoff = 1.0
             time.sleep(every)
         except OperationalError as exc:
