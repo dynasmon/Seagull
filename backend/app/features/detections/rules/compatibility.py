@@ -24,11 +24,12 @@ from app.features.detections.rules.registry import (
     normalize_group_by_fields,
     normalize_match_fields,
     resolve_runtime_field,
+    runtime_field_name,
 )
 
 _VERSION_RE = re.compile(r"_v(\d+)$", re.IGNORECASE)
 _RUNTIME_TO_CANONICAL_FIELD = {
-    spec.model_attr: canonical_name
+    runtime_field_name(spec): canonical_name
     for canonical_name, spec in CANONICAL_FIELD_MAP.items()
 }
 _V1_TO_V2_AGGREGATION_TYPES = {

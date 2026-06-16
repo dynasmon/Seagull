@@ -33,6 +33,34 @@ from app.features.detections.rules.registry import (
 )
 
 
+_SUPPORTED_TEST_EXPECTATIONS = frozenset({"hit", "no_hit", "match", "no_match"})
+
+
+def _validate_tests(rule_id: str, tests: Any) -> None:
+    if tests is None:
+        return
+    test_list = ensure_sequence(tests, field_name=f"tests for {rule_id}")
+    seen_ids: set[str] = set()
+    for index, raw_test in enumerate(test_list):
+        test_map = ensure_mapping(raw_test, field_name=f"tests[{index}] for {rule_id}")
+        identifier = str(test_map.get("id") or test_map.get("name") or "").strip()
+        if identifier:
+            if identifier in seen_ids:
+                raise DetectionRuleValidationError(f"Duplicate test id for rule {rule_id}: {identifier}")
+            seen_ids.add(identifier)
+        expectation = test_map.get("expect")
+        if expectation is None:
+            expectation = test_map.get("expected")
+        if str(expectation or "").strip() == "":
+            raise DetectionRuleValidationError(f"tests[{index}] for {rule_id} must define expect")
+        ensure_value_in_set(
+            expectation,
+            field_name=f"tests[{index}].expect for {rule_id}",
+            supported=_SUPPORTED_TEST_EXPECTATIONS,
+        )
+        ensure_sequence(test_map.get("events"), field_name=f"tests[{index}].events for {rule_id}")
+
+
 def _validate_v1_match(rule_id: str, match: Mapping[str, Any]) -> None:
     normalized = normalize_match_fields(match)
     for key in normalized:
@@ -144,8 +172,6 @@ def _validate_v2_rule_document(rule: Mapping[str, Any], rule_id: str) -> None:
         ensure_mapping(rule.get("tuning"), field_name=f"tuning for {rule_id}")
     if rule.get("response") is not None:
         ensure_mapping(rule.get("response"), field_name=f"response for {rule_id}")
-    if rule.get("tests") is not None:
-        ensure_sequence(rule.get("tests"), field_name=f"tests for {rule_id}")
 
 
 def validate_rule_document(rule: Mapping[str, Any]) -> None:
@@ -176,6 +202,8 @@ def validate_rule_document(rule: Mapping[str, Any]) -> None:
             field_name=f"rule maturity for {rule_id}",
             supported=SUPPORTED_RULE_MATURITIES,
         )
+
+    _validate_tests(rule_id, rule.get("tests"))
 
     if schema_int == V2_RULE_SCHEMA_VERSION:
         _validate_v2_rule_document(rule, rule_id)
