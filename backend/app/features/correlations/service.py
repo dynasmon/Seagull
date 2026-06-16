@@ -10,13 +10,15 @@ from app.core.audit import audit_actor, write_audit_event
 from app.features.auth.session import PortalPrincipal
 from app.features.correlations.engine import build_incidents, norm_patterns
 from app.features.correlations.engines import CorrelationDataset
-from app.features.correlations.engines.base import stable_json
+from app.features.correlations.engines.base import resolve_entity, stable_json, to_utc_naive
+from app.features.correlations.entity_baseline import load_entity_baseline, upsert_entity_observations
 from app.features.correlations.models import (
     CorrelationEntityStateModel,
     CorrelationIncidentEvidenceModel,
     CorrelationIncidentModel,
     CorrelationRuleModel,
     CorrelationRuleRunModel,
+    EntityBaselineModel,
 )
 from app.features.correlations.repository import (
     _VALID_STATUSES,
@@ -319,6 +321,38 @@ def _rule_entity_types(rules: list[CorrelationRuleModel]) -> list[str]:
     return sorted(entity_types)
 
 
+def _collect_entity_observations(
+    rules: list[CorrelationRuleModel],
+    alerts: list,
+) -> list[tuple[str, str, datetime]]:
+    probe = CorrelationDataset(alerts=list(alerts or []))
+    observations: list[tuple[str, str, datetime]] = []
+    for alert in probe.alerts:
+        observed_at = to_utc_naive(alert.created_at)
+        for rule in rules:
+            _, _, entity_type, entity_value = resolve_entity(rule, alert, "alerts", probe)
+            etype = str(entity_type or "").strip()
+            evalue = str(entity_value or "").strip()
+            if etype and evalue and evalue != "-":
+                observations.append((etype, evalue, observed_at))
+    return observations
+
+
+def _load_entity_baseline_map(
+    db: Session,
+    observations: list[tuple[str, str, datetime]],
+) -> dict[str, dict[str, EntityBaselineModel]]:
+    values_by_type: dict[str, set[str]] = {}
+    for entity_type, entity_value, _ in observations:
+        values_by_type.setdefault(entity_type, set()).add(entity_value)
+    baseline: dict[str, dict[str, EntityBaselineModel]] = {}
+    for entity_type, values in values_by_type.items():
+        loaded = load_entity_baseline(db, entity_type, sorted(values))
+        if loaded:
+            baseline[entity_type] = loaded
+    return baseline
+
+
 def _build_dataset(
     db: Session,
     *,
@@ -326,6 +360,7 @@ def _build_dataset(
     alerts: list,
     min_ts: datetime,
     limit: int,
+    entity_baseline: dict[str, dict[str, EntityBaselineModel]] | None = None,
 ) -> CorrelationDataset:
     entity_states = {
         (str(row.entity_type), str(row.entity_value)): row
@@ -339,6 +374,7 @@ def _build_dataset(
         attack_chain_steps=list_recent_attack_chain_steps(db, min_ts=min_ts, limit=max(limit, 500)),
         attack_chain_cases=list_recent_attack_chain_cases(db, min_ts=min_ts, limit=max(limit, 250)),
         entity_states=entity_states,
+        entity_baseline=entity_baseline,
     )
 
 
@@ -453,7 +489,16 @@ def run_correlations(
     max_lookback_seconds = max(int(max_age_minutes) * 60, int(rule_lookback_seconds))
     min_ts = now - timedelta(seconds=max_lookback_seconds)
     alerts = list_recent_alerts(db, min_ts=min_ts, limit=limit)
-    dataset = _build_dataset(db, rules=rules, alerts=alerts, min_ts=min_ts, limit=limit)
+    observations = _collect_entity_observations(rules, alerts)
+    entity_baseline = _load_entity_baseline_map(db, observations)
+    dataset = _build_dataset(
+        db,
+        rules=rules,
+        alerts=alerts,
+        min_ts=min_ts,
+        limit=limit,
+        entity_baseline=entity_baseline,
+    )
 
     run_record = CorrelationRuleRunModel(
         started_at=now,
@@ -504,6 +549,8 @@ def run_correlations(
             incidents_created += 1
         else:
             incidents_updated += 1
+
+    upsert_entity_observations(db, observations)
 
     run_record.finished_at = datetime.utcnow()
     run_record.status = "completed"
