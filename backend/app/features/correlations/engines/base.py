@@ -10,6 +10,7 @@ from typing import Any, Iterable, List, Mapping, Optional, Sequence
 from app.features.alerts.models import AlertModel
 from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
 from app.features.detections.domain.scoring import severity_baseline_score
+from app.features.correlations.models import EntityBaselineModel
 from app.features.correlations.schemas import CorrelationAlertRef, CorrelationEvidenceMatch, CorrelationIncidentOut
 from app.features.events.models import NetEventModel
 from app.features.exposure.models import ExposureFindingModel
@@ -245,15 +246,27 @@ class CorrelationDataset:
     attack_chain_steps: list[AttackChainStepModel] = field(default_factory=list)
     attack_chain_cases: list[AttackChainCaseModel] = field(default_factory=list)
     entity_states: dict[tuple[str, str], Any] = field(default_factory=dict)
+    entity_baseline: dict[str, dict[str, EntityBaselineModel]] | None = None
 
     @property
     def attack_chain_case_map(self) -> dict[int, AttackChainCaseModel]:
         return {int(case.id): case for case in self.attack_chain_cases if getattr(case, "id", None) is not None}
 
+    def entity_baseline_for(self, entity_type: str | None, entity_value: str | None) -> Any:
+        if not entity_type or not entity_value or not self.entity_baseline:
+            return None
+        by_type = self.entity_baseline.get(str(entity_type))
+        if not by_type:
+            return None
+        return by_type.get(str(entity_value))
+
     def entity_state_for(self, entity_type: str | None, entity_value: str | None) -> Any:
         if not entity_type or not entity_value:
             return None
-        return self.entity_states.get((str(entity_type), str(entity_value)))
+        state = self.entity_states.get((str(entity_type), str(entity_value)))
+        if state is not None:
+            return state
+        return self.entity_baseline_for(entity_type, entity_value)
 
 
 @dataclass
