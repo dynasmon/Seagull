@@ -134,6 +134,28 @@ def _iter_rules_from_file(
     return out
 
 
+def _run_inline_test_failures(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from app.features.detections.testing.yaml_tests import run_inline_rule_tests
+
+    failures: list[dict[str, Any]] = []
+    for rule in rules:
+        if not rule.get("tests"):
+            continue
+        for result in run_inline_rule_tests(rule):
+            if result.passed:
+                continue
+            failures.append(
+                {
+                    "rule_id": result.rule_id,
+                    "test_id": result.test_id,
+                    "expect": result.expect,
+                    "outcome": result.outcome,
+                    "failure_reason": result.failure_reason,
+                }
+            )
+    return failures
+
+
 def load_and_validate_rules(
     *,
     include_disabled: bool = True,
@@ -142,13 +164,17 @@ def load_and_validate_rules(
     apply_env_filters: bool = True,
     strict: bool = False,
     include_non_runtime: bool = True,
+    execute_yaml_tests: bool = False,
 ) -> dict[str, Any]:
     out: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     base = _rules_dir_path(rules_dir)
     if not base.exists():
-        return {"rules": out, "errors": errors}
+        report: dict[str, Any] = {"rules": out, "errors": errors}
+        if execute_yaml_tests:
+            report["inline_test_failures"] = []
+        return report
 
     env_name = _current_rules_env()
     enabled_packs = _norm_set(getattr(settings, "SEAGULL_RULES_ENABLED_PACKS", []))
@@ -205,7 +231,10 @@ def load_and_validate_rules(
                 seen_ids.add(rule_id)
 
     out.sort(key=lambda rule: (str(rule.get("pack") or ""), str(rule.get("category") or ""), str(rule.get("id") or "")))
-    return {"rules": out, "errors": errors}
+    report = {"rules": out, "errors": errors}
+    if execute_yaml_tests:
+        report["inline_test_failures"] = _run_inline_test_failures(out)
+    return report
 
 
 def load_rules(

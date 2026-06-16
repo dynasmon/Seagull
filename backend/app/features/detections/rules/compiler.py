@@ -17,6 +17,7 @@ from app.features.detections.domain.condition_ast import (
     UnaryExpression,
 )
 from app.features.detections.domain.scoring import build_rule_provenance
+from app.features.detections.rules.registry import resolve_runtime_jsonb_accessor
 from app.features.events.worker_runtime import NetEventModel
 from app.workers.intelligence.rules.conditions import (
     _ALLOWED_EVENT_FIELDS,
@@ -65,9 +66,11 @@ def _v2_suppressions(rule: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _predicate_to_sqla(pred: FieldPredicate):
-    if pred.runtime_field not in _ALLOWED_EVENT_FIELDS:
-        raise ValueError(f"Unsupported runtime field in v2 predicate: {pred.runtime_field}")
-    col = _safe_col(pred.runtime_field)
+    col = resolve_runtime_jsonb_accessor(pred.runtime_field or pred.field)
+    if col is None:
+        if pred.runtime_field not in _ALLOWED_EVENT_FIELDS:
+            raise ValueError(f"Unsupported runtime field in v2 predicate: {pred.runtime_field}")
+        col = _safe_col(pred.runtime_field)
     op = pred.operator
     val = pred.value
 

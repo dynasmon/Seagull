@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,7 @@ from app.core.audit import audit_actor, write_audit_event
 from app.core.db import get_db
 from app.core.db.session import managed_session
 from app.features.auth.session import PortalPrincipal, require_admin
+from app.features.detections.rules.sigma_export import export_pack_sigma_yaml
 from app.features.detections.testing import run_detection_backtest, validate_detection_content
 
 MAX_BACKTEST_LIMIT = 5000
@@ -124,3 +125,13 @@ def backtest_detection_endpoint(
         )
         db_session.commit()
         return result
+
+
+@router.get("/export/sigma")
+def export_sigma_endpoint(
+    pack: str,
+    include_disabled: bool = False,
+    admin: PortalPrincipal = Depends(require_admin),
+) -> Response:
+    yaml_text = export_pack_sigma_yaml(pack=pack, include_disabled=include_disabled)
+    return Response(content=yaml_text, media_type="application/x-yaml")
