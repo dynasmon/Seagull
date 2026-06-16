@@ -395,55 +395,119 @@ def _derive_test_now(raw_test: Mapping[str, Any]) -> datetime:
     return datetime.now(timezone.utc)
 
 
+@dataclass(frozen=True)
+class InlineTestResult:
+    rule_id: str | None
+    test_id: str
+    expect: str
+    outcome: str
+    passed: bool
+    failure_reason: str | None
+
+
+_HIT_EXPECTATIONS = frozenset({"hit", "match"})
+_NO_HIT_EXPECTATIONS = frozenset({"no_hit", "no_match"})
+_EXPECT_TO_LEGACY = {"hit": "match", "no_hit": "no_match"}
+
+
+def _normalize_test_expectation(raw_test: Mapping[str, Any]) -> tuple[str | None, str | None]:
+    raw = raw_test.get("expect")
+    if raw is None:
+        raw = raw_test.get("expected")
+    token = str(raw or "").strip().lower()
+    if token in _HIT_EXPECTATIONS:
+        return "hit", None
+    if token in _NO_HIT_EXPECTATIONS:
+        return "no_hit", None
+    return None, f"Unsupported test expectation: {token or '<empty>'}"
+
+
+def _legacy_outcome(token: str) -> str:
+    return _EXPECT_TO_LEGACY.get(token, token)
+
+
+def _evaluate_inline_test(rule: Mapping[str, Any], raw_test: Any, index: int) -> dict[str, Any]:
+    test_id = f"test_{index + 1}"
+    expect: str | None = None
+    events: list[Mapping[str, Any]] = []
+    error: str | None = None
+
+    if isinstance(raw_test, Mapping):
+        candidate = str(raw_test.get("id") or raw_test.get("name") or "").strip()
+        if candidate:
+            test_id = candidate
+        expect, error = _normalize_test_expectation(raw_test)
+        if isinstance(raw_test.get("events"), list):
+            events = [event for event in raw_test.get("events") or [] if isinstance(event, Mapping)]
+        elif error is None:
+            error = "tests.events must be a list"
+    else:
+        error = "tests entries must be mappings"
+
+    hit_count = 0
+    preview: dict[str, Any] | None = None
+    outcome = "error"
+    passed = False
+    failure_reason = error
+
+    if error is None:
+        hits = evaluate_detection_rule(rule, events, _derive_test_now(raw_test if isinstance(raw_test, Mapping) else {}))
+        hit_count = len(hits)
+        preview = hits[0] if hits else None
+        outcome = "hit" if hit_count > 0 else "no_hit"
+        passed = outcome == expect
+        if not passed:
+            failure_reason = f"expected {expect}, got {outcome}"
+
+    return {
+        "rule_id": str(rule.get("id") or "").strip() or None,
+        "source_file": str(rule.get("source_file") or "").strip() or None,
+        "test_id": test_id,
+        "expect": expect,
+        "outcome": outcome,
+        "passed": passed,
+        "failure_reason": failure_reason,
+        "error": error,
+        "hit_count": hit_count,
+        "preview": preview,
+    }
+
+
+def run_inline_rule_tests(rule: Mapping[str, Any]) -> list[InlineTestResult]:
+    results: list[InlineTestResult] = []
+    for index, raw_test in enumerate(list(rule.get("tests") or [])):
+        record = _evaluate_inline_test(rule, raw_test, index)
+        results.append(
+            InlineTestResult(
+                rule_id=record["rule_id"],
+                test_id=record["test_id"],
+                expect=record["expect"] or "",
+                outcome=record["outcome"],
+                passed=record["passed"],
+                failure_reason=record["failure_reason"],
+            )
+        )
+    return results
+
+
 def run_rule_yaml_tests(rule: Mapping[str, Any]) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for index, raw_test in enumerate(list(rule.get("tests") or [])):
-        name = f"test_{index + 1}"
-        expected = ""
-        events: list[Mapping[str, Any]] = []
-        error: str | None = None
-
-        if isinstance(raw_test, Mapping):
-            candidate_name = str(raw_test.get("name") or "").strip()
-            if candidate_name:
-                name = candidate_name
-            expected = str(raw_test.get("expected") or "").strip().lower()
-            if isinstance(raw_test.get("events"), list):
-                events = [event for event in raw_test.get("events") or [] if isinstance(event, Mapping)]
-            else:
-                error = "tests.events must be a list"
-        else:
-            error = "tests entries must be mappings"
-
-        if error is None and expected not in {"match", "no_match"}:
-            error = f"Unsupported test expectation: {expected or '<empty>'}"
-
-        hit_count = 0
-        preview = None
-        actual = "error"
-        passed = False
-
-        if error is None:
-            hits = evaluate_detection_rule(rule, events, _derive_test_now(raw_test if isinstance(raw_test, Mapping) else {}))
-            hit_count = len(hits)
-            preview = hits[0] if hits else None
-            actual = "match" if hit_count > 0 else "no_match"
-            passed = actual == expected
-
+        record = _evaluate_inline_test(rule, raw_test, index)
+        expect = record["expect"]
         results.append(
             {
-                "rule_id": str(rule.get("id") or "").strip() or None,
-                "source_file": str(rule.get("source_file") or "").strip() or None,
-                "name": name,
-                "expected": expected or None,
-                "actual": actual,
-                "passed": passed,
-                "hit_count": hit_count,
-                "preview": preview,
-                "error": error,
+                "rule_id": record["rule_id"],
+                "source_file": record["source_file"],
+                "name": record["test_id"],
+                "expected": _legacy_outcome(expect) if expect else None,
+                "actual": _legacy_outcome(record["outcome"]) if record["outcome"] != "error" else "error",
+                "passed": record["passed"],
+                "hit_count": record["hit_count"],
+                "preview": record["preview"],
+                "error": record["error"],
             }
         )
-
     return results
 
 
@@ -465,11 +529,13 @@ def summarize_hit_entities(hits: list[Mapping[str, Any]]) -> list[dict[str, Any]
 
 
 __all__ = [
+    "InlineTestResult",
     "RuleExecutionSpec",
     "build_rule_execution_spec",
     "evaluate_detection_rule",
     "evaluate_group_window",
     "event_matches_rule",
+    "run_inline_rule_tests",
     "run_rule_yaml_tests",
     "run_yaml_rule_suite",
     "summarize_hit_entities",
