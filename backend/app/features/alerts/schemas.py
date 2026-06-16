@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.features.alerts.fp_reasons import FalsePositiveReason
 
 
 class AlertOut(BaseModel):
@@ -62,11 +64,18 @@ class AlertEvidenceOut(BaseModel):
 class AlertTriageIn(BaseModel):
     status: Optional[str] = None
     disposition: Optional[str] = None
+    false_positive_reason: Optional[FalsePositiveReason] = None
     priority: Optional[int] = None
     assigned_to: Optional[str] = None
     investigation_id: Optional[int] = None
     triage_notes: Optional[str] = None
     risk_score: Optional[int] = None
+
+    @model_validator(mode="after")
+    def _validate_false_positive_reason(self) -> "AlertTriageIn":
+        if self.false_positive_reason is not None and self.disposition != "false_positive":
+            raise ValueError("false_positive_reason is only allowed when disposition is 'false_positive'")
+        return self
 
 
 from datetime import datetime

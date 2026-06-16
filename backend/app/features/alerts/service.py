@@ -213,6 +213,7 @@ def triage_alert(
             fields_set=fields_set,
             status=body.status,
             disposition=body.disposition,
+            false_positive_reason=body.false_positive_reason,
             priority=body.priority,
             assigned_to=body.assigned_to,
             triage_notes=body.triage_notes,
