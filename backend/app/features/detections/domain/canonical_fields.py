@@ -53,6 +53,30 @@ CANONICAL_FIELD_MAP: dict[str, CanonicalFieldSpec] = {
         "threat.heuristic.confidence",
         "heuristic_confidence",
     ),
+    "ssh.auth.source": CanonicalFieldSpec(
+        "ssh.auth.source", "extra", storage_kind="jsonb", jsonb_path=("source",)
+    ),
+    "ssh.auth.action": CanonicalFieldSpec(
+        "ssh.auth.action", "extra", storage_kind="jsonb", jsonb_path=("action",)
+    ),
+    "process.command_line": CanonicalFieldSpec(
+        "process.command_line", "extra", storage_kind="jsonb", jsonb_path=("command",)
+    ),
+    "process.user.name": CanonicalFieldSpec(
+        "process.user.name", "extra", storage_kind="jsonb", jsonb_path=("username",)
+    ),
+    "process.user.target": CanonicalFieldSpec(
+        "process.user.target", "extra", storage_kind="jsonb", jsonb_path=("target_user",)
+    ),
+    "process.working_dir": CanonicalFieldSpec(
+        "process.working_dir", "extra", storage_kind="jsonb", jsonb_path=("working_dir",)
+    ),
+    "file.hash.sha256": CanonicalFieldSpec(
+        "file.hash.sha256", "extra", storage_kind="jsonb", jsonb_path=("sha256",)
+    ),
+    "network.flow.direction": CanonicalFieldSpec(
+        "network.flow.direction", "extra", storage_kind="jsonb", jsonb_path=("flow_direction",)
+    ),
 }
 
 

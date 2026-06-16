@@ -3,13 +3,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from app.features.detections.domain.canonical_fields import CANONICAL_FIELD_MAP, resolve_canonical_field
+from app.features.detections.domain.canonical_fields import (
+    CANONICAL_FIELD_MAP,
+    CanonicalFieldSpec,
+    resolve_canonical_field,
+)
 from app.features.detections.domain.operators import (
     DEFAULT_FIELD_OPERATOR,
     join_operator_suffix,
     split_operator_suffix,
 )
 from app.features.detections.domain.validation import DetectionRuleValidationError, ensure_field_operator
+from app.features.events.worker_runtime import NetEventModel
 
 SUPPORTED_RUNTIME_EVENT_FIELDS = frozenset(
     {
@@ -47,11 +52,17 @@ SUPPORTED_RUNTIME_EVENT_FIELDS = frozenset(
     }
 )
 
-_EXPLICIT_JSONB_RUNTIME_FIELDS = frozenset(
-    spec.model_attr
+def runtime_field_name(spec: CanonicalFieldSpec) -> str:
+    if spec.storage_kind == "jsonb":
+        return "_".join(spec.jsonb_path)
+    return spec.model_attr
+
+
+_JSONB_RUNTIME_PATHS: dict[str, tuple[str, ...]] = {
+    runtime_field_name(spec): spec.jsonb_path
     for spec in CANONICAL_FIELD_MAP.values()
     if spec.storage_kind == "jsonb"
-)
+}
 
 
 def is_legacy_extra_match_key(raw_key: str) -> bool:
@@ -65,10 +76,25 @@ def resolve_runtime_field(field_name: str) -> str:
     if key in SUPPORTED_RUNTIME_EVENT_FIELDS:
         return key
     if key in CANONICAL_FIELD_MAP:
-        return resolve_canonical_field(key).model_attr
-    if key in _EXPLICIT_JSONB_RUNTIME_FIELDS:
+        return runtime_field_name(resolve_canonical_field(key))
+    if key in _JSONB_RUNTIME_PATHS:
         return key
     raise DetectionRuleValidationError(f"Unsupported detection field: {key}")
+
+
+def resolve_runtime_jsonb_accessor(field_name: str):
+    key = str(field_name or "").strip()
+    path = _JSONB_RUNTIME_PATHS.get(key)
+    if path is None and key in CANONICAL_FIELD_MAP:
+        spec = resolve_canonical_field(key)
+        if spec.storage_kind == "jsonb":
+            path = spec.jsonb_path
+    if not path:
+        return None
+    accessor = NetEventModel.extra
+    for segment in path:
+        accessor = accessor[segment]
+    return accessor.astext
 
 
 def normalize_match_fields(match: Mapping[str, Any] | None) -> dict[str, Any]:

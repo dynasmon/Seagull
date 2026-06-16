@@ -14,14 +14,17 @@ from app.features.detections.testing.quality import (
     validate_detection_content,
 )
 from app.features.detections.testing.yaml_tests import (
+    InlineTestResult,
     build_rule_execution_spec,
     evaluate_detection_rule,
+    run_inline_rule_tests,
     run_rule_yaml_tests,
     run_yaml_rule_suite,
 )
 
 __all__ = [
     "DEFAULT_SAMPLE_LIMIT",
+    "InlineTestResult",
     "backtest_detection_rule",
     "build_rule_execution_spec",
     "collect_quality_warnings",
@@ -29,6 +32,7 @@ __all__ = [
     "netevent_row_to_document",
     "normalize_event_document",
     "run_detection_backtest",
+    "run_inline_rule_tests",
     "run_rule_yaml_tests",
     "run_yaml_rule_suite",
     "validate_detection_content",
