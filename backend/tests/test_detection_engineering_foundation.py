@@ -173,12 +173,29 @@ def test_canonical_field_map_resolves_supported_fields() -> None:
         "threat.heuristic.confidence": "heuristic_confidence",
     }
 
-    assert set(canonical_field_names()) == set(expected)
+    jsonb_expected = {
+        "ssh.auth.source": ("source",),
+        "ssh.auth.action": ("action",),
+        "process.command_line": ("command",),
+        "process.user.name": ("username",),
+        "process.user.target": ("target_user",),
+        "process.working_dir": ("working_dir",),
+        "file.hash.sha256": ("sha256",),
+        "network.flow.direction": ("flow_direction",),
+    }
+
+    assert set(canonical_field_names()) == set(expected) | set(jsonb_expected)
     for canonical_name, model_attr in expected.items():
         spec = resolve_canonical_field(canonical_name)
         assert spec.model_attr == model_attr
         assert spec.storage_kind == "column"
         assert hasattr(NetEventModel, model_attr)
+    for canonical_name, jsonb_path in jsonb_expected.items():
+        spec = resolve_canonical_field(canonical_name)
+        assert spec.model_attr == "extra"
+        assert spec.storage_kind == "jsonb"
+        assert spec.jsonb_path == jsonb_path
+        assert hasattr(NetEventModel, "extra")
 
 
 def test_unsupported_canonical_field_fails_clearly() -> None:
