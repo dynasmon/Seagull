@@ -14,7 +14,7 @@ from app.features.correlations.models import EntityBaselineModel
 from app.features.correlations.schemas import CorrelationAlertRef, CorrelationEvidenceMatch, CorrelationIncidentOut
 from app.features.events.models import NetEventModel
 from app.features.exposure.models import ExposureFindingModel
-from app.features.vuln.models import VulnFindingModel
+from app.features.vuln.public import VulnFindingDTO
 
 
 def to_utc_naive(value: datetime) -> datetime:
@@ -241,7 +241,7 @@ class CorrelationEvidence:
 class CorrelationDataset:
     alerts: list[AlertModel] = field(default_factory=list)
     net_events: list[NetEventModel] = field(default_factory=list)
-    vuln_findings: list[VulnFindingModel] = field(default_factory=list)
+    vuln_findings: list[VulnFindingDTO] = field(default_factory=list)
     exposure_findings: list[ExposureFindingModel] = field(default_factory=list)
     attack_chain_steps: list[AttackChainStepModel] = field(default_factory=list)
     attack_chain_cases: list[AttackChainCaseModel] = field(default_factory=list)
