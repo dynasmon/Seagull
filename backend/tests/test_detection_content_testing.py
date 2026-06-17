@@ -15,10 +15,12 @@ os.environ.setdefault("SEAGULL_DB_URL", "postgresql://seagull:seagull@127.0.0.1:
 from app.core.db import get_db
 from app.features.auth.session import PortalPrincipal, require_admin
 from app.features.detections import api as detections_api
-from app.features.detections.rules.loader import load_rules
+from app.features.detections.rules.loader import load_and_validate_rules, load_rules
 from app.features.detections.testing import run_detection_backtest, run_rule_yaml_tests, validate_detection_content
 from app.features.events.models import NetEventModel
 from app.main import app
+
+_REPO_RULES_DIR = Path(__file__).resolve().parents[2] / "rules"
 
 
 def _write(path: Path, content: str) -> None:
@@ -110,6 +112,29 @@ def test_yaml_rule_tests_execute_positive_and_negative(tmp_path: Path) -> None:
     assert report["passed"] is True
     assert report["yaml_test_count"] == 2
     assert report["yaml_failed_count"] == 0
+
+
+def test_shipped_pack_rules_inline_yaml_tests_all_pass() -> None:
+    report = load_and_validate_rules(
+        include_disabled=True,
+        rules_dir=str(_REPO_RULES_DIR),
+        apply_env_filters=False,
+        execute_yaml_tests=True,
+    )
+    assert report["errors"] == []
+    assert report["inline_test_failures"] == []
+
+
+def test_shipped_pack_rules_quality_requires_inline_tests() -> None:
+    report = validate_detection_content(
+        rules_dir=str(_REPO_RULES_DIR),
+        include_disabled=True,
+        apply_env_filters=False,
+        execute_yaml_tests=True,
+    )
+    missing = [warning["rule_id"] for warning in report["warnings"] if warning["code"] == "missing_inline_tests"]
+    assert missing == []
+    assert report["inline_test_failures"] == []
 
 
 def test_validate_detection_content_catches_bad_field(tmp_path: Path) -> None:
