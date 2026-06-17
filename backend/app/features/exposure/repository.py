@@ -26,7 +26,7 @@ from app.features.exposure.models import (
 from app.features.inventory.models import AgentInventoryLatestModel, AgentInventorySnapshotModel
 from app.features.investigations.models import InvestigationEvidenceBookmarkModel, InvestigationWorkspaceModel
 from app.features.response.models import ResponseActionModel, ResponseActionResultModel
-from app.features.vuln.models import VulnFindingModel
+from app.features.vuln import public as vuln_public
 
 _MAX_PAGE = 200
 _MAX_GRAPH_FETCH = 1200
@@ -576,16 +576,8 @@ def list_vulnerabilities_for_asset(
     asset_key: str,
     limit: int,
     active_only: bool,
-) -> list[VulnFindingModel]:
-    stmt = select(VulnFindingModel).where(VulnFindingModel.asset_key == asset_key)
-    if active_only:
-        stmt = stmt.where(
-            VulnFindingModel.is_suppressed.is_(False),
-            VulnFindingModel.observation_state == "observed",
-            VulnFindingModel.operator_disposition == "open",
-        )
-    stmt = stmt.order_by(VulnFindingModel.severity_rank.desc(), VulnFindingModel.last_seen_at.desc(), VulnFindingModel.id.desc())
-    return db.execute(stmt.limit(max(1, int(limit)))).scalars().all()
+) -> list[vuln_public.VulnFindingDTO]:
+    return vuln_public.list_findings_for_asset(db, asset_key=asset_key, limit=limit, active_only=active_only)
 
 
 def list_alerts_for_asset(
