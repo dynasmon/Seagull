@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from app.features.attack_chain.domain.config import AttackChainConfig
 from app.features.attack_chain.domain.types import AttackStage, StepCandidate
+from app.features.detections.heuristic_registry import get_registry
 
 
 def _safe_str(v: Any, *, max_len: int = 256) -> str:
@@ -46,32 +47,9 @@ def _extra_command(extra: Any) -> str:
     return _safe_str(extra.get("command") or "", max_len=768)
 
 
-_RE_SUSPICIOUS_LOG_TAMPER = re.compile(
-    r"\b(truncate|shred|rm|unlink|sed\s+-i|logrotate|journalctl\s+--vacuum|>\s*/var/log/)\b",
-    re.IGNORECASE,
-)
-
-_RE_DISABLE_SECURITY = re.compile(
-    r"\b(systemctl\s+(stop|disable)\s+(auditd|rsyslog|systemd-journald|seagull|iptables|ufw)|setenforce\s+0)\b",
-    re.IGNORECASE,
-)
-
-# Common LOLBins often used post-compromise.
-_RE_LOLBINS = re.compile(
-    r"\b(bash|sh|python(3)?|perl|php|ruby|node|nc|ncat|socat|curl|wget|openssl|base64)\b",
-    re.IGNORECASE,
-)
-
-_RE_SHELLS = re.compile(r"\b(bash|sh|dash|zsh|ksh|fish)\b", re.IGNORECASE)
-_RE_REMOTE_FETCH_EXEC = re.compile(
-    r"\b(curl|wget)\b.*\b(sh|bash)\b|\b(curl|wget)\b.*\|\s*\b(sh|bash)\b",
-    re.IGNORECASE,
-)
-_RE_NET_SERVICE_PARENT = re.compile(r"\b(nginx|apache2|httpd|php-fpm|gunicorn|uwsgi|caddy|traefik)\b", re.IGNORECASE)
-_RE_SUDO_PRIV_ESC = re.compile(
-    r"\b(visudo|sudoedit|pkexec|doas)\b|\b(usermod|useradd|adduser)\b.*\b(sudo|wheel)\b|\b(chmod|chown)\b.*\+s\b|\bsetcap\b|/etc/(sudoers|passwd|shadow)\b|/root/\.ssh/authorized_keys\b",
-    re.IGNORECASE,
-)
+def _pattern_hit(list_id: str, text: str) -> bool:
+    pattern = get_registry().get(list_id)
+    return bool(text and pattern and pattern.search(text))
 
 
 def _cmd_norm(cmd: str) -> str:
@@ -101,11 +79,10 @@ def _is_routine_privileged_cmd(cmd: str) -> bool:
         return True
 
     # Anything that looks like defense evasion / tamper is never routine.
-    if _RE_SUSPICIOUS_LOG_TAMPER.search(s) or _RE_DISABLE_SECURITY.search(s):
+    if _pattern_hit("suspicious_log_tamper", s) or _pattern_hit("disable_security", s):
         return False
 
-    # Explicit privilege escalation / persistence primitives are never routine.
-    if _RE_SUDO_PRIV_ESC.search(s) or _RE_REMOTE_FETCH_EXEC.search(s):
+    if _pattern_hit("sudo_priv_esc", s) or _pattern_hit("remote_fetch_exec", s):
         return False
 
     base = _cmd_base(s)
@@ -219,7 +196,7 @@ def _classify_sudo(agent_id: str, username: str, target: str, cmd: str, cfg: Att
                 )
 
     # Defense evasion (high confidence)
-    if cmd_n and (_RE_SUSPICIOUS_LOG_TAMPER.search(cmd_n) or _RE_DISABLE_SECURITY.search(cmd_n)):
+    if cmd_n and (_pattern_hit("suspicious_log_tamper", cmd_n) or _pattern_hit("disable_security", cmd_n)):
         return StepCandidate(
             stage=AttackStage.defense_evasion,
             title="Defense evasion via privileged command",
@@ -235,7 +212,7 @@ def _classify_sudo(agent_id: str, username: str, target: str, cmd: str, cfg: Att
         )
 
     # Strong privilege escalation / persistence primitives (medium-high)
-    if cmd_n and _RE_SUDO_PRIV_ESC.search(cmd_n):
+    if cmd_n and _pattern_hit("sudo_priv_esc", cmd_n):
         # Map a few common patterns.
         tid = "T1548.003"  # Sudo and Sudo Caching
         stage = AttackStage.privilege_escalation
@@ -257,7 +234,7 @@ def _classify_sudo(agent_id: str, username: str, target: str, cmd: str, cfg: Att
         )
 
     # Remote fetch + execute (execution) (high)
-    if cmd_n and _RE_REMOTE_FETCH_EXEC.search(cmd_n):
+    if cmd_n and _pattern_hit("remote_fetch_exec", cmd_n):
         return StepCandidate(
             stage=AttackStage.execution,
             title="Remote fetch and execute (privileged)",
@@ -273,7 +250,7 @@ def _classify_sudo(agent_id: str, username: str, target: str, cmd: str, cfg: Att
         )
 
     # Shell spawn or LOLBin under sudo (execution) (medium)
-    if base and (_RE_SHELLS.search(base) or base in {"su", "python", "python3", "perl", "php", "ruby", "node", "nc", "ncat", "socat", "openssl", "base64"}):
+    if base and (_pattern_hit("shells", base) or base in {"su", "python", "python3", "perl", "php", "ruby", "node", "nc", "ncat", "socat", "openssl", "base64"}):
         return StepCandidate(
             stage=AttackStage.execution,
             title="Interactive shell / LOLBin via sudo",
@@ -391,7 +368,7 @@ def detect_steps(event: Dict[str, Any], cfg: AttackChainConfig, *, allowlist: Op
         patterns = extra.get("exec_patterns") if isinstance(extra.get("exec_patterns"), list) else []
         patterns_txt = ",".join(str(x) for x in patterns)
 
-        if argv and (_RE_REMOTE_FETCH_EXEC.search(argv) or exec_pattern == "remote_fetch_exec"):
+        if argv and (_pattern_hit("remote_fetch_exec", argv) or exec_pattern == "remote_fetch_exec" or "remote_fetch_exec" in patterns_txt):
             out.append(
                 StepCandidate(
                     stage=AttackStage.execution,
@@ -423,7 +400,7 @@ def detect_steps(event: Dict[str, Any], cfg: AttackChainConfig, *, allowlist: Op
                 )
             )
 
-        if argv and _RE_NET_SERVICE_PARENT.search(parent_name) and _RE_SHELLS.search(bin_name):
+        if argv and _pattern_hit("net_service_parents", parent_name) and _pattern_hit("shells", bin_name):
             out.append(
                 StepCandidate(
                     stage=AttackStage.execution,
@@ -455,7 +432,7 @@ def detect_steps(event: Dict[str, Any], cfg: AttackChainConfig, *, allowlist: Op
                 )
             )
 
-        if argv and (_RE_LOLBINS.search(argv) or exec_pattern == "lolbin"):
+        if argv and (_pattern_hit("lolbins", argv) or exec_pattern == "lolbin" or "lolbin" in patterns_txt):
             out.append(
                 StepCandidate(
                     stage=AttackStage.execution,
