@@ -16,7 +16,7 @@ from app.features.correlations.models import (
 )
 from app.features.events.models import NetEventModel
 from app.features.exposure.models import ExposureFindingModel
-from app.features.vuln.models import VulnFindingModel
+from app.features.vuln.public import VulnFindingDTO, list_recent_findings
 
 _OPEN_STATUSES = frozenset({"open", "triaged"})
 _VALID_STATUSES = frozenset({"open", "triaged", "closed", "suppressed"})
@@ -59,14 +59,8 @@ def list_recent_net_events(db: Session, *, min_ts: datetime, limit: int) -> list
     return db.execute(stmt).scalars().all()
 
 
-def list_recent_vuln_findings(db: Session, *, min_ts: datetime, limit: int) -> list[VulnFindingModel]:
-    stmt = (
-        select(VulnFindingModel)
-        .where(VulnFindingModel.last_seen_at >= min_ts)
-        .order_by(VulnFindingModel.last_seen_at.desc(), VulnFindingModel.id.desc())
-        .limit(limit)
-    )
-    return db.execute(stmt).scalars().all()
+def list_recent_vuln_findings(db: Session, *, min_ts: datetime, limit: int) -> list[VulnFindingDTO]:
+    return list_recent_findings(db, min_ts=min_ts, limit=limit)
 
 
 def list_recent_exposure_findings(db: Session, *, min_ts: datetime, limit: int) -> list[ExposureFindingModel]:
