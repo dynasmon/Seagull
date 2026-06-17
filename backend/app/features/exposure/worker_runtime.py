@@ -1,9 +1,3 @@
-"""Exposure projection engine.
-
-Reads durable state from agents, inventory, vuln, alerts, attack_chain,
-events, and investigations, then projects it into the exposure graph tables.
-"""
-
 from __future__ import annotations
 
 import re
@@ -69,6 +63,7 @@ from app.features.exposure.domain.normalization import (
     severity_from_score,
 )
 from app.features.exposure.domain.types import EdgeInput, EvidenceRef, FindingInput, NodeInput
+from app.features.vuln import public as vuln_public
 
 # Security-relevant package name fragments used to filter package nodes.
 # Keeping this bounded avoids creating thousands of low-value package nodes.
@@ -299,34 +294,13 @@ def load_vuln_signals(
     agent_id: Optional[str],
     lookback_dt: datetime,
 ) -> VulnSignals:
-    from app.features.vuln.models import VulnFindingModel  # noqa: PLC0415
-
-    stmt = (
-        select(
-            VulnFindingModel.id,
-            VulnFindingModel.severity,
-            VulnFindingModel.severity_rank,
-            VulnFindingModel.cve,
-            VulnFindingModel.cvss,
-            VulnFindingModel.title,
-            VulnFindingModel.last_seen_at,
-            VulnFindingModel.evidence,
-        )
-        .where(
-            VulnFindingModel.asset_key == asset_key,
-            VulnFindingModel.is_suppressed.is_(False),
-            VulnFindingModel.observation_state == "observed",
-            VulnFindingModel.operator_disposition == "open",
-            VulnFindingModel.last_seen_at >= lookback_dt,
-        )
-        .order_by(VulnFindingModel.severity_rank.desc(), VulnFindingModel.id.desc())
-        .limit(500)
+    rows = vuln_public.list_active_finding_signals_for_asset(
+        db, asset_key=asset_key, lookback=lookback_dt, limit=500
     )
-    rows = db.execute(stmt).mappings().all()
 
     signals = VulnSignals()
     for r in rows:
-        rank = int(r.get("severity_rank") or 0)
+        rank = int(r.severity_rank or 0)
         if rank >= 5:
             signals.critical_count += 1
         elif rank == 4:
@@ -336,9 +310,9 @@ def load_vuln_signals(
         elif rank > 0:
             signals.low_count += 1
 
-        cve = str(r.get("cve") or "").strip()
-        evidence_json = r.get("evidence") if isinstance(r.get("evidence"), dict) else {}
-        evidence_str = str(evidence_json) + str(r.get("title") or "")
+        cve = str(r.cve or "").strip()
+        evidence_json = r.evidence if isinstance(r.evidence, dict) else {}
+        evidence_str = str(evidence_json) + str(r.title or "")
         if not signals.has_exploitability_signal:
             # High-severity with CVE is a conservative exploitability signal
             if rank >= 4 and cve:
@@ -346,14 +320,14 @@ def load_vuln_signals(
             elif _EXPLOITABLE_KEYWORDS.search(evidence_str):
                 signals.has_exploitability_signal = True
 
-        last_seen = r.get("last_seen_at")
+        last_seen = r.last_seen_at
         if cve and len(signals.cve_refs) < _MAX_EVIDENCE_REFS_PER_FINDING:
             ref = build_evidence_ref(
                 source_type=EVIDENCE_SOURCE_VULNERABILITY,
-                source_id=str(r["id"]),
+                source_id=str(r.id),
                 observed_at=last_seen,
-                title=str(r.get("title") or cve),
-                summary=f"{normalize_severity(r.get('severity'))} CVE {cve}",
+                title=str(r.title or cve),
+                summary=f"{normalize_severity(r.severity)} CVE {cve}",
             )
             signals.cve_refs.append(ref.to_dict())
 
@@ -720,45 +694,25 @@ def build_cve_nodes_and_edges(
     max_nodes: int,
     lookback_dt: datetime,
 ) -> tuple[list[NodeInput], list[EdgeInput]]:
-    from app.features.vuln.models import VulnFindingModel  # noqa: PLC0415
-
-    stmt = (
-        select(
-            VulnFindingModel.cve,
-            VulnFindingModel.severity,
-            VulnFindingModel.severity_rank,
-            VulnFindingModel.cvss,
-            VulnFindingModel.location,
-            VulnFindingModel.last_seen_at,
-            VulnFindingModel.confidence,
-        )
-        .where(
-            VulnFindingModel.asset_key == asset_key,
-            VulnFindingModel.cve.isnot(None),
-            VulnFindingModel.is_suppressed.is_(False),
-            VulnFindingModel.observation_state == "observed",
-            VulnFindingModel.last_seen_at >= lookback_dt,
-        )
-        .order_by(VulnFindingModel.severity_rank.desc())
-        .limit(max_nodes)
+    rows = vuln_public.list_active_cve_findings_for_asset(
+        db, asset_key=asset_key, lookback=lookback_dt, limit=max_nodes
     )
-    rows = db.execute(stmt).mappings().all()
 
     nodes: list[NodeInput] = []
     edges: list[EdgeInput] = []
     seen_cves: set[str] = set()
 
     for r in rows:
-        cve = str(r.get("cve") or "").strip().upper()
+        cve = str(r.cve or "").strip().upper()
         if not cve or cve in seen_cves:
             continue
         seen_cves.add(cve)
 
-        sev = normalize_severity(r.get("severity"))
-        cvss_float = _parse_cvss_score(r.get("cvss"))
+        sev = normalize_severity(r.severity)
+        cvss_float = _parse_cvss_score(r.cvss)
         risk_score = clamp_score((cvss_float or 0) * 10) if cvss_float else _sev_to_score(sev)
         node_key = make_asset_scoped_node_key(NODE_TYPE_CVE, asset_key, cve)
-        last_seen = r.get("last_seen_at") or now
+        last_seen = r.last_seen_at or now
 
         nodes.append(
             NodeInput(
@@ -767,12 +721,12 @@ def build_cve_nodes_and_edges(
                 label=cve,
                 severity=sev,
                 risk_score=risk_score,
-                confidence=clamp_confidence(int(r.get("confidence") or 60)),
+                confidence=clamp_confidence(int(r.confidence or 60)),
                 asset_key=asset_key,
                 agent_id=agent_id,
                 first_seen_at=last_seen,
                 last_seen_at=last_seen,
-                properties={"cve": cve, "cvss": r.get("cvss")},
+                properties={"cve": cve, "cvss": r.cvss},
             )
         )
         edge_key = make_edge_key(asset_node_key, node_key, EDGE_TYPE_HAS_CVE)
@@ -783,14 +737,14 @@ def build_cve_nodes_and_edges(
                 target_node_key=node_key,
                 edge_type=EDGE_TYPE_HAS_CVE,
                 weight=1.0,
-                confidence=clamp_confidence(int(r.get("confidence") or 60)),
+                confidence=clamp_confidence(int(r.confidence or 60)),
                 asset_key=asset_key,
                 agent_id=agent_id,
                 first_seen_at=last_seen,
                 last_seen_at=last_seen,
             )
         )
-        pkg_name = extract_package_name_from_location(r.get("location"))
+        pkg_name = extract_package_name_from_location(r.location)
         if pkg_name:
             pkg_node_key = make_asset_scoped_node_key(NODE_TYPE_PACKAGE, asset_key, pkg_name)
             edges.append(
@@ -1183,46 +1137,23 @@ def build_vuln_findings(
     max_findings: int,
     now: datetime,
 ) -> list[FindingInput]:
-    from app.features.vuln.models import VulnFindingModel  # noqa: PLC0415
-
-    stmt = (
-        select(
-            VulnFindingModel.id,
-            VulnFindingModel.fingerprint,
-            VulnFindingModel.cve,
-            VulnFindingModel.title,
-            VulnFindingModel.severity,
-            VulnFindingModel.severity_rank,
-            VulnFindingModel.confidence,
-            VulnFindingModel.first_seen_at,
-            VulnFindingModel.last_seen_at,
-            VulnFindingModel.description,
-        )
-        .where(
-            VulnFindingModel.asset_key == asset_key,
-            VulnFindingModel.is_suppressed.is_(False),
-            VulnFindingModel.observation_state == "observed",
-            VulnFindingModel.operator_disposition == "open",
-            VulnFindingModel.last_seen_at >= lookback_dt,
-        )
-        .order_by(VulnFindingModel.severity_rank.desc(), VulnFindingModel.id.desc())
-        .limit(max_findings)
+    rows = vuln_public.list_open_findings_for_asset(
+        db, asset_key=asset_key, lookback=lookback_dt, limit=max_findings
     )
-    rows = db.execute(stmt).mappings().all()
 
     out: list[FindingInput] = []
     for r in rows:
-        cve = str(r.get("cve") or "").strip()
-        title = str(r.get("title") or cve or f"Vulnerability {r['id']}")
-        sev = normalize_severity(r.get("severity"))
-        rank = int(r.get("severity_rank") or 0)
+        cve = str(r.cve or "").strip()
+        title = str(r.title or cve or f"Vulnerability {r.id}")
+        sev = normalize_severity(r.severity)
+        rank = int(r.severity_rank or 0)
         score_delta = {5: 30, 4: 18, 3: 8, 2: 3, 1: 1}.get(rank, 1)
 
-        fkey = make_finding_key("vulnerability", asset_key, str(r.get("fingerprint") or r["id"]))
+        fkey = make_finding_key("vulnerability", asset_key, str(r.fingerprint or r.id))
         ref = build_evidence_ref(
             source_type=EVIDENCE_SOURCE_VULNERABILITY,
-            source_id=str(r["id"]),
-            observed_at=r.get("last_seen_at"),
+            source_id=str(r.id),
+            observed_at=r.last_seen_at,
             title=title,
             summary=f"{sev} severity{' CVE: ' + cve if cve else ''}",
         )
@@ -1238,12 +1169,12 @@ def build_vuln_findings(
                 agent_id=agent_id,
                 severity=sev,
                 score_delta=score_delta,
-                confidence=clamp_confidence(int(r.get("confidence") or 60)),
+                confidence=clamp_confidence(int(r.confidence or 60)),
                 title=title,
-                summary=str(r.get("description") or "")[:512],
+                summary=str(r.description or "")[:512],
                 status="open",
-                first_seen_at=r.get("first_seen_at") or now,
-                last_seen_at=r.get("last_seen_at") or now,
+                first_seen_at=r.first_seen_at or now,
+                last_seen_at=r.last_seen_at or now,
                 related_node_keys=related_keys,
                 evidence_refs=[ref],
                 reason_codes=_vuln_reason_codes(rank),
@@ -2151,18 +2082,9 @@ def extract_vulnerable_pkg_names(
     asset_key: str,
     lookback_dt: datetime,
 ) -> frozenset[str]:
-    from app.features.vuln.models import VulnFindingModel  # noqa: PLC0415
-
-    stmt = (
-        select(VulnFindingModel.location)
-        .where(
-            VulnFindingModel.asset_key == asset_key,
-            VulnFindingModel.is_suppressed.is_(False),
-            VulnFindingModel.last_seen_at >= lookback_dt,
-        )
-        .limit(500)
+    rows = vuln_public.list_finding_locations_for_asset(
+        db, asset_key=asset_key, lookback=lookback_dt, limit=500
     )
-    rows = db.execute(stmt).scalars().all()
     names: set[str] = set()
     for loc in rows:
         name = extract_package_name_from_location(loc)
