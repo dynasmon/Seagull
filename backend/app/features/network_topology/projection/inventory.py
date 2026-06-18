@@ -3,11 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.features.agents.models import AgentModel
-from app.features.inventory.models import AgentInventoryLatestModel
+from app.features.agents import public as agents_public
+from app.features.inventory import public as inventory_public
 from app.features.network_topology import repository
 from app.features.network_topology.classification import classify_topology_ip, infer_subnet_cidr
 from app.features.network_topology.projection.helpers import (
@@ -31,12 +30,7 @@ def _project_agents(
     now: datetime,
     coverage: TopologyCoverageOut,
 ) -> dict[str, str]:
-    agents = db.execute(
-        select(AgentModel)
-        .where(AgentModel.is_revoked.is_(False))
-        .order_by(AgentModel.last_seen_at.desc())
-        .limit(_MAX_AGENT_ROWS)
-    ).scalars().all()
+    agents = agents_public.list_active_agents_for_projection(db, limit=_MAX_AGENT_ROWS)
     coverage.agents_projected = len(agents)
 
     agent_nodes: dict[str, str] = {}
@@ -74,11 +68,7 @@ def _project_inventory(
     coverage: TopologyCoverageOut,
     agent_nodes: dict[str, str],
 ) -> None:
-    inventory_rows = db.execute(
-        select(AgentInventoryLatestModel)
-        .order_by(AgentInventoryLatestModel.updated_at.desc())
-        .limit(_MAX_AGENT_ROWS)
-    ).scalars().all()
+    inventory_rows = inventory_public.list_latest_inventory(db, limit=_MAX_AGENT_ROWS)
     coverage.agents_with_inventory = len(inventory_rows)
 
     subnet_seen: set[str] = set()
