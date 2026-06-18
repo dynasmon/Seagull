@@ -6,8 +6,8 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.features.alerts.models import AlertModel
-from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
+from app.features.alerts import public as alerts_public
+from app.features.attack_chain import public as attack_chain_public
 from app.features.correlations.models import (
     CorrelationEntityStateModel,
     CorrelationIncidentEvidenceModel,
@@ -39,14 +39,8 @@ def list_enabled_rules(db: Session) -> list[CorrelationRuleModel]:
     return db.execute(stmt).scalars().all()
 
 
-def list_recent_alerts(db: Session, *, min_ts: datetime, limit: int) -> list[AlertModel]:
-    stmt = (
-        select(AlertModel)
-        .where(AlertModel.created_at >= min_ts)
-        .order_by(AlertModel.created_at.desc())
-        .limit(limit)
-    )
-    return db.execute(stmt).scalars().all()
+def list_recent_alerts(db: Session, *, min_ts: datetime, limit: int) -> list[alerts_public.AlertDTO]:
+    return alerts_public.list_recent_alerts(db, min_ts=min_ts, limit=limit)
 
 
 def list_recent_net_events(db: Session, *, min_ts: datetime, limit: int) -> list[NetEventModel]:
@@ -73,24 +67,12 @@ def list_recent_exposure_findings(db: Session, *, min_ts: datetime, limit: int) 
     return db.execute(stmt).scalars().all()
 
 
-def list_recent_attack_chain_steps(db: Session, *, min_ts: datetime, limit: int) -> list[AttackChainStepModel]:
-    stmt = (
-        select(AttackChainStepModel)
-        .where(AttackChainStepModel.timestamp >= min_ts)
-        .order_by(AttackChainStepModel.timestamp.desc(), AttackChainStepModel.id.desc())
-        .limit(limit)
-    )
-    return db.execute(stmt).scalars().all()
+def list_recent_attack_chain_steps(db: Session, *, min_ts: datetime, limit: int) -> list[attack_chain_public.AttackChainStepDTO]:
+    return attack_chain_public.list_recent_steps(db, min_ts=min_ts, limit=limit)
 
 
-def list_recent_attack_chain_cases(db: Session, *, min_ts: datetime, limit: int) -> list[AttackChainCaseModel]:
-    stmt = (
-        select(AttackChainCaseModel)
-        .where(AttackChainCaseModel.last_seen_at >= min_ts)
-        .order_by(AttackChainCaseModel.last_seen_at.desc(), AttackChainCaseModel.id.desc())
-        .limit(limit)
-    )
-    return db.execute(stmt).scalars().all()
+def list_recent_attack_chain_cases(db: Session, *, min_ts: datetime, limit: int) -> list[attack_chain_public.AttackChainCaseDTO]:
+    return attack_chain_public.list_recent_cases(db, min_ts=min_ts, limit=limit)
 
 
 # Incident repository
