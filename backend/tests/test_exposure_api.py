@@ -36,6 +36,7 @@ from app.features.exposure.schemas import (
     ScoreBreakdownOut,
     ScoreExplanationOut,
 )
+from app.features.investigations import public as investigations_public
 from app.features.investigations import repository as investigations_repository
 from app.features.investigations import service as investigations_service
 from app.main import app
@@ -479,7 +480,7 @@ def test_service_open_asset_investigation_links_existing(monkeypatch: pytest.Mon
     monkeypatch.setattr(investigations_repository, "get_workspace", lambda _db, workspace_id, for_update=False: workspace_row)
     monkeypatch.setattr(investigations_repository, "save_workspace", lambda _db, row: row)
     monkeypatch.setattr(exposure_service, "_sync_exposure_bookmarks", lambda *args, **kwargs: 2)
-    monkeypatch.setattr(exposure_service, "_refresh_workspace_summary", lambda *args, **kwargs: None)
+    monkeypatch.setattr(investigations_public, "refresh_workspace_summary", lambda *args, **kwargs: True)
     audit_events: list[dict[str, object]] = []
     result = exposure_service.open_asset_investigation(
         SimpleNamespace(commit=lambda: None),
@@ -521,7 +522,7 @@ def test_service_open_asset_investigation_creates_new(monkeypatch: pytest.Monkey
     monkeypatch.setattr(investigations_repository, "get_workspace", lambda _db, workspace_id, for_update=False: workspace_row)
     monkeypatch.setattr(investigations_repository, "save_workspace", lambda _db, row: row)
     monkeypatch.setattr(exposure_service, "_sync_exposure_bookmarks", lambda *args, **kwargs: 3)
-    monkeypatch.setattr(exposure_service, "_refresh_workspace_summary", lambda *args, **kwargs: None)
+    monkeypatch.setattr(investigations_public, "refresh_workspace_summary", lambda *args, **kwargs: True)
     result = exposure_service.open_asset_investigation(
         _DB(),
         asset_key=detail.posture.asset_key,
