@@ -13,6 +13,7 @@ class NetworkTopologyWorkerState:
     last_recalc_token: str = ""
     pending_recalc_token: str = ""
     pending_reason: str = ""
+    last_signal_stream_id: str = ""
 
     def should_log_ok(self, every_s: float) -> bool:
         return every_s <= 0 or (time.time() - self.last_ok_log_t) >= every_s
