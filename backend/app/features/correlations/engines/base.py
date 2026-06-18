@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from fnmatch import fnmatchcase
 from typing import Any, Iterable, List, Mapping, Optional, Sequence
 
-from app.features.alerts.models import AlertModel
-from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
+from app.features.alerts.public import AlertDTO
+from app.features.attack_chain.public import AttackChainCaseDTO, AttackChainStepDTO
 from app.features.detections.domain.scoring import severity_baseline_score
 from app.features.correlations.models import EntityBaselineModel
 from app.features.correlations.schemas import CorrelationAlertRef, CorrelationEvidenceMatch, CorrelationIncidentOut
@@ -65,7 +65,7 @@ def passes_filter(rule_id: str, include: List[str], exclude: List[str]) -> bool:
     return match_any(rule_id, include)
 
 
-def group_value(alert: AlertModel, group_by: str) -> str:
+def group_value(alert: AlertDTO, group_by: str) -> str:
     g = (group_by or "").lower().strip()
     src = alert.src_ip or "-"
     dst = alert.dst_ip or "-"
@@ -84,15 +84,15 @@ def group_value(alert: AlertModel, group_by: str) -> str:
     return "all"
 
 
-def segment_by_window(alerts: List[AlertModel], window_seconds: int) -> List[List[AlertModel]]:
+def segment_by_window(alerts: List[AlertDTO], window_seconds: int) -> List[List[AlertDTO]]:
     if not alerts:
         return []
 
     w = max(1, int(window_seconds))
     alerts_sorted = sorted(alerts, key=lambda a: to_utc_naive(a.created_at))
 
-    segments: List[List[AlertModel]] = []
-    cur: List[AlertModel] = [alerts_sorted[0]]
+    segments: List[List[AlertDTO]] = []
+    cur: List[AlertDTO] = [alerts_sorted[0]]
     seg_start = to_utc_naive(alerts_sorted[0].created_at)
 
     for a in alerts_sorted[1:]:
@@ -133,7 +133,7 @@ def segment_records_by_window(rows: Sequence[Any], source: str, dataset: "Correl
     return out
 
 
-def compute_stage_hits(seg: List[AlertModel], stages: List[dict]) -> dict[str, int]:
+def compute_stage_hits(seg: List[AlertDTO], stages: List[dict]) -> dict[str, int]:
     hits: dict[str, int] = {}
     for st in stages or []:
         name = str((st or {}).get("name") or "").strip() or "stage"
@@ -154,7 +154,7 @@ def stage_requirements_met(hits: dict[str, int], stages: List[dict]) -> bool:
     return True
 
 
-def alert_ref(a: AlertModel) -> CorrelationAlertRef:
+def alert_ref(a: AlertDTO) -> CorrelationAlertRef:
     return CorrelationAlertRef(
         id=a.id,
         created_at=to_utc_naive(a.created_at),
@@ -239,17 +239,17 @@ class CorrelationEvidence:
 
 @dataclass
 class CorrelationDataset:
-    alerts: list[AlertModel] = field(default_factory=list)
+    alerts: list[AlertDTO] = field(default_factory=list)
     net_events: list[NetEventModel] = field(default_factory=list)
     vuln_findings: list[VulnFindingDTO] = field(default_factory=list)
     exposure_findings: list[ExposureFindingModel] = field(default_factory=list)
-    attack_chain_steps: list[AttackChainStepModel] = field(default_factory=list)
-    attack_chain_cases: list[AttackChainCaseModel] = field(default_factory=list)
+    attack_chain_steps: list[AttackChainStepDTO] = field(default_factory=list)
+    attack_chain_cases: list[AttackChainCaseDTO] = field(default_factory=list)
     entity_states: dict[tuple[str, str], Any] = field(default_factory=dict)
     entity_baseline: dict[str, dict[str, EntityBaselineModel]] | None = None
 
     @property
-    def attack_chain_case_map(self) -> dict[int, AttackChainCaseModel]:
+    def attack_chain_case_map(self) -> dict[int, AttackChainCaseDTO]:
         return {int(case.id): case for case in self.attack_chain_cases if getattr(case, "id", None) is not None}
 
     def entity_baseline_for(self, entity_type: str | None, entity_value: str | None) -> Any:
@@ -287,7 +287,7 @@ class CorrelationMatch:
     confidence: int | None = None
     summary: str | None = None
     context: dict[str, Any] = field(default_factory=dict)
-    sample_alert_rows: list[AlertModel] = field(default_factory=list)
+    sample_alert_rows: list[AlertDTO] = field(default_factory=list)
     evidence_items: list[CorrelationEvidence] = field(default_factory=list)
 
     def incident_key(self) -> str:
@@ -708,9 +708,9 @@ def filter_records(
     return out
 
 
-def dedupe_alert_rows(rows: Sequence[AlertModel], sample_limit: int) -> list[AlertModel]:
+def dedupe_alert_rows(rows: Sequence[AlertDTO], sample_limit: int) -> list[AlertDTO]:
     seen: set[int] = set()
-    out: list[AlertModel] = []
+    out: list[AlertDTO] = []
     for row in sorted(rows, key=lambda item: to_utc_naive(item.created_at), reverse=True):
         row_id = getattr(row, "id", None)
         if row_id in seen:
