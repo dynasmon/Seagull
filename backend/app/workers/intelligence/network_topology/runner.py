@@ -10,6 +10,7 @@ from app.core.db import SessionLocal
 from app.core.observability import log_event
 from app.features.network_topology import realtime as topology_realtime
 from app.features.network_topology.service import run_recalculation
+from app.features.network_topology.worker_runtime import drain_topology_signals
 
 from .state import NetworkTopologyWorkerState
 
@@ -70,6 +71,7 @@ def load_worker_config() -> NetworkTopologyWorkerConfig:
 
 
 def run_once(cfg: NetworkTopologyWorkerConfig, state: NetworkTopologyWorkerState) -> bool:
+    drain_topology_signals(state)
     request = topology_realtime.load_recalculation_request()
     token = _request_token(request)
     if token and token != state.last_recalc_token and token != state.pending_recalc_token:
