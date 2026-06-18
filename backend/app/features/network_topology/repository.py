@@ -1,11 +1,5 @@
 from __future__ import annotations
 
-"""Compatibility facade for network-topology persistence helpers.
-
-Repository code is split by concern under ``repositories/``.  This module keeps the
-legacy import path stable for callers while making the ownership of each helper
-explicit and avoiding duplicate implementations.
-"""
 
 from app.features.network_topology.repositories.constants import _MAX_GRAPH_FETCH, _MAX_PAGE
 from app.features.network_topology.repositories.graph import (
@@ -32,9 +26,6 @@ from app.features.network_topology.repositories.metrics import (
     topology_summary_metrics,
 )
 from app.features.network_topology.repositories.related import (
-    _alert_conditions_for_edge,
-    _alert_conditions_for_node,
-    _attack_chain_conditions_for_node,
     _clean_text,
     _exposure_conditions_for_node,
     _flow_conditions_for_edge,
@@ -72,9 +63,6 @@ from app.features.network_topology.repositories.writes import (
 __all__ = [
     "_MAX_GRAPH_FETCH",
     "_MAX_PAGE",
-    "_alert_conditions_for_edge",
-    "_alert_conditions_for_node",
-    "_attack_chain_conditions_for_node",
     "_clean_text",
     "_exposure_conditions_for_node",
     "_flow_conditions_for_edge",

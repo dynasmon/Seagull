@@ -5,8 +5,8 @@ from typing import Any
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.features.alerts.models import AlertModel
-from app.features.attack_chain.models import AttackChainCaseModel
+from app.features.alerts import public as alerts_public
+from app.features.attack_chain import public as attack_chain_public
 from app.features.events.models import NetEventModel
 from app.features.exposure.models import ExposureFindingModel
 from app.features.network_topology.models import TopologyEdgeModel, TopologyNodeModel
@@ -85,17 +85,13 @@ def edge_flow_metrics(
         protocols.append(proto)
     return total_bytes, protocols
 
-def list_related_alerts_for_node(db: Session, *, node: TopologyNodeModel, limit: int = 10) -> list[AlertModel]:
-    conditions = _alert_conditions_for_node(node)
-    if not conditions:
-        return []
-    stmt = (
-        select(AlertModel)
-        .where(*conditions)
-        .order_by(AlertModel.created_at.desc(), AlertModel.id.desc())
-        .limit(min(int(limit), 50))
+def list_related_alerts_for_node(db: Session, *, node: TopologyNodeModel, limit: int = 10) -> list[alerts_public.AlertDTO]:
+    return alerts_public.list_alerts_for_node(
+        db,
+        ip=_clean_text(node.ip),
+        agent_id=_clean_text(node.agent_id),
+        limit=limit,
     )
-    return db.execute(stmt).scalars().all()
 
 def list_related_alerts_for_edge(
     db: Session,
@@ -104,17 +100,15 @@ def list_related_alerts_for_edge(
     source_node: TopologyNodeModel | None,
     target_node: TopologyNodeModel | None,
     limit: int = 10,
-) -> list[AlertModel]:
-    conditions = _alert_conditions_for_edge(edge, source_node, target_node)
-    if not conditions:
-        return []
-    stmt = (
-        select(AlertModel)
-        .where(*conditions)
-        .order_by(AlertModel.created_at.desc(), AlertModel.id.desc())
-        .limit(min(int(limit), 50))
+) -> list[alerts_public.AlertDTO]:
+    return alerts_public.list_alerts_for_edge(
+        db,
+        src_ip=_clean_text(getattr(source_node, "ip", None)),
+        dst_ip=_clean_text(getattr(target_node, "ip", None)),
+        port=edge.port,
+        agent_id=_clean_text(edge.agent_id),
+        limit=limit,
     )
-    return db.execute(stmt).scalars().all()
 
 def list_related_exposure_findings_for_node(
     db: Session,
@@ -160,17 +154,15 @@ def list_related_attack_chain_cases_for_node(
     *,
     node: TopologyNodeModel,
     limit: int = 10,
-) -> list[AttackChainCaseModel]:
-    conditions = _attack_chain_conditions_for_node(node)
-    if not conditions:
-        return []
-    stmt = (
-        select(AttackChainCaseModel)
-        .where(or_(*conditions))
-        .order_by(AttackChainCaseModel.last_seen_at.desc(), AttackChainCaseModel.id.desc())
-        .limit(min(int(limit), 50))
+) -> list[attack_chain_public.AttackChainCaseDTO]:
+    ip = _clean_text(node.ip)
+    agent_id = _clean_text(node.agent_id)
+    return attack_chain_public.list_related_cases(
+        db,
+        suspect_ips=[ip] if ip else [],
+        agent_ids=[agent_id] if agent_id else [],
+        limit=limit,
     )
-    return db.execute(stmt).scalars().all()
 
 def list_related_attack_chain_cases_for_edge(
     db: Session,
@@ -178,21 +170,24 @@ def list_related_attack_chain_cases_for_edge(
     source_node: TopologyNodeModel | None,
     target_node: TopologyNodeModel | None,
     limit: int = 10,
-) -> list[AttackChainCaseModel]:
-    conditions: list[Any] = []
+) -> list[attack_chain_public.AttackChainCaseDTO]:
+    suspect_ips: list[str] = []
+    agent_ids: list[str] = []
     for node in (source_node, target_node):
         if node is None:
             continue
-        conditions.extend(_attack_chain_conditions_for_node(node))
-    if not conditions:
-        return []
-    stmt = (
-        select(AttackChainCaseModel)
-        .where(or_(*conditions))
-        .order_by(AttackChainCaseModel.last_seen_at.desc(), AttackChainCaseModel.id.desc())
-        .limit(min(int(limit), 50))
+        ip = _clean_text(node.ip)
+        agent_id = _clean_text(node.agent_id)
+        if ip:
+            suspect_ips.append(ip)
+        if agent_id:
+            agent_ids.append(agent_id)
+    return attack_chain_public.list_related_cases(
+        db,
+        suspect_ips=suspect_ips,
+        agent_ids=agent_ids,
+        limit=limit,
     )
-    return db.execute(stmt).scalars().all()
 
 def _clean_text(value: Any) -> str:
     return str(value or "").strip()
@@ -255,41 +250,6 @@ def _flow_conditions_for_edge(
         conditions.append(NetEventModel.agent_id == _clean_text(edge.agent_id))
     return conditions
 
-def _alert_conditions_for_node(node: TopologyNodeModel) -> list[Any]:
-    ip = _clean_text(node.ip)
-    agent_id = _clean_text(node.agent_id)
-    conditions: list[Any] = []
-    if ip:
-        conditions.append(or_(AlertModel.src_ip == ip, AlertModel.dst_ip == ip))
-        return conditions
-    if agent_id:
-        conditions.append(AlertModel.details["agent_id"].astext == agent_id)
-    return conditions
-
-def _alert_conditions_for_edge(
-    edge: TopologyEdgeModel,
-    source_node: TopologyNodeModel | None,
-    target_node: TopologyNodeModel | None,
-) -> list[Any]:
-    src_ip = _clean_text(getattr(source_node, "ip", None))
-    dst_ip = _clean_text(getattr(target_node, "ip", None))
-    conditions: list[Any] = []
-    if src_ip and dst_ip:
-        conditions.append(
-            or_(
-                and_(AlertModel.src_ip == src_ip, AlertModel.dst_ip == dst_ip),
-                and_(AlertModel.src_ip == dst_ip, AlertModel.dst_ip == src_ip),
-            )
-        )
-    elif src_ip or dst_ip:
-        ip = src_ip or dst_ip
-        conditions.append(or_(AlertModel.src_ip == ip, AlertModel.dst_ip == ip))
-    if edge.port is not None:
-        conditions.append(AlertModel.dst_port == int(edge.port))
-    if _clean_text(edge.agent_id):
-        conditions.append(AlertModel.details["agent_id"].astext == _clean_text(edge.agent_id))
-    return conditions
-
 def _exposure_conditions_for_node(node: TopologyNodeModel) -> list[Any]:
     metadata = node.extra_data if isinstance(node.extra_data, dict) else {}
     asset_key = _clean_text(metadata.get("exposure_asset_key"))
@@ -299,14 +259,4 @@ def _exposure_conditions_for_node(node: TopologyNodeModel) -> list[Any]:
         conditions.append(ExposureFindingModel.asset_key == asset_key)
     if agent_id:
         conditions.append(ExposureFindingModel.agent_id == agent_id)
-    return conditions
-
-def _attack_chain_conditions_for_node(node: TopologyNodeModel) -> list[Any]:
-    ip = _clean_text(node.ip)
-    agent_id = _clean_text(node.agent_id)
-    conditions: list[Any] = []
-    if ip:
-        conditions.append(AttackChainCaseModel.suspect_ip == ip)
-    if agent_id:
-        conditions.append(AttackChainCaseModel.agent_id == agent_id)
     return conditions
