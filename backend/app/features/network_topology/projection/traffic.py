@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.features.alerts.models import AlertModel
+from app.features.alerts import public as alerts_public
 from app.features.events.models import NetEventModel
 from app.features.network_topology import repository
 from app.features.network_topology.classification import classify_topology_ip
@@ -191,25 +191,14 @@ def _project_alert_edges(
 ) -> None:
     alert_window_minutes = max(window_minutes, 2 * 60)
     since = now - timedelta(minutes=alert_window_minutes)
-    alerts = db.execute(
-        select(
-            AlertModel.src_ip,
-            AlertModel.dst_ip,
-            AlertModel.dst_port,
-            AlertModel.severity,
-            AlertModel.created_at,
-        )
-        .where(
-            AlertModel.created_at >= since,
-            AlertModel.src_ip.isnot(None),
-            AlertModel.dst_ip.isnot(None),
-        )
-        .order_by(AlertModel.created_at.desc())
-        .limit(_MAX_ALERT_ROWS)
-    ).all()
+    alerts = alerts_public.list_alert_flows_since(db, since=since, limit=_MAX_ALERT_ROWS)
 
     for row in alerts:
-        src_ip, dst_ip, dst_port, severity, created_at = row
+        src_ip = row.src_ip
+        dst_ip = row.dst_ip
+        dst_port = row.dst_port
+        severity = row.severity
+        created_at = row.created_at
         src_info = classify_topology_ip(src_ip, internal_cidrs=cidrs)
         dst_info = classify_topology_ip(dst_ip, internal_cidrs=cidrs)
         src_key = _ip_node_key(src_ip, src_info)

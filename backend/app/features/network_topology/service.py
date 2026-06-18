@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
-from app.features.agents.repository import list_agents
+from app.features.agents import public as agents_public
 from app.features.auth.session import PortalPrincipal
 from app.features.network_topology import realtime as topo_realtime
 from app.features.network_topology import repository
@@ -161,7 +161,7 @@ __all__ = [
 
 
 def _load_agent_labels(db: Session) -> dict[str, str]:
-    return {a.agent_id: (a.display_name or a.agent_id) for a in list_agents(db)}
+    return {a.agent_id: (a.display_name or a.agent_id) for a in agents_public.list_all_agents(db)}
 
 
 def _peer_deviation_by_agent(db: Session) -> dict[str, Any]:
