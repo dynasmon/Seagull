@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Iterable, Sequence
 
-from sqlalchemy import and_, case, exists, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.features.alerts.models import AlertModel
-from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel
+from app.features.alerts import public as alerts_public
+from app.features.attack_chain import public as attack_chain_public
 from app.features.exposure.domain.constants import (
     RC_ATTACK_CHAIN_PROGRESSION,
     RC_CRITICAL_CVE,
@@ -23,9 +23,9 @@ from app.features.exposure.models import (
     ExposureNodeModel,
     ExposureScoreHistoryModel,
 )
-from app.features.inventory.models import AgentInventoryLatestModel, AgentInventorySnapshotModel
-from app.features.investigations.models import InvestigationEvidenceBookmarkModel, InvestigationWorkspaceModel
-from app.features.response.models import ResponseActionModel, ResponseActionResultModel
+from app.features.inventory import public as inventory_public
+from app.features.investigations import public as investigations_public
+from app.features.response import public as response_public
 from app.features.vuln import public as vuln_public
 
 _MAX_PAGE = 200
@@ -507,33 +507,21 @@ def list_score_history(
 
 
 def get_inventory_context(db: Session, *, agent_id: str) -> dict[str, Any]:
-    latest_row = db.execute(
-        select(
-            AgentInventoryLatestModel.snapshot_id,
-            AgentInventoryLatestModel.os,
-            AgentInventoryLatestModel.collected_at,
-            AgentInventoryLatestModel.updated_at,
-        ).where(AgentInventoryLatestModel.agent_id == agent_id)
-    ).mappings().first()
-    if not latest_row:
+    latest = inventory_public.get_latest_inventory_for_agent(db, agent_id=agent_id)
+    if latest is None:
         return {}
 
-    os_context = extract_inventory_os_context(latest_row.get("os"))
+    os_context = extract_inventory_os_context(latest.os)
 
     packages_count = 0
-    snapshot_id = latest_row.get("snapshot_id")
-    if snapshot_id is not None:
-        snap_row = db.execute(
-            select(AgentInventorySnapshotModel.packages_count).where(AgentInventorySnapshotModel.id == int(snapshot_id))
-        ).first()
-        if snap_row:
-            packages_count = int(snap_row[0] or 0)
+    if latest.snapshot_id is not None:
+        packages_count = inventory_public.get_snapshot_packages_count(db, snapshot_id=int(latest.snapshot_id)) or 0
 
     return {
         "hostname": os_context["hostname"],
         "ip_addresses": os_context["ip_addresses"],
-        "collected_at": latest_row.get("collected_at"),
-        "updated_at": latest_row.get("updated_at"),
+        "collected_at": latest.collected_at,
+        "updated_at": latest.updated_at,
         "packages_count": packages_count,
     }
 
@@ -544,12 +532,8 @@ def list_attack_chain_cases_for_agent(
     agent_id: str,
     open_only: bool,
     limit: int,
-) -> list[AttackChainCaseModel]:
-    stmt = select(AttackChainCaseModel).where(AttackChainCaseModel.agent_id == agent_id)
-    if open_only:
-        stmt = stmt.where(AttackChainCaseModel.status == "open")
-    stmt = stmt.order_by(AttackChainCaseModel.score.desc(), AttackChainCaseModel.last_seen_at.desc(), AttackChainCaseModel.id.desc())
-    return db.execute(stmt.limit(max(1, int(limit)))).scalars().all()
+) -> list[attack_chain_public.AttackChainCaseDTO]:
+    return attack_chain_public.list_cases_for_agent(db, agent_id=agent_id, open_only=open_only, limit=limit)
 
 
 def list_attack_chain_steps_for_cases(
@@ -557,17 +541,8 @@ def list_attack_chain_steps_for_cases(
     *,
     case_ids: Iterable[int],
     limit: int,
-) -> list[AttackChainStepModel]:
-    ids = [int(value) for value in case_ids if int(value) > 0]
-    if not ids:
-        return []
-    stmt = (
-        select(AttackChainStepModel)
-        .where(AttackChainStepModel.case_id.in_(ids))
-        .order_by(AttackChainStepModel.timestamp.desc(), AttackChainStepModel.id.desc())
-        .limit(max(1, int(limit)))
-    )
-    return db.execute(stmt).scalars().all()
+) -> list[attack_chain_public.AttackChainStepDTO]:
+    return attack_chain_public.list_steps_for_cases(db, case_ids=case_ids, limit=limit)
 
 
 def list_vulnerabilities_for_asset(
@@ -588,24 +563,15 @@ def list_alerts_for_asset(
     hostname: str | None,
     limit: int,
     since: datetime | None = None,
-) -> list[AlertModel]:
-    conditions = []
-    if agent_id:
-        conditions.append(func.jsonb_extract_path_text(AlertModel.details, "agent_id") == agent_id)
-    ips = [str(value or "").strip() for value in asset_ips if str(value or "").strip()]
-    if ips:
-        conditions.append(AlertModel.src_ip.in_(ips))
-        conditions.append(AlertModel.dst_ip.in_(ips))
-    if hostname:
-        conditions.append(func.lower(func.jsonb_extract_path_text(AlertModel.details, "hostname")) == hostname.lower())
-    if not conditions:
-        return []
-
-    stmt = select(AlertModel).where(or_(*conditions))
-    if since is not None:
-        stmt = stmt.where(AlertModel.created_at >= since)
-    stmt = stmt.order_by(AlertModel.created_at.desc(), AlertModel.id.desc()).limit(max(1, int(limit)))
-    return db.execute(stmt).scalars().all()
+) -> list[alerts_public.AlertDTO]:
+    return alerts_public.list_alerts_for_asset(
+        db,
+        agent_id=agent_id,
+        asset_ips=asset_ips,
+        hostname=hostname,
+        limit=limit,
+        since=since,
+    )
 
 
 def list_investigations_for_asset(
@@ -614,31 +580,8 @@ def list_investigations_for_asset(
     asset_key: str,
     agent_id: str | None,
     limit: int,
-) -> list[InvestigationWorkspaceModel]:
-    bookmark_exists = exists(
-        select(InvestigationEvidenceBookmarkModel.id).where(
-            InvestigationEvidenceBookmarkModel.workspace_id == InvestigationWorkspaceModel.id,
-            InvestigationEvidenceBookmarkModel.metadata_json["asset_key"].astext == asset_key,
-        )
-    )
-    conditions = [bookmark_exists, InvestigationWorkspaceModel.summary["exposure_asset_key"].astext == asset_key]
-    if agent_id:
-        conditions.append(InvestigationWorkspaceModel.primary_agent_id == agent_id)
-        conditions.append(
-            exists(
-                select(InvestigationEvidenceBookmarkModel.id).where(
-                    InvestigationEvidenceBookmarkModel.workspace_id == InvestigationWorkspaceModel.id,
-                    InvestigationEvidenceBookmarkModel.agent_id == agent_id,
-                )
-            )
-        )
-    stmt = (
-        select(InvestigationWorkspaceModel)
-        .where(or_(*conditions))
-        .order_by(InvestigationWorkspaceModel.updated_at.desc(), InvestigationWorkspaceModel.id.desc())
-        .limit(max(1, int(limit)))
-    )
-    return db.execute(stmt).scalars().all()
+) -> list[investigations_public.InvestigationWorkspaceDTO]:
+    return investigations_public.list_workspaces_for_asset(db, asset_key=asset_key, agent_id=agent_id, limit=limit)
 
 
 def list_open_workspaces_for_context(
@@ -648,22 +591,14 @@ def list_open_workspaces_for_context(
     agent_id: str | None,
     linked_attack_chain_case_id: int | None,
     limit: int,
-) -> list[InvestigationWorkspaceModel]:
-    conditions = [InvestigationWorkspaceModel.summary["exposure_asset_key"].astext == asset_key]
-    if agent_id:
-        conditions.append(InvestigationWorkspaceModel.primary_agent_id == agent_id)
-    if linked_attack_chain_case_id is not None:
-        conditions.append(InvestigationWorkspaceModel.linked_attack_chain_case_id == int(linked_attack_chain_case_id))
-    stmt = (
-        select(InvestigationWorkspaceModel)
-        .where(
-            InvestigationWorkspaceModel.status.in_(_OPEN_WORKSPACE_STATUSES),
-            or_(*conditions),
-        )
-        .order_by(InvestigationWorkspaceModel.updated_at.desc(), InvestigationWorkspaceModel.id.desc())
-        .limit(max(1, int(limit)))
+) -> list[investigations_public.InvestigationWorkspaceDTO]:
+    return investigations_public.list_open_workspaces_for_context(
+        db,
+        asset_key=asset_key,
+        agent_id=agent_id,
+        linked_attack_chain_case_id=linked_attack_chain_case_id,
+        limit=limit,
     )
-    return db.execute(stmt).scalars().all()
 
 
 def list_response_actions_for_agent(
@@ -671,45 +606,16 @@ def list_response_actions_for_agent(
     *,
     agent_id: str,
     limit: int,
-) -> list[ResponseActionModel]:
-    stmt = (
-        select(ResponseActionModel)
-        .where(ResponseActionModel.agent_id == agent_id)
-        .order_by(ResponseActionModel.requested_at.desc(), ResponseActionModel.id.desc())
-        .limit(max(1, int(limit)))
-    )
-    return db.execute(stmt).scalars().all()
+) -> list[response_public.ResponseActionDTO]:
+    return response_public.list_actions_for_agent(db, agent_id=agent_id, limit=limit)
 
 
 def latest_response_results_for_actions(
     db: Session,
     *,
     action_ids: Iterable[int],
-) -> dict[int, ResponseActionResultModel]:
-    ids = [int(value) for value in action_ids if int(value) > 0]
-    if not ids:
-        return {}
-    latest_rows = db.execute(
-        select(
-            ResponseActionResultModel.response_action_id,
-            func.max(ResponseActionResultModel.id).label("latest_id"),
-        )
-        .where(ResponseActionResultModel.response_action_id.in_(ids))
-        .group_by(ResponseActionResultModel.response_action_id)
-    ).all()
-    latest_ids = [int(row[1]) for row in latest_rows if row[1] is not None]
-    if not latest_ids:
-        return {}
-    rows = db.execute(select(ResponseActionResultModel).where(ResponseActionResultModel.id.in_(latest_ids))).scalars().all()
-    by_id = {int(row.id): row for row in rows}
-    out: dict[int, ResponseActionResultModel] = {}
-    for action_id, latest_id in latest_rows:
-        if latest_id is None:
-            continue
-        row = by_id.get(int(latest_id))
-        if row is not None:
-            out[int(action_id)] = row
-    return out
+) -> dict[int, response_public.ResponseActionResultSummary]:
+    return response_public.latest_result_summaries_for_actions(db, action_ids=action_ids)
 
 
 def _apply_posture_filters(

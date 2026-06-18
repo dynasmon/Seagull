@@ -8,6 +8,9 @@ from typing import Any, Optional
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
+from app.features.agents import public as agents_public
+from app.features.alerts import public as alerts_public
+from app.features.attack_chain import public as attack_chain_public
 from app.features.exposure.domain.constants import (
     EDGE_TYPE_COMMUNICATES_WITH,
     EDGE_TYPE_EXECUTED_PROCESS,
@@ -63,6 +66,9 @@ from app.features.exposure.domain.normalization import (
     severity_from_score,
 )
 from app.features.exposure.domain.types import EdgeInput, EvidenceRef, FindingInput, NodeInput
+from app.features.inventory import public as inventory_public
+from app.features.investigations import public as investigations_public
+from app.features.response import public as response_public
 from app.features.vuln import public as vuln_public
 
 # Security-relevant package name fragments used to filter package nodes.
@@ -155,34 +161,18 @@ class ResponseActionContext:
 
 
 def load_agents_for_refresh(db: Session, *, limit: int) -> list[AgentRecord]:
-    from app.features.agents.models import AgentModel  # noqa: PLC0415
-
-    stmt = (
-        select(
-            AgentModel.agent_id,
-            AgentModel.display_name,
-            AgentModel.last_seen_at,
-            AgentModel.config,
-            AgentModel.is_revoked,
-        )
-        .where(AgentModel.is_revoked.is_(False))
-        .order_by(AgentModel.last_seen_at.desc().nullslast(), AgentModel.agent_id)
-        .limit(int(limit))
-    )
-    rows = db.execute(stmt).mappings().all()
     out: list[AgentRecord] = []
-    for r in rows:
-        config = r.get("config") if isinstance(r.get("config"), dict) else {}
-        criticality = str(config.get("criticality") or "unknown").lower()
+    for summary in agents_public.list_active_agents_for_refresh(db, limit=limit):
+        criticality = str(summary.config.get("criticality") or "unknown").lower()
         if criticality not in {"critical", "high", "medium", "low", "none", "unknown"}:
             criticality = "unknown"
         out.append(
             AgentRecord(
-                agent_id=str(r["agent_id"]),
-                display_name=str(r.get("display_name") or r["agent_id"]),
-                last_seen_at=r.get("last_seen_at"),
+                agent_id=str(summary.agent_id),
+                display_name=str(summary.display_name or summary.agent_id),
+                last_seen_at=summary.last_seen_at,
                 criticality=criticality,
-                is_revoked=bool(r.get("is_revoked") or False),
+                is_revoked=bool(summary.is_revoked or False),
             )
         )
     return out
@@ -194,17 +184,8 @@ def load_agent_record(
     agent_id: str,
     fallback_last_seen_at: datetime | None = None,
 ) -> AgentRecord:
-    from app.features.agents.models import AgentModel  # noqa: PLC0415
-
-    stmt = select(
-        AgentModel.agent_id,
-        AgentModel.display_name,
-        AgentModel.last_seen_at,
-        AgentModel.config,
-        AgentModel.is_revoked,
-    ).where(AgentModel.agent_id == agent_id)
-    row = db.execute(stmt).mappings().first()
-    if not row:
+    summary = agents_public.get_agent_summary(db, agent_id=agent_id)
+    if summary is None:
         return AgentRecord(
             agent_id=agent_id,
             display_name=agent_id,
@@ -213,16 +194,15 @@ def load_agent_record(
             is_revoked=False,
         )
 
-    config = row.get("config") if isinstance(row.get("config"), dict) else {}
-    criticality = str(config.get("criticality") or "unknown").lower()
+    criticality = str(summary.config.get("criticality") or "unknown").lower()
     if criticality not in {"critical", "high", "medium", "low", "none", "unknown"}:
         criticality = "unknown"
     return AgentRecord(
-        agent_id=str(row["agent_id"]),
-        display_name=str(row.get("display_name") or row["agent_id"]),
-        last_seen_at=row.get("last_seen_at") or fallback_last_seen_at,
+        agent_id=str(summary.agent_id),
+        display_name=str(summary.display_name or summary.agent_id),
+        last_seen_at=summary.last_seen_at or fallback_last_seen_at,
         criticality=criticality,
-        is_revoked=bool(row.get("is_revoked") or False),
+        is_revoked=bool(summary.is_revoked or False),
     )
 
 
@@ -230,37 +210,22 @@ def load_agent_record(
 
 
 def load_inventory_data(db: Session, agent_id: str) -> Optional[InventoryData]:
-    from app.features.inventory.models import AgentInventoryLatestModel, AgentInventorySnapshotModel  # noqa: PLC0415
-
-    latest_stmt = select(
-        AgentInventoryLatestModel.snapshot_id,
-        AgentInventoryLatestModel.collected_at,
-        AgentInventoryLatestModel.os,
-        AgentInventoryLatestModel.packages_count,
-    ).where(AgentInventoryLatestModel.agent_id == agent_id)
-
-    row = db.execute(latest_stmt).mappings().first()
-    if not row:
+    latest = inventory_public.get_latest_inventory_for_agent(db, agent_id=agent_id)
+    if latest is None:
         return None
 
-    os_context = extract_inventory_os_context(row.get("os"))
+    os_context = extract_inventory_os_context(latest.os)
 
     packages: list[dict[str, Any]] = []
-    snapshot_id = row.get("snapshot_id")
-    if snapshot_id is not None:
-        snap_stmt = select(AgentInventorySnapshotModel.packages).where(
-            AgentInventorySnapshotModel.id == int(snapshot_id)
-        )
-        snap_row = db.execute(snap_stmt).mappings().first()
-        if snap_row and isinstance(snap_row.get("packages"), list):
-            packages = snap_row["packages"]
+    if latest.snapshot_id is not None:
+        packages = inventory_public.get_snapshot_packages(db, snapshot_id=int(latest.snapshot_id))
 
     return InventoryData(
         agent_id=agent_id,
-        collected_at=row.get("collected_at"),
+        collected_at=latest.collected_at,
         hostname=os_context["hostname"],
         os_name=os_context["os_name"],
-        packages_count=int(row.get("packages_count") or 0),
+        packages_count=int(latest.packages_count or 0),
         packages=packages,
         open_ports=os_context["open_ports"],
         ip_addresses=os_context["ip_addresses"],
@@ -356,18 +321,6 @@ def _classify_alert(tactic: str, technique: str, description: str) -> str:
     return "active_alert"
 
 
-def _alert_match_clause(alert_model, *, agent_id: str, asset_ips: tuple[str, ...], hostname: str | None):
-    clauses = [func.jsonb_extract_path_text(alert_model.details, "agent_id") == agent_id]
-    if asset_ips:
-        clauses.append(alert_model.src_ip.in_(asset_ips))
-        clauses.append(alert_model.dst_ip.in_(asset_ips))
-        clauses.append(func.jsonb_extract_path_text(alert_model.details, "asset_ip").in_(asset_ips))
-    if hostname:
-        host = hostname.lower()
-        clauses.append(func.lower(func.jsonb_extract_path_text(alert_model.details, "hostname")) == host)
-    return or_(*clauses)
-
-
 def _alert_age_multiplier(created_at: datetime | None, now: datetime) -> float:
     if created_at is None:
         return 0.4
@@ -403,41 +356,29 @@ def load_alert_signals(
     hostname: str | None = None,
     now: datetime | None = None,
 ) -> AlertSignals:
-    from app.features.alerts.models import AlertModel  # noqa: PLC0415
-
     now = now or datetime.now(timezone.utc)
 
-    stmt = (
-        select(
-            AlertModel.id,
-            AlertModel.created_at,
-            AlertModel.severity,
-            AlertModel.mitre_tactic,
-            AlertModel.mitre_technique,
-            AlertModel.description,
-            AlertModel.confidence,
-        )
-        .where(
-            _alert_match_clause(AlertModel, agent_id=agent_id, asset_ips=asset_ips, hostname=hostname),
-            AlertModel.created_at >= lookback_dt,
-        )
-        .order_by(AlertModel.created_at.desc())
-        .limit(200)
+    rows = alerts_public.list_asset_alert_summaries(
+        db,
+        agent_id=agent_id,
+        asset_ips=asset_ips,
+        hostname=hostname,
+        lookback=lookback_dt,
+        limit=200,
     )
-    rows = db.execute(stmt).mappings().all()
 
     signals = AlertSignals()
     for r in rows:
-        tactic = str(r.get("mitre_tactic") or "")
-        technique = str(r.get("mitre_technique") or "")
-        description = str(r.get("description") or "")
+        tactic = str(r.mitre_tactic or "")
+        technique = str(r.mitre_technique or "")
+        description = str(r.description or "")
         kind = _classify_alert(tactic, technique, description)
         weight = max(
             1,
             int(
                 round(
-                    _alert_severity_weight(str(r.get("severity") or ""))
-                    * _alert_age_multiplier(r.get("created_at"), now)
+                    _alert_severity_weight(str(r.severity or ""))
+                    * _alert_age_multiplier(r.created_at, now)
                 )
             ),
         )
@@ -456,10 +397,10 @@ def load_alert_signals(
         if len(signals.alert_refs) < _MAX_EVIDENCE_REFS_PER_FINDING:
             ref = build_evidence_ref(
                 source_type=EVIDENCE_SOURCE_ALERT,
-                source_id=str(r["id"]),
-                observed_at=r.get("created_at"),
-                title=str(r.get("description") or f"Alert {r['id']}"),
-                summary=f"{r.get('severity') or 'unknown'} severity alert",
+                source_id=str(r.id),
+                observed_at=r.created_at,
+                title=str(r.description or f"Alert {r.id}"),
+                summary=f"{r.severity or 'unknown'} severity alert",
             )
             signals.alert_refs.append(ref.to_dict())
 
@@ -470,39 +411,24 @@ def load_alert_signals(
 
 
 def load_chain_summary(db: Session, *, agent_id: str) -> ChainSummary:
-    from app.features.attack_chain.models import AttackChainCaseModel  # noqa: PLC0415
-
-    stmt = (
-        select(
-            AttackChainCaseModel.id,
-            AttackChainCaseModel.score,
-            AttackChainCaseModel.max_stage,
-            AttackChainCaseModel.step_count,
-            AttackChainCaseModel.last_seen_at,
-        )
-        .where(
-            AttackChainCaseModel.agent_id == agent_id,
-            AttackChainCaseModel.status == "open",
-        )
-        .order_by(AttackChainCaseModel.score.desc(), AttackChainCaseModel.last_seen_at.desc())
-        .limit(10)
+    rows = attack_chain_public.list_open_case_summaries_for_agent(
+        db, agent_id=agent_id, limit=10, recency_tiebreak=True
     )
-    rows = db.execute(stmt).mappings().all()
 
     summary = ChainSummary()
     for r in rows:
         summary.open_case_count += 1
-        score = int(r.get("score") or 0)
+        score = int(r.score or 0)
         if score > summary.max_score:
             summary.max_score = score
 
         if len(summary.case_refs) < _MAX_EVIDENCE_REFS_PER_FINDING:
             ref = build_evidence_ref(
                 source_type=EVIDENCE_SOURCE_ATTACK_CHAIN_CASE,
-                source_id=str(r["id"]),
-                observed_at=r.get("last_seen_at"),
-                title=f"Attack chain case {r['id']} [{r.get('max_stage') or 'initial_access'}]",
-                summary=f"Score {score}, {r.get('step_count') or 0} steps",
+                source_id=str(r.id),
+                observed_at=r.last_seen_at,
+                title=f"Attack chain case {r.id} [{r.max_stage or 'initial_access'}]",
+                summary=f"Score {score}, {r.step_count or 0} steps",
             )
             summary.case_refs.append(ref.to_dict())
 
@@ -904,48 +830,37 @@ def build_alert_nodes_and_edges(
     max_nodes: int,
     lookback_dt: datetime,
 ) -> tuple[list[NodeInput], list[EdgeInput]]:
-    from app.features.alerts.models import AlertModel  # noqa: PLC0415
-
-    stmt = (
-        select(
-            AlertModel.id,
-            AlertModel.created_at,
-            AlertModel.severity,
-            AlertModel.description,
-            AlertModel.mitre_tactic,
-            AlertModel.confidence,
-        )
-        .where(
-            _alert_match_clause(AlertModel, agent_id=agent_id, asset_ips=asset_ips, hostname=hostname),
-            AlertModel.created_at >= lookback_dt,
-        )
-        .order_by(AlertModel.created_at.desc())
-        .limit(max_nodes)
+    rows = alerts_public.list_asset_alert_summaries(
+        db,
+        agent_id=agent_id,
+        asset_ips=asset_ips,
+        hostname=hostname,
+        lookback=lookback_dt,
+        limit=max_nodes,
     )
-    rows = db.execute(stmt).mappings().all()
 
     nodes: list[NodeInput] = []
     edges: list[EdgeInput] = []
 
     for r in rows:
-        alert_id = str(r["id"])
+        alert_id = str(r.id)
         node_key = make_node_key(NODE_TYPE_ALERT, alert_id)
-        sev = normalize_severity(r.get("severity"))
-        created_at = r.get("created_at") or now
+        sev = normalize_severity(r.severity)
+        created_at = r.created_at or now
 
         nodes.append(
             NodeInput(
                 node_key=node_key,
                 node_type=NODE_TYPE_ALERT,
-                label=str(r.get("description") or f"Alert {alert_id}")[:256],
+                label=str(r.description or f"Alert {alert_id}")[:256],
                 severity=sev,
                 risk_score=_sev_to_score(sev),
-                confidence=clamp_confidence(int(r.get("confidence") or 70)),
+                confidence=clamp_confidence(int(r.confidence or 70)),
                 asset_key=asset_key,
                 agent_id=agent_id,
                 first_seen_at=created_at,
                 last_seen_at=created_at,
-                properties={"mitre_tactic": r.get("mitre_tactic")},
+                properties={"mitre_tactic": r.mitre_tactic},
             )
         )
         edge_key = make_edge_key(asset_node_key, node_key, EDGE_TYPE_TRIGGERED_ALERT)
@@ -956,7 +871,7 @@ def build_alert_nodes_and_edges(
                 target_node_key=node_key,
                 edge_type=EDGE_TYPE_TRIGGERED_ALERT,
                 weight=1.0,
-                confidence=clamp_confidence(int(r.get("confidence") or 70)),
+                confidence=clamp_confidence(int(r.confidence or 70)),
                 asset_key=asset_key,
                 agent_id=agent_id,
                 first_seen_at=created_at,
@@ -976,44 +891,28 @@ def build_attack_chain_nodes_and_edges(
     now: datetime,
     max_nodes: int,
 ) -> tuple[list[NodeInput], list[EdgeInput]]:
-    from app.features.attack_chain.models import AttackChainCaseModel, AttackChainStepModel  # noqa: PLC0415
-
-    stmt = (
-        select(
-            AttackChainCaseModel.id,
-            AttackChainCaseModel.score,
-            AttackChainCaseModel.max_stage,
-            AttackChainCaseModel.step_count,
-            AttackChainCaseModel.first_seen_at,
-            AttackChainCaseModel.last_seen_at,
-        )
-        .where(
-            AttackChainCaseModel.agent_id == agent_id,
-            AttackChainCaseModel.status == "open",
-        )
-        .order_by(AttackChainCaseModel.score.desc())
-        .limit(max_nodes)
+    rows = attack_chain_public.list_open_case_summaries_for_agent(
+        db, agent_id=agent_id, limit=max_nodes
     )
-    rows = db.execute(stmt).mappings().all()
 
     nodes: list[NodeInput] = []
     edges: list[EdgeInput] = []
     case_ids: list[int] = []
 
     for r in rows:
-        case_id = str(r["id"])
+        case_id = str(r.id)
         case_ids.append(int(case_id))
-        score = int(r.get("score") or 0)
+        score = int(r.score or 0)
         sev = severity_from_score(score)
         node_key = make_node_key(NODE_TYPE_ATTACK_CHAIN_CASE, case_id)
-        first_seen = r.get("first_seen_at") or now
-        last_seen = r.get("last_seen_at") or now
+        first_seen = r.first_seen_at or now
+        last_seen = r.last_seen_at or now
 
         nodes.append(
             NodeInput(
                 node_key=node_key,
                 node_type=NODE_TYPE_ATTACK_CHAIN_CASE,
-                label=f"Attack chain case {case_id} [{r.get('max_stage') or 'initial_access'}]",
+                label=f"Attack chain case {case_id} [{r.max_stage or 'initial_access'}]",
                 severity=sev,
                 risk_score=clamp_score(score),
                 confidence=72,
@@ -1023,8 +922,8 @@ def build_attack_chain_nodes_and_edges(
                 last_seen_at=last_seen,
                 properties={
                     "case_id": int(case_id),
-                    "max_stage": r.get("max_stage"),
-                    "step_count": r.get("step_count"),
+                    "max_stage": r.max_stage,
+                    "step_count": r.step_count,
                 },
             )
         )
@@ -1048,44 +947,27 @@ def build_attack_chain_nodes_and_edges(
         return nodes, edges
 
     remaining_nodes = max(0, max_nodes - len(nodes))
-    step_stmt = (
-        select(
-            AttackChainStepModel.id,
-            AttackChainStepModel.case_id,
-            AttackChainStepModel.stage,
-            AttackChainStepModel.label,
-            AttackChainStepModel.score_delta,
-            AttackChainStepModel.timestamp,
-            AttackChainStepModel.event_id,
-            AttackChainStepModel.event_type,
-            AttackChainStepModel.src_ip,
-            AttackChainStepModel.dst_ip,
-            AttackChainStepModel.proto,
-            AttackChainStepModel.details,
-        )
-        .where(AttackChainStepModel.case_id.in_(case_ids))
-        .order_by(AttackChainStepModel.timestamp.desc(), AttackChainStepModel.id.desc())
-        .limit(max(remaining_nodes * 3, remaining_nodes))
+    step_rows = attack_chain_public.list_step_graph_summaries_for_cases(
+        db, case_ids=case_ids, limit=max(remaining_nodes * 3, remaining_nodes)
     )
-    step_rows = db.execute(step_stmt).mappings().all()
-    case_node_keys = {int(r["id"]): make_node_key(NODE_TYPE_ATTACK_CHAIN_CASE, str(r["id"])) for r in rows}
+    case_node_keys = {int(r.id): make_node_key(NODE_TYPE_ATTACK_CHAIN_CASE, str(r.id)) for r in rows}
     seen_steps: set[int] = set()
     for step in step_rows:
         if len(nodes) >= max_nodes:
             break
-        step_id = int(step["id"])
+        step_id = int(step.id)
         if step_id in seen_steps:
             continue
         seen_steps.add(step_id)
-        case_id = int(step["case_id"])
-        ts = step.get("timestamp") or now
-        score_delta = clamp_score(int(step.get("score_delta") or 0) * 2)
+        case_id = int(step.case_id)
+        ts = step.timestamp or now
+        score_delta = clamp_score(int(step.score_delta or 0) * 2)
         node_key = make_node_key(NODE_TYPE_ATTACK_CHAIN_STEP, str(step_id))
         nodes.append(
             NodeInput(
                 node_key=node_key,
                 node_type=NODE_TYPE_ATTACK_CHAIN_STEP,
-                label=str(step.get("label") or step.get("stage") or f"Step {step_id}")[:256],
+                label=str(step.label or step.stage or f"Step {step_id}")[:256],
                 severity=severity_from_score(score_delta),
                 risk_score=score_delta,
                 confidence=76,
@@ -1095,12 +977,12 @@ def build_attack_chain_nodes_and_edges(
                 last_seen_at=ts,
                 properties={
                     "case_id": case_id,
-                    "stage": step.get("stage"),
-                    "event_id": step.get("event_id"),
-                    "event_type": step.get("event_type"),
-                    "src_ip": step.get("src_ip"),
-                    "dst_ip": step.get("dst_ip"),
-                    "proto": step.get("proto"),
+                    "stage": step.stage,
+                    "event_id": step.event_id,
+                    "event_type": step.event_type,
+                    "src_ip": step.src_ip,
+                    "dst_ip": step.dst_ip,
+                    "proto": step.proto,
                 },
                 source_refs=_attack_chain_step_source_refs(step),
             )
@@ -1195,35 +1077,22 @@ def build_alert_findings(
     max_findings: int,
     now: datetime,
 ) -> list[FindingInput]:
-    from app.features.alerts.models import AlertModel  # noqa: PLC0415
-
-    stmt = (
-        select(
-            AlertModel.id,
-            AlertModel.created_at,
-            AlertModel.severity,
-            AlertModel.rule_id,
-            AlertModel.mitre_tactic,
-            AlertModel.mitre_technique,
-            AlertModel.confidence,
-            AlertModel.description,
-        )
-        .where(
-            _alert_match_clause(AlertModel, agent_id=agent_id, asset_ips=asset_ips, hostname=hostname),
-            AlertModel.created_at >= lookback_dt,
-        )
-        .order_by(AlertModel.created_at.desc())
-        .limit(max_findings)
+    rows = alerts_public.list_asset_alert_summaries(
+        db,
+        agent_id=agent_id,
+        asset_ips=asset_ips,
+        hostname=hostname,
+        lookback=lookback_dt,
+        limit=max_findings,
     )
-    rows = db.execute(stmt).mappings().all()
 
     out: list[FindingInput] = []
     for r in rows:
-        alert_id = str(r["id"])
-        sev = normalize_severity(r.get("severity"))
-        tactic = str(r.get("mitre_tactic") or "")
-        technique = str(r.get("mitre_technique") or "")
-        desc = str(r.get("description") or "")
+        alert_id = str(r.id)
+        sev = normalize_severity(r.severity)
+        tactic = str(r.mitre_tactic or "")
+        technique = str(r.mitre_technique or "")
+        desc = str(r.description or "")
         kind = _classify_alert(tactic, technique, desc)
         score_delta = _alert_score_delta(sev, kind)
 
@@ -1231,7 +1100,7 @@ def build_alert_findings(
         ref = build_evidence_ref(
             source_type=EVIDENCE_SOURCE_ALERT,
             source_id=alert_id,
-            observed_at=r.get("created_at"),
+            observed_at=r.created_at,
             title=desc[:256] or f"Alert {alert_id}",
             summary=f"{sev} {tactic}",
         )
@@ -1245,12 +1114,12 @@ def build_alert_findings(
                 agent_id=agent_id,
                 severity=sev,
                 score_delta=score_delta,
-                confidence=clamp_confidence(int(r.get("confidence") or 70)),
+                confidence=clamp_confidence(int(r.confidence or 70)),
                 title=desc[:256] or f"Alert {alert_id}",
                 summary=f"MITRE: {tactic} {technique}".strip(),
                 status="open",
-                first_seen_at=r.get("created_at") or now,
-                last_seen_at=r.get("created_at") or now,
+                first_seen_at=r.created_at or now,
+                last_seen_at=r.created_at or now,
                 related_node_keys=related_keys,
                 evidence_refs=[ref],
                 reason_codes=_alert_reason_codes(kind),
@@ -1268,40 +1137,23 @@ def build_attack_chain_findings(
     max_findings: int,
     now: datetime,
 ) -> list[FindingInput]:
-    from app.features.attack_chain.models import AttackChainCaseModel  # noqa: PLC0415
-
-    stmt = (
-        select(
-            AttackChainCaseModel.id,
-            AttackChainCaseModel.score,
-            AttackChainCaseModel.max_stage,
-            AttackChainCaseModel.step_count,
-            AttackChainCaseModel.first_seen_at,
-            AttackChainCaseModel.last_seen_at,
-            AttackChainCaseModel.suspect_ip,
-        )
-        .where(
-            AttackChainCaseModel.agent_id == agent_id,
-            AttackChainCaseModel.status == "open",
-        )
-        .order_by(AttackChainCaseModel.score.desc())
-        .limit(max_findings)
+    rows = attack_chain_public.list_open_case_summaries_for_agent(
+        db, agent_id=agent_id, limit=max_findings
     )
-    rows = db.execute(stmt).mappings().all()
 
     out: list[FindingInput] = []
     for r in rows:
-        case_id = str(r["id"])
-        score = int(r.get("score") or 0)
+        case_id = str(r.id)
+        score = int(r.score or 0)
         sev = severity_from_score(score)
-        max_stage = str(r.get("max_stage") or "initial_access")
+        max_stage = str(r.max_stage or "initial_access")
         fkey = make_finding_key("attack_chain_case", asset_key, case_id)
         ref = build_evidence_ref(
             source_type=EVIDENCE_SOURCE_ATTACK_CHAIN_CASE,
             source_id=case_id,
-            observed_at=r.get("last_seen_at"),
+            observed_at=r.last_seen_at,
             title=f"Attack chain case {case_id}",
-            summary=f"Stage: {max_stage}, score: {score}, suspect_ip: {r.get('suspect_ip') or 'n/a'}",
+            summary=f"Stage: {max_stage}, score: {score}, suspect_ip: {r.suspect_ip or 'n/a'}",
         )
 
         out.append(
@@ -1316,15 +1168,15 @@ def build_attack_chain_findings(
                 title=f"Active attack chain: {max_stage.replace('_', ' ')}",
                 summary=(
                     f"Case {case_id} | Stage: {max_stage} | Score: {score} | "
-                    f"Steps: {r.get('step_count') or 0} | Suspect IP: {r.get('suspect_ip') or 'n/a'}"
+                    f"Steps: {r.step_count or 0} | Suspect IP: {r.suspect_ip or 'n/a'}"
                 ),
                 status="open",
-                first_seen_at=r.get("first_seen_at") or now,
-                last_seen_at=r.get("last_seen_at") or now,
+                first_seen_at=r.first_seen_at or now,
+                last_seen_at=r.last_seen_at or now,
                 related_node_keys=[make_node_key(NODE_TYPE_ATTACK_CHAIN_CASE, case_id)],
                 evidence_refs=[ref],
                 reason_codes=[RC_ATTACK_CHAIN_PROGRESSION],
-                extra_data={"suspect_ip": r.get("suspect_ip")},
+                extra_data={"suspect_ip": r.suspect_ip},
             )
         )
 
@@ -1458,27 +1310,19 @@ def load_investigation_context(
     agent_id: str,
     max_investigations: int = 5,
 ) -> list[dict[str, Any]]:
-    from app.features.investigations.models import InvestigationWorkspaceModel  # noqa: PLC0415
-
-    stmt = (
-        select(
-            InvestigationWorkspaceModel.id,
-            InvestigationWorkspaceModel.workspace_key,
-            InvestigationWorkspaceModel.title,
-            InvestigationWorkspaceModel.status,
-            InvestigationWorkspaceModel.severity,
-            InvestigationWorkspaceModel.linked_attack_chain_case_id,
-            InvestigationWorkspaceModel.updated_at,
-        )
-        .where(
-            InvestigationWorkspaceModel.primary_agent_id == agent_id,
-            InvestigationWorkspaceModel.status.in_(["open", "active", "in_progress"]),
-        )
-        .order_by(InvestigationWorkspaceModel.updated_at.desc())
-        .limit(max_investigations)
-    )
-    rows = db.execute(stmt).mappings().all()
-    return [dict(r) for r in rows]
+    rows = investigations_public.list_open_workspaces_for_agent(db, agent_id=agent_id, limit=max_investigations)
+    return [
+        {
+            "id": r.id,
+            "workspace_key": r.workspace_key,
+            "title": r.title,
+            "status": r.status,
+            "severity": r.severity,
+            "linked_attack_chain_case_id": r.linked_attack_chain_case_id,
+            "updated_at": r.updated_at,
+        }
+        for r in rows
+    ]
 
 
 def load_investigation_evidence_refs(
@@ -1487,35 +1331,17 @@ def load_investigation_evidence_refs(
     agent_id: str,
     max_refs: int = 8,
 ) -> list[EvidenceRef]:
-    from app.features.investigations.models import InvestigationEvidenceBookmarkModel  # noqa: PLC0415
-
-    stmt = (
-        select(
-            InvestigationEvidenceBookmarkModel.id,
-            InvestigationEvidenceBookmarkModel.workspace_id,
-            InvestigationEvidenceBookmarkModel.evidence_type,
-            InvestigationEvidenceBookmarkModel.title,
-            InvestigationEvidenceBookmarkModel.summary,
-            InvestigationEvidenceBookmarkModel.observed_at,
-            InvestigationEvidenceBookmarkModel.ref_id,
-        )
-        .where(InvestigationEvidenceBookmarkModel.agent_id == agent_id)
-        .order_by(
-            InvestigationEvidenceBookmarkModel.observed_at.desc().nullslast(),
-            InvestigationEvidenceBookmarkModel.id.desc(),
-        )
-        .limit(max_refs)
-    )
+    rows = investigations_public.list_evidence_bookmarks_for_agent(db, agent_id=agent_id, limit=max_refs)
     refs: list[EvidenceRef] = []
-    for row in db.execute(stmt).mappings().all():
+    for row in rows:
         refs.append(
             build_evidence_ref(
                 source_type=EVIDENCE_SOURCE_INVESTIGATION,
-                source_id=str(row.get("ref_id") or row["id"]),
-                observed_at=row.get("observed_at"),
-                title=str(row.get("title") or f"Investigation evidence {row['id']}"),
-                summary=str(row.get("summary") or row.get("evidence_type") or "Investigation bookmark"),
-                metadata={"workspace_id": row.get("workspace_id"), "evidence_type": row.get("evidence_type")},
+                source_id=str(row.ref_id or row.id),
+                observed_at=row.observed_at,
+                title=str(row.title or f"Investigation evidence {row.id}"),
+                summary=str(row.summary or row.evidence_type or "Investigation bookmark"),
+                metadata={"workspace_id": row.workspace_id, "evidence_type": row.evidence_type},
             )
         )
     return refs
@@ -1527,61 +1353,21 @@ def load_response_action_context(
     agent_id: str,
     max_actions: int = 5,
 ) -> list[ResponseActionContext]:
-    from app.features.response.models import ResponseActionModel, ResponseActionResultModel  # noqa: PLC0415
-
-    actions_stmt = (
-        select(
-            ResponseActionModel.id,
-            ResponseActionModel.action_type,
-            ResponseActionModel.status,
-            ResponseActionModel.requested_at,
-        )
-        .where(ResponseActionModel.agent_id == agent_id)
-        .order_by(ResponseActionModel.requested_at.desc(), ResponseActionModel.id.desc())
-        .limit(max_actions)
+    summaries = response_public.list_recent_action_contexts_for_agent(
+        db,
+        agent_id=agent_id,
+        max_actions=max_actions,
     )
-    actions = db.execute(actions_stmt).mappings().all()
-    if not actions:
-        return []
-
-    action_ids = [int(row["id"]) for row in actions]
-    result_stmt = (
-        select(
-            ResponseActionResultModel.response_action_id,
-            func.max(ResponseActionResultModel.id).label("latest_result_id"),
+    return [
+        ResponseActionContext(
+            action_id=summary.action_id,
+            action_type=summary.action_type,
+            status=summary.status,
+            requested_at=summary.requested_at,
+            result_status=summary.result_status,
         )
-        .where(
-            ResponseActionResultModel.agent_id == agent_id,
-            ResponseActionResultModel.response_action_id.in_(action_ids),
-        )
-        .group_by(ResponseActionResultModel.response_action_id)
-    )
-    latest_rows = db.execute(result_stmt).mappings().all()
-    latest_map = {int(row["response_action_id"]): int(row["latest_result_id"]) for row in latest_rows}
-
-    result_status_map: dict[int, str] = {}
-    if latest_map:
-        status_stmt = select(
-            ResponseActionResultModel.id,
-            ResponseActionResultModel.status,
-        ).where(ResponseActionResultModel.id.in_(list(latest_map.values())))
-        for row in db.execute(status_stmt).mappings().all():
-            result_status_map[int(row["id"])] = str(row.get("status") or "")
-
-    out: list[ResponseActionContext] = []
-    for row in actions:
-        action_id = int(row["id"])
-        latest_id = latest_map.get(action_id)
-        out.append(
-            ResponseActionContext(
-                action_id=action_id,
-                action_type=str(row.get("action_type") or ""),
-                status=str(row.get("status") or ""),
-                requested_at=row.get("requested_at"),
-                result_status=result_status_map.get(latest_id) if latest_id else None,
-            )
-        )
-    return out
+        for summary in summaries
+    ]
 
 
 def build_investigation_nodes_and_edges(
@@ -2123,16 +1909,16 @@ def extract_package_name_from_location(location: Any) -> str | None:
     return None
 
 
-def _attack_chain_step_source_refs(step: dict[str, Any]) -> list[dict[str, Any]]:
-    event_id = step.get("event_id")
+def _attack_chain_step_source_refs(step: attack_chain_public.AttackChainStepGraphSummary) -> list[dict[str, Any]]:
+    event_id = step.event_id
     if not event_id:
         return []
     ref = build_evidence_ref(
         source_type=EVIDENCE_SOURCE_ATTACK_CHAIN_STEP,
-        source_id=str(step["id"]),
-        observed_at=step.get("timestamp"),
-        title=str(step.get("label") or step.get("stage") or f"Step {step['id']}"),
-        summary=f"Event {event_id} ({step.get('event_type') or 'unknown'})",
+        source_id=str(step.id),
+        observed_at=step.timestamp,
+        title=str(step.label or step.stage or f"Step {step.id}"),
+        summary=f"Event {event_id} ({step.event_type or 'unknown'})",
         metadata={"event_id": event_id},
     )
     return [ref.to_dict()]
