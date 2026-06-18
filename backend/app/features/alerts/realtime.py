@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 from app.core.observability import incr_counter
-from app.features.network_topology import realtime as topology_realtime
 from app.features.realtime.projectors import project_alerts_delta_patch
 from app.features.realtime.service import publish_realtime
 
@@ -108,12 +107,6 @@ def publish_alert_created_payload(payload: Dict[str, Any]) -> None:
     try:
         projected = project_alerts_delta_patch(action="upsert", alert=payload, alerts_60m_delta=1)
         publish_realtime("ui.alerts.delta.patch", projected)
-        topology_realtime.publish_topology_invalidate(
-            reason="alert_created",
-            source="alerts",
-            alert_id=_safe_int(payload.get("alert_id") if "alert_id" in payload else payload.get("id")),
-            high_priority=True,
-        )
     except Exception:
         return
 
@@ -138,11 +131,5 @@ def publish_alert_updated_payload(payload: Dict[str, Any]) -> None:
     try:
         projected = project_alerts_delta_patch(action="patch", alert=payload, alerts_60m_delta=0)
         publish_realtime("ui.alerts.delta.patch", projected)
-        topology_realtime.publish_topology_invalidate(
-            reason="alert_updated",
-            source="alerts",
-            alert_id=_safe_int(payload.get("alert_id") if "alert_id" in payload else payload.get("id")),
-            high_priority=True,
-        )
     except Exception:
         return
