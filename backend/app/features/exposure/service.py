@@ -87,11 +87,8 @@ from app.features.exposure.schemas import (
     ScoreBreakdownOut,
     ScoreExplanationOut,
 )
-from app.features.investigations import repository as investigations_repository
-from app.features.investigations import service as investigations_service
-from app.features.investigations.schemas import InvestigationPinOptionsIn, InvestigationWorkspaceCreateIn
-from app.features.response import service as response_service
-from app.features.response.schemas import ResponseActionCreateIn
+from app.features.investigations import public as investigations_public
+from app.features.response import public as response_public
 from app.shared.indexing.offset_store import set_offset
 from app.shared.schemas import CursorPage
 
@@ -632,9 +629,9 @@ def open_asset_investigation(
 
     created = False
     if existing is None:
-        workspace = investigations_service.create_workspace(
+        workspace = investigations_public.create_workspace(
             db,
-            payload=InvestigationWorkspaceCreateIn(
+            payload=investigations_public.InvestigationWorkspaceCreateIn(
                 title=_investigation_title(posture),
                 description=_investigation_description(detail),
                 severity=posture.severity if posture.severity in {"low", "medium", "high", "critical"} else "medium",
@@ -652,26 +649,28 @@ def open_asset_investigation(
     else:
         workspace = existing
 
-    workspace_row = investigations_repository.get_workspace(db, int(workspace.id), for_update=True)
-    if workspace_row is None:
+    workspace_id = int(workspace.id)
+    if not investigations_public.merge_workspace_summary(
+        db,
+        workspace_id=workspace_id,
+        summary_updates={
+            "exposure_asset_key": posture.asset_key,
+            "exposure_context_key": context_key,
+            "exposure_reason_codes": list(posture.reason_codes[:6]),
+        },
+        updated_by=admin.username,
+    ):
         _raise_api_error(500, "workspace_missing", "Investigation workspace disappeared unexpectedly")
-    summary = dict(workspace_row.summary or {}) if isinstance(workspace_row.summary, dict) else {}
-    summary["exposure_asset_key"] = posture.asset_key
-    summary["exposure_context_key"] = context_key
-    summary["exposure_reason_codes"] = list(posture.reason_codes[:6])
-    workspace_row.summary = summary
-    workspace_row.updated_by = admin.username
-    investigations_repository.save_workspace(db, workspace_row)
 
     bookmark_count_added = _sync_exposure_bookmarks(
         db,
-        workspace_id=int(workspace_row.id),
+        workspace_id=workspace_id,
         asset_detail=detail,
         request=request,
         admin=admin,
         audit_writer=audit_writer,
     )
-    _refresh_workspace_summary(db, workspace_row, updated_by=admin.username)
+    investigations_public.refresh_workspace_summary(db, workspace_id=workspace_id, updated_by=admin.username)
     db.commit()
     audit_writer(
         db,
@@ -680,12 +679,12 @@ def open_asset_investigation(
         event_type="admin_action",
         action="exposure.asset.investigation.open",
         resource_type="investigation_workspace",
-        resource_id=str(workspace_row.id),
+        resource_id=str(workspace_id),
         outcome="success",
         before={},
         after={
-            "workspace_id": int(workspace_row.id),
-            "workspace_key": workspace_row.workspace_key,
+            "workspace_id": workspace_id,
+            "workspace_key": workspace.workspace_key,
             "created": created,
             "bookmark_count_added": bookmark_count_added,
         },
@@ -694,11 +693,11 @@ def open_asset_investigation(
     db.commit()
     return ExposureInvestigationResultOut(
         created=created,
-        workspace_id=int(workspace_row.id),
-        workspace_key=str(workspace_row.workspace_key),
-        title=str(workspace_row.title),
-        severity=str(workspace_row.severity),
-        priority=str(workspace_row.priority),
+        workspace_id=workspace_id,
+        workspace_key=str(workspace.workspace_key),
+        title=str(workspace.title),
+        severity=str(workspace.severity),
+        priority=str(workspace.priority),
         bookmark_count_added=bookmark_count_added,
     )
 
@@ -722,7 +721,7 @@ def create_asset_triage_response_action(
             context={"asset_key": asset_key},
         )
 
-    payload = ResponseActionCreateIn(
+    payload = response_public.ResponseActionCreateIn(
         action_type="collect_triage_bundle",
         agent_id=str(posture.agent_id),
         payload={
@@ -746,7 +745,7 @@ def create_asset_triage_response_action(
         expires_at=_utc_now() + timedelta(hours=6),
     )
     try:
-        action = response_service.create_response_action(
+        action = response_public.create_response_action(
             db,
             payload=payload,
             request=request,
@@ -1341,18 +1340,6 @@ def _exposure_context_key(asset_key: str, reason_codes: Sequence[str], linked_ca
     return stable_hash(asset_key, "|".join(sorted(reason_codes[:6])), str(linked_case_id or 0))
 
 
-def _refresh_workspace_summary(db: Session, workspace_row, *, updated_by: str) -> None:
-    summary = dict(workspace_row.summary or {}) if isinstance(workspace_row.summary, dict) else {}
-    summary["notes_count"] = investigations_repository.count_notes_by_workspace(db, int(workspace_row.id))
-    summary["bookmarks_count"] = investigations_repository.count_bookmarks_by_workspace(db, int(workspace_row.id))
-    summary["evidence_type_counts"] = investigations_repository.count_bookmarks_grouped_by_type(db, int(workspace_row.id))
-    if not summary.get("triage_state"):
-        summary["triage_state"] = "triage"
-    workspace_row.summary = summary
-    workspace_row.updated_by = updated_by
-    investigations_repository.save_workspace(db, workspace_row)
-
-
 def _sync_exposure_bookmarks(
     db: Session,
     *,
@@ -1427,11 +1414,11 @@ def _sync_exposure_bookmarks(
         ):
             added += 1
     for attack_case in asset_detail.linked_attack_chain_cases[:3]:
-        result = investigations_service.pin_attack_chain_case(
+        result = investigations_public.pin_attack_chain_case(
             db,
             workspace_id=workspace_id,
             case_id=attack_case.id,
-            payload=InvestigationPinOptionsIn(
+            payload=investigations_public.InvestigationPinOptionsIn(
                 source_module="exposure",
                 evidence_subtype="attack_chain",
                 note=None,
@@ -1467,10 +1454,10 @@ def _create_exposure_bookmark(
     admin: PortalPrincipal,
     audit_writer,
 ) -> bool:
-    existing = investigations_repository.find_bookmark_by_dedupe(db, workspace_id=workspace_id, dedupe_key=dedupe_key)
+    existing = investigations_public.find_bookmark_by_dedupe(db, workspace_id=workspace_id, dedupe_key=dedupe_key)
     if existing is not None:
         return False
-    row = investigations_repository.create_bookmark(
+    row = investigations_public.create_bookmark(
         db,
         workspace_id=workspace_id,
         evidence_type=evidence_type,
@@ -1489,7 +1476,6 @@ def _create_exposure_bookmark(
         payload_snapshot=payload_snapshot,
         metadata=metadata,
     )
-    investigations_repository.flush(db)
     audit_writer(
         db,
         request=request,

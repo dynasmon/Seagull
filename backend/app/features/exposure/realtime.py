@@ -6,7 +6,6 @@ from typing import Any
 
 from app.core.cache import get_redis
 from app.core.config import settings
-from app.features.network_topology import realtime as topology_realtime
 from app.features.realtime.service import publish_realtime
 
 EXPOSURE_REALTIME_SUMMARY_GATE_KEY = "seagull:realtime:exposure:summary:2s"
@@ -54,11 +53,6 @@ def publish_summary_updated(*, updated_at: datetime | None, asset_key: str | Non
             "asset_key": str(asset_key or "").strip() or None,
             "reason": str(reason or "refresh"),
         },
-    )
-    topology_realtime.publish_topology_invalidate(
-        reason="exposure_graph_updated",
-        source="exposure",
-        projected_at=updated_at,
     )
 
 
