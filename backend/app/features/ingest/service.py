@@ -37,7 +37,6 @@ from app.features.ingest.control.service import (
     storm_maybe_open_alert,
 )
 from app.features.ingest.storm_control import evaluate_storm, stable_sample
-from app.features.network_topology import realtime as topology_realtime
 from app.features.realtime.projectors import (
     project_ddos_live_patch,
     project_events_stream_append,
@@ -257,15 +256,19 @@ def _publish_topology_invalidation_for_events(
     pressure_payload = pressure or {}
     phase = str(pressure_payload.get("phase") or "ok")
     degraded = bool(pressure_payload.get("active")) or phase not in {"ok", "normal"}
-    topology_realtime.publish_topology_invalidate(
-        reason="event_batch_ingested",
-        source="ingest",
-        agent_id=str(agent_id or "").strip(),
-        batch_size=int(len(events)),
-        event_types=event_types,
-        degraded=bool(degraded),
-        sampled=bool(degraded),
-        high_priority=any(t in {"ssh_auth", "dos_attack", "ddos_telemetry"} for t in event_types),
+    publish_realtime(
+        "ingest.event_batch.ingested",
+        {
+            "reason": "event_batch_ingested",
+            "source": "ingest",
+            "agent_id": str(agent_id or "").strip(),
+            "batch_size": int(len(events)),
+            "event_types": event_types,
+            "degraded": bool(degraded),
+            "sampled": bool(degraded),
+            "high_priority": any(t in {"ssh_auth", "dos_attack", "ddos_telemetry"} for t in event_types),
+        },
+        topic="network_topology",
     )
 
 
