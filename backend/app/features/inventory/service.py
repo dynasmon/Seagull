@@ -22,7 +22,6 @@ from app.features.inventory.repository import (
     list_snapshot_history_page,
 )
 from app.features.inventory.schemas import InventorySnapshotIn, PackageEntry
-from app.features.network_topology import realtime as topology_realtime
 from app.features.realtime.service import publish_realtime
 from app.shared.schemas import CursorPage
 
@@ -102,11 +101,6 @@ def ingest_inventory(db: Session, *, payload: InventorySnapshotIn, agent_id: str
                 "agent_id": str(agent_id or "").strip(),
                 "snapshot_id": int(row_id),
             },
-        )
-        topology_realtime.publish_topology_invalidate(
-            reason="inventory_snapshot_ingested",
-            source="inventory",
-            agent_id=str(agent_id or "").strip(),
         )
     except Exception:
         pass
