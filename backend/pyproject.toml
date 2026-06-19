@@ -10,3 +10,206 @@ ignore = ["E501", "E402", "B008"]
 pythonpath = ["."]
 addopts = "-q"
 testpaths = ["tests"]
+
+[tool.importlinter]
+root_package = "app"
+
+[[tool.importlinter.contracts]]
+name = "Tier 1 platform must not import domain features"
+type = "forbidden"
+allow_indirect_imports = "true"
+source_modules = [
+    "app.features.auth",
+    "app.features.realtime",
+    "app.features.account",
+    "app.features.observability",
+]
+forbidden_modules = [
+    "app.features.alerts",
+    "app.features.vuln",
+    "app.features.inventory",
+    "app.features.agents",
+    "app.features.response",
+    "app.features.events",
+    "app.features.detections",
+    "app.features.investigations",
+    "app.features.users",
+    "app.features.settings",
+    "app.features.admin",
+    "app.features.overview",
+    "app.features.exposure",
+    "app.features.correlations",
+    "app.features.network_topology",
+    "app.features.attack_chain",
+    "app.features.ueba",
+]
+
+[[tool.importlinter.contracts]]
+name = "Tier 2 primitives must not import Tier 3 aggregation"
+type = "forbidden"
+allow_indirect_imports = "true"
+source_modules = [
+    "app.features.alerts",
+    "app.features.vuln",
+    "app.features.inventory",
+    "app.features.agents",
+    "app.features.response",
+    "app.features.events",
+    "app.features.detections",
+    "app.features.investigations",
+    "app.features.users",
+    "app.features.settings",
+    "app.features.admin",
+    "app.features.overview",
+    "app.features.attack_chain",
+]
+forbidden_modules = [
+    "app.features.exposure",
+    "app.features.correlations",
+    "app.features.network_topology",
+    "app.features.ueba",
+]
+
+[[tool.importlinter.contracts]]
+name = "Tier 3 aggregation must not directly import Tier 2 internals"
+type = "forbidden"
+allow_indirect_imports = "true"
+source_modules = [
+    "app.features.exposure",
+    "app.features.correlations",
+    "app.features.network_topology",
+    "app.features.ueba",
+]
+forbidden_modules = [
+    "app.features.alerts.models",
+    "app.features.alerts.repository",
+    "app.features.vuln.models",
+    "app.features.vuln.repository",
+    "app.features.inventory.models",
+    "app.features.inventory.repository",
+    "app.features.investigations.models",
+    "app.features.investigations.repository",
+    "app.features.response.models",
+    "app.features.response.repository",
+    "app.features.agents.models",
+    "app.features.agents.repository",
+    "app.features.attack_chain.models",
+    "app.features.attack_chain.repository",
+]
+ignore_imports = [
+    "app.features.ueba.domain.alerting -> app.features.alerts.models",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain subpackages stay pure"
+type = "independence"
+allow_indirect_imports = "true"
+modules = [
+    "app.features.exposure.domain",
+    "app.features.detections.domain",
+    "app.features.ueba.domain",
+    "app.features.events.domain",
+    "app.features.network_topology.domain",
+    "app.features.vuln.domain",
+    "app.features.attack_chain.domain",
+]
+ignore_imports = [
+    "app.features.ueba.domain.alerting -> app.features.alerts.service",
+]
+
+[[tool.importlinter.contracts]]
+name = "Realtime source features must not import network_topology"
+type = "forbidden"
+allow_indirect_imports = "true"
+source_modules = [
+    "app.features.exposure",
+    "app.features.inventory",
+    "app.features.alerts",
+    "app.features.ingest",
+]
+forbidden_modules = [
+    "app.features.network_topology",
+]
+
+[[tool.importlinter.contracts]]
+name = "Cycle guard: agents must not import response (same-tier)"
+type = "forbidden"
+allow_indirect_imports = "true"
+source_modules = [
+    "app.features.agents",
+]
+forbidden_modules = [
+    "app.features.response",
+]
+ignore_imports = [
+    "app.features.agents.api -> app.features.response.schemas",
+    "app.features.agents.repository -> app.features.response.models",
+    "app.features.agents.service -> app.features.response.models",
+    "app.features.agents.service -> app.features.response.realtime",
+    "app.features.agents.service -> app.features.response.schemas",
+]
+
+[[tool.importlinter.contracts]]
+name = "Cycle guard: alerts must not import detections (same-tier)"
+type = "forbidden"
+allow_indirect_imports = "true"
+source_modules = [
+    "app.features.alerts",
+]
+forbidden_modules = [
+    "app.features.detections",
+]
+ignore_imports = [
+    "app.features.alerts.governance -> app.features.detections.domain.condition_ast",
+    "app.features.alerts.governance -> app.features.detections.domain.rule_types",
+    "app.features.alerts.governance -> app.features.detections.testing.yaml_tests",
+]
+
+[[tool.importlinter.contracts]]
+name = "Cycle guard: events must not import ingest (same-tier)"
+type = "forbidden"
+allow_indirect_imports = "true"
+source_modules = [
+    "app.features.events",
+]
+forbidden_modules = [
+    "app.features.ingest",
+]
+ignore_imports = [
+    "app.features.events.domain.live_feed -> app.features.ingest.control.service",
+]
+
+[[tool.importlinter.contracts]]
+name = "Tier 3 aggregation features stay independent (no lateral imports)"
+type = "independence"
+allow_indirect_imports = "true"
+modules = [
+    "app.features.exposure",
+    "app.features.correlations",
+    "app.features.network_topology",
+    "app.features.ueba",
+]
+ignore_imports = [
+    "app.features.correlations.engines.base -> app.features.exposure.models",
+    "app.features.correlations.repository -> app.features.exposure.models",
+    "app.features.network_topology.projection.exposure -> app.features.exposure.models",
+    "app.features.network_topology.repositories.related -> app.features.exposure.models",
+    "app.features.network_topology.service -> app.features.ueba.repository",
+]
+
+[[tool.importlinter.contracts]]
+name = "Tier 3 aggregation must not import ingest internals (ingest has no public.py)"
+type = "forbidden"
+allow_indirect_imports = "true"
+source_modules = [
+    "app.features.exposure",
+    "app.features.correlations",
+    "app.features.network_topology",
+    "app.features.ueba",
+]
+forbidden_modules = [
+    "app.features.ingest",
+]
+ignore_imports = [
+    "app.features.network_topology.domain.freshness -> app.features.ingest.control.service",
+]
