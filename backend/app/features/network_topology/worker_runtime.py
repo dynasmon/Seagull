@@ -10,6 +10,7 @@ from app.features.realtime.service import parse_realtime_envelope
 
 _SIGNAL_DRAIN_COUNT = 256
 _SIGNAL_DRAIN_BLOCK_MS = 100
+_SIGNAL_CURSOR_KEY = "seagull:network_topology:signal_stream_cursor"
 
 
 def _safe_int(value: Any) -> int | None:
@@ -69,6 +70,24 @@ def map_event_to_invalidate_kwargs(envelope) -> dict[str, Any] | None:
     return None
 
 
+def _load_persisted_cursor(redis_client) -> str:
+    try:
+        raw = redis_client.get(_SIGNAL_CURSOR_KEY)
+    except Exception:
+        return ""
+    return str(raw or "").strip()
+
+
+def _persist_cursor(redis_client, stream_id: str) -> None:
+    value = str(stream_id or "").strip()
+    if not value:
+        return
+    try:
+        redis_client.set(_SIGNAL_CURSOR_KEY, value)
+    except Exception:
+        return
+
+
 def drain_topology_signals(state) -> int:
     redis_client = get_redis(decode_responses=True)
     if redis_client is None:
@@ -76,9 +95,15 @@ def drain_topology_signals(state) -> int:
 
     last_id = str(getattr(state, "last_signal_stream_id", "") or "")
     if not last_id:
+        last_id = _load_persisted_cursor(redis_client)
+    if not last_id:
         replay = load_portal_realtime_replay(redis_client, max_events=1)
-        state.last_signal_stream_id = replay[-1].stream_id if replay else "0"
+        last_id = replay[-1].stream_id if replay else "0"
+        state.last_signal_stream_id = last_id
+        _persist_cursor(redis_client, last_id)
         return 0
+
+    state.last_signal_stream_id = last_id
 
     entries = read_portal_realtime_stream(
         redis_client,
@@ -101,4 +126,5 @@ def drain_topology_signals(state) -> int:
             reacted += 1
 
     state.last_signal_stream_id = last_id
+    _persist_cursor(redis_client, last_id)
     return reacted
