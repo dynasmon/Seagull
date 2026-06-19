@@ -407,6 +407,7 @@ def cmd_lint(args: argparse.Namespace) -> int:
     root = _env.root()
     steps = [
         (["python3", "-m", "ruff", "check", "app", "tests"], root / "backend"),
+        (["lint-imports"], root / "backend"),
         (["npm", "run", "lint"], root / "frontend"),
         (
             [
