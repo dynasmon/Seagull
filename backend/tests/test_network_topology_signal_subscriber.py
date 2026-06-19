@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import app.features.network_topology.worker_runtime as wr
 from app.features.network_topology.worker_runtime import map_event_to_invalidate_kwargs
 
 
@@ -74,3 +75,81 @@ def test_map_ignores_topology_invalidate_and_unknown_events():
     assert map_event_to_invalidate_kwargs(_env("ui.network_topology.invalidate", {})) is None
     assert map_event_to_invalidate_kwargs(_env("ui.network_topology.summary.patch", {})) is None
     assert map_event_to_invalidate_kwargs(_env("some.other.event", {"x": 1})) is None
+
+
+class _FakeRedis:
+    def __init__(self):
+        self.store = {}
+
+    def get(self, key):
+        return self.store.get(key)
+
+    def set(self, key, value):
+        self.store[key] = value
+
+
+def _unexpected(*args, **kwargs):
+    raise AssertionError("unexpected stream access")
+
+
+def test_drain_resumes_from_persisted_cursor_after_restart(monkeypatch):
+    fake = _FakeRedis()
+    fake.store[wr._SIGNAL_CURSOR_KEY] = "5-0"
+    monkeypatch.setattr(wr, "get_redis", lambda **kwargs: fake)
+    monkeypatch.setattr(wr, "load_portal_realtime_replay", _unexpected)
+
+    seen = {}
+
+    def fake_read(redis_client, *, last_stream_id, block_ms, count):
+        seen["last_stream_id"] = last_stream_id
+        return [SimpleNamespace(stream_id="6-0", message="msg")]
+
+    monkeypatch.setattr(wr, "read_portal_realtime_stream", fake_read)
+    monkeypatch.setattr(
+        wr,
+        "parse_realtime_envelope",
+        lambda message: SimpleNamespace(type="ui.inventory.invalidate", payload={"agent_id": "a1"}),
+    )
+    published = []
+    monkeypatch.setattr(wr, "publish_topology_invalidate", lambda **kwargs: published.append(kwargs))
+
+    state = SimpleNamespace(last_signal_stream_id="")
+    reacted = wr.drain_topology_signals(state)
+
+    assert seen["last_stream_id"] == "5-0"
+    assert reacted == 1
+    assert published[0]["source"] == "inventory"
+    assert state.last_signal_stream_id == "6-0"
+    assert fake.store[wr._SIGNAL_CURSOR_KEY] == "6-0"
+
+
+def test_drain_first_run_tails_to_latest_and_persists_baseline(monkeypatch):
+    fake = _FakeRedis()
+    monkeypatch.setattr(wr, "get_redis", lambda **kwargs: fake)
+    monkeypatch.setattr(
+        wr,
+        "load_portal_realtime_replay",
+        lambda redis_client, *, max_events: [SimpleNamespace(stream_id="42-0")],
+    )
+    monkeypatch.setattr(wr, "read_portal_realtime_stream", _unexpected)
+
+    state = SimpleNamespace(last_signal_stream_id="")
+    reacted = wr.drain_topology_signals(state)
+
+    assert reacted == 0
+    assert state.last_signal_stream_id == "42-0"
+    assert fake.store[wr._SIGNAL_CURSOR_KEY] == "42-0"
+
+
+def test_drain_first_run_empty_stream_persists_zero_baseline(monkeypatch):
+    fake = _FakeRedis()
+    monkeypatch.setattr(wr, "get_redis", lambda **kwargs: fake)
+    monkeypatch.setattr(wr, "load_portal_realtime_replay", lambda redis_client, *, max_events: [])
+    monkeypatch.setattr(wr, "read_portal_realtime_stream", _unexpected)
+
+    state = SimpleNamespace(last_signal_stream_id="")
+    reacted = wr.drain_topology_signals(state)
+
+    assert reacted == 0
+    assert state.last_signal_stream_id == "0"
+    assert fake.store[wr._SIGNAL_CURSOR_KEY] == "0"
