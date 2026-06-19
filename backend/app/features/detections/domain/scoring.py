@@ -1,19 +1,3 @@
-"""Deterministic per-alert risk- and confidence-scoring primitives.
-
-Single source of truth for the severity -> baseline mappings shared by alert
-creation (the rule engine and the v2 compiler) and correlation risk aggregation,
-plus an explainable contextual scorer.
-
-The scorer takes a declared base (the rule's ``risk_score`` or the severity
-baseline) and applies bounded, documented adjustments from signals the caller
-passes in -- event volume vs threshold, source/destination locality, evidence
-richness, ATT&CK mapping, maturity, and false-positive-close feedback. It emits
-an ordered, JSON-serializable ``score_breakdown`` where every factor records its
-own risk and confidence delta, so an operator can read exactly why an alert
-scored the way it did. No I/O lives here: signals are supplied by the caller, so
-the scorer stays pure and testable.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -61,9 +45,6 @@ def severity_confidence_baseline(severity: Any) -> int:
 
 
 def resolve_alert_risk_score(rule: Mapping[str, Any], effective_severity: Any) -> int:
-    """Effective per-alert *base* risk: the rule's declared ``risk_score`` when
-    present, otherwise the severity baseline. Always clamped to 0-100. Kept as the
-    deterministic base that :func:`score_alert` builds on."""
     declared = rule.get("risk_score") if isinstance(rule, Mapping) else None
     if declared is not None:
         return clamp_score(declared)
@@ -71,7 +52,6 @@ def resolve_alert_risk_score(rule: Mapping[str, Any], effective_severity: Any) -
 
 
 def build_rule_provenance(rule: Mapping[str, Any]) -> dict[str, Any]:
-    """Provenance block stored under ``details['rule_meta']`` for every rule alert."""
     return {
         "pack": rule.get("pack"),
         "category": rule.get("category"),
@@ -83,9 +63,6 @@ def build_rule_provenance(rule: Mapping[str, Any]) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class ScoreSignals:
-    """Explicit, I/O-free inputs to :func:`score_alert`. The caller resolves each
-    signal from the rule, the alert context, and (for FP feedback) a batched
-    read-only aggregate."""
 
     severity: str
     declared_risk_score: int | None = None
@@ -122,9 +99,6 @@ def _factor(name: str, risk_delta: int, confidence_delta: int, detail: str) -> d
 
 
 def score_alert(signals: ScoreSignals) -> ScoreResult:
-    """Deterministic, explainable contextual score. Returns the final risk and
-    confidence plus an ordered breakdown; ``risk_score`` and ``confidence`` are the
-    clamped sums of the per-factor deltas, the first of which is the base."""
     sev = str(signals.severity or "").strip().lower()
 
     if signals.declared_risk_score is not None:
@@ -240,8 +214,6 @@ def _threshold_from_details(rule: Mapping[str, Any], details: Mapping[str, Any])
 
 
 def evidence_field_count(details: Mapping[str, Any]) -> int:
-    """Count the strong entity/context evidence fields already captured in
-    ``details`` (matched group entities, distinct cardinality, multi-source fan-in)."""
     group_key = details.get("group_key") if isinstance(details.get("group_key"), Mapping) else {}
     count = sum(1 for value in group_key.values() if value not in (None, "", "-"))
     if details.get("distinct_count") or details.get("distinct"):
@@ -265,9 +237,6 @@ def score_alert_from_details(
     fp_close_samples: int = 0,
     correlated: bool = False,
 ) -> ScoreResult:
-    """Thin, DRY adapter used by both the v1 engine and the v2 compiler: resolves
-    :class:`ScoreSignals` from the already-built ``details`` dict plus caller-supplied
-    locality / FP-feedback signals, then delegates to :func:`score_alert`."""
     declared = rule.get("risk_score")
     signals = ScoreSignals(
         severity=str(effective_severity or ""),
@@ -300,10 +269,6 @@ def score_alert_for_endpoints(
     dst_ip: Any = None,
     fp_rates: Mapping[str, tuple] | None = None,
 ) -> ScoreResult:
-    """Shared marshaling entry point for both the v1 engine and the v2 compiler:
-    resolves source/destination locality via the canonical :func:`classify_ip`
-    (pure) and the per-rule false-positive-close rate from the caller-supplied
-    batched map, then delegates to :func:`score_alert_from_details`."""
     src = classify_ip(src_ip)
     dst = classify_ip(dst_ip)
     feedback = (fp_rates or {}).get(str(rule_id)) if rule_id is not None else None
