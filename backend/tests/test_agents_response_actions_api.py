@@ -9,9 +9,9 @@ os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.core.db import get_db
-from app.features.agents import api as agents_api
 from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.features.agents.models import AgentModel
+from app.features.response import agent_actions_api
 from app.features.response.models import ResponseActionModel, ResponseActionResultModel
 from app.main import app
 
@@ -115,7 +115,7 @@ class _ResultDB:
 def test_agent_pending_response_actions_mark_delivered(monkeypatch) -> None:
     fake_db = _PendingDB()
     audits = []
-    monkeypatch.setattr(agents_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
+    monkeypatch.setattr(agent_actions_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
     app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[get_current_agent] = lambda: AgentPrincipal(id=1, agent_id="agent-1", auth_method="credential")
     try:
@@ -140,7 +140,7 @@ def test_agent_pending_response_actions_mark_delivered(monkeypatch) -> None:
 def test_agent_report_response_action_result_persists(monkeypatch) -> None:
     fake_db = _ResultDB()
     audits = []
-    monkeypatch.setattr(agents_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
+    monkeypatch.setattr(agent_actions_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
     app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[get_current_agent] = lambda: AgentPrincipal(id=1, agent_id="agent-1", auth_method="credential")
     try:
@@ -172,7 +172,7 @@ def test_agent_report_response_action_result_persists(monkeypatch) -> None:
 
 def test_agent_report_normalizes_zero_timestamps(monkeypatch) -> None:
     fake_db = _ResultDB()
-    monkeypatch.setattr(agents_api, "write_audit_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(agent_actions_api, "write_audit_event", lambda *args, **kwargs: None)
     app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[get_current_agent] = lambda: AgentPrincipal(id=1, agent_id="agent-1", auth_method="credential")
     try:
@@ -200,7 +200,7 @@ def test_agent_report_normalizes_zero_timestamps(monkeypatch) -> None:
 def test_agent_report_response_action_failure_emits_audit(monkeypatch) -> None:
     fake_db = _ResultDB()
     audits = []
-    monkeypatch.setattr(agents_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
+    monkeypatch.setattr(agent_actions_api, "write_audit_event", lambda *args, **kwargs: audits.append(kwargs))
     app.dependency_overrides[get_db] = lambda: fake_db
     app.dependency_overrides[get_current_agent] = lambda: AgentPrincipal(id=1, agent_id="agent-1", auth_method="credential")
     try:
