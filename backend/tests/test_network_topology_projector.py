@@ -1,9 +1,3 @@
-"""Unit tests for the topology projector.
-
-All repository I/O is intercepted at the repository boundary so no database
-is required.  Each test drives project_topology (or a sub-phase helper) with
-model fixtures and asserts what nodes / edges would have been written.
-"""
 from __future__ import annotations
 
 import os
@@ -132,7 +126,6 @@ def _make_posture(
 
 
 class _RecordingDB:
-    """Intercepts upsert_node / upsert_edge calls and records arguments."""
 
     def __init__(self):
         self.nodes: list[dict[str, Any]] = []
@@ -159,7 +152,6 @@ class _RecordingDB:
 # ── Projector sub-function helpers ────────────────────────────────────────────
 
 def _run_agents(agents, *, now=None):
-    """Run _project_agents with mocked repository."""
     now = now or _now()
     written_nodes: list[dict] = []
 
@@ -179,7 +171,6 @@ def _run_agents(agents, *, now=None):
 
 
 def _run_inventory(inv_rows, *, agent_nodes=None, cidrs=None, now=None):
-    """Run _project_inventory with mocked repository."""
     now = now or _now()
     agent_nodes = agent_nodes or {}
     written_nodes: list[dict] = []
@@ -578,7 +569,6 @@ def test_different_subnets_both_created():
 # ── project_topology signature ────────────────────────────────────────────────
 
 def test_project_topology_accepts_window_and_max_events_params():
-    """project_topology must accept window_minutes and max_events_per_run without TypeError."""
     now = _now()
     written_nodes: list[dict] = []
     written_edges: list[dict] = []
@@ -597,7 +587,6 @@ def test_project_topology_accepts_window_and_max_events_params():
 
 
 def test_project_topology_flow_edges_respects_window_minutes():
-    """_project_flow_edges must use window_minutes to compute the `since` timestamp."""
     from datetime import timedelta, timezone
 
     captured_since: list[Any] = []
@@ -653,7 +642,6 @@ def test_project_topology_flow_edges_respects_window_minutes():
 
 
 def test_project_topology_default_params_call():
-    """project_topology() with no keyword arguments uses safe defaults."""
     db = MagicMock()
     db.execute.return_value = _FakeResult(rows=[], scalar_val=0)
 

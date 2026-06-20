@@ -81,7 +81,6 @@ def _parse_cidrs_cached(
 def parse_internal_cidrs(
     raw: list[str],
 ) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
-    """Parse and validate a list of CIDR strings. Invalid entries are logged and skipped."""
     cleaned = [str(s).strip() for s in raw if str(s).strip()]
     if not cleaned:
         return []
@@ -124,11 +123,6 @@ def classify_ip(
     *,
     internal_cidrs: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Classify an IP address string and return a structured result dict.
-
-    Configured internal_cidrs take precedence over all built-in range checks.
-    Invalid CIDR entries in internal_cidrs are logged and silently ignored.
-    """
     raw = str(ip or "").strip()
     if not raw:
         return _result("", 0, "invalid")
@@ -215,7 +209,6 @@ def classify_flow(
     *,
     internal_cidrs: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Classify a src→dst flow and compute locality."""
     src = classify_ip(src_ip, internal_cidrs=internal_cidrs)
     dst = classify_ip(dst_ip, internal_cidrs=internal_cidrs)
 

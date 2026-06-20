@@ -1,9 +1,3 @@
-"""Refine vulnerability scan lifecycle and finding state semantics.
-
-Revision ID: 20260421_0014
-Revises: 20260419_0013
-Create Date: 2026-04-21
-"""
 
 from __future__ import annotations
 

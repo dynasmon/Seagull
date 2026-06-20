@@ -23,13 +23,6 @@ def getenv_compat(name: str, default: Optional[str] = None) -> Optional[str]:
 
 
 def env_value(name: str, default: Optional[str] = None) -> Optional[str]:
-    """Return an env value supporting <VAR> and <VAR>_FILE.
-
-    Precedence:
-    1) VAR (non-empty)
-    2) VAR_FILE (path to file with secret)
-    3) default
-    """
 
     for candidate in _alias_names(name):
         raw = os.getenv(candidate)

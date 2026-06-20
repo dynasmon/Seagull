@@ -172,13 +172,6 @@ class WorkerGroupManager:
             self.children[spec.name] = ChildRuntime(spec=spec)
 
     def _start_metrics_server(self) -> None:
-        """Expose this group's aggregated child metrics on an internal port.
-
-        Child workers inherit ``PROMETHEUS_MULTIPROC_DIR`` and write per-process
-        metrics there; this manager serves the multiprocess aggregate so a single
-        Prometheus target covers the whole group. Best-effort — a bind failure is
-        logged but never takes the group down.
-        """
         if not _env_bool("SEAGULL_METRICS_ENABLED", True):
             return
         try:

@@ -15,7 +15,6 @@ from app.features.realtime import service
 
 
 class _XRevrangeFailRedis:
-    """Redis stub where xrevrange always raises but xrange succeeds — lets us verify the fallback."""
 
     def __init__(self, entries: list[tuple[str, dict[str, str]]]) -> None:
         self._entries = list(entries)
@@ -125,7 +124,6 @@ def test_coalesce_realtime_envelopes_records_counter() -> None:
 
 
 def test_coalesce_realtime_envelopes_preserves_cursor_ascending_order() -> None:
-    """When an invalidate is coalesced, intermediate patches must not end up after it."""
     inv_5 = service.build_realtime_envelope(
         event_type="ui.overview.invalidate",
         payload={"reason": "first"},
@@ -156,7 +154,6 @@ def test_coalesce_realtime_envelopes_preserves_cursor_ascending_order() -> None:
 
 
 def test_load_portal_realtime_replay_fallback_returns_newest_entries() -> None:
-    """When xrevrange fails, the xrange fallback must return the NEWEST N entries, not the oldest."""
     all_entries = [
         (f"{i}-0", {"cursor": str(i), "topic": "overview", "envelope": json.dumps({
             "version": 2, "topic": "overview", "type": "overview.patch",

@@ -1,9 +1,3 @@
-"""Separate manual vulnerability scan request tokens from scan ids.
-
-Revision ID: 20260422_0015
-Revises: 20260421_0014
-Create Date: 2026-04-22
-"""
 
 from __future__ import annotations
 

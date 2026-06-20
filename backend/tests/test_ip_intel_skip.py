@@ -1,4 +1,3 @@
-"""IP intel skip behavior: non-public IPs are skipped and carry classification metadata."""
 from __future__ import annotations
 
 import pytest
@@ -30,7 +29,6 @@ def test_is_public_ip_true_for_public(ip):
 
 
 def test_skip_patch_metadata_private():
-    """The skip patch for a private IP carries scope/label/is_internal/is_public."""
     cls = classify_ip("192.168.1.1")
     patch = {
         "lupe_skipped": True,
@@ -68,7 +66,6 @@ def test_skip_patch_metadata_cgnat():
 
 
 def test_public_ip_would_not_be_skipped():
-    """Public IPs are not skipped — they proceed to geo enrichment."""
     cls = classify_ip("8.8.8.8")
     assert cls["is_public"] is True
     assert cls["scope"] == "public_internet"

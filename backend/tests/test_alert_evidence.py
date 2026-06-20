@@ -1,4 +1,3 @@
-"""Tests for alert evidence persistence and rule provenance."""
 
 from __future__ import annotations
 

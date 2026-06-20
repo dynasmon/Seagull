@@ -1,9 +1,3 @@
-"""Create response_action_results table for action execution outcomes.
-
-Revision ID: 20260329_0009
-Revises: 20260329_0008
-Create Date: 2026-03-29
-"""
 
 from __future__ import annotations
 

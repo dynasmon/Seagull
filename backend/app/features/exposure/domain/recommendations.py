@@ -242,7 +242,6 @@ def generate_recommendations(
     *,
     evidence_refs: list[dict[str, Any]] | None = None,
 ) -> list[Recommendation]:
-    """Return up to _MAX_RECOMMENDATIONS prioritized Recommendation objects for the given reason codes."""
     seen_types: set[str] = set()
     candidates: list[Recommendation] = []
     refs = evidence_refs or []
@@ -270,7 +269,6 @@ def generate_recommendations(
 
 
 def generate_suppress_recommendation(reason: str, evidence_refs: list[dict[str, Any]] | None = None) -> Recommendation:
-    """Suggest suppression for assets with no active signals and benign history."""
     return Recommendation(
         rec_type=REC_TYPE_SUPPRESS_KNOWN_BENIGN,
         priority=90,

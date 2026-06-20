@@ -43,7 +43,6 @@ _SEVERITY_ALIASES: dict[str, str] = {
 
 
 def normalize_asset_key(agent_id: str | None, *, ip: str | None = None, hostname: str | None = None, url: str | None = None) -> str:
-    """Return a canonical asset key, preferring agent identity when available."""
     if agent_id:
         clean = re.sub(r"[^\w\-\.]", "", str(agent_id))[:64]
         if clean:
@@ -154,7 +153,6 @@ def clamp_confidence(value: int | float) -> int:
 
 
 def stable_hash(*parts: str) -> str:
-    """Deterministic SHA-256 fingerprint from ordered string parts."""
     joined = "\x00".join(str(p) for p in parts)
     return hashlib.sha256(joined.encode()).hexdigest()[:64]
 

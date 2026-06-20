@@ -1,9 +1,3 @@
-"""Switch agent auth to rotating hashed credentials.
-
-Revision ID: 20260327_0007
-Revises: 20260324_0006
-Create Date: 2026-03-27
-"""
 
 from __future__ import annotations
 

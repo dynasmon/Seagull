@@ -72,7 +72,6 @@ def _safe_int(v: Any, default: int = 0) -> int:
 
 
 def _age_penalty(last_seen_at: datetime | None, *, stale_hours: int = 168) -> float:
-    """Return a 0.0–1.0 staleness multiplier (1.0 = fully fresh, 0.0 = very stale)."""
     if last_seen_at is None:
         return 0.5
     now = datetime.now(tz=timezone.utc)
@@ -88,7 +87,6 @@ def _age_penalty(last_seen_at: datetime | None, *, stale_hours: int = 168) -> fl
 
 @dataclass
 class ScoringInputs:
-    """Aggregated signal counts fed into the scoring engine."""
 
     asset_key: str
     agent_id: str | None
@@ -175,10 +173,6 @@ def compute_asset_criticality_score(inputs: ScoringInputs) -> int:
 
 
 def compute_reliability_penalty(inputs: ScoringInputs) -> int:
-    """
-    Penalty deducted when evidence quality is degraded by age or low count.
-    Bounded by MAX_RELIABILITY_PENALTY to prevent over-discounting.
-    """
     penalty = 0
     last_seen = inputs.asset_last_seen_at
     if last_seen is not None:
@@ -198,10 +192,6 @@ def compute_reliability_penalty(inputs: ScoringInputs) -> int:
 def compute_risk_score(
     inputs: ScoringInputs,
 ) -> tuple[int, ScoreBreakdown, int, list[str]]:
-    """
-    Return (risk_score, breakdown, confidence, reason_codes).
-    All component scores are 0-100; the final score is the weighted sum clamped to 0-100.
-    """
     vuln = compute_vulnerability_score(inputs)
     threat = compute_active_threat_score(inputs)
     persistence = compute_persistence_score(inputs)

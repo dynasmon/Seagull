@@ -1,9 +1,3 @@
-"""Create response_actions table for SOAR-lite action requests.
-
-Revision ID: 20260329_0008
-Revises: 20260327_0007
-Create Date: 2026-03-29
-"""
 
 from __future__ import annotations
 

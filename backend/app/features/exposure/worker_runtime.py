@@ -450,7 +450,6 @@ _LATERAL_EVENT_TYPES = {"beacon_suspect", "c2_suspect", "exfil_suspect", "egress
 
 
 def project_event_signals(event: dict[str, Any]) -> Optional[EventSignals]:
-    """Classify a single net_event into exposure signals. Returns None for irrelevant events."""
     event_type = str(event.get("event_type") or "").strip().lower()
     agent_id = str(event.get("agent_id") or "").strip()
     if not agent_id:

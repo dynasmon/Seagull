@@ -1,4 +1,3 @@
-"""Async ingest worker."""
 
 from __future__ import annotations
 

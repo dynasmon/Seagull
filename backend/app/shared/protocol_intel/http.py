@@ -21,10 +21,6 @@ def _parse_request_line(line: str) -> Tuple[Optional[str], Optional[str], Option
 
 
 def parse_http_message(payload: bytes) -> Dict[str, Any]:
-    """Parse an HTTP/1.x request or response (best-effort).
-
-    Returns keys prefixed by http_*.
-    """
 
     out: Dict[str, Any] = {}
 

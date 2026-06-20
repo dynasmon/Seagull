@@ -17,12 +17,6 @@ def _is_pointer(label_len: int) -> bool:
 
 
 def _decode_name(b: bytes, i: int, depth: int = 0) -> Tuple[str, int]:
-    """Decode a DNS name with compression support.
-
-    Safety:
-    - depth-limited recursion
-    - bounds checks
-    """
 
     if depth > 8:
         return "", i
@@ -77,11 +71,6 @@ def _entropy(s: str) -> float:
 
 
 def _risk_score(qname: str) -> int:
-    """Very lightweight DNS risk score (0..100).
-
-    It's intentionally heuristic and explainable: high entropy and long labels
-    are a common signal for DGAs / tracking domains.
-    """
 
     if not qname:
         return 0
@@ -112,12 +101,6 @@ def _risk_score(qname: str) -> int:
 
 
 def parse_dns_message(payload: bytes) -> Dict[str, Any]:
-    """Parse a DNS message (UDP/TCP payload).
-
-    Returns a dict with keys prefixed by dns_*.
-
-    If parsing fails, returns an empty dict.
-    """
 
     out: Dict[str, Any] = {}
     b = payload

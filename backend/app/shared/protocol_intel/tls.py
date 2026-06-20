@@ -184,13 +184,6 @@ def _infer_ptype(extra: Dict[str, Any], is_dtls: bool, is_quic: bool) -> str:
 
 
 def parse_tls_client_hello(payload: bytes, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Parse TLS/DTLS ClientHello and derive JA3/JA4.
-
-    The input should be the beginning of a TLS/DTLS record that contains a ClientHello.
-    QUIC ClientHello requires the agent to extract the embedded TLS ClientHello bytes;
-    when that happens, this function will still compute JA4 and set ptype='q' if the
-    agent provides the proper hints.
-    """
 
     out: Dict[str, Any] = {}
     extra = extra or {}
