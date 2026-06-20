@@ -8,6 +8,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.features.alerts.models import AlertModel
+from app.shared.alerting import AlertDraft
 
 
 class AlertDTO(BaseModel):
@@ -268,3 +269,28 @@ def list_alert_flows_since(db: Session, *, since: datetime, limit: int) -> list[
         )
         for row in rows
     ]
+
+
+def persist_alert_drafts(db: Session, drafts: Sequence[AlertDraft]) -> list[AlertModel]:
+    rows: list[AlertModel] = []
+    for draft in drafts:
+        row = AlertModel(
+            rule_id=draft.rule_id,
+            severity=draft.severity,
+            risk_score=draft.risk_score,
+            src_ip=draft.src_ip,
+            dst_ip=draft.dst_ip,
+            dst_port=draft.dst_port,
+            mitre_tactic=draft.mitre_tactic,
+            mitre_technique_id=draft.mitre_technique_id,
+            mitre_technique=draft.mitre_technique,
+            confidence=draft.confidence,
+            description=draft.description,
+            details=draft.details,
+            detector_type=draft.detector_type,
+            rule_version=draft.rule_version,
+            rule_hash=draft.rule_hash,
+        )
+        db.add(row)
+        rows.append(row)
+    return rows
