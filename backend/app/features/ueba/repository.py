@@ -312,7 +312,6 @@ def get_suppression_by_scope_key(db: Session, scope_key: str) -> UebaSuppression
 
 
 def upsert_suppression(db: Session, *, scope_key: str, **values) -> tuple[UebaSuppressionModel, bool]:
-    """One suppression row per scope: reactivate/refresh the existing row or create it."""
     row = get_suppression_by_scope_key(db, scope_key)
     if row is None:
         row = UebaSuppressionModel(scope_key=scope_key, **values)

@@ -1,9 +1,3 @@
-"""Rule registry adapter for worker and feature callers.
-
-This module exposes a stable alerts-owned contract for rule loading and rule
-governance overlays. The current implementation delegates to existing worker
-registry logic to preserve behavior.
-"""
 
 from __future__ import annotations
 

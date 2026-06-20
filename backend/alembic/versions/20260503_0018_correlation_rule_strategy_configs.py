@@ -1,9 +1,3 @@
-"""Safely extend correlation rules for advanced strategy configuration.
-
-Revision ID: 20260503_0018
-Revises: 20260503_0017
-Create Date: 2026-05-03
-"""
 
 from __future__ import annotations
 

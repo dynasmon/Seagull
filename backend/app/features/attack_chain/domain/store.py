@@ -37,7 +37,6 @@ def get_or_create_open_case(
     now: datetime,
     context_patch: Optional[Dict[str, Any]] = None,
 ) -> CaseRow:
-    """Fetch an open case for (agent_id, suspect_ip) or create a new one."""
 
     case, _created = get_or_create_open_case_ex(
         conn,
@@ -57,7 +56,6 @@ def get_or_create_open_case_ex(
     now: datetime,
     context_patch: Optional[Dict[str, Any]] = None,
 ) -> Tuple[CaseRow, bool]:
-    """Same as get_or_create_open_case, but returns (case, created)."""
 
     row = conn.execute(
         select(
@@ -160,10 +158,6 @@ def insert_step_and_update_case(
     context_patch: Optional[Dict[str, Any]] = None,
     promote_stage: bool = True,
 ) -> Tuple[int, int, str]:
-    """Insert a step and update case aggregates.
-
-    Returns (step_id, new_case_score, new_max_stage).
-    """
 
     score_delta = int(score_delta or 0)
     new_score = max(0, int(case.score) + score_delta)
@@ -267,11 +261,6 @@ def close_stale_cases(conn, *, now: datetime, idle_close_seconds: int) -> int:
 
 
 def find_attachable_case_id(conn, *, agent_id: str, now: datetime, attach_window_seconds: int) -> Optional[int]:
-    """Find the best open case to attach local-only steps.
-
-    This is used for post-access local activity (sudo/exec/persistence) when
-    the originating remote IP cannot be directly inferred.
-    """
 
     if attach_window_seconds <= 0:
         return None

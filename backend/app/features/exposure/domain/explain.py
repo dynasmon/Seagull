@@ -46,7 +46,6 @@ def explain_score(
     breakdown: ScoreBreakdown,
     reason_codes: list[str],
 ) -> dict[str, Any]:
-    """Return a structured, UI-friendly explanation of the risk score."""
     components = []
     bd = breakdown.to_dict()
     labels = {

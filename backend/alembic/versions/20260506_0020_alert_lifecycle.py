@@ -1,9 +1,3 @@
-"""alert lifecycle columns
-
-Revision ID: 20260506_0020
-Revises: 20260506_0019
-Create Date: 2026-05-06
-"""
 
 from __future__ import annotations
 

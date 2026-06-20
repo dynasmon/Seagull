@@ -73,7 +73,6 @@ def require_cert_identity(request: Request, agent_id: str) -> None:
 
 @dataclass(frozen=True)
 class AgentPrincipal:
-    """Authenticated agent context."""
 
     id: int
     agent_id: str
@@ -86,7 +85,6 @@ def _sha256_hex(data: bytes) -> str:
 
 
 def generate_bootstrap_token(agent_id: str) -> Tuple[str, str, str]:
-    """Generate one-time/short-lived bootstrap token for agent enrollment."""
 
     secret = secrets.token_urlsafe(32)
     token = f"abt.{agent_id}.{secret}"
@@ -100,7 +98,6 @@ def hash_bootstrap_token(raw_token: str, salt: str) -> str:
 
 
 def generate_agent_credential(agent_id: str) -> Tuple[str, str, str]:
-    """Generate a rotating agent credential and its salted hash."""
 
     secret = secrets.token_urlsafe(48)
     credential = f"agc.{agent_id}.{secret}"

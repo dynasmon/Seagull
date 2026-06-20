@@ -1,8 +1,3 @@
-"""Worker-facing entrypoint for the attack_chain feature.
-
-This module provides a stable import surface for long-running worker processes,
-so worker code does not need to depend on deep internal package paths.
-"""
 
 from __future__ import annotations
 

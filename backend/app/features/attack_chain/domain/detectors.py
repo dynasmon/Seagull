@@ -69,10 +69,6 @@ def _cmd_base(cmd: str) -> str:
 
 
 def _is_routine_privileged_cmd(cmd: str) -> bool:
-    """Best-effort suppression for common admin maintenance.
-
-    Attack-chain should focus on suspicious progressions, not routine operations.
-    """
 
     s = _cmd_norm(cmd)
     if not s:
@@ -122,11 +118,6 @@ def _is_routine_privileged_cmd(cmd: str) -> bool:
 
 
 def _allowlist_match(rule: Dict[str, Any], *, agent_id: str, username: str, target_user: str, command: str) -> bool:
-    """Return True if a rule matches the current sudo command.
-
-    Rules are intentionally limited to exact/prefix/contains to avoid ReDoS risks.
-    Matching is case-insensitive and uses normalized whitespace.
-    """
 
     try:
         if not rule.get("enabled", True):
@@ -166,11 +157,6 @@ def _allowlist_match(rule: Dict[str, Any], *, agent_id: str, username: str, targ
 
 
 def _classify_sudo(agent_id: str, username: str, target: str, cmd: str, cfg: AttackChainConfig, allowlist: Optional[List[Dict[str, Any]]]) -> StepCandidate:
-    """Classify a sudo command into an ATT&CK-aligned step.
-
-    IMPORTANT: Running sudo itself is not inherently an attacker privilege escalation.
-    We treat routine admin usage as context/noise unless it correlates with other signals.
-    """
 
     cmd_n = _cmd_norm(cmd)
     base = _cmd_base(cmd_n)
@@ -298,7 +284,6 @@ def _classify_sudo(agent_id: str, username: str, target: str, cmd: str, cfg: Att
 
 
 def detect_steps(event: Dict[str, Any], cfg: AttackChainConfig, *, allowlist: Optional[List[Dict[str, Any]]] = None) -> List[StepCandidate]:
-    """Translate a raw net_event row into high-level attack-chain steps."""
 
     out: List[StepCandidate] = []
 

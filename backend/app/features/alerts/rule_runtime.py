@@ -1,9 +1,3 @@
-"""Alert rule runtime adapter.
-
-This module provides a feature-local import surface for rule execution and rule
-composition helpers. It keeps `alerts.service` independent from direct imports
-of worker implementation modules.
-"""
 
 from __future__ import annotations
 

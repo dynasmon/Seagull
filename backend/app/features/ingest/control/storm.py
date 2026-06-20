@@ -39,7 +39,6 @@ def mark_storm_active(*, reason: str, sample_hot: int, sample_warm: int) -> None
 
 
 def storm_maybe_open_alert(*, reason: str, sample_hot: int, sample_warm: int) -> None:
-    """Open a single 'Ingest Storm Detected' alert per storm session."""
 
     r = get_redis()
     if r is None:
@@ -143,7 +142,6 @@ def storm_maybe_open_alert(*, reason: str, sample_hot: int, sample_warm: int) ->
 
 
 def storm_maybe_close_alert() -> None:
-    """Finalize an open storm alert if the storm has ended."""
 
     r = get_redis()
     if r is None:

@@ -23,11 +23,6 @@ def _first_present(extra: Dict[str, Any], keys: Tuple[str, ...]) -> Optional[Any
 
 
 def _decode_b64_maybe(value: Any, max_bytes: int) -> Optional[bytes]:
-    """Decode base64 if value looks like base64; otherwise return None.
-
-    The worker is expected to provide the raw bytes in base64 form.
-    We cap bytes to prevent memory abuse.
-    """
 
     if not isinstance(value, str):
         return None
@@ -49,7 +44,6 @@ def _decode_b64_maybe(value: Any, max_bytes: int) -> Optional[bytes]:
 
 
 def extract_l7_bytes(extra: Dict[str, Any], max_bytes: int) -> Optional[bytes]:
-    """Try multiple conventions for where the agent stores L7 bytes."""
 
     # Nested object convention: extra["l7"]["payload_b64"]
     l7 = extra.get("l7")
@@ -120,10 +114,6 @@ def analyze_event(
     extra: Dict[str, Any],
     payload_max_bytes: int = 4096,
 ) -> Dict[str, Any]:
-    """Derive protocol metadata for a single event.
-
-    Returns a patch dict to merge into net_events.extra.
-    """
 
     patch: Dict[str, Any] = {}
 

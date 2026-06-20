@@ -1,7 +1,3 @@
-"""Worker-facing import surface for the correlations feature.
-
-Worker code imports only from here — not from deep internal paths.
-"""
 
 from __future__ import annotations
 

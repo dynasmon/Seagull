@@ -1,4 +1,3 @@
-"""Tests for v2 detection rule execution in the rules worker."""
 
 from __future__ import annotations
 

@@ -1,24 +1,3 @@
-"""Prometheus metric catalogue and object lifecycle for Seagull.
-
-This module is the single source of truth for *which* metrics exist and *how*
-they are backed by ``prometheus_client`` primitives. The public emit/read API
-lives in :mod:`app.core.observability.metrics`; that facade delegates here so
-the rest of the codebase keeps calling ``incr_counter`` / ``observe_hist``
-without knowing about Prometheus at all.
-
-Design notes
-------------
-* Every metric is *declared* once with a fixed, bounded label set. The legacy
-  in-memory metrics accepted arbitrary ``**labels`` per call-site, which is
-  incompatible with Prometheus (a metric has a fixed label dimensionality).
-  We reconcile this by declaring the *union* of label names a metric is ever
-  called with and filling any label a given call-site omits with ``"none"``.
-* Undeclared metric names are rejected (warn-once + no-op) on purpose: it keeps
-  cardinality under control and forces new metrics to be declared here.
-* Multiprocess safe. The API backend runs multiple uvicorn workers and the
-  worker groups fan out into child processes, so ``PROMETHEUS_MULTIPROC_DIR``
-  is used to aggregate series across processes at scrape time.
-"""
 
 from __future__ import annotations
 
@@ -50,13 +29,6 @@ DEPTH_BUCKETS: Tuple[float, ...] = (
 
 @dataclass(frozen=True)
 class MetricSpec:
-    """Declarative description of a single metric.
-
-    ``name`` is the name as used by call-sites (e.g. ``http_requests_total``).
-    For counters the trailing ``_total`` is stripped before handing the name to
-    ``prometheus_client`` (which re-adds it), so the exposed series name matches
-    the declared name exactly.
-    """
 
     name: str
     kind: str  # "counter" | "gauge" | "histogram"
@@ -173,7 +145,6 @@ _WARNED_UNKNOWN: set[str] = set()
 
 
 def multiproc_dir() -> Optional[str]:
-    """Return the configured Prometheus multiprocess directory, if any."""
     raw = (os.environ.get("PROMETHEUS_MULTIPROC_DIR") or "").strip()
     return raw or None
 
@@ -203,11 +174,6 @@ def _create(spec: MetricSpec):
 
 
 def get_instrument(name: str) -> Tuple[Optional[MetricSpec], Optional[object]]:
-    """Resolve a declared metric, creating its prometheus_client object lazily.
-
-    Returns ``(spec, instrument)`` or ``(None, None)`` for undeclared names
-    (logged once so it surfaces without spamming).
-    """
     spec = METRIC_SPECS.get(name)
     if spec is None:
         if name not in _WARNED_UNKNOWN:
@@ -240,12 +206,6 @@ def _find_existing(spec: MetricSpec):  # pragma: no cover - defensive fallback
 
 
 def exposition_registry() -> CollectorRegistry:
-    """Return the registry to render at scrape time.
-
-    In multiprocess mode a fresh registry is built per scrape and populated by
-    the :class:`MultiProcessCollector`, aggregating every process that shares
-    ``PROMETHEUS_MULTIPROC_DIR``. Otherwise the default global registry is used.
-    """
     if multiproc_dir():
         reg = CollectorRegistry()
         multiprocess.MultiProcessCollector(reg)
@@ -254,7 +214,6 @@ def exposition_registry() -> CollectorRegistry:
 
 
 def mark_process_dead(pid: int) -> None:
-    """Clean up multiprocess gauge files for an exited process (no-op otherwise)."""
     if multiproc_dir():
         try:
             multiprocess.mark_process_dead(pid)

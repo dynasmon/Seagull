@@ -79,7 +79,6 @@ def project_topology(
     window_minutes: int = 1440,
     max_events_per_run: int = 5000,
 ) -> TopologyCoverageOut:
-    """Full topology projection from agents, inventory, events, alerts, and exposure."""
     coverage = TopologyCoverageOut()
     cidrs = settings.SEAGULL_INTERNAL_NETWORK_CIDRS or None
     now = datetime.now(timezone.utc)

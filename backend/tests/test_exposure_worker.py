@@ -1,7 +1,3 @@
-"""Pure-logic tests for the exposure worker and projection engine.
-
-No database is required - all tests operate on in-memory data structures.
-"""
 
 from __future__ import annotations
 
@@ -517,7 +513,6 @@ def test_mark_history_written_updates_cache():
 
 
 def test_event_findings_no_duplicates_on_repeat():
-    """Same signals should produce findings with identical keys (idempotent upserts)."""
     sig = EventSignals(agent_id="agent-dupe", fim_count=1, persistence_count=1)
     now = _now()
     run1 = build_event_findings_from_signals(sig, asset_key="agent:agent-dupe", now=now)
@@ -531,7 +526,6 @@ def test_event_findings_no_duplicates_on_repeat():
 
 
 def test_asset_key_normalization_consistent_across_runs():
-    """Asset key must be stable for the same agent across multiple projection cycles."""
     aids = ["agent-alpha", "agent-beta", "agent-gamma"]
     for aid in aids:
         k1 = normalize_asset_key(aid)

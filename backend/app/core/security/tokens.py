@@ -70,10 +70,6 @@ def new_one_time_token(prefix: str = "nw_otp_") -> str:
 
 
 def token_hash(token: str) -> str:
-    """Hash tokens before storing.
-
-    We use a server-side pepper so DB compromise doesn't directly enable token replay.
-    """
     pepper = settings.token_pepper()
     raw = (pepper + "|" + token).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()

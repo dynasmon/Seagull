@@ -1,9 +1,3 @@
-"""Add hot columns for process execution, FIM, and heuristic-derived signals.
-
-Revision ID: 20260404_0011
-Revises: 20260401_0010
-Create Date: 2026-04-04
-"""
 
 from __future__ import annotations
 

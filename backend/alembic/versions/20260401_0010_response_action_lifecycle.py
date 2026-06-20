@@ -1,9 +1,3 @@
-"""Add lifecycle fields for response_actions.
-
-Revision ID: 20260401_0010
-Revises: 20260329_0009
-Create Date: 2026-04-01
-"""
 
 from __future__ import annotations
 

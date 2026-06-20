@@ -1,4 +1,3 @@
-"""Add mTLS identity and bootstrap-token lifecycle tables for agents."""
 
 from __future__ import annotations
 

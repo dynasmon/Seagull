@@ -1,13 +1,3 @@
-"""Elasticsearch client helpers.
-
-We keep Postgres as source-of-truth. Elasticsearch is used as a scalable read
-backend for event hunting and aggregations.
-
-The API can be configured via SEAGULL_SEARCH_BACKEND:
-- auto: use ES if available, otherwise fallback to Postgres
-- elasticsearch: require ES (return 503 if unavailable)
-- postgres: always use Postgres
-"""
 
 from __future__ import annotations
 
@@ -49,7 +39,6 @@ def get_es_client():
 
 
 def es_is_available() -> bool:
-    """Ping ES with a small in-process cache to avoid a ping per request."""
 
     global _last_ping_at, _last_ping_ok
 

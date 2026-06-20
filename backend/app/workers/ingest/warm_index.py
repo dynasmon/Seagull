@@ -30,7 +30,6 @@ def _index_for(prefix: str, ts: datetime) -> str:
 
 
 def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Build an ES doc consistent with es_indexer mappings."""
 
     ts = row.get("timestamp")
     ts_iso = ts.isoformat() if isinstance(ts, datetime) else (str(ts) if ts else None)
@@ -136,11 +135,6 @@ def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _ensure_warm_ilm_and_template(es, cfg: WorkerConfig) -> None:
-    """Ensure ILM policy + index template for warm tier (best-effort).
-
-    This keeps warm indexes self-managing (retention via ILM) and tuned for
-    ingest bursts (lower refresh interval).
-    """
 
     if not cfg.warm_ilm_enabled:
         return

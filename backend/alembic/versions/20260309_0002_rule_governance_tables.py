@@ -1,4 +1,3 @@
-"""Add dedicated rule governance tables (tuning/suppressions + history)."""
 
 from __future__ import annotations
 
