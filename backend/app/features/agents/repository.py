@@ -11,7 +11,6 @@ from app.features.agents.models import (
     AgentCredentialModel,
     AgentModel,
 )
-from app.features.response.models import ResponseActionModel, ResponseActionResultModel
 
 
 def get_agent_by_agent_id(db: Session, agent_id: str) -> AgentModel | None:
@@ -78,61 +77,6 @@ def save_credential(db: Session, row: AgentCredentialModel) -> AgentCredentialMo
 
 
 def save_certificate(db: Session, row: AgentCertificateModel) -> AgentCertificateModel:
-    db.add(row)
-    return row
-
-
-def list_pending_actions_for_agent(
-    db: Session,
-    *,
-    agent_id: str,
-    limit: int = 100,
-    for_update: bool = False,
-) -> list[ResponseActionModel]:
-    q = (
-        db.query(ResponseActionModel)
-        .filter(
-            ResponseActionModel.agent_id == agent_id,
-            ResponseActionModel.status.in_(["pending", "delivered"]),
-        )
-        .order_by(ResponseActionModel.requested_at.asc(), ResponseActionModel.id.asc())
-        .limit(int(limit))
-    )
-    if for_update:
-        q = q.with_for_update()
-    return q.all()
-
-
-def get_response_action(db: Session, response_action_id: int, *, for_update: bool = False) -> ResponseActionModel | None:
-    q = db.query(ResponseActionModel).filter(ResponseActionModel.id == int(response_action_id))
-    if for_update:
-        q = q.with_for_update()
-    return q.first()
-
-
-def save_response_action(db: Session, row: ResponseActionModel) -> ResponseActionModel:
-    db.add(row)
-    return row
-
-
-def get_latest_response_action_result(
-    db: Session,
-    *,
-    response_action_id: int,
-    agent_id: str,
-) -> ResponseActionResultModel | None:
-    return (
-        db.query(ResponseActionResultModel)
-        .filter(
-            ResponseActionResultModel.response_action_id == int(response_action_id),
-            ResponseActionResultModel.agent_id == agent_id,
-        )
-        .order_by(ResponseActionResultModel.id.desc())
-        .first()
-    )
-
-
-def save_response_action_result(db: Session, row: ResponseActionResultModel) -> ResponseActionResultModel:
     db.add(row)
     return row
 
