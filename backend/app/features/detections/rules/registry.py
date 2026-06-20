@@ -14,7 +14,7 @@ from app.features.detections.domain.operators import (
     split_operator_suffix,
 )
 from app.features.detections.domain.validation import DetectionRuleValidationError, ensure_field_operator
-from app.features.events.worker_runtime import NetEventModel
+from app.features.events.public import net_event_extra_jsonb_accessor
 
 SUPPORTED_RUNTIME_EVENT_FIELDS = frozenset(
     {
@@ -91,10 +91,7 @@ def resolve_runtime_jsonb_accessor(field_name: str):
             path = spec.jsonb_path
     if not path:
         return None
-    accessor = NetEventModel.extra
-    for segment in path:
-        accessor = accessor[segment]
-    return accessor.astext
+    return net_event_extra_jsonb_accessor(path)
 
 
 def normalize_match_fields(match: Mapping[str, Any] | None) -> dict[str, Any]:
