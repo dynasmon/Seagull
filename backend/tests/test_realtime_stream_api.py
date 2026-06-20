@@ -448,7 +448,6 @@ def test_websocket_endpoint_replays_events_with_same_envelope_schema() -> None:
 
 
 def test_websocket_sends_keepalive_frame_when_idle(monkeypatch) -> None:
-    """WS keepalive interval must emit a frame — not just update the timer silently."""
     monkeypatch.setattr(realtime_api, "_ws_keepalive_seconds", lambda: 0)
     monkeypatch.setattr(
         realtime_api, "get_redis", lambda decode_responses=True: _FakeRedis(replay_rows=[], live_batches=[])
@@ -499,7 +498,6 @@ class _UnexpectedStreamError(Exception):
 
 
 def test_websocket_closes_on_unexpected_exception(monkeypatch) -> None:
-    """An unexpected exception escaping the stream loop must close the WebSocket before propagating."""
     monkeypatch.setattr(
         realtime_api, "get_redis", lambda decode_responses=True: _FakeRedis(replay_rows=[], live_batches=[])
     )

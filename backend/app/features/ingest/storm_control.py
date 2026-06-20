@@ -23,10 +23,6 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _get_redis() -> Optional[redis.Redis]:
-    """Best-effort Redis client.
-
-    We intentionally fail-open: the platform remains usable if Redis is down.
-    """
 
     global _redis_client
     if _redis_client is not None:
@@ -71,15 +67,6 @@ def is_storm_active(agent_id: str) -> bool:
 
 
 def evaluate_storm(agent_id: str, batch_size: int) -> StormDecision:
-    """Evaluate whether an agent is in a traffic storm and decide sampling.
-
-    Storm mode is designed to protect Postgres under volumetric attacks.
-    The backend will:
-      - keep a small representative sample of raw events
-      - optionally write 1-second rollups for the full batch
-
-    The decision is based on ingest rate (events/sec) and batch size.
-    """
 
     # Safe defaults (tune via env without code changes).
     eps_limit = _env_int("SEAGULL_INGEST_STORM_EVENTS_PER_SECOND", 8000)
@@ -123,10 +110,6 @@ def evaluate_storm(agent_id: str, batch_size: int) -> StormDecision:
 
 
 def stable_sample(*, seed: str, sample_percent: int) -> bool:
-    """Deterministic sampler.
-
-    Keeps roughly `sample_percent`% of events, stable across processes.
-    """
 
     p = max(0, min(int(sample_percent), 100))
     if p <= 0:

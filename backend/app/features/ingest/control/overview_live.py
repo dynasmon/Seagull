@@ -35,7 +35,6 @@ def record_overview_live_telemetry(
     dropped_event_type_counts: int = 0,
     bucket_ts: Optional[datetime] = None,
 ) -> bool:
-    """Record short-lived live telemetry buckets used by overview fallback charts."""
 
     r = get_redis()
     if r is None:
@@ -119,7 +118,6 @@ def record_overview_live_drop(*, dropped_events: int, bucket_ts: Optional[dateti
 
 
 def read_overview_live_window(*, now_s: Optional[int] = None, seconds: int = 900) -> Dict[str, Any]:
-    """Read a bounded live telemetry window from Redis."""
 
     r = get_redis()
     if r is None:

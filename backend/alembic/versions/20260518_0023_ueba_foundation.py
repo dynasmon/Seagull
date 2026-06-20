@@ -1,9 +1,3 @@
-"""UEBA durable foundation tables.
-
-Revision ID: 20260518_0023
-Revises: 20260511_0022
-Create Date: 2026-05-18
-"""
 
 from __future__ import annotations
 

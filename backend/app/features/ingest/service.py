@@ -726,10 +726,6 @@ def _maybe_create_inline_ddos_alerts(db: Session, *, events: List[NetEvent], now
     return created
 
 def _fallback_direct_insert(db: Session, *, hot_events: List[List], rollup_rows: List[List]) -> int:
-    """Fail-open path if Redis is unavailable.
-
-    This keeps the platform usable, but may increase DB pressure under storm.
-    """
 
     repository.persist_fallback_ingest(db, hot_events=hot_events, rollup_rows=rollup_rows)
     return int(len(hot_events))
@@ -797,7 +793,6 @@ def _fallback_clickhouse_insert(*, analytics_events: List[List]) -> int:
 
 
 def storm_status():
-    """Storm Mode health payload for the Overview page."""
 
     return get_storm_status()
 
@@ -807,11 +802,6 @@ def storm_recover(
     clear_backlog_counters: bool = False,
     clear_ui_caches: bool = True,
 ):
-    """Administrative runtime recovery for post-incident stuck states.
-
-    Clears volatile ingest pressure/storm keys and cache keys so dashboards and
-    timelines resume normal update behavior immediately.
-    """
 
     res = recover_runtime_state(
         clear_backlog_counters=bool(clear_backlog_counters),
@@ -832,18 +822,6 @@ def ingest_events(
     events: List[NetEvent],
     agent: AgentPrincipal,
 ):
-    """Ingest network/security events from agents.
-
-    Goals:
-    - Survive volumetric attacks without collapsing Postgres.
-    - Provide "Storm Mode" sampling + 1-second rollups.
-    - Add backpressure using a Redis queue (fast ingest, async persistence).
-
-    Behavior under load:
-    - Normal: 100% hot (Postgres), rollups optional.
-    - Storm: sample hot + optional warm (Elasticsearch), always rollups.
-    - Backpressure: rollup_only or 429 (configurable).
-    """
 
     if not events:
         return {"received": 0, "enqueued": 0}

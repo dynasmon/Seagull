@@ -10,7 +10,6 @@ from app.features.alerts.models import AlertModel
 
 
 def _normalize_dedup_key(rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]):
-    """Normalize dedup key so enrichment doesn't create duplicate alerts."""
     rid = str(rule_id or "")
     src = src_ip
     dst = dst_ip

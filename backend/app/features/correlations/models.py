@@ -7,16 +7,6 @@ from app.core.db import Base
 
 
 class CorrelationRuleModel(Base):
-    """Portal-managed correlation rules.
-
-    These rules correlate multiple alerts into higher-level incidents.
-    The intent is to reduce alert fatigue and help analysts reason about
-    multi-step attacks (e.g., scan -> brute force -> lateral movement).
-
-    Notes:
-    - include_patterns/exclude_patterns use shell-like wildcards (fnmatch).
-    - stages is used only when strategy == "chain".
-    """
 
     __tablename__ = "correlation_rules"
 

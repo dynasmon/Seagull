@@ -32,10 +32,6 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _env_float_alias(names: list[str], default: float) -> float:
-    """Read the first defined env var from `names`.
-
-    This keeps the config backward-compatible if env names evolve.
-    """
     for n in names:
         raw = getenv_compat(n)
         if raw is None:

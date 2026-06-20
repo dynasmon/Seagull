@@ -1,4 +1,3 @@
-"""Centralized model imports for metadata/alembic bootstrap."""
 
 
 def load_all_models() -> None:

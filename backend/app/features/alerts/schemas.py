@@ -85,14 +85,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class RuleSchedule(BaseModel):
-    """Simple schedule window.
-
-    - enabled: if false or omitted, the rule is always active.
-    - timezone: IANA tz name, e.g. "America/Fortaleza".
-    - days: subset of [mon,tue,wed,thu,fri,sat,sun]. Empty means all days.
-    - start/end: "HH:MM" 24h.
-      If start > end, window crosses midnight.
-    """
 
     enabled: bool = False
     timezone: str = "UTC"

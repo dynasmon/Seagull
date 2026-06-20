@@ -40,7 +40,6 @@ def _update_events_per_msg_avg(r, sample_events_per_message: float) -> None:
 
 
 def get_backlog() -> Tuple[int, int]:
-    """Return (backlog_messages, backlog_events) best-effort."""
 
     r = get_redis()
     if r is None:
@@ -85,11 +84,6 @@ def get_backlog() -> Tuple[int, int]:
 
 
 def evaluate_backpressure(*, received: int) -> BackpressureDecision:
-    """Decide how to handle ingestion based on Redis backlog.
-
-    - soft limit: switch to rollup_only (default)
-    - hard limit: reject 429 or rollup_only depending on SEAGULL_INGEST_BACKPRESSURE_MODE
-    """
 
     soft = max(1, _env_int("SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50_000))
     hard = max(soft + 1, _env_int("SEAGULL_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS", 200_000))
