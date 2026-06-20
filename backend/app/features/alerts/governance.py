@@ -1,18 +1,11 @@
-"""Rule governance validation.
-
-Called before persisting any override, tuning, or suppression.
-Validates the effective rule and every suppression item before any DB write.
-"""
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.features.detections.domain.rule_types import (
-    SUPPORTED_RULE_SEVERITIES,
-    V2_RULE_SCHEMA_VERSION,
-)
+from app.features.detections.public import compile_validate_effective_rule
+from app.shared.detection_rules.rule_types import SUPPORTED_RULE_SEVERITIES
 
 VALID_SEVERITIES: frozenset[str] = frozenset(SUPPORTED_RULE_SEVERITIES)
 _VALID_COND_OPS: frozenset[str] = frozenset({">=", ">", "<=", "<", "==", "!="})
@@ -87,7 +80,6 @@ def validate_suppression_item(
     base_severity: str,
     idx: int,
 ) -> list[str]:
-    """Validate a single suppression dict before persistence."""
     errors: list[str] = []
     prefix = f"suppressions[{idx}]"
 
@@ -115,36 +107,11 @@ def validate_suppression_item(
     return errors
 
 
-def _try_compile_effective(effective: dict[str, Any]) -> list[str]:
-    """Attempt structural validation of the effective rule."""
-    schema_version = int(effective.get("schema_version") or 1)
-
-    if schema_version == V2_RULE_SCHEMA_VERSION:
-        from app.features.detections.domain.condition_ast import DetectionBlock
-        detection = effective.get("detection")
-        if detection is not None and not isinstance(detection, DetectionBlock):
-            return [
-                "patch overwrites the compiled 'detection' block on this v2 rule — "
-                "remove 'detection' from patch; it cannot be replaced via an override"
-            ]
-
-    try:
-        from app.features.detections.testing.yaml_tests import build_rule_execution_spec
-        build_rule_execution_spec(effective)
-    except Exception as exc:
-        return [f"Rule structure invalid after applying changes: {exc}"]
-
-    return []
-
-
 def build_provisional_effective(
     base: dict[str, Any],
     body: Any,
 ) -> dict[str, Any]:
-    """Simulate the effective rule that would result from applying body to base.
-
-    Does not touch the database. Used for pre-save compile validation.
-    """
+    
     from app.workers.intelligence.rules.registry import deep_merge
 
     fields_set = getattr(body, "__fields_set__", set())
@@ -177,11 +144,7 @@ def validate_governance_request(
     *,
     base_rule: dict[str, Any],
 ) -> ValidationResult:
-    """Full pre-save validation for overrides, tunings, and suppressions.
-
-    Returns a ValidationResult with ok=True only if all checks pass.
-    Errors are actionable messages suitable for display to operators.
-    """
+    
     errors: list[str] = []
 
     errors.extend(_validate_override_fields(body))
@@ -199,7 +162,7 @@ def validate_governance_request(
                 validate_suppression_item(item, base_severity=base_severity, idx=idx)
             )
 
-    errors.extend(_try_compile_effective(provisional_effective))
+    errors.extend(compile_validate_effective_rule(provisional_effective))
 
     return ValidationResult(
         ok=not errors,
