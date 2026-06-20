@@ -5,8 +5,8 @@ from typing import Any, Protocol
 
 from sqlalchemy.orm import Session
 
-from app.features.alerts.models import AlertModel
 from app.features.detections.domain.scoring import build_rule_provenance, score_alert_for_endpoints
+from app.shared.alerting import AlertDraft
 from app.workers.intelligence.rules.conditions import _evaluate_condition, _extract_alert_key
 from app.workers.intelligence.rules.dedup import _recent_alert_last_at
 from app.workers.intelligence.rules.suppression import _is_suppressed
@@ -167,13 +167,13 @@ def build_alert_details(ctx: AlertContext, *, mitre: dict) -> dict[str, Any]:
 
 class AlertFactory:
     @staticmethod
-    def build(ctx: AlertContext, *, description: str, mitre: dict, rule_hash: str | None) -> AlertModel:
+    def build(ctx: AlertContext, *, description: str, mitre: dict, rule_hash: str | None) -> AlertDraft:
         cand = ctx.candidate
         details = build_alert_details(ctx, mitre=mitre)
         details["risk_score"] = ctx.risk_score
         details["confidence"] = ctx.confidence
         details["score_breakdown"] = ctx.score_breakdown
-        return AlertModel(
+        return AlertDraft(
             rule_id=cand.rule_id,
             severity=ctx.eff_severity,
             risk_score=ctx.risk_score,
