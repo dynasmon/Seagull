@@ -10,12 +10,6 @@ from app.workers.intelligence.rules.loader import load_rules
 
 
 def deep_merge(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
-    """Deep-merge dictionaries.
-
-    - dict values are merged recursively
-    - other values overwrite
-    - lists overwrite (no concat) to avoid ambiguous merges
-    """
     if not isinstance(base, dict):
         return patch
     out: Dict[str, Any] = dict(base)
@@ -62,7 +56,6 @@ def fetch_suppressions(db: Session) -> Dict[str, List[AlertRuleSuppressionModel]
 
 
 def apply_override(base_rule: Dict[str, Any], row: Optional[AlertRuleOverrideModel]) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
-    """Returns (effective_rule, override_payload)."""
     base = dict(base_rule or {})
     if not row:
         return base, None

@@ -51,7 +51,6 @@ def build_evidence_ref(
 
 
 def evidence_refs_from_list(raw: list[Any]) -> list[EvidenceRef]:
-    """Deserialize a bounded list of evidence refs from a JSONB column."""
     out: list[EvidenceRef] = []
     for item in raw[:_MAX_EVIDENCE_REFS]:
         if not isinstance(item, dict):
@@ -79,13 +78,6 @@ def evidence_refs_to_list(refs: list[EvidenceRef]) -> list[dict[str, Any]]:
 
 
 def derive_aggregate_confidence(refs: list[EvidenceRef], *, base_confidence: int = 50) -> int:
-    """
-    Derive a bounded aggregate confidence from evidence refs.
-
-    Each ref contributes its source reliability; confidence rises with
-    corroborating sources but is capped to prevent over-certainty from
-    low-quality repetition.
-    """
     if not refs:
         return clamp_confidence(base_confidence)
 
@@ -115,7 +107,6 @@ def count_evidence_by_source(refs: list[EvidenceRef]) -> dict[str, int]:
 
 
 def merge_evidence_refs(existing: list[EvidenceRef], incoming: list[EvidenceRef]) -> list[EvidenceRef]:
-    """Merge two ref lists, deduplicating by (source_type, source_id) and keeping the newest observed_at."""
     seen: dict[tuple[str, str], EvidenceRef] = {}
     for ref in existing + incoming:
         key = (ref.source_type, ref.source_id)

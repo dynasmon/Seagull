@@ -1,9 +1,3 @@
-"""Auth hardening: token versioning on portal users.
-
-Revision ID: 20260324_0006
-Revises: 20260317_0005
-Create Date: 2026-03-24
-"""
 
 from __future__ import annotations
 

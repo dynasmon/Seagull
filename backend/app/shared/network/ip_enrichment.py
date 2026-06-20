@@ -7,7 +7,6 @@ from app.shared.network.ip_classification import classify_flow
 
 
 def attach_ip_context(extra: Dict[str, Any], src_ip: Any, dst_ip: Any) -> None:
-    """Inject ip_context into extra if not already present. Mutates extra in place."""
     if extra.get("ip_context"):
         return
     try:

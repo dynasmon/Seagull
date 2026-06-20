@@ -57,12 +57,6 @@ from app.core.db import Base
 
 
 class AlertRuleOverrideModel(Base):
-    """Per-rule overrides stored in DB.
-
-    The baseline (authoritative) rule set lives in YAML under /rules.
-    This table allows the portal to override a subset of fields without
-    rebuilding or redeploying.
-    """
 
     __tablename__ = "alert_rule_overrides"
 

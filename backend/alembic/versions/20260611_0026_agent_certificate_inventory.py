@@ -1,9 +1,3 @@
-"""Inventory of issued agent client certificates.
-
-Revision ID: 20260611_0026
-Revises: 20260526_0025
-Create Date: 2026-06-11
-"""
 
 from __future__ import annotations
 

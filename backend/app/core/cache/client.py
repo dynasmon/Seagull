@@ -14,11 +14,6 @@ _REDIS_RETRY_COOLDOWN_SECONDS = 5.0
 
 
 def get_redis(*, decode_responses: bool = True) -> Optional[redis.Redis]:
-    """Best-effort Redis client.
-
-    The platform should remain usable if Redis is temporarily unavailable.
-    Callers must treat a None return as "Redis down" and fail open.
-    """
 
     global _redis, _redis_unavailable_until
     if _redis is not None:

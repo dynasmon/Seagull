@@ -102,11 +102,6 @@ def _parse_int_set(raw: str) -> set[int]:
 
 @lru_cache(maxsize=1)
 def _env_port_hints() -> dict[int, tuple[str, int]]:
-    """Parse SEAGULL_PROTO_INTEL_PORT_HINTS into a port map.
-
-    Format:
-    - "proto:80,8080;dns:53;postgresql=5432"
-    """
 
     raw = (settings.SEAGULL_PROTO_INTEL_PORT_HINTS or "").strip()
     if not raw:
@@ -146,17 +141,6 @@ def guess_application_proto(
     dst_port: Optional[int],
     extra: Dict[str, Any],
 ) -> Tuple[Optional[str], int, str]:
-    """Best-effort classification using stable signals.
-
-    Returns: (app_proto, confidence 0..100, reason)
-
-    Signals:
-    - explicit hints in extra: is_quic/is_dtls/transport
-    - transport+ports
-    - event_type (agent-specific)
-
-    This is intentionally conservative; deep parsing happens elsewhere.
-    """
 
     et = (event_type or "").lower().strip()
     tr = (transport or "").lower().strip()

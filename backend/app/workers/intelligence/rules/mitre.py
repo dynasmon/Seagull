@@ -12,17 +12,6 @@ def _clamp_int(v: Any, lo: int, hi: int, default: int) -> int:
 
 
 def _extract_mitre_meta(rule: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract and normalize MITRE ATT&CK metadata from a rule dict.
-
-    Expected schema in YAML:
-        mitre:
-          tactic: "discovery"
-          technique_id: "T1046"
-          technique: "Network Service Scanning"  # optional
-          confidence: 75
-
-    Returns an empty dict if no metadata is defined.
-    """
 
     m = rule.get('mitre')
     if not isinstance(m, dict):

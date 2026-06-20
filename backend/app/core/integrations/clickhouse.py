@@ -1,8 +1,3 @@
-"""ClickHouse client helpers.
-
-ClickHouse is used as an analytics store for high-volume event queries.
-Postgres remains the transactional source of truth.
-"""
 
 from __future__ import annotations
 
@@ -109,7 +104,6 @@ def clickhouse_events_1m_table_ref() -> str:
 
 
 def ensure_clickhouse_events_schema() -> bool:
-    """Idempotent schema bootstrap for analytics events table."""
 
     if not clickhouse_is_enabled():
         return False

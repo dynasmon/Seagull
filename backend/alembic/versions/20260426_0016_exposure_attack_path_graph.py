@@ -1,9 +1,3 @@
-"""Exposure and attack path graph tables.
-
-Revision ID: 20260426_0016
-Revises: 20260422_0015
-Create Date: 2026-04-26
-"""
 
 from __future__ import annotations
 

@@ -1,4 +1,3 @@
-"""Add administrative audit trail and platform settings tables."""
 
 from __future__ import annotations
 

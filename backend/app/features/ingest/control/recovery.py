@@ -150,7 +150,6 @@ def _clear_ui_runtime_caches(r) -> int:
 
 
 def get_storm_status() -> Dict[str, Any]:
-    """Return a small status payload for the UI (best-effort)."""
 
     r = get_redis()
     now_s = int(time.time())
@@ -479,7 +478,6 @@ def get_storm_status() -> Dict[str, Any]:
 
 
 def recover_runtime_state(*, clear_backlog_counters: bool = False, clear_ui_caches: bool = True) -> Dict[str, Any]:
-    """Force-reset volatile ingest runtime state in Redis."""
 
     r = get_redis()
     if r is None:

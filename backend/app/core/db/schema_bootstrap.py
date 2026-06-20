@@ -1,11 +1,3 @@
-"""Database bootstrap helpers.
-
-Runtime-safe bootstrap without raw SQL queries:
-- ensure important secondary indexes (checkfirst)
-- seed offset rows used by background workers
-
-Table creation is handled by Alembic migrations (upgrade head).
-"""
 
 from sqlalchemy import Index, func, inspect
 from sqlalchemy.dialects.postgresql import insert

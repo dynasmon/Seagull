@@ -1,4 +1,3 @@
-"""Worker-facing import surface for the UEBA feature."""
 
 from __future__ import annotations
 

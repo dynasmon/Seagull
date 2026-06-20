@@ -1,8 +1,3 @@
-"""Evidence spec extraction for alert evidence items.
-
-Reads structured data already present in AlertModel.details and produces
-the kwargs dicts used to construct AlertEvidenceModel rows.
-"""
 
 from __future__ import annotations
 
@@ -112,7 +107,6 @@ def build_multi_distinct_evidence(
 
 
 def extract_evidence_specs(alert: AlertModel) -> list[dict]:
-    """Derive evidence item specs from an AlertModel's existing fields."""
     details = alert.details or {}
     detector_type = str(alert.detector_type or "")
     rule_type = str(details.get("type") or "")

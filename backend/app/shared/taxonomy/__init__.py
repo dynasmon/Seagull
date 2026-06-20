@@ -1,4 +1,3 @@
-"""Shared taxonomy helpers."""
 
 from .catalog import TACTIC_LABELS, TECHNIQUES, tactic_label, technique_name
 

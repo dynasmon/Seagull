@@ -1,21 +1,3 @@
-"""Pure analyst-feedback projection logic for the UEBA feedback loop.
-
-Everything here is side-effect free and DB-free so it can be unit tested directly.
-The service layer maps these results onto durable rows (``ueba_feedback``,
-``ueba_suppressions``) and baseline columns; the detector chokepoint
-(``support._record_finding``) consumes :func:`apply_feedback_to_emission`.
-
-Verdict semantics
------------------
-* ``false_positive`` — desensitize the entity/detector pair (Surface A) and,
-  unless ``suppression_ttl_seconds == 0``, open a suppression window (Surface B).
-  The adjustment magnitude decays with the number of prior FP verdicts so the
-  system grows increasingly skeptical of further auto-adjustments.
-* ``true_positive`` — reinforce baseline confidence upward and halve the finding
-  cooldown for the entity on the next cycle.
-* ``benign_acknowledged`` — mild de-prioritization; acknowledged and closed, no
-  suppression and no FP-style desensitization.
-"""
 
 from __future__ import annotations
 

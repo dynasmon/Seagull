@@ -18,11 +18,6 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def verify_and_upgrade_password(password: str, password_hash: str) -> tuple[bool, str | None]:
-    """Verify password and return an upgraded hash when needed.
-
-    Returns:
-      (verified, upgraded_hash_or_none)
-    """
 
     try:
         verified = bool(pwd_context.verify(password, password_hash))

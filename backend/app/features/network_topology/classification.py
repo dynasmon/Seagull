@@ -38,7 +38,6 @@ def classify_topology_ip(
     *,
     internal_cidrs: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Classify an IP and add topology node_class hint. Composes classify_ip; does not duplicate it."""
     base = classify_ip(ip, internal_cidrs=internal_cidrs)
     node_class = _derive_node_class(base, ip)
     return {**base, "node_class": node_class}
@@ -50,7 +49,6 @@ def classify_topology_flow(
     *,
     internal_cidrs: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Classify a src→dst flow with topology node_class hints. Composes classify_flow."""
     base = classify_flow(src_ip, dst_ip, internal_cidrs=internal_cidrs)
     src_class = _derive_node_class(base["src"], src_ip)
     dst_class = _derive_node_class(base["dst"], dst_ip)
@@ -62,7 +60,6 @@ def classify_topology_flow(
 
 
 def infer_subnet_cidr(ip: str, *, prefix_len: int = 24) -> str | None:
-    """Derive the containing subnet CIDR for an IP at the given prefix length."""
     try:
         net = ipaddress.ip_interface(f"{ip}/{prefix_len}").network
         return str(net)

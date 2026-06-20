@@ -387,7 +387,6 @@ def test_model_registry_includes_exposure_import() -> None:
 
 
 def test_exposure_model_tablenames_from_source() -> None:
-    """Verify declared table names by reading the models source file directly."""
     import pathlib  # noqa: PLC0415
 
     models_src = (
