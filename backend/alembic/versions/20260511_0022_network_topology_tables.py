@@ -1,9 +1,3 @@
-"""network topology tables
-
-Revision ID: 20260511_0022
-Revises: 20260506_0021
-Create Date: 2026-05-11
-"""
 
 from __future__ import annotations
 

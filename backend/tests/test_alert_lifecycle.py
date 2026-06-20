@@ -1,4 +1,3 @@
-"""Unit tests for alert lifecycle state machine and triage logic."""
 
 import os
 

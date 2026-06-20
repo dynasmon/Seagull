@@ -95,7 +95,6 @@ def _make_incident_out(
 
 
 class _FakeDB:
-    """Minimal in-memory DB session for unit tests."""
 
     def __init__(self):
         self._added: List[Any] = []

@@ -1,4 +1,3 @@
-"""UEBA ML feature extraction and scoring helpers."""
 
 from __future__ import annotations
 

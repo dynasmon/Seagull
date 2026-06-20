@@ -1,9 +1,3 @@
-"""Add renewal tokens, remove legacy agent columns, add performance indexes.
-
-Revision ID: 20260419_0013
-Revises: 20260405_0012
-Create Date: 2026-04-19
-"""
 
 from __future__ import annotations
 

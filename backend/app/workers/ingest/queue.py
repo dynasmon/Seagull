@@ -12,7 +12,6 @@ logger = logging.getLogger("seagull.worker.ingest")
 
 
 def _decr_backlog_events(r: Any, received: int) -> None:
-    """Decrease backlog counter and clamp to 0."""
 
     if r is None:
         return
@@ -37,7 +36,6 @@ def cfg_queue_backlog_key() -> str:
 
 
 def _requeue_processing(r: Any, cfg: WorkerConfig) -> None:
-    """Move any leftover processing items back to the main queue."""
 
     if r is None:
         return
@@ -52,7 +50,6 @@ def _requeue_processing(r: Any, cfg: WorkerConfig) -> None:
 
 
 def _requeue_processing_with_retry_cap(r: Any, cfg: WorkerConfig) -> None:
-    """Requeue processing items and dead-letter poison messages."""
 
     if r is None:
         return

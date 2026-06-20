@@ -1,19 +1,3 @@
-"""Cursor pagination helpers (keyset pagination).
-
-Why cursor pagination?
-Offset pagination becomes slower as offsets grow because the database must scan
-and skip increasingly large ranges.
-
-For event/alert timelines, cursor (a.k.a. keyset) pagination is a better fit:
-- Stable ordering (timestamp, id)
-- O(1) paging cost regardless of page depth
-
-Security
---------
-The cursor is opaque and HMAC-signed to prevent clients from tampering with it.
-This avoids weird edge-cases (e.g., forcing pathological queries) and keeps the
-API behavior deterministic.
-"""
 
 from __future__ import annotations
 
@@ -45,11 +29,6 @@ def _hmac_sha256(payload: bytes, secret: str) -> bytes:
 
 
 def encode_cursor(data: Dict[str, Any], secret: str | None = None) -> str:
-    """Encode + sign a cursor payload.
-
-    The resulting token format is:
-        base64url(payload_json) + "." + base64url(hmac_sha256(payload_json))
-    """
 
     payload = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     sig = _hmac_sha256(payload, secret or settings.token_pepper())
@@ -57,7 +36,6 @@ def encode_cursor(data: Dict[str, Any], secret: str | None = None) -> str:
 
 
 def decode_cursor(token: str, secret: str | None = None) -> Dict[str, Any]:
-    """Verify + decode a cursor token."""
 
     if not token or "." not in token:
         raise HTTPException(status_code=400, detail="Invalid cursor")
@@ -85,7 +63,6 @@ def decode_cursor(token: str, secret: str | None = None) -> Dict[str, Any]:
 
 
 def parse_cursor_ts_id(token: str, *, ts_key: str = "ts", id_key: str = "id") -> Tuple[datetime, int]:
-    """Parse a (ts, id) cursor from a signed token."""
 
     obj = decode_cursor(token)
     ts_raw = obj.get(ts_key)

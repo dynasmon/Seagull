@@ -1,14 +1,3 @@
-"""Public metrics facade for Seagull.
-
-The rest of the codebase calls :func:`incr_counter`, :func:`observe_hist` and
-:func:`set_gauge` here; this module forwards to ``prometheus_client`` objects
-declared in :mod:`app.core.observability.registry`. The signatures are kept
-exactly as the legacy in-memory implementation so call-sites need no changes.
-
-``snapshot_metrics`` is preserved (now reading from the Prometheus registry) so
-existing JSON consumers — notably the admin system-status view — keep working.
-``render_exposition`` produces standard Prometheus text exposition for scraping.
-"""
 
 from __future__ import annotations
 
@@ -24,12 +13,6 @@ METRICS_CONTENT_TYPE = CONTENT_TYPE_LATEST
 
 
 def _label_values(labelnames: Tuple[str, ...], labels: Dict[str, Any]) -> Dict[str, str]:
-    """Project caller-supplied labels onto a metric's declared label set.
-
-    Declared labels missing from a given call-site are filled with ``"none"``;
-    values are coerced to bounded strings. Labels not declared for the metric
-    are dropped (protects cardinality).
-    """
     out: Dict[str, str] = {}
     for name in labelnames:
         value = labels.get(name, None)
@@ -72,7 +55,6 @@ def observe_hist(name: str, value: float, **labels: Any) -> None:
 
 
 def set_gauge(name: str, value: float, **labels: Any) -> None:
-    """Set a gauge to an absolute value (current-state signals)."""
     spec, instrument = get_instrument(name)
     if spec is None or instrument is None:
         return
@@ -83,32 +65,14 @@ def set_gauge(name: str, value: float, **labels: Any) -> None:
 
 
 def render_exposition() -> Tuple[bytes, str]:
-    """Render Prometheus text exposition for the current process group.
-
-    Returns ``(body, content_type)``. Aggregates across processes when running
-    in multiprocess mode.
-    """
     return generate_latest(exposition_registry()), METRICS_CONTENT_TYPE
 
 
 def start_metrics_server(port: int, addr: str = "0.0.0.0") -> None:
-    """Start a background HTTP exposer (used by worker group managers).
-
-    Serves the multiprocess-aggregated registry so a group manager exposes the
-    combined metrics of all its child workers on a single internal port. Runs in
-    a daemon thread; raises on bind failure so the caller can decide to degrade.
-    """
     start_http_server(port, addr=addr, registry=exposition_registry())
 
 
 def snapshot_metrics() -> dict[str, Any]:
-    """Backward-compatible JSON snapshot derived from the Prometheus registry.
-
-    Shape matches the legacy in-memory implementation (counters + histograms)
-    so existing consumers keep working. Histogram ``min``/``max`` are no longer
-    tracked (Prometheus histograms are bucket-based) and report ``0.0``; a
-    ``gauges`` section is added for current-state signals.
-    """
     counters: list[dict[str, Any]] = []
     gauges: list[dict[str, Any]] = []
     hist_acc: dict[tuple[str, tuple[tuple[str, str], ...]], dict[str, float]] = {}

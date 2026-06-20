@@ -1,4 +1,3 @@
-"""IP intelligence worker."""
 
 from __future__ import annotations
 

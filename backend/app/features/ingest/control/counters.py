@@ -31,7 +31,6 @@ def bump_ingest_counters(
     sample_hot: int,
     sample_warm: int,
 ) -> None:
-    """Aggregate per-second metrics in Redis (best-effort)."""
 
     r = get_redis()
     if r is None:
@@ -67,7 +66,6 @@ def bump_ingest_counters(
 
 
 def record_ingest_quality(*, breakdown: Dict[str, Dict[str, int]]) -> None:
-    """Record short-lived per-event-type ingest quality counters (best-effort)."""
 
     if not isinstance(breakdown, dict) or not breakdown:
         return
@@ -160,7 +158,6 @@ def _read_ingest_quality_window(*, now_s: int, seconds: int = 15) -> list[Dict[s
 
 
 def maybe_flush_stats_to_db() -> None:
-    """Flush the previous second's Redis stats to Postgres (at most once per second)."""
 
     r = get_redis()
     if r is None:

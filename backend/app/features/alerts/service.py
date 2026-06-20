@@ -137,7 +137,6 @@ def _persist_alerts(db: Session, rows: list[AlertModel]) -> list[AlertModel]:
 
 
 def persist_generated_alerts(db: Session, rows: list[AlertModel]) -> list[AlertModel]:
-    """Persist generated alerts through the shared alert/evidence/realtime path."""
 
     return _persist_alerts(db, rows)
 
@@ -792,10 +791,6 @@ def preview_rule_override(
     rule_id: str,
     body: RuleOverrideIn,
 ) -> RuleValidationResult:
-    """Validate an override request without persisting anything.
-
-    Returns the validation result and the provisional effective rule on success.
-    """
     base_rules = normalize_rule_list(load_baseline_rules(include_disabled=True))
     base = next((r for r in base_rules if r.get("id") == rule_id), None)
     if not base:

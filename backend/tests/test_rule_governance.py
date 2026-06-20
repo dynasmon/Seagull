@@ -1,4 +1,3 @@
-"""Focused tests for rule governance validation."""
 from __future__ import annotations
 
 import os

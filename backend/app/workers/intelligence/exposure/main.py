@@ -1,9 +1,3 @@
-"""Exposure Graph worker.
-
-Reads net_events incrementally and runs periodic full posture refreshes.
-Projects agent, inventory, vulnerability, alert, attack-chain, and event
-signals into the exposure graph tables.
-"""
 
 from __future__ import annotations
 

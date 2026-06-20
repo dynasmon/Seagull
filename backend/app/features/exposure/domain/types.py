@@ -7,7 +7,6 @@ from typing import Any
 
 @dataclass(frozen=True)
 class EvidenceRef:
-    """Structured pointer to a piece of source evidence."""
 
     source_type: str
     source_id: str
@@ -29,7 +28,6 @@ class EvidenceRef:
 
 @dataclass(frozen=True)
 class ScoreBreakdown:
-    """Per-component risk score decomposition for a single asset."""
 
     exposure_score: int
     vulnerability_score: int
@@ -53,7 +51,6 @@ class ScoreBreakdown:
 
 @dataclass
 class FindingInput:
-    """Normalized finding for ingestion into the exposure engine."""
 
     finding_type: str
     asset_key: str
@@ -76,7 +73,6 @@ class FindingInput:
 
 @dataclass
 class NodeInput:
-    """Normalized graph node for upsert."""
 
     node_key: str
     node_type: str
@@ -94,7 +90,6 @@ class NodeInput:
 
 @dataclass
 class EdgeInput:
-    """Normalized graph edge for upsert."""
 
     edge_key: str
     source_node_key: str
@@ -112,7 +107,6 @@ class EdgeInput:
 
 @dataclass
 class PostureInput:
-    """Full risk posture for a single asset, ready for upsert."""
 
     asset_key: str
     agent_id: str | None
@@ -136,7 +130,6 @@ class PostureInput:
 
 @dataclass(frozen=True)
 class Recommendation:
-    """A single actionable recommendation surfaced for an asset."""
 
     rec_type: str
     priority: int

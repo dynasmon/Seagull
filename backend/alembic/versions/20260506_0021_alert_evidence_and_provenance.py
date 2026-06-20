@@ -1,9 +1,3 @@
-"""alert evidence table and rule provenance columns
-
-Revision ID: 20260506_0021
-Revises: 20260506_0020
-Create Date: 2026-05-06
-"""
 
 from __future__ import annotations
 

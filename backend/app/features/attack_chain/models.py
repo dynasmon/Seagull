@@ -7,14 +7,6 @@ from app.core.db import Base
 
 
 class AttackChainCaseModel(Base):
-    """Stateful, scored attack-chain case.
-
-    A case is a timeline of evidence (steps) that suggests an attacker progressing
-    through stages (initial access -> execution -> persistence ...).
-
-    Cases are intentionally modeled as durable state so the UI can show a clean,
-    operator-friendly narrative instead of raw event noise.
-    """
 
     __tablename__ = "attack_chain_cases"
 
@@ -72,13 +64,6 @@ class AttackChainStepModel(Base):
 
 
 class AttackChainAllowlistModel(Base):
-    """Portal-managed allowlist for Attack Chain detectors.
-
-    This is used to suppress known-benign activity (e.g., routine sudo commands)
-    without requiring environment variable changes or container rebuilds.
-
-    IMPORTANT: This is admin-only and should not be exposed to non-admin users.
-    """
 
     __tablename__ = "attack_chain_allowlist"
 

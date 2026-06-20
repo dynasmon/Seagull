@@ -1,15 +1,3 @@
-"""Tests for new and refined detection rules added in the content expansion.
-
-Coverage:
-  - ssh_password_spray_distinct_username_v1 (positive + FP negative)
-  - ssh_accepted_login_signal_v1 (positive + FP negative)
-  - proc_lolbin_exec_v1 (positive + FP negative)
-  - beacon_suspect_heuristic_v1 heuristic_name refinement
-  - tls_ja4_on_http_port_v2 structure validation
-  - Duplicate-ID regression across entire rules directory
-  - Field-reference validation: group_by, distinct_field, and distinct_conditions fields
-    must all resolve to supported runtime event fields
-"""
 
 from __future__ import annotations
 

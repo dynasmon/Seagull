@@ -1,4 +1,3 @@
-"""Performance hot paths: denormalized event fields and latest inventory state."""
 
 from __future__ import annotations
 

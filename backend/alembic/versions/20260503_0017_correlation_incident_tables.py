@@ -1,9 +1,3 @@
-"""Correlation incident, evidence, rule run, and entity state tables.
-
-Revision ID: 20260503_0017
-Revises: 20260426_0016
-Create Date: 2026-05-03
-"""
 
 from __future__ import annotations
 

@@ -12,11 +12,6 @@ logger = logging.getLogger("seagull.worker.ingest")
 
 
 def _insert_hot_rows_with_pg_ids(conn, hot_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Insert hot rows in Postgres and return rows linked with pg_event_id.
-
-    The first attempt uses bulk INSERT ... RETURNING for throughput. If that fails,
-    we fallback safely using savepoints so the outer transaction remains usable.
-    """
 
     if not hot_rows:
         return []

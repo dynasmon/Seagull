@@ -22,7 +22,6 @@ def assert_portal_secrets() -> None:
 
 
 def bootstrap_portal_admin() -> None:
-    """Create the first admin user on a fresh DB."""
 
     assert_portal_secrets()
 

@@ -88,11 +88,6 @@ def effective_dispersion(
     expected_value: Any,
     minimum: float = 1.0,
 ) -> float:
-    """Return a stable denominator for standardized count-like deviations.
-
-    Stored dispersion remains the actual sample standard deviation. Scoring uses
-    a floor so constant or tiny samples do not produce infinite z-scores.
-    """
 
     observed = max(0.0, finite_float(observed_dispersion, default=0.0))
     expected = max(0.0, finite_float(expected_value, default=0.0))

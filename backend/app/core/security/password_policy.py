@@ -6,7 +6,6 @@ MIN_PASSWORD_LENGTH = 12
 
 
 def validate_password_policy(password: str, *, username: str | None = None) -> str | None:
-    """Return a stable validation error message, or None when valid."""
     pw = str(password or "")
     uname = str(username or "").strip().lower()
 

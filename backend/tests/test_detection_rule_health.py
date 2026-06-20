@@ -1,4 +1,3 @@
-"""Focused tests for the per-rule health tracking mechanism."""
 
 from __future__ import annotations
 

@@ -1,4 +1,3 @@
-"""Worker-facing entrypoint for the events feature."""
 
 from __future__ import annotations
 

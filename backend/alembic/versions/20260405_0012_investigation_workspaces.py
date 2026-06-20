@@ -1,9 +1,3 @@
-"""Add investigation workspaces, notes, and evidence bookmarks.
-
-Revision ID: 20260405_0012
-Revises: 20260404_0011
-Create Date: 2026-04-05
-"""
 
 from __future__ import annotations
 

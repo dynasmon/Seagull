@@ -1,9 +1,3 @@
-"""Initial baseline schema from SQLAlchemy metadata.
-
-This migration intentionally creates the full current schema in one step,
-so existing development databases can be versioned and future changes can be
-handled by incremental Alembic revisions.
-"""
 
 from __future__ import annotations
 
