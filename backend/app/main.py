@@ -49,6 +49,7 @@ from app.features.network_topology.api import router as network_topology_router
 from app.features.observability.api import router as observability_router
 from app.features.overview.api import router as overview_router
 from app.features.realtime.api import router as realtime_router
+from app.features.response.agent_actions_api import router as agent_response_actions_router
 from app.features.response.api import router as response_router
 from app.features.settings.api import router as settings_router
 from app.features.ueba.api import router as ueba_router
@@ -398,6 +399,7 @@ app.include_router(ueba_router)
 app.include_router(response_router)
 app.include_router(realtime_router)
 app.include_router(agents_router)
+app.include_router(agent_response_actions_router)
 app.include_router(inventory_router)
 app.include_router(overview_router)
 app.include_router(investigations_router)

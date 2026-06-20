@@ -131,3 +131,50 @@ def refresh(db: Session, row: ResponseActionModel) -> None:
 
 def commit(db: Session) -> None:
     db.commit()
+
+
+def get_agent_by_id(db: Session, row_id: int) -> AgentModel | None:
+    return db.query(AgentModel).filter(AgentModel.id == int(row_id)).first()
+
+
+def list_pending_actions_for_agent(
+    db: Session,
+    *,
+    agent_id: str,
+    limit: int = 100,
+    for_update: bool = False,
+) -> list[ResponseActionModel]:
+    q = (
+        db.query(ResponseActionModel)
+        .filter(
+            ResponseActionModel.agent_id == agent_id,
+            ResponseActionModel.status.in_(["pending", "delivered"]),
+        )
+        .order_by(ResponseActionModel.requested_at.asc(), ResponseActionModel.id.asc())
+        .limit(int(limit))
+    )
+    if for_update:
+        q = q.with_for_update()
+    return q.all()
+
+
+def get_latest_result_for_agent(
+    db: Session,
+    *,
+    action_id: int,
+    agent_id: str,
+) -> ResponseActionResultModel | None:
+    return (
+        db.query(ResponseActionResultModel)
+        .filter(
+            ResponseActionResultModel.response_action_id == int(action_id),
+            ResponseActionResultModel.agent_id == agent_id,
+        )
+        .order_by(ResponseActionResultModel.id.desc())
+        .first()
+    )
+
+
+def save_result(db: Session, row: ResponseActionResultModel) -> ResponseActionResultModel:
+    db.add(row)
+    return row
