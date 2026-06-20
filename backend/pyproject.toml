@@ -141,28 +141,16 @@ source_modules = [
 forbidden_modules = [
     "app.features.response",
 ]
-ignore_imports = [
-    "app.features.agents.api -> app.features.response.schemas",
-    "app.features.agents.repository -> app.features.response.models",
-    "app.features.agents.service -> app.features.response.models",
-    "app.features.agents.service -> app.features.response.realtime",
-    "app.features.agents.service -> app.features.response.schemas",
-]
 
 [[tool.importlinter.contracts]]
-name = "Cycle guard: alerts must not import detections (same-tier)"
+name = "Cycle guard: detections must not import alerts (same-tier)"
 type = "forbidden"
 allow_indirect_imports = "true"
 source_modules = [
-    "app.features.alerts",
-]
-forbidden_modules = [
     "app.features.detections",
 ]
-ignore_imports = [
-    "app.features.alerts.governance -> app.features.detections.domain.condition_ast",
-    "app.features.alerts.governance -> app.features.detections.domain.rule_types",
-    "app.features.alerts.governance -> app.features.detections.testing.yaml_tests",
+forbidden_modules = [
+    "app.features.alerts",
 ]
 
 [[tool.importlinter.contracts]]
