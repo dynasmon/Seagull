@@ -7,6 +7,7 @@ from app.core.db import SessionLocal
 from app.core.observability import log_event
 from app.features.alerts.evidence import extract_evidence_specs
 from app.features.alerts.models import AlertEvidenceModel, AlertModel
+from app.features.alerts.public import persist_alert_drafts
 from app.features.alerts.realtime import publish_alert_created_from_row
 from app.features.alerts.repository import rule_false_positive_rates
 from app.features.alerts.rule_registry_runtime import prepare_effective_rules
@@ -64,12 +65,13 @@ def _run_rule(executor, rule, *, db, now, recent_idx, agent_ctx_map, fp_rates):
         mitre = _extract_mitre_meta(rule)
     if candidates:
         meta = candidates[0].extra
-        alerts = AlertPipeline([
+        drafts = AlertPipeline([
             GovernanceStage(recent_idx, agent_ctx_map, now),
             SuppressionStage(meta.get("effective_suppressions") or [], now),
             EnrichmentStage(_ENRICHMENT_REGISTRY),
             ScoringStage(fp_rates, mitre),
         ]).run(candidates, db=db, recent_idx=recent_idx)
+        alerts = persist_alert_drafts(db, drafts)
     return alerts, sum(int(c.extra.get("event_count") or c.count_value or 0) for c in candidates)
 
 
