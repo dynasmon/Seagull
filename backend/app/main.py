@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 
@@ -30,6 +31,7 @@ from app.core.observability import (
     set_request_context,
     setup_logging,
 )
+from app.core.realtime import realtime_drain
 from app.features.account.api import router as account_router
 from app.features.admin.api import router as admin_router
 from app.features.agents.api import router as agents_router
@@ -230,10 +232,22 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return res
 
 
+def _shutdown_drain_seconds() -> float:
+    configured = int(getattr(settings, "SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS", 5) or 5)
+    if configured < 1:
+        return 1.0
+    if configured > 30:
+        return 30.0
+    return float(configured)
+
+
 @app.on_event("startup")
 def on_startup():
     try:
         settings.validate_for_service("backend-api")
+
+        realtime_drain.reset_state()
+        realtime_drain.install_signal_handlers()
 
         for severity in ("critical", "high", "medium", "low"):
             init_counter("alert_created_total", severity=severity, detector_type="none")
@@ -265,6 +279,23 @@ def on_startup():
     except Exception as exc:
         logger.exception("startup_failed: %s", exc)
         raise
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    realtime_drain.begin_draining()
+    drain_deadline = time.monotonic() + _shutdown_drain_seconds()
+    while realtime_drain.active_connection_count() > 0 and time.monotonic() < drain_deadline:
+        await asyncio.sleep(0.05)
+    remaining = realtime_drain.active_connection_count()
+    log_event(
+        logger,
+        "info",
+        "realtime_drain_complete",
+        remaining_connections=remaining,
+        drained=bool(remaining == 0),
+    )
+    realtime_drain.reset_state()
 
 
 @app.get("/health")
