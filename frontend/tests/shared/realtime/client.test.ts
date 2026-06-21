@@ -606,4 +606,172 @@ describe("PortalRealtimeClient", () => {
     await waitForTick(5);
     expect(tokenProvider).toHaveBeenCalledTimes(1);
   });
+
+  it("treats a websocket concurrency-limit close as semantic and avoids sse fallback", async () => {
+    const tokenProvider = vi.fn(async () => tokenOut("token-concurrency"));
+    const sockets: FakeWebSocket[] = [];
+    const sources: FakeEventSource[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      preferredTransport: "ws",
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      eventSourceFactory: (url) => {
+        const source = new FakeEventSource(url);
+        sources.push(source);
+        return source;
+      },
+      reconnectBaseMs: 50,
+      reconnectMaxMs: 50,
+    });
+
+    client.start();
+    await waitForTick(2);
+    expect(sockets).toHaveLength(1);
+
+    sockets[0]?.emitClose(1013, "Realtime connection limit reached");
+    await waitForTick(10);
+
+    expect(sources).toHaveLength(0);
+    expect(client.diagnostics.concurrencyLimitCount).toBe(1);
+    expect(client.diagnostics.lastFailureKind).toBe("concurrency_limit");
+    expect(client.diagnostics.lastCloseCode).toBe(1013);
+    expect(client.diagnostics.redisUnavailableCount).toBe(0);
+
+    client.stop();
+  });
+
+  it("applies the maximum backoff tier after a concurrency-limit rejection", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const tokenProvider = vi.fn(async () => tokenOut("token-concurrency-backoff"));
+    const sockets: FakeWebSocket[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      preferredTransport: "ws",
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      reconnectBaseMs: 10,
+      reconnectMaxMs: 100000,
+    });
+
+    client.start();
+    await waitForTick(2);
+    expect(sockets).toHaveLength(1);
+
+    sockets[0]?.emitClose(1013, "Realtime connection limit reached");
+
+    expect(client.diagnostics.lastReconnectDelayMs).toBe(320);
+
+    client.stop();
+    randomSpy.mockRestore();
+  });
+
+  it("reconnects immediately when a websocket is closed with a drain signal", async () => {
+    const tokenProvider = vi.fn(async () => tokenOut("token-drain-ws"));
+    const sockets: FakeWebSocket[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      preferredTransport: "ws",
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      reconnectBaseMs: 5000,
+      reconnectMaxMs: 5000,
+    });
+
+    client.start();
+    await waitForTick(2);
+    expect(sockets).toHaveLength(1);
+    sockets[0]?.emitOpen();
+
+    sockets[0]?.emitClose(1001, "Realtime server going away");
+
+    expect(client.diagnostics.drainSignalCount).toBe(1);
+    expect(client.diagnostics.lastReconnectDelayMs).toBe(0);
+    expect(client.diagnostics.drainingRejectedCount).toBe(0);
+    expect(sockets[0]?.closed).toBe(true);
+
+    await waitForTick(5);
+    expect(sockets.length).toBeGreaterThanOrEqual(2);
+
+    client.stop();
+  });
+
+  it("reconnects immediately when an sse stream delivers a drain signal", async () => {
+    const tokenProvider = vi.fn(async () => tokenOut("token-drain-sse"));
+    const sources: FakeEventSource[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      preferredTransport: "sse",
+      eventSourceFactory: (url) => {
+        const source = new FakeEventSource(url);
+        sources.push(source);
+        return source;
+      },
+      reconnectBaseMs: 5000,
+      reconnectMaxMs: 5000,
+    });
+
+    client.start();
+    await waitForTick(2);
+    expect(sources).toHaveLength(1);
+    sources[0]?.emitOpen();
+
+    sources[0]?.onmessage?.({ data: '{"kind":"drain"}' } as MessageEvent<string>);
+
+    expect(client.diagnostics.drainSignalCount).toBe(1);
+    expect(client.diagnostics.lastReconnectDelayMs).toBe(0);
+    expect(client.diagnostics.malformedEnvelopeCount).toBe(0);
+    expect(sources[0]?.closed).toBe(true);
+
+    await waitForTick(5);
+    expect(sources.length).toBeGreaterThanOrEqual(2);
+
+    client.stop();
+  });
+
+  it("treats a websocket draining rejection as semantic without immediate reconnect or fallback", async () => {
+    const tokenProvider = vi.fn(async () => tokenOut("token-draining-reject"));
+    const sockets: FakeWebSocket[] = [];
+    const sources: FakeEventSource[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      preferredTransport: "ws",
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      eventSourceFactory: (url) => {
+        const source = new FakeEventSource(url);
+        sources.push(source);
+        return source;
+      },
+      reconnectBaseMs: 50,
+      reconnectMaxMs: 50,
+    });
+
+    client.start();
+    await waitForTick(2);
+    expect(sockets).toHaveLength(1);
+
+    sockets[0]?.emitClose(1013, "Realtime server draining");
+    await waitForTick(10);
+
+    expect(sources).toHaveLength(0);
+    expect(client.diagnostics.drainingRejectedCount).toBe(1);
+    expect(client.diagnostics.drainSignalCount).toBe(0);
+    expect(client.diagnostics.lastFailureKind).toBe("draining");
+    expect(client.diagnostics.redisUnavailableCount).toBe(0);
+
+    client.stop();
+  });
 });
