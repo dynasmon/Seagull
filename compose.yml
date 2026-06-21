@@ -140,6 +140,9 @@ services:
       - --workers
       - "${SEAGULL_UVICORN_WORKERS:-2}"
       - --no-access-log
+      - --timeout-graceful-shutdown
+      - "${SEAGULL_UVICORN_GRACEFUL_SHUTDOWN_SECONDS:-10}"
+    stop_grace_period: ${SEAGULL_BACKEND_STOP_GRACE_PERIOD:-15s}
     depends_on:
       postgres:
         condition: service_healthy
