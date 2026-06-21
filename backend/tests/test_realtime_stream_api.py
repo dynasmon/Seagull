@@ -125,6 +125,7 @@ def _collect_stream_chunks(
             topics=topics,
             replay_after_cursor=replay_after_cursor,
             transport="sse",
+            admission=realtime_api.ConnectionAdmission(admitted=True, reason="test", active_connections=0),
         ):
             out.append(chunk)
             if len(out) >= max_chunks:
