@@ -1,0 +1,48 @@
+groups:
+  - name: seagull-realtime
+    rules:
+      - alert: RealtimeCursorGapSustained
+        expr: sum(rate(realtime_cursor_gap_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          subsystem: realtime
+        annotations:
+          summary: Realtime replay window is undersized for current event volume
+          description: >-
+            Realtime cursor-gap / replay-overflow events have been occurring for
+            more than 5 minutes (sum(rate(realtime_cursor_gap_total[5m])) > 0).
+            Reconnecting clients are losing their replay window and silently
+            missing events. Increase the relevant replay window
+            (SEAGULL_REALTIME_REPLAY_MAX_EVENTS, or the per-partition
+            SEAGULL_REALTIME_STREAM_MAXLEN_* once partitioning is deployed) for
+            the affected stream, or investigate the source of the burst.
+      - alert: RealtimePublishDropsSustained
+        expr: sum(rate(realtime_publish_dropped_total[5m])) > 0
+        for: 2m
+        labels:
+          severity: critical
+          subsystem: realtime
+        annotations:
+          summary: Realtime publishes are being dropped
+          description: >-
+            Realtime publishes have been failing for more than 2 minutes
+            (sum(rate(realtime_publish_dropped_total[5m])) > 0). The event
+            backbone is partially down and connected clients are silently
+            missing updates. Check Redis availability and the application write
+            path; this is a data-loss condition, not a degradation.
+      - alert: RealtimeAdmissionPressure
+        expr: sum(rate(realtime_connection_rejected_total{reason="concurrency_limit"}[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          subsystem: realtime
+        annotations:
+          summary: Realtime admission control is shedding connections
+          description: >-
+            Realtime connections have been rejected for the per-user concurrency
+            limit at more than 1/s for 10 minutes. Either
+            SEAGULL_REALTIME_MAX_CONNECTIONS_PER_USER is too low for legitimate
+            usage or a client is opening connections in a loop. Inspect
+            realtime_connection_rejected_total by transport and identify the
+            offending principals before raising the cap.
