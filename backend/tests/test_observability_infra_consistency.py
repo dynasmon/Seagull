@@ -105,6 +105,7 @@ _PROMQL_FUNCS = {
     "sum", "rate", "irate", "increase", "histogram_quantile", "max", "min", "avg", "count",
     "by", "without", "on", "ignoring", "group_left", "group_right", "le", "clamp_min",
     "clamp_max", "vector", "quantile", "topk", "bottomk", "abs", "ceil", "floor", "round",
+    "or", "and", "unless",
 }
 _STRLIT = re.compile(r"\"[^\"]*\"|'[^']*'")
 _RANGE = re.compile(r"\[[^\]]*\]")
