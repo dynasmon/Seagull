@@ -80,6 +80,9 @@ class Settings:
     SEAGULL_REALTIME_STREAM_READ_BLOCK_MS: int = _env_int("SEAGULL_REALTIME_STREAM_READ_BLOCK_MS", 200)
     SEAGULL_REALTIME_REPLAY_DELIVERY_MAX: int = _env_int("SEAGULL_REALTIME_REPLAY_DELIVERY_MAX", 200)
     SEAGULL_REALTIME_WS_KEEPALIVE_SECONDS: int = _env_int("SEAGULL_REALTIME_WS_KEEPALIVE_SECONDS", 20)
+    SEAGULL_REALTIME_MAX_CONNECTIONS_PER_USER: int = _env_int("SEAGULL_REALTIME_MAX_CONNECTIONS_PER_USER", 8)
+    SEAGULL_REALTIME_CONNECTION_TTL_SECONDS: int = _env_int("SEAGULL_REALTIME_CONNECTION_TTL_SECONDS", 60)
+    SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS: int = _env_int("SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS", 5)
     SEAGULL_RULES_DIR: str = _env_str("SEAGULL_RULES_DIR", "/app/rules") or "/app/rules"
 
     # Optional full SQLAlchemy DSN (preferred). Example:
@@ -426,6 +429,18 @@ class Settings:
             errors.append("SEAGULL_REALTIME_WS_KEEPALIVE_SECONDS must be >= 5")
         if (self.SEAGULL_REALTIME_WS_KEEPALIVE_SECONDS or 0) > 60:
             errors.append("SEAGULL_REALTIME_WS_KEEPALIVE_SECONDS must be <= 60")
+        if (self.SEAGULL_REALTIME_MAX_CONNECTIONS_PER_USER or 0) < 1:
+            errors.append("SEAGULL_REALTIME_MAX_CONNECTIONS_PER_USER must be >= 1")
+        if (self.SEAGULL_REALTIME_MAX_CONNECTIONS_PER_USER or 0) > 100:
+            errors.append("SEAGULL_REALTIME_MAX_CONNECTIONS_PER_USER must be <= 100")
+        if (self.SEAGULL_REALTIME_CONNECTION_TTL_SECONDS or 0) < 15:
+            errors.append("SEAGULL_REALTIME_CONNECTION_TTL_SECONDS must be >= 15")
+        if (self.SEAGULL_REALTIME_CONNECTION_TTL_SECONDS or 0) > 600:
+            errors.append("SEAGULL_REALTIME_CONNECTION_TTL_SECONDS must be <= 600")
+        if (self.SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS or 0) < 1:
+            errors.append("SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS must be >= 1")
+        if (self.SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS or 0) > 30:
+            errors.append("SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS must be <= 30")
         if (self.SEAGULL_AUDIT_RETENTION_DAYS or 0) < 1:
             errors.append("SEAGULL_AUDIT_RETENTION_DAYS must be >= 1")
         if (self.SEAGULL_LOGIN_AUDIT_RETENTION_DAYS or 0) < 1:
@@ -587,6 +602,9 @@ class Settings:
                 "realtime_stream_read_block_ms": int(self.SEAGULL_REALTIME_STREAM_READ_BLOCK_MS),
                 "realtime_replay_delivery_max": int(self.SEAGULL_REALTIME_REPLAY_DELIVERY_MAX),
                 "realtime_ws_keepalive_seconds": int(self.SEAGULL_REALTIME_WS_KEEPALIVE_SECONDS),
+                "realtime_max_connections_per_user": int(self.SEAGULL_REALTIME_MAX_CONNECTIONS_PER_USER),
+                "realtime_connection_ttl_seconds": int(self.SEAGULL_REALTIME_CONNECTION_TTL_SECONDS),
+                "realtime_shutdown_drain_seconds": int(self.SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS),
             },
             "ingest": {
                 "max_batch": self.SEAGULL_INGEST_MAX_BATCH,
