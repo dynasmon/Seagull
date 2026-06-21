@@ -41,6 +41,9 @@ export type RealtimeDiagnosticsSnapshot = {
   invalidTokenCount: number;
   unauthorizedTopicCount: number;
   redisUnavailableCount: number;
+  concurrencyLimitCount: number;
+  drainingRejectedCount: number;
+  drainSignalCount: number;
   cursorGapCount: number;
   replayOverflowCount: number;
   malformedEnvelopeCount: number;
@@ -84,6 +87,7 @@ export type PortalRealtimeClientOptions = {
 
 const DEFAULT_RECONNECT_BASE_MS = 1000;
 const DEFAULT_RECONNECT_MAX_MS = 15000;
+const BACKOFF_EXPONENT_CAP = 5;
 // Keep low-volume operational signals bound all the time so route switches do not
 // force a transport rebind just to start Overview updates.
 const DEFAULT_BASE_TOPICS: readonly PortalRealtimeTopic[] = ["agents", "overview"];
@@ -98,6 +102,9 @@ const DEFAULT_DIAGNOSTICS: RealtimeDiagnosticsSnapshot = {
   invalidTokenCount: 0,
   unauthorizedTopicCount: 0,
   redisUnavailableCount: 0,
+  concurrencyLimitCount: 0,
+  drainingRejectedCount: 0,
+  drainSignalCount: 0,
   cursorGapCount: 0,
   replayOverflowCount: 0,
   malformedEnvelopeCount: 0,
@@ -135,12 +142,25 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function realtimeRejectDetail(error: unknown): string {
+  const body = (error as Partial<HttpError> | null)?.body;
+  if (body && typeof body === "object") {
+    return String((body as Record<string, unknown>).detail ?? "").trim().toLowerCase();
+  }
+  return String(body ?? "").trim().toLowerCase();
+}
+
 function classifyHttpFailure(error: unknown): { kind: string; message: string } {
   const status = Number((error as Partial<HttpError> | null)?.status ?? 0);
   const message = error instanceof Error ? error.message : String(error ?? "Realtime bootstrap failed");
   if (status === 401) return { kind: "invalid_token", message };
   if (status === 403) return { kind: "unauthorized_topic", message };
-  if (status === 503) return { kind: "redis_unavailable", message };
+  if (status === 503) {
+    const detail = realtimeRejectDetail(error);
+    if (detail.includes("limit")) return { kind: "concurrency_limit", message };
+    if (detail.includes("draining")) return { kind: "draining", message };
+    return { kind: "redis_unavailable", message };
+  }
   return { kind: "token_failure", message };
 }
 
@@ -151,6 +171,15 @@ function classifySocketClose(code: number, reason: string): { kind: string; mess
   }
   if (code === 1008 && normalizedReason.includes("topic")) {
     return { kind: "unauthorized_topic", message: reason || "Unauthorized realtime topic" };
+  }
+  if (code === 1001 || normalizedReason.includes("going away")) {
+    return { kind: "drain", message: reason || "Realtime server going away" };
+  }
+  if (normalizedReason.includes("limit")) {
+    return { kind: "concurrency_limit", message: reason || "Realtime connection limit reached" };
+  }
+  if (normalizedReason.includes("draining")) {
+    return { kind: "draining", message: reason || "Realtime server draining" };
   }
   if (code === 1013 || normalizedReason.includes("unavailable")) {
     return { kind: "redis_unavailable", message: reason || "Realtime unavailable" };
@@ -174,8 +203,28 @@ function isLegacyWebSocketKeepalive(rawData: unknown): boolean {
   return obj.kind === "keepalive" && obj.transport === "ws";
 }
 
+function isRealtimeDrainSignal(rawData: unknown): boolean {
+  if (typeof rawData !== "string") return false;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawData);
+  } catch {
+    return false;
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+  return (parsed as Record<string, unknown>).kind === "drain";
+}
+
 function isSemanticTransportFailure(kind: string | undefined): boolean {
-  return kind === "invalid_token" || kind === "unauthorized_topic" || kind === "redis_unavailable";
+  return (
+    kind === "invalid_token" ||
+    kind === "unauthorized_topic" ||
+    kind === "redis_unavailable" ||
+    kind === "concurrency_limit" ||
+    kind === "draining"
+  );
 }
 
 export function decodePortalRealtimeEnvelope(rawData: unknown): PortalRealtimeAnyEvent | null {
@@ -462,6 +511,8 @@ export class PortalRealtimeClient {
       if (kind === "invalid_token") next.invalidTokenCount += 1;
       if (kind === "unauthorized_topic") next.unauthorizedTopicCount += 1;
       if (kind === "redis_unavailable") next.redisUnavailableCount += 1;
+      if (kind === "concurrency_limit") next.concurrencyLimitCount += 1;
+      if (kind === "draining") next.drainingRejectedCount += 1;
       if (kind === "cursor_gap") next.cursorGapCount += 1;
       if (kind === "replay_overflow") next.replayOverflowCount += 1;
       return next;
@@ -627,6 +678,10 @@ export class PortalRealtimeClient {
     meta: { kind?: string; message?: string; closeCode?: number } = {},
   ): void {
     if (transport !== this.transportValue) return;
+    if (meta.kind === "drain") {
+      this.handleDrainSignal(transport);
+      return;
+    }
     if (meta.kind) {
       this.recordFailure(meta.kind, meta.message || "Realtime transport failure", {
         transport,
@@ -651,6 +706,9 @@ export class PortalRealtimeClient {
       return;
     }
 
+    if (meta.kind === "concurrency_limit") {
+      this.reconnectAttempt = Math.max(this.reconnectAttempt, BACKOFF_EXPONENT_CAP);
+    }
     this.scheduleReconnect();
   }
 
@@ -701,6 +759,33 @@ export class PortalRealtimeClient {
       this.reconnectTimer = null;
       this.ensureConnected();
     }, delayMs);
+  }
+
+  private handleDrainSignal(transport: RealtimeTransportKind): void {
+    this.updateDiagnostics((current) => ({
+      ...current,
+      drainSignalCount: current.drainSignalCount + 1,
+      lastTransport: transport,
+    }));
+    this.teardownTransport();
+    this.reconnectAttempt = 0;
+    this.scheduleImmediateReconnect();
+  }
+
+  private scheduleImmediateReconnect(): void {
+    if (!this.running) return;
+    if (this.reconnectTimer) return;
+
+    this.setConnectionState({ status: "retrying", transport: null, isFallbackTransport: false });
+    this.updateDiagnostics((current) => ({
+      ...current,
+      reconnectCount: current.reconnectCount + 1,
+      lastReconnectDelayMs: 0,
+    }));
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.ensureConnected();
+    }, 0);
   }
 
   private clearReconnectTimer(): void {
@@ -803,7 +888,7 @@ export class PortalRealtimeClient {
   }
 
   private nextReconnectDelayMs(): number {
-    const exponent = Math.min(this.reconnectAttempt, 5);
+    const exponent = Math.min(this.reconnectAttempt, BACKOFF_EXPONENT_CAP);
     const baseDelayMs = Math.min(this.reconnectMaxMs, this.reconnectBaseMs * 2 ** exponent);
     const jitteredDelayMs = Math.round(baseDelayMs * (0.85 + Math.random() * 0.3));
     const delayMs = Math.max(this.reconnectBaseMs, Math.min(this.reconnectMaxMs, jitteredDelayMs));
@@ -843,6 +928,10 @@ export class PortalRealtimeClient {
   }
 
   private handleIncomingData(eventType: string, data: unknown): void {
+    if (isRealtimeDrainSignal(data)) {
+      this.handleDrainSignal(this.transportValue ?? "sse");
+      return;
+    }
     const envelope = decodePortalRealtimeEnvelope(data);
     if (!envelope) {
       if (isLegacyWebSocketKeepalive(data)) return;
