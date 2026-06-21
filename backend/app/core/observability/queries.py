@@ -140,6 +140,41 @@ _SPECS: Tuple[QuerySpec, ...] = (
         "worker_exit_rate_by_outcome", "Worker exits/s by outcome", "Worker child exits per second, split by outcome.",
         "ops", lambda w: f"sum by (outcome) (rate(worker_exits_total[{w}]))",
     ),
+    QuerySpec(
+        "realtime_connection_rate", "Realtime connections/s",
+        "Realtime stream connection events per second, split by transport and outcome.",
+        "ops", lambda w: f"sum(rate(realtime_stream_connections_total[{w}])) by (transport, outcome)",
+    ),
+    QuerySpec(
+        "realtime_rejection_rate", "Realtime rejections/s",
+        "Realtime connections rejected at admission per second, split by transport and reason.",
+        "ops", lambda w: f"sum(rate(realtime_connection_rejected_total[{w}])) by (transport, reason)",
+    ),
+    QuerySpec(
+        "realtime_disconnect_rate", "Realtime disconnects/s",
+        "Realtime stream disconnects per second, split by transport and reason.",
+        "ops", lambda w: f"sum(rate(realtime_stream_disconnect_total[{w}])) by (transport, reason)",
+    ),
+    QuerySpec(
+        "realtime_cursor_gap_rate", "Realtime cursor gaps/s",
+        "Realtime cursor-gap and replay-overflow events per second, split by reason.",
+        "ops", lambda w: f"sum(rate(realtime_cursor_gap_total[{w}])) by (reason)",
+    ),
+    QuerySpec(
+        "realtime_publish_dropped_rate", "Realtime publishes dropped/s",
+        "Realtime publishes dropped per second, split by reason.",
+        "ops", lambda w: f"sum(rate(realtime_publish_dropped_total[{w}])) by (reason)",
+    ),
+    QuerySpec(
+        "realtime_delivery_coalesced_rate", "Realtime deliveries coalesced/s",
+        "Realtime deliveries coalesced per second, split by kind.",
+        "ops", lambda w: f"sum(rate(realtime_delivery_coalesced_total[{w}])) by (kind)",
+    ),
+    QuerySpec(
+        "realtime_reconnect_rate", "Realtime reconnects/s",
+        "Realtime stream reconnects per second, split by transport.",
+        "ops", lambda w: f"sum(rate(realtime_stream_reconnect_total[{w}])) by (transport)",
+    ),
 )
 
 CATALOGUE: Dict[str, QuerySpec] = {s.key: s for s in _SPECS}
