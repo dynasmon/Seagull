@@ -14,10 +14,14 @@ from app.core.config import settings
 from app.core.observability import incr_counter, log_event
 from app.core.realtime import (
     PORTAL_REALTIME_REPLAY_MAX_EVENTS,
+    ConnectionAdmission,
+    PortalRealtimeConnectionLedger,
     PortalRealtimeStreamEntry,
     load_portal_realtime_replay_window,
     read_portal_realtime_stream,
+    realtime_drain,
 )
+from app.core.security.rate_limit import rate_limit
 from app.features.auth.session import PortalPrincipal, get_current_user
 from app.features.realtime.schemas import RealtimeEnvelope, StreamTokenOut
 from app.features.realtime.service import (
@@ -41,6 +45,21 @@ router = APIRouter(
     prefix="/realtime",
     tags=["realtime"],
 )
+
+REALTIME_CONCURRENCY_LIMIT_DETAIL = "Realtime connection limit reached"
+REALTIME_DRAINING_DETAIL = "Realtime server draining"
+REALTIME_DRAIN_CLOSE_REASON = "Realtime server going away"
+REALTIME_DRAIN_SIGNAL_JSON = '{"kind":"drain"}'
+_TOKEN_ISSUE_RATE_LIMIT = 60
+_TOKEN_ISSUE_RATE_WINDOW_SECONDS = 60
+
+
+def _connection_ledger(redis_client: object) -> PortalRealtimeConnectionLedger:
+    return PortalRealtimeConnectionLedger(
+        redis_client,
+        max_connections_per_user=int(getattr(settings, "SEAGULL_REALTIME_MAX_CONNECTIONS_PER_USER", 8) or 8),
+        connection_ttl_seconds=int(getattr(settings, "SEAGULL_REALTIME_CONNECTION_TTL_SECONDS", 60) or 60),
+    )
 
 
 def _sse_keepalive_seconds() -> int:
@@ -77,6 +96,17 @@ def _replay_delivery_max() -> int:
 
 @router.post("/token", response_model=StreamTokenOut)
 def issue_stream_token_endpoint(user: PortalPrincipal = Depends(get_current_user)) -> StreamTokenOut:
+    decision = rate_limit(
+        f"rl:realtime_token:user:{int(user.id)}",
+        limit=_TOKEN_ISSUE_RATE_LIMIT,
+        window_seconds=_TOKEN_ISSUE_RATE_WINDOW_SECONDS,
+    )
+    if not decision.allowed:
+        incr_counter("realtime_connection_rejected_total", transport="token", reason="rate_limited")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many realtime token requests. Try again shortly.",
+        )
     token, expires_in = issue_stream_token(user=user)
     return StreamTokenOut(stream_token=token, expires_in=expires_in)
 
@@ -292,7 +322,9 @@ def _resolve_sse_replay_after_cursor(*, request: Request, cursor: str | None) ->
     return max(query_cursor, header_cursor)
 
 
-def _resolve_stream_session(*, stream_token: str, topics: str | None, transport: str) -> tuple[StreamPrincipal, list[str], object]:
+def _resolve_stream_session(
+    *, stream_token: str, topics: str | None, transport: str
+) -> tuple[StreamPrincipal, list[str], object, ConnectionAdmission]:
     try:
         principal = decode_stream_token(stream_token)
     except ValueError as exc:
@@ -332,8 +364,35 @@ def _resolve_stream_session(*, stream_token: str, topics: str | None, transport:
         )
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Realtime unavailable")
 
+    if realtime_drain.is_draining():
+        incr_counter("realtime_connection_rejected_total", transport=transport, reason="draining")
+        _record_stream_attempt(
+            transport=transport,
+            outcome="draining",
+            topics=resolved_topics,
+            detail="server draining",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=REALTIME_DRAINING_DETAIL,
+        )
+
+    admission = _connection_ledger(redis_client).admit(user_id=principal.user_id)
+    if not admission.admitted:
+        incr_counter("realtime_connection_rejected_total", transport=transport, reason="concurrency_limit")
+        _record_stream_attempt(
+            transport=transport,
+            outcome="concurrency_limit",
+            topics=resolved_topics,
+            detail="connection limit reached",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=REALTIME_CONCURRENCY_LIMIT_DETAIL,
+        )
+
     _record_stream_attempt(transport=transport, outcome="accepted", topics=resolved_topics)
-    return principal, resolved_topics, redis_client
+    return principal, resolved_topics, redis_client, admission
 
 
 async def _stream_events(
@@ -344,6 +403,7 @@ async def _stream_events(
     topics: list[str],
     replay_after_cursor: int,
     transport: str,
+    admission: ConnectionAdmission,
 ) -> AsyncGenerator[str, None]:
     keepalive_seconds = _sse_keepalive_seconds()
     last_keepalive = time.monotonic()
@@ -351,6 +411,8 @@ async def _stream_events(
     _record_stream_open(transport=transport, topics=topics, replay_after_cursor=replay_after_cursor)
     yield format_sse_chunk(comment="stream-open")
 
+    drain_token = realtime_drain.register()
+    drained = False
     try:
         async for batch in _iter_stream_batches(
             disconnect_check=lambda: _request_is_disconnected(request),
@@ -359,6 +421,11 @@ async def _stream_events(
             topics=topics,
             replay_after_cursor=replay_after_cursor,
         ):
+            if realtime_drain.is_draining():
+                yield format_sse_chunk(data=REALTIME_DRAIN_SIGNAL_JSON)
+                drained = True
+                break
+            admission.renew()
             if batch:
                 for envelope in batch:
                     yield format_sse_chunk(event=envelope.type, sse_id=envelope.cursor, data=envelope.as_json())
@@ -376,7 +443,10 @@ async def _stream_events(
         _record_stream_close(transport=transport, reason=type(exc).__name__)
         raise
     else:
-        _record_stream_close(transport=transport, reason="client_disconnect")
+        _record_stream_close(transport=transport, reason="draining" if drained else "client_disconnect")
+    finally:
+        realtime_drain.deregister(drain_token)
+        admission.release()
 
 
 @router.get("/portal")
@@ -386,7 +456,9 @@ async def portal_stream_endpoint(
     topics: str | None = Query(None, min_length=1, max_length=256, description="CSV of requested realtime topics"),
     cursor: str | None = Query(None, min_length=1, max_length=64, description="Last processed cursor for replay"),
 ):
-    principal, resolved_topics, redis_client = _resolve_stream_session(stream_token=st, topics=topics, transport="sse")
+    principal, resolved_topics, redis_client, admission = _resolve_stream_session(
+        stream_token=st, topics=topics, transport="sse"
+    )
 
     headers = {
         "Cache-Control": "no-cache, no-transform",
@@ -402,6 +474,7 @@ async def portal_stream_endpoint(
             topics=resolved_topics,
             replay_after_cursor=_resolve_sse_replay_after_cursor(request=request, cursor=cursor),
             transport="sse",
+            admission=admission,
         ),
         media_type="text/event-stream",
         headers=headers,
@@ -417,7 +490,9 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
 
     try:
-        principal, resolved_topics, redis_client = _resolve_stream_session(stream_token=stream_token, topics=topics, transport="ws")
+        principal, resolved_topics, redis_client, admission = _resolve_stream_session(
+            stream_token=stream_token, topics=topics, transport="ws"
+        )
     except HTTPException as exc:
         close_code = status.WS_1008_POLICY_VIOLATION if exc.status_code in {401, 403} else 1013
         await websocket.close(code=close_code, reason=str(exc.detail))
@@ -428,6 +503,7 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
     keepalive_seconds = _ws_keepalive_seconds()
     last_keepalive = time.monotonic()
 
+    drain_token = realtime_drain.register()
     try:
         async for batch in _iter_stream_batches(
             disconnect_check=lambda: _websocket_is_disconnected(websocket),
@@ -436,6 +512,11 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
             topics=resolved_topics,
             replay_after_cursor=cursor_to_int(cursor),
         ):
+            if realtime_drain.is_draining():
+                await websocket.close(code=1001, reason=REALTIME_DRAIN_CLOSE_REASON)
+                _record_stream_close(transport="ws", reason="draining")
+                return
+            admission.renew()
             if batch:
                 for envelope in batch:
                     await websocket.send_text(envelope.as_json())
@@ -461,3 +542,6 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
         raise
     else:
         _record_stream_close(transport="ws", reason="client_disconnect")
+    finally:
+        realtime_drain.deregister(drain_token)
+        admission.release()
