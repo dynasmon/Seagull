@@ -12,16 +12,12 @@ from prometheus_client.registry import REGISTRY
 
 logger = logging.getLogger("seagull.observability.metrics")
 
-# --- Histogram bucket presets -------------------------------------------------
-# Latency distributions for sub-second-to-multi-second backend/worker work.
 SECONDS_BUCKETS: Tuple[float, ...] = (
     0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
 )
-# HTTP request latency is historically recorded in milliseconds.
 MS_BUCKETS: Tuple[float, ...] = (
     5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000,
 )
-# Depth-style distributions (queue depth, batch sizes).
 DEPTH_BUCKETS: Tuple[float, ...] = (
     1, 10, 50, 100, 500, 1000, 5000, 10000, 50000,
 )
@@ -31,7 +27,7 @@ DEPTH_BUCKETS: Tuple[float, ...] = (
 class MetricSpec:
 
     name: str
-    kind: str  # "counter" | "gauge" | "histogram"
+    kind: str
     documentation: str
     labelnames: Tuple[str, ...] = ()
     buckets: Optional[Tuple[float, ...]] = None
@@ -42,24 +38,16 @@ def _spec(name: str, kind: str, doc: str, labels: Tuple[str, ...] = (), **kw) ->
     return MetricSpec(name=name, kind=kind, documentation=doc, labelnames=labels, **kw)
 
 
-# --- Metric catalogue ---------------------------------------------------------
-# Grouped by domain. Labels are intentionally bounded; raw IPs, IDs, hostnames,
-# paths, command lines, user identifiers etc. are never used as label values.
 _SPECS: Tuple[MetricSpec, ...] = (
-    # HTTP layer (emitted by app.main middleware). ``route`` is the matched
-    # route template (e.g. /alerts/{alert_id}), never the raw path, and
-    # ``status_class`` is the status family (2xx/3xx/4xx/5xx), not the raw code.
     _spec("http_requests_total", "counter", "HTTP requests served by the backend.",
           ("method", "route", "status_class")),
     _spec("http_request_duration_ms", "histogram", "HTTP request latency in milliseconds.",
           ("method", "route", "status_class"), buckets=MS_BUCKETS),
 
-    # Generic API cache / route latency (events, overview, inventory features).
     _spec("api_cache_hit_total", "counter", "Cache hits served by product API routes.", ("route",)),
     _spec("api_route_latency_seconds", "histogram", "Product API route latency in seconds.",
           ("route",), buckets=SECONDS_BUCKETS),
 
-    # Agent identity / auth lifecycle.
     _spec("agent_auth_requests_total", "counter", "Agent authentication attempts.",
           ("outcome", "reason", "method")),
     _spec("agent_bootstrap_token_consumed_total", "counter", "Agent bootstrap tokens consumed.",
@@ -73,18 +61,18 @@ _SPECS: Tuple[MetricSpec, ...] = (
     _spec("agent_disable_total", "counter", "Agents disabled.", ("outcome",)),
     _spec("agent_enable_total", "counter", "Agents enabled.", ("outcome",)),
 
-    # Realtime portal stream.
     _spec("realtime_publish_topic_total", "counter", "Realtime messages published per topic.", ("topic",)),
     _spec("realtime_publish_dropped_total", "counter", "Realtime publishes dropped.", ("reason",)),
     _spec("realtime_stream_connections_total", "counter", "Realtime stream connection events.",
           ("transport", "outcome")),
+    _spec("realtime_connection_rejected_total", "counter", "Realtime connections rejected at admission control.",
+          ("transport", "reason")),
     _spec("realtime_stream_reconnect_total", "counter", "Realtime stream reconnects.", ("transport",)),
     _spec("realtime_stream_disconnect_total", "counter", "Realtime stream disconnects.", ("transport", "reason")),
     _spec("realtime_cursor_gap_total", "counter", "Realtime cursor gaps detected.", ("reason",)),
     _spec("realtime_unauthorized_topic_total", "counter", "Realtime unauthorized topic subscriptions.", ("transport",)),
     _spec("realtime_delivery_coalesced_total", "counter", "Realtime deliveries coalesced.", ("kind",)),
 
-    # Ingest pipeline (worker side).
     _spec("ingest_hot_path_latency_seconds", "histogram", "Ingest hot-path processing latency in seconds.",
           buckets=SECONDS_BUCKETS),
     _spec("ingest_optional_sink_latency_seconds", "histogram", "Optional sink write latency in seconds.",
@@ -93,17 +81,12 @@ _SPECS: Tuple[MetricSpec, ...] = (
           ("sink",), buckets=DEPTH_BUCKETS),
     _spec("ingest_optional_sink_dropped_total", "counter", "Events dropped from optional sinks.", ("sink", "reason")),
 
-    # Overview live writer.
     _spec("overview_live_write_failed_total", "counter", "Overview live snapshot write failures.", ("reason",)),
 
-    # --- Phase 2: pipeline & worker instrumentation ---
-
-    # Ingest receive side (backend): batch/event intake and load shedding.
     _spec("ingest_batches_received_total", "counter", "Ingest batches accepted by the backend.", ("outcome",)),
     _spec("ingest_events_received_total", "counter", "Events received for ingestion."),
     _spec("ingest_events_sampled_total", "counter", "Events shed from the hot path by sampling under load."),
 
-    # Ingest worker (processing side).
     _spec("ingest_batches_processed_total", "counter", "Ingest batches processed by the worker."),
     _spec("ingest_events_processed_total", "counter", "Events processed (acked) by the ingest worker."),
     _spec("ingest_loop_errors_total", "counter", "Ingest worker loop errors."),
@@ -112,8 +95,6 @@ _SPECS: Tuple[MetricSpec, ...] = (
           multiproc_mode="mostrecent"),
     _spec("ingest_storm_active", "gauge", "Ingest storm active (1) or not (0).", multiproc_mode="mostrecent"),
 
-    # Detection engine (aggregate; per-rule health is owned by the detections
-    # feature's DB-backed rule health, intentionally not duplicated as labels).
     _spec("detection_cycles_total", "counter", "Detection rule cycles executed."),
     _spec("detection_cycle_duration_seconds", "histogram", "Full detection cycle duration in seconds.",
           buckets=SECONDS_BUCKETS),
@@ -123,10 +104,8 @@ _SPECS: Tuple[MetricSpec, ...] = (
     _spec("detection_rule_eval_latency_seconds", "histogram", "Per-rule evaluation latency in seconds.",
           buckets=SECONDS_BUCKETS),
 
-    # Alert lifecycle (universal create hook).
     _spec("alert_created_total", "counter", "Alerts created.", ("severity", "detector_type")),
 
-    # Worker supervisor (group managers).
     _spec("worker_up", "gauge", "Worker child running (1) or not (0).",
           ("worker_group", "worker"), multiproc_mode="mostrecent"),
     _spec("worker_starts_total", "counter", "Worker child process starts (including restarts).",
@@ -138,7 +117,6 @@ _SPECS: Tuple[MetricSpec, ...] = (
 
 METRIC_SPECS: Dict[str, MetricSpec] = {s.name: s for s in _SPECS}
 
-# --- Process / registry setup -------------------------------------------------
 _LOCK = threading.Lock()
 _INSTRUMENTS: Dict[str, object] = {}
 _WARNED_UNKNOWN: set[str] = set()
@@ -154,7 +132,7 @@ def _ensure_multiproc_dir() -> None:
     if d:
         try:
             os.makedirs(d, exist_ok=True)
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:
             logger.warning("metrics_multiproc_dir_create_failed dir=%s error=%s", d, exc)
 
 
@@ -163,7 +141,6 @@ _ensure_multiproc_dir()
 
 def _create(spec: MetricSpec):
     if spec.kind == "counter":
-        # prometheus_client appends `_total`; strip it from the declared name.
         base = spec.name[:-6] if spec.name.endswith("_total") else spec.name
         return Counter(base, spec.documentation, spec.labelnames)
     if spec.kind == "histogram":
@@ -191,15 +168,14 @@ def get_instrument(name: str) -> Tuple[Optional[MetricSpec], Optional[object]]:
             try:
                 inst = _create(spec)
             except ValueError:
-                # Already registered on the default registry (e.g. re-import in tests).
                 inst = _find_existing(spec)
             _INSTRUMENTS[name] = inst
     return spec, inst
 
 
-def _find_existing(spec: MetricSpec):  # pragma: no cover - defensive fallback
+def _find_existing(spec: MetricSpec):
     base = spec.name[:-6] if (spec.kind == "counter" and spec.name.endswith("_total")) else spec.name
-    collector = REGISTRY._names_to_collectors.get(base)  # type: ignore[attr-defined]
+    collector = REGISTRY._names_to_collectors.get(base)
     if collector is None:
         raise RuntimeError(f"metric {spec.name} reported as duplicate but not found in registry")
     return collector
@@ -217,5 +193,5 @@ def mark_process_dead(pid: int) -> None:
     if multiproc_dir():
         try:
             multiprocess.mark_process_dead(pid)
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:
             logger.warning("metrics_mark_process_dead_failed pid=%s error=%s", pid, exc)
