@@ -63,8 +63,13 @@ class FakeWebSocket implements WebSocketLike {
   public onmessage: ((event: MessageEvent<string>) => void) | null = null;
 
   public closed = false;
+  public readonly sent: string[] = [];
 
   constructor(public readonly url: string) {}
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
 
   close(): void {
     this.closed = true;
@@ -771,6 +776,72 @@ describe("PortalRealtimeClient", () => {
     expect(client.diagnostics.drainSignalCount).toBe(0);
     expect(client.diagnostics.lastFailureKind).toBe("draining");
     expect(client.diagnostics.redisUnavailableCount).toBe(0);
+
+    client.stop();
+  });
+
+  it("responds to a websocket ping frame with a pong and does not pollute diagnostics", async () => {
+    const tokenProvider = vi.fn(async () => tokenOut("token-ping"));
+    const sockets: FakeWebSocket[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      preferredTransport: "ws",
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      reconnectBaseMs: 5000,
+      reconnectMaxMs: 5000,
+    });
+
+    client.start();
+    await waitForTick(2);
+    expect(sockets).toHaveLength(1);
+    sockets[0]?.emitOpen();
+
+    sockets[0]?.emitMessage('{"kind":"ping","ts":12345}');
+
+    expect(sockets[0]?.sent).toContain('{"kind":"pong"}');
+    expect(client.diagnostics.malformedEnvelopeCount).toBe(0);
+    expect(client.diagnostics.pingTimeoutCount).toBe(0);
+
+    client.stop();
+  });
+
+  it("classifies a websocket ping-timeout close and counts it as a ping timeout", async () => {
+    const tokenProvider = vi.fn(async () => tokenOut("token-ping-timeout"));
+    const sockets: FakeWebSocket[] = [];
+    const sources: FakeEventSource[] = [];
+    const client = new PortalRealtimeClient({
+      tokenProvider,
+      preferredTransport: "ws",
+      webSocketFactory: (url) => {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      eventSourceFactory: (url) => {
+        const source = new FakeEventSource(url);
+        sources.push(source);
+        return source;
+      },
+      reconnectBaseMs: 5000,
+      reconnectMaxMs: 5000,
+    });
+
+    client.start();
+    await waitForTick(2);
+    expect(sockets).toHaveLength(1);
+    sockets[0]?.emitOpen();
+
+    sockets[0]?.emitClose(1011, "ping timeout");
+    await waitForTick(5);
+
+    expect(client.diagnostics.pingTimeoutCount).toBe(1);
+    expect(client.diagnostics.lastFailureKind).toBe("ping_timeout");
+    expect(client.diagnostics.lastCloseCode).toBe(1011);
+    expect(sources).toHaveLength(0);
 
     client.stop();
   });
