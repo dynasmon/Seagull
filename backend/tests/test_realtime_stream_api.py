@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import jwt
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketState
+from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
@@ -545,3 +545,113 @@ def test_websocket_closes_on_unexpected_exception(monkeypatch) -> None:
     asyncio.run(_run())
 
     assert len(close_calls) >= 1, "websocket.close() was never called after unexpected exception"
+
+
+def test_websocket_closes_on_ping_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(
+        realtime_api, "get_redis", lambda decode_responses=True: _FakeRedis(replay_rows=[], live_batches=[])
+    )
+    monkeypatch.setattr(realtime_api, "_ws_keepalive_seconds", lambda: 9999)
+    monkeypatch.setattr(realtime_api, "_ws_ping_interval_seconds", lambda: 0)
+    monkeypatch.setattr(realtime_api, "_ws_pong_timeout_seconds", lambda: 0)
+
+    sent_messages: list[str] = []
+    close_calls: list[tuple] = []
+
+    class _DeadMockWS:
+        query_params: dict = {
+            "st": _stream_token_with_claims(),
+            "topics": "overview",
+            "cursor": "0",
+        }
+        application_state = WebSocketState.CONNECTED
+        client_state = WebSocketState.CONNECTED
+
+        async def accept(self) -> None:
+            pass
+
+        async def send_text(self, data: str) -> None:
+            sent_messages.append(data)
+
+        async def receive_text(self) -> str:
+            await asyncio.Event().wait()
+            return ""
+
+        async def close(self, code: int | None = None, reason: str | None = None) -> None:
+            close_calls.append((code, reason))
+            _DeadMockWS.application_state = WebSocketState.DISCONNECTED
+
+    disconnect_calls = [0]
+    original_disconnect = realtime_api._websocket_is_disconnected
+
+    async def _limited_disconnect(websocket: object) -> bool:
+        disconnect_calls[0] += 1
+        if disconnect_calls[0] > 50:
+            return True
+        return await original_disconnect(websocket)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(realtime_api, "_websocket_is_disconnected", _limited_disconnect)
+
+    asyncio.run(realtime_api.portal_websocket_endpoint(_DeadMockWS()))  # type: ignore[arg-type]
+
+    assert close_calls, "ping timeout should have closed the websocket"
+    assert close_calls[-1][0] == realtime_api.REALTIME_PING_TIMEOUT_CLOSE_CODE
+    assert close_calls[-1][1] == realtime_api.REALTIME_PING_TIMEOUT_CLOSE_REASON
+    assert any(json.loads(frame).get("kind") == "ping" for frame in sent_messages), "no ping frame was sent"
+
+
+def test_websocket_pong_response_prevents_ping_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(
+        realtime_api, "get_redis", lambda decode_responses=True: _FakeRedis(replay_rows=[], live_batches=[])
+    )
+    monkeypatch.setattr(realtime_api, "_ws_keepalive_seconds", lambda: 9999)
+    monkeypatch.setattr(realtime_api, "_ws_ping_interval_seconds", lambda: 0)
+    monkeypatch.setattr(realtime_api, "_ws_pong_timeout_seconds", lambda: 9999)
+
+    sent_pings: list[str] = []
+    close_reasons: list[str] = []
+    monkeypatch.setattr(
+        realtime_api,
+        "_record_stream_close",
+        lambda *, transport, reason: close_reasons.append(reason),
+    )
+
+    class _AliveMockWS:
+        query_params: dict = {
+            "st": _stream_token_with_claims(),
+            "topics": "overview",
+            "cursor": "0",
+        }
+        application_state = WebSocketState.CONNECTED
+        client_state = WebSocketState.CONNECTED
+
+        async def accept(self) -> None:
+            pass
+
+        async def send_text(self, data: str) -> None:
+            if json.loads(data).get("kind") == "ping":
+                sent_pings.append(data)
+
+        async def receive_text(self) -> str:
+            await asyncio.sleep(0)
+            return '{"kind":"pong"}'
+
+        async def close(self, code: int | None = None, reason: str | None = None) -> None:
+            _AliveMockWS.application_state = WebSocketState.DISCONNECTED
+
+    disconnect_calls = [0]
+    original_disconnect = realtime_api._websocket_is_disconnected
+
+    async def _limited_disconnect(websocket: object) -> bool:
+        disconnect_calls[0] += 1
+        if disconnect_calls[0] > 10:
+            return True
+        return await original_disconnect(websocket)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(realtime_api, "_websocket_is_disconnected", _limited_disconnect)
+
+    asyncio.run(realtime_api.portal_websocket_endpoint(_AliveMockWS()))  # type: ignore[arg-type]
+
+    assert "ping_timeout" not in close_reasons
+    assert "client_disconnect" in close_reasons
+    assert sent_pings, "server should have sent at least one ping to a responsive client"
