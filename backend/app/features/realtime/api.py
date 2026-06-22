@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from typing import AsyncGenerator, Awaitable, Callable
@@ -50,6 +51,8 @@ REALTIME_CONCURRENCY_LIMIT_DETAIL = "Realtime connection limit reached"
 REALTIME_DRAINING_DETAIL = "Realtime server draining"
 REALTIME_DRAIN_CLOSE_REASON = "Realtime server going away"
 REALTIME_DRAIN_SIGNAL_JSON = '{"kind":"drain"}'
+REALTIME_PING_TIMEOUT_CLOSE_REASON = "ping timeout"
+REALTIME_PING_TIMEOUT_CLOSE_CODE = 1011
 _TOKEN_ISSUE_RATE_LIMIT = 60
 _TOKEN_ISSUE_RATE_WINDOW_SECONDS = 60
 
@@ -87,6 +90,48 @@ def _stream_read_block_ms() -> int:
     if configured > 5000:
         return 5000
     return configured
+
+
+def _ws_ping_enabled() -> bool:
+    return bool(getattr(settings, "SEAGULL_REALTIME_WS_PING_ENABLED", True))
+
+
+def _ws_ping_interval_seconds() -> int:
+    configured = int(getattr(settings, "SEAGULL_REALTIME_WS_PING_INTERVAL_SECONDS", 20) or 20)
+    if configured < 10:
+        return 10
+    if configured > 60:
+        return 60
+    return configured
+
+
+def _ws_pong_timeout_seconds() -> int:
+    configured = int(getattr(settings, "SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS", 10) or 10)
+    if configured < 3:
+        return 3
+    if configured > 30:
+        return 30
+    return configured
+
+
+def _is_ws_pong_signal(text: str) -> bool:
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        return False
+    return isinstance(parsed, dict) and parsed.get("kind") == "pong"
+
+
+async def _ws_pong_reader(websocket: WebSocket, liveness: dict) -> None:
+    try:
+        while True:
+            text = await websocket.receive_text()
+            if _is_ws_pong_signal(text):
+                liveness["last_pong"] = time.monotonic()
+    except (WebSocketDisconnect, RuntimeError, OSError):
+        liveness["disconnected"] = True
+    except Exception:
+        liveness["disconnected"] = True
 
 
 def _replay_delivery_max() -> int:
@@ -503,6 +548,13 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
     keepalive_seconds = _ws_keepalive_seconds()
     last_keepalive = time.monotonic()
 
+    ping_active = _ws_ping_enabled() and callable(getattr(websocket, "receive_text", None))
+    ping_interval = _ws_ping_interval_seconds()
+    pong_timeout = _ws_pong_timeout_seconds()
+    liveness = {"last_pong": time.monotonic(), "disconnected": False}
+    last_ping_sent = 0.0
+    pong_reader = asyncio.create_task(_ws_pong_reader(websocket, liveness)) if ping_active else None
+
     drain_token = realtime_drain.register()
     try:
         async for batch in _iter_stream_batches(
@@ -527,6 +579,23 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
             if now - last_keepalive >= float(keepalive_seconds):
                 last_keepalive = now
                 await websocket.send_text('{"kind":"keepalive","transport":"ws"}')
+
+            if ping_active:
+                if liveness["disconnected"]:
+                    _record_stream_close(transport="ws", reason="client_disconnect")
+                    return
+                if last_ping_sent <= 0.0 or (
+                    now - last_ping_sent >= float(ping_interval) and liveness["last_pong"] >= last_ping_sent
+                ):
+                    last_ping_sent = now
+                    await websocket.send_text(f'{{"kind":"ping","ts":{int(now * 1000)}}}')
+                elif liveness["last_pong"] < last_ping_sent and now - last_ping_sent >= float(pong_timeout):
+                    await websocket.close(
+                        code=REALTIME_PING_TIMEOUT_CLOSE_CODE,
+                        reason=REALTIME_PING_TIMEOUT_CLOSE_REASON,
+                    )
+                    _record_stream_close(transport="ws", reason="ping_timeout")
+                    return
     except WebSocketDisconnect:
         _record_stream_close(transport="ws", reason="client_disconnect")
         return
@@ -543,5 +612,13 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
     else:
         _record_stream_close(transport="ws", reason="client_disconnect")
     finally:
+        if pong_reader is not None:
+            pong_reader.cancel()
+            try:
+                await pong_reader
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
         realtime_drain.deregister(drain_token)
         admission.release()
