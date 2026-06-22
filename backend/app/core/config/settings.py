@@ -83,6 +83,9 @@ class Settings:
     SEAGULL_REALTIME_MAX_CONNECTIONS_PER_USER: int = _env_int("SEAGULL_REALTIME_MAX_CONNECTIONS_PER_USER", 8)
     SEAGULL_REALTIME_CONNECTION_TTL_SECONDS: int = _env_int("SEAGULL_REALTIME_CONNECTION_TTL_SECONDS", 60)
     SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS: int = _env_int("SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS", 5)
+    SEAGULL_REALTIME_WS_PING_ENABLED: bool = _env_bool("SEAGULL_REALTIME_WS_PING_ENABLED", True)
+    SEAGULL_REALTIME_WS_PING_INTERVAL_SECONDS: int = _env_int("SEAGULL_REALTIME_WS_PING_INTERVAL_SECONDS", 20)
+    SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS: int = _env_int("SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS", 10)
     SEAGULL_RULES_DIR: str = _env_str("SEAGULL_RULES_DIR", "/app/rules") or "/app/rules"
 
     # Optional full SQLAlchemy DSN (preferred). Example:
@@ -441,6 +444,14 @@ class Settings:
             errors.append("SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS must be >= 1")
         if (self.SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS or 0) > 30:
             errors.append("SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS must be <= 30")
+        if (self.SEAGULL_REALTIME_WS_PING_INTERVAL_SECONDS or 0) < 10:
+            errors.append("SEAGULL_REALTIME_WS_PING_INTERVAL_SECONDS must be >= 10")
+        if (self.SEAGULL_REALTIME_WS_PING_INTERVAL_SECONDS or 0) > 60:
+            errors.append("SEAGULL_REALTIME_WS_PING_INTERVAL_SECONDS must be <= 60")
+        if (self.SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS or 0) < 3:
+            errors.append("SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS must be >= 3")
+        if (self.SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS or 0) > 30:
+            errors.append("SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS must be <= 30")
         if (self.SEAGULL_AUDIT_RETENTION_DAYS or 0) < 1:
             errors.append("SEAGULL_AUDIT_RETENTION_DAYS must be >= 1")
         if (self.SEAGULL_LOGIN_AUDIT_RETENTION_DAYS or 0) < 1:
@@ -605,6 +616,9 @@ class Settings:
                 "realtime_max_connections_per_user": int(self.SEAGULL_REALTIME_MAX_CONNECTIONS_PER_USER),
                 "realtime_connection_ttl_seconds": int(self.SEAGULL_REALTIME_CONNECTION_TTL_SECONDS),
                 "realtime_shutdown_drain_seconds": int(self.SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS),
+                "realtime_ws_ping_enabled": bool(self.SEAGULL_REALTIME_WS_PING_ENABLED),
+                "realtime_ws_ping_interval_seconds": int(self.SEAGULL_REALTIME_WS_PING_INTERVAL_SECONDS),
+                "realtime_ws_pong_timeout_seconds": int(self.SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS),
             },
             "ingest": {
                 "max_batch": self.SEAGULL_INGEST_MAX_BATCH,
