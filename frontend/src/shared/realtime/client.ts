@@ -44,6 +44,7 @@ export type RealtimeDiagnosticsSnapshot = {
   concurrencyLimitCount: number;
   drainingRejectedCount: number;
   drainSignalCount: number;
+  pingTimeoutCount: number;
   cursorGapCount: number;
   replayOverflowCount: number;
   malformedEnvelopeCount: number;
@@ -68,6 +69,7 @@ export type EventSourceLike = {
 
 export type WebSocketLike = {
   close: (code?: number, reason?: string) => void;
+  send: (data: string) => void;
   onopen: ((event: Event) => void) | null;
   onerror: ((event: Event) => void) | null;
   onclose: ((event: CloseEvent) => void) | null;
@@ -105,6 +107,7 @@ const DEFAULT_DIAGNOSTICS: RealtimeDiagnosticsSnapshot = {
   concurrencyLimitCount: 0,
   drainingRejectedCount: 0,
   drainSignalCount: 0,
+  pingTimeoutCount: 0,
   cursorGapCount: 0,
   replayOverflowCount: 0,
   malformedEnvelopeCount: 0,
@@ -175,6 +178,9 @@ function classifySocketClose(code: number, reason: string): { kind: string; mess
   if (code === 1001 || normalizedReason.includes("going away")) {
     return { kind: "drain", message: reason || "Realtime server going away" };
   }
+  if (normalizedReason.includes("ping")) {
+    return { kind: "ping_timeout", message: reason || "Realtime ping timeout" };
+  }
   if (normalizedReason.includes("limit")) {
     return { kind: "concurrency_limit", message: reason || "Realtime connection limit reached" };
   }
@@ -215,6 +221,20 @@ function isRealtimeDrainSignal(rawData: unknown): boolean {
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
   return (parsed as Record<string, unknown>).kind === "drain";
+}
+
+function isRealtimePingSignal(rawData: unknown): boolean {
+  if (typeof rawData !== "string") return false;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawData);
+  } catch {
+    return false;
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+  return (parsed as Record<string, unknown>).kind === "ping";
 }
 
 function isSemanticTransportFailure(kind: string | undefined): boolean {
@@ -513,6 +533,7 @@ export class PortalRealtimeClient {
       if (kind === "redis_unavailable") next.redisUnavailableCount += 1;
       if (kind === "concurrency_limit") next.concurrencyLimitCount += 1;
       if (kind === "draining") next.drainingRejectedCount += 1;
+      if (kind === "ping_timeout") next.pingTimeoutCount += 1;
       if (kind === "cursor_gap") next.cursorGapCount += 1;
       if (kind === "replay_overflow") next.replayOverflowCount += 1;
       return next;
@@ -930,6 +951,10 @@ export class PortalRealtimeClient {
   private handleIncomingData(eventType: string, data: unknown): void {
     if (isRealtimeDrainSignal(data)) {
       this.handleDrainSignal(this.transportValue ?? "sse");
+      return;
+    }
+    if (isRealtimePingSignal(data)) {
+      this.socket?.send('{"kind":"pong"}');
       return;
     }
     const envelope = decodePortalRealtimeEnvelope(data);
