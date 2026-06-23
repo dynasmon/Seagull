@@ -7,6 +7,7 @@ import pytest
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
+os.environ.setdefault("SEAGULL_DB_URL", "postgresql://u:p@localhost:5432/seagull")
 
 from app.core import realtime as core_realtime
 from app.core.observability import snapshot_metrics
@@ -34,17 +35,41 @@ class _XRevrangeFailRedis:
 class _FakeRedis:
     def __init__(self) -> None:
         self.cursor = 0
+        self.streams: dict[str, list[tuple[str, dict[str, str]]]] = {}
         self.stream_entries: list[tuple[str, dict[str, str]]] = []
 
     def incr(self, _key: str) -> int:
         self.cursor += 1
         return self.cursor
 
-    def xadd(self, _key: str, fields: dict[str, str], maxlen: int | None = None, approximate: bool = True) -> str:
-        _ = (maxlen, approximate)
-        stream_id = f"{len(self.stream_entries) + 1}-0"
-        self.stream_entries.append((stream_id, dict(fields)))
+    def xadd(self, key: str, fields: dict[str, str], maxlen: int | None = None, approximate: bool = True) -> str:
+        _ = approximate
+        stream_id = f"{self.cursor}-0"
+        row = (stream_id, dict(fields))
+        bucket = self.streams.setdefault(key, [])
+        bucket.append(row)
+        if maxlen is not None and len(bucket) > int(maxlen):
+            del bucket[: len(bucket) - int(maxlen)]
+        self.stream_entries.append(row)
         return stream_id
+
+    def xrange(
+        self, key: str, min: str = "-", max: str = "+", count: int | None = None
+    ) -> list[tuple[str, dict[str, str]]]:
+        _ = (min, max)
+        rows = list(self.streams.get(key, []))
+        if count is not None:
+            return rows[: int(count)]
+        return rows
+
+    def xrevrange(
+        self, key: str, max: str = "+", min: str = "-", count: int | None = None
+    ) -> list[tuple[str, dict[str, str]]]:
+        _ = (min, max)
+        rows = list(reversed(self.streams.get(key, [])))
+        if count is not None:
+            return rows[: int(count)]
+        return rows
 
 
 def test_realtime_envelope_serialization_contract() -> None:
@@ -81,6 +106,7 @@ def test_publish_portal_realtime_message_writes_stream_entry(monkeypatch) -> Non
 
     assert ok is True
     assert len(fake.stream_entries) == 1
+    assert len(fake.streams[core_realtime.portal_realtime_partition_stream_key("control")]) == 1
     _entry_id, fields = fake.stream_entries[0]
     assert fields["cursor"] == "1"
     assert fields["topic"] == "overview"
@@ -91,6 +117,134 @@ def test_publish_portal_realtime_message_writes_stream_entry(monkeypatch) -> Non
 
     metrics = snapshot_metrics()
     assert any(item["name"] == "realtime_publish_topic_total" and item["labels"].get("topic") == "overview" for item in metrics["counters"])
+
+
+def test_realtime_topic_partition_mapping_covers_every_topic_once() -> None:
+    assert set(core_realtime.TOPIC_STREAM_PARTITION) == set(core_realtime.PORTAL_REALTIME_TOPICS)
+    assert set(core_realtime.TOPIC_STREAM_PARTITION.values()) <= set(core_realtime.PORTAL_REALTIME_STREAM_PARTITIONS)
+    assert core_realtime.partitions_for_topics(["alerts"]) == {"critical"}
+    assert core_realtime.partitions_for_topics(["events", "alerts"]) == {"critical", "stream"}
+
+
+def test_publish_routes_each_topic_to_expected_partition(monkeypatch) -> None:
+    fake = _FakeRedis()
+    monkeypatch.setattr(realtime_portal, "get_redis", lambda **kwargs: fake)
+
+    for topic in core_realtime.PORTAL_REALTIME_TOPICS:
+        raw_message = json.dumps(
+            {
+                "version": 2,
+                "topic": topic,
+                "type": f"{topic}.patch",
+                "cursor": "0",
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "scope": "portal:realtime",
+                "mode": "patch",
+                "payload": {},
+            }
+        )
+        assert core_realtime.publish_portal_realtime_message(raw_message)
+
+    for topic, partition in core_realtime.TOPIC_STREAM_PARTITION.items():
+        stream_key = core_realtime.portal_realtime_partition_stream_key(partition)
+        assert any(fields["topic"] == topic for _stream_id, fields in fake.streams[stream_key])
+
+
+def test_partitioning_keeps_critical_replay_after_stream_burst(monkeypatch) -> None:
+    fake = _FakeRedis()
+    monkeypatch.setattr(realtime_portal, "get_redis", lambda **kwargs: fake)
+
+    def publish(topic: str, cursor: int) -> None:
+        raw_message = json.dumps(
+            {
+                "version": 2,
+                "topic": topic,
+                "type": f"{topic}.patch",
+                "cursor": str(cursor),
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "scope": "portal:realtime",
+                "mode": "patch",
+                "payload": {},
+            }
+        )
+        assert core_realtime.publish_portal_realtime_message(raw_message)
+
+    for i in range(300):
+        publish("events", i)
+    publish("alerts", 300)
+    for i in range(301, 601):
+        publish("ddos", i)
+
+    critical_window = core_realtime.load_portal_realtime_replay_window(
+        fake,
+        partitions={"critical"},
+        max_events=256,
+    )
+
+    assert len(critical_window.entries) == 1
+    assert json.loads(critical_window.entries[0].message)["topic"] == "alerts"
+
+
+def test_realtime_replay_merges_partitions_by_global_cursor(monkeypatch) -> None:
+    fake = _FakeRedis()
+    monkeypatch.setattr(realtime_portal, "get_redis", lambda **kwargs: fake)
+
+    for topic in ["alerts", "events", "alerts", "exposure"]:
+        raw_message = json.dumps(
+            {
+                "version": 2,
+                "topic": topic,
+                "type": f"{topic}.patch",
+                "cursor": "0",
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "scope": "portal:realtime",
+                "mode": "patch",
+                "payload": {},
+            }
+        )
+        assert core_realtime.publish_portal_realtime_message(raw_message)
+
+    entries = core_realtime.load_portal_realtime_replay(
+        fake,
+        partitions={"critical", "control", "stream"},
+        max_events=10,
+    )
+
+    assert [entry.cursor for entry in entries] == [1, 2, 3, 4]
+    assert [json.loads(entry.message)["topic"] for entry in entries] == ["alerts", "events", "alerts", "exposure"]
+
+
+def test_replay_window_earliest_cursor_is_global_minimum(monkeypatch) -> None:
+    fake = _FakeRedis()
+    monkeypatch.setattr(realtime_portal, "get_redis", lambda **kwargs: fake)
+
+    def publish(topic: str) -> None:
+        raw_message = json.dumps(
+            {
+                "version": 2,
+                "topic": topic,
+                "type": f"{topic}.patch",
+                "cursor": "0",
+                "timestamp": "2026-01-01T00:00:00+00:00",
+                "scope": "portal:realtime",
+                "mode": "patch",
+                "payload": {},
+            }
+        )
+        assert core_realtime.publish_portal_realtime_message(raw_message)
+
+    publish("alerts")
+    for _ in range(400):
+        publish("events")
+
+    window = core_realtime.load_portal_realtime_replay_window(
+        fake,
+        partitions={"critical", "stream"},
+        max_events=1000,
+    )
+
+    assert window.earliest_cursor == 1
+    assert window.latest_cursor == 401
 
 
 def test_publish_realtime_rejects_non_json_payload() -> None:
@@ -164,7 +318,7 @@ def test_load_portal_realtime_replay_fallback_returns_newest_entries() -> None:
     ]
 
     redis_client = _XRevrangeFailRedis(all_entries)
-    entries = core_realtime.load_portal_realtime_replay(redis_client, max_events=2)
+    entries = core_realtime.load_portal_realtime_replay(redis_client, partitions={"control"}, max_events=2)
 
     assert len(entries) == 2
     returned_cursors = sorted(e.cursor for e in entries)
