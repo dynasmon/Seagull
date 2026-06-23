@@ -954,7 +954,9 @@ export class PortalRealtimeClient {
       return;
     }
     if (isRealtimePingSignal(data)) {
-      this.socket?.send('{"kind":"pong"}');
+      try {
+        this.socket?.send('{"kind":"pong"}');
+      } catch {}
       return;
     }
     const envelope = decodePortalRealtimeEnvelope(data);
