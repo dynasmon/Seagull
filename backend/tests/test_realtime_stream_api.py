@@ -9,11 +9,13 @@ from types import SimpleNamespace
 import jwt
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect, WebSocketState
+from starlette.websockets import WebSocketState
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
+os.environ.setdefault("SEAGULL_DB_URL", "postgresql://u:p@localhost:5432/seagull")
 
+from app.core import realtime as core_realtime
 from app.core.config import settings
 from app.features.auth.session import PortalPrincipal, get_current_user
 from app.features.realtime import api as realtime_api
@@ -58,21 +60,43 @@ def _stream_token_with_claims(*, typ: str | None = None, purpose: str | None = N
 
 
 class _FakeRedis:
-    def __init__(self, *, replay_rows: list[tuple[str, dict[str, str]]], live_batches: list[list[tuple[str, dict[str, str]]]]):
-        self._replay_rows = list(replay_rows)
-        self._live_batches = [list(batch) for batch in live_batches]
+    def __init__(
+        self,
+        *,
+        replay_rows: list[tuple[str, dict[str, str]]] | dict[str, list[tuple[str, dict[str, str]]]],
+        live_batches: list[list[tuple[str, dict[str, str]]]] | dict[str, list[list[tuple[str, dict[str, str]]]]],
+    ):
+        self._replay_rows = replay_rows
+        self._live_batches = live_batches
+        self.xread_calls: list[dict[str, str]] = []
 
-    def xrevrange(self, _key: str, max: str, min: str, count: int):
+    def _rows_for_key(self, key: str) -> list[tuple[str, dict[str, str]]]:
+        if isinstance(self._replay_rows, dict):
+            return list(self._replay_rows.get(key, []))
+        return list(self._replay_rows)
+
+    def xrevrange(self, key: str, max: str, min: str, count: int):
         _ = (min, max)
         limit = int(count)
         if limit < 1:
             limit = 1
-        rows = list(self._replay_rows[-limit:])
+        rows = self._rows_for_key(key)[-limit:]
         rows.reverse()
         return rows
 
     def xread(self, streams: dict[str, str], count: int, block: int):
         _ = (count, block)
+        self.xread_calls.append(dict(streams))
+        if isinstance(self._live_batches, dict):
+            out = []
+            for stream_key in streams:
+                batches = self._live_batches.get(stream_key) or []
+                if not batches:
+                    continue
+                batch = batches.pop(0)
+                if batch:
+                    out.append((stream_key, batch))
+            return out
         stream_key = next(iter(streams.keys()))
         if not self._live_batches:
             return []
@@ -92,12 +116,12 @@ class _DisconnectAfter:
         return self._checks > self._max_checks
 
 
-def _make_stream_row(*, stream_id: str, cursor: int, envelope_json: str) -> tuple[str, dict[str, str]]:
+def _make_stream_row(*, stream_id: str, cursor: int, envelope_json: str, topic: str = "overview") -> tuple[str, dict[str, str]]:
     return (
         stream_id,
         {
             "cursor": str(cursor),
-            "topic": "overview",
+            "topic": topic,
             "envelope": envelope_json,
         },
     )
@@ -105,8 +129,8 @@ def _make_stream_row(*, stream_id: str, cursor: int, envelope_json: str) -> tupl
 
 def _collect_stream_chunks(
     *,
-    replay_rows: list[tuple[str, dict[str, str]]],
-    live_batches: list[list[tuple[str, dict[str, str]]]],
+    replay_rows: list[tuple[str, dict[str, str]]] | dict[str, list[tuple[str, dict[str, str]]]],
+    live_batches: list[list[tuple[str, dict[str, str]]]] | dict[str, list[list[tuple[str, dict[str, str]]]]],
     principal: realtime_service.StreamPrincipal,
     topics: list[str],
     replay_after_cursor: int,
@@ -330,6 +354,113 @@ def test_stream_events_emits_invalidate_on_cursor_gap() -> None:
     assert "event: ui.overview.invalidate" in full
     assert "event: ui.agents.invalidate" in full
     assert "cursor_gap" in full
+
+
+def test_stream_batches_read_only_subscribed_partitions() -> None:
+    critical_key = core_realtime.portal_realtime_partition_stream_key("critical")
+    redis_client = _FakeRedis(replay_rows={}, live_batches={})
+    disconnect = _DisconnectAfter(1)
+
+    async def _run() -> None:
+        async for _batch in realtime_api._iter_stream_batches(
+            disconnect_check=disconnect.is_disconnected,
+            principal=_admin_principal(),
+            redis_client=redis_client,
+            topics=["alerts"],
+            replay_after_cursor=0,
+        ):
+            break
+
+    asyncio.run(_run())
+
+    assert redis_client.xread_calls == [{critical_key: "0"}]
+
+
+def test_stream_events_detects_cursor_gap_across_partitions() -> None:
+    critical_key = core_realtime.portal_realtime_partition_stream_key("critical")
+    stream_key = core_realtime.portal_realtime_partition_stream_key("stream")
+    chunks = _collect_stream_chunks(
+        replay_rows={
+            critical_key: [
+                _make_stream_row(
+                    stream_id="1700000000100-0",
+                    cursor=100,
+                    topic="alerts",
+                    envelope_json=(
+                        '{"version":2,"topic":"alerts","type":"alert.created","cursor":"100",'
+                        '"timestamp":"2026-04-09T12:00:00Z","scope":"portal:realtime","mode":"append",'
+                        '"payload":{"id":1}}'
+                    ),
+                )
+            ],
+            stream_key: [
+                _make_stream_row(
+                    stream_id="1700000000200-0",
+                    cursor=200,
+                    topic="events",
+                    envelope_json=(
+                        '{"version":2,"topic":"events","type":"ui.events.stream.append","cursor":"200",'
+                        '"timestamp":"2026-04-09T12:01:00Z","scope":"portal:realtime","mode":"append",'
+                        '"payload":{"id":100}}'
+                    ),
+                )
+            ],
+        },
+        live_batches={},
+        principal=_admin_principal(),
+        topics=["alerts", "events"],
+        replay_after_cursor=50,
+        max_disconnect_checks=2,
+        max_chunks=4,
+    )
+
+    full = "".join(chunks)
+    assert "event: ui.alerts.invalidate" in full
+    assert "event: ui.events.invalidate" in full
+    assert "cursor_gap" in full
+
+
+def test_high_volume_partition_churn_does_not_force_cursor_gap() -> None:
+    critical_key = core_realtime.portal_realtime_partition_stream_key("critical")
+    stream_key = core_realtime.portal_realtime_partition_stream_key("stream")
+    chunks = _collect_stream_chunks(
+        replay_rows={
+            critical_key: [
+                _make_stream_row(
+                    stream_id="1700000000005-0",
+                    cursor=5,
+                    topic="alerts",
+                    envelope_json=(
+                        '{"version":2,"topic":"alerts","type":"alert.created","cursor":"5",'
+                        '"timestamp":"2026-04-09T12:00:00Z","scope":"portal:realtime","mode":"append",'
+                        '"payload":{"id":1}}'
+                    ),
+                )
+            ],
+            stream_key: [
+                _make_stream_row(
+                    stream_id="1700000000900-0",
+                    cursor=900,
+                    topic="events",
+                    envelope_json=(
+                        '{"version":2,"topic":"events","type":"ui.events.stream.append","cursor":"900",'
+                        '"timestamp":"2026-04-09T12:01:00Z","scope":"portal:realtime","mode":"append",'
+                        '"payload":{"id":900}}'
+                    ),
+                )
+            ],
+        },
+        live_batches={},
+        principal=_admin_principal(),
+        topics=["alerts", "events"],
+        replay_after_cursor=10,
+        max_disconnect_checks=2,
+        max_chunks=4,
+    )
+
+    full = "".join(chunks)
+    assert "cursor_gap" not in full
+    assert "ui.events.stream.append" in full
 
 
 def test_stream_events_emits_invalidate_on_replay_overflow(monkeypatch) -> None:
