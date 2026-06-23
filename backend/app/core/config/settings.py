@@ -86,6 +86,9 @@ class Settings:
     SEAGULL_REALTIME_WS_PING_ENABLED: bool = _env_bool("SEAGULL_REALTIME_WS_PING_ENABLED", True)
     SEAGULL_REALTIME_WS_PING_INTERVAL_SECONDS: int = _env_int("SEAGULL_REALTIME_WS_PING_INTERVAL_SECONDS", 20)
     SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS: int = _env_int("SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS", 10)
+    SEAGULL_REALTIME_STREAM_MAXLEN_CRITICAL: int = _env_int("SEAGULL_REALTIME_STREAM_MAXLEN_CRITICAL", 256)
+    SEAGULL_REALTIME_STREAM_MAXLEN_CONTROL: int = _env_int("SEAGULL_REALTIME_STREAM_MAXLEN_CONTROL", 512)
+    SEAGULL_REALTIME_STREAM_MAXLEN_STREAM: int = _env_int("SEAGULL_REALTIME_STREAM_MAXLEN_STREAM", 2048)
     SEAGULL_RULES_DIR: str = _env_str("SEAGULL_RULES_DIR", "/app/rules") or "/app/rules"
 
     # Optional full SQLAlchemy DSN (preferred). Example:
@@ -452,6 +455,18 @@ class Settings:
             errors.append("SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS must be >= 3")
         if (self.SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS or 0) > 30:
             errors.append("SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS must be <= 30")
+        if (self.SEAGULL_REALTIME_STREAM_MAXLEN_CRITICAL or 0) < 64:
+            errors.append("SEAGULL_REALTIME_STREAM_MAXLEN_CRITICAL must be >= 64")
+        if (self.SEAGULL_REALTIME_STREAM_MAXLEN_CRITICAL or 0) > 2000:
+            errors.append("SEAGULL_REALTIME_STREAM_MAXLEN_CRITICAL must be <= 2000")
+        if (self.SEAGULL_REALTIME_STREAM_MAXLEN_CONTROL or 0) < 64:
+            errors.append("SEAGULL_REALTIME_STREAM_MAXLEN_CONTROL must be >= 64")
+        if (self.SEAGULL_REALTIME_STREAM_MAXLEN_CONTROL or 0) > 5000:
+            errors.append("SEAGULL_REALTIME_STREAM_MAXLEN_CONTROL must be <= 5000")
+        if (self.SEAGULL_REALTIME_STREAM_MAXLEN_STREAM or 0) < 256:
+            errors.append("SEAGULL_REALTIME_STREAM_MAXLEN_STREAM must be >= 256")
+        if (self.SEAGULL_REALTIME_STREAM_MAXLEN_STREAM or 0) > 10000:
+            errors.append("SEAGULL_REALTIME_STREAM_MAXLEN_STREAM must be <= 10000")
         if (self.SEAGULL_AUDIT_RETENTION_DAYS or 0) < 1:
             errors.append("SEAGULL_AUDIT_RETENTION_DAYS must be >= 1")
         if (self.SEAGULL_LOGIN_AUDIT_RETENTION_DAYS or 0) < 1:
@@ -619,6 +634,9 @@ class Settings:
                 "realtime_ws_ping_enabled": bool(self.SEAGULL_REALTIME_WS_PING_ENABLED),
                 "realtime_ws_ping_interval_seconds": int(self.SEAGULL_REALTIME_WS_PING_INTERVAL_SECONDS),
                 "realtime_ws_pong_timeout_seconds": int(self.SEAGULL_REALTIME_WS_PONG_TIMEOUT_SECONDS),
+                "realtime_stream_maxlen_critical": int(self.SEAGULL_REALTIME_STREAM_MAXLEN_CRITICAL),
+                "realtime_stream_maxlen_control": int(self.SEAGULL_REALTIME_STREAM_MAXLEN_CONTROL),
+                "realtime_stream_maxlen_stream": int(self.SEAGULL_REALTIME_STREAM_MAXLEN_STREAM),
             },
             "ingest": {
                 "max_batch": self.SEAGULL_INGEST_MAX_BATCH,
