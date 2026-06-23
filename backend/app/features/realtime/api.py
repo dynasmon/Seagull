@@ -18,7 +18,8 @@ from app.core.realtime import (
     ConnectionAdmission,
     PortalRealtimeConnectionLedger,
     PortalRealtimeStreamEntry,
-    load_portal_realtime_replay_window,
+    load_portal_realtime_replay_state,
+    partitions_for_topics,
     read_portal_realtime_stream,
     realtime_drain,
 )
@@ -130,7 +131,14 @@ async def _ws_pong_reader(websocket: WebSocket, liveness: dict) -> None:
                 liveness["last_pong"] = time.monotonic()
     except (WebSocketDisconnect, RuntimeError, OSError):
         liveness["disconnected"] = True
-    except Exception:
+    except Exception as exc:
+        log_event(
+            logger,
+            "warning",
+            "realtime_ws_pong_reader_unexpected_error",
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
         liveness["disconnected"] = True
 
 
@@ -266,16 +274,16 @@ async def _iter_stream_batches(
     replay_cap = _replay_delivery_max()
 
     last_cursor = max(0, int(replay_after_cursor or 0))
-    last_stream_id = "$"
+    partitions = partitions_for_topics(topics)
 
-    replay_window = await asyncio.to_thread(
-        load_portal_realtime_replay_window,
+    replay_window, last_stream_ids = await asyncio.to_thread(
+        load_portal_realtime_replay_state,
         redis_client,
+        partitions=partitions,
         max_events=PORTAL_REALTIME_REPLAY_MAX_EVENTS,
     )
 
     if replay_window.entries:
-        last_stream_id = replay_window.entries[-1].stream_id
         if replay_after_cursor > 0 and replay_window.latest_cursor > replay_after_cursor:
             if replay_after_cursor < (replay_window.earliest_cursor - 1):
                 _record_replay_failure(
@@ -328,15 +336,15 @@ async def _iter_stream_batches(
         if await disconnect_check():
             break
 
-        rows = await asyncio.to_thread(
+        rows, advanced_ids = await asyncio.to_thread(
             read_portal_realtime_stream,
             redis_client,
-            last_stream_id=last_stream_id,
+            streams=last_stream_ids,
             block_ms=read_block_ms,
             count=100,
         )
         if rows:
-            last_stream_id = rows[-1].stream_id
+            last_stream_ids.update(advanced_ids)
             batch, batch_cursor = _filter_delivery_batch(
                 entries=rows,
                 principal=principal,
