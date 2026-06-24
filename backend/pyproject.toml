@@ -37,6 +37,7 @@ forbidden_modules = [
     "app.features.settings",
     "app.features.admin",
     "app.features.overview",
+    "app.features.threat_map",
     "app.features.exposure",
     "app.features.correlations",
     "app.features.network_topology",
@@ -61,6 +62,7 @@ source_modules = [
     "app.features.settings",
     "app.features.admin",
     "app.features.overview",
+    "app.features.threat_map",
     "app.features.attack_chain",
 ]
 forbidden_modules = [
