@@ -54,6 +54,7 @@ from app.features.realtime.api import router as realtime_router
 from app.features.response.agent_actions_api import router as agent_response_actions_router
 from app.features.response.api import router as response_router
 from app.features.settings.api import router as settings_router
+from app.features.threat_map.api import router as threat_map_router
 from app.features.ueba.api import router as ueba_router
 from app.features.users.api import router as users_router
 from app.features.vuln.api import router as vuln_router
@@ -436,4 +437,5 @@ app.include_router(overview_router)
 app.include_router(investigations_router)
 app.include_router(exposure_router)
 app.include_router(network_topology_router)
+app.include_router(threat_map_router)
 app.include_router(observability_router)
