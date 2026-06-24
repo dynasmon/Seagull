@@ -181,6 +181,18 @@ const ROUTE_META_ENTRIES: RouteMetaEntry[] = [
     },
   },
   {
+    path: "/alerts/map",
+    meta: {
+      title: "Threat Map",
+      subtitle: "Geographic origin of suspicious and blocked source IPs.",
+      breadcrumbs: [
+        { label: "Alerts & Triage" },
+        { label: "Alerts", to: "/alerts/queue" },
+        { label: "Threat Map", to: "/alerts/map" },
+      ],
+    },
+  },
+  {
     path: "/alerts",
     meta: {
       title: "Alerts",
