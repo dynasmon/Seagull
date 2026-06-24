@@ -17,6 +17,7 @@ const loadDdosPage = () => import("@/features/events/views/ddos/page");
 const loadAlertsLayout = () => import("@/features/alerts/page");
 const loadAlertsQueuePage = () => import("@/features/alerts/views/queue");
 const loadAlertsRulesPage = () => import("@/features/alerts/views/rules");
+const loadThreatMapPage = () => import("@/features/threat_map/page");
 
 const loadCorrelationsLayout = () => import("@/features/correlations/page");
 const loadCorrelationIncidentsPage = () => import("@/features/correlations/views/incidents");
@@ -63,6 +64,7 @@ const DdosPage = lazy(loadDdosPage);
 const AlertsLayout = lazy(loadAlertsLayout);
 const AlertsQueuePage = lazy(loadAlertsQueuePage);
 const AlertsRulesPage = lazy(loadAlertsRulesPage);
+const ThreatMapPage = lazy(loadThreatMapPage);
 
 const CorrelationsLayout = lazy(loadCorrelationsLayout);
 const CorrelationIncidentsPage = lazy(loadCorrelationIncidentsPage);
@@ -173,6 +175,7 @@ export function Routes() {
               <Route index element={<Navigate to="/alerts/queue" replace />} />
               <Route path="queue" element={<AlertsQueuePage />} />
               <Route path="rules" element={<AlertsRulesPage />} />
+              <Route path="map" element={<ThreatMapPage />} />
             </Route>
 
             <Route path="/correlations" element={<CorrelationsLayout />}>
