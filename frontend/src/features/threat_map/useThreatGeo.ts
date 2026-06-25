@@ -4,12 +4,13 @@ import { getErrorMessage } from "@/shared/lib/errors";
 import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { getThreatGeo } from "./api";
-import type { ThreatGeoResponse } from "./types";
+import type { ThreatGeoResponse, ThreatSourceMode } from "./types";
 
 export type ThreatGeoQuery = {
   sinceMinutes: number;
   limit: number;
   severity: string | null;
+  source: ThreatSourceMode;
 };
 
 export function useThreatGeo(query: ThreatGeoQuery) {
@@ -32,6 +33,7 @@ export function useThreatGeo(query: ThreatGeoQuery) {
           since_minutes: queryRef.current.sinceMinutes,
           limit: queryRef.current.limit,
           severity: queryRef.current.severity,
+          source: queryRef.current.source,
         },
         { signal },
       );
@@ -52,7 +54,7 @@ export function useThreatGeo(query: ThreatGeoQuery) {
       return;
     }
     void refreshNow();
-  }, [query.sinceMinutes, query.limit, query.severity, refreshNow]);
+  }, [query.sinceMinutes, query.limit, query.severity, query.source, refreshNow]);
 
   usePortalRealtimeSubscription("ui.alerts.invalidate", () => {
     invalidate();
