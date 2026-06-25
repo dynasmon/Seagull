@@ -14,6 +14,7 @@ from app.shared.network.ip_classification import classify_ip
 from .cache import (
     _ensure_bootstrap,
     _fetch_batch,
+    _fetch_threat_geo_candidates,
     _get_cached_ip,
     _get_last_id,
     _patch_event,
@@ -21,8 +22,57 @@ from .cache import (
     _set_last_id,
     _upsert_cache,
 )
-from .normalization import GEOIP_PROVIDER_NONE, _compact, _env_float, _env_int, _env_str, _utc_now
+from .normalization import (
+    GEOIP_PROVIDER_MAXMIND,
+    GEOIP_PROVIDER_NONE,
+    _compact,
+    _env_float,
+    _env_int,
+    _env_str,
+    _utc_now,
+)
 from .providers import _lookup_ip, _provider_config, _resolve_provider
+
+
+def _enrich_ip_into_cache(
+    ip: str,
+    provider_name: str,
+    cfg: dict,
+    timeout_s: float,
+    cache_ttl_days: int,
+) -> bool:
+    if _get_cached_ip(ip) is not None:
+        return False
+    rec = _lookup_ip(ip, provider_name, cfg, timeout_s)
+    _upsert_cache(ip, rec, cache_ttl_days)
+    return True
+
+
+def _run_threat_geo_pass(
+    provider_name: str,
+    cfg: dict,
+    timeout_s: float,
+    cache_ttl_days: int,
+    window_minutes: int,
+    cap: int,
+    skip_private: bool,
+) -> int:
+    if cap <= 0:
+        return 0
+    candidates = _fetch_threat_geo_candidates(window_minutes, max(cap * 6, cap))
+    enriched = 0
+    for ip in candidates:
+        if enriched >= cap:
+            break
+        if skip_private and not classify_ip(ip)["is_public"]:
+            continue
+        try:
+            if _enrich_ip_into_cache(ip, provider_name, cfg, timeout_s, cache_ttl_days):
+                enriched += 1
+        except Exception:
+            continue
+    return enriched
+
 
 setup_logging("worker-lupe")
 logger = logging.getLogger("seagull.worker.lupe")
@@ -40,11 +90,16 @@ def main() -> None:
     skip_private = (
         _env_str("true", "SEAGULL_IP_INTEL_SKIP_PRIVATE", "SEAGULL_LUPE_SKIP_PRIVATE").strip().lower() != "false"
     )
+    threat_geo_every_s = _env_float(20.0, "SEAGULL_IP_INTEL_THREAT_GEO_EVERY_SECONDS")
+    threat_geo_window_min = _env_int(60 * 24, "SEAGULL_IP_INTEL_THREAT_GEO_WINDOW_MINUTES")
+    threat_geo_cap_local = _env_int(2000, "SEAGULL_IP_INTEL_THREAT_GEO_MAX_IPS_LOCAL")
+    threat_geo_cap_remote = _env_int(48, "SEAGULL_IP_INTEL_THREAT_GEO_MAX_IPS_REMOTE")
 
     _ensure_bootstrap(cache_ttl_days)
 
     backoff = 1.0
     last_provider_state: Optional[tuple[str, str]] = None
+    last_threat_geo_at = 0.0
 
     while True:
         try:
@@ -68,6 +123,25 @@ def main() -> None:
             if provider_name == GEOIP_PROVIDER_NONE:
                 time.sleep(max(idle_sleep_s, 2.0))
                 continue
+
+            now_ts = time.time()
+            if now_ts - last_threat_geo_at >= threat_geo_every_s:
+                cap = threat_geo_cap_local if provider_name == GEOIP_PROVIDER_MAXMIND else threat_geo_cap_remote
+                try:
+                    geo_enriched = _run_threat_geo_pass(
+                        provider_name,
+                        cfg,
+                        timeout_s,
+                        cache_ttl_days,
+                        threat_geo_window_min,
+                        cap,
+                        skip_private,
+                    )
+                    if geo_enriched:
+                        log_event(logger, "info", "threat_geo_enriched", count=geo_enriched, provider=provider_name)
+                except Exception as e:
+                    log_event(logger, "warning", "threat_geo_pass_error", error=repr(e))
+                last_threat_geo_at = now_ts
 
             last_id = _get_last_id()
             max_id = _pick_batch_max_id(last_id, max_rows)
