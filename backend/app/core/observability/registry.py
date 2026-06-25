@@ -120,6 +120,8 @@ METRIC_SPECS: Dict[str, MetricSpec] = {s.name: s for s in _SPECS}
 _LOCK = threading.Lock()
 _INSTRUMENTS: Dict[str, object] = {}
 _WARNED_UNKNOWN: set[str] = set()
+_WARNED_UNAVAILABLE: set[str] = set()
+_INSTRUMENT_UNAVAILABLE: object = object()
 
 
 def multiproc_dir() -> Optional[str]:
@@ -160,7 +162,7 @@ def get_instrument(name: str) -> Tuple[Optional[MetricSpec], Optional[object]]:
 
     inst = _INSTRUMENTS.get(name)
     if inst is not None:
-        return spec, inst
+        return spec, (None if inst is _INSTRUMENT_UNAVAILABLE else inst)
 
     with _LOCK:
         inst = _INSTRUMENTS.get(name)
@@ -168,9 +170,17 @@ def get_instrument(name: str) -> Tuple[Optional[MetricSpec], Optional[object]]:
             try:
                 inst = _create(spec)
             except ValueError:
-                inst = _find_existing(spec)
+                try:
+                    inst = _find_existing(spec)
+                except Exception:
+                    inst = _INSTRUMENT_UNAVAILABLE
+            except Exception as exc:
+                if name not in _WARNED_UNAVAILABLE:
+                    _WARNED_UNAVAILABLE.add(name)
+                    logger.warning("metrics_instrument_unavailable name=%s error=%s", name, exc)
+                inst = _INSTRUMENT_UNAVAILABLE
             _INSTRUMENTS[name] = inst
-    return spec, inst
+    return spec, (None if inst is _INSTRUMENT_UNAVAILABLE else inst)
 
 
 def _find_existing(spec: MetricSpec):
