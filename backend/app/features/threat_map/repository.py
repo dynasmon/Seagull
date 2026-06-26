@@ -97,31 +97,6 @@ def aggregate_threat_source_rules(
     return db.execute(stmt).mappings().all()
 
 
-def recent_dos_attack_events(
-    db: Session,
-    *,
-    since: datetime,
-    limit: int = DOS_EVENT_SCAN_LIMIT,
-) -> list[Any]:
-    stmt = (
-        select(
-            NetEventModel.dst_ip.label("dst_ip"),
-            NetEventModel.extra["top_src"].label("top_src"),
-            NetEventModel.extra["severity"].astext.label("severity"),
-            NetEventModel.extra["vector"].astext.label("vector"),
-            NetEventModel.timestamp.label("last_seen"),
-        )
-        .where(
-            NetEventModel.timestamp >= since,
-            NetEventModel.event_type.in_(DOS_EVENT_TYPES),
-            NetEventModel.extra.has_key("top_src"),
-        )
-        .order_by(NetEventModel.timestamp.desc())
-        .limit(int(limit))
-    )
-    return db.execute(stmt).mappings().all()
-
-
 def load_geo_cache(db: Session, ips: list[str]) -> dict[str, dict[str, Any]]:
     clean_ips = sorted({str(ip).strip() for ip in ips if str(ip).strip()})
     if not clean_ips:
