@@ -7,7 +7,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.features.alerts.models import AlertModel
+from app.features.events.models import NetEventModel
 from app.shared.enrichment.models import IpEnrichmentCacheModel
+
+DOS_EVENT_SCAN_LIMIT = 500
+DOS_EVENT_TYPES = ("dos_attack", "ddos_telemetry")
 
 
 def parse_loc(loc: Any) -> tuple[float, float] | None:
@@ -74,6 +78,31 @@ def aggregate_threat_source_rules(
         stmt = stmt.where(func.lower(AlertModel.severity) == severity.lower())
     if src_ips:
         stmt = stmt.where(AlertModel.src_ip.in_(src_ips))
+    return db.execute(stmt).mappings().all()
+
+
+def recent_dos_attack_events(
+    db: Session,
+    *,
+    since: datetime,
+    limit: int = DOS_EVENT_SCAN_LIMIT,
+) -> list[Any]:
+    stmt = (
+        select(
+            NetEventModel.dst_ip.label("dst_ip"),
+            NetEventModel.extra["top_src"].label("top_src"),
+            NetEventModel.extra["severity"].astext.label("severity"),
+            NetEventModel.extra["vector"].astext.label("vector"),
+            NetEventModel.timestamp.label("last_seen"),
+        )
+        .where(
+            NetEventModel.timestamp >= since,
+            NetEventModel.event_type.in_(DOS_EVENT_TYPES),
+            NetEventModel.extra.has_key("top_src"),
+        )
+        .order_by(NetEventModel.timestamp.desc())
+        .limit(int(limit))
+    )
     return db.execute(stmt).mappings().all()
 
 
