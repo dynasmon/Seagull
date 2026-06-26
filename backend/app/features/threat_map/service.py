@@ -728,7 +728,20 @@ def get_threat_geo(
         )
 
     classification_by_ip: dict[str, dict[str, Any]] = {}
+    alert_src_ips: set[str] = set()
     public_ips: list[str] = []
+
+    def _classify_cached(ip: str) -> dict[str, Any]:
+        cached = classification_by_ip.get(ip)
+        if cached is None:
+            classification = classify_ip(ip)
+            cached = classification_by_ip[ip] = {
+                "scope": classification["scope"],
+                "label": classification["label"],
+                "is_public": classification["is_public"],
+            }
+        return cached
+
     for row in sources:
         ip = str(row["src_ip"] or "").strip()
         if not ip or ip in classification_by_ip:
@@ -752,6 +765,11 @@ def get_threat_geo(
 
     located = set(geo_by_ip.keys())
     located_sources = [row for row in sources if str(row["src_ip"] or "").strip() in located]
+    located_dos_rows = [
+        _dos_source_row(ip, info)
+        for ip, info in dos_by_ip.items()
+        if ip in located and ip not in alert_src_ips
+    ]
 
     rules_by_ip: dict[str, list[tuple[str, int]]] = {}
     alert_located = sorted(
@@ -765,7 +783,7 @@ def get_threat_geo(
                 rules_by_ip.setdefault(ip, []).append((rule_id, int(row.get("count", 0) or 0)))
 
     points = _aggregate_threat_points(
-        located_sources,
+        located_sources + located_dos_rows,
         geo_by_ip,
         rules_by_ip,
         classification_by_ip,
@@ -800,7 +818,10 @@ def get_threat_geo(
         total_alerts=total_alerts,
         total_events=total_events,
         located_ips=len(located),
-        unlocated_ips=max(0, len(public_ips) - len(located)),
+        unlocated_ips=max(0, len(combined_public_ips) - len(located)),
+        ddos_attacks=int(ddos_attacks),
+        ddos_located_sources=int(ddos_located_sources),
+        ddos_unlocated_sources=int(ddos_unlocated_sources),
         points=points,
         flows=flows,
         top_source_countries=rankings["top_source_countries"],
