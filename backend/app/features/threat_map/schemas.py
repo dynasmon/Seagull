@@ -54,7 +54,11 @@ class ThreatGeoResponse(BaseModel):
     since_minutes: int
     severity: Optional[str] = None
     total_alerts: int = 0
+    total_events: int = 0
     located_ips: int = 0
     unlocated_ips: int = 0
+    ddos_attacks: int = 0
+    ddos_located_sources: int = 0
+    ddos_unlocated_sources: int = 0
     points: List[ThreatGeoPoint] = Field(default_factory=list)
     meta: ThreatGeoMeta
