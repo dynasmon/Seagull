@@ -8,6 +8,7 @@ import { SelectInput } from "@/shared/components/SelectInput";
 import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
 import { useSeverityChartColors } from "@/shared/components/charts/chartTheme";
 import type { SeverityLevel } from "@/shared/lib/severity";
+import { usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { ThreatMap } from "./components/ThreatMap";
 import { ThreatRankPanels } from "./components/ThreatRankPanels";
@@ -53,6 +54,11 @@ export default function ThreatMapPage() {
   const [severity, setSeverity] = useState("");
   const [source, setSource] = useState<ThreatSourceMode>("both");
   const [animate, setAnimate] = useState(true);
+  const [protection, setProtection] = useState<{ active: boolean; phase: string; sampleHot: number | null }>({
+    active: false,
+    phase: "ok",
+    sampleHot: null,
+  });
   const severityColors = useSeverityChartColors();
   const { euiTheme } = useEuiTheme();
 
@@ -62,16 +68,40 @@ export default function ThreatMapPage() {
   );
   const { data, error, isLoading, isRefreshing, lastUpdatedAt } = useThreatGeo(query);
 
+  usePortalRealtimeSubscription("ui.overview.storm.patch", (event) => {
+    setProtection({
+      active: Boolean(event.payload?.protection_active ?? event.payload?.active),
+      phase: String(event.payload?.phase ?? "ok"),
+      sampleHot:
+        typeof event.payload?.sample_hot_percent === "number" ? event.payload.sample_hot_percent : null,
+    });
+  });
+
   const windowLabel = WINDOW_OPTIONS.find((option) => option.value === sinceMinutes)?.label ?? "";
   const updatedAt = fmtClock(lastUpdatedAt);
+
+  const ddosAttacks = data?.ddos_attacks ?? 0;
+  const ddosUnlocated = data?.ddos_unlocated_sources ?? 0;
+
+  const protectionMessage = protection.active
+    ? [
+        "ingest protection active",
+        protection.phase && protection.phase !== "ok" ? `phase ${protection.phase}` : null,
+        typeof protection.sampleHot === "number" ? `hot sampled to ${protection.sampleHot}%` : null,
+        "DDoS and SSH signals preserved",
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
 
   const bannerMessage = data
     ? [
         data.home?.label ? `home ${data.home.label}` : null,
         `${data.located_ips.toLocaleString()} located`,
         `${data.unlocated_ips.toLocaleString()} unlocated`,
-        source !== "events" ? `${data.total_alerts.toLocaleString()} alerts` : null,
-        source !== "alerts" ? `${data.total_events.toLocaleString()} events` : null,
+        `${data.total_alerts.toLocaleString()} alerts`,
+        ddosAttacks > 0 ? `${ddosAttacks.toLocaleString()} ddos` : null,
+        ddosUnlocated > 0 ? `${ddosUnlocated.toLocaleString()} ddos sources unlocated` : null,
         windowLabel.toLowerCase(),
         data.meta.cache_hit ? "cache" : null,
         error ? "refresh error" : null,
@@ -85,7 +115,14 @@ export default function ThreatMapPage() {
       ? <EmptyState title="Loading" hint="Resolving threat geography…" />
       : <EmptyState title="No data" hint={error || "The threat map could not be loaded."} />
     : data.points.length === 0
-      ? <EmptyState title="No geolocated activity" hint="No suspicious traffic could be placed on the map for this window." />
+      ? ddosAttacks > 0
+        ? (
+          <EmptyState
+            title="DDoS detected — sources not geolocatable"
+            hint={`${ddosAttacks.toLocaleString()} flood attack${ddosAttacks === 1 ? "" : "s"} in this window · ${ddosUnlocated.toLocaleString()} attacker source${ddosUnlocated === 1 ? "" : "s"} are private/simulated or awaiting geo-enrichment.`}
+          />
+        )
+        : <EmptyState title="No geolocated threats" hint="No suspicious source IPs could be placed on the map for this window." />
       : null;
 
   return (
@@ -139,6 +176,10 @@ export default function ThreatMapPage() {
           <span className="text-muted-foreground/80">arcs → your network · dot ∝ volume</span>
         </div>
       </div>
+
+      {protectionMessage ? (
+        <DataQueryStateBanner tone="warning" message={protectionMessage} />
+      ) : null}
 
       {bannerMessage ? (
         <DataQueryStateBanner tone={error ? "warning" : "neutral"} message={bannerMessage} />
