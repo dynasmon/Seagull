@@ -110,6 +110,9 @@ class ThreatGeoResponse(BaseModel):
     total_events: int = 0
     located_ips: int = 0
     unlocated_ips: int = 0
+    ddos_attacks: int = 0
+    ddos_located_sources: int = 0
+    ddos_unlocated_sources: int = 0
     points: List[ThreatGeoPoint] = Field(default_factory=list)
     flows: List[ThreatGeoFlow] = Field(default_factory=list)
     top_source_countries: List[ThreatGeoRankCountry] = Field(default_factory=list)
