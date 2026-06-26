@@ -109,6 +109,9 @@ export type ThreatGeoResponse = {
   total_events: number;
   located_ips: number;
   unlocated_ips: number;
+  ddos_attacks: number;
+  ddos_located_sources: number;
+  ddos_unlocated_sources: number;
   points: ThreatGeoPoint[];
   flows: ThreatGeoFlow[];
   top_source_countries: ThreatGeoRankCountry[];
