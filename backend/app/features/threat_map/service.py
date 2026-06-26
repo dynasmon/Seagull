@@ -685,6 +685,8 @@ def get_threat_geo(
 
     sources: list[dict[str, Any]] = []
     extra_geo_by_ip: dict[str, dict[str, Any]] = {}
+    ddos_attacks = 0
+    dos_source_ips: set[str] = set()
 
     if want_alerts:
         sources.extend(
@@ -719,28 +721,16 @@ def get_threat_geo(
                 direction="outbound",
             )
         )
+        dos_rows = repository.recent_dos_attack_events(db, since=since, severity=sev)
+        ddos_attacks = len(dos_rows)
+        dos_sources = _expand_dos_sources(dos_rows)
+        dos_source_ips = {str(row["src_ip"]).strip() for row in dos_sources}
         sources.extend(
-            _normalize_source_rows(
-                _expand_dos_sources(repository.recent_dos_attack_events(db, since=since, severity=sev)),
-                provenance="event",
-                direction="inbound",
-            )
+            _normalize_source_rows(dos_sources, provenance="event", direction="inbound")
         )
 
     classification_by_ip: dict[str, dict[str, Any]] = {}
-    alert_src_ips: set[str] = set()
     public_ips: list[str] = []
-
-    def _classify_cached(ip: str) -> dict[str, Any]:
-        cached = classification_by_ip.get(ip)
-        if cached is None:
-            classification = classify_ip(ip)
-            cached = classification_by_ip[ip] = {
-                "scope": classification["scope"],
-                "label": classification["label"],
-                "is_public": classification["is_public"],
-            }
-        return cached
 
     for row in sources:
         ip = str(row["src_ip"] or "").strip()
@@ -765,11 +755,8 @@ def get_threat_geo(
 
     located = set(geo_by_ip.keys())
     located_sources = [row for row in sources if str(row["src_ip"] or "").strip() in located]
-    located_dos_rows = [
-        _dos_source_row(ip, info)
-        for ip, info in dos_by_ip.items()
-        if ip in located and ip not in alert_src_ips
-    ]
+    ddos_located_sources = len(dos_source_ips & located)
+    ddos_unlocated_sources = len(dos_source_ips - located)
 
     rules_by_ip: dict[str, list[tuple[str, int]]] = {}
     alert_located = sorted(
@@ -783,7 +770,7 @@ def get_threat_geo(
                 rules_by_ip.setdefault(ip, []).append((rule_id, int(row.get("count", 0) or 0)))
 
     points = _aggregate_threat_points(
-        located_sources + located_dos_rows,
+        located_sources,
         geo_by_ip,
         rules_by_ip,
         classification_by_ip,
@@ -818,7 +805,7 @@ def get_threat_geo(
         total_alerts=total_alerts,
         total_events=total_events,
         located_ips=len(located),
-        unlocated_ips=max(0, len(combined_public_ips) - len(located)),
+        unlocated_ips=max(0, len(public_ips) - len(located)),
         ddos_attacks=int(ddos_attacks),
         ddos_located_sources=int(ddos_located_sources),
         ddos_unlocated_sources=int(ddos_unlocated_sources),
