@@ -48,6 +48,66 @@ def _mode(counter: Counter) -> Optional[str]:
     return counter.most_common(1)[0][0] if counter else None
 
 
+_SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "unknown": 0}
+
+
+def _norm_severity_label(value: Any) -> str:
+    sev = str(value or "").strip().lower()
+    return sev if sev in _SEVERITY_RANK else "unknown"
+
+
+def _worse_severity(current: str, candidate: str) -> str:
+    return current if _SEVERITY_RANK.get(current, 0) >= _SEVERITY_RANK.get(candidate, 0) else candidate
+
+
+def _expand_dos_sources(
+    dos_events: list[Any],
+    *,
+    severity: Optional[str],
+) -> tuple[int, dict[str, dict[str, Any]]]:
+    attacks = 0
+    by_ip: dict[str, dict[str, Any]] = {}
+    for event in dos_events:
+        event_severity = _norm_severity_label(event.get("severity"))
+        if event_severity == "unknown":
+            event_severity = "high"
+        if severity and event_severity != severity:
+            continue
+        attacks += 1
+        top = event.get("top_src")
+        last_seen = event.get("last_seen")
+        if not isinstance(top, list):
+            continue
+        for item in top:
+            if not isinstance(item, dict):
+                continue
+            ip = str(item.get("ip") or "").strip()
+            if not ip:
+                continue
+            bucket = by_ip.get(ip)
+            if bucket is None:
+                bucket = by_ip[ip] = {"count": 0, "severity": "low", "last_seen": None}
+            bucket["count"] += 1
+            bucket["severity"] = _worse_severity(bucket["severity"], event_severity)
+            if last_seen is not None and (bucket["last_seen"] is None or last_seen > bucket["last_seen"]):
+                bucket["last_seen"] = last_seen
+    return attacks, by_ip
+
+
+def _dos_source_row(ip: str, info: dict[str, Any]) -> dict[str, Any]:
+    sev = str(info.get("severity") or "low")
+    count = int(info.get("count") or 0)
+    return {
+        "src_ip": ip,
+        "count": count,
+        "critical": count if sev == "critical" else 0,
+        "high": count if sev == "high" else 0,
+        "medium": count if sev == "medium" else 0,
+        "low": count if sev == "low" else 0,
+        "last_seen": info.get("last_seen"),
+    }
+
+
 def _aggregate_threat_points(
     sources: list[Any],
     geo_by_ip: dict[str, dict[str, Any]],
@@ -186,25 +246,45 @@ def get_threat_geo(
         return ThreatGeoResponse(**out)
 
     sources = repository.aggregate_threat_sources(db, since=since, severity=sev)
+    dos_events = repository.recent_dos_attack_events(db, since=since)
+    ddos_attacks, dos_by_ip = _expand_dos_sources(dos_events, severity=sev)
 
     classification_by_ip: dict[str, dict[str, Any]] = {}
+    alert_src_ips: set[str] = set()
     public_ips: list[str] = []
+
+    def _classify_cached(ip: str) -> dict[str, Any]:
+        cached = classification_by_ip.get(ip)
+        if cached is None:
+            classification = classify_ip(ip)
+            cached = classification_by_ip[ip] = {
+                "scope": classification["scope"],
+                "label": classification["label"],
+                "is_public": classification["is_public"],
+            }
+        return cached
+
     for row in sources:
         ip = str(row["src_ip"] or "").strip()
         if not ip:
             continue
-        classification = classify_ip(ip)
-        classification_by_ip[ip] = {
-            "scope": classification["scope"],
-            "label": classification["label"],
-            "is_public": classification["is_public"],
-        }
-        if classification["is_public"]:
+        alert_src_ips.add(ip)
+        if _classify_cached(ip)["is_public"]:
             public_ips.append(ip)
 
-    geo_by_ip = repository.load_geo_cache(db, public_ips)
+    for ip in dos_by_ip:
+        if _classify_cached(ip)["is_public"]:
+            public_ips.append(ip)
+
+    combined_public_ips = sorted(set(public_ips))
+    geo_by_ip = repository.load_geo_cache(db, combined_public_ips)
     located = set(geo_by_ip.keys())
     located_sources = [row for row in sources if str(row["src_ip"] or "").strip() in located]
+    located_dos_rows = [
+        _dos_source_row(ip, info)
+        for ip, info in dos_by_ip.items()
+        if ip in located and ip not in alert_src_ips
+    ]
 
     rules_by_ip: dict[str, list[tuple[str, int]]] = {}
     if located:
@@ -215,20 +295,27 @@ def get_threat_geo(
                 rules_by_ip.setdefault(ip, []).append((rule_id, int(row.get("count", 0) or 0)))
 
     points = _aggregate_threat_points(
-        located_sources,
+        located_sources + located_dos_rows,
         geo_by_ip,
         rules_by_ip,
         classification_by_ip,
         limit=int(limit),
     )
 
+    ddos_located_sources = sum(1 for ip in dos_by_ip if ip in located)
+    ddos_unlocated_sources = max(0, len(dos_by_ip) - ddos_located_sources)
+
     payload = ThreatGeoResponse(
         generated_at=window_end,
         since_minutes=int(since_minutes),
         severity=sev,
         total_alerts=sum(int(row.get("count", 0) or 0) for row in located_sources),
+        total_events=sum(int(info.get("count") or 0) for ip, info in dos_by_ip.items() if ip in located),
         located_ips=len(located),
-        unlocated_ips=max(0, len(public_ips) - len(located)),
+        unlocated_ips=max(0, len(combined_public_ips) - len(located)),
+        ddos_attacks=int(ddos_attacks),
+        ddos_located_sources=int(ddos_located_sources),
+        ddos_unlocated_sources=int(ddos_unlocated_sources),
         points=points,
         meta=ThreatGeoMeta(
             source="postgres",
