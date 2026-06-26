@@ -17,6 +17,18 @@ from .normalization import _utc_now
 OFFSET_LUPE = "lupe_enricher_ssh_v1"
 SSH_ACTIONS: tuple[str, ...] = ("accepted", "failed_password", "invalid_user")
 
+THREAT_GEO_SOURCE_TYPES: tuple[str, ...] = (
+    "dos_attack",
+    "ddos_telemetry",
+    "scan_summary",
+    "ssh_auth",
+    "beacon_suspect",
+    "c2_suspect",
+    "exfil_suspect",
+    "egress_anomaly",
+)
+THREAT_GEO_DOS_TYPES: tuple[str, ...] = ("dos_attack", "ddos_telemetry")
+
 
 def _ensure_bootstrap(default_ttl_days: int) -> None:
     ensure_database_ready()
@@ -72,6 +84,62 @@ def _fetch_batch(last_id: int, max_id: int, limit: int) -> list[dict]:
             .limit(int(limit))
         ).mappings().all()
         return [dict(r) for r in rows]
+
+
+def _fetch_threat_geo_candidates(window_minutes: int, limit: int) -> list[str]:
+    since = _utc_now() - timedelta(minutes=int(window_minutes))
+    seen: set[str] = set()
+    ordered: list[str] = []
+
+    def _add(value) -> None:
+        ip = str(value or "").strip()
+        if ip and ip not in seen:
+            seen.add(ip)
+            ordered.append(ip)
+
+    with engine.begin() as conn:
+        dos_rows = conn.execute(
+            select(NetEventModel.extra["top_src"].label("top_src"))
+            .where(
+                NetEventModel.timestamp >= since,
+                NetEventModel.event_type.in_(THREAT_GEO_DOS_TYPES),
+                NetEventModel.extra.has_key("top_src"),
+            )
+            .order_by(NetEventModel.timestamp.desc())
+            .limit(50)
+        ).all()
+        src_rows = conn.execute(
+            select(NetEventModel.src_ip)
+            .where(
+                NetEventModel.timestamp >= since,
+                NetEventModel.src_ip.is_not(None),
+                NetEventModel.event_type.in_(THREAT_GEO_SOURCE_TYPES),
+            )
+            .group_by(NetEventModel.src_ip)
+            .order_by(func.max(NetEventModel.timestamp).desc())
+            .limit(int(limit))
+        ).all()
+
+    for row in dos_rows:
+        top = row[0]
+        if isinstance(top, list):
+            for item in top:
+                if isinstance(item, dict):
+                    _add(item.get("ip"))
+    for row in src_rows:
+        _add(row[0])
+
+    if not ordered:
+        return []
+
+    with engine.begin() as conn:
+        cached = {
+            str(row[0])
+            for row in conn.execute(
+                select(IpEnrichmentCacheModel.ip).where(IpEnrichmentCacheModel.ip.in_(ordered))
+            ).all()
+        }
+    return [ip for ip in ordered if ip not in cached]
 
 
 def _get_cached_ip(ip: str) -> Optional[dict]:
