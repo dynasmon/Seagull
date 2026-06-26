@@ -78,6 +78,46 @@ setup_logging("worker-lupe")
 logger = logging.getLogger("seagull.worker.lupe")
 
 
+def _enrich_ip_into_cache(
+    ip: str,
+    provider_name: str,
+    cfg: dict,
+    timeout_s: float,
+    cache_ttl_days: int,
+) -> bool:
+    if _get_cached_ip(ip) is not None:
+        return False
+    rec = _lookup_ip(ip, provider_name, cfg, timeout_s)
+    _upsert_cache(ip, rec, cache_ttl_days)
+    return True
+
+
+def _run_threat_geo_pass(
+    provider_name: str,
+    cfg: dict,
+    timeout_s: float,
+    cache_ttl_days: int,
+    window_minutes: int,
+    cap: int,
+    skip_private: bool,
+) -> int:
+    if cap <= 0:
+        return 0
+    candidates = _fetch_threat_geo_candidates(window_minutes, max(cap * 6, cap))
+    enriched = 0
+    for ip in candidates:
+        if enriched >= cap:
+            break
+        if skip_private and not classify_ip(ip)["is_public"]:
+            continue
+        try:
+            if _enrich_ip_into_cache(ip, provider_name, cfg, timeout_s, cache_ttl_days):
+                enriched += 1
+        except Exception:
+            continue
+    return enriched
+
+
 def main() -> None:
     settings.validate_for_service("worker-ip-intel")
 
