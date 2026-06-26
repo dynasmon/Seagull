@@ -122,6 +122,7 @@ def test_threat_geo_without_public_sources_returns_empty_without_geo_or_rule_que
     assert payload.located_ips == 0
     assert payload.unlocated_ips == 0
     assert payload.total_alerts == 0
+    assert payload.ddos_attacks == 0
 
 
 def test_threat_geo_serves_cached_payload_without_touching_db(monkeypatch):
@@ -357,3 +358,55 @@ def test_threat_geo_events_plot_ddos_top_src_and_recon_sources(monkeypatch):
     assert {"45.83.12.7", "80.66.76.10", "5.45.207.1"} <= plotted_ips
     assert "10.0.0.9" not in plotted_ips
     assert "254.228.246.123" not in plotted_ips
+
+    assert payload.ddos_attacks == 1
+    assert payload.ddos_located_sources == 2
+    assert payload.ddos_unlocated_sources == 2
+
+
+def test_threat_geo_reports_unlocated_ddos_when_sources_private(monkeypatch):
+    _disable_cache(monkeypatch)
+    now = datetime.now(timezone.utc)
+
+    dos_events = [
+        {
+            "dst_ip": "10.0.0.9",
+            "vector": "udp_flood",
+            "last_seen": now,
+            "top_src": [{"ip": "192.168.1.10", "packets": 500}, {"ip": "10.5.5.5", "packets": 300}],
+        },
+    ]
+
+    db = _FakeDB([[], [], dos_events])
+    payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="events")
+
+    assert payload.points == []
+    assert payload.ddos_attacks == 1
+    assert payload.ddos_located_sources == 0
+    assert payload.ddos_unlocated_sources == 2
+    assert payload.located_ips == 0
+    assert payload.unlocated_ips == 0
+
+
+def test_threat_geo_reports_unlocated_ddos_when_public_source_cache_cold(monkeypatch):
+    _disable_cache(monkeypatch)
+    now = datetime.now(timezone.utc)
+
+    dos_events = [
+        {
+            "dst_ip": "10.0.0.9",
+            "vector": "tcp_syn_flood",
+            "last_seen": now,
+            "top_src": [{"ip": "8.8.8.8", "packets": 9000}],
+        },
+    ]
+
+    db = _FakeDB([[], [], dos_events, []])
+    payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="events")
+
+    assert payload.points == []
+    assert payload.ddos_attacks == 1
+    assert payload.ddos_located_sources == 0
+    assert payload.ddos_unlocated_sources == 1
+    assert payload.located_ips == 0
+    assert payload.unlocated_ips == 1
