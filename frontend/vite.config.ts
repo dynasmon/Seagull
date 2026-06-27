@@ -21,6 +21,9 @@ export default defineConfig({
           if (id.includes("@elastic/eui") && id.includes("/icon/assets/")) {
             return "eui-icons";
           }
+          if (id.includes("node_modules") && (id.includes("react-globe.gl") || id.includes("three"))) {
+            return "globe-vendor";
+          }
           return undefined;
         },
       },
