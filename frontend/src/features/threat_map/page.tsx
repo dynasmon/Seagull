@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { useEuiTheme } from "@elastic/eui";
 
 import EmptyState from "@/shared/components/EmptyState";
@@ -12,9 +12,13 @@ import { usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { ThreatMap } from "./components/ThreatMap";
 import { ThreatRankPanels } from "./components/ThreatRankPanels";
+import CountryDetailDrawer, { type CountrySelection } from "./components/CountryDetailDrawer";
 import { useThreatGeo } from "./useThreatGeo";
 import type { ThreatSourceMode } from "./types";
 import { WORLD_VIEWBOX_HEIGHT, WORLD_VIEWBOX_WIDTH } from "./worldMap";
+
+const ThreatGlobe = lazy(() => import("./components/ThreatGlobe"));
+const USE_GLOBE = true;
 
 const WINDOW_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 360, label: "Last 6 hours" },
@@ -54,6 +58,8 @@ export default function ThreatMapPage() {
   const [severity, setSeverity] = useState("");
   const [source, setSource] = useState<ThreatSourceMode>("both");
   const [animate, setAnimate] = useState(true);
+  const [selectedCountry, setSelectedCountry] = useState<CountrySelection | null>(null);
+  const [cityFocus, setCityFocus] = useState<{ lat: number; lng: number; key: number } | null>(null);
   const [protection, setProtection] = useState<{ active: boolean; phase: string; sampleHot: number | null }>({
     active: false,
     phase: "ok",
@@ -196,8 +202,34 @@ export default function ThreatMapPage() {
           ) : null
         }
       >
-        <div className="relative w-full" style={{ aspectRatio: `${WORLD_VIEWBOX_WIDTH} / ${WORLD_VIEWBOX_HEIGHT}` }}>
-          <ThreatMap points={data?.points ?? []} flows={data?.flows ?? []} home={data?.home ?? null} animate={animate} />
+        <div
+          className="relative w-full"
+          style={{ aspectRatio: USE_GLOBE ? "16 / 10" : `${WORLD_VIEWBOX_WIDTH} / ${WORLD_VIEWBOX_HEIGHT}` }}
+        >
+          {USE_GLOBE ? (
+            <Suspense
+              fallback={
+                <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+                  Loading globe…
+                </div>
+              }
+            >
+              <ThreatGlobe
+                points={data?.points ?? []}
+                flows={data?.flows ?? []}
+                home={data?.home ?? null}
+                animate={animate}
+                selectedCode={selectedCountry?.code ?? null}
+                cityFocus={cityFocus}
+                onSelectCountry={(selection) => {
+                  setSelectedCountry(selection);
+                  setCityFocus(null);
+                }}
+              />
+            </Suspense>
+          ) : (
+            <ThreatMap points={data?.points ?? []} flows={data?.flows ?? []} home={data?.home ?? null} animate={animate} />
+          )}
           {overlay ? (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">{overlay}</div>
           ) : null}
@@ -209,6 +241,16 @@ export default function ThreatMapPage() {
         topSourceIps={data?.top_source_ips ?? []}
         topDestinationCountries={data?.top_destination_countries ?? []}
         topDestinationIps={data?.top_destination_ips ?? []}
+      />
+
+      <CountryDetailDrawer
+        selection={selectedCountry}
+        points={data?.points ?? []}
+        onFocusCity={(lat, lon) => setCityFocus({ lat, lng: lon, key: Date.now() })}
+        onClose={() => {
+          setSelectedCountry(null);
+          setCityFocus(null);
+        }}
       />
     </div>
   );
