@@ -8,6 +8,7 @@ import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import { buildGlobeTheme, toSeverityLevel, withAlpha } from "./globeTheme";
 import type { CountrySelection } from "./CountryDetailDrawer";
 import { countryCodeForFeature, useCountryAggregations } from "../useCountryAggregations";
+import { useGlobeAutoRotate } from "../useGlobeAutoRotate";
 import type { ThreatGeoEndpoint, ThreatGeoFlow, ThreatGeoPoint } from "../types";
 
 const EARTH_TEXTURE = "/datasets/earth-night.jpg";
@@ -18,26 +19,38 @@ const MIN_POINT_RADIUS = 0.15;
 const MAX_POINT_RADIUS = 0.5;
 const HOME_ALTITUDE = 2.2;
 const SELECTED_ALTITUDE = 1.1;
+const CITY_ALTITUDE = 0.4;
+const HOME_CORE_RADIUS = 0.62;
+const HOME_CORE_ALTITUDE = 0.02;
 const POLYGON_IDLE_ALTITUDE = 0.005;
 const POLYGON_TRAFFIC_ALTITUDE = 0.009;
 const POLYGON_HOVER_ALTITUDE = 0.02;
 const POLYGON_SELECTED_ALTITUDE = 0.035;
-const MAX_CAP_OPACITY = 0.85;
 const MAX_ARCS = 150;
 const MIN_ARC_STROKE = 0.3;
 const MAX_ARC_STROKE = 1.4;
 const MIN_ARC_ANIMATE_MS = 1500;
 const MAX_ARC_ANIMATE_MS = 4000;
 const HOME_PROXIMITY_DEGREES = 0.5;
+const RING_MAX_RADIUS = 4;
+const RING_PROPAGATION_SPEED = 2.4;
+const RING_REPEAT_PERIOD = 900;
+const RING_ALTITUDE = 0.006;
+
+export type DirectionFilter = "all" | "inbound" | "outbound" | "internal" | "transit";
 
 export type ThreatGlobeProps = {
   points: ThreatGeoPoint[];
   flows: ThreatGeoFlow[];
   home: ThreatGeoEndpoint | null;
   animate: boolean;
+  direction: DirectionFilter;
+  autoRotate: boolean;
+  resetSignal: number;
   selectedCode: string | null;
   cityFocus: { lat: number; lng: number; key: number } | null;
   onSelectCountry: (selection: CountrySelection | null) => void;
+  onAutoRotateOff: () => void;
 };
 
 type CountryFeature = {
@@ -53,6 +66,11 @@ type GlobePoint = {
   altitude: number;
   radius: number;
   color: string;
+};
+
+type GlobeRing = {
+  lat: number;
+  lng: number;
 };
 
 type GlobeArc = {
@@ -95,9 +113,13 @@ export default function ThreatGlobe({
   flows,
   home,
   animate,
+  direction,
+  autoRotate,
+  resetSignal,
   selectedCode,
   cityFocus,
   onSelectCountry,
+  onAutoRotateOff,
 }: ThreatGlobeProps) {
   const { euiTheme, colorMode } = useEuiTheme();
   const severityColors = useSeverityChartColors();
@@ -124,11 +146,21 @@ export default function ThreatGlobe({
   const lastPolygonClick = useRef(0);
   const hadSelection = useRef(false);
   const didCenter = useRef(false);
+  const lastReset = useRef(resetSignal);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [globeReady, setGlobeReady] = useState(false);
   const [countries, setCountries] = useState<CountryFeature[]>([]);
   const [hoverFeature, setHoverFeature] = useState<CountryFeature | null>(null);
-  const aggregations = useCountryAggregations(points);
+
+  const visiblePoints = useMemo(
+    () => (direction === "all" ? points : points.filter((point) => point.direction === direction)),
+    [points, direction],
+  );
+  const visibleFlows = useMemo(
+    () => (direction === "all" ? flows : flows.filter((flow) => flow.direction === direction)),
+    [flows, direction],
+  );
+  const aggregations = useCountryAggregations(visiblePoints);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -156,26 +188,36 @@ export default function ThreatGlobe({
     };
   }, []);
 
-  const maxCount = useMemo(() => points.reduce((max, point) => Math.max(max, point.count), 0), [points]);
+  const maxCount = useMemo(() => visiblePoints.reduce((max, point) => Math.max(max, point.count), 0), [visiblePoints]);
 
-  const globePoints = useMemo<GlobePoint[]>(
-    () =>
-      points.map((point) => ({
-        lat: point.lat,
-        lng: point.lon,
-        altitude: scaleByCount(point.count, maxCount, MIN_POINT_ALTITUDE, MAX_POINT_ALTITUDE),
-        radius: scaleByCount(point.count, maxCount, MIN_POINT_RADIUS, MAX_POINT_RADIUS),
-        color: severityColors[toSeverityLevel(point.severity)],
-      })),
-    [points, maxCount, severityColors],
-  );
+  const globePoints = useMemo<GlobePoint[]>(() => {
+    const result = visiblePoints.map((point) => ({
+      lat: point.lat,
+      lng: point.lon,
+      altitude: scaleByCount(point.count, maxCount, MIN_POINT_ALTITUDE, MAX_POINT_ALTITUDE),
+      radius: scaleByCount(point.count, maxCount, MIN_POINT_RADIUS, MAX_POINT_RADIUS),
+      color: severityColors[toSeverityLevel(point.severity)],
+    }));
+    if (home) {
+      result.push({
+        lat: home.lat,
+        lng: home.lon,
+        altitude: HOME_CORE_ALTITUDE,
+        radius: HOME_CORE_RADIUS,
+        color: theme.homeRing,
+      });
+    }
+    return result;
+  }, [visiblePoints, maxCount, severityColors, home, theme.homeRing]);
+
+  const homeRings = useMemo<GlobeRing[]>(() => (home ? [{ lat: home.lat, lng: home.lon }] : []), [home]);
 
   const maxWeight = useMemo(() => {
     let max = 0;
-    for (const point of points) max = Math.max(max, point.count);
-    for (const flow of flows) max = Math.max(max, flow.weight);
+    for (const point of visiblePoints) max = Math.max(max, point.count);
+    for (const flow of visibleFlows) max = Math.max(max, flow.weight);
     return max;
-  }, [points, flows]);
+  }, [visiblePoints, visibleFlows]);
 
   const arcs = useMemo<GlobeArc[]>(() => {
     if (!home) return [];
@@ -204,7 +246,7 @@ export default function ThreatGlobe({
       weight,
     });
 
-    for (const point of points) {
+    for (const point of visiblePoints) {
       if (near(point.lat, point.lon, homeLat, homeLng)) continue;
       const outbound = point.direction === "outbound";
       const accent = severityColors[toSeverityLevel(point.severity)];
@@ -215,7 +257,7 @@ export default function ThreatGlobe({
       );
     }
 
-    for (const flow of flows) {
+    for (const flow of visibleFlows) {
       if (!flow.origin || !flow.target) continue;
       if (near(flow.origin.lat, flow.origin.lon, flow.target.lat, flow.target.lon)) continue;
       const accent = severityColors[toSeverityLevel(flow.severity)];
@@ -226,7 +268,7 @@ export default function ThreatGlobe({
 
     built.sort((a, b) => b.weight - a.weight);
     return built.slice(0, MAX_ARCS);
-  }, [points, flows, home, maxWeight, severityColors, euiTheme.colors.primary]);
+  }, [visiblePoints, visibleFlows, home, maxWeight, severityColors, euiTheme.colors.primary]);
 
   const featureCode = useMemo(() => {
     const map = new Map<CountryFeature, string | null>();
@@ -311,8 +353,6 @@ export default function ThreatGlobe({
       controls.enablePan = false;
       controls.minDistance = 180;
       controls.maxDistance = 620;
-      controls.autoRotate = false;
-      controls.autoRotateSpeed = 0.35;
       controls.dampingFactor = 0.12;
       controls.enableDamping = true;
     }
@@ -339,8 +379,24 @@ export default function ThreatGlobe({
 
   useEffect(() => {
     if (!globeReady || !cityFocus) return;
-    globeRef.current?.pointOfView({ lat: cityFocus.lat, lng: cityFocus.lng, altitude: 0.4 }, 1000);
+    globeRef.current?.pointOfView({ lat: cityFocus.lat, lng: cityFocus.lng, altitude: CITY_ALTITUDE }, 1000);
   }, [cityFocus, globeReady]);
+
+  useEffect(() => {
+    if (!globeReady) return;
+    if (resetSignal === lastReset.current) return;
+    lastReset.current = resetSignal;
+    if (home) globeRef.current?.pointOfView({ lat: home.lat, lng: home.lon, altitude: HOME_ALTITUDE }, 1200);
+  }, [resetSignal, globeReady, home]);
+
+  useGlobeAutoRotate({
+    globeRef,
+    containerRef,
+    ready: globeReady,
+    enabled: autoRotate && !reducedMotion,
+    paused: Boolean(selectedCode),
+    onUserInteract: onAutoRotateOff,
+  });
 
   const hoverCode = hoverFeature ? featureCode.get(hoverFeature) ?? null : null;
   const hoverHasTraffic = Boolean(hoverCode && aggregations.has(hoverCode));
@@ -388,6 +444,12 @@ export default function ThreatGlobe({
           arcDashInitialGap="initialGap"
           arcDashAnimateTime={(arc) => (animationOn ? (arc as GlobeArc).dashAnimateTime : 0)}
           arcsTransitionDuration={0}
+          ringsData={animationOn ? homeRings : []}
+          ringColor={() => (t: number) => withAlpha(theme.homeRing, 1 - t)}
+          ringMaxRadius={RING_MAX_RADIUS}
+          ringPropagationSpeed={RING_PROPAGATION_SPEED}
+          ringRepeatPeriod={RING_REPEAT_PERIOD}
+          ringAltitude={RING_ALTITUDE}
           pointsData={globePoints}
           pointLat="lat"
           pointLng="lng"
