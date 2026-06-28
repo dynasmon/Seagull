@@ -9,7 +9,7 @@ CLI   := ./seagull
   up-extra observability \
   build build-prod pull clean nuke psql \
   db-upgrade db-current \
-  lint test test-detections deps-check ci redis-repair-aof
+  lint test test-detections deps-check ci redis-repair-aof geoip
 
 # Primary interface
 
@@ -114,6 +114,11 @@ nuke:
 
 redis-repair-aof:
 	@$(CLI) redis repair-aof
+
+# GeoIP databases
+
+geoip:
+	@$(CLI) geoip install
 
 # CI / quality
 
