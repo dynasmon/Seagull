@@ -241,7 +241,7 @@ export function CountryDetailDrawer({
           const org = (row.asn_org || row.org || "").trim();
           return (
             <div className="min-w-0">
-              <IpAddressPill ip={row.ip} ipContext={{ scope: row.scope, isPublic: row.is_public }} compact />
+              <IpAddressPill ip={row.ip} ipContext={{ scope: row.scope, is_public: row.is_public }} compact />
               {org ? (
                 <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={org}>
                   {org}
