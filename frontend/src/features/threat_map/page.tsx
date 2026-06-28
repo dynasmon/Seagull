@@ -9,6 +9,8 @@ import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
 import { useSeverityChartColors } from "@/shared/components/charts/chartTheme";
+import { usePersistentState } from "@/shared/hooks/usePersistentState";
+import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 import type { SeverityLevel } from "@/shared/lib/severity";
 import { usePortalRealtimeSubscription } from "@/shared/realtime";
 
@@ -19,6 +21,8 @@ import { useThreatGeo } from "./useThreatGeo";
 import type { ThreatSourceMode } from "./types";
 
 const ThreatGlobe = lazy(() => import("./components/ThreatGlobe"));
+const ANIMATE_FLOWS_STORAGE_KEY = "seagull_threat_map_animate_flows_v1";
+const AUTO_ROTATE_STORAGE_KEY = "seagull_threat_map_auto_rotate_v1";
 
 const WINDOW_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 360, label: "Last 6 hours" },
@@ -65,8 +69,16 @@ export default function ThreatMapPage() {
   const [sinceMinutes, setSinceMinutes] = useState(1440);
   const [severity, setSeverity] = useState("");
   const [source, setSource] = useState<ThreatSourceMode>("both");
-  const [animate, setAnimate] = useState(true);
-  const [autoRotate, setAutoRotate] = useState(false);
+  const [animateOverride, setAnimateOverride] = usePersistentState<boolean | null>(
+    ANIMATE_FLOWS_STORAGE_KEY,
+    null,
+    (raw) => (typeof raw === "boolean" ? raw : null),
+  );
+  const [autoRotate, setAutoRotate] = usePersistentState<boolean>(
+    AUTO_ROTATE_STORAGE_KEY,
+    false,
+    (raw) => (typeof raw === "boolean" ? raw : false),
+  );
   const [direction, setDirection] = useState<DirectionFilter>("all");
   const [resetSignal, setResetSignal] = useState(0);
   const [selectedCountry, setSelectedCountry] = useState<CountrySelection | null>(null);
@@ -78,6 +90,8 @@ export default function ThreatMapPage() {
   });
   const severityColors = useSeverityChartColors();
   const { euiTheme } = useEuiTheme();
+  const reducedMotion = useReducedMotion();
+  const animate = animateOverride ?? !reducedMotion;
 
   const query = useMemo(
     () => ({ sinceMinutes, limit: 200, severity: severity || null, source }),
@@ -192,8 +206,23 @@ export default function ThreatMapPage() {
               ))}
             </SelectInput>
           </div>
-          <ToggleSwitch label="Animate flows" checked={animate} onChange={(event) => setAnimate(event.target.checked)} />
-          <ToggleSwitch label="Auto-rotate" checked={autoRotate} onChange={(event) => setAutoRotate(event.target.checked)} />
+          <ToggleSwitch
+            label="Animate flows"
+            checked={animate}
+            onChange={(event) => setAnimateOverride(event.target.checked)}
+          />
+          <ToggleSwitch
+            label="Auto-rotate"
+            checked={autoRotate}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setAutoRotate(enabled);
+              if (enabled) {
+                setSelectedCountry(null);
+                setCityFocus(null);
+              }
+            }}
+          />
           <Button variant="secondary" size="sm" onClick={recenter}>
             Recenter
           </Button>
