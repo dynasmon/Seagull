@@ -25,6 +25,8 @@ from app.features.threat_map.schemas import (
     ThreatGeoRuleCount,
 )
 from app.shared.network.ip_classification import classify_ip
+from app.workers.intelligence.ip_intel.normalization import GEOIP_PROVIDER_MAXMIND
+from app.workers.intelligence.ip_intel.providers import _lookup_ip, _provider_config, _resolve_provider
 
 CLUSTER_PRECISION = 1
 TOP_IPS_PER_POINT = 6
@@ -35,10 +37,12 @@ FLOW_LIMIT = 60
 VALID_SOURCES = ("both", "events", "alerts")
 
 HOME_CACHE_KEY = "seagull:threat_map:home:v1"
-HOME_CACHE_TTL_SECONDS = 3600
-HOME_MISS_TTL_SECONDS = 300
+HOME_CACHE_TTL_SECONDS = 21600
+HOME_MISS_TTL_SECONDS = 60
 HOME_LOOKUP_URL = "https://ipinfo.io/json"
 HOME_LOOKUP_TIMEOUT_SECONDS = 4.0
+PUBLIC_IP_ECHO_URLS = ("https://api.ipify.org?format=json", "https://ifconfig.me/ip")
+PUBLIC_IP_TIMEOUT_SECONDS = 3.0
 
 
 def _cache_get_json(key: str) -> dict[str, Any] | None:
@@ -63,6 +67,55 @@ def _fetch_self_geo() -> Optional[dict[str, Any]]:
         return None
 
 
+def _fetch_public_ip() -> Optional[str]:
+    import re
+
+    for url in PUBLIC_IP_ECHO_URLS:
+        try:
+            request = urllib.request.Request(
+                url,
+                headers={"User-Agent": "seagull-threat-map", "Accept": "application/json, text/plain"},
+            )
+            with urllib.request.urlopen(request, timeout=PUBLIC_IP_TIMEOUT_SECONDS) as response:
+                body = response.read().decode("utf-8", errors="replace").strip()
+            if body.startswith("{"):
+                ip = (json.loads(body).get("ip") or "").strip()
+            else:
+                ip = body
+            if re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", ip) or ":" in ip:
+                return ip
+        except Exception:
+            continue
+    return None
+
+
+def _resolve_home_via_maxmind() -> Optional[ThreatGeoEndpoint]:
+    cfg = _provider_config()
+    provider_name, _reason = _resolve_provider(cfg)
+    if provider_name != GEOIP_PROVIDER_MAXMIND:
+        return None
+    public_ip = _fetch_public_ip()
+    if not public_ip:
+        return None
+    try:
+        rec = _lookup_ip(public_ip, provider_name, cfg, PUBLIC_IP_TIMEOUT_SECONDS)
+    except Exception:
+        return None
+    coords = repository.parse_loc(rec.get("loc"))
+    if not coords:
+        return None
+    label_override = _clean_text(os.environ.get("SEAGULL_THREAT_MAP_HOME_LABEL"))
+    return ThreatGeoEndpoint(
+        lat=coords[0],
+        lon=coords[1],
+        city=_clean_text(rec.get("city")),
+        region=_clean_text(rec.get("region")),
+        country=_clean_text(rec.get("country")),
+        label=label_override or _location_label(rec.get("city"), rec.get("region"), rec.get("country")),
+        scope="home",
+    )
+
+
 def _resolve_home_endpoint() -> Optional[ThreatGeoEndpoint]:
     label_override = _clean_text(os.environ.get("SEAGULL_THREAT_MAP_HOME_LABEL"))
     latlon_override = (os.environ.get("SEAGULL_THREAT_MAP_HOME_LATLON") or "").strip()
@@ -85,6 +138,11 @@ def _resolve_home_endpoint() -> Optional[ThreatGeoEndpoint]:
                 label=cached.get("label"),
                 scope="home",
             )
+
+    endpoint = _resolve_home_via_maxmind()
+    if endpoint is not None:
+        _cache_set_json(HOME_CACHE_KEY, endpoint.dict(), HOME_CACHE_TTL_SECONDS)
+        return endpoint
 
     info = _fetch_self_geo()
     coords = repository.parse_loc((info or {}).get("loc"))

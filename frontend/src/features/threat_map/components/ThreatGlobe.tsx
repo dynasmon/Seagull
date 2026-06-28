@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Globe, { type GlobeMethods } from "react-globe.gl";
 import { useEuiTheme } from "@elastic/eui";
 
@@ -26,7 +26,7 @@ const POLYGON_IDLE_ALTITUDE = 0.005;
 const POLYGON_TRAFFIC_ALTITUDE = 0.009;
 const POLYGON_HOVER_ALTITUDE = 0.02;
 const POLYGON_SELECTED_ALTITUDE = 0.035;
-const MAX_ARCS = 180;
+const MAX_ARCS = 110;
 const MIN_ARC_STROKE = 0.55;
 const MAX_ARC_STROKE = 2.4;
 const MIN_ARC_ANIMATE_MS = 1200;
@@ -297,70 +297,90 @@ export default function ThreatGlobe({
     return countries.find((feature) => featureCode.get(feature) === selectedCode) ?? null;
   }, [countries, featureCode, selectedCode]);
 
-  const polygonCapColor = (feature: object) => {
-    const country = feature as CountryFeature;
-    const code = featureCode.get(country) ?? null;
-    const aggregation = code ? aggregations.get(code) : undefined;
-    const hovered = country === hoverFeature;
-    const selected = code != null && code === selectedCode;
-    if (!aggregation) {
-      if (selected) return withAlpha(theme.atmosphere, 0.18);
-      return hovered ? withAlpha(theme.severity.neutral, 0.12) : theme.polygonCapIdle;
-    }
-    const boost = (hovered ? theme.polygonCapHoverBoost : 0) + (selected ? 0.28 : 0);
-    const opacity = Math.min(0.9, theme.capOpacity[aggregation.dominantSeverity] + boost);
-    return withAlpha(theme.severity[aggregation.dominantSeverity], opacity);
-  };
+  const polygonCapColor = useCallback(
+    (feature: object) => {
+      const country = feature as CountryFeature;
+      const code = featureCode.get(country) ?? null;
+      const aggregation = code ? aggregations.get(code) : undefined;
+      const hovered = country === hoverFeature;
+      const selected = code != null && code === selectedCode;
+      if (!aggregation) {
+        if (selected) return withAlpha(theme.atmosphere, 0.18);
+        return hovered ? withAlpha(theme.severity.neutral, 0.12) : theme.polygonCapIdle;
+      }
+      const boost = (hovered ? theme.polygonCapHoverBoost : 0) + (selected ? 0.28 : 0);
+      const opacity = Math.min(0.9, theme.capOpacity[aggregation.dominantSeverity] + boost);
+      return withAlpha(theme.severity[aggregation.dominantSeverity], opacity);
+    },
+    [aggregations, featureCode, hoverFeature, selectedCode, theme],
+  );
 
-  const polygonAltitude = (feature: object) => {
-    const country = feature as CountryFeature;
-    const code = featureCode.get(country) ?? null;
-    if (code != null && code === selectedCode) return POLYGON_SELECTED_ALTITUDE;
-    if (country === hoverFeature) return POLYGON_HOVER_ALTITUDE;
-    return code && aggregations.has(code) ? POLYGON_TRAFFIC_ALTITUDE : POLYGON_IDLE_ALTITUDE;
-  };
+  const polygonAltitude = useCallback(
+    (feature: object) => {
+      const country = feature as CountryFeature;
+      const code = featureCode.get(country) ?? null;
+      if (code != null && code === selectedCode) return POLYGON_SELECTED_ALTITUDE;
+      if (country === hoverFeature) return POLYGON_HOVER_ALTITUDE;
+      return code && aggregations.has(code) ? POLYGON_TRAFFIC_ALTITUDE : POLYGON_IDLE_ALTITUDE;
+    },
+    [aggregations, featureCode, hoverFeature, selectedCode],
+  );
 
-  const polygonStrokeColor = (feature: object) => {
-    const country = feature as CountryFeature;
-    const code = featureCode.get(country) ?? null;
-    return code != null && code === selectedCode ? theme.atmosphere : theme.polygonStroke;
-  };
+  const polygonStrokeColor = useCallback(
+    (feature: object) => {
+      const country = feature as CountryFeature;
+      const code = featureCode.get(country) ?? null;
+      return code != null && code === selectedCode ? theme.atmosphere : theme.polygonStroke;
+    },
+    [featureCode, selectedCode, theme.atmosphere, theme.polygonStroke],
+  );
 
-  const polygonLabel = (feature: object) => {
-    const country = feature as CountryFeature;
-    const code = featureCode.get(country) ?? null;
-    const aggregation = code ? aggregations.get(code) : undefined;
-    if (!aggregation || !code) return "";
-    const name = String(country.properties.ADMIN ?? country.properties.NAME ?? code);
-    const color = theme.severity[aggregation.dominantSeverity];
-    return `
-      <div style="font-family:Inter,sans-serif;min-width:160px;padding:8px 10px;border-radius:8px;background:${euiTheme.colors.emptyShade};border:1px solid ${theme.polygonStroke};box-shadow:0 8px 24px rgba(2,8,20,0.35);color:${theme.labelText};">
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;">
-          <span style="width:8px;height:8px;border-radius:9999px;background:${color};"></span>
-          <span>${name}</span>
-          <span style="opacity:.5;font-family:monospace;">${code}</span>
-        </div>
-        <div style="margin-top:4px;font-size:11px;opacity:.75;">
-          ${aggregation.hits.toLocaleString()} hits · ${aggregation.uniqueIps.toLocaleString()} IPs · top ${aggregation.dominantSeverity}
-        </div>
-      </div>`;
-  };
+  const polygonLabel = useCallback(
+    (feature: object) => {
+      const country = feature as CountryFeature;
+      const code = featureCode.get(country) ?? null;
+      const aggregation = code ? aggregations.get(code) : undefined;
+      if (!aggregation || !code) return "";
+      const name = String(country.properties.ADMIN ?? country.properties.NAME ?? code);
+      const color = theme.severity[aggregation.dominantSeverity];
+      return `
+        <div style="font-family:Inter,sans-serif;min-width:160px;padding:8px 10px;border-radius:8px;background:${euiTheme.colors.emptyShade};border:1px solid ${theme.polygonStroke};box-shadow:0 8px 24px rgba(2,8,20,0.35);color:${theme.labelText};">
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;">
+            <span style="width:8px;height:8px;border-radius:9999px;background:${color};"></span>
+            <span>${name}</span>
+            <span style="opacity:.5;font-family:monospace;">${code}</span>
+          </div>
+          <div style="margin-top:4px;font-size:11px;opacity:.75;">
+            ${aggregation.hits.toLocaleString()} hits · ${aggregation.uniqueIps.toLocaleString()} IPs · top ${aggregation.dominantSeverity}
+          </div>
+        </div>`;
+    },
+    [aggregations, euiTheme.colors.emptyShade, featureCode, theme],
+  );
 
-  const handlePolygonClick = (feature: object) => {
-    const country = feature as CountryFeature;
-    const code = featureCode.get(country) ?? null;
-    if (!code) return;
-    lastPolygonClick.current = Date.now();
-    const name = String(country.properties.ADMIN ?? country.properties.NAME ?? code);
-    onSelectCountry({ code, name });
-  };
+  const polygonSideColor = useCallback(() => theme.polygonSide, [theme.polygonSide]);
+  const handlePolygonHover = useCallback(
+    (feature: object | null) => setHoverFeature(feature ? (feature as CountryFeature) : null),
+    [],
+  );
+  const handlePolygonClick = useCallback(
+    (feature: object) => {
+      const country = feature as CountryFeature;
+      const code = featureCode.get(country) ?? null;
+      if (!code) return;
+      lastPolygonClick.current = Date.now();
+      const name = String(country.properties.ADMIN ?? country.properties.NAME ?? code);
+      onSelectCountry({ code, name });
+    },
+    [featureCode, onSelectCountry],
+  );
 
-  const handleGlobeClick = () => {
+  const handleGlobeClick = useCallback(() => {
     if (Date.now() - lastPolygonClick.current < 120) return;
     if (selectedCode) onSelectCountry(null);
-  };
+  }, [onSelectCountry, selectedCode]);
 
-  const handleGlobeReady = () => {
+  const handleGlobeReady = useCallback(() => {
     const controls = globeRef.current?.controls();
     if (controls) {
       controls.enableZoom = false;
@@ -371,7 +391,37 @@ export default function ThreatGlobe({
       controls.enableDamping = true;
     }
     setGlobeReady(true);
-  };
+  }, []);
+
+  const arcColor = useCallback((arc: object) => {
+    const value = arc as GlobeArc & { kind: "trail" | "comet" };
+    return value.kind === "trail" ? [value.baseColor, value.baseColor] : value.colors;
+  }, []);
+  const arcStroke = useCallback((arc: object) => {
+    const value = arc as GlobeArc & { kind: "trail" | "comet" };
+    return value.kind === "trail" ? Math.max(0.35, value.stroke * 0.55) : value.stroke;
+  }, []);
+  const arcDashLength = useCallback(
+    (arc: object) => ((arc as GlobeArc & { kind: "trail" | "comet" }).kind === "trail" ? 1 : 0.32),
+    [],
+  );
+  const arcDashGap = useCallback(
+    (arc: object) => ((arc as GlobeArc & { kind: "trail" | "comet" }).kind === "trail" ? 0 : 0.45),
+    [],
+  );
+  const arcDashInitialGap = useCallback((arc: object) => {
+    const value = arc as GlobeArc & { kind: "trail" | "comet" };
+    return value.kind === "trail" ? 0 : value.initialGap;
+  }, []);
+  const arcDashAnimateTime = useCallback(
+    (arc: object) => {
+      const value = arc as GlobeArc & { kind: "trail" | "comet" };
+      if (value.kind === "trail") return 0;
+      return animationOn ? value.dashAnimateTime : 0;
+    },
+    [animationOn],
+  );
+  const ringColor = useCallback(() => (t: number) => withAlpha(theme.homeRing, 1 - t), [theme.homeRing]);
 
   useEffect(() => {
     if (!globeReady) return;
@@ -384,6 +434,17 @@ export default function ThreatGlobe({
     };
     node.addEventListener("wheel", handleWheel, { capture: true, passive: true });
     return () => node.removeEventListener("wheel", handleWheel, { capture: true });
+  }, [globeReady]);
+
+  useEffect(() => {
+    if (!globeReady) return;
+    const syncAnimation = () => {
+      if (document.hidden) globeRef.current?.pauseAnimation();
+      else globeRef.current?.resumeAnimation();
+    };
+    syncAnimation();
+    document.addEventListener("visibilitychange", syncAnimation);
+    return () => document.removeEventListener("visibilitychange", syncAnimation);
   }, [globeReady]);
 
   useEffect(() => {
@@ -450,12 +511,12 @@ export default function ThreatGlobe({
           atmosphereAltitude={0.18}
           polygonsData={countries}
           polygonCapColor={polygonCapColor}
-          polygonSideColor={() => theme.polygonSide}
+          polygonSideColor={polygonSideColor}
           polygonStrokeColor={polygonStrokeColor}
           polygonAltitude={polygonAltitude}
           polygonLabel={polygonLabel}
-          polygonsTransitionDuration={300}
-          onPolygonHover={(feature) => setHoverFeature(feature ? (feature as CountryFeature) : null)}
+          polygonsTransitionDuration={0}
+          onPolygonHover={handlePolygonHover}
           onPolygonClick={handlePolygonClick}
           onGlobeClick={handleGlobeClick}
           arcsData={arcsRendered}
@@ -463,33 +524,16 @@ export default function ThreatGlobe({
           arcStartLng="startLng"
           arcEndLat="endLat"
           arcEndLng="endLng"
-          arcColor={(arc: object) => {
-            const a = arc as GlobeArc & { kind: "trail" | "comet" };
-            return a.kind === "trail" ? [a.baseColor, a.baseColor] : a.colors;
-          }}
-          arcStroke={(arc) => {
-            const a = arc as GlobeArc & { kind: "trail" | "comet" };
-            return a.kind === "trail" ? Math.max(0.35, a.stroke * 0.55) : a.stroke;
-          }}
+          arcColor={arcColor}
+          arcStroke={arcStroke}
           arcAltitudeAutoScale={0.5}
-          arcDashLength={(arc) =>
-            (arc as GlobeArc & { kind: "trail" | "comet" }).kind === "trail" ? 1 : 0.32
-          }
-          arcDashGap={(arc) =>
-            (arc as GlobeArc & { kind: "trail" | "comet" }).kind === "trail" ? 0 : 0.45
-          }
-          arcDashInitialGap={(arc) => {
-            const a = arc as GlobeArc & { kind: "trail" | "comet" };
-            return a.kind === "trail" ? 0 : a.initialGap;
-          }}
-          arcDashAnimateTime={(arc) => {
-            const a = arc as GlobeArc & { kind: "trail" | "comet" };
-            if (a.kind === "trail") return 0;
-            return animationOn ? a.dashAnimateTime : 0;
-          }}
+          arcDashLength={arcDashLength}
+          arcDashGap={arcDashGap}
+          arcDashInitialGap={arcDashInitialGap}
+          arcDashAnimateTime={arcDashAnimateTime}
           arcsTransitionDuration={0}
           ringsData={animationOn ? homeRings : []}
-          ringColor={() => (t: number) => withAlpha(theme.homeRing, 1 - t)}
+          ringColor={ringColor}
           ringMaxRadius={RING_MAX_RADIUS}
           ringPropagationSpeed={RING_PROPAGATION_SPEED}
           ringRepeatPeriod={RING_REPEAT_PERIOD}
