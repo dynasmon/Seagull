@@ -26,11 +26,11 @@ const POLYGON_IDLE_ALTITUDE = 0.005;
 const POLYGON_TRAFFIC_ALTITUDE = 0.009;
 const POLYGON_HOVER_ALTITUDE = 0.02;
 const POLYGON_SELECTED_ALTITUDE = 0.035;
-const MAX_ARCS = 150;
-const MIN_ARC_STROKE = 0.3;
-const MAX_ARC_STROKE = 1.4;
-const MIN_ARC_ANIMATE_MS = 1500;
-const MAX_ARC_ANIMATE_MS = 4000;
+const MAX_ARCS = 180;
+const MIN_ARC_STROKE = 0.55;
+const MAX_ARC_STROKE = 2.4;
+const MIN_ARC_ANIMATE_MS = 1200;
+const MAX_ARC_ANIMATE_MS = 3200;
 const HOME_PROXIMITY_DEGREES = 0.5;
 const RING_MAX_RADIUS = 4;
 const RING_PROPAGATION_SPEED = 2.4;
@@ -79,6 +79,7 @@ type GlobeArc = {
   endLat: number;
   endLng: number;
   colors: [string, string];
+  baseColor: string;
   stroke: number;
   dashAnimateTime: number;
   initialGap: number;
@@ -233,18 +234,22 @@ export default function ThreatGlobe({
       endLng: number,
       colors: [string, string],
       weight: number,
-    ): GlobeArc => ({
-      startLat,
-      startLng,
-      endLat,
-      endLng,
-      colors,
-      stroke: scaleByCount(weight, maxWeight, MIN_ARC_STROKE, MAX_ARC_STROKE),
-      dashAnimateTime:
-        MAX_ARC_ANIMATE_MS - scaleByCount(weight, maxWeight, 0, MAX_ARC_ANIMATE_MS - MIN_ARC_ANIMATE_MS),
-      initialGap: ((Math.round(Math.abs(weight)) % 7) / 7) * 2,
-      weight,
-    });
+    ): GlobeArc => {
+      const trail = withAlpha(colors[1], 0.22);
+      return {
+        startLat,
+        startLng,
+        endLat,
+        endLng,
+        colors,
+        baseColor: trail,
+        stroke: scaleByCount(weight, maxWeight, MIN_ARC_STROKE, MAX_ARC_STROKE),
+        dashAnimateTime:
+          MAX_ARC_ANIMATE_MS - scaleByCount(weight, maxWeight, 0, MAX_ARC_ANIMATE_MS - MIN_ARC_ANIMATE_MS),
+        initialGap: (Math.round(Math.abs(weight)) % 9) / 9,
+        weight,
+      };
+    };
 
     for (const point of visiblePoints) {
       if (near(point.lat, point.lon, homeLat, homeLng)) continue;
@@ -269,6 +274,15 @@ export default function ThreatGlobe({
     built.sort((a, b) => b.weight - a.weight);
     return built.slice(0, MAX_ARCS);
   }, [visiblePoints, visibleFlows, home, maxWeight, severityColors, euiTheme.colors.primary]);
+
+  const arcsRendered = useMemo<Array<GlobeArc & { kind: "trail" | "comet" }>>(() => {
+    const out: Array<GlobeArc & { kind: "trail" | "comet" }> = [];
+    for (const arc of arcs) {
+      out.push({ ...arc, kind: "trail" });
+      out.push({ ...arc, kind: "comet" });
+    }
+    return out;
+  }, [arcs]);
 
   const featureCode = useMemo(() => {
     const map = new Map<CountryFeature, string | null>();
@@ -349,7 +363,7 @@ export default function ThreatGlobe({
   const handleGlobeReady = () => {
     const controls = globeRef.current?.controls();
     if (controls) {
-      controls.enableZoom = true;
+      controls.enableZoom = false;
       controls.enablePan = false;
       controls.minDistance = 180;
       controls.maxDistance = 620;
@@ -358,6 +372,19 @@ export default function ThreatGlobe({
     }
     setGlobeReady(true);
   };
+
+  useEffect(() => {
+    if (!globeReady) return;
+    const node = containerRef.current;
+    if (!node) return;
+    const handleWheel = (event: WheelEvent) => {
+      const controls = globeRef.current?.controls();
+      if (!controls) return;
+      controls.enableZoom = event.shiftKey;
+    };
+    node.addEventListener("wheel", handleWheel, { capture: true, passive: true });
+    return () => node.removeEventListener("wheel", handleWheel, { capture: true });
+  }, [globeReady]);
 
   useEffect(() => {
     if (!globeReady || didCenter.current || !home) return;
@@ -431,18 +458,35 @@ export default function ThreatGlobe({
           onPolygonHover={(feature) => setHoverFeature(feature ? (feature as CountryFeature) : null)}
           onPolygonClick={handlePolygonClick}
           onGlobeClick={handleGlobeClick}
-          arcsData={arcs}
+          arcsData={arcsRendered}
           arcStartLat="startLat"
           arcStartLng="startLng"
           arcEndLat="endLat"
           arcEndLng="endLng"
-          arcColor="colors"
-          arcStroke="stroke"
+          arcColor={(arc: object) => {
+            const a = arc as GlobeArc & { kind: "trail" | "comet" };
+            return a.kind === "trail" ? [a.baseColor, a.baseColor] : a.colors;
+          }}
+          arcStroke={(arc) => {
+            const a = arc as GlobeArc & { kind: "trail" | "comet" };
+            return a.kind === "trail" ? Math.max(0.35, a.stroke * 0.55) : a.stroke;
+          }}
           arcAltitudeAutoScale={0.5}
-          arcDashLength={0.35}
-          arcDashGap={2}
-          arcDashInitialGap="initialGap"
-          arcDashAnimateTime={(arc) => (animationOn ? (arc as GlobeArc).dashAnimateTime : 0)}
+          arcDashLength={(arc) =>
+            (arc as GlobeArc & { kind: "trail" | "comet" }).kind === "trail" ? 1 : 0.32
+          }
+          arcDashGap={(arc) =>
+            (arc as GlobeArc & { kind: "trail" | "comet" }).kind === "trail" ? 0 : 0.45
+          }
+          arcDashInitialGap={(arc) => {
+            const a = arc as GlobeArc & { kind: "trail" | "comet" };
+            return a.kind === "trail" ? 0 : a.initialGap;
+          }}
+          arcDashAnimateTime={(arc) => {
+            const a = arc as GlobeArc & { kind: "trail" | "comet" };
+            if (a.kind === "trail") return 0;
+            return animationOn ? a.dashAnimateTime : 0;
+          }}
           arcsTransitionDuration={0}
           ringsData={animationOn ? homeRings : []}
           ringColor={() => (t: number) => withAlpha(theme.homeRing, 1 - t)}
@@ -461,6 +505,9 @@ export default function ThreatGlobe({
           onGlobeReady={handleGlobeReady}
         />
       ) : null}
+      <div className="pointer-events-none absolute bottom-2 right-3 select-none text-[10px] uppercase tracking-[0.12em] text-muted-foreground/70">
+        hold shift + scroll to zoom
+      </div>
     </div>
   );
 }
