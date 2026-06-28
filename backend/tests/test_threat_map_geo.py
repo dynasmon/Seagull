@@ -41,6 +41,93 @@ def _disable_cache(monkeypatch):
     monkeypatch.setattr(threat_map_service, "_resolve_home_endpoint", lambda: None)
 
 
+def test_resolve_home_via_maxmind_uses_public_ip_and_local_provider(monkeypatch):
+    config = {"city_db_path": "/tmp/GeoLite2-City.mmdb", "asn_db_path": "/tmp/GeoLite2-ASN.mmdb"}
+    lookup_args = []
+
+    monkeypatch.setattr(threat_map_service, "_provider_config", lambda: config)
+    monkeypatch.setattr(
+        threat_map_service,
+        "_resolve_provider",
+        lambda cfg: (threat_map_service.GEOIP_PROVIDER_MAXMIND, "mmdb_present"),
+    )
+    monkeypatch.setattr(threat_map_service, "_fetch_public_ip", lambda: "203.0.113.8")
+    monkeypatch.setattr(
+        threat_map_service,
+        "_lookup_ip",
+        lambda ip, provider, cfg, timeout: lookup_args.append((ip, provider, cfg, timeout))
+        or {"loc": "-3.7319,-38.5267", "city": "Fortaleza", "region": "Ceara", "country": "BR"},
+    )
+    monkeypatch.delenv("SEAGULL_THREAT_MAP_HOME_LABEL", raising=False)
+
+    endpoint = threat_map_service._resolve_home_via_maxmind()
+
+    assert endpoint is not None
+    assert endpoint.lat == pytest.approx(-3.7319)
+    assert endpoint.lon == pytest.approx(-38.5267)
+    assert endpoint.label == "Fortaleza · BR"
+    assert lookup_args == [
+        (
+            "203.0.113.8",
+            threat_map_service.GEOIP_PROVIDER_MAXMIND,
+            config,
+            threat_map_service.PUBLIC_IP_TIMEOUT_SECONDS,
+        )
+    ]
+
+
+def test_resolve_home_endpoint_caches_maxmind_before_ipinfo(monkeypatch):
+    endpoint = threat_map_service.ThreatGeoEndpoint(
+        lat=-3.7319,
+        lon=-38.5267,
+        city="Fortaleza",
+        country="BR",
+        label="Fortaleza · BR",
+        scope="home",
+    )
+    cache_writes = []
+
+    monkeypatch.delenv("SEAGULL_THREAT_MAP_HOME_LATLON", raising=False)
+    monkeypatch.setattr(threat_map_service, "_cache_get_json", lambda key: None)
+    monkeypatch.setattr(
+        threat_map_service,
+        "_cache_set_json",
+        lambda key, payload, ttl: cache_writes.append((key, payload, ttl)),
+    )
+    monkeypatch.setattr(threat_map_service, "_resolve_home_via_maxmind", lambda: endpoint)
+
+    def fail_ipinfo():
+        raise AssertionError("ipinfo must not run after a MaxMind hit")
+
+    monkeypatch.setattr(threat_map_service, "_fetch_self_geo", fail_ipinfo)
+
+    resolved = threat_map_service._resolve_home_endpoint()
+
+    assert resolved == endpoint
+    assert cache_writes == [
+        (threat_map_service.HOME_CACHE_KEY, endpoint.dict(), threat_map_service.HOME_CACHE_TTL_SECONDS)
+    ]
+
+
+def test_resolve_home_endpoint_caches_short_miss_after_all_providers_fail(monkeypatch):
+    cache_writes = []
+
+    monkeypatch.delenv("SEAGULL_THREAT_MAP_HOME_LATLON", raising=False)
+    monkeypatch.setattr(threat_map_service, "_cache_get_json", lambda key: None)
+    monkeypatch.setattr(
+        threat_map_service,
+        "_cache_set_json",
+        lambda key, payload, ttl: cache_writes.append((key, payload, ttl)),
+    )
+    monkeypatch.setattr(threat_map_service, "_resolve_home_via_maxmind", lambda: None)
+    monkeypatch.setattr(threat_map_service, "_fetch_self_geo", lambda: None)
+
+    assert threat_map_service._resolve_home_endpoint() is None
+    assert cache_writes == [
+        (threat_map_service.HOME_CACHE_KEY, {"miss": True}, threat_map_service.HOME_MISS_TTL_SECONDS)
+    ]
+
+
 def test_threat_geo_clusters_public_sources_and_skips_private_and_unlocated(monkeypatch):
     _disable_cache(monkeypatch)
     now = datetime.now(timezone.utc)
