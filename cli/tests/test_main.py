@@ -78,6 +78,7 @@ def test_cmd_restart_systemd_reconciles_after_compose_up(monkeypatch) -> None:
     reconcile_calls = []
 
     monkeypatch.setattr(cli_main._env, "bootstrap", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli_main._geoip, "ensure", lambda: False)
     monkeypatch.setattr(cli_main._preflight, "run", lambda: None)
     monkeypatch.setenv("SEAGULL_SKIP_AGENT_RECONCILE", "false")
     monkeypatch.setattr(cli_main.shutil, "which", lambda name: "/usr/bin/systemctl")
@@ -101,6 +102,24 @@ def test_cmd_restart_systemd_reconciles_after_compose_up(monkeypatch) -> None:
     assert rc == 0
     assert len(run_calls) == 2
     assert len(reconcile_calls) == 1
+
+
+def test_cmd_up_ensures_geoip_before_starting_stack(monkeypatch) -> None:
+    calls = []
+
+    monkeypatch.setattr(cli_main._env, "bootstrap", lambda: calls.append("bootstrap"))
+    monkeypatch.setattr(cli_main._env, "read", lambda key, default="": "dev" if key == "SEAGULL_MODE" else default)
+    monkeypatch.setattr(cli_main._geoip, "ensure", lambda: calls.append("geoip") or False)
+    monkeypatch.setattr(
+        cli_main,
+        "_up_dev",
+        lambda files, persist: calls.append("up") or 0,
+    )
+
+    rc = cli_main.cmd_up(SimpleNamespace(mode=None, persist=False, dev_reload=False, fresh=False))
+
+    assert rc == 0
+    assert calls == ["bootstrap", "geoip", "up"]
 
 
 def _dev_stack_up(monkeypatch, run_calls):

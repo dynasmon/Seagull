@@ -12,6 +12,7 @@ from .stack import compose as _compose
 from .config import state as _state
 from .security import tokens as _tokens
 from .stack import deps as _deps
+from .stack import geoip as _geoip
 from .stack import health as _health
 from .config import wizard as _wizard
 from .stack import systemd as _systemd
@@ -172,6 +173,7 @@ def _up_prod(fresh: bool) -> int:
 
 def cmd_up(args: argparse.Namespace) -> int:
     _env.bootstrap()
+    _geoip.ensure()
 
     mode = getattr(args, "mode", None) or _env.read("SEAGULL_MODE", "dev")
     persist = getattr(args, "persist", False)
@@ -224,6 +226,7 @@ def cmd_dev(args: argparse.Namespace) -> int:
     dev_reload: bool = getattr(args, "dev_reload", False)
 
     _env.bootstrap()
+    _geoip.ensure()
     files = _compose.DEV_RELOAD_FILES if dev_reload else _compose.STACK_FILES
     return _up_dev(files=files, persist=persist)
 
@@ -231,12 +234,14 @@ def cmd_dev(args: argparse.Namespace) -> int:
 def cmd_prod(args: argparse.Namespace) -> int:
     fresh: bool = getattr(args, "fresh", False)
     _env.bootstrap()
+    _geoip.ensure()
     return _up_prod(fresh=fresh)
 
 
 def cmd_prod_setup(args: argparse.Namespace) -> int:
     _env.bootstrap()
     _wizard.run()
+    _geoip.ensure()
     _prepare.run()
     print("[prod-setup] environment wizard completed and production config validated")
     return 0
@@ -253,6 +258,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
     dev_reload: bool = getattr(args, "dev_reload", False)
 
     _env.bootstrap()
+    _geoip.ensure()
     _preflight.run()
 
     files = _compose.DEV_RELOAD_FILES if dev_reload else _compose.STACK_FILES
@@ -330,6 +336,18 @@ def cmd_env(args: argparse.Namespace) -> int:
         _prepare.run()
         return 0
     print(f"[seagull] unknown env subcommand: {sub}", file=sys.stderr)
+    return 1
+
+
+def cmd_geoip(args: argparse.Namespace) -> int:
+    _env.bootstrap()
+    sub: str = args.geoip_cmd
+    if sub == "install":
+        _geoip.ensure(force=getattr(args, "force", False))
+        return 0
+    if sub == "status":
+        return 0 if _geoip.status() else 1
+    print(f"[seagull] unknown geoip subcommand: {sub}", file=sys.stderr)
     return 1
 
 
@@ -522,6 +540,7 @@ def _print_help() -> None:
         "\n"
         "Management:\n"
         "  env bootstrap | wizard | prepare\n"
+        "  geoip install [--force] | status\n"
         "  agent tokens [--output-dir path]\n"
         "  agent install-systemd | restart-systemd | status-systemd | validate-systemd\n"
         "  admin reset\n"
@@ -603,6 +622,12 @@ def _build_parser() -> argparse.ArgumentParser:
     env_sub.add_parser("wizard", help="interactive environment setup wizard")
     env_sub.add_parser("prepare", help="validate production environment secrets")
 
+    geoip_p = sub.add_parser("geoip", help="manage local MaxMind GeoLite2 databases")
+    geoip_sub = geoip_p.add_subparsers(dest="geoip_cmd", metavar="geoip_cmd")
+    geoip_install = geoip_sub.add_parser("install", help="download missing GeoLite2 databases")
+    geoip_install.add_argument("--force", action="store_true", help="download even when databases are valid")
+    geoip_sub.add_parser("status", help="validate installed GeoLite2 databases")
+
     agent_p = sub.add_parser("agent", help="agent lifecycle operations")
     agent_sub = agent_p.add_subparsers(dest="agent_cmd", metavar="agent_cmd")
     tok_p = agent_sub.add_parser("tokens", help="mint agent bootstrap tokens")
@@ -664,6 +689,7 @@ _DISPATCH = {
     "nuke": cmd_nuke,
     "psql": cmd_psql,
     "env": cmd_env,
+    "geoip": cmd_geoip,
     "agent": cmd_agent,
     "admin": cmd_admin,
     "state": cmd_state,
