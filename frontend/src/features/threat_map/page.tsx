@@ -2,7 +2,9 @@ import { lazy, Suspense, useMemo, useState } from "react";
 import { useEuiTheme } from "@elastic/eui";
 
 import EmptyState from "@/shared/components/EmptyState";
+import { Button } from "@/shared/components/Button";
 import { DataQueryStateBanner } from "@/shared/components/DataView";
+import { MetricCard } from "@/shared/components/MetricCard";
 import { Panel } from "@/shared/components/Panel";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
@@ -10,15 +12,13 @@ import { useSeverityChartColors } from "@/shared/components/charts/chartTheme";
 import type { SeverityLevel } from "@/shared/lib/severity";
 import { usePortalRealtimeSubscription } from "@/shared/realtime";
 
-import { ThreatMap } from "./components/ThreatMap";
 import { ThreatRankPanels } from "./components/ThreatRankPanels";
 import CountryDetailDrawer, { type CountrySelection } from "./components/CountryDetailDrawer";
+import type { DirectionFilter } from "./components/ThreatGlobe";
 import { useThreatGeo } from "./useThreatGeo";
 import type { ThreatSourceMode } from "./types";
-import { WORLD_VIEWBOX_HEIGHT, WORLD_VIEWBOX_WIDTH } from "./worldMap";
 
 const ThreatGlobe = lazy(() => import("./components/ThreatGlobe"));
-const USE_GLOBE = true;
 
 const WINDOW_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 360, label: "Last 6 hours" },
@@ -41,6 +41,14 @@ const SOURCE_OPTIONS: Array<{ value: ThreatSourceMode; label: string }> = [
   { value: "alerts", label: "Confirmed alerts" },
 ];
 
+const DIRECTION_OPTIONS: Array<{ value: DirectionFilter; label: string }> = [
+  { value: "all", label: "All directions" },
+  { value: "inbound", label: "Inbound" },
+  { value: "outbound", label: "Outbound" },
+  { value: "internal", label: "Internal" },
+  { value: "transit", label: "Transit" },
+];
+
 const LEGEND: Array<{ level: SeverityLevel; label: string }> = [
   { level: "critical", label: "Critical" },
   { level: "high", label: "High" },
@@ -58,6 +66,9 @@ export default function ThreatMapPage() {
   const [severity, setSeverity] = useState("");
   const [source, setSource] = useState<ThreatSourceMode>("both");
   const [animate, setAnimate] = useState(true);
+  const [autoRotate, setAutoRotate] = useState(false);
+  const [direction, setDirection] = useState<DirectionFilter>("all");
+  const [resetSignal, setResetSignal] = useState(0);
   const [selectedCountry, setSelectedCountry] = useState<CountrySelection | null>(null);
   const [cityFocus, setCityFocus] = useState<{ lat: number; lng: number; key: number } | null>(null);
   const [protection, setProtection] = useState<{ active: boolean; phase: string; sampleHot: number | null }>({
@@ -88,6 +99,16 @@ export default function ThreatMapPage() {
 
   const ddosAttacks = data?.ddos_attacks ?? 0;
   const ddosUnlocated = data?.ddos_unlocated_sources ?? 0;
+  const totalAlerts = data?.total_alerts ?? 0;
+  const locatedIps = data?.located_ips ?? 0;
+  const countriesObserved = data?.top_source_countries.length ?? 0;
+  const metricsLoading = isLoading && !data;
+
+  const recenter = () => {
+    setSelectedCountry(null);
+    setCityFocus(null);
+    setResetSignal((value) => value + 1);
+  };
 
   const protectionMessage = protection.active
     ? [
@@ -162,7 +183,20 @@ export default function ThreatMapPage() {
               ))}
             </SelectInput>
           </div>
+          <div className="w-40">
+            <SelectInput value={direction} onChange={(event) => setDirection(event.target.value as DirectionFilter)}>
+              {DIRECTION_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </SelectInput>
+          </div>
           <ToggleSwitch label="Animate flows" checked={animate} onChange={(event) => setAnimate(event.target.checked)} />
+          <ToggleSwitch label="Auto-rotate" checked={autoRotate} onChange={(event) => setAutoRotate(event.target.checked)} />
+          <Button variant="secondary" size="sm" onClick={recenter}>
+            Recenter
+          </Button>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
@@ -191,6 +225,28 @@ export default function ThreatMapPage() {
         <DataQueryStateBanner tone={error ? "warning" : "neutral"} message={bannerMessage} />
       ) : null}
 
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <MetricCard title="Located IPs" value={locatedIps.toLocaleString()} tone="info" loading={metricsLoading} />
+        <MetricCard
+          title="Total alerts"
+          value={totalAlerts.toLocaleString()}
+          tone={totalAlerts > 0 ? "danger" : "default"}
+          loading={metricsLoading}
+        />
+        <MetricCard
+          title="DDoS attacks"
+          value={ddosAttacks.toLocaleString()}
+          tone={ddosAttacks > 0 ? "warning" : "default"}
+          loading={metricsLoading}
+        />
+        <MetricCard
+          title="Countries observed"
+          value={countriesObserved.toLocaleString()}
+          tone="default"
+          loading={metricsLoading}
+        />
+      </div>
+
       <Panel
         title="Network threat map"
         subtitle="Ambient suspicious traffic with confirmed alerts promoted"
@@ -202,34 +258,31 @@ export default function ThreatMapPage() {
           ) : null
         }
       >
-        <div
-          className="relative w-full"
-          style={{ aspectRatio: USE_GLOBE ? "16 / 10" : `${WORLD_VIEWBOX_WIDTH} / ${WORLD_VIEWBOX_HEIGHT}` }}
-        >
-          {USE_GLOBE ? (
-            <Suspense
-              fallback={
-                <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-                  Loading globe…
-                </div>
-              }
-            >
-              <ThreatGlobe
-                points={data?.points ?? []}
-                flows={data?.flows ?? []}
-                home={data?.home ?? null}
-                animate={animate}
-                selectedCode={selectedCountry?.code ?? null}
-                cityFocus={cityFocus}
-                onSelectCountry={(selection) => {
-                  setSelectedCountry(selection);
-                  setCityFocus(null);
-                }}
-              />
-            </Suspense>
-          ) : (
-            <ThreatMap points={data?.points ?? []} flows={data?.flows ?? []} home={data?.home ?? null} animate={animate} />
-          )}
+        <div className="relative w-full" style={{ aspectRatio: "16 / 10" }}>
+          <Suspense
+            fallback={
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+                Loading globe…
+              </div>
+            }
+          >
+            <ThreatGlobe
+              points={data?.points ?? []}
+              flows={data?.flows ?? []}
+              home={data?.home ?? null}
+              animate={animate}
+              direction={direction}
+              autoRotate={autoRotate}
+              resetSignal={resetSignal}
+              selectedCode={selectedCountry?.code ?? null}
+              cityFocus={cityFocus}
+              onSelectCountry={(selection) => {
+                setSelectedCountry(selection);
+                setCityFocus(null);
+              }}
+              onAutoRotateOff={() => setAutoRotate(false)}
+            />
+          </Suspense>
           {overlay ? (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">{overlay}</div>
           ) : null}
