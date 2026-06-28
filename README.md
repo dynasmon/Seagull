@@ -90,18 +90,24 @@ up the `docker` group.
 
 ### Start the Stack
 
+Before the first startup, create a free MaxMind account, generate a license key,
+and set `MAXMIND_LICENSE_KEY` in `.env`.
+
 ```bash
 git clone https://gitlab.com/nathanmblima/seagull.git
 cd seagull
 ./seagull -d --install
+./seagull env bootstrap
+${EDITOR:-nano} .env
 ./seagull up
 ```
 
 `./seagull up` is the only command needed from then on: it bootstraps `.env`
-from [`.env.example`](.env.example), validates the environment, generates the
-TLS/mTLS PKI, builds the containers, waits for core services, creates
-short-lived agent bootstrap tokens, and reconciles the host `systemd` agent
-(building and installing it automatically when missing).
+from [`.env.example`](.env.example), downloads and validates the MaxMind
+GeoLite2 City and ASN databases when missing, validates the environment,
+generates the TLS/mTLS PKI, builds the containers, waits for core services,
+creates short-lived agent bootstrap tokens, and reconciles the host `systemd`
+agent (building and installing it automatically when missing).
 
 ### Access
 
@@ -140,6 +146,8 @@ Do not keep the development password for production.
 ./seagull logs seagull-backend       # follow one service
 ./seagull doctor                     # preflight and config checks
 ./seagull db upgrade                 # run Alembic migrations
+./seagull geoip status               # validate local GeoLite2 databases
+./seagull geoip install --force      # refresh local GeoLite2 databases
 ./seagull agent tokens               # mint agent bootstrap tokens
 ./seagull admin reset                # reset bootstrap admin from .env
 ./seagull test                       # backend, agent, and portal smoke tests
@@ -176,6 +184,7 @@ Important production settings:
 | `SEAGULL_ALLOWED_HOSTS` | Restrict accepted hostnames outside local development. |
 | `SEAGULL_CADDY_DOMAIN`, `SEAGULL_CADDY_EMAIL` | Public TLS/domain configuration for Caddy. |
 | `SEAGULL_AUDIT_HASH_PEPPER` or `SEAGULL_AUDIT_HASH_PEPPER_FILE` | Audit hashing pepper. |
+| `MAXMIND_LICENSE_KEY` | Downloads GeoLite2 City and ASN automatically during `./seagull up`. |
 | `SEAGULL_CLICKHOUSE_ENABLED` | Enable/disable ClickHouse analytics sink. |
 | `SEAGULL_SEARCH_BACKEND`, `SEAGULL_ES_URL` | Hunting/search backend behavior. |
 
