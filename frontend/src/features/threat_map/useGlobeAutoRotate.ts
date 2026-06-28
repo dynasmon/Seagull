@@ -1,7 +1,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 import type { GlobeMethods } from "react-globe.gl";
 
-const AUTO_ROTATE_SPEED = 0.35;
+const AUTO_ROTATE_SPEED = 0.75;
 
 export type GlobeAutoRotateOptions = {
   globeRef: RefObject<GlobeMethods | undefined>;
