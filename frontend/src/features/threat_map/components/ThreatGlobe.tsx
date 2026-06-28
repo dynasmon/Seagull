@@ -3,7 +3,6 @@ import Globe, { type GlobeMethods } from "react-globe.gl";
 import { useEuiTheme } from "@elastic/eui";
 
 import { useSeverityChartColors } from "@/shared/components/charts/chartTheme";
-import { useReducedMotion } from "@/shared/hooks/useReducedMotion";
 
 import { buildGlobeTheme, toSeverityLevel, withAlpha } from "./globeTheme";
 import type { CountrySelection } from "./CountryDetailDrawer";
@@ -27,10 +26,8 @@ const POLYGON_TRAFFIC_ALTITUDE = 0.009;
 const POLYGON_HOVER_ALTITUDE = 0.02;
 const POLYGON_SELECTED_ALTITUDE = 0.035;
 const MAX_ARCS = 110;
-const MIN_ARC_STROKE = 0.55;
-const MAX_ARC_STROKE = 2.4;
-const MIN_ARC_ANIMATE_MS = 1200;
-const MAX_ARC_ANIMATE_MS = 3200;
+const MIN_ARC_ANIMATE_MS = 1400;
+const MAX_ARC_ANIMATE_MS = 2400;
 const HOME_PROXIMITY_DEGREES = 0.5;
 const RING_MAX_RADIUS = 4;
 const RING_PROPAGATION_SPEED = 2.4;
@@ -80,7 +77,6 @@ type GlobeArc = {
   endLng: number;
   colors: [string, string];
   baseColor: string;
-  stroke: number;
   dashAnimateTime: number;
   initialGap: number;
   weight: number;
@@ -124,9 +120,8 @@ export default function ThreatGlobe({
 }: ThreatGlobeProps) {
   const { euiTheme, colorMode } = useEuiTheme();
   const severityColors = useSeverityChartColors();
-  const reducedMotion = useReducedMotion();
   const isDark = colorMode === "DARK";
-  const animationOn = animate && !reducedMotion;
+  const animationOn = animate;
 
   const theme = useMemo(
     () =>
@@ -235,7 +230,9 @@ export default function ThreatGlobe({
       colors: [string, string],
       weight: number,
     ): GlobeArc => {
-      const trail = withAlpha(colors[1], 0.22);
+      const trail = withAlpha(colors[1], 0.08);
+      const phaseSeed =
+        Math.sin(startLat * 12.9898 + startLng * 78.233 + endLat * 37.719 + endLng * 11.131) * 43758.5453;
       return {
         startLat,
         startLng,
@@ -243,10 +240,9 @@ export default function ThreatGlobe({
         endLng,
         colors,
         baseColor: trail,
-        stroke: scaleByCount(weight, maxWeight, MIN_ARC_STROKE, MAX_ARC_STROKE),
         dashAnimateTime:
           MAX_ARC_ANIMATE_MS - scaleByCount(weight, maxWeight, 0, MAX_ARC_ANIMATE_MS - MIN_ARC_ANIMATE_MS),
-        initialGap: (Math.round(Math.abs(weight)) % 9) / 9,
+        initialGap: phaseSeed - Math.floor(phaseSeed),
         weight,
       };
     };
@@ -397,16 +393,12 @@ export default function ThreatGlobe({
     const value = arc as GlobeArc & { kind: "trail" | "comet" };
     return value.kind === "trail" ? [value.baseColor, value.baseColor] : value.colors;
   }, []);
-  const arcStroke = useCallback((arc: object) => {
-    const value = arc as GlobeArc & { kind: "trail" | "comet" };
-    return value.kind === "trail" ? Math.max(0.35, value.stroke * 0.55) : value.stroke;
-  }, []);
   const arcDashLength = useCallback(
-    (arc: object) => ((arc as GlobeArc & { kind: "trail" | "comet" }).kind === "trail" ? 1 : 0.32),
+    (arc: object) => ((arc as GlobeArc & { kind: "trail" | "comet" }).kind === "trail" ? 1 : 0.09),
     [],
   );
   const arcDashGap = useCallback(
-    (arc: object) => ((arc as GlobeArc & { kind: "trail" | "comet" }).kind === "trail" ? 0 : 0.45),
+    (arc: object) => ((arc as GlobeArc & { kind: "trail" | "comet" }).kind === "trail" ? 0 : 0.91),
     [],
   );
   const arcDashInitialGap = useCallback((arc: object) => {
@@ -481,7 +473,7 @@ export default function ThreatGlobe({
     globeRef,
     containerRef,
     ready: globeReady,
-    enabled: autoRotate && !reducedMotion,
+    enabled: autoRotate,
     paused: Boolean(selectedCode),
     onUserInteract: onAutoRotateOff,
   });
@@ -525,8 +517,8 @@ export default function ThreatGlobe({
           arcEndLat="endLat"
           arcEndLng="endLng"
           arcColor={arcColor}
-          arcStroke={arcStroke}
-          arcAltitudeAutoScale={0.5}
+          arcStroke={null}
+          arcAltitudeAutoScale={0.32}
           arcDashLength={arcDashLength}
           arcDashGap={arcDashGap}
           arcDashInitialGap={arcDashInitialGap}
