@@ -103,6 +103,143 @@ def clickhouse_events_1m_table_ref() -> str:
     return f"{db}.net_events_1m"
 
 
+def clickhouse_proto_intel_table_ref() -> str:
+    db = _safe_ident(getattr(settings, "SEAGULL_CLICKHOUSE_DATABASE", "seagull"), fallback="seagull")
+    return f"{db}.net_events_proto_intel_1m"
+
+
+def clickhouse_proto_intel_overview_table_ref() -> str:
+    db = _safe_ident(getattr(settings, "SEAGULL_CLICKHOUSE_DATABASE", "seagull"), fallback="seagull")
+    return f"{db}.net_events_proto_intel_overview_1m"
+
+
+_PROTO_INTEL_PTYPE_EXPR = "ifNull(if(ifNull(ja4_ptype, '') = '', 't', ja4_ptype), 't')"
+
+_PROTO_INTEL_FACET_ARRAY = (
+    "arrayFilter(x -> x.2 != '', ["
+    "('app_proto', ifNull(app_proto, ''), toInt32(0), ''),"
+    "('transport', lowerUTF8(ifNull(proto, '')), toInt32(0), ''),"
+    "('dst_port', ifNull(toString(dst_port), ''), toInt32(0), ''),"
+    "('src_port', ifNull(toString(src_port), ''), toInt32(0), ''),"
+    "('app_proto_reason', ifNull(app_proto_reason, ''), toInt32(0), ''),"
+    "('app_proto_conf_band', ifNull(app_proto_conf_band, ''), toInt32(0), ''),"
+    f"('ja4_ptype', {_PROTO_INTEL_PTYPE_EXPR}, toInt32(0), ''),"
+    "('http_method', upperUTF8(ifNull(http_method, '')), toInt32(0), ''),"
+    "('dns_qname', lowerUTF8(ifNull(dns_qname, '')), toInt32OrZero(JSONExtractString(extra_json, 'dns_risk')), ''),"
+    "('http_host', lowerUTF8(ifNull(http_host, '')), toInt32(0), ''),"
+    "('tls_sni', lowerUTF8(ifNull(tls_sni, '')), toInt32(0), ''),"
+    "('tls_alpn_first', lowerUTF8(ifNull(tls_alpn_first, '')), toInt32(0), ''),"
+    "('ja3', ifNull(ja3, ''), toInt32(0), ''),"
+    f"('ja4', ifNull(ja4, ''), toInt32(0), {_PROTO_INTEL_PTYPE_EXPR})"
+    "])"
+)
+
+
+_PROTO_INTEL_OVERVIEW_WITH_PROTO = (
+    "ifNull(app_proto, '') != '' OR ifNull(dns_qname, '') != '' OR ifNull(http_host, '') != '' "
+    "OR ifNull(http_method, '') != '' OR ifNull(ja4, '') != '' OR ifNull(ja3, '') != '' "
+    "OR ifNull(tls_sni, '') != ''"
+)
+
+
+def proto_intel_facet_select_sql(*, db: str, table: str, where: str = "") -> str:
+    where_clause = f" WHERE {where}" if where else ""
+    return (
+        "SELECT toStartOfMinute(timestamp) AS bucket_ts, agent_id, "
+        "d.1 AS dimension, d.2 AS value, "
+        "countState() AS cnt, maxState(d.3) AS risk_max, anyState(d.4) AS assoc "
+        f"FROM {db}.{table} "
+        f"ARRAY JOIN {_PROTO_INTEL_FACET_ARRAY} AS d"
+        f"{where_clause} "
+        "GROUP BY bucket_ts, agent_id, dimension, value"
+    )
+
+
+def proto_intel_overview_select_sql(*, db: str, table: str, where: str = "") -> str:
+    where_clause = f" WHERE {where}" if where else ""
+    return (
+        "SELECT toStartOfMinute(timestamp) AS bucket_ts, agent_id, "
+        "countState() AS total, "
+        f"sumState(toUInt64({_PROTO_INTEL_OVERVIEW_WITH_PROTO})) AS with_proto, "
+        "sumState(toUInt64(ifNull(dns_qname, '') != '')) AS dns, "
+        "sumState(toUInt64(ifNull(http_host, '') != '' OR ifNull(http_method, '') != '')) AS http, "
+        "sumState(toUInt64(ifNull(ja4, '') != '' OR ifNull(ja3, '') != '' OR ifNull(tls_sni, '') != '')) AS tls, "
+        "maxState(timestamp) AS last_ts "
+        f"FROM {db}.{table}"
+        f"{where_clause} "
+        "GROUP BY bucket_ts, agent_id"
+    )
+
+
+def _ensure_protocol_intel_schema(client: Any, *, db: str, table: str, retention_days: int) -> None:
+    facet_table = "net_events_proto_intel_1m"
+    facet_mv = "mv_net_events_proto_intel_1m"
+    overview_table = "net_events_proto_intel_overview_1m"
+    overview_mv = "mv_net_events_proto_intel_overview_1m"
+
+    client.command(
+        f"""
+        CREATE TABLE IF NOT EXISTS {db}.{facet_table}
+        (
+            bucket_ts DateTime('UTC'),
+            agent_id LowCardinality(String),
+            dimension LowCardinality(String),
+            value String,
+            cnt AggregateFunction(count),
+            risk_max AggregateFunction(max, Int32),
+            assoc AggregateFunction(any, String)
+        )
+        ENGINE = AggregatingMergeTree
+        PARTITION BY toYYYYMM(bucket_ts)
+        ORDER BY (agent_id, dimension, value, bucket_ts)
+        TTL bucket_ts + toIntervalDay({retention_days}) DELETE
+        SETTINGS index_granularity = 8192, non_replicated_deduplication_window = 1000
+        """
+    )
+    client.command(
+        f"ALTER TABLE {db}.{facet_table} "
+        f"MODIFY TTL bucket_ts + toIntervalDay({retention_days}) DELETE"
+    )
+    client.command(
+        f"ALTER TABLE {db}.{facet_table} MODIFY SETTING non_replicated_deduplication_window = 1000"
+    )
+    client.command(
+        f"CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{facet_mv} TO {db}.{facet_table} AS "
+        + proto_intel_facet_select_sql(db=db, table=table)
+    )
+    client.command(
+        f"""
+        CREATE TABLE IF NOT EXISTS {db}.{overview_table}
+        (
+            bucket_ts DateTime('UTC'),
+            agent_id LowCardinality(String),
+            total AggregateFunction(count),
+            with_proto AggregateFunction(sum, UInt64),
+            dns AggregateFunction(sum, UInt64),
+            http AggregateFunction(sum, UInt64),
+            tls AggregateFunction(sum, UInt64),
+            last_ts AggregateFunction(max, DateTime64(3, 'UTC'))
+        )
+        ENGINE = AggregatingMergeTree
+        PARTITION BY toYYYYMM(bucket_ts)
+        ORDER BY (agent_id, bucket_ts)
+        TTL bucket_ts + toIntervalDay({retention_days}) DELETE
+        SETTINGS index_granularity = 8192, non_replicated_deduplication_window = 1000
+        """
+    )
+    client.command(
+        f"ALTER TABLE {db}.{overview_table} "
+        f"MODIFY TTL bucket_ts + toIntervalDay({retention_days}) DELETE"
+    )
+    client.command(
+        f"ALTER TABLE {db}.{overview_table} MODIFY SETTING non_replicated_deduplication_window = 1000"
+    )
+    client.command(
+        f"CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{overview_mv} TO {db}.{overview_table} AS "
+        + proto_intel_overview_select_sql(db=db, table=table)
+    )
+
+
 def ensure_clickhouse_events_schema() -> bool:
 
     if not clickhouse_is_enabled():
@@ -171,6 +308,10 @@ def ensure_clickhouse_events_schema() -> bool:
     client.command(
         f"ALTER TABLE {db}.{table} "
         f"MODIFY TTL toDateTime(timestamp) + toIntervalDay({retention_days}) DELETE"
+    )
+    client.command(
+        f"ALTER TABLE {db}.{table} "
+        "MODIFY SETTING non_replicated_deduplication_window = 1000"
     )
     client.command(
         f"ALTER TABLE {db}.{table} "
@@ -247,6 +388,8 @@ def ensure_clickhouse_events_schema() -> bool:
         """
     )
 
+    _ensure_protocol_intel_schema(client, db=db, table=table, retention_days=retention_days)
+
     # Sanity check: table exists and is queryable.
     exists = client.query(f"EXISTS TABLE {db}.{table}").first_row
     if not (exists and int(exists[0]) == 1):
@@ -254,4 +397,6 @@ def ensure_clickhouse_events_schema() -> bool:
     client.query(f"SELECT pg_event_id FROM {db}.{table} LIMIT 0")
     client.query(f"SELECT app_proto FROM {db}.{table} LIMIT 0")
     client.query(f"SELECT total_count FROM {db}.{agg_table} LIMIT 0")
+    client.query(f"SELECT dimension, value FROM {db}.net_events_proto_intel_1m LIMIT 0")
+    client.query(f"SELECT countMerge(total) FROM {db}.net_events_proto_intel_overview_1m LIMIT 0")
     return True
