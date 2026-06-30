@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import datetime, timedelta
@@ -9,7 +10,13 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.integrations.clickhouse import clickhouse_events_1m_table_ref, clickhouse_events_table_ref
+from app.core.db import SessionLocal
+from app.core.integrations.clickhouse import (
+    clickhouse_events_1m_table_ref,
+    clickhouse_events_table_ref,
+    clickhouse_proto_intel_overview_table_ref,
+    clickhouse_proto_intel_table_ref,
+)
 from app.core.integrations.es import search_backend_mode
 from app.core.observability import incr_counter, log_event, observe_hist
 from app.features.events import repository
@@ -32,6 +39,14 @@ from app.features.events.schemas import (
     QuerySource,
     SshSummaryResponse,
 )
+from app.shared.analytics import (
+    AnalyticalReadModel,
+    WarmSpec,
+    register_read_model,
+    register_warm_set,
+    serve_read_model,
+)
+from app.shared.indexing.watermark import clickhouse_watermark_lag_seconds
 from app.shared.schemas import CursorPage
 
 logger = logging.getLogger("seagull.api.events")
@@ -109,6 +124,9 @@ def _bind_summary_module() -> None:
     event_summaries.observe_hist = observe_hist
     event_summaries.search_backend_mode = search_backend_mode
     event_summaries.clickhouse_events_table_ref = clickhouse_events_table_ref
+    event_summaries.clickhouse_proto_intel_table_ref = clickhouse_proto_intel_table_ref
+    event_summaries.clickhouse_proto_intel_overview_table_ref = clickhouse_proto_intel_overview_table_ref
+    event_summaries.clickhouse_watermark_lag_seconds = clickhouse_watermark_lag_seconds
     event_summaries._cache_get_json = _cache_get_json
     event_summaries._cache_set_json = _cache_set_json
     event_summaries._ch_client_or_none = _ch_client_or_none
@@ -643,6 +661,222 @@ def get_protocol_intel_summary(
         limit=limit,
         agent_id=agent_id,
     )
+
+
+def resolve_protocol_intel_summary(
+    db: Session,
+    *,
+    since_minutes: int = 60 * 12,
+    limit: int = 25,
+    agent_id: Optional[str] = None,
+) -> ProtocolIntelSummaryResponse:
+    _bind_summary_module()
+    return event_summaries.resolve_protocol_intel_summary(
+        db,
+        since_minutes=since_minutes,
+        limit=limit,
+        agent_id=agent_id,
+    )
+
+
+_PROTOCOL_INTEL_MAX_SINCE_MINUTES = 60 * 24 * 30
+
+
+def _protocol_intel_cache_key(params: Dict[str, Any]) -> str:
+    agent = str(params.get("agent_id") or "").strip() or "*"
+    widen = 1 if params.get("widen_if_empty") else 0
+    return (
+        "seagull:events:network_summary:v5:"
+        f"sb={search_backend_mode()}:sm={int(params['since_minutes'])}:l={int(params['limit'])}"
+        f":a={agent}:w={widen}"
+    )
+
+
+def _resolve_protocol_intel_blocking(
+    *, since_minutes: int, limit: int, agent_id: Optional[str]
+) -> ProtocolIntelSummaryResponse:
+    db = SessionLocal()
+    try:
+        return resolve_protocol_intel_summary(db, since_minutes=since_minutes, limit=limit, agent_id=agent_id)
+    finally:
+        db.close()
+
+
+async def _compute_protocol_intel(params: Dict[str, Any]) -> dict:
+    since_minutes = int(params["since_minutes"])
+    limit = int(params["limit"])
+    agent_id = params.get("agent_id") or None
+    widen = bool(params.get("widen_if_empty"))
+
+    payload = await asyncio.to_thread(
+        _resolve_protocol_intel_blocking, since_minutes=since_minutes, limit=limit, agent_id=agent_id
+    )
+    if payload.total_events <= 0 and widen and since_minutes < _PROTOCOL_INTEL_MAX_SINCE_MINUTES:
+        widened = min(max(since_minutes * 6, since_minutes + 60), _PROTOCOL_INTEL_MAX_SINCE_MINUTES)
+        widened_payload = await asyncio.to_thread(
+            _resolve_protocol_intel_blocking, since_minutes=widened, limit=limit, agent_id=agent_id
+        )
+        if widened_payload.total_events > 0:
+            widened_payload.effective_since_minutes = widened
+            return widened_payload.dict()
+    return payload.dict()
+
+
+PROTOCOL_INTEL_READ_MODEL = register_read_model(
+    AnalyticalReadModel(
+        name="protocol_intel",
+        schema_version=5,
+        fresh_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_FRESH_SECONDS", 45) or 45),
+        stale_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_STALE_SECONDS", 300) or 300),
+        key_builder=_protocol_intel_cache_key,
+        compute=_compute_protocol_intel,
+    )
+)
+
+
+async def get_protocol_intel_summary_async(
+    *,
+    since_minutes: int = 60 * 12,
+    limit: int = 25,
+    agent_id: Optional[str] = None,
+    widen_if_empty: bool = False,
+) -> tuple[dict, str, str]:
+    started = time.perf_counter()
+    params = {
+        "since_minutes": int(since_minutes),
+        "limit": int(limit),
+        "agent_id": agent_id or None,
+        "widen_if_empty": bool(widen_if_empty),
+    }
+    payload, etag, outcome = await serve_read_model(PROTOCOL_INTEL_READ_MODEL, params)
+    payload = dict(payload)
+    meta = dict(payload.get("meta") or {})
+    meta["cache_hit"] = outcome != "miss"
+    meta["query_latency_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+    payload["meta"] = meta
+    observe_hist(
+        "api_route_latency_seconds",
+        time.perf_counter() - started,
+        route="/events/network/summary",
+        source=str(meta.get("source") or "clickhouse"),
+    )
+    return payload, etag, outcome
+
+
+def _ssh_summary_cache_key(params: Dict[str, Any]) -> str:
+    agent = str(params.get("agent_id") or "").strip() or "*"
+    return (
+        "seagull:events:ssh_summary:swr:v4:"
+        f"sb={search_backend_mode()}:sm={int(params['since_minutes'])}:l={int(params['limit'])}:a={agent}"
+    )
+
+
+def _resolve_ssh_summary_blocking(*, since_minutes: int, limit: int, agent_id: Optional[str]) -> SshSummaryResponse:
+    db = SessionLocal()
+    try:
+        return get_ssh_summary(db, since_minutes=since_minutes, limit=limit, agent_id=agent_id)
+    finally:
+        db.close()
+
+
+async def _compute_ssh_summary(params: Dict[str, Any]) -> dict:
+    payload = await asyncio.to_thread(
+        _resolve_ssh_summary_blocking,
+        since_minutes=int(params["since_minutes"]),
+        limit=int(params["limit"]),
+        agent_id=params.get("agent_id") or None,
+    )
+    return payload.dict()
+
+
+SSH_SUMMARY_READ_MODEL = register_read_model(
+    AnalyticalReadModel(
+        name="ssh_summary",
+        schema_version=4,
+        fresh_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_FRESH_SECONDS", 45) or 45),
+        stale_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_STALE_SECONDS", 300) or 300),
+        key_builder=_ssh_summary_cache_key,
+        compute=_compute_ssh_summary,
+    )
+)
+
+
+async def get_ssh_summary_async(
+    *,
+    since_minutes: int = 60 * 24,
+    limit: int = 50,
+    agent_id: Optional[str] = None,
+) -> tuple[dict, str, str]:
+    started = time.perf_counter()
+    params = {"since_minutes": int(since_minutes), "limit": int(limit), "agent_id": agent_id or None}
+    payload, etag, outcome = await serve_read_model(SSH_SUMMARY_READ_MODEL, params)
+    payload = dict(payload)
+    meta = dict(payload.get("meta") or {})
+    meta["cache_hit"] = outcome != "miss"
+    meta["query_latency_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+    payload["meta"] = meta
+    observe_hist(
+        "api_route_latency_seconds",
+        time.perf_counter() - started,
+        route="/events/ssh/summary",
+        source=str(meta.get("source") or "clickhouse"),
+    )
+    return payload, etag, outcome
+
+
+def _prewarm_top_agents(limit: int) -> List[str]:
+    if int(limit) <= 0:
+        return []
+    ch = _ch_client_or_none()
+    if ch is None:
+        return []
+    try:
+        ref = clickhouse_events_1m_table_ref()
+        rows = _ch_query_dicts(
+            ch,
+            f"SELECT agent_id, sum(total_count) AS c FROM {ref} "
+            "WHERE bucket_ts >= now() - INTERVAL 1 DAY GROUP BY agent_id ORDER BY c DESC "
+            f"LIMIT {int(limit)}",
+        )
+        return [str(r.get("agent_id")) for r in rows if str(r.get("agent_id") or "").strip()]
+    except Exception:
+        return []
+
+
+def _protocol_intel_warm_specs() -> List[WarmSpec]:
+    top = int(getattr(settings, "SEAGULL_ANALYTICS_PREWARM_TOP_AGENTS", 8) or 8)
+    agents: List[Optional[str]] = [None] + _prewarm_top_agents(top)
+    specs: List[WarmSpec] = []
+    for since_minutes in (60, 720, 1440, 10080):
+        for agent_id in agents:
+            specs.append(
+                WarmSpec(
+                    feature="protocol_intel",
+                    params={
+                        "since_minutes": since_minutes,
+                        "limit": 25,
+                        "agent_id": agent_id,
+                        "widen_if_empty": True,
+                    },
+                )
+            )
+    return specs
+
+
+def _ssh_summary_warm_specs() -> List[WarmSpec]:
+    top = int(getattr(settings, "SEAGULL_ANALYTICS_PREWARM_TOP_AGENTS", 8) or 8)
+    agents: List[Optional[str]] = [None] + _prewarm_top_agents(top)
+    specs: List[WarmSpec] = []
+    for since_minutes in (1440, 10080):
+        for agent_id in agents:
+            specs.append(
+                WarmSpec(feature="ssh_summary", params={"since_minutes": since_minutes, "limit": 50, "agent_id": agent_id})
+            )
+    return specs
+
+
+register_warm_set(_protocol_intel_warm_specs)
+register_warm_set(_ssh_summary_warm_specs)
 
 
 def get_protocol_intel_samples(
