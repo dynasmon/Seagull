@@ -32,6 +32,7 @@ export type ProtocolIntelSummaryResponse = {
   top_alpn: ProtoCount[];
   top_ja4: ProtoJa4Stat[];
   top_ja3: ProtoCount[];
+  effective_since_minutes?: number | null;
   meta?: QueryProvenanceMeta | null;
 };
 
