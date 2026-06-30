@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -10,7 +11,11 @@ from sqlalchemy import Integer, String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.integrations.clickhouse import clickhouse_events_table_ref
+from app.core.integrations.clickhouse import (
+    clickhouse_events_table_ref,
+    clickhouse_proto_intel_overview_table_ref,
+    clickhouse_proto_intel_table_ref,
+)
 from app.core.integrations.es import search_backend_mode
 from app.core.observability import incr_counter, log_event, observe_hist
 from app.features.events import repository
@@ -51,6 +56,7 @@ from app.features.events.schemas import (
     SudoEventSummary,
 )
 from app.shared.enrichment.models import IpEnrichmentCacheModel
+from app.shared.indexing.watermark import clickhouse_watermark_lag_seconds
 from app.shared.network.ip_classification import classify_ip
 
 logger = logging.getLogger("seagull.api.events")
@@ -1752,3 +1758,143 @@ def get_protocol_intel_summary(
         source="postgres",
     )
     return payload
+
+
+def _mv_protocol_intel_summary(
+    *,
+    since_minutes: int,
+    limit: int,
+    agent_id: Optional[str] = None,
+) -> Optional[ProtocolIntelSummaryResponse]:
+    ch = _ch_client_or_none()
+    if ch is None:
+        return None
+
+    query_end = _now_utc()
+    since_ts = query_end - timedelta(minutes=int(since_minutes))
+    since_floor = since_ts.replace(second=0, microsecond=0)
+
+    threshold = int(getattr(settings, "SEAGULL_CH_WATERMARK_STALE_SECONDS", 30) or 30)
+    lag = clickhouse_watermark_lag_seconds(now=query_end)
+    if lag is not None and lag > float(max(1, threshold)):
+        return None
+
+    try:
+        overview_table = clickhouse_proto_intel_overview_table_ref()
+        facet_table = clickhouse_proto_intel_table_ref()
+        params: dict[str, Any] = {"since": since_floor}
+        agent_clause = ""
+        if agent_id:
+            params["agent"] = str(agent_id)
+            agent_clause = " AND agent_id = {agent:String}"
+
+        overview_sql = (
+            "SELECT countMerge(total) AS total_events, "
+            "sumMerge(with_proto) AS with_proto_metadata, "
+            "sumMerge(dns) AS dns_events, "
+            "sumMerge(http) AS http_events, "
+            "sumMerge(tls) AS tls_events, "
+            "maxMerge(last_ts) AS last_ts "
+            f"FROM {overview_table} "
+            "WHERE bucket_ts >= {since:DateTime('UTC')}"
+            f"{agent_clause}"
+        )
+        ov = (_ch_query_dicts(ch, overview_sql, params) or [{}])[0]
+        total_events = int(ov.get("total_events") or 0)
+        if total_events <= 0:
+            return None
+
+        facet_sql = (
+            "SELECT dimension, value, countMerge(cnt) AS c, maxMerge(risk_max) AS risk, anyMerge(assoc) AS assoc "
+            f"FROM {facet_table} "
+            "WHERE bucket_ts >= {since:DateTime('UTC')}"
+            f"{agent_clause} "
+            "GROUP BY dimension, value "
+            "ORDER BY dimension ASC, c DESC "
+            f"LIMIT {int(limit)} BY dimension"
+        )
+        rows = _ch_query_dicts(ch, facet_sql, params)
+
+        buckets: dict[str, list[tuple[str, int, int, str]]] = defaultdict(list)
+        for row in rows:
+            dim = str(row.get("dimension") or "")
+            val = str(row.get("value") or "")
+            if not dim or val == "":
+                continue
+            buckets[dim].append(
+                (val, int(row.get("c") or 0), int(row.get("risk") or 0), str(row.get("assoc") or ""))
+            )
+
+        def _counts(dim: str) -> list[ProtoCount]:
+            return [ProtoCount(key=item[0], count=item[1]) for item in buckets.get(dim, [])]
+
+        app_protocols = _counts("app_proto")
+        transport_protocols = _counts("transport")
+        top_dst_ports = _counts("dst_port")
+        top_src_ports = _counts("src_port")
+        if not app_protocols and total_events > 0:
+            app_protocols = _guess_app_protocols_from_port_counts(top_dst_ports) or [
+                ProtoCount(key=str(item.key), count=int(item.count or 0)) for item in transport_protocols
+            ]
+
+        top_dns_queries = [
+            ProtoDnsQueryStat(qname=item[0], risk=item[2], count=item[1]) for item in buckets.get("dns_qname", [])
+        ]
+        top_ja4 = [
+            ProtoJa4Stat(ja4=item[0], ptype=(item[3] or "t"), count=item[1]) for item in buckets.get("ja4", [])
+        ]
+
+        ch_last_ts = _parse_iso_dt_or_none(ov.get("last_ts"))
+
+        return ProtocolIntelSummaryResponse(
+            generated_at=datetime.now(timezone.utc),
+            since_minutes=int(since_minutes),
+            agent_id=agent_id,
+            total_events=total_events,
+            with_proto_metadata=int(ov.get("with_proto_metadata") or 0),
+            dns_events=int(ov.get("dns_events") or 0),
+            http_events=int(ov.get("http_events") or 0),
+            tls_events=int(ov.get("tls_events") or 0),
+            app_protocols=app_protocols,
+            transport_protocols=transport_protocols,
+            top_dst_ports=top_dst_ports,
+            top_src_ports=top_src_ports,
+            app_proto_reasons=_counts("app_proto_reason"),
+            app_proto_conf_bands=_counts("app_proto_conf_band"),
+            ja4_ptypes=_counts("ja4_ptype"),
+            http_methods=_counts("http_method"),
+            top_dns_queries=top_dns_queries,
+            top_http_hosts=_counts("http_host"),
+            top_tls_sni=_counts("tls_sni"),
+            top_alpn=_counts("tls_alpn_first"),
+            top_ja4=top_ja4,
+            top_ja3=_counts("ja3"),
+            meta=_meta(
+                source="clickhouse",
+                fallback_chain=["clickhouse_mv"],
+                degraded_reason=None,
+                source_freshness_seconds=_freshness_seconds(query_end, ch_last_ts),
+                query_latency_ms=0.0,
+                cache_hit=False,
+                approximate=False,
+                query_window_start=since_ts,
+                query_window_end=query_end,
+            ),
+        )
+    except Exception as exc:
+        log_event(logger, "warning", "events_network_summary_mv_error", error_type=type(exc).__name__)
+        return None
+
+
+def resolve_protocol_intel_summary(
+    db: Session,
+    *,
+    since_minutes: int = 60 * 12,
+    limit: int = 25,
+    agent_id: Optional[str] = None,
+) -> ProtocolIntelSummaryResponse:
+    if bool(getattr(settings, "SEAGULL_PROTO_INTEL_MV_ENABLED", True)):
+        mv = _mv_protocol_intel_summary(since_minutes=since_minutes, limit=limit, agent_id=agent_id)
+        if mv is not None:
+            return mv
+    return get_protocol_intel_summary(db, since_minutes=since_minutes, limit=limit, agent_id=agent_id)
