@@ -211,4 +211,5 @@ class ProtocolIntelSummaryResponse(BaseModel):
     top_alpn: list[ProtoCount]
     top_ja4: list[ProtoJa4Stat]
     top_ja3: list[ProtoCount]
+    effective_since_minutes: Optional[int] = None
     meta: Optional[QueryProvenanceMeta] = None
