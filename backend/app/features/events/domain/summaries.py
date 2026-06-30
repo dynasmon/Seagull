@@ -56,7 +56,10 @@ from app.features.events.schemas import (
     SudoEventSummary,
 )
 from app.shared.enrichment.models import IpEnrichmentCacheModel
-from app.shared.indexing.watermark import clickhouse_watermark_lag_seconds
+from app.shared.indexing.watermark import (
+    clickhouse_watermark_lag_seconds,
+    read_proto_intel_materialization_floor,
+)
 from app.shared.network.ip_classification import classify_ip
 
 logger = logging.getLogger("seagull.api.events")
@@ -1777,6 +1780,10 @@ def _mv_protocol_intel_summary(
     threshold = int(getattr(settings, "SEAGULL_CH_WATERMARK_STALE_SECONDS", 30) or 30)
     lag = clickhouse_watermark_lag_seconds(now=query_end)
     if lag is not None and lag > float(max(1, threshold)):
+        return None
+
+    floor = read_proto_intel_materialization_floor()
+    if floor is None or since_floor < floor:
         return None
 
     try:
