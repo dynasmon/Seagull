@@ -21,7 +21,7 @@ import { clampInt } from "@/shared/lib/filters";
 import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { fmtDateTime } from "../../lib/aggregates";
-import { getProtocolIntelSummary } from "./api";
+import { getProtocolIntelSummary, streamProtocolIntelSummary } from "./api";
 import ProtocolIndicatorDrawer, { type ProtocolIndicatorSelection } from "./ProtocolIndicatorDrawer";
 import type { ProtocolIntelSummaryResponse, ProtocolIntelIndicatorKind } from "./types";
 
@@ -52,7 +52,33 @@ const DEFAULTS: ViewState = {
 };
 
 const LS_KEY = "nw_protocol_intel_view_v1";
-const MAX_FALLBACK_SINCE_MINUTES = 60 * 24 * 30;
+
+const EMPTY_SUMMARY: ProtocolIntelSummaryResponse = {
+  generated_at: "",
+  since_minutes: 0,
+  agent_id: null,
+  total_events: 0,
+  with_proto_metadata: 0,
+  dns_events: 0,
+  http_events: 0,
+  tls_events: 0,
+  app_protocols: [],
+  transport_protocols: [],
+  top_dst_ports: [],
+  top_src_ports: [],
+  app_proto_reasons: [],
+  app_proto_conf_bands: [],
+  ja4_ptypes: [],
+  http_methods: [],
+  top_dns_queries: [],
+  top_http_hosts: [],
+  top_tls_sni: [],
+  top_alpn: [],
+  top_ja4: [],
+  top_ja3: [],
+  effective_since_minutes: null,
+  meta: null
+};
 
 function digitsOnly(v: string): string {
   return String(v ?? "").replace(/[^0-9]/g, "");
@@ -234,6 +260,11 @@ export default function ProtocolIntelPage() {
   const [lastOkAt, setLastOkAt] = useState<Date | null>(null);
   const [fallbackSinceMinutes, setFallbackSinceMinutes] = useState<number | null>(null);
 
+  const dataRef = useRef<ProtocolIntelSummaryResponse | null>(data);
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSel, setDrawerSel] = useState<ProtocolIndicatorSelection | null>(null);
   const [deepLinkFocusEventId, setDeepLinkFocusEventId] = useState<number | null>(null);
@@ -289,7 +320,7 @@ export default function ProtocolIntelPage() {
     }
   }, [searchParams]);
 
-  const load = useCallback(async () => {
+  const runLoad = useCallback(async (signal?: AbortSignal) => {
     const mySeq = ++reqSeq.current;
     setLoading(true);
     setError(null);
@@ -297,40 +328,55 @@ export default function ProtocolIntelPage() {
     const agent_id = viewRef.current.agent_id ? viewRef.current.agent_id : undefined;
     const since_minutes = viewRef.current.since_minutes;
     const limit = viewRef.current.top_n;
+    const reqParams = { agent_id, since_minutes, limit, widen_if_empty: true };
 
     try {
-      let res = await getProtocolIntelSummary({ agent_id, since_minutes, limit });
-      let fallbackMinutes: number | null = null;
+      const acc: { value: ProtocolIntelSummaryResponse | null } = { value: null };
+      const base = (): ProtocolIntelSummaryResponse =>
+        acc.value ?? (dataRef.current ? { ...dataRef.current } : { ...EMPTY_SUMMARY });
 
-      // If the selected window is empty, automatically widen scope to show historical data.
-      if ((res?.total_events ?? 0) <= 0 && since_minutes < MAX_FALLBACK_SINCE_MINUTES) {
-        const widened = clampInt(
-          Math.max(since_minutes * 6, since_minutes + 60),
-          since_minutes + 1,
-          MAX_FALLBACK_SINCE_MINUTES,
-          MAX_FALLBACK_SINCE_MINUTES
-        );
-        const fallbackRes = await getProtocolIntelSummary({ agent_id, since_minutes: widened, limit });
-        if ((fallbackRes?.total_events ?? 0) > 0) {
-          res = fallbackRes;
-          fallbackMinutes = widened;
-        }
-      }
+      await streamProtocolIntelSummary(
+        reqParams,
+        {
+          onOverview: (overview) => {
+            if (reqSeq.current !== mySeq) return;
+            acc.value = { ...base(), ...overview } as ProtocolIntelSummaryResponse;
+            setData(acc.value);
+          },
+          onFacet: (name, items) => {
+            if (reqSeq.current !== mySeq) return;
+            acc.value = { ...base(), [name]: items } as ProtocolIntelSummaryResponse;
+            setData(acc.value);
+          }
+        },
+        { signal }
+      );
 
       if (reqSeq.current !== mySeq) return;
-      setData(res);
-      setFallbackSinceMinutes(fallbackMinutes);
+      if (!acc.value) throw new Error("empty stream");
+      setFallbackSinceMinutes((acc.value.effective_since_minutes ?? null) as number | null);
       setLastOkAt(new Date());
-    } catch (e: any) {
-      if (reqSeq.current !== mySeq) return;
-      const msg = getErrorMessage(e, "Failed to load summary");
-      setError(msg);
-      setFallbackSinceMinutes(null);
+    } catch {
+      if (signal?.aborted || reqSeq.current !== mySeq) return;
+      try {
+        const res = await getProtocolIntelSummary(reqParams, { signal });
+        if (reqSeq.current !== mySeq) return;
+        setData(res);
+        setFallbackSinceMinutes((res.effective_since_minutes ?? null) as number | null);
+        setLastOkAt(new Date());
+      } catch (e: any) {
+        if (signal?.aborted || reqSeq.current !== mySeq) return;
+        setError(getErrorMessage(e, "Failed to load summary"));
+        setFallbackSinceMinutes(null);
+      }
     } finally {
-      if (reqSeq.current !== mySeq) return;
-      setLoading(false);
+      if (reqSeq.current === mySeq) setLoading(false);
     }
   }, []);
+
+  const load = useCallback(() => {
+    void runLoad();
+  }, [runLoad]);
 
   useEffect(() => {
     if (!didBootRef.current) {
@@ -344,45 +390,7 @@ export default function ProtocolIntelPage() {
     enabled: view.auto_refresh,
     profile: view.since_minutes > 12 * 60 ? "expensive-operational" : "operational",
     refresh: async ({ signal }) => {
-      const mySeq = ++reqSeq.current;
-      setLoading(true);
-      setError(null);
-
-      const agent_id = viewRef.current.agent_id ? viewRef.current.agent_id : undefined;
-      const since_minutes = viewRef.current.since_minutes;
-      const limit = viewRef.current.top_n;
-
-      try {
-        let res = await getProtocolIntelSummary({ agent_id, since_minutes, limit }, { signal });
-        let fallbackMinutes: number | null = null;
-
-        if ((res?.total_events ?? 0) <= 0 && since_minutes < MAX_FALLBACK_SINCE_MINUTES) {
-          const widened = clampInt(
-            Math.max(since_minutes * 6, since_minutes + 60),
-            since_minutes + 1,
-            MAX_FALLBACK_SINCE_MINUTES,
-            MAX_FALLBACK_SINCE_MINUTES
-          );
-          const fallbackRes = await getProtocolIntelSummary({ agent_id, since_minutes: widened, limit }, { signal });
-          if ((fallbackRes?.total_events ?? 0) > 0) {
-            res = fallbackRes;
-            fallbackMinutes = widened;
-          }
-        }
-
-        if (reqSeq.current !== mySeq) return;
-        setData(res);
-        setFallbackSinceMinutes(fallbackMinutes);
-        setLastOkAt(new Date());
-      } catch (e: any) {
-        if (reqSeq.current !== mySeq) return;
-        const msg = getErrorMessage(e, "Failed to load summary");
-        setError(msg);
-        setFallbackSinceMinutes(null);
-      } finally {
-        if (reqSeq.current !== mySeq) return;
-        setLoading(false);
-      }
+      await runLoad(signal);
     },
   });
 
