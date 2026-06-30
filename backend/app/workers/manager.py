@@ -111,6 +111,12 @@ GROUPS: dict[str, tuple[ChildSpec, ...]] = {
         ChildSpec(name="rules-runner", module="app.workers.intelligence.rules.runner"),
         ChildSpec(name="ip-intel", module="app.workers.intelligence.ip_intel.main"),
         ChildSpec(name="proto-intel", module="app.workers.intelligence.protocol.main"),
+        ChildSpec(
+            name="proto-prewarm",
+            module="app.workers.analytics.prewarm.main",
+            enabled_env="SEAGULL_ANALYTICS_PREWARM_ENABLED",
+            enabled_default=True,
+        ),
         ChildSpec(name="attack-chain", module="app.workers.intelligence.attack_chain.main"),
         ChildSpec(
             name="exposure-graph",
