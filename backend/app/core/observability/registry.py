@@ -48,6 +48,18 @@ _SPECS: Tuple[MetricSpec, ...] = (
     _spec("api_route_latency_seconds", "histogram", "Product API route latency in seconds.",
           ("route",), buckets=SECONDS_BUCKETS),
 
+    _spec("analytics_cache_requests_total", "counter",
+          "Analytical read-model cache requests by freshness outcome.", ("feature", "outcome")),
+    _spec("analytics_single_flight_total", "counter",
+          "Analytical read-model single-flight participation by role.", ("feature", "role")),
+    _spec("analytics_read_latency_seconds", "histogram",
+          "Analytical read-model compute latency in seconds by source.",
+          ("feature", "source"), buckets=SECONDS_BUCKETS),
+    _spec("analytics_prewarm_total", "counter",
+          "Analytical pre-warmer iterations by outcome.", ("feature", "outcome")),
+    _spec("ch_watermark_lag_seconds", "gauge",
+          "ClickHouse mirror watermark lag in seconds.", multiproc_mode="mostrecent"),
+
     _spec("agent_auth_requests_total", "counter", "Agent authentication attempts.",
           ("outcome", "reason", "method")),
     _spec("agent_bootstrap_token_consumed_total", "counter", "Agent bootstrap tokens consumed.",
