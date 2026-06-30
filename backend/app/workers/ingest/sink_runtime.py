@@ -13,6 +13,7 @@ from app.features.ingest.control.service import record_sink_runtime_metric, set_
 
 from .clickhouse_sink import (
     _record_clickhouse_progress,
+    _record_clickhouse_watermark,
     _set_clickhouse_state,
     _try_bootstrap_clickhouse,
     _write_clickhouse_events,
@@ -150,6 +151,7 @@ class _OptionalSinkRuntime:
 
                 written = _write_clickhouse_events(ch_client=ch, hot_rows=task.payload)
                 _record_clickhouse_progress(self.r, rows=written)
+                _record_clickhouse_watermark(task.payload)
                 _set_clickhouse_state(self.r, state="available")
                 record_sink_runtime_metric(sink="clickhouse", metric="processed_batches", value=1)
                 record_sink_runtime_metric(sink="clickhouse", metric="processed_events", value=written)
