@@ -46,7 +46,10 @@ from app.shared.analytics import (
     register_warm_set,
     serve_read_model,
 )
-from app.shared.indexing.watermark import clickhouse_watermark_lag_seconds
+from app.shared.indexing.watermark import (
+    clickhouse_watermark_lag_seconds,
+    read_proto_intel_materialization_floor,
+)
 from app.shared.schemas import CursorPage
 
 logger = logging.getLogger("seagull.api.events")
@@ -127,6 +130,7 @@ def _bind_summary_module() -> None:
     event_summaries.clickhouse_proto_intel_table_ref = clickhouse_proto_intel_table_ref
     event_summaries.clickhouse_proto_intel_overview_table_ref = clickhouse_proto_intel_overview_table_ref
     event_summaries.clickhouse_watermark_lag_seconds = clickhouse_watermark_lag_seconds
+    event_summaries.read_proto_intel_materialization_floor = read_proto_intel_materialization_floor
     event_summaries._cache_get_json = _cache_get_json
     event_summaries._cache_set_json = _cache_set_json
     event_summaries._ch_client_or_none = _ch_client_or_none
@@ -686,7 +690,7 @@ def _protocol_intel_cache_key(params: Dict[str, Any]) -> str:
     agent = str(params.get("agent_id") or "").strip() or "*"
     widen = 1 if params.get("widen_if_empty") else 0
     return (
-        "seagull:events:network_summary:v5:"
+        "seagull:events:network_summary:v6:"
         f"sb={search_backend_mode()}:sm={int(params['since_minutes'])}:l={int(params['limit'])}"
         f":a={agent}:w={widen}"
     )
@@ -725,7 +729,7 @@ async def _compute_protocol_intel(params: Dict[str, Any]) -> dict:
 PROTOCOL_INTEL_READ_MODEL = register_read_model(
     AnalyticalReadModel(
         name="protocol_intel",
-        schema_version=5,
+        schema_version=6,
         fresh_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_FRESH_SECONDS", 45) or 45),
         stale_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_STALE_SECONDS", 300) or 300),
         key_builder=_protocol_intel_cache_key,
