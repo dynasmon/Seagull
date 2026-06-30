@@ -57,6 +57,8 @@ _SPECS: Tuple[MetricSpec, ...] = (
           ("feature", "source"), buckets=SECONDS_BUCKETS),
     _spec("analytics_prewarm_total", "counter",
           "Analytical pre-warmer iterations by outcome.", ("feature", "outcome")),
+    _spec("analytics_materialize_total", "counter",
+          "Analytical materialization reconciler cycles by outcome.", ("outcome",)),
     _spec("ch_watermark_lag_seconds", "gauge",
           "ClickHouse mirror watermark lag in seconds.", multiproc_mode="mostrecent"),
 
