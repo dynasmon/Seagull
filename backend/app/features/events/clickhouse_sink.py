@@ -1,10 +1,26 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.integrations.clickhouse import clickhouse_events_table_ref
+
+
+def _insert_dedup_token(hot_rows: List[Dict[str, Any]]) -> Optional[str]:
+    ids: List[int] = []
+    for row in hot_rows:
+        try:
+            pg_id = int(row.get("pg_event_id") or 0)
+        except Exception:
+            pg_id = 0
+        if pg_id > 0:
+            ids.append(pg_id)
+    if not ids:
+        return None
+    digest = hashlib.sha1(",".join(str(i) for i in sorted(ids)).encode("utf-8")).hexdigest()
+    return f"netraw:{len(ids)}:{digest}"
 
 
 def _to_ch_ts(ts: Any) -> datetime:
@@ -101,9 +117,19 @@ def write_clickhouse_events(*, ch_client: Any, hot_rows: List[Dict[str, Any]]) -
             )
         )
 
+    dedup_token = _insert_dedup_token(hot_rows)
+    insert_settings = (
+        {
+            "insert_deduplication_token": dedup_token,
+            "deduplicate_blocks_in_dependent_materialized_views": 1,
+        }
+        if dedup_token
+        else None
+    )
     ch_client.insert(
         clickhouse_events_table_ref(),
         rows,
+        settings=insert_settings,
         column_names=[
             "timestamp",
             "pg_event_id",

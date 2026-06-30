@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import json
+from typing import Any, AsyncIterator, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal, get_db
@@ -278,35 +280,121 @@ def get_port_stats_endpoint(
 
 
 @router.get("/ssh/summary", response_model=SshSummaryResponse)
-def get_ssh_summary_endpoint(
+async def get_ssh_summary_endpoint(
+    request: Request,
+    response: Response,
     since_minutes: int = Query(60 * 24, ge=1, le=60 * 24 * 30, description="Lookback window in minutes"),
     limit: int = Query(50, ge=1, le=500, description="Row limit for recent/raw SSH views and supporting aggregations"),
     agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
-    db: Session = Depends(get_db),
 ):
-    with managed_session(db) as db_session:
-        return get_ssh_summary(
-            since_minutes=since_minutes,
-            limit=limit,
-            agent_id=agent_id,
-            db=db_session,
-        )
+    payload, etag, _outcome = await events_service.get_ssh_summary_async(
+        since_minutes=since_minutes,
+        limit=limit,
+        agent_id=agent_id,
+    )
+    if _etag_matches(request.headers.get("if-none-match") or "", etag):
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=0"})
+    if etag:
+        response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "private, max-age=0"
+    return payload
+
+
+def _etag_matches(if_none_match: str, etag: str) -> bool:
+    if not if_none_match or not etag:
+        return False
+    candidates = [c.strip() for c in if_none_match.split(",") if c.strip()]
+    if "*" in candidates:
+        return True
+    target = etag.removeprefix("W/")
+    return any(c == etag or c.removeprefix("W/") == target for c in candidates)
 
 
 @router.get("/network/summary", response_model=ProtocolIntelSummaryResponse)
-def get_protocol_intel_summary_endpoint(
+async def get_protocol_intel_summary_endpoint(
+    request: Request,
+    response: Response,
     since_minutes: int = Query(60 * 12, ge=1, le=60 * 24 * 30, description="Lookback window in minutes"),
     limit: int = Query(25, ge=1, le=200, description="Top-N limit for aggregations"),
     agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
-    db: Session = Depends(get_db),
+    widen_if_empty: bool = Query(False, description="Widen the window once server-side when empty"),
 ):
-    with managed_session(db) as db_session:
-        return get_protocol_intel_summary(
-            since_minutes=since_minutes,
-            limit=limit,
-            agent_id=agent_id,
-            db=db_session,
-        )
+    payload, etag, _outcome = await events_service.get_protocol_intel_summary_async(
+        since_minutes=since_minutes,
+        limit=limit,
+        agent_id=agent_id,
+        widen_if_empty=widen_if_empty,
+    )
+    if _etag_matches(request.headers.get("if-none-match") or "", etag):
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=0"})
+    if etag:
+        response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "private, max-age=0"
+    return payload
+
+
+_PROTOCOL_INTEL_FACET_KEYS = (
+    "app_protocols",
+    "transport_protocols",
+    "top_dst_ports",
+    "top_src_ports",
+    "app_proto_reasons",
+    "app_proto_conf_bands",
+    "ja4_ptypes",
+    "http_methods",
+    "top_dns_queries",
+    "top_http_hosts",
+    "top_tls_sni",
+    "top_alpn",
+    "top_ja4",
+    "top_ja3",
+)
+
+_PROTOCOL_INTEL_OVERVIEW_KEYS = (
+    "generated_at",
+    "since_minutes",
+    "agent_id",
+    "total_events",
+    "with_proto_metadata",
+    "dns_events",
+    "http_events",
+    "tls_events",
+    "effective_since_minutes",
+    "meta",
+)
+
+
+def _sse_frame(event: str, data: Any) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, default=str, separators=(',', ':'))}\n\n"
+
+
+@router.get("/network/summary/stream")
+async def get_protocol_intel_summary_stream_endpoint(
+    since_minutes: int = Query(60 * 12, ge=1, le=60 * 24 * 30, description="Lookback window in minutes"),
+    limit: int = Query(25, ge=1, le=200, description="Top-N limit for aggregations"),
+    agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
+    widen_if_empty: bool = Query(False, description="Widen the window once server-side when empty"),
+):
+    payload, etag, _outcome = await events_service.get_protocol_intel_summary_async(
+        since_minutes=since_minutes,
+        limit=limit,
+        agent_id=agent_id,
+        widen_if_empty=widen_if_empty,
+    )
+
+    async def _stream() -> AsyncIterator[str]:
+        overview = {key: payload.get(key) for key in _PROTOCOL_INTEL_OVERVIEW_KEYS}
+        overview["etag"] = etag
+        yield _sse_frame("overview", overview)
+        for key in _PROTOCOL_INTEL_FACET_KEYS:
+            yield _sse_frame("facet", {"name": key, "items": payload.get(key) or []})
+        yield _sse_frame("done", {"etag": etag})
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "ETag": etag},
+    )
 
 
 @router.get("/network/samples", response_model=List[NetEventDB])
