@@ -91,6 +91,11 @@ def test_mv_read_single_round_trip_and_parsing(monkeypatch) -> None:
     monkeypatch.setattr(service, "_ch_client_or_none", lambda: object())
     monkeypatch.setattr(service, "_ch_query_dicts", fake_ch_query_dicts)
     monkeypatch.setattr(service, "clickhouse_watermark_lag_seconds", lambda now=None: 1.0)
+    monkeypatch.setattr(
+        service,
+        "read_proto_intel_materialization_floor",
+        lambda: datetime(2000, 1, 1, tzinfo=timezone.utc),
+    )
 
     out = service.resolve_protocol_intel_summary(db=object(), since_minutes=720, limit=25, agent_id="agent-z")
 
@@ -128,6 +133,53 @@ def test_mv_read_falls_back_when_watermark_stale(monkeypatch) -> None:
     assert out.meta is not None
     assert out.meta.source == "postgres"
     assert out.total_events == 3
+
+
+def test_mv_read_falls_back_when_window_precedes_floor(monkeypatch) -> None:
+    calls = {"n": 0}
+
+    def fake_ch_query_dicts(_ch, _sql, _params=None):
+        calls["n"] += 1
+        return []
+
+    monkeypatch.setattr(service, "_ch_client_or_none", lambda: object())
+    monkeypatch.setattr(service, "_ch_query_dicts", fake_ch_query_dicts)
+    monkeypatch.setattr(service, "clickhouse_watermark_lag_seconds", lambda now=None: 1.0)
+    monkeypatch.setattr(
+        service,
+        "read_proto_intel_materialization_floor",
+        lambda: datetime.now(timezone.utc),
+    )
+    monkeypatch.setattr(
+        summaries, "get_protocol_intel_summary", lambda *a, **k: _empty_response(480000, source="postgres")
+    )
+
+    out = service.resolve_protocol_intel_summary(db=object(), since_minutes=720, limit=25, agent_id=None)
+
+    assert calls["n"] == 0
+    assert out.meta is not None
+    assert out.meta.source == "postgres"
+    assert out.total_events == 480000
+
+
+def test_materialization_floor_roundtrip(monkeypatch) -> None:
+    from app.shared.indexing import watermark as wm
+
+    store: dict[str, str] = {}
+
+    class _Redis:
+        def set(self, key, value):
+            store[key] = value
+
+        def get(self, key):
+            return store.get(key)
+
+    monkeypatch.setattr(wm, "get_redis", lambda: _Redis())
+
+    assert wm.read_proto_intel_materialization_floor() is None
+    ts = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
+    wm.write_proto_intel_materialization_floor(floor_ts=ts)
+    assert wm.read_proto_intel_materialization_floor() == ts
 
 
 class _FakeCache:
@@ -172,7 +224,7 @@ def test_async_entrypoint_etag_and_cache_hit(monkeypatch) -> None:
         p2, e2, o2 = await service.get_protocol_intel_summary_async(since_minutes=60, limit=25, agent_id=None)
         assert o1 == "miss" and p1["meta"]["cache_hit"] is False
         assert o2 == "fresh" and p2["meta"]["cache_hit"] is True
-        assert e1 == e2 and e1.startswith('W/"5-')
+        assert e1 == e2 and e1.startswith('W/"6-')
 
     asyncio.run(run())
     assert calls["n"] == 1
