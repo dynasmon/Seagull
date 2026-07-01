@@ -3,12 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from app.core.db import get_db
+from app.core.observability import incr_counter
 from app.features.auth.session import get_current_user
-from app.features.overview.service import get_overview
+from app.features.overview.service import get_overview_async
 
 router = APIRouter(
     prefix="",
@@ -26,13 +25,13 @@ def _to_utc(dt: datetime | None) -> datetime | None:
 
 
 @router.get("/overview")
-def get_overview_endpoint(
+async def get_overview_endpoint(
+    response: Response,
     window_minutes: int = Query(60, ge=5, le=1440, description="Time window (minutes) for charts"),
     start_ts: datetime | None = Query(None, description="Optional ISO8601 inclusive start timestamp"),
     end_ts: datetime | None = Query(None, description="Optional ISO8601 inclusive end timestamp"),
     agent_id: Optional[str] = Query(None, description="Optional agent filter for charts/tables"),
     lite: bool = Query(False, description="If true, skip heavy tables for faster first paint"),
-    db: Session = Depends(get_db),
 ):
     start_utc = _to_utc(start_ts)
     end_utc = _to_utc(end_ts)
@@ -45,11 +44,15 @@ def get_overview_endpoint(
         if span_minutes > 10080:
             raise HTTPException(status_code=422, detail="Overview range is limited to 7 days")
 
-    return get_overview(
-        db,
+    payload, etag, outcome = await get_overview_async(
         window_minutes=window_minutes,
         start_ts=start_utc,
         end_ts=end_utc,
         agent_id=agent_id,
         lite=lite,
     )
+    if etag:
+        response.headers["ETag"] = etag
+    response.headers["X-Cache-Outcome"] = outcome
+    incr_counter("api_cache_outcome_total", route="/overview", outcome=outcome)
+    return payload
