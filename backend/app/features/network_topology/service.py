@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -10,6 +11,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
+from app.core.config import settings
+from app.core.observability import observe_hist
 from app.features.agents import public as agents_public
 from app.features.auth.session import PortalPrincipal
 from app.features.network_topology import realtime as topo_realtime
@@ -88,6 +91,7 @@ from app.features.network_topology.schemas import (
     TopologySummaryOut,
 )
 from app.features.ueba import repository as ueba_repository
+from app.shared.analytics import AnalyticalReadModel, register_read_model, serve_read_model
 from app.shared.schemas import CursorPage
 
 _UTC = timezone.utc
@@ -149,10 +153,12 @@ __all__ = [
     "_topology_node_sort_key",
     "get_edge_detail",
     "get_graph",
+    "get_graph_async",
     "get_group_detail",
     "get_node_detail",
     "get_subnet_detail",
     "get_summary",
+    "get_summary_async",
     "list_observations",
     "list_subnets",
     "request_recalculate",
@@ -263,6 +269,54 @@ def get_summary(db: Session) -> TopologySummaryOut:
         **freshness,
     )
 
+
+def _topology_summary_cache_key(params: dict) -> str:
+    return "seagull:network_topology:summary:v1"
+
+
+def _resolve_topology_summary_blocking() -> TopologySummaryOut:
+    from app.core.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return get_summary(db)
+    finally:
+        db.close()
+
+
+async def _compute_topology_summary(params: dict) -> dict:
+    payload = await asyncio.to_thread(_resolve_topology_summary_blocking)
+    return payload.model_dump(mode="json")
+
+
+TOPOLOGY_SUMMARY_READ_MODEL = register_read_model(
+    AnalyticalReadModel(
+        name="network_topology_summary",
+        schema_version=1,
+        fresh_s=int(getattr(settings, "SEAGULL_NETWORK_TOPOLOGY_SUMMARY_FRESH_SECONDS", 60) or 60),
+        stale_s=int(getattr(settings, "SEAGULL_NETWORK_TOPOLOGY_SUMMARY_STALE_SECONDS", 600) or 600),
+        key_builder=_topology_summary_cache_key,
+        compute=_compute_topology_summary,
+    )
+)
+
+
+async def get_summary_async() -> tuple[dict, str, str]:
+    started = time.perf_counter()
+    payload, etag, outcome = await serve_read_model(TOPOLOGY_SUMMARY_READ_MODEL, {})
+    payload = dict(payload)
+    meta = dict(payload.get("meta") or {})
+    meta["cache_hit"] = outcome != "miss"
+    meta["query_latency_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+    payload["meta"] = meta
+    observe_hist(
+        "api_route_latency_seconds",
+        time.perf_counter() - started,
+        route="/network-topology/summary",
+        source=str(meta.get("source") or "compute"),
+    )
+    return payload, etag, outcome
+
 def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
     node_limit = min(int(params.max_nodes), topo_realtime.graph_nodes_hard_limit())
     edge_limit = min(int(params.max_edges), topo_realtime.graph_edges_hard_limit())
@@ -357,6 +411,113 @@ def get_graph(db: Session, params: TopologyGraphQuery) -> TopologyGraphOut:
         ),
         **graph_freshness,
     )
+
+
+def _topology_text_cache_part(value: Any) -> str:
+    return str(value or "").strip() or "*"
+
+
+def _topology_dt_cache_part(value: datetime | None) -> str:
+    return value.isoformat() if value is not None else "*"
+
+
+def _topology_graph_cache_key(params: dict) -> str:
+    return (
+        "seagull:network_topology:graph:v1:"
+        f"a={_topology_text_cache_part(params.get('agent_id'))}:"
+        f"vm={_topology_text_cache_part(params.get('view_mode'))}:"
+        f"gb={_topology_text_cache_part(params.get('group_by'))}:"
+        f"mc={int(params['min_confidence'])}:"
+        f"fg={_topology_text_cache_part(params.get('focused_group_key'))}:"
+        f"xf={1 if params.get('exclusive_focus') else 0}:"
+        f"mn={int(params['max_nodes'])}:me={int(params['max_edges'])}:"
+        f"ip={_topology_text_cache_part(params.get('ip_scope'))}:"
+        f"s={_topology_dt_cache_part(params.get('since'))}:u={_topology_dt_cache_part(params.get('until'))}"
+    )
+
+
+def _topology_graph_params(params: TopologyGraphQuery) -> dict[str, Any]:
+    return {
+        "max_nodes": int(params.max_nodes),
+        "max_edges": int(params.max_edges),
+        "min_confidence": int(params.min_confidence),
+        "agent_id": params.agent_id or None,
+        "node_types": list(params.node_types or []),
+        "edge_types": list(params.edge_types or []),
+        "ip_scope": params.ip_scope or None,
+        "since": params.since,
+        "until": params.until,
+        "include_stale": bool(params.include_stale),
+        "view_mode": params.view_mode or None,
+        "group_by": params.group_by or None,
+        "focused_group_key": params.focused_group_key or None,
+        "exclusive_focus": bool(params.exclusive_focus),
+    }
+
+
+def _topology_graph_bypass_cache(params: TopologyGraphQuery) -> bool:
+    return bool(params.include_stale or params.node_types or params.edge_types)
+
+
+def _resolve_topology_graph_blocking(*, params: TopologyGraphQuery) -> TopologyGraphOut:
+    from app.core.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return get_graph(db, params)
+    finally:
+        db.close()
+
+
+async def _compute_topology_graph(params: dict) -> dict:
+    query = TopologyGraphQuery(**params)
+    payload = await asyncio.to_thread(_resolve_topology_graph_blocking, params=query)
+    return payload.model_dump(mode="json")
+
+
+TOPOLOGY_GRAPH_READ_MODEL = register_read_model(
+    AnalyticalReadModel(
+        name="network_topology_graph",
+        schema_version=1,
+        fresh_s=int(getattr(settings, "SEAGULL_NETWORK_TOPOLOGY_GRAPH_FRESH_SECONDS", 30) or 30),
+        stale_s=int(getattr(settings, "SEAGULL_NETWORK_TOPOLOGY_GRAPH_STALE_SECONDS", 300) or 300),
+        key_builder=_topology_graph_cache_key,
+        compute=_compute_topology_graph,
+    )
+)
+
+
+async def get_graph_async(params: TopologyGraphQuery) -> tuple[dict, str, str]:
+    started = time.perf_counter()
+    if _topology_graph_bypass_cache(params):
+        payload_model = await asyncio.to_thread(_resolve_topology_graph_blocking, params=params)
+        payload = payload_model.model_dump(mode="json")
+        meta = dict(payload.get("meta") or {})
+        meta["cache_hit"] = False
+        meta["query_latency_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+        payload["meta"] = meta
+        observe_hist(
+            "api_route_latency_seconds",
+            time.perf_counter() - started,
+            route="/network-topology/graph",
+            source="bypass",
+        )
+        return payload, "", "bypass"
+
+    payload, etag, outcome = await serve_read_model(TOPOLOGY_GRAPH_READ_MODEL, _topology_graph_params(params))
+    payload = dict(payload)
+    meta = dict(payload.get("meta") or {})
+    meta["cache_hit"] = outcome != "miss"
+    meta["query_latency_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+    payload["meta"] = meta
+    observe_hist(
+        "api_route_latency_seconds",
+        time.perf_counter() - started,
+        route="/network-topology/graph",
+        source=str(meta.get("source") or "compute"),
+    )
+    return payload, etag, outcome
+
 
 def get_group_detail(db: Session, group_key: str, params: TopologyGraphQuery) -> TopologyGroupDetailOut:
     node_limit = min(int(params.max_nodes), topo_realtime.graph_nodes_hard_limit())
