@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.db.session import managed_session
+from app.core.observability import incr_counter
 from app.features.alerts.schemas import (
     AlertEvidenceOut,
     AlertOut,
@@ -21,7 +22,7 @@ from app.features.alerts.service import (
     get_alert,
     get_alert_evidence,
     get_alert_rule_history,
-    get_recent_alerts,
+    get_recent_alerts_async,
     list_alert_rules,
     list_alerts,
     mitre_coverage,
@@ -152,12 +153,16 @@ def run_new_hosts_rule_endpoint(
 
 
 @router.get("/recent", response_model=List[AlertOut])
-def get_recent_alerts_endpoint(
+async def get_recent_alerts_endpoint(
+    response: Response,
     limit: int = Query(50, ge=1, le=1000, description="Maximum number of alerts to return"),
-    db: Session = Depends(get_db),
 ):
-    with managed_session(db) as db_session:
-        return get_recent_alerts(db_session, limit=limit)
+    payload, etag, outcome = await get_recent_alerts_async(limit=limit)
+    if etag:
+        response.headers["ETag"] = etag
+    response.headers["X-Cache-Outcome"] = outcome
+    incr_counter("api_cache_outcome_total", route="/alerts/recent", outcome=outcome)
+    return payload
 
 
 @router.post("/run/all", response_model=List[AlertOut])
