@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -8,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.audit import audit_actor, write_audit_event
+from app.core.config import settings
+from app.core.observability import observe_hist
 from app.features.alerts import repository
 from app.features.alerts.evidence import extract_evidence_specs
 from app.features.alerts.governance import validate_governance_request
@@ -49,6 +53,7 @@ from app.features.alerts.schemas import (
     RuleValidationResult,
 )
 from app.features.auth.session import PortalPrincipal
+from app.shared.analytics import AnalyticalReadModel, register_read_model, serve_read_model
 from app.shared.schemas import CursorPage
 from app.shared.taxonomy.catalog import technique_name
 from app.shared.taxonomy.schemas import MitreCoverageResponse, MitreTacticCoverage, MitreTechniqueStat
@@ -553,6 +558,50 @@ def run_new_hosts_rule(db: Session, *, minutes: int, min_events: int) -> list[Al
 
 def get_recent_alerts(db: Session, *, limit: int) -> list[AlertModel]:
     return repository.list_recent_alerts(db, limit=limit)
+
+
+def _alerts_recent_cache_key(params: dict) -> str:
+    return f"seagull:alerts:recent:v1:l={int(params['limit'])}"
+
+
+def _resolve_alerts_recent_blocking(*, limit: int) -> list[AlertModel]:
+    from app.core.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return get_recent_alerts(db, limit=limit)
+    finally:
+        db.close()
+
+
+async def _compute_alerts_recent(params: dict) -> dict:
+    rows = await asyncio.to_thread(_resolve_alerts_recent_blocking, limit=int(params["limit"]))
+    return {"items": [AlertOut.model_validate(row).model_dump(mode="json") for row in rows]}
+
+
+ALERTS_RECENT_READ_MODEL = register_read_model(
+    AnalyticalReadModel(
+        name="alerts_recent",
+        schema_version=1,
+        fresh_s=int(getattr(settings, "SEAGULL_ALERTS_RECENT_FRESH_SECONDS", 10) or 10),
+        stale_s=int(getattr(settings, "SEAGULL_ALERTS_RECENT_STALE_SECONDS", 60) or 60),
+        key_builder=_alerts_recent_cache_key,
+        compute=_compute_alerts_recent,
+    )
+)
+
+
+async def get_recent_alerts_async(*, limit: int) -> tuple[list[dict], str, str]:
+    started = time.perf_counter()
+    params = {"limit": int(limit)}
+    payload, etag, outcome = await serve_read_model(ALERTS_RECENT_READ_MODEL, params)
+    observe_hist(
+        "api_route_latency_seconds",
+        time.perf_counter() - started,
+        route="/alerts/recent",
+        source="compute",
+    )
+    return list(payload.get("items") or []), etag, outcome
 
 
 def run_all_rules_now() -> list[AlertModel]:
