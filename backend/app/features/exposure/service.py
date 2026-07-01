@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
@@ -10,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.core.api.pagination import encode_cursor, make_cursor_ts_id, parse_cursor_ts_id
 from app.core.audit import audit_actor, write_audit_event
+from app.core.config import settings
+from app.core.observability import observe_hist
 from app.features.auth.session import PortalPrincipal
 from app.features.exposure import realtime as exposure_realtime
 from app.features.exposure import repository
@@ -89,6 +93,7 @@ from app.features.exposure.schemas import (
 )
 from app.features.investigations import public as investigations_public
 from app.features.response import public as response_public
+from app.shared.analytics import AnalyticalReadModel, register_read_model, serve_read_model
 from app.shared.indexing.offset_store import set_offset
 from app.shared.schemas import CursorPage
 
@@ -331,6 +336,54 @@ def get_summary(db: Session) -> ExposureSummaryOut:
     )
 
 
+def _exposure_summary_cache_key(params: dict) -> str:
+    return "seagull:exposure:summary:v1"
+
+
+def _resolve_exposure_summary_blocking() -> ExposureSummaryOut:
+    from app.core.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return get_summary(db)
+    finally:
+        db.close()
+
+
+async def _compute_exposure_summary(params: dict) -> dict:
+    payload = await asyncio.to_thread(_resolve_exposure_summary_blocking)
+    return payload.model_dump(mode="json")
+
+
+EXPOSURE_SUMMARY_READ_MODEL = register_read_model(
+    AnalyticalReadModel(
+        name="exposure_summary",
+        schema_version=1,
+        fresh_s=int(getattr(settings, "SEAGULL_EXPOSURE_SUMMARY_FRESH_SECONDS", 30) or 30),
+        stale_s=int(getattr(settings, "SEAGULL_EXPOSURE_SUMMARY_STALE_SECONDS", 300) or 300),
+        key_builder=_exposure_summary_cache_key,
+        compute=_compute_exposure_summary,
+    )
+)
+
+
+async def get_exposure_summary_async() -> tuple[dict, str, str]:
+    started = time.perf_counter()
+    payload, etag, outcome = await serve_read_model(EXPOSURE_SUMMARY_READ_MODEL, {})
+    payload = dict(payload)
+    meta = dict(payload.get("meta") or {})
+    meta["cache_hit"] = outcome != "miss"
+    meta["query_latency_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+    payload["meta"] = meta
+    observe_hist(
+        "api_route_latency_seconds",
+        time.perf_counter() - started,
+        route="/exposure/summary",
+        source=str(meta.get("source") or "compute"),
+    )
+    return payload, etag, outcome
+
+
 def get_asset_detail(db: Session, *, asset_key: str) -> ExposureAssetDetailOut:
     row = repository.get_asset_posture(db, asset_key)
     if row is None:
@@ -548,6 +601,61 @@ def list_paths(db: Session, *, params: ExposurePathsQuery) -> CursorPage[Exposur
         next_cursor=next_cursor,
         has_more=has_more,
     )
+
+
+def _exposure_paths_cache_key(params: dict) -> str:
+    return (
+        "seagull:exposure:paths:v1:"
+        f"ps={int(params['page_size'])}:c={str(params.get('cursor') or '*')}:"
+        f"sev={str(params.get('severity') or '*')}:a={str(params.get('agent_id') or '*')}:"
+        f"ms={str(params.get('min_score') if params.get('min_score') is not None else '*')}:"
+        f"rc={str(params.get('reason_code') or '*')}"
+    )
+
+
+def _resolve_exposure_paths_blocking(*, params: ExposurePathsQuery) -> CursorPage[ExposureAttackPathOut]:
+    from app.core.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return list_paths(db, params=params)
+    finally:
+        db.close()
+
+
+async def _compute_exposure_paths(params: dict) -> dict:
+    query = ExposurePathsQuery(**params)
+    payload = await asyncio.to_thread(_resolve_exposure_paths_blocking, params=query)
+    return payload.model_dump(mode="json")
+
+
+EXPOSURE_PATHS_READ_MODEL = register_read_model(
+    AnalyticalReadModel(
+        name="exposure_paths",
+        schema_version=1,
+        fresh_s=int(getattr(settings, "SEAGULL_EXPOSURE_PATHS_FRESH_SECONDS", 60) or 60),
+        stale_s=int(getattr(settings, "SEAGULL_EXPOSURE_PATHS_STALE_SECONDS", 600) or 600),
+        key_builder=_exposure_paths_cache_key,
+        compute=_compute_exposure_paths,
+    )
+)
+
+
+async def list_paths_async(*, params: ExposurePathsQuery) -> tuple[dict, str, str]:
+    started = time.perf_counter()
+    payload, etag, outcome = await serve_read_model(EXPOSURE_PATHS_READ_MODEL, params.model_dump())
+    payload = dict(payload)
+    meta = dict(payload.get("meta") or {})
+    meta["cache_hit"] = outcome != "miss"
+    meta["query_latency_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
+    payload["meta"] = meta
+    observe_hist(
+        "api_route_latency_seconds",
+        time.perf_counter() - started,
+        route="/exposure/paths",
+        source=str(meta.get("source") or "compute"),
+    )
+    return payload, etag, outcome
 
 
 def list_findings(db: Session, *, params: ExposureFindingsQuery) -> CursorPage[ExposureFindingOut]:
