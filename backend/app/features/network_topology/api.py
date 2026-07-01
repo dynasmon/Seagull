@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.db.session import managed_session
+from app.core.observability import incr_counter
 from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 from app.features.network_topology import service
 from app.features.network_topology.schemas import (
@@ -32,13 +33,18 @@ router = APIRouter(
 
 
 @router.get("/summary", response_model=TopologySummaryOut)
-def get_summary(db: Session = Depends(get_db)):
-    with managed_session(db) as db_session:
-        return service.get_summary(db_session)
+async def get_summary(response: Response):
+    payload, etag, outcome = await service.get_summary_async()
+    if etag:
+        response.headers["ETag"] = etag
+    response.headers["X-Cache-Outcome"] = outcome
+    incr_counter("api_cache_outcome_total", route="/network-topology/summary", outcome=outcome)
+    return payload
 
 
 @router.get("/graph", response_model=TopologyGraphOut)
-def get_graph(
+async def get_graph(
+    response: Response,
     max_nodes: int = Query(200, ge=1, le=2000),
     max_edges: int = Query(300, ge=1, le=3000),
     min_confidence: int = Query(1, ge=1, le=99),
@@ -53,7 +59,6 @@ def get_graph(
     group_by: str | None = Query(None, max_length=16),
     focused_group_key: str | None = Query(None, max_length=256),
     exclusive_focus: bool = Query(False),
-    db: Session = Depends(get_db),
 ):
     params = TopologyGraphQuery(
         max_nodes=max_nodes,
@@ -71,8 +76,12 @@ def get_graph(
         focused_group_key=focused_group_key,
         exclusive_focus=exclusive_focus,
     )
-    with managed_session(db) as db_session:
-        return service.get_graph(db_session, params)
+    payload, etag, outcome = await service.get_graph_async(params)
+    if etag:
+        response.headers["ETag"] = etag
+    response.headers["X-Cache-Outcome"] = outcome
+    incr_counter("api_cache_outcome_total", route="/network-topology/graph", outcome=outcome)
+    return payload
 
 
 @router.get(
