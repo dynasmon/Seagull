@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit_event
 from app.core.db import get_db
 from app.core.db.session import managed_session
+from app.core.observability import incr_counter
 from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 from app.features.exposure import service
 from app.features.exposure.schemas import (
@@ -34,9 +35,13 @@ router = APIRouter(
 
 
 @router.get("/summary", response_model=ExposureSummaryOut)
-def get_summary(db: Session = Depends(get_db)):
-    with managed_session(db) as db_session:
-        return service.get_summary(db_session)
+async def get_summary(response: Response):
+    payload, etag, outcome = await service.get_exposure_summary_async()
+    if etag:
+        response.headers["ETag"] = etag
+    response.headers["X-Cache-Outcome"] = outcome
+    incr_counter("api_cache_outcome_total", route="/exposure/summary", outcome=outcome)
+    return payload
 
 
 @router.get("/assets", response_model=CursorPage[ExposureAssetPostureOut])
@@ -107,14 +112,14 @@ def get_asset_detail(asset_key: str, db: Session = Depends(get_db)):
 
 
 @router.get("/paths", response_model=CursorPage[ExposureAttackPathOut])
-def list_paths(
+async def list_paths(
+    response: Response,
     page_size: int = Query(25, ge=1, le=100),
     cursor: str | None = Query(None),
     severity: str | None = Query(None),
     agent_id: str | None = Query(None, min_length=1, max_length=64),
     min_score: int | None = Query(None, ge=0, le=100),
     reason_code: str | None = Query(None, max_length=64),
-    db: Session = Depends(get_db),
 ):
     params = ExposurePathsQuery(
         page_size=page_size,
@@ -124,8 +129,12 @@ def list_paths(
         min_score=min_score,
         reason_code=reason_code,
     )
-    with managed_session(db) as db_session:
-        return service.list_paths(db_session, params=params)
+    payload, etag, outcome = await service.list_paths_async(params=params)
+    if etag:
+        response.headers["ETag"] = etag
+    response.headers["X-Cache-Outcome"] = outcome
+    incr_counter("api_cache_outcome_total", route="/exposure/paths", outcome=outcome)
+    return payload
 
 
 @router.get("/findings", response_model=CursorPage[ExposureFindingOut])
