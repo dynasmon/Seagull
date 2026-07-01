@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.observability import incr_counter
 from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.features.auth.session import require_admin
 from app.features.vuln.schemas import (
@@ -21,12 +22,12 @@ from app.features.vuln.schemas import (
 )
 from app.features.vuln.service import (
     get_finding,
+    get_vuln_posture_async,
+    get_vuln_summary_async,
     ingest_findings,
     list_findings,
     list_scans,
     patch_finding,
-    posture,
-    summary,
     trigger_manual_scan,
 )
 from app.shared.schemas import CursorPage
@@ -150,12 +151,20 @@ def patch_finding_endpoint(
     response_model=VulnSummaryOut,
     dependencies=[Depends(require_admin)],
 )
-def summary_endpoint(
+async def summary_endpoint(
+    response: Response,
     active_within_days: int = Query(30, ge=1, le=365),
     include_suppressed: bool = Query(False),
-    db: Session = Depends(get_db),
 ):
-    return summary(db, active_within_days=active_within_days, include_suppressed=include_suppressed)
+    payload, etag, outcome = await get_vuln_summary_async(
+        active_within_days=active_within_days,
+        include_suppressed=include_suppressed,
+    )
+    if etag:
+        response.headers["ETag"] = etag
+    response.headers["X-Cache-Outcome"] = outcome
+    incr_counter("api_cache_outcome_total", route="/vuln/summary", outcome=outcome)
+    return payload
 
 
 @router.get(
@@ -163,15 +172,19 @@ def summary_endpoint(
     response_model=VulnPostureOut,
     dependencies=[Depends(require_admin)],
 )
-def posture_endpoint(
+async def posture_endpoint(
+    response: Response,
     active_within_days: int = Query(30, ge=1, le=365),
     include_suppressed: bool = Query(False),
     top_n: int = Query(15, ge=5, le=50),
-    db: Session = Depends(get_db),
 ):
-    return posture(
-        db,
+    payload, etag, outcome = await get_vuln_posture_async(
         active_within_days=active_within_days,
         include_suppressed=include_suppressed,
         top_n=top_n,
     )
+    if etag:
+        response.headers["ETag"] = etag
+    response.headers["X-Cache-Outcome"] = outcome
+    incr_counter("api_cache_outcome_total", route="/vuln/posture", outcome=outcome)
+    return payload
