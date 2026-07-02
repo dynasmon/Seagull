@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi import HTTPException
@@ -21,6 +23,7 @@ from app.features.network_topology.schemas import (
     TopologyEdgeOut,
     TopologyGraphHealthOut,
     TopologyGraphOut,
+    TopologyGraphQuery,
     TopologyNodeDetailOut,
     TopologyNodeOut,
     TopologyRecalculateOut,
@@ -217,6 +220,65 @@ def test_graph_returns_nodes_and_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(body["edges"]) == 1
     assert "graph_health" in body
     assert body["graph_health"]["node_count"] == 1
+
+
+def test_graph_handler_sets_etag_and_cache_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
+    metric_calls: list[tuple[str, dict]] = []
+
+    async def _get_graph_async(_params: TopologyGraphQuery) -> tuple[dict, str, str]:
+        return _graph_out().model_dump(mode="json"), 'W/"1-graph"', "fresh"
+
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
+    monkeypatch.setattr(topo_api.service, "get_graph_async", _get_graph_async)
+    monkeypatch.setattr(topo_api, "incr_counter", lambda name, **labels: metric_calls.append((name, labels)))
+
+    with TestClient(app) as client:
+        response = client.get("/network-topology/graph")
+
+    assert response.status_code == 200
+    assert response.headers["ETag"] == 'W/"1-graph"'
+    assert response.headers["X-Cache-Outcome"] == "fresh"
+    assert metric_calls == [
+        ("api_cache_outcome_total", {"route": "/network-topology/graph", "outcome": "fresh"})
+    ]
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        TopologyGraphQuery(include_stale=True),
+        TopologyGraphQuery(node_types=["host"]),
+        TopologyGraphQuery(edge_types=["observed_flow"]),
+    ],
+)
+def test_graph_filters_bypass_swr(monkeypatch: pytest.MonkeyPatch, query: TopologyGraphQuery) -> None:
+    async def _serve_read_model(*_args: Any, **_kwargs: Any) -> tuple[dict, str, str]:
+        raise AssertionError("bypass must not call serve_read_model")
+
+    monkeypatch.setattr(topo_service, "serve_read_model", _serve_read_model)
+    monkeypatch.setattr(topo_service, "_resolve_topology_graph_blocking", lambda *, params: _graph_out())
+
+    payload, etag, outcome = asyncio.run(topo_service.get_graph_async(query))
+
+    assert payload["meta"]["cache_hit"] is False
+    assert etag == ""
+    assert outcome == "bypass"
+
+
+def test_graph_bypass_sets_outcome_without_etag(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _serve_read_model(*_args: Any, **_kwargs: Any) -> tuple[dict, str, str]:
+        raise AssertionError("bypass must not call serve_read_model")
+
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="analyst", role="user")
+    monkeypatch.setattr(topo_service, "serve_read_model", _serve_read_model)
+    monkeypatch.setattr(topo_service, "_resolve_topology_graph_blocking", lambda *, params: _graph_out())
+
+    with TestClient(app) as client:
+        response = client.get("/network-topology/graph", params={"include_stale": "true"})
+
+    assert response.status_code == 200
+    assert response.headers["X-Cache-Outcome"] == "bypass"
+    assert "ETag" not in response.headers
 
 
 def test_graph_forwards_params(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -432,7 +494,6 @@ def test_service_get_graph_respects_hard_limits(monkeypatch: pytest.MonkeyPatch)
 
 def test_parse_dt_z_suffix_returns_utc_aware() -> None:
     from app.features.network_topology.api import _parse_dt
-    from datetime import timezone
 
     result = _parse_dt("2026-05-12T10:00:00.000Z")
     assert result is not None
@@ -552,7 +613,7 @@ def test_graph_includes_facets_when_present(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_graph_includes_groups_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.features.network_topology.schemas import TopologyGroupEdgeOut, TopologyGroupOut
+    from app.features.network_topology.schemas import TopologyGroupOut
 
     graph_with_groups = _graph_out()
     graph_with_groups.groups = [
