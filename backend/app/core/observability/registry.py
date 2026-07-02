@@ -45,6 +45,9 @@ _SPECS: Tuple[MetricSpec, ...] = (
           ("method", "route", "status_class"), buckets=MS_BUCKETS),
 
     _spec("api_cache_hit_total", "counter", "Cache hits served by product API routes.", ("route",)),
+    _spec("api_cache_outcome_total", "counter", "SWR cache outcomes returned by product API routes.",
+          ("route", "outcome")),
+    _spec("api_304_total", "counter", "Conditional requests answered with 304 Not Modified.", ("route",)),
     _spec("api_route_latency_seconds", "histogram", "Product API route latency in seconds.",
           ("route",), buckets=SECONDS_BUCKETS),
 
