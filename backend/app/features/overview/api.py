@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
+from app.core.api.conditional import maybe_not_modified
 from app.core.observability import incr_counter
 from app.features.auth.session import get_current_user
 from app.features.overview.service import get_overview_async
@@ -26,6 +27,7 @@ def _to_utc(dt: datetime | None) -> datetime | None:
 
 @router.get("/overview")
 async def get_overview_endpoint(
+    request: Request,
     response: Response,
     window_minutes: int = Query(60, ge=5, le=1440, description="Time window (minutes) for charts"),
     start_ts: datetime | None = Query(None, description="Optional ISO8601 inclusive start timestamp"),
@@ -51,8 +53,10 @@ async def get_overview_endpoint(
         agent_id=agent_id,
         lite=lite,
     )
-    if etag:
-        response.headers["ETag"] = etag
     response.headers["X-Cache-Outcome"] = outcome
     incr_counter("api_cache_outcome_total", route="/overview", outcome=outcome)
+    not_modified = maybe_not_modified(response, request.headers.get("If-None-Match"), etag, outcome=outcome)
+    if not_modified is not None:
+        incr_counter("api_304_total", route="/overview")
+        return not_modified
     return payload
