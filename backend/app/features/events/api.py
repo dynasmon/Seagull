@@ -7,8 +7,10 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.core.api.conditional import maybe_not_modified
 from app.core.db import SessionLocal, get_db
 from app.core.db.session import managed_session
+from app.core.observability import incr_counter
 from app.features.auth.session import get_current_user
 from app.features.events import service as events_service
 from app.features.events.schemas import (
@@ -287,27 +289,20 @@ async def get_ssh_summary_endpoint(
     limit: int = Query(50, ge=1, le=500, description="Row limit for recent/raw SSH views and supporting aggregations"),
     agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
 ):
-    payload, etag, _outcome = await events_service.get_ssh_summary_async(
+    payload, etag, outcome = await events_service.get_ssh_summary_async(
         since_minutes=since_minutes,
         limit=limit,
         agent_id=agent_id,
     )
-    if _etag_matches(request.headers.get("if-none-match") or "", etag):
-        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=0"})
-    if etag:
-        response.headers["ETag"] = etag
+    response.headers["X-Cache-Outcome"] = outcome
     response.headers["Cache-Control"] = "private, max-age=0"
+    incr_counter("api_cache_outcome_total", route="/events/ssh/summary", outcome=outcome)
+    not_modified = maybe_not_modified(response, request.headers.get("If-None-Match"), etag, outcome=outcome)
+    if not_modified is not None:
+        not_modified.headers["Cache-Control"] = "private, max-age=0"
+        incr_counter("api_304_total", route="/events/ssh/summary")
+        return not_modified
     return payload
-
-
-def _etag_matches(if_none_match: str, etag: str) -> bool:
-    if not if_none_match or not etag:
-        return False
-    candidates = [c.strip() for c in if_none_match.split(",") if c.strip()]
-    if "*" in candidates:
-        return True
-    target = etag.removeprefix("W/")
-    return any(c == etag or c.removeprefix("W/") == target for c in candidates)
 
 
 @router.get("/network/summary", response_model=ProtocolIntelSummaryResponse)
@@ -319,17 +314,20 @@ async def get_protocol_intel_summary_endpoint(
     agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
     widen_if_empty: bool = Query(False, description="Widen the window once server-side when empty"),
 ):
-    payload, etag, _outcome = await events_service.get_protocol_intel_summary_async(
+    payload, etag, outcome = await events_service.get_protocol_intel_summary_async(
         since_minutes=since_minutes,
         limit=limit,
         agent_id=agent_id,
         widen_if_empty=widen_if_empty,
     )
-    if _etag_matches(request.headers.get("if-none-match") or "", etag):
-        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=0"})
-    if etag:
-        response.headers["ETag"] = etag
+    response.headers["X-Cache-Outcome"] = outcome
     response.headers["Cache-Control"] = "private, max-age=0"
+    incr_counter("api_cache_outcome_total", route="/events/network/summary", outcome=outcome)
+    not_modified = maybe_not_modified(response, request.headers.get("If-None-Match"), etag, outcome=outcome)
+    if not_modified is not None:
+        not_modified.headers["Cache-Control"] = "private, max-age=0"
+        incr_counter("api_304_total", route="/events/network/summary")
+        return not_modified
     return payload
 
 
