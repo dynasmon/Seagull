@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
+from app.core.api.conditional import maybe_not_modified
 from app.core.audit import write_audit_event
 from app.core.db import get_db
 from app.core.db.session import managed_session
@@ -35,12 +36,14 @@ router = APIRouter(
 
 
 @router.get("/summary", response_model=ExposureSummaryOut)
-async def get_summary(response: Response):
+async def get_summary(request: Request, response: Response):
     payload, etag, outcome = await service.get_exposure_summary_async()
-    if etag:
-        response.headers["ETag"] = etag
     response.headers["X-Cache-Outcome"] = outcome
     incr_counter("api_cache_outcome_total", route="/exposure/summary", outcome=outcome)
+    not_modified = maybe_not_modified(response, request.headers.get("If-None-Match"), etag, outcome=outcome)
+    if not_modified is not None:
+        incr_counter("api_304_total", route="/exposure/summary")
+        return not_modified
     return payload
 
 
@@ -113,6 +116,7 @@ def get_asset_detail(asset_key: str, db: Session = Depends(get_db)):
 
 @router.get("/paths", response_model=CursorPage[ExposureAttackPathOut])
 async def list_paths(
+    request: Request,
     response: Response,
     page_size: int = Query(25, ge=1, le=100),
     cursor: str | None = Query(None),
@@ -130,10 +134,12 @@ async def list_paths(
         reason_code=reason_code,
     )
     payload, etag, outcome = await service.list_paths_async(params=params)
-    if etag:
-        response.headers["ETag"] = etag
     response.headers["X-Cache-Outcome"] = outcome
     incr_counter("api_cache_outcome_total", route="/exposure/paths", outcome=outcome)
+    not_modified = maybe_not_modified(response, request.headers.get("If-None-Match"), etag, outcome=outcome)
+    if not_modified is not None:
+        incr_counter("api_304_total", route="/exposure/paths")
+        return not_modified
     return payload
 
 
