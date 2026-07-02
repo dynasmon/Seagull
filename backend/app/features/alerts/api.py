@@ -5,6 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
+from app.core.api.conditional import maybe_not_modified
 from app.core.db import get_db
 from app.core.db.session import managed_session
 from app.core.observability import incr_counter
@@ -154,14 +155,17 @@ def run_new_hosts_rule_endpoint(
 
 @router.get("/recent", response_model=List[AlertOut])
 async def get_recent_alerts_endpoint(
+    request: Request,
     response: Response,
     limit: int = Query(50, ge=1, le=1000, description="Maximum number of alerts to return"),
 ):
     payload, etag, outcome = await get_recent_alerts_async(limit=limit)
-    if etag:
-        response.headers["ETag"] = etag
     response.headers["X-Cache-Outcome"] = outcome
     incr_counter("api_cache_outcome_total", route="/alerts/recent", outcome=outcome)
+    not_modified = maybe_not_modified(response, request.headers.get("If-None-Match"), etag, outcome=outcome)
+    if not_modified is not None:
+        incr_counter("api_304_total", route="/alerts/recent")
+        return not_modified
     return payload
 
 
