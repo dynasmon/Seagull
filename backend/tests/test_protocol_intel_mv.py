@@ -7,9 +7,13 @@ from datetime import datetime, timezone
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
-from types import SimpleNamespace
-
+from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response as StarletteResponse
+
+
+def _request_with_headers(headers: dict[str, str] | None = None) -> StarletteRequest:
+    raw_headers = [(k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in (headers or {}).items()]
+    return StarletteRequest({"type": "http", "method": "GET", "path": "/", "query_string": b"", "headers": raw_headers})
 
 from app.core.cache import locks
 from app.features.events import api as events_api
@@ -278,14 +282,14 @@ def test_json_endpoint_etag_and_304(monkeypatch) -> None:
     async def run():
         resp = StarletteResponse()
         out = await events_api.get_protocol_intel_summary_endpoint(
-            SimpleNamespace(headers={}), resp, since_minutes=60, limit=25, agent_id=None, widen_if_empty=False
+            _request_with_headers(), resp, since_minutes=60, limit=25, agent_id=None, widen_if_empty=False
         )
         assert isinstance(out, dict)
         assert resp.headers["etag"] == 'W/"5-abc"'
 
         resp2 = StarletteResponse()
         out2 = await events_api.get_protocol_intel_summary_endpoint(
-            SimpleNamespace(headers={"if-none-match": 'W/"5-abc"'}),
+            _request_with_headers({"if-none-match": 'W/"5-abc"'}),
             resp2,
             since_minutes=60,
             limit=25,

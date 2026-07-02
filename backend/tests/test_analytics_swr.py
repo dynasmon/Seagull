@@ -62,6 +62,14 @@ def test_payload_etag_ignores_volatile_fields() -> None:
     assert a.startswith('W/"5-')
 
 
+def test_payload_etag_ignores_query_meta() -> None:
+    a = swr.payload_etag({"kpis": {"x": 1}, "query_meta": {"query_latency_ms": 5.0}}, schema_version=1)
+    b = swr.payload_etag({"kpis": {"x": 1}, "query_meta": {"query_latency_ms": 90.0}}, schema_version=1)
+    c = swr.payload_etag({"kpis": {"x": 2}, "query_meta": {"query_latency_ms": 5.0}}, schema_version=1)
+    assert a == b
+    assert a != c
+
+
 def test_swr_fresh_hit_does_not_recompute(monkeypatch) -> None:
     _install_cache(monkeypatch)
     calls = {"n": 0}
