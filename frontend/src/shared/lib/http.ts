@@ -25,6 +25,8 @@ type RefreshResult = { accessToken: string | null; user: AuthUser | null };
 let refreshInFlight: Promise<RefreshResult> | null = null;
 const getCache = new Map<string, { expiresAt: number; value: any }>();
 const getInFlight = new Map<string, Promise<any>>();
+const etagStore = new Map<string, string>();
+const ETAG_STORE_MAX = 500;
 
 const DEFAULT_API_TIMEOUT_MS = 15000;
 const PUBLIC_AUTH_PATHS = new Set([
@@ -195,29 +197,49 @@ function cacheKey(path: string): string {
   return String(path || "");
 }
 
+function rememberEtag(key: string, etag: string): void {
+  if (!etagStore.has(key) && etagStore.size >= ETAG_STORE_MAX) {
+    const firstKey = etagStore.keys().next().value;
+    if (firstKey !== undefined) {
+      etagStore.delete(firstKey);
+      const evicted = getCache.get(firstKey);
+      if (evicted && evicted.expiresAt <= Date.now()) getCache.delete(firstKey);
+    }
+  }
+  etagStore.set(key, etag);
+}
+
 function defaultGetCacheMs(path: string): number {
   if (!path.startsWith("/api/")) return 0;
   if (path.startsWith("/api/auth/")) return 0;
-  if (path.startsWith("/api/overview")) return 0;
-  if (path.startsWith("/api/events/")) return 0;
   if (path.startsWith("/api/ingest/storm/status")) return 0;
-  if (path.startsWith("/api/alerts/recent")) return 0;
+  if (path.startsWith("/api/overview")) return 5000;
+  if (path.startsWith("/api/events/network/summary")) return 5000;
+  if (path.startsWith("/api/events/ssh/summary")) return 5000;
+  // live event feeds (live/*, rollups, recent) must stay uncached
+  if (path.startsWith("/api/events/")) return 0;
+  if (path.startsWith("/api/alerts/recent")) return 3000;
   return 8000;
 }
 
 function invalidateGetCache(prefix?: string) {
   if (!prefix) {
     getCache.clear();
+    etagStore.clear();
     return;
   }
   for (const k of Array.from(getCache.keys())) {
     if (k.startsWith(prefix)) getCache.delete(k);
+  }
+  for (const k of Array.from(etagStore.keys())) {
+    if (k.startsWith(prefix)) etagStore.delete(k);
   }
 }
 
 export async function apiFetch<T>(path: string, init?: ApiRequestInit): Promise<T> {
   const isAuthEndpoint = path.startsWith("/api/auth/");
   const isPublicAuth = isAuthEndpoint && isPublicAuthEndpoint(path);
+  const isGetRequest = init?.method === "GET" || !init?.method;
 
   const doFetch = async (): Promise<Response> => {
     const headers: Record<string, string> = {
@@ -232,6 +254,11 @@ export async function apiFetch<T>(path: string, init?: ApiRequestInit): Promise<
     // Attach bearer for protected endpoints
     if ((!isAuthEndpoint || !isPublicAuth) && accessToken) {
       headers["Authorization"] = `Bearer ${accessToken}`;
+    }
+
+    const cachedEtag = isGetRequest ? etagStore.get(path) : undefined;
+    if (cachedEtag) {
+      headers["If-None-Match"] = cachedEtag;
     }
 
     return fetchWithPolicy(path, {
@@ -250,6 +277,16 @@ export async function apiFetch<T>(path: string, init?: ApiRequestInit): Promise<
     if (newTok) {
       res = await doFetch();
     }
+  }
+
+  if (res.status === 304 && isGetRequest) {
+    const cached = getCache.get(cacheKey(path));
+    if (cached) {
+      return cached.value as T;
+    }
+    // 304 without a local body (cache evicted independently): refetch unconditionally
+    etagStore.delete(path);
+    res = await doFetch();
   }
 
   let body: any = null;
@@ -281,6 +318,18 @@ export async function apiFetch<T>(path: string, init?: ApiRequestInit): Promise<
       }
     }
     throw makeHttpError(res.status, body, msg);
+  }
+
+  if (isGetRequest) {
+    const newEtag = res.headers.get("ETag");
+    if (newEtag) {
+      rememberEtag(path, newEtag);
+      const key = cacheKey(path);
+      const existing = getCache.get(key);
+      // seed the body for future 304s; born expired so apiGet never serves it without revalidation
+      const expiresAt = existing && existing.expiresAt > Date.now() ? existing.expiresAt : Date.now();
+      getCache.set(key, { expiresAt, value: body });
+    }
   }
 
   return body as T;
