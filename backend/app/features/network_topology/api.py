@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
+from app.core.api.conditional import maybe_not_modified
 from app.core.db import get_db
 from app.core.db.session import managed_session
 from app.core.observability import incr_counter
@@ -33,17 +34,20 @@ router = APIRouter(
 
 
 @router.get("/summary", response_model=TopologySummaryOut)
-async def get_summary(response: Response):
+async def get_summary(request: Request, response: Response):
     payload, etag, outcome = await service.get_summary_async()
-    if etag:
-        response.headers["ETag"] = etag
     response.headers["X-Cache-Outcome"] = outcome
     incr_counter("api_cache_outcome_total", route="/network-topology/summary", outcome=outcome)
+    not_modified = maybe_not_modified(response, request.headers.get("If-None-Match"), etag, outcome=outcome)
+    if not_modified is not None:
+        incr_counter("api_304_total", route="/network-topology/summary")
+        return not_modified
     return payload
 
 
 @router.get("/graph", response_model=TopologyGraphOut)
 async def get_graph(
+    request: Request,
     response: Response,
     max_nodes: int = Query(200, ge=1, le=2000),
     max_edges: int = Query(300, ge=1, le=3000),
@@ -77,10 +81,12 @@ async def get_graph(
         exclusive_focus=exclusive_focus,
     )
     payload, etag, outcome = await service.get_graph_async(params)
-    if etag:
-        response.headers["ETag"] = etag
     response.headers["X-Cache-Outcome"] = outcome
     incr_counter("api_cache_outcome_total", route="/network-topology/graph", outcome=outcome)
+    not_modified = maybe_not_modified(response, request.headers.get("If-None-Match"), etag, outcome=outcome)
+    if not_modified is not None:
+        incr_counter("api_304_total", route="/network-topology/graph")
+        return not_modified
     return payload
 
 
