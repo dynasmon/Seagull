@@ -13,7 +13,7 @@ from app.core.observability import incr_counter, observe_hist
 
 ComputeFn = Callable[[], Awaitable[dict]]
 
-_VOLATILE_KEYS = ("generated_at", "meta")
+_VOLATILE_KEYS = ("generated_at", "meta", "query_meta")
 _background_tasks: set[asyncio.Task] = set()
 
 
