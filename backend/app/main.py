@@ -58,6 +58,7 @@ from app.features.threat_map.api import router as threat_map_router
 from app.features.ueba.api import router as ueba_router
 from app.features.users.api import router as users_router
 from app.features.vuln.api import router as vuln_router
+from app.shared.analytics import swr_cache_control_middleware
 
 setup_logging("backend-api")
 logger = logging.getLogger("seagull.api")
@@ -189,6 +190,9 @@ async def security_headers(request: Request, call_next):
         res.headers.setdefault("Cache-Control", "no-store")
         res.headers.setdefault("Pragma", "no-cache")
     return res
+
+
+app.middleware("http")(swr_cache_control_middleware)
 
 
 @app.exception_handler(StarletteHTTPException)
