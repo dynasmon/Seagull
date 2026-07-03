@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import zlib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.cache import get_redis
 from app.core.config import settings
+from app.core.db import SessionLocal
 from app.core.integrations.clickhouse import (
     clickhouse_events_1m_table_ref,
     clickhouse_events_table_ref,
@@ -1197,46 +1199,56 @@ def get_overview_payload(
             src_rows = db.execute(src_stmt).all()
             top_sources = [{"src_ip": str(r.src_ip), "count": int(r.count or 0)} for r in src_rows if r.src_ip]
 
-        recent_alerts_stmt = (
-            select(
-                AlertModel.id,
-                AlertModel.created_at,
-                AlertModel.rule_id,
-                AlertModel.severity,
-                AlertModel.src_ip,
-                AlertModel.dst_ip,
-                AlertModel.dst_port,
-                AlertModel.description,
-                AlertModel.details,
+        def _fetch_recent_alerts_local() -> List[Dict[str, Any]]:
+            stmt = (
+                select(
+                    AlertModel.id,
+                    AlertModel.created_at,
+                    AlertModel.rule_id,
+                    AlertModel.severity,
+                    AlertModel.src_ip,
+                    AlertModel.dst_ip,
+                    AlertModel.dst_port,
+                    AlertModel.description,
+                    AlertModel.details,
+                )
+                .where(AlertModel.created_at >= start_ts, AlertModel.created_at <= data_end_ts)
+                .order_by(AlertModel.created_at.desc())
+                .limit(25)
             )
-            .where(AlertModel.created_at >= start_ts, AlertModel.created_at <= data_end_ts)
-            .order_by(AlertModel.created_at.desc())
-            .limit(25)
-        )
-        recent_alerts = [dict(r) for r in db.execute(recent_alerts_stmt).mappings().all()]
+            db_local = SessionLocal()
+            try:
+                return [dict(r) for r in db_local.execute(stmt).mappings().all()]
+            finally:
+                db_local.close()
 
-        ddos_alerts_stmt = (
-            select(
-                AlertModel.id,
-                AlertModel.created_at,
-                AlertModel.rule_id,
-                AlertModel.severity,
-                AlertModel.src_ip,
-                AlertModel.dst_ip,
-                AlertModel.dst_port,
-                AlertModel.description,
-                AlertModel.details,
+        def _fetch_ddos_alerts_local() -> List[Dict[str, Any]]:
+            stmt = (
+                select(
+                    AlertModel.id,
+                    AlertModel.created_at,
+                    AlertModel.rule_id,
+                    AlertModel.severity,
+                    AlertModel.src_ip,
+                    AlertModel.dst_ip,
+                    AlertModel.dst_port,
+                    AlertModel.description,
+                    AlertModel.details,
+                )
+                .where(
+                    AlertModel.created_at >= start_ts,
+                    AlertModel.created_at <= data_end_ts,
+                    func.lower(AlertModel.severity).in_(["critical", "high"]),
+                    _ddos_rule_filter(AlertModel.rule_id),
+                )
+                .order_by(AlertModel.created_at.desc())
+                .limit(15)
             )
-            .where(
-                AlertModel.created_at >= start_ts,
-                AlertModel.created_at <= data_end_ts,
-                func.lower(AlertModel.severity).in_(["critical", "high"]),
-                _ddos_rule_filter(AlertModel.rule_id),
-            )
-            .order_by(AlertModel.created_at.desc())
-            .limit(15)
-        )
-        ddos_alerts = [dict(r) for r in db.execute(ddos_alerts_stmt).mappings().all()]
+            db_local = SessionLocal()
+            try:
+                return [dict(r) for r in db_local.execute(stmt).mappings().all()]
+            finally:
+                db_local.close()
 
         recent_ssh_rows: List[Dict[str, Any]] = []
         ssh_feed_rows = [] if fixed_range else fetch_recent_feed_events(limit=40, agent_id=agent_id, event_type="ssh_auth")
@@ -1331,59 +1343,75 @@ def get_overview_payload(
 
         recent_ssh = _merge_recent_ssh_rows(*recent_ssh_rows, limit=20)
 
-        raw_events = [] if fixed_range else _recent_feed_events(30, recent_feed)
-        if len(raw_events) < 30 and ch is not None:
-            ch_recent = _clickhouse_recent_events(
-                ch=ch,
-                agent_id=agent_id,
-                start_ts=start_ts,
-                end_ts=data_end_ts,
-                limit=max(1, 30 - len(raw_events)),
-            )
-            raw_events.extend(ch_recent)
-            merged: List[Dict[str, Any]] = []
-            seen: set[tuple[str, int]] = set()
-            for item in sorted(raw_events, key=lambda x: (str(x.get("timestamp") or ""), int(x.get("id") or 0)), reverse=True):
-                key = (str(item.get("timestamp") or ""), int(item.get("id") or 0))
-                if key in seen:
-                    continue
-                seen.add(key)
-                merged.append(item)
-                if len(merged) >= 30:
-                    break
-            raw_events = merged
-        if not raw_events and use_ingest_rollups:
-            raw_events = _warm_recent_events(agent_id=agent_id, start_ts=start_ts, end_ts=data_end_ts, limit=30)
-            if not raw_events and last_roll_ts is not None:
-                raw_events = [
-                    {
-                        "id": 0,
-                        "timestamp": last_roll_ts.isoformat(),
-                        "agent_id": agent_id or "-",
-                        "event_type": "rollup",
-                        "src_ip": None,
-                        "dst_ip": None,
-                        "dst_port": None,
-                    }
-                ]
-        elif not raw_events:
-            raw_stmt = (
-                select(
-                    NetEventModel.id,
-                    NetEventModel.timestamp,
-                    NetEventModel.agent_id,
-                    NetEventModel.event_type,
-                    NetEventModel.src_ip,
-                    NetEventModel.dst_ip,
-                    NetEventModel.dst_port,
+        def _fetch_raw_events_local() -> List[Dict[str, Any]]:
+            events = [] if fixed_range else _recent_feed_events(30, recent_feed)
+            if len(events) < 30 and ch is not None:
+                ch_recent = _clickhouse_recent_events(
+                    ch=ch,
+                    agent_id=agent_id,
+                    start_ts=start_ts,
+                    end_ts=data_end_ts,
+                    limit=max(1, 30 - len(events)),
                 )
-                .where(NetEventModel.timestamp >= start_ts, NetEventModel.timestamp <= data_end_ts)
-                .order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
-                .limit(30)
-            )
-            if agent_id:
-                raw_stmt = raw_stmt.where(NetEventModel.agent_id == agent_id)
-            raw_events = [dict(r) for r in db.execute(raw_stmt).mappings().all()]
+                events.extend(ch_recent)
+                merged: List[Dict[str, Any]] = []
+                seen: set[tuple[str, int]] = set()
+                for item in sorted(events, key=lambda x: (str(x.get("timestamp") or ""), int(x.get("id") or 0)), reverse=True):
+                    key = (str(item.get("timestamp") or ""), int(item.get("id") or 0))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    merged.append(item)
+                    if len(merged) >= 30:
+                        break
+                events = merged
+            if not events and use_ingest_rollups:
+                events = _warm_recent_events(agent_id=agent_id, start_ts=start_ts, end_ts=data_end_ts, limit=30)
+                if not events and last_roll_ts is not None:
+                    events = [
+                        {
+                            "id": 0,
+                            "timestamp": last_roll_ts.isoformat(),
+                            "agent_id": agent_id or "-",
+                            "event_type": "rollup",
+                            "src_ip": None,
+                            "dst_ip": None,
+                            "dst_port": None,
+                        }
+                    ]
+            elif not events:
+                raw_stmt = (
+                    select(
+                        NetEventModel.id,
+                        NetEventModel.timestamp,
+                        NetEventModel.agent_id,
+                        NetEventModel.event_type,
+                        NetEventModel.src_ip,
+                        NetEventModel.dst_ip,
+                        NetEventModel.dst_port,
+                    )
+                    .where(NetEventModel.timestamp >= start_ts, NetEventModel.timestamp <= data_end_ts)
+                    .order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
+                    .limit(30)
+                )
+                if agent_id:
+                    raw_stmt = raw_stmt.where(NetEventModel.agent_id == agent_id)
+                db_local = SessionLocal()
+                try:
+                    return [dict(r) for r in db_local.execute(raw_stmt).mappings().all()]
+                finally:
+                    db_local.close()
+            return events
+
+        # raw_events is the only worker touching the shared (non-thread-safe) CH client.
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            fut_recent_alerts = executor.submit(_fetch_recent_alerts_local)
+            fut_ddos_alerts = executor.submit(_fetch_ddos_alerts_local)
+            fut_raw_events = executor.submit(_fetch_raw_events_local)
+
+            recent_alerts = fut_recent_alerts.result()
+            ddos_alerts = fut_ddos_alerts.result()
+            raw_events = fut_raw_events.result()
 
     ingest_rates_map: Dict[datetime, Dict[str, float]] = {}
     for row in live_rows:
