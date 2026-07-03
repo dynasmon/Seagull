@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -15,6 +16,7 @@ from app.core.integrations.clickhouse import (
     clickhouse_events_table_ref,
     clickhouse_proto_intel_overview_table_ref,
     clickhouse_proto_intel_table_ref,
+    get_clickhouse_client_new,
 )
 from app.core.integrations.es import search_backend_mode
 from app.core.observability import incr_counter, log_event, observe_hist
@@ -201,7 +203,17 @@ def get_ssh_summary(
             sudo_where_sql, sudo_params = _ch_where(since=since_ts, agent_id=agent_id, event_type="sudo_cmd")
             sudo_source_sql = _ch_deduped_events_source_sql(table=table, where_sql=sudo_where_sql)
 
-            def _top_ips(action: str) -> list[SshIpStat]:
+            def _q(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+                client = get_clickhouse_client_new()
+                try:
+                    return _ch_query_dicts(client, sql, params)
+                finally:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+
+            def _top_ips_worker(action: str) -> list[SshIpStat]:
                 sql = (
                     "SELECT src_ip, count() AS count, "
                     "any(JSONExtractString(extra_json, 'geo_country')) AS geo_country, "
@@ -213,7 +225,7 @@ def get_ssh_summary(
                     "GROUP BY src_ip ORDER BY count DESC "
                     f"LIMIT {int(limit)}"
                 )
-                rows = _ch_query_dicts(ch, sql, {**ssh_params, "action": action})
+                rows = _q(sql, {**ssh_params, "action": action})
                 return [SshIpStat(**dict(r)) for r in rows]
 
             totals_sql = (
@@ -229,13 +241,6 @@ def get_ssh_summary(
                 "JSONExtractString(extra_json, 'asn_org') != '')) AS enriched_source_ips "
                 f"FROM ({ssh_source_sql})"
             )
-            totals_row = (_ch_query_dicts(ch, totals_sql, ssh_params) or [{}])[0]
-            total_accepted = int(totals_row.get("total_accepted", 0) or 0)
-            total_failed_password = int(totals_row.get("total_failed_password", 0) or 0)
-            total_invalid_user = int(totals_row.get("total_invalid_user", 0) or 0)
-            unique_source_ips = int(totals_row.get("unique_source_ips", 0) or 0)
-            enriched_source_ips = int(totals_row.get("enriched_source_ips", 0) or 0)
-
             recent_auth_sql = (
                 "SELECT timestamp, agent_id, ifNull(ssh_action, '') AS action, src_ip, "
                 "ifNull(ssh_username, '') AS username, "
@@ -248,12 +253,6 @@ def get_ssh_summary(
                 "ORDER BY timestamp DESC "
                 f"LIMIT {int(limit)}"
             )
-            recent_auth_events = [SshAuthEvent(**dict(r)) for r in _ch_query_dicts(ch, recent_auth_sql, ssh_params)]
-
-            successful_logins = _top_ips("accepted")
-            failed_attempts = _top_ips("failed_password")
-            invalid_user_attempts = _top_ips("invalid_user")
-
             active_sql = (
                 "SELECT src_ip, count() AS count, "
                 "any(JSONExtractString(extra_json, 'geo_country')) AS geo_country, "
@@ -265,8 +264,6 @@ def get_ssh_summary(
                 "GROUP BY src_ip ORDER BY count DESC "
                 f"LIMIT {int(limit)}"
             )
-            most_active_ips = [SshIpStat(**dict(r)) for r in _ch_query_dicts(ch, active_sql, ssh_params)]
-
             root_sql = (
                 "SELECT timestamp, agent_id, src_ip, "
                 "ifNull(ssh_username, '') AS username, "
@@ -280,8 +277,6 @@ def get_ssh_summary(
                 "ORDER BY timestamp DESC "
                 f"LIMIT {int(limit)}"
             )
-            root_logins = [SshLoginEvent(**dict(r)) for r in _ch_query_dicts(ch, root_sql, ssh_params)]
-
             users_sql = (
                 "SELECT ssh_username AS username, count() AS count "
                 f"FROM ({ssh_source_sql}) "
@@ -290,8 +285,6 @@ def get_ssh_summary(
                 "GROUP BY username ORDER BY count DESC "
                 f"LIMIT {int(limit)}"
             )
-            users_attempted = [SshUserStat(**dict(r)) for r in _ch_query_dicts(ch, users_sql, ssh_params)]
-
             sudo_sql = (
                 "SELECT timestamp, agent_id, "
                 "sudo_username AS username, "
@@ -303,7 +296,6 @@ def get_ssh_summary(
                 "ORDER BY timestamp DESC "
                 f"LIMIT {int(limit)}"
             )
-            sudo_recent = [SudoEventSummary(**dict(r)) for r in _ch_query_dicts(ch, sudo_sql, sudo_params)]
             source_ips_sql = (
                 "SELECT src_ip "
                 f"FROM ({ssh_source_sql}) "
@@ -311,11 +303,40 @@ def get_ssh_summary(
                 "GROUP BY src_ip "
                 "LIMIT 10000"
             )
-            source_ips = {
-                str(r.get("src_ip") or "").strip()
-                for r in _ch_query_dicts(ch, source_ips_sql, ssh_params)
-                if str(r.get("src_ip") or "").strip()
-            }
+
+            pool_size = max(1, int(getattr(settings, "SEAGULL_CLICKHOUSE_QUERY_POOL_SIZE", 6) or 6))
+            with ThreadPoolExecutor(max_workers=pool_size) as executor:
+                fut_totals = executor.submit(_q, totals_sql, ssh_params)
+                fut_recent = executor.submit(_q, recent_auth_sql, ssh_params)
+                fut_success = executor.submit(_top_ips_worker, "accepted")
+                fut_failed = executor.submit(_top_ips_worker, "failed_password")
+                fut_invalid = executor.submit(_top_ips_worker, "invalid_user")
+                fut_active = executor.submit(_q, active_sql, ssh_params)
+                fut_root = executor.submit(_q, root_sql, ssh_params)
+                fut_users = executor.submit(_q, users_sql, ssh_params)
+                fut_sudo = executor.submit(_q, sudo_sql, sudo_params)
+                fut_source_ips = executor.submit(_q, source_ips_sql, ssh_params)
+
+                totals_row = (fut_totals.result() or [{}])[0]
+                recent_auth_events = [SshAuthEvent(**dict(r)) for r in fut_recent.result()]
+                successful_logins = fut_success.result()
+                failed_attempts = fut_failed.result()
+                invalid_user_attempts = fut_invalid.result()
+                most_active_ips = [SshIpStat(**dict(r)) for r in fut_active.result()]
+                root_logins = [SshLoginEvent(**dict(r)) for r in fut_root.result()]
+                users_attempted = [SshUserStat(**dict(r)) for r in fut_users.result()]
+                sudo_recent = [SudoEventSummary(**dict(r)) for r in fut_sudo.result()]
+                source_ips = {
+                    str(r.get("src_ip") or "").strip()
+                    for r in fut_source_ips.result()
+                    if str(r.get("src_ip") or "").strip()
+                }
+
+            total_accepted = int(totals_row.get("total_accepted", 0) or 0)
+            total_failed_password = int(totals_row.get("total_failed_password", 0) or 0)
+            total_invalid_user = int(totals_row.get("total_invalid_user", 0) or 0)
+            unique_source_ips = int(totals_row.get("unique_source_ips", 0) or 0)
+            enriched_source_ips = int(totals_row.get("enriched_source_ips", 0) or 0)
 
             payload = SshSummaryResponse(
                 generated_at=datetime.now(timezone.utc),
