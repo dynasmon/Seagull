@@ -62,6 +62,11 @@ def get_clickhouse_client() -> Any:
     return _ch_client
 
 
+def get_clickhouse_client_new() -> Any:
+    # Dedicated client for concurrent workers: the shared client is not thread-safe.
+    return _build_clickhouse_client()
+
+
 def reset_clickhouse_client() -> None:
     global _ch_client, _last_ping_at, _last_ping_ok
     _ch_client = None
