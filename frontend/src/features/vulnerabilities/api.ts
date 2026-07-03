@@ -14,7 +14,7 @@ export function getVulnSummary(params?: { active_within_days?: number; include_s
   const q = new URLSearchParams();
   q.set("active_within_days", String(params?.active_within_days ?? 30));
   if (params?.include_suppressed) q.set("include_suppressed", "true");
-  return apiGet<VulnSummary>(`/api/vuln/summary?${q.toString()}`, { cacheMs: 0 });
+  return apiGet<VulnSummary>(`/api/vuln/summary?${q.toString()}`);
 }
 
 export function getVulnPosture(params?: { active_within_days?: number; include_suppressed?: boolean; top_n?: number }) {
@@ -22,7 +22,7 @@ export function getVulnPosture(params?: { active_within_days?: number; include_s
   q.set("active_within_days", String(params?.active_within_days ?? 30));
   if (params?.include_suppressed) q.set("include_suppressed", "true");
   if (params?.top_n) q.set("top_n", String(params.top_n));
-  return apiGet<VulnPosture>(`/api/vuln/posture?${q.toString()}`, { cacheMs: 0 });
+  return apiGet<VulnPosture>(`/api/vuln/posture?${q.toString()}`);
 }
 
 export function getVulnFindingsPage(params?: {
