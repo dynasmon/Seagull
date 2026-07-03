@@ -172,6 +172,8 @@ class Settings:
     SEAGULL_CLICKHOUSE_PING_TTL_SECONDS: int = _env_int("SEAGULL_CLICKHOUSE_PING_TTL_SECONDS", 2)
     SEAGULL_CLICKHOUSE_EVENTS_TABLE: str = _env_str("SEAGULL_CLICKHOUSE_EVENTS_TABLE", "net_events_raw") or "net_events_raw"
     SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS: int = _env_int("SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS", 30)
+    SEAGULL_CLICKHOUSE_QUERY_POOL_SIZE: int = _env_int("SEAGULL_CLICKHOUSE_QUERY_POOL_SIZE", 6)
+    SEAGULL_QUERY_POOL_SIZE: int = _env_int("SEAGULL_QUERY_POOL_SIZE", 8)
 
     SEAGULL_BOOTSTRAP_ADMIN_USERNAME: str = _env_str("SEAGULL_BOOTSTRAP_ADMIN_USERNAME", "admin") or "admin"
     SEAGULL_BOOTSTRAP_ADMIN_PASSWORD: str | None = _env_str("SEAGULL_BOOTSTRAP_ADMIN_PASSWORD", None)
@@ -529,6 +531,10 @@ class Settings:
             errors.append("SEAGULL_CLICKHOUSE_PING_TTL_SECONDS must be >= 1")
         if (self.SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS or 0) < 1:
             errors.append("SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS must be >= 1")
+        if (self.SEAGULL_CLICKHOUSE_QUERY_POOL_SIZE or 0) < 1:
+            errors.append("SEAGULL_CLICKHOUSE_QUERY_POOL_SIZE must be >= 1")
+        if (self.SEAGULL_QUERY_POOL_SIZE or 0) < 1:
+            errors.append("SEAGULL_QUERY_POOL_SIZE must be >= 1")
         if self.SEAGULL_CLICKHOUSE_REQUIRED and not self.SEAGULL_CLICKHOUSE_ENABLED:
             errors.append("SEAGULL_CLICKHOUSE_REQUIRED=true requires SEAGULL_CLICKHOUSE_ENABLED=true")
         if self.SEAGULL_INGEST_BACKPRESSURE_MODE not in {"rollup_only", "reject_429"}:
