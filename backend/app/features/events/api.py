@@ -295,11 +295,9 @@ async def get_ssh_summary_endpoint(
         agent_id=agent_id,
     )
     response.headers["X-Cache-Outcome"] = outcome
-    response.headers["Cache-Control"] = "private, max-age=0"
     incr_counter("api_cache_outcome_total", route="/events/ssh/summary", outcome=outcome)
     not_modified = maybe_not_modified(response, request.headers.get("If-None-Match"), etag, outcome=outcome)
     if not_modified is not None:
-        not_modified.headers["Cache-Control"] = "private, max-age=0"
         incr_counter("api_304_total", route="/events/ssh/summary")
         return not_modified
     return payload
@@ -321,11 +319,9 @@ async def get_protocol_intel_summary_endpoint(
         widen_if_empty=widen_if_empty,
     )
     response.headers["X-Cache-Outcome"] = outcome
-    response.headers["Cache-Control"] = "private, max-age=0"
     incr_counter("api_cache_outcome_total", route="/events/network/summary", outcome=outcome)
     not_modified = maybe_not_modified(response, request.headers.get("If-None-Match"), etag, outcome=outcome)
     if not_modified is not None:
-        not_modified.headers["Cache-Control"] = "private, max-age=0"
         incr_counter("api_304_total", route="/events/network/summary")
         return not_modified
     return payload
