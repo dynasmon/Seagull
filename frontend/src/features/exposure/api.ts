@@ -17,7 +17,7 @@ import {
 } from "./types";
 
 export function getExposureSummary(signal?: AbortSignal) {
-  return apiGet<ExposureSummary>("/api/exposure/summary", { cacheMs: 0, signal });
+  return apiGet<ExposureSummary>("/api/exposure/summary", { signal });
 }
 
 export function listExposureAssets(params?: ExposureAssetsParams) {
@@ -76,7 +76,6 @@ export function listExposurePaths(params?: ExposurePathsParams) {
   if (params?.min_score != null) q.set("min_score", String(params.min_score));
   if (params?.reason_code) q.set("reason_code", params.reason_code);
   return apiGet<CursorPage<ExposureAttackPath>>(`/api/exposure/paths?${q.toString()}`, {
-    cacheMs: 0,
     signal: params?.signal,
   });
 }
