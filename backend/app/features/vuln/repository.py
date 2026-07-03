@@ -565,42 +565,19 @@ def summary_counts(
     if not include_suppressed:
         conds.append(VulnFindingModel.operator_disposition != "suppressed")
 
-    total_open = (
-        db.execute(
-            select(func.count())
-            .select_from(VulnFindingModel)
-            .where(*conds)
-            .where(VulnFindingModel.status == "open")
-        ).scalar_one()
-        or 0
-    )
-    total_observed = (
-        db.execute(
-            select(func.count())
-            .select_from(VulnFindingModel)
-            .where(*conds)
-            .where(VulnFindingModel.observation_state == "observed")
-        ).scalar_one()
-        or 0
-    )
-    total_awaiting_verification = (
-        db.execute(
-            select(func.count())
-            .select_from(VulnFindingModel)
-            .where(*conds)
-            .where(VulnFindingModel.observation_state == "awaiting_verification")
-        ).scalar_one()
-        or 0
-    )
-    total_resolved = (
-        db.execute(
-            select(func.count())
-            .select_from(VulnFindingModel)
-            .where(*conds)
-            .where(VulnFindingModel.observation_state == "resolved")
-        ).scalar_one()
-        or 0
-    )
+    consolidated = db.execute(
+        select(
+            func.count().filter(VulnFindingModel.status == "open").label("total_open"),
+            func.count().filter(VulnFindingModel.observation_state == "observed").label("total_observed"),
+            func.count()
+            .filter(VulnFindingModel.observation_state == "awaiting_verification")
+            .label("total_awaiting_verification"),
+            func.count().filter(VulnFindingModel.observation_state == "resolved").label("total_resolved"),
+        )
+        .select_from(VulnFindingModel)
+        .where(*conds)
+    ).mappings().one()
+
     total_suppressed = (
         db.execute(
             select(func.count())
@@ -644,10 +621,10 @@ def summary_counts(
     by_disposition = {str(k or "unknown"): int(v or 0) for (k, v) in by_disposition_rows}
 
     return (
-        int(total_open),
-        int(total_observed),
-        int(total_awaiting_verification),
-        int(total_resolved),
+        int(consolidated["total_open"] or 0),
+        int(consolidated["total_observed"] or 0),
+        int(consolidated["total_awaiting_verification"] or 0),
+        int(consolidated["total_resolved"] or 0),
         int(total_suppressed),
         by_severity,
         by_status,
@@ -706,7 +683,8 @@ def posture_data(
             risk_expr,
         )
         .where(*base_conds)
-        .subquery("base")
+        .cte("base")
+        .prefix_with("MATERIALIZED")
     )
 
     totals = (
