@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Iterable, Sequence
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, text
+from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -190,24 +191,48 @@ def exposure_summary_metrics(db: Session) -> dict[str, Any]:
     }
 
 
-def list_posture_vectors(db: Session) -> list[tuple[list[str], list[dict[str, Any]], int]]:
-    rows = db.execute(
-        select(
-            ExposureAssetPostureModel.reason_codes,
-            ExposureAssetPostureModel.top_recommendations,
-            ExposureAssetPostureModel.attack_chain_score,
-        )
-    ).all()
-    out: list[tuple[list[str], list[dict[str, Any]], int]] = []
-    for reason_codes, recommendations, attack_chain_score in rows:
-        out.append(
-            (
-                list(reason_codes) if isinstance(reason_codes, list) else [],
-                list(recommendations) if isinstance(recommendations, list) else [],
-                int(attack_chain_score or 0),
-            )
-        )
-    return out
+def aggregate_reason_codes(db: Session, *, limit: int = 20) -> list[tuple[str, int]]:
+    stmt = text(
+        """
+        SELECT code, count(*) AS cnt
+        FROM exposure_asset_posture,
+             LATERAL jsonb_array_elements_text(reason_codes) AS code
+        WHERE jsonb_typeof(reason_codes) = 'array' AND code <> ''
+        GROUP BY code
+        ORDER BY cnt DESC, code ASC
+        LIMIT :limit
+        """
+    )
+    rows = db.execute(stmt, {"limit": int(limit)}).all()
+    return [(str(row.code), int(row.cnt or 0)) for row in rows]
+
+
+def aggregate_recommendation_actions(db: Session, *, limit: int = 20) -> list[tuple[str, int]]:
+    stmt = text(
+        """
+        SELECT resolved.action AS action, count(*) AS cnt
+        FROM exposure_asset_posture,
+             LATERAL jsonb_array_elements(top_recommendations) AS rec(item)
+        CROSS JOIN LATERAL (
+            SELECT COALESCE(NULLIF(btrim(rec.item ->> 'action'), ''), NULLIF(btrim(rec.item ->> 'rec_type'), '')) AS action
+        ) resolved
+        WHERE jsonb_typeof(top_recommendations) = 'array' AND resolved.action IS NOT NULL
+        GROUP BY resolved.action
+        ORDER BY cnt DESC, action ASC
+        LIMIT :limit
+        """
+    )
+    rows = db.execute(stmt, {"limit": int(limit)}).all()
+    return [(str(row.action), int(row.cnt or 0)) for row in rows]
+
+
+def count_active_attack_paths(db: Session, *, reason_codes: Sequence[str]) -> int:
+    conds = [ExposureAssetPostureModel.attack_chain_score > 0]
+    codes = [str(code) for code in reason_codes if code]
+    if codes:
+        conds.append(ExposureAssetPostureModel.reason_codes.has_any(array(codes)))
+    stmt = select(func.count()).select_from(ExposureAssetPostureModel).where(or_(*conds))
+    return int(db.execute(stmt).scalar() or 0)
 
 
 def upsert_node(db: Session, node: NodeInput) -> ExposureNodeModel:
