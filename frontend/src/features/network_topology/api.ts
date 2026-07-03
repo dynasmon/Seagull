@@ -85,11 +85,11 @@ export function buildTopologyObservationsPath(params: TopologyObservationParams 
 }
 
 export function getTopologySummary(signal?: AbortSignal) {
-  return apiGet<TopologySummary>(`${BASE}/summary`, { cacheMs: 0, signal });
+  return apiGet<TopologySummary>(`${BASE}/summary`, { signal });
 }
 
 export function getTopologyGraph(params: TopologyGraphParams = {}) {
-  return apiGet<TopologyGraph>(buildTopologyGraphPath(params), { cacheMs: 0, signal: params.signal });
+  return apiGet<TopologyGraph>(buildTopologyGraphPath(params), { signal: params.signal });
 }
 
 export function getTopologyNodeDetail(nodeKey: string, signal?: AbortSignal) {
