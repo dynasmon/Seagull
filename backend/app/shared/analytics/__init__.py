@@ -1,4 +1,5 @@
 from app.shared.analytics.fanout import gather_bounded, run_offloaded
+from app.shared.analytics.http_cache import swr_cache_control, swr_cache_control_middleware
 from app.shared.analytics.prewarm import (
     WarmSpec,
     iter_warm_specs,
@@ -26,4 +27,6 @@ __all__ = [
     "register_warm_set",
     "run_offloaded",
     "serve_read_model",
+    "swr_cache_control",
+    "swr_cache_control_middleware",
 ]
