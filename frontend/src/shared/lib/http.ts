@@ -1,3 +1,5 @@
+import { LruCache } from "@/shared/lib/lruCache";
+
 export type HttpError = Error & {
   status: number;
   body?: any;
@@ -23,7 +25,9 @@ let accessToken: string | null = null;
 type RefreshResult = { accessToken: string | null; user: AuthUser | null };
 
 let refreshInFlight: Promise<RefreshResult> | null = null;
-const getCache = new Map<string, { expiresAt: number; value: any }>();
+type GetCacheEntry = { expiresAt: number; value: unknown };
+const GET_CACHE_MAX = 300;
+const getCache = new LruCache<string, GetCacheEntry>(GET_CACHE_MAX);
 const getInFlight = new Map<string, Promise<any>>();
 const etagStore = new Map<string, string>();
 const ETAG_STORE_MAX = 500;
@@ -34,6 +38,18 @@ const PUBLIC_AUTH_PATHS = new Set([
   "/api/auth/refresh",
   "/api/auth/features",
   "/api/auth/otp/login",
+]);
+const SWR_GET_CACHE_MS = new Map<string, number>([
+  ["/api/overview", 5000],
+  ["/api/alerts/recent", 3000],
+  ["/api/events/network/summary", 5000],
+  ["/api/events/ssh/summary", 5000],
+  ["/api/exposure/summary", 10000],
+  ["/api/exposure/paths", 10000],
+  ["/api/network-topology/summary", 10000],
+  ["/api/network-topology/graph", 10000],
+  ["/api/vuln/summary", 10000],
+  ["/api/vuln/posture", 10000],
 ]);
 
 export type ApiRequestInit = RequestInit & {
@@ -209,17 +225,8 @@ function rememberEtag(key: string, etag: string): void {
   etagStore.set(key, etag);
 }
 
-function defaultGetCacheMs(path: string): number {
-  if (!path.startsWith("/api/")) return 0;
-  if (path.startsWith("/api/auth/")) return 0;
-  if (path.startsWith("/api/ingest/storm/status")) return 0;
-  if (path.startsWith("/api/overview")) return 5000;
-  if (path.startsWith("/api/events/network/summary")) return 5000;
-  if (path.startsWith("/api/events/ssh/summary")) return 5000;
-  // live event feeds (live/*, rollups, recent) must stay uncached
-  if (path.startsWith("/api/events/")) return 0;
-  if (path.startsWith("/api/alerts/recent")) return 3000;
-  return 8000;
+export function defaultGetCacheMs(path: string): number {
+  return SWR_GET_CACHE_MS.get(stripQuery(path)) ?? 0;
 }
 
 function invalidateGetCache(prefix?: string) {
