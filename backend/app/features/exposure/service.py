@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
 from urllib.parse import unquote
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.api.pagination import encode_cursor, make_cursor_ts_id, parse_cursor_ts_id
 from app.core.audit import audit_actor, write_audit_event
 from app.core.config import settings
+from app.core.db import SessionLocal
 from app.core.observability import observe_hist
 from app.features.auth.session import PortalPrincipal
 from app.features.exposure import realtime as exposure_realtime
@@ -341,8 +343,6 @@ def _exposure_summary_cache_key(params: dict) -> str:
 
 
 def _resolve_exposure_summary_blocking() -> ExposureSummaryOut:
-    from app.core.db import SessionLocal
-
     db = SessionLocal()
     try:
         return get_summary(db)
@@ -384,6 +384,109 @@ async def get_exposure_summary_async() -> tuple[dict, str, str]:
     return payload, etag, outcome
 
 
+def _fetch_asset_findings(asset_key: str) -> list[ExposureFindingModel]:
+    db = SessionLocal()
+    try:
+        return repository.list_findings_for_asset(
+            db, asset_key=asset_key, limit=_MAX_DETAIL_FINDINGS, active_only=False
+        )
+    finally:
+        db.close()
+
+
+def _fetch_asset_inventory_context(agent_id: str | None) -> dict[str, Any]:
+    if not agent_id:
+        return {}
+    db = SessionLocal()
+    try:
+        return repository.get_inventory_context(db, agent_id=agent_id)
+    finally:
+        db.close()
+
+
+def _fetch_asset_alerts(
+    agent_id: str | None,
+    asset_ips: Sequence[str],
+    hostname: str | None,
+    since: datetime,
+) -> list[Any]:
+    db = SessionLocal()
+    try:
+        return repository.list_alerts_for_asset(
+            db,
+            agent_id=agent_id,
+            asset_ips=asset_ips,
+            hostname=hostname,
+            limit=_MAX_DETAIL_LINKED,
+            since=since,
+        )
+    finally:
+        db.close()
+
+
+def _fetch_asset_vulnerabilities(asset_key: str) -> list[Any]:
+    db = SessionLocal()
+    try:
+        return repository.list_vulnerabilities_for_asset(
+            db,
+            asset_key=asset_key,
+            limit=_MAX_DETAIL_LINKED,
+            active_only=False,
+        )
+    finally:
+        db.close()
+
+
+def _fetch_asset_attack_cases(agent_id: str | None) -> list[Any]:
+    if not agent_id:
+        return []
+    db = SessionLocal()
+    try:
+        return repository.list_attack_chain_cases_for_agent(
+            db,
+            agent_id=agent_id,
+            open_only=False,
+            limit=4,
+        )
+    finally:
+        db.close()
+
+
+def _fetch_asset_response_actions(agent_id: str | None) -> list[Any]:
+    if not agent_id:
+        return []
+    db = SessionLocal()
+    try:
+        return repository.list_response_actions_for_agent(
+            db,
+            agent_id=agent_id,
+            limit=_MAX_DETAIL_LINKED,
+        )
+    finally:
+        db.close()
+
+
+def _fetch_asset_investigations(asset_key: str, agent_id: str | None) -> list[Any]:
+    db = SessionLocal()
+    try:
+        return repository.list_investigations_for_asset(
+            db,
+            asset_key=asset_key,
+            agent_id=agent_id,
+            limit=_MAX_DETAIL_LINKED,
+        )
+    finally:
+        db.close()
+
+
+def _fetch_asset_score_history(asset_key: str) -> list[ExposureScoreHistoryModel]:
+    db = SessionLocal()
+    try:
+        return repository.list_score_history(db, asset_key=asset_key, limit=60)
+    finally:
+        db.close()
+
+
 def get_asset_detail(db: Session, *, asset_key: str) -> ExposureAssetDetailOut:
     row = repository.get_asset_posture(db, asset_key)
     if row is None:
@@ -400,50 +503,46 @@ def get_asset_detail(db: Session, *, asset_key: str) -> ExposureAssetDetailOut:
             reason_codes=list(row.reason_codes or []),
         )
     )
-    findings = repository.list_findings_for_asset(db, asset_key=asset_key, limit=_MAX_DETAIL_FINDINGS, active_only=False)
-    inventory_context = repository.get_inventory_context(db, agent_id=row.agent_id) if row.agent_id else {}
+    pool_size = max(1, int(getattr(settings, "SEAGULL_QUERY_POOL_SIZE", 8) or 8))
+    with ThreadPoolExecutor(max_workers=pool_size) as executor:
+        fut_findings = executor.submit(_fetch_asset_findings, asset_key)
+        fut_inventory = executor.submit(_fetch_asset_inventory_context, row.agent_id)
+        fut_vulns = executor.submit(_fetch_asset_vulnerabilities, asset_key)
+        fut_cases = executor.submit(_fetch_asset_attack_cases, row.agent_id)
+        fut_investigations = executor.submit(_fetch_asset_investigations, asset_key, row.agent_id)
+        fut_response_actions = executor.submit(_fetch_asset_response_actions, row.agent_id)
+        fut_history = executor.submit(_fetch_asset_score_history, asset_key)
+
+        findings = fut_findings.result()
+        inventory_context = fut_inventory.result()
+        vulnerabilities = fut_vulns.result()
+        attack_cases = fut_cases.result()
+        investigations = fut_investigations.result()
+        response_actions = fut_response_actions.result()
+        history = fut_history.result()
+
     lookback = _to_utc(row.updated_at) or _utc_now()
-    alerts = repository.list_alerts_for_asset(
-        db,
-        agent_id=row.agent_id,
-        asset_ips=inventory_context.get("ip_addresses") or [],
-        hostname=inventory_context.get("hostname"),
-        limit=_MAX_DETAIL_LINKED,
-        since=lookback - timedelta(days=14),
+    alerts = _fetch_asset_alerts(
+        row.agent_id,
+        inventory_context.get("ip_addresses") or [],
+        inventory_context.get("hostname"),
+        lookback - timedelta(days=14),
     )
-    vulnerabilities = repository.list_vulnerabilities_for_asset(
-        db,
-        asset_key=asset_key,
-        limit=_MAX_DETAIL_LINKED,
-        active_only=False,
-    )
-    attack_cases = repository.list_attack_chain_cases_for_agent(
-        db,
-        agent_id=row.agent_id,
-        open_only=False,
-        limit=4,
-    ) if row.agent_id else []
-    case_steps = repository.list_attack_chain_steps_for_cases(
-        db,
-        case_ids=[int(case.id) for case in attack_cases],
-        limit=24,
-    )
-    investigations = repository.list_investigations_for_asset(
-        db,
-        asset_key=asset_key,
-        agent_id=row.agent_id,
-        limit=_MAX_DETAIL_LINKED,
-    )
-    response_actions = repository.list_response_actions_for_agent(
-        db,
-        agent_id=row.agent_id,
-        limit=_MAX_DETAIL_LINKED,
-    ) if row.agent_id else []
-    latest_results = repository.latest_response_results_for_actions(
-        db,
-        action_ids=[int(action.id) for action in response_actions],
-    )
-    history = repository.list_score_history(db, asset_key=asset_key, limit=60)
+    if attack_cases:
+        case_steps = repository.list_attack_chain_steps_for_cases(
+            db,
+            case_ids=[int(case.id) for case in attack_cases],
+            limit=24,
+        )
+    else:
+        case_steps = []
+    if response_actions:
+        latest_results = repository.latest_response_results_for_actions(
+            db,
+            action_ids=[int(action.id) for action in response_actions],
+        )
+    else:
+        latest_results = {}
     history_points = [_score_history_out(item) for item in reversed(history)]
     case_steps_by_case: dict[int, list[Any]] = {}
     for step in case_steps:
