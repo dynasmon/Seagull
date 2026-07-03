@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
@@ -296,28 +295,14 @@ def list_assets(db: Session, *, params) -> CursorPage[ExposureAssetPostureOut]:
 
 def get_summary(db: Session) -> ExposureSummaryOut:
     metrics = repository.exposure_summary_metrics(db)
-    reason_counter: Counter[str] = Counter()
-    recommendation_counter: Counter[str] = Counter()
-    active_attack_paths = 0
-    for reason_codes, recommendations, attack_chain_score in repository.list_posture_vectors(db):
-        if attack_chain_score > 0 or _has_attack_path_reason(reason_codes):
-            active_attack_paths += 1
-        for code in reason_codes:
-            if code:
-                reason_counter[str(code)] += 1
-        for item in recommendations:
-            if not isinstance(item, dict):
-                continue
-            action = str(item.get("action") or item.get("rec_type") or "").strip()
-            if action:
-                recommendation_counter[action] += 1
+    active_attack_paths = repository.count_active_attack_paths(db, reason_codes=_ATTACK_PATH_REASON_PRIORITY)
     top_reason_codes = [
         ExposureCountOut(key=key, count=count)
-        for key, count in reason_counter.most_common(_TOP_SUMMARY_COUNTS)
+        for key, count in repository.aggregate_reason_codes(db, limit=_TOP_SUMMARY_COUNTS)
     ]
     top_recommendations = [
         ExposureCountOut(key=key, count=count)
-        for key, count in recommendation_counter.most_common(_TOP_SUMMARY_COUNTS)
+        for key, count in repository.aggregate_recommendation_actions(db, limit=_TOP_SUMMARY_COUNTS)
     ]
     return ExposureSummaryOut(
         total_assets=metrics["total_assets"],
