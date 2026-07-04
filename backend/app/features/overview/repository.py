@@ -14,11 +14,18 @@ from app.core.cache import get_redis
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.integrations.clickhouse import (
+    clickhouse_ddos_volume_1m_table_ref,
     clickhouse_events_1m_table_ref,
     clickhouse_events_table_ref,
     clickhouse_is_available,
     clickhouse_is_enabled,
+    clickhouse_mv_covers_window,
+    clickhouse_mvs_read_enabled,
+    clickhouse_src_ips_1m_table_ref,
+    ddos_volume_1m_read_sql,
     get_clickhouse_client,
+    top_ports_1m_read_sql,
+    top_src_ips_1m_read_sql,
 )
 from app.core.integrations.es import es_is_available, get_es_client
 from app.core.observability import incr_counter, log_event, observe_hist
@@ -257,6 +264,90 @@ def _ch_query_dicts(ch: Any, sql: str, params: Optional[Dict[str, Any]] = None) 
     if not cols or not rows:
         return []
     return [{cols[i]: row[i] for i in range(min(len(cols), len(row)))} for row in rows]
+
+
+def _mv_window_params(*, agent_id: Optional[str], start_ts: datetime, end_ts: datetime) -> Dict[str, Any]:
+    params: Dict[str, Any] = {"start_ts": _minute_floor(start_ts), "end_ts": end_ts}
+    if agent_id:
+        params["agent_id"] = agent_id
+    return params
+
+
+def _mv_ddos_volume_map(
+    ch: Any,
+    *,
+    agent_id: Optional[str],
+    start_ts: datetime,
+    end_ts: datetime,
+) -> Optional[Dict[datetime, Dict[str, float]]]:
+    if not clickhouse_mvs_read_enabled():
+        return None
+    if not clickhouse_mv_covers_window(
+        ch, table_ref=clickhouse_ddos_volume_1m_table_ref(), start_ts=_minute_floor(start_ts)
+    ):
+        return None
+    rows = _ch_query_dicts(
+        ch,
+        ddos_volume_1m_read_sql(with_agent=bool(agent_id)),
+        _mv_window_params(agent_id=agent_id, start_ts=start_ts, end_ts=end_ts),
+    )
+    return {
+        _to_utc(r.get("bucket_ts")): {
+            "packets": float(r.get("packets") or 0.0),
+            "peak_pps": float(r.get("peak_pps") or 0.0),
+            "peak_bps": float(r.get("peak_bps") or 0.0),
+        }
+        for r in rows
+        if _to_utc(r.get("bucket_ts")) is not None
+    }
+
+
+def _mv_top_ports(
+    ch: Any,
+    *,
+    agent_id: Optional[str],
+    start_ts: datetime,
+    end_ts: datetime,
+    limit: int = 10,
+) -> Optional[List[Dict[str, Any]]]:
+    if not clickhouse_mvs_read_enabled():
+        return None
+    if not clickhouse_mv_covers_window(
+        ch, table_ref=clickhouse_events_1m_table_ref(), start_ts=_minute_floor(start_ts)
+    ):
+        return None
+    rows = _ch_query_dicts(
+        ch,
+        top_ports_1m_read_sql(with_agent=bool(agent_id), limit=limit),
+        _mv_window_params(agent_id=agent_id, start_ts=start_ts, end_ts=end_ts),
+    )
+    if not rows:
+        return None
+    return [{"port": int(r.get("port")), "count": int(r.get("count") or 0)} for r in rows if r.get("port") is not None]
+
+
+def _mv_top_sources(
+    ch: Any,
+    *,
+    agent_id: Optional[str],
+    start_ts: datetime,
+    end_ts: datetime,
+    limit: int = 10,
+) -> Optional[List[Dict[str, Any]]]:
+    if not clickhouse_mvs_read_enabled():
+        return None
+    if not clickhouse_mv_covers_window(
+        ch, table_ref=clickhouse_src_ips_1m_table_ref(), start_ts=_minute_floor(start_ts)
+    ):
+        return None
+    rows = _ch_query_dicts(
+        ch,
+        top_src_ips_1m_read_sql(with_agent=bool(agent_id), limit=limit),
+        _mv_window_params(agent_id=agent_id, start_ts=start_ts, end_ts=end_ts),
+    )
+    if not rows:
+        return None
+    return [{"src_ip": str(r.get("src_ip")), "count": int(r.get("count") or 0)} for r in rows if r.get("src_ip")]
 
 
 def _pg_latest_event_ts(db, *, agent_id: Optional[str]) -> Optional[datetime]:
@@ -1024,35 +1115,39 @@ def get_overview_payload(
             if _to_utc(r.bucket_ts) is not None
         }
     elif ch is not None:
-        ddos_params: Dict[str, Any] = {"start_ts": start_ts, "end_ts": data_end_ts}
-        ddos_where = (
-            "timestamp >= {start_ts:DateTime64(3)} AND timestamp <= {end_ts:DateTime64(3)} "
-            "AND event_type IN ('dos_attack','ddos_telemetry')"
-        )
-        if agent_id:
-            ddos_where += " AND agent_id = {agent_id:String}"
-            ddos_params["agent_id"] = agent_id
-        ddos_vol_rows = _ch_query_dicts(
-            ch,
-            f"SELECT toStartOfMinute(timestamp) AS bucket_ts, "
-            "sumIf(JSONExtractFloat(extra_json, 'packets'), event_type = 'dos_attack') "
-            "+ countIf(event_type = 'ddos_telemetry') AS packets, "
-            "max(greatest(JSONExtractFloat(extra_json, 'pps'), JSONExtractFloat(extra_json, 'estimated_pps'))) AS peak_pps, "
-            "max(greatest(JSONExtractFloat(extra_json, 'bps'), JSONExtractFloat(extra_json, 'estimated_bps'))) AS peak_bps "
-            f"FROM {clickhouse_events_table_ref()} "
-            f"WHERE {ddos_where} "
-            "GROUP BY bucket_ts",
-            ddos_params,
-        )
-        ddos_vol_map = {
-            _to_utc(r.get("bucket_ts")): {
-                "packets": float(r.get("packets") or 0.0),
-                "peak_pps": float(r.get("peak_pps") or 0.0),
-                "peak_bps": float(r.get("peak_bps") or 0.0),
+        mv_ddos_map = _mv_ddos_volume_map(ch, agent_id=agent_id, start_ts=start_ts, end_ts=data_end_ts)
+        if mv_ddos_map is not None:
+            ddos_vol_map = mv_ddos_map
+        else:
+            ddos_params: Dict[str, Any] = {"start_ts": start_ts, "end_ts": data_end_ts}
+            ddos_where = (
+                "timestamp >= {start_ts:DateTime64(3)} AND timestamp <= {end_ts:DateTime64(3)} "
+                "AND event_type IN ('dos_attack','ddos_telemetry')"
+            )
+            if agent_id:
+                ddos_where += " AND agent_id = {agent_id:String}"
+                ddos_params["agent_id"] = agent_id
+            ddos_vol_rows = _ch_query_dicts(
+                ch,
+                f"SELECT toStartOfMinute(timestamp) AS bucket_ts, "
+                "sumIf(JSONExtractFloat(extra_json, 'packets'), event_type = 'dos_attack') "
+                "+ countIf(event_type = 'ddos_telemetry') AS packets, "
+                "max(greatest(JSONExtractFloat(extra_json, 'pps'), JSONExtractFloat(extra_json, 'estimated_pps'))) AS peak_pps, "
+                "max(greatest(JSONExtractFloat(extra_json, 'bps'), JSONExtractFloat(extra_json, 'estimated_bps'))) AS peak_bps "
+                f"FROM {clickhouse_events_table_ref()} "
+                f"WHERE {ddos_where} "
+                "GROUP BY bucket_ts",
+                ddos_params,
+            )
+            ddos_vol_map = {
+                _to_utc(r.get("bucket_ts")): {
+                    "packets": float(r.get("packets") or 0.0),
+                    "peak_pps": float(r.get("peak_pps") or 0.0),
+                    "peak_bps": float(r.get("peak_bps") or 0.0),
+                }
+                for r in ddos_vol_rows
+                if _to_utc(r.get("bucket_ts")) is not None
             }
-            for r in ddos_vol_rows
-            if _to_utc(r.get("bucket_ts")) is not None
-        }
     else:
         packets_txt = NetEventModel.extra["packets"].astext
         pps_txt = NetEventModel.extra["pps"].astext
@@ -1160,28 +1255,36 @@ def get_overview_payload(
                 src_where += " AND agent_id = {agent_id:String}"
                 src_params["agent_id"] = agent_id
             if not use_ingest_rollups:
-                ports_ch_rows = _ch_query_dicts(
+                mv_ports = _mv_top_ports(ch, agent_id=agent_id, start_ts=start_ts, end_ts=data_end_ts)
+                if mv_ports is not None:
+                    ports = mv_ports
+                else:
+                    ports_ch_rows = _ch_query_dicts(
+                        ch,
+                        f"SELECT dst_port AS port, count() AS count "
+                        f"FROM {clickhouse_events_table_ref()} "
+                        f"WHERE {src_where} AND dst_port IS NOT NULL "
+                        "GROUP BY dst_port ORDER BY count DESC LIMIT 10",
+                        src_params,
+                    )
+                    ports = [
+                        {"port": int(r.get("port")), "count": int(r.get("count") or 0)}
+                        for r in ports_ch_rows
+                        if r.get("port") is not None
+                    ]
+            mv_sources = _mv_top_sources(ch, agent_id=agent_id, start_ts=start_ts, end_ts=data_end_ts)
+            if mv_sources is not None:
+                top_sources = mv_sources
+            else:
+                src_rows = _ch_query_dicts(
                     ch,
-                    f"SELECT dst_port AS port, count() AS count "
+                    f"SELECT src_ip, count() AS count "
                     f"FROM {clickhouse_events_table_ref()} "
-                    f"WHERE {src_where} AND dst_port IS NOT NULL "
-                    "GROUP BY dst_port ORDER BY count DESC LIMIT 10",
+                    f"WHERE {src_where} AND src_ip IS NOT NULL "
+                    "GROUP BY src_ip ORDER BY count DESC LIMIT 10",
                     src_params,
                 )
-                ports = [
-                    {"port": int(r.get("port")), "count": int(r.get("count") or 0)}
-                    for r in ports_ch_rows
-                    if r.get("port") is not None
-                ]
-            src_rows = _ch_query_dicts(
-                ch,
-                f"SELECT src_ip, count() AS count "
-                f"FROM {clickhouse_events_table_ref()} "
-                f"WHERE {src_where} AND src_ip IS NOT NULL "
-                "GROUP BY src_ip ORDER BY count DESC LIMIT 10",
-                src_params,
-            )
-            top_sources = [{"src_ip": str(r.get("src_ip")), "count": int(r.get("count") or 0)} for r in src_rows if r.get("src_ip")]
+                top_sources = [{"src_ip": str(r.get("src_ip")), "count": int(r.get("count") or 0)} for r in src_rows if r.get("src_ip")]
         else:
             src_stmt = (
                 select(NetEventModel.src_ip, func.count().label("count"))
