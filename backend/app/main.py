@@ -16,7 +16,13 @@ from app.core.config import settings
 from app.core.db import engine
 from app.core.db.lifecycle import ensure_database_ready
 from app.core.db.model_registry import load_all_models
-from app.core.integrations.clickhouse import clickhouse_is_available, clickhouse_is_enabled
+from app.core.integrations.clickhouse import (
+    clickhouse_is_available,
+    clickhouse_is_enabled,
+    clickhouse_missing_mvs,
+    expected_clickhouse_mv_names,
+    get_clickhouse_client,
+)
 from app.core.integrations.es import es_is_available, search_backend_mode
 from app.core.observability import (
     clear_request_context,
@@ -394,12 +400,31 @@ async def health_ready(response: Response):
             ch_error = str(exc).splitlines()[0][:200]
         if ch_required and ch_error is not None:
             ready = False
+
+    ch_mvs = None
+    if ch_enabled and ch_error is None:
+        try:
+            missing_mvs = clickhouse_missing_mvs(get_clickhouse_client())
+            expected_mvs = expected_clickhouse_mv_names()
+            ch_mvs = {
+                "expected": len(expected_mvs),
+                "present": len(expected_mvs) - len(missing_mvs),
+                "missing": missing_mvs,
+            }
+        except Exception as exc:
+            ch_mvs = {"error": str(exc).splitlines()[0][:200]}
+
+    ch_status = "disabled" if not ch_enabled else ("ok" if ch_error is None else ("down" if ch_required else "degraded"))
+    # Missing MVs never block readiness: every MV read has a raw-table fallback.
+    if ch_status == "ok" and ch_required and ch_mvs is not None and (ch_mvs.get("missing") or ch_mvs.get("error")):
+        ch_status = "degraded"
     components["clickhouse"] = {
         "enabled": ch_enabled,
         "required": ch_required,
-        "status": ("disabled" if not ch_enabled else ("ok" if ch_error is None else ("down" if ch_required else "degraded"))),
+        "status": ch_status,
         "latency_ms": ch_latency_ms,
         "error": ch_error,
+        "mvs": ch_mvs,
     }
 
     response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
