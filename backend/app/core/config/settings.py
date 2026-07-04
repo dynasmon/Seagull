@@ -173,6 +173,7 @@ class Settings:
     SEAGULL_CLICKHOUSE_EVENTS_TABLE: str = _env_str("SEAGULL_CLICKHOUSE_EVENTS_TABLE", "net_events_raw") or "net_events_raw"
     SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS: int = _env_int("SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS", 30)
     SEAGULL_CLICKHOUSE_QUERY_POOL_SIZE: int = _env_int("SEAGULL_CLICKHOUSE_QUERY_POOL_SIZE", 6)
+    SEAGULL_USE_CLICKHOUSE_MVS: bool = _env_bool("SEAGULL_USE_CLICKHOUSE_MVS", False)
     SEAGULL_QUERY_POOL_SIZE: int = _env_int("SEAGULL_QUERY_POOL_SIZE", 8)
 
     SEAGULL_BOOTSTRAP_ADMIN_USERNAME: str = _env_str("SEAGULL_BOOTSTRAP_ADMIN_USERNAME", "admin") or "admin"
@@ -666,6 +667,7 @@ class Settings:
                 "clickhouse_events_table": self.SEAGULL_CLICKHOUSE_EVENTS_TABLE,
                 "clickhouse_events_retention_days": int(self.SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS),
                 "clickhouse_ping_ttl_seconds": int(self.SEAGULL_CLICKHOUSE_PING_TTL_SECONDS),
+                "use_clickhouse_mvs": bool(self.SEAGULL_USE_CLICKHOUSE_MVS),
                 "request_body_max_bytes": self.SEAGULL_MAX_REQUEST_BODY_BYTES,
                 "clock_skew_max_seconds": self.SEAGULL_MAX_EVENT_CLOCK_SKEW_SECONDS,
                 "allowed_hosts": list(self.SEAGULL_ALLOWED_HOSTS or []),
