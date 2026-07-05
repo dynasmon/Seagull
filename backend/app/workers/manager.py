@@ -123,6 +123,12 @@ GROUPS: dict[str, tuple[ChildSpec, ...]] = {
             enabled_env="SEAGULL_ANALYTICS_MATERIALIZE_ENABLED",
             enabled_default=True,
         ),
+        ChildSpec(
+            name="dashboard-snapshots",
+            module="app.workers.analytics.snapshots.main",
+            enabled_env="SEAGULL_SNAPSHOTS_WORKER_ENABLED",
+            enabled_default=True,
+        ),
         ChildSpec(name="attack-chain", module="app.workers.intelligence.attack_chain.main"),
         ChildSpec(
             name="exposure-graph",
