@@ -56,7 +56,7 @@ def main() -> int:
         log_event(logger, "info", "prewarm_disabled")
         return 0
 
-    every_s = max(5.0, float(getattr(settings, "SEAGULL_ANALYTICS_PREWARM_EVERY_SECONDS", 45.0) or 45.0))
+    every_s = max(5.0, float(getattr(settings, "SEAGULL_ANALYTICS_PREWARM_EVERY_SECONDS", 120.0) or 120.0))
 
     while True:
         try:
