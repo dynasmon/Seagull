@@ -14,9 +14,17 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.integrations.clickhouse import (
     clickhouse_events_table_ref,
+    clickhouse_mv_covers_window,
+    clickhouse_mvs_read_enabled,
     clickhouse_proto_intel_overview_table_ref,
     clickhouse_proto_intel_table_ref,
+    clickhouse_ssh_ip_1h_table_ref,
     get_clickhouse_client_new,
+    ssh_action_totals_1h_read_sql,
+    ssh_source_ips_1h_read_sql,
+    ssh_top_ips_1h_read_sql,
+    ssh_top_users_1h_read_sql,
+    ssh_unique_ips_1h_read_sql,
 )
 from app.core.integrations.es import search_backend_mode
 from app.core.observability import incr_counter, log_event, observe_hist
@@ -166,6 +174,213 @@ def _overlay_ip_classification(payload: SshSummaryResponse) -> None:
             item.src_is_public = cls["is_public"]
 
 
+_SSH_MV_MIN_WINDOW_MINUTES = 360
+_SSH_TRACKED_ACTIONS: tuple[str, ...] = ("accepted", "failed_password", "invalid_user")
+_SSH_FAILED_ACTIONS: tuple[str, ...] = ("failed_password", "invalid_user")
+
+
+def _ch_query_fresh_client(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+    client = get_clickhouse_client_new()
+    try:
+        return _ch_query_dicts(client, sql, params)
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def _ssh_recent_auth_sql(source_sql: str, limit: int) -> str:
+    return (
+        "SELECT timestamp, agent_id, ifNull(ssh_action, '') AS action, src_ip, "
+        "ifNull(ssh_username, '') AS username, "
+        "JSONExtractString(extra_json, 'geo_country') AS geo_country, "
+        "JSONExtractString(extra_json, 'geo_org') AS geo_org, "
+        "JSONExtractString(extra_json, 'asn') AS asn, "
+        "JSONExtractString(extra_json, 'asn_org') AS asn_org "
+        f"FROM ({source_sql}) "
+        "WHERE ifNull(ssh_action, '') IN ('accepted','failed_password','invalid_user') "
+        "ORDER BY timestamp DESC "
+        f"LIMIT {int(limit)}"
+    )
+
+
+def _ssh_root_logins_sql(source_sql: str, limit: int) -> str:
+    return (
+        "SELECT timestamp, agent_id, src_ip, "
+        "ifNull(ssh_username, '') AS username, "
+        "JSONExtractString(extra_json, 'geo_country') AS geo_country, "
+        "JSONExtractString(extra_json, 'geo_org') AS geo_org, "
+        "JSONExtractString(extra_json, 'asn') AS asn, "
+        "JSONExtractString(extra_json, 'asn_org') AS asn_org "
+        f"FROM ({source_sql}) "
+        "WHERE ifNull(ssh_action, '') = 'accepted' "
+        "AND ifNull(ssh_username, '') = 'root' "
+        "ORDER BY timestamp DESC "
+        f"LIMIT {int(limit)}"
+    )
+
+
+def _ssh_sudo_recent_sql(source_sql: str, limit: int) -> str:
+    return (
+        "SELECT timestamp, agent_id, "
+        "sudo_username AS username, "
+        "sudo_target_user AS target_user, "
+        "sudo_command AS command, "
+        "sudo_tty AS tty, "
+        "JSONExtractString(extra_json, 'pwd') AS pwd "
+        f"FROM ({source_sql}) "
+        "ORDER BY timestamp DESC "
+        f"LIMIT {int(limit)}"
+    )
+
+
+def _mv_ssh_summary(
+    db: Session,
+    *,
+    since_minutes: int,
+    limit: int,
+    agent_id: Optional[str],
+    cache_key: str,
+    started: float,
+    query_end: datetime,
+    since_ts: datetime,
+) -> Optional[SshSummaryResponse]:
+    ch = _ch_client_or_none()
+    if ch is None:
+        return None
+
+    since_bucket = since_ts.replace(minute=0, second=0, microsecond=0)
+    if not clickhouse_mv_covers_window(ch, table_ref=clickhouse_ssh_ip_1h_table_ref(), start_ts=since_bucket):
+        return None
+
+    try:
+        with_agent = bool(agent_id)
+        mv_params: dict[str, Any] = {"start_ts": since_bucket}
+        table = clickhouse_events_table_ref()
+        ssh_where_sql, ssh_params = _ch_where(since=since_ts, agent_id=agent_id, event_type="ssh_auth")
+        ssh_source_sql = _ch_deduped_events_source_sql(table=table, where_sql=ssh_where_sql)
+        sudo_where_sql, sudo_params = _ch_where(since=since_ts, agent_id=agent_id, event_type="sudo_cmd")
+        sudo_source_sql = _ch_deduped_events_source_sql(table=table, where_sql=sudo_where_sql)
+        if agent_id:
+            mv_params["agent_id"] = agent_id
+
+        def _top_ips_worker(action: str) -> list[SshIpStat]:
+            rows = _ch_query_fresh_client(
+                ssh_top_ips_1h_read_sql(with_agent=with_agent, actions=(action,), limit=int(limit)),
+                mv_params,
+            )
+            return [SshIpStat(**dict(r)) for r in rows]
+
+        pool_size = max(1, int(getattr(settings, "SEAGULL_CLICKHOUSE_QUERY_POOL_SIZE", 6) or 6))
+        with ThreadPoolExecutor(max_workers=pool_size) as executor:
+            fut_totals = executor.submit(
+                _ch_query_fresh_client,
+                ssh_action_totals_1h_read_sql(with_agent=with_agent, actions=_SSH_TRACKED_ACTIONS),
+                mv_params,
+            )
+            fut_uniq = executor.submit(
+                _ch_query_fresh_client,
+                ssh_unique_ips_1h_read_sql(with_agent=with_agent, actions=_SSH_TRACKED_ACTIONS),
+                mv_params,
+            )
+            fut_recent = executor.submit(_ch_query_fresh_client, _ssh_recent_auth_sql(ssh_source_sql, int(limit)), ssh_params)
+            fut_success = executor.submit(_top_ips_worker, "accepted")
+            fut_failed = executor.submit(_top_ips_worker, "failed_password")
+            fut_invalid = executor.submit(_top_ips_worker, "invalid_user")
+            fut_active = executor.submit(
+                _ch_query_fresh_client,
+                ssh_top_ips_1h_read_sql(with_agent=with_agent, actions=_SSH_TRACKED_ACTIONS, limit=int(limit)),
+                mv_params,
+            )
+            fut_root = executor.submit(_ch_query_fresh_client, _ssh_root_logins_sql(ssh_source_sql, int(limit)), ssh_params)
+            fut_users = executor.submit(
+                _ch_query_fresh_client,
+                ssh_top_users_1h_read_sql(with_agent=with_agent, actions=_SSH_FAILED_ACTIONS, limit=int(limit)),
+                mv_params,
+            )
+            fut_sudo = executor.submit(_ch_query_fresh_client, _ssh_sudo_recent_sql(sudo_source_sql, int(limit)), sudo_params)
+            fut_source_ips = executor.submit(
+                _ch_query_fresh_client,
+                ssh_source_ips_1h_read_sql(with_agent=with_agent, actions=_SSH_TRACKED_ACTIONS),
+                mv_params,
+            )
+
+            action_totals = {str(r.get("action") or ""): int(r.get("count") or 0) for r in fut_totals.result()}
+            uniq_row = (fut_uniq.result() or [{}])[0]
+            recent_auth_events = [SshAuthEvent(**dict(r)) for r in fut_recent.result()]
+            successful_logins = fut_success.result()
+            failed_attempts = fut_failed.result()
+            invalid_user_attempts = fut_invalid.result()
+            most_active_ips = [SshIpStat(**dict(r)) for r in fut_active.result()]
+            root_logins = [SshLoginEvent(**dict(r)) for r in fut_root.result()]
+            users_attempted = [SshUserStat(**dict(r)) for r in fut_users.result()]
+            sudo_recent = [SudoEventSummary(**dict(r)) for r in fut_sudo.result()]
+            source_ips = {
+                str(r.get("src_ip") or "").strip()
+                for r in fut_source_ips.result()
+                if str(r.get("src_ip") or "").strip()
+            }
+
+        total_accepted = int(action_totals.get("accepted", 0))
+        total_failed_password = int(action_totals.get("failed_password", 0))
+        total_invalid_user = int(action_totals.get("invalid_user", 0))
+
+        payload = SshSummaryResponse(
+            generated_at=datetime.now(timezone.utc),
+            since_minutes=int(since_minutes),
+            agent_id=agent_id,
+            total_accepted=total_accepted,
+            total_failed_password=total_failed_password,
+            total_invalid_user=total_invalid_user,
+            total_actions=total_accepted + total_failed_password + total_invalid_user,
+            unique_source_ips=int(uniq_row.get("unique_source_ips", 0) or 0),
+            enriched_source_ips=int(uniq_row.get("enriched_source_ips", 0) or 0),
+            recent_auth_events=recent_auth_events,
+            successful_logins=successful_logins,
+            failed_attempts=failed_attempts,
+            invalid_user_attempts=invalid_user_attempts,
+            most_active_ips=most_active_ips,
+            root_logins=root_logins,
+            users_attempted=users_attempted,
+            sudo_recent=sudo_recent,
+            meta=_meta(
+                source="clickhouse",
+                fallback_chain=["clickhouse_mv"],
+                degraded_reason=None,
+                source_freshness_seconds=_freshness_seconds(
+                    query_end,
+                    max(
+                        ([x.timestamp for x in recent_auth_events] + [x.timestamp for x in sudo_recent])
+                        or [None]
+                    ),
+                ),
+                query_latency_ms=(time.perf_counter() - started) * 1000.0,
+                cache_hit=False,
+                approximate=True,
+                query_window_start=since_bucket,
+                query_window_end=query_end,
+            ),
+        )
+        _overlay_ssh_geo_from_cache(db, payload, source_ips=source_ips)
+        _overlay_ip_classification(payload)
+        _cache_set_json(
+            cache_key,
+            payload.dict(),
+            int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15) or 15),
+        )
+        observe_hist(
+            "api_route_latency_seconds",
+            time.perf_counter() - started,
+            route="/events/ssh/summary",
+            source="clickhouse",
+        )
+        return payload
+    except Exception as exc:
+        log_event(logger, "warning", "events_ssh_summary_mv_error", error_type=type(exc).__name__)
+        return None
+
+
 def get_ssh_summary(
     db: Session,
     *,
@@ -193,6 +408,20 @@ def get_ssh_summary(
     attempted_sources: list[str] = []
     degraded_reason: str | None = None
 
+    if clickhouse_mvs_read_enabled() and int(since_minutes) >= _SSH_MV_MIN_WINDOW_MINUTES:
+        mv_payload = _mv_ssh_summary(
+            db,
+            since_minutes=since_minutes,
+            limit=limit,
+            agent_id=agent_id,
+            cache_key=cache_key,
+            started=started,
+            query_end=query_end,
+            since_ts=since_ts,
+        )
+        if mv_payload is not None:
+            return mv_payload
+
     ch = _ch_client_or_none()
     if ch is not None:
         attempted_sources.append("clickhouse")
@@ -203,15 +432,7 @@ def get_ssh_summary(
             sudo_where_sql, sudo_params = _ch_where(since=since_ts, agent_id=agent_id, event_type="sudo_cmd")
             sudo_source_sql = _ch_deduped_events_source_sql(table=table, where_sql=sudo_where_sql)
 
-            def _q(sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
-                client = get_clickhouse_client_new()
-                try:
-                    return _ch_query_dicts(client, sql, params)
-                finally:
-                    try:
-                        client.close()
-                    except Exception:
-                        pass
+            _q = _ch_query_fresh_client
 
             def _top_ips_worker(action: str) -> list[SshIpStat]:
                 sql = (
@@ -241,18 +462,7 @@ def get_ssh_summary(
                 "JSONExtractString(extra_json, 'asn_org') != '')) AS enriched_source_ips "
                 f"FROM ({ssh_source_sql})"
             )
-            recent_auth_sql = (
-                "SELECT timestamp, agent_id, ifNull(ssh_action, '') AS action, src_ip, "
-                "ifNull(ssh_username, '') AS username, "
-                "JSONExtractString(extra_json, 'geo_country') AS geo_country, "
-                "JSONExtractString(extra_json, 'geo_org') AS geo_org, "
-                "JSONExtractString(extra_json, 'asn') AS asn, "
-                "JSONExtractString(extra_json, 'asn_org') AS asn_org "
-                f"FROM ({ssh_source_sql}) "
-                "WHERE ifNull(ssh_action, '') IN ('accepted','failed_password','invalid_user') "
-                "ORDER BY timestamp DESC "
-                f"LIMIT {int(limit)}"
-            )
+            recent_auth_sql = _ssh_recent_auth_sql(ssh_source_sql, int(limit))
             active_sql = (
                 "SELECT src_ip, count() AS count, "
                 "any(JSONExtractString(extra_json, 'geo_country')) AS geo_country, "
@@ -264,19 +474,7 @@ def get_ssh_summary(
                 "GROUP BY src_ip ORDER BY count DESC "
                 f"LIMIT {int(limit)}"
             )
-            root_sql = (
-                "SELECT timestamp, agent_id, src_ip, "
-                "ifNull(ssh_username, '') AS username, "
-                "JSONExtractString(extra_json, 'geo_country') AS geo_country, "
-                "JSONExtractString(extra_json, 'geo_org') AS geo_org, "
-                "JSONExtractString(extra_json, 'asn') AS asn, "
-                "JSONExtractString(extra_json, 'asn_org') AS asn_org "
-                f"FROM ({ssh_source_sql}) "
-                "WHERE ifNull(ssh_action, '') = 'accepted' "
-                "AND ifNull(ssh_username, '') = 'root' "
-                "ORDER BY timestamp DESC "
-                f"LIMIT {int(limit)}"
-            )
+            root_sql = _ssh_root_logins_sql(ssh_source_sql, int(limit))
             users_sql = (
                 "SELECT ssh_username AS username, count() AS count "
                 f"FROM ({ssh_source_sql}) "
@@ -285,17 +483,7 @@ def get_ssh_summary(
                 "GROUP BY username ORDER BY count DESC "
                 f"LIMIT {int(limit)}"
             )
-            sudo_sql = (
-                "SELECT timestamp, agent_id, "
-                "sudo_username AS username, "
-                "sudo_target_user AS target_user, "
-                "sudo_command AS command, "
-                "sudo_tty AS tty, "
-                "JSONExtractString(extra_json, 'pwd') AS pwd "
-                f"FROM ({sudo_source_sql}) "
-                "ORDER BY timestamp DESC "
-                f"LIMIT {int(limit)}"
-            )
+            sudo_sql = _ssh_sudo_recent_sql(sudo_source_sql, int(limit))
             source_ips_sql = (
                 "SELECT src_ip "
                 f"FROM ({ssh_source_sql}) "
@@ -1798,7 +1986,7 @@ def _mv_protocol_intel_summary(
     since_ts = query_end - timedelta(minutes=int(since_minutes))
     since_floor = since_ts.replace(second=0, microsecond=0)
 
-    threshold = int(getattr(settings, "SEAGULL_CH_WATERMARK_STALE_SECONDS", 30) or 30)
+    threshold = int(getattr(settings, "SEAGULL_CH_WATERMARK_STALE_SECONDS", 120) or 120)
     lag = clickhouse_watermark_lag_seconds(now=query_end)
     if lag is not None and lag > float(max(1, threshold)):
         return None
