@@ -91,7 +91,13 @@ from app.features.network_topology.schemas import (
     TopologySummaryOut,
 )
 from app.features.ueba import repository as ueba_repository
-from app.shared.analytics import AnalyticalReadModel, register_read_model, serve_read_model
+from app.shared.analytics import (
+    AnalyticalReadModel,
+    SnapshotPage,
+    register_read_model,
+    register_snapshot_page,
+    serve_read_model,
+)
 from app.shared.schemas import CursorPage
 
 _UTC = timezone.utc
@@ -289,6 +295,18 @@ async def _compute_topology_summary(params: dict) -> dict:
     return payload.model_dump(mode="json")
 
 
+TOPOLOGY_SUMMARY_SNAPSHOT_PAGE = register_snapshot_page(
+    SnapshotPage(
+        page="network_topology_summary",
+        flag_env="SEAGULL_SNAPSHOT_TOPOLOGY_SUMMARY_ENABLED",
+        schema_version=1,
+        raw_compute=_compute_topology_summary,
+        scope_key_builder=_topology_summary_cache_key,
+        static_scopes=lambda: [{}],
+    )
+)
+
+
 TOPOLOGY_SUMMARY_READ_MODEL = register_read_model(
     AnalyticalReadModel(
         name="network_topology_summary",
@@ -296,7 +314,7 @@ TOPOLOGY_SUMMARY_READ_MODEL = register_read_model(
         fresh_s=int(getattr(settings, "SEAGULL_NETWORK_TOPOLOGY_SUMMARY_FRESH_SECONDS", 60) or 60),
         stale_s=int(getattr(settings, "SEAGULL_NETWORK_TOPOLOGY_SUMMARY_STALE_SECONDS", 600) or 600),
         key_builder=_topology_summary_cache_key,
-        compute=_compute_topology_summary,
+        compute=TOPOLOGY_SUMMARY_SNAPSHOT_PAGE.compute,
     )
 )
 

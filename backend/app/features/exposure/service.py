@@ -94,7 +94,13 @@ from app.features.exposure.schemas import (
 )
 from app.features.investigations import public as investigations_public
 from app.features.response import public as response_public
-from app.shared.analytics import AnalyticalReadModel, register_read_model, serve_read_model
+from app.shared.analytics import (
+    AnalyticalReadModel,
+    SnapshotPage,
+    register_read_model,
+    register_snapshot_page,
+    serve_read_model,
+)
 from app.shared.indexing.offset_store import set_offset
 from app.shared.schemas import CursorPage
 
@@ -340,6 +346,18 @@ async def _compute_exposure_summary(params: dict) -> dict:
     return payload.model_dump(mode="json")
 
 
+EXPOSURE_SUMMARY_SNAPSHOT_PAGE = register_snapshot_page(
+    SnapshotPage(
+        page="exposure_summary",
+        flag_env="SEAGULL_SNAPSHOT_EXPOSURE_SUMMARY_ENABLED",
+        schema_version=1,
+        raw_compute=_compute_exposure_summary,
+        scope_key_builder=_exposure_summary_cache_key,
+        static_scopes=lambda: [{}],
+    )
+)
+
+
 EXPOSURE_SUMMARY_READ_MODEL = register_read_model(
     AnalyticalReadModel(
         name="exposure_summary",
@@ -347,7 +365,7 @@ EXPOSURE_SUMMARY_READ_MODEL = register_read_model(
         fresh_s=int(getattr(settings, "SEAGULL_EXPOSURE_SUMMARY_FRESH_SECONDS", 30) or 30),
         stale_s=int(getattr(settings, "SEAGULL_EXPOSURE_SUMMARY_STALE_SECONDS", 300) or 300),
         key_builder=_exposure_summary_cache_key,
-        compute=_compute_exposure_summary,
+        compute=EXPOSURE_SUMMARY_SNAPSHOT_PAGE.compute,
     )
 )
 
