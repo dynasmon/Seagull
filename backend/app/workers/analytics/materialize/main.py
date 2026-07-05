@@ -9,7 +9,7 @@ from app.core.integrations.clickhouse import (
     clickhouse_is_available,
     clickhouse_is_enabled,
     ensure_clickhouse_events_schema,
-    get_clickhouse_client,
+    get_clickhouse_long_ops_client,
 )
 from app.core.observability import incr_counter, log_event, setup_logging
 from app.workers.analytics.proto_intel_backfill import run_materialization
@@ -31,12 +31,10 @@ def _clickhouse_busy() -> bool:
 def _reconcile_once() -> bool:
     if not ensure_clickhouse_events_schema():
         return False
-    ch = get_clickhouse_client()
-    floor = run_materialization(
-        ch,
-        chunk_hours=max(1, int(getattr(settings, "SEAGULL_PROTO_INTEL_BACKFILL_CHUNK_HOURS", 24) or 24)),
-        sleep_s=max(0.0, float(getattr(settings, "SEAGULL_PROTO_INTEL_BACKFILL_SLEEP_SECONDS", 0.0) or 0.0)),
-    )
+    # Long-ops client: chunk INSERT ... SELECT statements can legitimately take
+    # longer than the interactive send/receive timeout.
+    ch = get_clickhouse_long_ops_client()
+    floor = run_materialization(ch)
     return floor is not None
 
 
@@ -74,7 +72,10 @@ def main() -> int:
         except Exception as exc:
             incr_counter("analytics_materialize_total", outcome="error")
             log_event(logger, "error", "materialize_loop_error", error_type=type(exc).__name__)
-            time.sleep(min(every_s, 30.0))
+            # Progress is persisted per chunk, so there is no benefit in
+            # retrying aggressively; a tight error loop is how the CPU spiral
+            # started in the first place.
+            time.sleep(every_s)
 
 
 if __name__ == "__main__":

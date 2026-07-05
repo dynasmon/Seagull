@@ -21,7 +21,7 @@ def _safe_ident(v: str, *, fallback: str) -> str:
     return fallback
 
 
-def _build_clickhouse_client() -> Any:
+def _build_clickhouse_client(*, send_receive_timeout: float | None = None) -> Any:
     import clickhouse_connect
 
     kwargs = {
@@ -32,7 +32,11 @@ def _build_clickhouse_client() -> Any:
         "secure": bool(settings.SEAGULL_CLICKHOUSE_SECURE),
         "verify": bool(settings.SEAGULL_CLICKHOUSE_VERIFY),
         "connect_timeout": float(settings.SEAGULL_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS or 2.0),
-        "send_receive_timeout": float(settings.SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS or 5.0),
+        "send_receive_timeout": float(
+            send_receive_timeout
+            if send_receive_timeout is not None
+            else (settings.SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS or 30.0)
+        ),
     }
 
     preferred_db = (settings.SEAGULL_CLICKHOUSE_DATABASE or "default").strip() or "default"
@@ -66,6 +70,15 @@ def get_clickhouse_client() -> Any:
 def get_clickhouse_client_new() -> Any:
     # Dedicated client for concurrent workers: the shared client is not thread-safe.
     return _build_clickhouse_client()
+
+
+def get_clickhouse_long_ops_client() -> Any:
+    # Backfill/materialization INSERT ... SELECT statements legitimately run for
+    # tens of seconds; killing them with the interactive timeout wastes the whole
+    # chunk and restarts the work from scratch.
+    interactive = float(settings.SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS or 30.0)
+    long_ops = float(getattr(settings, "SEAGULL_CLICKHOUSE_LONG_OPS_TIMEOUT_SECONDS", 300.0) or 300.0)
+    return _build_clickhouse_client(send_receive_timeout=max(interactive, long_ops))
 
 
 def reset_clickhouse_client() -> None:
