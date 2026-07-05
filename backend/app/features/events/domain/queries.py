@@ -420,7 +420,7 @@ def _pg_has_newer_event(
         if pg_ts.tzinfo is None:
             pg_ts = pg_ts.replace(tzinfo=timezone.utc)
         ref = latest_ts if latest_ts.tzinfo else latest_ts.replace(tzinfo=timezone.utc)
-        threshold = int(margin_s or getattr(settings, "SEAGULL_EVENTS_ES_STALE_MARGIN_SECONDS", 15) or 15)
+        threshold = int(margin_s or getattr(settings, "SEAGULL_EVENTS_ES_STALE_MARGIN_SECONDS", 60) or 60)
         return (pg_ts - ref).total_seconds() > float(max(1, threshold))
     except Exception:
         return False
