@@ -119,23 +119,39 @@ def read_proto_intel_materialization_floor() -> Optional[datetime]:
         return None
 
 
-def pin_proto_intel_materialization_range(*, start_ts: Any, boundary_ts: Any) -> Optional[tuple[datetime, datetime]]:
+def pin_proto_intel_materialization_range(
+    *, start_ts: Any, boundary_ts: Any, chunk_hours: int | None = None
+) -> Optional[dict[str, Any]]:
     start = _coerce_utc(start_ts)
     boundary = _coerce_utc(boundary_ts)
     if start is None or boundary is None:
         return None
+    fallback = {
+        "start": start,
+        "boundary": boundary,
+        "gen": "0",
+        "chunk_hours": int(chunk_hours) if chunk_hours else None,
+    }
     r = get_redis()
     if r is None:
-        return (start, boundary)
+        return fallback
     try:
-        payload = {"start_ts": start.isoformat(), "boundary_ts": boundary.isoformat(), "updated_at": time.time()}
+        payload = {
+            "start_ts": start.isoformat(),
+            "boundary_ts": boundary.isoformat(),
+            # Generation goes into insert_deduplication_token so a rebuild after
+            # TRUNCATE never collides with the dedup log of a previous fill.
+            "gen": str(int(time.time())),
+            "chunk_hours": int(chunk_hours) if chunk_hours else None,
+            "updated_at": time.time(),
+        }
         r.set(_PROTO_INTEL_RANGE_KEY, json.dumps(payload, separators=(",", ":")), nx=True)
     except Exception:
-        return (start, boundary)
-    return read_proto_intel_materialization_range() or (start, boundary)
+        return fallback
+    return read_proto_intel_materialization_range() or fallback
 
 
-def read_proto_intel_materialization_range() -> Optional[tuple[datetime, datetime]]:
+def read_proto_intel_materialization_range() -> Optional[dict[str, Any]]:
     r = get_redis()
     if r is None:
         return None
@@ -150,7 +166,14 @@ def read_proto_intel_materialization_range() -> Optional[tuple[datetime, datetim
         boundary = _coerce_utc(data.get("boundary_ts"))
         if start is None or boundary is None:
             return None
-        return (start, boundary)
+        chunk_hours = data.get("chunk_hours")
+        return {
+            "start": start,
+            "boundary": boundary,
+            # Legacy pins (pre-generation) read back as gen "0".
+            "gen": str(data.get("gen") or "0"),
+            "chunk_hours": int(chunk_hours) if chunk_hours else None,
+        }
     except Exception:
         return None
 
