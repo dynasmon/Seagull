@@ -730,8 +730,8 @@ PROTOCOL_INTEL_READ_MODEL = register_read_model(
     AnalyticalReadModel(
         name="protocol_intel",
         schema_version=6,
-        fresh_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_FRESH_SECONDS", 45) or 45),
-        stale_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_STALE_SECONDS", 300) or 300),
+        fresh_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_FRESH_SECONDS", 240) or 240),
+        stale_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_STALE_SECONDS", 1800) or 1800),
         key_builder=_protocol_intel_cache_key,
         compute=_compute_protocol_intel,
     )
@@ -797,8 +797,8 @@ SSH_SUMMARY_READ_MODEL = register_read_model(
     AnalyticalReadModel(
         name="ssh_summary",
         schema_version=4,
-        fresh_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_FRESH_SECONDS", 45) or 45),
-        stale_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_STALE_SECONDS", 300) or 300),
+        fresh_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_FRESH_SECONDS", 240) or 240),
+        stale_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_STALE_SECONDS", 1800) or 1800),
         key_builder=_ssh_summary_cache_key,
         compute=_compute_ssh_summary,
     )
@@ -848,7 +848,7 @@ def _prewarm_top_agents(limit: int) -> List[str]:
 
 
 def _protocol_intel_warm_specs() -> List[WarmSpec]:
-    top = int(getattr(settings, "SEAGULL_ANALYTICS_PREWARM_TOP_AGENTS", 8) or 8)
+    top = int(getattr(settings, "SEAGULL_ANALYTICS_PREWARM_TOP_AGENTS", 3) or 3)
     agents: List[Optional[str]] = [None] + _prewarm_top_agents(top)
     specs: List[WarmSpec] = []
     for since_minutes in (60, 720, 1440, 10080):
@@ -868,7 +868,7 @@ def _protocol_intel_warm_specs() -> List[WarmSpec]:
 
 
 def _ssh_summary_warm_specs() -> List[WarmSpec]:
-    top = int(getattr(settings, "SEAGULL_ANALYTICS_PREWARM_TOP_AGENTS", 8) or 8)
+    top = int(getattr(settings, "SEAGULL_ANALYTICS_PREWARM_TOP_AGENTS", 3) or 3)
     agents: List[Optional[str]] = [None] + _prewarm_top_agents(top)
     specs: List[WarmSpec] = []
     for since_minutes in (1440, 10080):
