@@ -10,7 +10,6 @@ from typing import Optional
 
 from ..config import env as _env
 
-
 _AGENT_MAP: list[tuple[str, str]] = [
     ("AGENT_CORE_ID", "AGENT_CORE_BOOTSTRAP_TOKEN"),
     ("AGENT_SENSOR_ID", "AGENT_SENSOR_BOOTSTRAP_TOKEN"),
@@ -103,8 +102,13 @@ def _write_token_file(agent_id: str, token: str, output_dir: Path) -> None:
 
 def mint(output_dir: Optional[Path] = None) -> None:
     ev = _env.read
-    edge_port = ev("SEAGULL_EDGE_HTTPS_PORT", "443")
-    backend_port = ev("SEAGULL_BACKEND_PORT", "8000")
+
+    def _port_of(value: str, default: str) -> str:
+        # Compose port vars may carry a bind address ("127.0.0.1:8000").
+        return (value or default).rsplit(":", 1)[-1] or default
+
+    edge_port = _port_of(ev("SEAGULL_EDGE_HTTPS_PORT", "443"), "443")
+    backend_port = _port_of(ev("SEAGULL_BACKEND_PORT", "8000"), "8000")
     admin_user = ev("SEAGULL_BOOTSTRAP_ADMIN_USERNAME", "admin")
     admin_pass = ev("SEAGULL_BOOTSTRAP_ADMIN_PASSWORD", "")
     ttl = int(ev("SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS", "900"))
