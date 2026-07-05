@@ -20,5 +20,6 @@ def load_all_models() -> None:
     from app.features.vuln import models as _vuln  # noqa: F401
 
     # Shared cross-feature models
+    from app.shared.analytics import models as _analytics  # noqa: F401
     from app.shared.enrichment import models as _enrichment  # noqa: F401
     from app.shared.indexing import models as _indexing  # noqa: F401
