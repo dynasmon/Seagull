@@ -16,7 +16,17 @@ from app.features.vuln.schemas import (
     VulnRiskItemOut,
     VulnSummaryOut,
 )
-from app.shared.analytics import AnalyticalReadModel, register_read_model, serve_read_model
+from app.shared.analytics import (
+    AnalyticalReadModel,
+    SnapshotPage,
+    register_read_model,
+    register_snapshot_page,
+    serve_read_model,
+)
+
+VULN_DEFAULT_ACTIVE_WITHIN_DAYS = 30
+VULN_DEFAULT_INCLUDE_SUPPRESSED = False
+VULN_POSTURE_DEFAULT_TOP_N = 15
 
 
 def _utc_now() -> datetime:
@@ -81,6 +91,39 @@ async def _compute_vuln_summary(params: dict) -> dict:
     return payload.model_dump(mode="json")
 
 
+def _vuln_summary_snapshotable(params: dict) -> bool:
+    try:
+        active_within_days = int(params.get("active_within_days") or 0)
+    except (TypeError, ValueError):
+        return False
+    return (
+        active_within_days == VULN_DEFAULT_ACTIVE_WITHIN_DAYS
+        and bool(params.get("include_suppressed")) == VULN_DEFAULT_INCLUDE_SUPPRESSED
+    )
+
+
+def _vuln_summary_snapshot_scopes() -> list[dict]:
+    return [
+        {
+            "active_within_days": VULN_DEFAULT_ACTIVE_WITHIN_DAYS,
+            "include_suppressed": VULN_DEFAULT_INCLUDE_SUPPRESSED,
+        }
+    ]
+
+
+VULN_SUMMARY_SNAPSHOT_PAGE = register_snapshot_page(
+    SnapshotPage(
+        page="vuln_summary",
+        flag_env="SEAGULL_SNAPSHOT_VULN_SUMMARY_ENABLED",
+        schema_version=1,
+        raw_compute=_compute_vuln_summary,
+        scope_key_builder=_vuln_summary_cache_key,
+        static_scopes=_vuln_summary_snapshot_scopes,
+        snapshotable=_vuln_summary_snapshotable,
+    )
+)
+
+
 VULN_SUMMARY_READ_MODEL = register_read_model(
     AnalyticalReadModel(
         name="vuln_summary",
@@ -88,7 +131,7 @@ VULN_SUMMARY_READ_MODEL = register_read_model(
         fresh_s=int(getattr(settings, "SEAGULL_VULN_SUMMARY_FRESH_SECONDS", 60) or 60),
         stale_s=int(getattr(settings, "SEAGULL_VULN_SUMMARY_STALE_SECONDS", 900) or 900),
         key_builder=_vuln_summary_cache_key,
-        compute=_compute_vuln_summary,
+        compute=VULN_SUMMARY_SNAPSHOT_PAGE.compute,
     )
 )
 
@@ -185,6 +228,39 @@ async def _compute_vuln_posture(params: dict) -> dict:
     return payload.model_dump(mode="json")
 
 
+def _vuln_posture_snapshotable(params: dict) -> bool:
+    if not _vuln_summary_snapshotable(params):
+        return False
+    try:
+        top_n = int(params.get("top_n") or 0)
+    except (TypeError, ValueError):
+        return False
+    return top_n == VULN_POSTURE_DEFAULT_TOP_N
+
+
+def _vuln_posture_snapshot_scopes() -> list[dict]:
+    return [
+        {
+            "active_within_days": VULN_DEFAULT_ACTIVE_WITHIN_DAYS,
+            "include_suppressed": VULN_DEFAULT_INCLUDE_SUPPRESSED,
+            "top_n": VULN_POSTURE_DEFAULT_TOP_N,
+        }
+    ]
+
+
+VULN_POSTURE_SNAPSHOT_PAGE = register_snapshot_page(
+    SnapshotPage(
+        page="vuln_posture",
+        flag_env="SEAGULL_SNAPSHOT_VULN_POSTURE_ENABLED",
+        schema_version=1,
+        raw_compute=_compute_vuln_posture,
+        scope_key_builder=_vuln_posture_cache_key,
+        static_scopes=_vuln_posture_snapshot_scopes,
+        snapshotable=_vuln_posture_snapshotable,
+    )
+)
+
+
 VULN_POSTURE_READ_MODEL = register_read_model(
     AnalyticalReadModel(
         name="vuln_posture",
@@ -192,7 +268,7 @@ VULN_POSTURE_READ_MODEL = register_read_model(
         fresh_s=int(getattr(settings, "SEAGULL_VULN_POSTURE_FRESH_SECONDS", 60) or 60),
         stale_s=int(getattr(settings, "SEAGULL_VULN_POSTURE_STALE_SECONDS", 900) or 900),
         key_builder=_vuln_posture_cache_key,
-        compute=_compute_vuln_posture,
+        compute=VULN_POSTURE_SNAPSHOT_PAGE.compute,
     )
 )
 

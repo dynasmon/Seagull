@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.observability import observe_hist
 from app.features.overview.repository import get_overview_payload
-from app.shared.analytics import AnalyticalReadModel, register_read_model, serve_read_model
+from app.shared.analytics import (
+    AnalyticalReadModel,
+    SnapshotPage,
+    register_read_model,
+    register_snapshot_page,
+    serve_read_model,
+)
 
 
 def get_overview(
@@ -87,6 +93,69 @@ async def _compute_overview(params: Dict[str, Any]) -> dict:
     )
 
 
+def _overview_snapshot_windows() -> list[int]:
+    raw = getattr(settings, "SEAGULL_SNAPSHOT_OVERVIEW_WINDOWS", None) or ["60", "360", "1440"]
+    out: list[int] = []
+    for part in raw:
+        try:
+            value = int(str(part).strip())
+        except ValueError:
+            continue
+        if value > 0:
+            out.append(value)
+    return out or [60]
+
+
+def _overview_snapshotable(params: Dict[str, Any]) -> bool:
+    if params.get("fixed_range") or params.get("start_ts") or params.get("end_ts"):
+        return False
+    try:
+        window = int(params.get("window_minutes") or 0)
+    except (TypeError, ValueError):
+        return False
+    return window in _overview_snapshot_windows()
+
+
+def _overview_track_params(params: Dict[str, Any]) -> Dict[str, Any] | None:
+    if not _overview_snapshotable(params):
+        return None
+    return {
+        "window_minutes": int(params["window_minutes"]),
+        "agent_id": str(params.get("agent_id") or "").strip() or None,
+        "lite": bool(params.get("lite")),
+    }
+
+
+def _overview_scope_label(params: Dict[str, Any]) -> str:
+    scope = "agent" if str(params.get("agent_id") or "").strip() else "global"
+    lite = ":lite" if params.get("lite") else ""
+    return f"w{int(params.get('window_minutes') or 0)}:{scope}{lite}"
+
+
+def _overview_snapshot_scopes() -> list[Dict[str, Any]]:
+    windows = _overview_snapshot_windows()
+    scopes: list[Dict[str, Any]] = [
+        {"window_minutes": window, "agent_id": None, "lite": False} for window in windows
+    ]
+    scopes.append({"window_minutes": windows[0], "agent_id": None, "lite": True})
+    return scopes
+
+
+OVERVIEW_SNAPSHOT_PAGE = register_snapshot_page(
+    SnapshotPage(
+        page="overview",
+        flag_env="SEAGULL_SNAPSHOT_OVERVIEW_ENABLED",
+        schema_version=1,
+        raw_compute=_compute_overview,
+        scope_key_builder=_overview_cache_key,
+        static_scopes=_overview_snapshot_scopes,
+        snapshotable=_overview_snapshotable,
+        track_params=_overview_track_params,
+        scope_label=_overview_scope_label,
+    )
+)
+
+
 OVERVIEW_READ_MODEL = register_read_model(
     AnalyticalReadModel(
         name="overview",
@@ -94,7 +163,7 @@ OVERVIEW_READ_MODEL = register_read_model(
         fresh_s=int(getattr(settings, "SEAGULL_OVERVIEW_FRESH_SECONDS", 15) or 15),
         stale_s=int(getattr(settings, "SEAGULL_OVERVIEW_STALE_SECONDS", 60) or 60),
         key_builder=_overview_cache_key,
-        compute=_compute_overview,
+        compute=OVERVIEW_SNAPSHOT_PAGE.compute,
     )
 )
 
