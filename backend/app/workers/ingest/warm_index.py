@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from app.core.observability import log_event
+from app.shared.indexing.es_mapping import event_index_mapping_properties
 
 from .config import WorkerConfig
 
@@ -164,61 +165,7 @@ def _ensure_warm_ilm_and_template(es, cfg: WorkerConfig) -> None:
 
         mappings = {
             "dynamic": True,
-            "properties": {
-                "@timestamp": {"type": "date"},
-                "timestamp": {"type": "date"},
-                "schema_version": {"type": "short"},
-                "agent_id": {"type": "keyword"},
-                "event_type": {"type": "keyword"},
-                "proto": {"type": "keyword"},
-                "src_ip": {"type": "ip"},
-                "dst_ip": {"type": "ip"},
-                "src_port": {"type": "integer"},
-                "dst_port": {"type": "integer"},
-                "bytes": {"type": "long"},
-
-                # Protocol Intel
-                "app_proto": {"type": "keyword"},
-                "dns_qname": {"type": "keyword"},
-                "dns_risk": {"type": "integer"},
-                "http_host": {"type": "keyword"},
-                "http_method": {"type": "keyword"},
-                "tls_sni": {"type": "keyword"},
-                "tls_alpn_first": {"type": "keyword"},
-                "ja4": {"type": "keyword"},
-                "ja4_ptype": {"type": "keyword"},
-                "ja3": {"type": "keyword"},
-
-                # Enrichment
-                "geo_country": {"type": "keyword"},
-                "geo_org": {"type": "keyword"},
-                "asn": {"type": "keyword"},
-                "asn_org": {"type": "keyword"},
-
-                # SSH
-                "ssh_action": {"type": "keyword"},
-                "ssh_username": {"type": "keyword"},
-
-                # Sudo
-                "sudo_username": {"type": "keyword"},
-                "sudo_target_user": {"type": "keyword"},
-                "sudo_command": {"type": "keyword"},
-                "sudo_tty": {"type": "keyword"},
-                "sudo_pwd": {"type": "keyword"},
-
-                # Process / FIM / heuristic signals
-                "proc_pid": {"type": "integer"},
-                "proc_ppid": {"type": "integer"},
-                "proc_name": {"type": "keyword"},
-                "proc_exe": {"type": "keyword"},
-                "proc_parent_name": {"type": "keyword"},
-                "fim_path": {"type": "keyword"},
-                "fim_category": {"type": "keyword"},
-                "heuristic_name": {"type": "keyword"},
-                "heuristic_confidence": {"type": "integer"},
-
-                "extra": {"type": "flattened"},
-            },
+            "properties": event_index_mapping_properties(),
         }
 
         body = {
