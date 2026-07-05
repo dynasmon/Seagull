@@ -21,6 +21,11 @@ from app.features.vuln.schemas import (
     VulnScanOut,
     VulnSummaryOut,
 )
+from app.features.vuln.overview import (
+    VULN_DEFAULT_ACTIVE_WITHIN_DAYS,
+    VULN_DEFAULT_INCLUDE_SUPPRESSED,
+    VULN_POSTURE_DEFAULT_TOP_N,
+)
 from app.features.vuln.service import (
     get_finding,
     get_vuln_posture_async,
@@ -155,8 +160,8 @@ def patch_finding_endpoint(
 async def summary_endpoint(
     request: Request,
     response: Response,
-    active_within_days: int = Query(30, ge=1, le=365),
-    include_suppressed: bool = Query(False),
+    active_within_days: int = Query(VULN_DEFAULT_ACTIVE_WITHIN_DAYS, ge=1, le=365),
+    include_suppressed: bool = Query(VULN_DEFAULT_INCLUDE_SUPPRESSED),
 ):
     payload, etag, outcome = await get_vuln_summary_async(
         active_within_days=active_within_days,
@@ -179,9 +184,9 @@ async def summary_endpoint(
 async def posture_endpoint(
     request: Request,
     response: Response,
-    active_within_days: int = Query(30, ge=1, le=365),
-    include_suppressed: bool = Query(False),
-    top_n: int = Query(15, ge=5, le=50),
+    active_within_days: int = Query(VULN_DEFAULT_ACTIVE_WITHIN_DAYS, ge=1, le=365),
+    include_suppressed: bool = Query(VULN_DEFAULT_INCLUDE_SUPPRESSED),
+    top_n: int = Query(VULN_POSTURE_DEFAULT_TOP_N, ge=5, le=50),
 ):
     payload, etag, outcome = await get_vuln_posture_async(
         active_within_days=active_within_days,
