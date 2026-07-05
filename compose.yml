@@ -18,6 +18,15 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: seagull-postgres
+    # pg_stat_statements: near-zero overhead, indispensable to diagnose slow
+    # queries. shared_buffers keeps the stock default unless sized via env
+    # (suggested 512MB-1GB when Postgres has the host mostly to itself).
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - shared_buffers=${SEAGULL_PG_SHARED_BUFFERS:-128MB}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-seagull}
       POSTGRES_USER: ${POSTGRES_USER:-seagull}
