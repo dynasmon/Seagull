@@ -67,10 +67,6 @@ def _ensure_indexes(conn) -> None:
         ),
         (
             "net_events",
-            Index("idx_net_events_ts", NetEventModel.timestamp),
-        ),
-        (
-            "net_events",
             Index("idx_net_events_type_ts", NetEventModel.event_type, NetEventModel.timestamp),
         ),
         (
@@ -457,6 +453,43 @@ def _ensure_indexes(conn) -> None:
         if table_name in table_names:
             idx.create(bind=conn, checkfirst=True)
 
+    _drop_redundant_indexes(conn, table_names)
+
+
+# Superseded single-column indexes on net_events: exact duplicates or prefixes
+# of the composite indexes above (ts_id, agent_ts, type_ts) or of the pkey.
+# net_events keeps ~25 indexes on a hot insert path; every redundant copy is
+# pure write amplification.
+_REDUNDANT_INDEXES: tuple[tuple[str, str], ...] = (
+    ("net_events", "ix_net_events_id"),  # pkey already indexes id
+    ("net_events", "ix_net_events_timestamp"),  # prefix of idx_net_events_ts_id
+    ("net_events", "idx_net_events_ts"),  # duplicate of ix_net_events_timestamp
+    ("net_events", "ix_net_events_agent_id"),  # prefix of idx_net_events_agent_ts
+    ("net_events", "ix_net_events_event_type"),  # prefix of idx_net_events_type_ts
+)
+
+
+def _drop_redundant_indexes(conn, table_names: set[str]) -> None:
+    from sqlalchemy import text
+
+    for table_name, index_name in _REDUNDANT_INDEXES:
+        if table_name in table_names:
+            conn.execute(text(f"DROP INDEX IF EXISTS {index_name}"))
+
+
+def _ensure_extensions(conn) -> None:
+    from sqlalchemy import text
+
+    # Collection only activates when shared_preload_libraries includes
+    # pg_stat_statements (set in compose); creating the extension is harmless
+    # either way and may fail on locked-down servers — best effort. The
+    # savepoint keeps a failure from aborting the enclosing transaction.
+    try:
+        with conn.begin_nested():
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_stat_statements"))
+    except Exception:
+        pass
+
 
 def _seed_offsets(conn) -> None:
     for name in ["events", "rollup_events_1m", "rollup_ssh_fail_1m", "vuln_findings", "lupe_enricher_ssh_v1"]:
@@ -472,10 +505,12 @@ def bootstrap_schema(bind: Engine | Connection) -> None:
     # Alembic migrations already run in a transaction and pass a live Connection.
     # Reusing that connection avoids nested begin() errors.
     if isinstance(bind, Connection):
+        _ensure_extensions(bind)
         _ensure_indexes(bind)
         _seed_offsets(bind)
         return
 
     with bind.begin() as conn:
+        _ensure_extensions(conn)
         _ensure_indexes(conn)
         _seed_offsets(conn)
