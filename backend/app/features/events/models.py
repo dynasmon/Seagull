@@ -7,11 +7,14 @@ from app.core.db import Base
 class NetEventModel(Base):
     __tablename__ = "net_events"
 
-    id = Column(Integer, primary_key=True, index=True)
-    agent_id = Column(String(64), index=True, nullable=False)
-    event_type = Column(String(32), index=True, nullable=False)
+    # No single-column indexes on id/agent_id/event_type/timestamp: the pkey
+    # and the composite indexes in schema_bootstrap (agent_ts, type_ts, ts_id)
+    # already cover those prefixes; extra copies only tax every INSERT.
+    id = Column(Integer, primary_key=True)
+    agent_id = Column(String(64), nullable=False)
+    event_type = Column(String(32), nullable=False)
     schema_version = Column(SmallInteger, nullable=False, default=1)
-    timestamp = Column(DateTime(timezone=True), index=True, nullable=False, server_default=func.now())
+    timestamp = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     src_ip = Column(String(45), index=True, nullable=True)
     dst_ip = Column(String(45), index=True, nullable=True)
