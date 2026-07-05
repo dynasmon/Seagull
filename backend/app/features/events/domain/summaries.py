@@ -1986,7 +1986,7 @@ def _mv_protocol_intel_summary(
     since_ts = query_end - timedelta(minutes=int(since_minutes))
     since_floor = since_ts.replace(second=0, microsecond=0)
 
-    threshold = int(getattr(settings, "SEAGULL_CH_WATERMARK_STALE_SECONDS", 30) or 30)
+    threshold = int(getattr(settings, "SEAGULL_CH_WATERMARK_STALE_SECONDS", 120) or 120)
     lag = clickhouse_watermark_lag_seconds(now=query_end)
     if lag is not None and lag > float(max(1, threshold)):
         return None
