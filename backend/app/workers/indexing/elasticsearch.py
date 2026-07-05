@@ -15,6 +15,7 @@ from app.core.db import engine
 from app.core.db.lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import NetEventModel
+from app.shared.indexing.es_mapping import event_index_mapping_properties
 from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
 
 setup_logging("worker-es-indexer")
@@ -263,15 +264,10 @@ def _build_es_client(cfg: ESConfig):
 
 
 def _ensure_index_template(es, cfg: ESConfig) -> None:
+    # Always PUT (idempotent overwrite): the old exists-check meant a template
+    # created by an older build never picked up newly mapped fields, leaving
+    # them dynamic-mapped as text (which breaks terms aggregations with 400).
     name = f"{cfg.index_prefix}-template"
-    try:
-        exists = es.indices.exists_index_template(name=name)
-    except Exception:
-        exists = False
-
-    if exists:
-        return
-
     body = {
         "index_patterns": [f"{cfg.index_prefix}-*"],
         "template": {
@@ -282,42 +278,7 @@ def _ensure_index_template(es, cfg: ESConfig) -> None:
             },
             "mappings": {
                 "dynamic": True,
-                "properties": {
-                    "@timestamp": {"type": "date"},
-                    "timestamp": {"type": "date"},
-                    "id": {"type": "long"},
-                    "schema_version": {"type": "short"},
-                    "agent_id": {"type": "keyword"},
-                    "event_type": {"type": "keyword"},
-                    "proto": {"type": "keyword"},
-                    "src_ip": {"type": "ip"},
-                    "dst_ip": {"type": "ip"},
-                    "src_port": {"type": "integer"},
-                    "dst_port": {"type": "integer"},
-                    "bytes": {"type": "long"},
-                    "app_proto": {"type": "keyword"},
-                    "dns_qname": {"type": "keyword"},
-                    "dns_risk": {"type": "integer"},
-                    "http_host": {"type": "keyword"},
-                    "http_method": {"type": "keyword"},
-                    "tls_sni": {"type": "keyword"},
-                    "tls_alpn_first": {"type": "keyword"},
-                    "ja4": {"type": "keyword"},
-                    "ja4_ptype": {"type": "keyword"},
-                    "ja3": {"type": "keyword"},
-                    "geo_country": {"type": "keyword"},
-                    "geo_org": {"type": "keyword"},
-                    "asn": {"type": "keyword"},
-                    "asn_org": {"type": "keyword"},
-                    "ssh_action": {"type": "keyword"},
-                    "ssh_username": {"type": "keyword"},
-                    "sudo_username": {"type": "keyword"},
-                    "sudo_target_user": {"type": "keyword"},
-                    "sudo_command": {"type": "keyword"},
-                    "sudo_tty": {"type": "keyword"},
-                    "sudo_pwd": {"type": "keyword"},
-                    "extra": {"type": "flattened"},
-                },
+                "properties": event_index_mapping_properties(),
             },
         },
         "priority": 200,
@@ -329,6 +290,28 @@ def _ensure_index_template(es, cfg: ESConfig) -> None:
 
     es.indices.put_index_template(name=name, body=body)
     log_event(logger, "info", "es_index_template_created", template_name=name)
+
+
+def _reconcile_existing_index_mappings(es, cfg: ESConfig) -> None:
+    # Templates only apply to indices created afterwards. Try to add the
+    # declared fields to existing indices too; indices where a field was
+    # already dynamic-mapped with a conflicting type reject the update (they
+    # heal on natural daily rollover) — best effort, never fatal.
+    try:
+        indices = list(es.indices.get(index=f"{cfg.index_prefix}-*") or {})
+    except Exception as e:
+        log_event(logger, "warning", "es_mapping_reconcile_list_error", error_type=type(e).__name__)
+        return
+    updated = 0
+    skipped = 0
+    for index in indices:
+        try:
+            es.indices.put_mapping(index=index, properties=event_index_mapping_properties())
+            updated += 1
+        except Exception:
+            skipped += 1
+    if updated or skipped:
+        log_event(logger, "info", "es_mapping_reconcile_done", updated=updated, skipped=skipped)
 
 
 def _bulk_index(es, actions: Iterable[Dict[str, Any]], cfg: ESConfig) -> None:
@@ -358,13 +341,16 @@ def main() -> None:
     es = _build_es_client(cfg)
 
     backoff = 1.0
+    bootstrap_done = False
     while True:
         try:
             if not es.ping():
                 raise RuntimeError("elasticsearch_ping_failed")
 
-            if cfg.bootstrap:
+            if cfg.bootstrap and not bootstrap_done:
                 _ensure_index_template(es, cfg)
+                _reconcile_existing_index_mappings(es, cfg)
+                bootstrap_done = True
 
             last_id = _get_last_id()
             rows = _fetch_events(last_id, cfg.batch_size)
