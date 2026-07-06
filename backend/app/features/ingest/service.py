@@ -925,8 +925,7 @@ def ingest_events(
         received=len(events),
     )
 
-    rollup_always = bool(settings.SEAGULL_INGEST_ROLLUP_ALWAYS)
-    do_rollup = rollup_always or active_for_metrics
+    do_rollup = True
 
     hot_pct, analytics_pct, warm_pct, recent_min_batch = _target_sample_policy(level=level, storm_active=storm_active)
     hot_pct = max(0, min(int(hot_pct), 100))
