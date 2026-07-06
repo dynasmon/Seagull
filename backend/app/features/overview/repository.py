@@ -1570,9 +1570,18 @@ def get_overview_payload(
     live_lag_s = int(max(0.0, (now - live_last_ts).total_seconds())) if live_last_ts is not None else None
     traffic_last_ts = last_roll_ts if traffic_source == "rollup_1s" else (live_last_ts if traffic_source == "live_1s" else data_end_ts)
     ddos_last_ts = last_roll_ts if ddos_source == "rollup_1s" else (live_last_ts if ddos_source == "live_1s" else data_end_ts)
-    ingest_source = "live_1s" if live_fresh else "ingest_stats_1s"
-    ingest_source_reason = None if live_fresh else "live_stale_fallback_ingest_stats"
-    ingest_last_ts = live_last_ts if live_fresh else (ingest_stats_last_ts or live_last_ts)
+    if live_fresh:
+        ingest_source = "live_1s"
+        ingest_source_reason = None
+        ingest_last_ts = live_last_ts
+    else:
+        ingest_source = "ingest_stats_1s"
+        ingest_last_ts = ingest_stats_last_ts or live_last_ts
+        ingest_stats_fresh = (
+            ingest_stats_last_ts is not None
+            and (now - ingest_stats_last_ts).total_seconds() <= float(rollup_fresh_s)
+        )
+        ingest_source_reason = None if ingest_stats_fresh else "live_stale_fallback_ingest_stats"
 
     query_source = _overview_query_source(traffic_source, use_clickhouse=bool(ch is not None and traffic_source not in {"rollup_1s", "live_1s"}))
     query_freshness = _source_meta(
