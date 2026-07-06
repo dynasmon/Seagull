@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.observability import log_event, setup_logging
 from app.features.alerts.fp_suppression import suggest_suppressions_from_fp_feedback
+from app.features.events.worker_runtime import purge_stale_rollups_1s
 
 setup_logging("worker-audit-retention")
 logger = logging.getLogger("seagull.worker.audit_retention")
@@ -28,9 +29,20 @@ def main() -> None:
         try:
             db = SessionLocal()
             suggested = 0
+            rollups_deleted = 0
             try:
                 deleted = purge_admin_evidence(db)
                 db.commit()
+                try:
+                    rollups_deleted = purge_stale_rollups_1s(
+                        db,
+                        retention_days=int(settings.SEAGULL_ROLLUP_1S_RETENTION_DAYS),
+                        batch=max(100, int(settings.SEAGULL_AUDIT_RETENTION_DELETE_BATCH or 5000)),
+                    )
+                    db.commit()
+                except Exception as exc:
+                    db.rollback()
+                    log_event(logger, "error", "rollup_1s_retention_error", error=repr(exc))
                 try:
                     suggested = len(suggest_suppressions_from_fp_feedback(db))
                     db.commit()
@@ -40,7 +52,7 @@ def main() -> None:
             finally:
                 db.close()
 
-            log_event(logger, "info", "audit_retention_cycle_ok", every_seconds=every, deleted=deleted, fp_suggestions=suggested)
+            log_event(logger, "info", "audit_retention_cycle_ok", every_seconds=every, deleted=deleted, rollups_1s_deleted=rollups_deleted, fp_suggestions=suggested)
             backoff = 1.0
             time.sleep(every)
         except OperationalError as exc:
