@@ -117,6 +117,12 @@ _SPECS: Tuple[MetricSpec, ...] = (
     _spec("ingest_optional_sink_dropped_total", "counter", "Events dropped from optional sinks.", ("sink", "reason")),
 
     _spec("overview_live_write_failed_total", "counter", "Overview live snapshot write failures.", ("reason",)),
+    _spec("overview_source_selected_total", "counter",
+          "Overview chart data-source selections by chart, source, and degraded state.",
+          ("chart", "source", "degraded")),
+    _spec("overview_source_freshness_seconds", "histogram",
+          "Overview chart data-source freshness in seconds by chart and source.",
+          ("chart", "source"), buckets=(1, 5, 15, 30, 60, 120, 300, 600)),
 
     _spec("ingest_batches_received_total", "counter", "Ingest batches accepted by the backend.", ("outcome",)),
     _spec("ingest_events_received_total", "counter", "Events received for ingestion."),
