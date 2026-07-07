@@ -1,0 +1,88 @@
+{
+  "index_patterns": ["seagull-events-ilm-*"],
+  "priority": 200,
+  "_meta": {
+    "project": "seagull",
+    "component": "es_indexer",
+    "version": 2,
+    "managed_by": "seagull-es-bootstrap",
+    "description": "Hot network-events index template. dynamic:strict prevents mapping explosion; agent free fields live in `extra` (flattened, exact filters) and `extra_search` (full-text). Settings under `index` plus index_patterns/priority/lifecycle are overridden from SEAGULL_ES_* at bootstrap; the values here are inspectable defaults."
+  },
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0,
+        "refresh_interval": "10s"
+      }
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "_meta": {
+        "mapping_version": 2
+      },
+      "properties": {
+        "@timestamp": {"type": "date"},
+        "timestamp": {"type": "date"},
+        "id": {"type": "long"},
+        "schema_version": {"type": "short"},
+        "agent_id": {"type": "keyword"},
+        "event_type": {"type": "keyword"},
+        "proto": {"type": "keyword"},
+        "src_ip": {"type": "ip"},
+        "dst_ip": {"type": "ip"},
+        "src_port": {"type": "integer"},
+        "dst_port": {"type": "integer"},
+        "bytes": {"type": "long"},
+        "app_proto": {"type": "keyword"},
+        "app_proto_reason": {"type": "keyword"},
+        "app_proto_conf_band": {"type": "keyword"},
+        "dns_qname": {"type": "keyword"},
+        "dns_risk": {"type": "integer"},
+        "http_host": {"type": "keyword"},
+        "http_method": {"type": "keyword"},
+        "tls_sni": {"type": "keyword"},
+        "tls_alpn_first": {"type": "keyword"},
+        "ja4": {"type": "keyword"},
+        "ja4_ptype": {"type": "keyword"},
+        "ja3": {"type": "keyword"},
+        "geo_country": {"type": "keyword"},
+        "geo_org": {"type": "keyword"},
+        "asn": {"type": "keyword"},
+        "asn_org": {"type": "keyword"},
+        "ssh_action": {"type": "keyword"},
+        "ssh_username": {"type": "keyword"},
+        "sudo_username": {"type": "keyword"},
+        "sudo_target_user": {"type": "keyword"},
+        "sudo_command": {"type": "keyword"},
+        "sudo_tty": {"type": "keyword"},
+        "sudo_pwd": {"type": "keyword"},
+        "proc_pid": {"type": "integer"},
+        "proc_ppid": {"type": "integer"},
+        "proc_name": {"type": "keyword"},
+        "proc_exe": {"type": "keyword"},
+        "proc_parent_name": {"type": "keyword"},
+        "fim_path": {"type": "keyword"},
+        "fim_category": {"type": "keyword"},
+        "heuristic_name": {"type": "keyword"},
+        "heuristic_confidence": {"type": "integer"},
+        "extra": {"type": "flattened"},
+        "extra_search": {"type": "text", "norms": false}
+      },
+      "runtime": {
+        "dst_port_class": {
+          "type": "keyword",
+          "script": {
+            "source": "if (doc['dst_port'].size() == 0) { return; } long p = doc['dst_port'].value; if (p < 1024) { emit('well_known'); } else if (p < 49152) { emit('registered'); } else { emit('ephemeral'); }"
+          }
+        },
+        "proto_category": {
+          "type": "keyword",
+          "script": {
+            "source": "String v = null; if (doc['app_proto'].size() > 0) { v = doc['app_proto'].value; } else if (doc['proto'].size() > 0) { v = doc['proto'].value; } if (v == null) { return; } v = v.toLowerCase(); if (v == 'http' || v == 'https' || v == 'tls' || v == 'quic') { emit('web'); } else if (v == 'dns') { emit('dns'); } else if (v == 'ssh') { emit('remote_access'); } else { emit('other'); }"
+          }
+        }
+      }
+    }
+  }
+}
