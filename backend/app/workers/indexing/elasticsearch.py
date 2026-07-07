@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -10,89 +9,33 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
-from app.core.config.env_secrets import env_value
 from app.core.db import engine
 from app.core.db.lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import NetEventModel
-from app.shared.indexing.es_mapping import event_index_mapping_properties
 from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
+from app.workers.indexing.es_bootstrap import ESConfig, bootstrap, load_config
 
 setup_logging("worker-es-indexer")
 logger = logging.getLogger("seagull.worker.es_indexer")
 
-
-@dataclass(frozen=True)
-class ESConfig:
-    url: str
-    index_prefix: str
-    batch_size: int
-    every_seconds: float
-    idle_sleep_seconds: float
-    request_timeout_seconds: int
-    bootstrap: bool
-    ilm_enabled: bool
-    ilm_delete_after_days: int
-    ilm_policy_name: str
-    username: Optional[str]
-    password: Optional[str]
-    verify_certs: bool
-    ca_certs: Optional[str]
-
-
-def _env_str(name: str, default: Optional[str] = None) -> Optional[str]:
-    return env_value(name, default)
-
-
-def _env_int(name: str, default: int) -> int:
-    v = _env_str(name)
-    if v is None:
-        return default
-    try:
-        return int(v, 10)
-    except Exception:
-        return default
-
-
-def _env_float(name: str, default: float) -> float:
-    v = _env_str(name)
-    if v is None:
-        return default
-    try:
-        return float(v)
-    except Exception:
-        return default
-
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    v = _env_str(name)
-    if v is None:
-        return default
-    v = v.lower()
-    return v in {"1", "true", "yes", "y", "on"}
-
-
-def load_config() -> ESConfig:
-    return ESConfig(
-        url=_env_str("SEAGULL_ES_URL", "http://elasticsearch:9200") or "http://elasticsearch:9200",
-        index_prefix=_env_str("SEAGULL_ES_INDEX_PREFIX", "seagull-events") or "seagull-events",
-        batch_size=max(1, _env_int("SEAGULL_ES_BATCH_SIZE", 500)),
-        every_seconds=max(0.1, _env_float("SEAGULL_ES_EVERY_SECONDS", 1.0)),
-        idle_sleep_seconds=max(0.25, _env_float("SEAGULL_ES_IDLE_SLEEP_SECONDS", 2.0)),
-        request_timeout_seconds=max(5, _env_int("SEAGULL_ES_REQUEST_TIMEOUT_SECONDS", 30)),
-        bootstrap=_env_bool("SEAGULL_ES_BOOTSTRAP", False),
-        ilm_enabled=_env_bool("SEAGULL_ES_ILM_ENABLED", True),
-        ilm_delete_after_days=max(1, _env_int("SEAGULL_ES_ILM_DELETE_AFTER_DAYS", 30)),
-        ilm_policy_name=_env_str("SEAGULL_ES_ILM_POLICY_NAME", "") or "",
-        username=_env_str("SEAGULL_ES_USERNAME", None),
-        password=_env_str("SEAGULL_ES_PASSWORD", None),
-        verify_certs=_env_bool("SEAGULL_ES_VERIFY_CERTS", True),
-        ca_certs=_env_str("SEAGULL_ES_CA_CERTS", None),
-    )
-
-
-def _index_for(prefix: str, ts: datetime) -> str:
-    return f"{prefix}-{ts.strftime('%Y.%m.%d')}"
+_EXTRA_SEARCH_KEYS = (
+    "event_type",
+    "app_proto",
+    "dns_qname",
+    "http_host",
+    "tls_sni",
+    "tls_alpn_first",
+    "geo_country",
+    "geo_org",
+    "asn_org",
+    "ssh_username",
+    "sudo_username",
+    "sudo_command",
+    "proc_name",
+    "proc_exe",
+    "fim_path",
+)
 
 
 def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -212,6 +155,10 @@ def _to_doc(row: Dict[str, Any]) -> Dict[str, Any]:
             if vv:
                 doc[k_dst] = vv
 
+    tokens = [str(doc[k]) for k in _EXTRA_SEARCH_KEYS if doc.get(k)]
+    if tokens:
+        doc["extra_search"] = " ".join(tokens)
+
     return {k: v for k, v in doc.items() if v is not None}
 
 
@@ -263,57 +210,6 @@ def _build_es_client(cfg: ESConfig):
     return Elasticsearch(cfg.url, **kwargs)
 
 
-def _ensure_index_template(es, cfg: ESConfig) -> None:
-    # Always PUT (idempotent overwrite): the old exists-check meant a template
-    # created by an older build never picked up newly mapped fields, leaving
-    # them dynamic-mapped as text (which breaks terms aggregations with 400).
-    name = f"{cfg.index_prefix}-template"
-    body = {
-        "index_patterns": [f"{cfg.index_prefix}-*"],
-        "template": {
-            "settings": {
-                "number_of_shards": 1,
-                "number_of_replicas": 0,
-                "refresh_interval": "5s",
-            },
-            "mappings": {
-                "dynamic": True,
-                "properties": event_index_mapping_properties(),
-            },
-        },
-        "priority": 200,
-        "_meta": {
-            "project": "dynasmon-seagull",
-            "component": "es_indexer",
-        },
-    }
-
-    es.indices.put_index_template(name=name, body=body)
-    log_event(logger, "info", "es_index_template_created", template_name=name)
-
-
-def _reconcile_existing_index_mappings(es, cfg: ESConfig) -> None:
-    # Templates only apply to indices created afterwards. Try to add the
-    # declared fields to existing indices too; indices where a field was
-    # already dynamic-mapped with a conflicting type reject the update (they
-    # heal on natural daily rollover) — best effort, never fatal.
-    try:
-        indices = list(es.indices.get(index=f"{cfg.index_prefix}-*") or {})
-    except Exception as e:
-        log_event(logger, "warning", "es_mapping_reconcile_list_error", error_type=type(e).__name__)
-        return
-    updated = 0
-    skipped = 0
-    for index in indices:
-        try:
-            es.indices.put_mapping(index=index, properties=event_index_mapping_properties())
-            updated += 1
-        except Exception:
-            skipped += 1
-    if updated or skipped:
-        log_event(logger, "info", "es_mapping_reconcile_done", updated=updated, skipped=skipped)
-
-
 def _bulk_index(es, actions: Iterable[Dict[str, Any]], cfg: ESConfig) -> None:
     from elasticsearch import helpers
 
@@ -348,8 +244,7 @@ def main() -> None:
                 raise RuntimeError("elasticsearch_ping_failed")
 
             if cfg.bootstrap and not bootstrap_done:
-                _ensure_index_template(es, cfg)
-                _reconcile_existing_index_mappings(es, cfg)
+                bootstrap(es, cfg)
                 bootstrap_done = True
 
             last_id = _get_last_id()
@@ -366,14 +261,10 @@ def main() -> None:
             for r in rows:
                 doc_id = int(r["id"])
                 max_id = max(max_id, doc_id)
-                ts = r.get("timestamp")
-                if not isinstance(ts, datetime):
-                    ts = datetime.utcnow()
-
                 actions.append(
                     {
                         "_op_type": "index",
-                        "_index": _index_for(cfg.index_prefix, ts),
+                        "_index": cfg.write_alias,
                         "_id": doc_id,
                         "_source": _to_doc(r),
                     }
