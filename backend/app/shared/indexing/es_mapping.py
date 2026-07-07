@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-# Single source of truth for the seagull-events* index mappings.
+# Single source of truth for the seagull-events* index field catalog.
 #
 # The hot (es_indexer) and warm (ingest) templates previously kept separate
 # copies of this dict and drifted apart: `app_proto_reason` and
@@ -10,6 +10,11 @@ from typing import Any, Dict
 # templates, so Elasticsearch dynamic-mapped them as `text` and every terms
 # aggregation on them failed with HTTP 400 ("Fielddata is disabled ...").
 # Any field a `_to_doc` builder can emit at the top level must be listed here.
+#
+# The hot template (infra/elasticsearch/index-template.json) is dynamic:strict,
+# so this catalog and that JSON's `properties` must stay identical; the drift is
+# guarded by tests/test_es_indexer_bootstrap.py. When you add a field, change
+# both and follow infra/elasticsearch/README.md ("Adding a new field").
 EVENT_INDEX_MAPPING_PROPERTIES: Dict[str, Dict[str, Any]] = {
     "@timestamp": {"type": "date"},
     "timestamp": {"type": "date"},
@@ -60,7 +65,10 @@ EVENT_INDEX_MAPPING_PROPERTIES: Dict[str, Dict[str, Any]] = {
     "fim_category": {"type": "keyword"},
     "heuristic_name": {"type": "keyword"},
     "heuristic_confidence": {"type": "integer"},
+    # Agent free fields: `extra` (flattened) for exact filters without mapping
+    # explosion; `extra_search` (text, norms off) for full-text hunting.
     "extra": {"type": "flattened"},
+    "extra_search": {"type": "text", "norms": False},
 }
 
 
