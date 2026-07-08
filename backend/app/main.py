@@ -15,6 +15,7 @@ from app.core.cache import get_redis
 from app.core.config import settings
 from app.core.db import engine
 from app.core.db.lifecycle import ensure_database_ready
+from app.core.db.locks import advisory_lock
 from app.core.db.model_registry import load_all_models
 from app.core.integrations.clickhouse import (
     clickhouse_is_available,
@@ -269,19 +270,11 @@ def on_startup():
         # Ensure all models are loaded before bootstrap hooks.
         load_all_models()
 
-        # Uvicorn workers execute startup hooks independently.
-        # Serialize first-boot DB/bootstrap routines to avoid race conditions
-        # (e.g., concurrent admin/rule bootstrap on a fresh database).
         if engine.dialect.name == "postgresql":
-            startup_lock_id = 8_642_709
-            with engine.connect() as conn:
-                conn.execute(text("SELECT pg_advisory_lock(:id)"), {"id": startup_lock_id})
-                try:
-                    ensure_database_ready()
-                    bootstrap_portal_admin()
-                    bootstrap_correlation_rules()
-                finally:
-                    conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": startup_lock_id})
+            with advisory_lock(8_642_709):
+                ensure_database_ready()
+                bootstrap_portal_admin()
+                bootstrap_correlation_rules()
         else:
             ensure_database_ready()
             bootstrap_portal_admin()
