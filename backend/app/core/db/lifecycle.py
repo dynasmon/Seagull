@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, OperationalError
 
 from alembic import command
@@ -12,6 +11,7 @@ from alembic.script import ScriptDirectory
 from app.core.config import settings
 
 from .engine import engine
+from .locks import advisory_lock
 from .schema_bootstrap import bootstrap_schema
 
 
@@ -39,15 +39,8 @@ def run_migrations() -> None:
         command.upgrade(cfg, "head")
         return
 
-    # Serialize schema upgrades across concurrently starting containers.
-    # The lock is released automatically when this connection closes.
-    lock_id = 8_642_701
-    with engine.connect() as conn:
-        conn.execute(text("SELECT pg_advisory_lock(:id)"), {"id": lock_id})
-        try:
-            command.upgrade(cfg, "head")
-        finally:
-            conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": lock_id})
+    with advisory_lock(8_642_701):
+        command.upgrade(cfg, "head")
 
 
 def is_schema_current() -> bool:
