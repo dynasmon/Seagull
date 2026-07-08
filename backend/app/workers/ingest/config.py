@@ -32,6 +32,9 @@ class WorkerConfig:
     clickhouse_sink_queue_max_batches: int
     warm_sink_queue_max_batches: int
     sink_max_batch_retries: int
+    es_stream_producer_enabled: bool
+    es_stream_key: str
+    es_stream_maxlen: int
 
 
 def _env_str(name: str, default: str) -> str:
@@ -103,4 +106,7 @@ def load_config() -> WorkerConfig:
         clickhouse_sink_queue_max_batches=max(1, _env_int("SEAGULL_INGEST_CLICKHOUSE_SINK_QUEUE_MAX_BATCHES", 128)),
         warm_sink_queue_max_batches=max(1, _env_int("SEAGULL_INGEST_WARM_SINK_QUEUE_MAX_BATCHES", 128)),
         sink_max_batch_retries=max(0, _env_int("SEAGULL_INGEST_SINK_MAX_BATCH_RETRIES", 1)),
+        es_stream_producer_enabled=_env_bool("SEAGULL_ES_STREAM_PRODUCER_ENABLED", False),
+        es_stream_key=_env_str("SEAGULL_ES_STREAM_KEY", "seagull:events:index"),
+        es_stream_maxlen=max(10000, _env_int("SEAGULL_ES_STREAM_MAXLEN", 1000000)),
     )
