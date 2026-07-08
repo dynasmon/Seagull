@@ -22,6 +22,7 @@ from app.features.ingest.control.service import (
 )
 
 from .config import load_config
+from .es_stream_producer import publish_index_events
 from .hot_store import _insert_hot_rows_with_pg_ids
 from .parser import _event_fingerprint, _event_from_wire
 from .queue import _decr_backlog_events, _requeue_processing, _requeue_processing_with_retry_cap
@@ -222,6 +223,9 @@ def main() -> None:
                     "ingest_warm_enqueue_drop",
                     dropped_rows=len(warm_docs),
                 )
+
+            if cfg.es_stream_producer_enabled and inserted_hot_rows:
+                publish_index_events(r, inserted_hot_rows, cfg)
 
             observe_hist("ingest_hot_path_latency_seconds", time.perf_counter() - hot_path_started)
 
