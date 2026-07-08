@@ -104,7 +104,18 @@ class ChildRuntime:
 GROUPS: dict[str, tuple[ChildSpec, ...]] = {
     "ingest": (
         ChildSpec(name="ingest-worker", module="app.workers.ingest.main"),
-        ChildSpec(name="es-indexer", module="app.workers.indexing.elasticsearch"),
+        ChildSpec(
+            name="es-indexer",
+            module="app.workers.indexing.elasticsearch",
+            enabled_env="SEAGULL_ES_INDEXER_LEGACY_ENABLED",
+            enabled_default=True,
+        ),
+        ChildSpec(
+            name="es-indexer-stream",
+            module="app.workers.indexing.es_stream",
+            enabled_env="SEAGULL_ES_INDEXER_STREAM_ENABLED",
+            enabled_default=False,
+        ),
         ChildSpec(name="rollup-1m", module="app.workers.analytics.rollup_1m"),
     ),
     "intelligence": (
