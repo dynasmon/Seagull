@@ -1,0 +1,163 @@
+name: seagull-prod
+
+networks:
+  seagull:
+    driver: bridge
+
+volumes:
+  es01-data:
+  es02-data:
+  es03-data:
+  es-snapshots:
+  postgres-data:
+  redis-data:
+
+x-es-node-env: &es-node-env
+  cluster.name: ${SEAGULL_PROD_ES_CLUSTER_NAME:-seagull-es}
+  discovery.seed_hosts: es01,es02,es03
+  cluster.initial_master_nodes: es01,es02,es03
+  node.roles: ${SEAGULL_PROD_ES_NODE_ROLES:-master,data_hot,data_content,data_warm,data_cold,ingest}
+  path.repo: /usr/share/elasticsearch/snapshots
+  bootstrap.memory_lock: ${SEAGULL_PROD_ES_MEMORY_LOCK:-true}
+  xpack.security.enabled: ${SEAGULL_PROD_ES_SECURITY_ENABLED:-false}
+  xpack.security.http.ssl.enabled: "false"
+  xpack.ml.enabled: "false"
+  ES_JAVA_OPTS: "-Xms${SEAGULL_PROD_ES_HEAP:-2g} -Xmx${SEAGULL_PROD_ES_HEAP:-2g}"
+  ELASTIC_PASSWORD: ${SEAGULL_ES_PASSWORD:-${NETWATCH_ES_PASSWORD:-}}
+
+x-es-node: &es-node
+  image: docker.elastic.co/elasticsearch/elasticsearch:${SEAGULL_PROD_ES_VERSION:-8.13.4}
+  depends_on:
+    es-snapshots-init:
+      condition: service_completed_successfully
+  ulimits:
+    memlock:
+      soft: -1
+      hard: -1
+    nofile:
+      soft: 65536
+      hard: 65536
+  mem_limit: ${SEAGULL_PROD_ES_MEM_LIMIT:-4g}
+  networks:
+    - seagull
+  healthcheck:
+    test:
+      - "CMD-SHELL"
+      - >-
+        ES_PASS="${SEAGULL_ES_PASSWORD:-}";
+        if [ -n "$$ES_PASS" ] && [ "${SEAGULL_PROD_ES_SECURITY_ENABLED:-false}" = "true" ]; then
+          curl -fsS -u "elastic:$$ES_PASS" "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=2s" >/dev/null;
+        else
+          curl -fsS "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=2s" >/dev/null;
+        fi
+    interval: 10s
+    timeout: 5s
+    retries: 30
+    start_period: 30s
+  restart: unless-stopped
+
+services:
+
+  # Elasticsearch cluster
+
+  es-snapshots-init:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${SEAGULL_PROD_ES_VERSION:-8.13.4}
+    container_name: seagull-prod-es-snapshots-init
+    user: root
+    entrypoint: ["sh", "-c", "chown -R 1000:0 /usr/share/elasticsearch/snapshots && chmod 0770 /usr/share/elasticsearch/snapshots"]
+    volumes:
+      - es-snapshots:/usr/share/elasticsearch/snapshots
+    networks:
+      - seagull
+    restart: "no"
+
+  es01:
+    <<: *es-node
+    container_name: seagull-prod-es01
+    environment:
+      <<: *es-node-env
+      node.name: es01
+    volumes:
+      - es01-data:/usr/share/elasticsearch/data
+      - es-snapshots:/usr/share/elasticsearch/snapshots
+    ports:
+      - "${SEAGULL_PROD_ES01_PORT:-127.0.0.1:9201}:9200"
+
+  es02:
+    <<: *es-node
+    container_name: seagull-prod-es02
+    environment:
+      <<: *es-node-env
+      node.name: es02
+    volumes:
+      - es02-data:/usr/share/elasticsearch/data
+      - es-snapshots:/usr/share/elasticsearch/snapshots
+    ports:
+      - "${SEAGULL_PROD_ES02_PORT:-127.0.0.1:9202}:9200"
+
+  es03:
+    <<: *es-node
+    container_name: seagull-prod-es03
+    environment:
+      <<: *es-node-env
+      node.name: es03
+    volumes:
+      - es03-data:/usr/share/elasticsearch/data
+      - es-snapshots:/usr/share/elasticsearch/snapshots
+    ports:
+      - "${SEAGULL_PROD_ES03_PORT:-127.0.0.1:9203}:9200"
+
+  # Application
+
+  postgres:
+    extends:
+      file: compose.yml
+      service: postgres
+    container_name: seagull-prod-postgres
+
+  redis:
+    extends:
+      file: compose.yml
+      service: redis
+    container_name: seagull-prod-redis
+
+  seagull-backend:
+    extends:
+      file: compose.yml
+      service: seagull-backend
+    container_name: seagull-prod-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports: !override
+      - "${SEAGULL_PROD_BACKEND_PORT:-127.0.0.1:18000}:8000"
+    environment:
+      SEAGULL_ES_URL: ${SEAGULL_PROD_ES_URL:-http://es01:9200,http://es02:9200,http://es03:9200}
+      SEAGULL_ES_EXPECTED_STATUS: ${SEAGULL_PROD_ES_EXPECTED_STATUS:-green}
+      SEAGULL_ES_YELLOW_ALERT_MINUTES: ${SEAGULL_ES_YELLOW_ALERT_MINUTES:-15}
+      SEAGULL_CLICKHOUSE_ENABLED: "false"
+      SEAGULL_PROMETHEUS_ENABLED: "false"
+
+  seagull-ingest-pipeline:
+    extends:
+      file: compose.yml
+      service: seagull-ingest-pipeline
+    container_name: seagull-prod-ingest-pipeline
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      es01:
+        condition: service_healthy
+    environment:
+      SEAGULL_ES_URL: ${SEAGULL_PROD_ES_URL:-http://es01:9200,http://es02:9200,http://es03:9200}
+      SEAGULL_ES_BOOTSTRAP: "true"
+      SEAGULL_ES_NUMBER_OF_SHARDS: ${SEAGULL_PROD_ES_NUMBER_OF_SHARDS:-3}
+      SEAGULL_ES_NUMBER_OF_REPLICAS: ${SEAGULL_PROD_ES_NUMBER_OF_REPLICAS:-1}
+      SEAGULL_ES_ILM_WARM_SHRINK_SHARDS: ${SEAGULL_PROD_ES_ILM_WARM_SHRINK_SHARDS:-1}
+      SEAGULL_ES_TIER_PREFERENCE: ${SEAGULL_PROD_ES_TIER_PREFERENCE:-data_hot}
+      SEAGULL_ES_ILM_MIGRATE_ENABLED: ${SEAGULL_PROD_ES_ILM_MIGRATE_ENABLED:-true}
+      SEAGULL_CLICKHOUSE_ENABLED: "false"
