@@ -66,7 +66,9 @@ class ESConfig:
     number_of_shards: int
     number_of_replicas: int
     refresh_interval: str
+    tier_preference: str
     ilm_enabled: bool
+    ilm_migrate_enabled: bool
     ilm_policy_name: str
     ilm_rollover_max_primary_shard_size: str
     ilm_rollover_max_age: str
@@ -79,6 +81,11 @@ class ESConfig:
     password: Optional[str]
     verify_certs: bool
     ca_certs: Optional[str]
+
+
+def _tier_preference_from_env() -> str:
+    raw = (_env_str("SEAGULL_ES_TIER_PREFERENCE", "data_hot") or "data_hot").strip()
+    return "" if raw.lower() == "none" else raw
 
 
 def load_config() -> ESConfig:
@@ -101,7 +108,9 @@ def load_config() -> ESConfig:
         number_of_shards=max(1, _env_int("SEAGULL_ES_NUMBER_OF_SHARDS", 1)),
         number_of_replicas=max(0, _env_int("SEAGULL_ES_NUMBER_OF_REPLICAS", 0)),
         refresh_interval=_env_str("SEAGULL_ES_REFRESH_INTERVAL", "10s") or "10s",
+        tier_preference=_tier_preference_from_env(),
         ilm_enabled=_env_bool("SEAGULL_ES_ILM_ENABLED", True),
+        ilm_migrate_enabled=_env_bool("SEAGULL_ES_ILM_MIGRATE_ENABLED", False),
         ilm_policy_name=ilm_policy_name or f"{prefix}-ilm",
         ilm_rollover_max_primary_shard_size=_env_str("SEAGULL_ES_ILM_ROLLOVER_MAX_PRIMARY_SHARD_SIZE", "50gb") or "50gb",
         ilm_rollover_max_age=_env_str("SEAGULL_ES_ILM_ROLLOVER_MAX_AGE", "1d") or "1d",
@@ -164,6 +173,11 @@ def render_ilm_policy(cfg: ESConfig) -> Tuple[str, Dict[str, Any]]:
     phases["cold"]["min_age"] = cfg.ilm_cold_after
     phases["delete"]["min_age"] = f"{cfg.ilm_delete_after_days}d"
 
+    # Dropping the explicit opt-out re-enables ILM's default tier migration.
+    if cfg.ilm_migrate_enabled:
+        for phase in ("warm", "cold"):
+            phases.get(phase, {}).get("actions", {}).pop("migrate", None)
+
     return cfg.ilm_policy_name, body
 
 
@@ -176,6 +190,10 @@ def render_index_template(cfg: ESConfig, *, attach_ilm: bool) -> Tuple[str, Dict
     index_settings["number_of_shards"] = cfg.number_of_shards
     index_settings["number_of_replicas"] = cfg.number_of_replicas
     index_settings["refresh_interval"] = cfg.refresh_interval
+    if cfg.tier_preference:
+        index_settings["routing"] = {"allocation": {"include": {"_tier_preference": cfg.tier_preference}}}
+    else:
+        index_settings.pop("routing", None)
     if attach_ilm:
         index_settings["lifecycle"] = {"name": cfg.ilm_policy_name, "rollover_alias": cfg.write_alias}
     else:

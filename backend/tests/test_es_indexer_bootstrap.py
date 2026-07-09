@@ -32,6 +32,8 @@ _ES_ENV_KEYS = [
     "SEAGULL_ES_ILM_COLD_AFTER",
     "SEAGULL_ES_ILM_WARM_SHRINK_SHARDS",
     "SEAGULL_ES_ILM_FORCEMERGE_SEGMENTS",
+    "SEAGULL_ES_TIER_PREFERENCE",
+    "SEAGULL_ES_ILM_MIGRATE_ENABLED",
     "SEAGULL_ES_ARTIFACTS_DIR",
 ]
 
@@ -118,6 +120,8 @@ def test_config_defaults_derive_from_prefix(monkeypatch: pytest.MonkeyPatch) -> 
     assert cfg.ilm_enabled is True
     assert cfg.ilm_delete_after_days == 90
     assert cfg.ilm_warm_shrink_shards == 0
+    assert cfg.tier_preference == "data_hot"
+    assert cfg.ilm_migrate_enabled is False
 
 
 def test_config_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -179,6 +183,35 @@ def test_render_index_template_applies_settings(monkeypatch: pytest.MonkeyPatch)
 
     _name2, body_noilm = render_index_template(cfg, attach_ilm=False)
     assert "lifecycle" not in body_noilm["template"]["settings"]["index"]
+
+
+def test_render_index_template_tier_preference(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_es_env(monkeypatch)
+    cfg = load_config()
+
+    _name, body = render_index_template(cfg, attach_ilm=False)
+    routing = body["template"]["settings"]["index"]["routing"]
+    assert routing == {"allocation": {"include": {"_tier_preference": "data_hot"}}}
+
+    monkeypatch.setenv("SEAGULL_ES_TIER_PREFERENCE", "none")
+    cfg_off = load_config()
+    _name, body_off = render_index_template(cfg_off, attach_ilm=False)
+    assert "routing" not in body_off["template"]["settings"]["index"]
+
+
+def test_render_ilm_policy_migrate_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_es_env(monkeypatch)
+    cfg = load_config()
+
+    _name, body = render_ilm_policy(cfg)
+    assert body["policy"]["phases"]["warm"]["actions"]["migrate"] == {"enabled": False}
+    assert body["policy"]["phases"]["cold"]["actions"]["migrate"] == {"enabled": False}
+
+    monkeypatch.setenv("SEAGULL_ES_ILM_MIGRATE_ENABLED", "true")
+    cfg_on = load_config()
+    _name, body_on = render_ilm_policy(cfg_on)
+    assert "migrate" not in body_on["policy"]["phases"]["warm"]["actions"]
+    assert "migrate" not in body_on["policy"]["phases"]["cold"]["actions"]
 
 
 def test_render_ilm_policy_applies_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
