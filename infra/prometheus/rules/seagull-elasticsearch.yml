@@ -1,0 +1,49 @@
+groups:
+  - name: seagull-elasticsearch
+    rules:
+      - alert: ESClusterBelowExpectedSustained
+        expr: max(es_cluster_below_expected) == 1
+        for: 15m
+        labels:
+          severity: warning
+          subsystem: elasticsearch
+        annotations:
+          summary: Elasticsearch cluster status is below the expected status
+          description: >-
+            The backend has been reporting the Elasticsearch cluster below its
+            expected status for more than 15 minutes (yellow where green is
+            expected, red anywhere, or unreachable). The expectation is derived
+            from SEAGULL_ES_EXPECTED_STATUS (auto = green for multi-node
+            clusters, yellow for single-node). Yellow in a multi-node cluster
+            means replicas are unassigned: a node is down or allocation is
+            blocked. Check GET _cluster/health, GET _cat/nodes and
+            GET _cluster/allocation/explain. Keep the `for:` duration aligned
+            with SEAGULL_ES_YELLOW_ALERT_MINUTES.
+      - alert: ESClusterRed
+        expr: max(es_cluster_status) == 2
+        for: 5m
+        labels:
+          severity: critical
+          subsystem: elasticsearch
+        annotations:
+          summary: Elasticsearch cluster is red (primary shards unassigned)
+          description: >-
+            At least one primary shard has been unassigned for more than 5
+            minutes. Searches return partial results and indexing to the
+            affected indices fails. Run GET _cluster/allocation/explain to see
+            why the shard cannot allocate (disk watermark, node left, exhausted
+            retries); POST /_cluster/reroute?retry_failed=true after fixing the
+            cause.
+      - alert: ESClusterUnreachable
+        expr: max(es_cluster_status) == -1
+        for: 10m
+        labels:
+          severity: critical
+          subsystem: elasticsearch
+        annotations:
+          summary: Elasticsearch is unreachable from the backend
+          description: >-
+            The backend has not been able to complete a cluster-health call for
+            more than 10 minutes. Search falls back to Postgres (auto mode) or
+            fails (elasticsearch mode), and event indexing is queueing up.
+            Check the elasticsearch containers, network, and credentials.
