@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from app.core.observability import log_event
+from app.shared.es_hosts import es_hosts
 from app.shared.indexing.es_mapping import event_index_mapping_properties
 
 from .config import WorkerConfig
@@ -23,7 +24,7 @@ def _build_es_client(cfg: WorkerConfig):
         kwargs["basic_auth"] = (cfg.es_username, cfg.es_password)
     if cfg.es_ca_certs:
         kwargs["ca_certs"] = cfg.es_ca_certs
-    return Elasticsearch(cfg.es_url, **kwargs)
+    return Elasticsearch(es_hosts(cfg.es_url), **kwargs)
 
 
 def _index_for(prefix: str, ts: datetime) -> str:

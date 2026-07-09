@@ -14,6 +14,7 @@ import redis
 from app.core.config import settings
 from app.core.config.env_secrets import env_value, getenv_compat
 from app.core.observability import incr_counter, init_counter, log_event, observe_hist, set_gauge, setup_logging
+from app.shared.es_hosts import es_hosts
 from app.shared.indexing.es_doc import build_event_doc
 from app.workers.indexing.es_bootstrap import ESConfig, bootstrap, load_config
 
@@ -114,7 +115,7 @@ def _build_es_client(cfg: ESConfig) -> Any:
     kwargs["verify_certs"] = cfg.verify_certs
     if cfg.ca_certs:
         kwargs["ca_certs"] = cfg.ca_certs
-    return Elasticsearch(cfg.url, **kwargs)
+    return Elasticsearch(es_hosts(cfg.url), **kwargs)
 
 
 def _build_redis_client(cfg: ESStreamConfig) -> "redis.Redis":
