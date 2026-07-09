@@ -158,6 +158,9 @@ class Settings:
     SEAGULL_ES_VERIFY_CERTS: bool = _env_bool("SEAGULL_ES_VERIFY_CERTS", True)
     SEAGULL_ES_CA_CERTS: str | None = _env_str("SEAGULL_ES_CA_CERTS", None)
     SEAGULL_ES_PING_TTL_SECONDS: int = _env_int("SEAGULL_ES_PING_TTL_SECONDS", 2)
+    SEAGULL_ES_HEALTH_TIMEOUT_SECONDS: int = _env_int("SEAGULL_ES_HEALTH_TIMEOUT_SECONDS", 2)
+    SEAGULL_ES_EXPECTED_STATUS: str = (_env_str("SEAGULL_ES_EXPECTED_STATUS", "auto") or "auto").lower()
+    SEAGULL_ES_YELLOW_ALERT_MINUTES: float = _env_float("SEAGULL_ES_YELLOW_ALERT_MINUTES", 15.0)
 
     SEAGULL_CLICKHOUSE_ENABLED: bool = _env_bool("SEAGULL_CLICKHOUSE_ENABLED", True)
     SEAGULL_CLICKHOUSE_REQUIRED: bool = _env_bool("SEAGULL_CLICKHOUSE_REQUIRED", True)
@@ -541,6 +544,12 @@ class Settings:
             errors.append("SEAGULL_AUDIT_RETENTION_DELETE_BATCH must be >= 100")
         if self.SEAGULL_SEARCH_BACKEND not in {"auto", "elasticsearch", "postgres"}:
             errors.append("SEAGULL_SEARCH_BACKEND must be one of: auto, elasticsearch, postgres")
+        if self.SEAGULL_ES_EXPECTED_STATUS not in {"auto", "green", "yellow"}:
+            errors.append("SEAGULL_ES_EXPECTED_STATUS must be one of: auto, green, yellow")
+        if (self.SEAGULL_ES_YELLOW_ALERT_MINUTES or 0) <= 0:
+            errors.append("SEAGULL_ES_YELLOW_ALERT_MINUTES must be > 0")
+        if (self.SEAGULL_ES_HEALTH_TIMEOUT_SECONDS or 0) < 1:
+            errors.append("SEAGULL_ES_HEALTH_TIMEOUT_SECONDS must be >= 1")
         if (self.SEAGULL_CLICKHOUSE_PORT or 0) < 1:
             errors.append("SEAGULL_CLICKHOUSE_PORT must be >= 1")
         if (self.SEAGULL_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS or 0) <= 0:
