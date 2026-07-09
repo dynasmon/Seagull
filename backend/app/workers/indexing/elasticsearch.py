@@ -12,6 +12,7 @@ from app.core.db import engine
 from app.core.db.lifecycle import ensure_database_ready
 from app.core.observability import log_event, setup_logging
 from app.features.events.worker_runtime import NetEventModel
+from app.shared.es_hosts import es_hosts
 from app.shared.indexing.es_doc import build_event_doc as _to_doc
 from app.shared.indexing.offset_store import ensure_offset, get_offset, set_offset
 from app.workers.indexing.es_bootstrap import ESConfig, bootstrap, load_config
@@ -65,7 +66,7 @@ def _build_es_client(cfg: ESConfig):
     if cfg.ca_certs:
         kwargs["ca_certs"] = cfg.ca_certs
 
-    return Elasticsearch(cfg.url, **kwargs)
+    return Elasticsearch(es_hosts(cfg.url), **kwargs)
 
 
 def _bulk_index(es, actions: Iterable[Dict[str, Any]], cfg: ESConfig) -> None:
