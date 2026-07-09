@@ -24,7 +24,7 @@ from app.core.integrations.clickhouse import (
     expected_clickhouse_mv_names,
     get_clickhouse_client,
 )
-from app.core.integrations.es import es_is_available, search_backend_mode
+from app.core.integrations.es import es_cluster_status_report, es_is_available, search_backend_mode
 from app.core.observability import (
     clear_request_context,
     incr_counter,
@@ -367,12 +367,23 @@ async def health_ready(response: Response):
 
     if es_required and es_error is not None:
         ready = False
+
+    es_cluster = None
+    try:
+        es_cluster = es_cluster_status_report()
+    except Exception:
+        es_cluster = None
+
+    es_status = "ok" if es_error is None else ("down" if es_required else "degraded")
+    if es_status == "ok" and es_cluster is not None and es_cluster.get("alert"):
+        es_status = "degraded"
     components["elasticsearch"] = {
-        "status": "ok" if es_error is None else ("down" if es_required else "degraded"),
+        "status": es_status,
         "required": es_required,
         "mode": es_mode,
         "latency_ms": es_latency_ms,
         "error": es_error,
+        "cluster": es_cluster,
     }
 
     ch_enabled = bool(clickhouse_is_enabled())
@@ -433,6 +444,12 @@ async def health_ready(response: Response):
 async def metrics():
     if not settings.SEAGULL_METRICS_ENABLED:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
+    # Keeps es_cluster_* gauges fresh when nothing polls /health/ready (TTL-cached).
+    if search_backend_mode() != "postgres":
+        try:
+            es_cluster_status_report()
+        except Exception:
+            pass
     body, content_type = render_exposition()
     return Response(content=body, media_type=content_type)
 

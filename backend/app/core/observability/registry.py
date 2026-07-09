@@ -154,6 +154,16 @@ _SPECS: Tuple[MetricSpec, ...] = (
           "Undelivered entries in the ingest index stream for the ES indexer consumer group.",
           multiproc_mode="mostrecent"),
 
+    _spec("es_cluster_status", "gauge",
+          "Elasticsearch cluster health status (0=green, 1=yellow, 2=red, -1=unreachable).",
+          multiproc_mode="mostrecent"),
+    _spec("es_cluster_below_expected", "gauge",
+          "Elasticsearch cluster status below the expected status (1) or not (0).",
+          multiproc_mode="mostrecent"),
+    _spec("es_cluster_unassigned_shards", "gauge",
+          "Unassigned shards reported by Elasticsearch cluster health.",
+          multiproc_mode="mostrecent"),
+
     _spec("detection_cycles_total", "counter", "Detection rule cycles executed."),
     _spec("detection_cycle_duration_seconds", "histogram", "Full detection cycle duration in seconds.",
           buckets=SECONDS_BUCKETS),
