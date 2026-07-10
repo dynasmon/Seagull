@@ -26,12 +26,25 @@ from app.features.events.domain import normalizers as event_normalizers
 from app.features.events.domain import queries as event_queries
 from app.features.events.domain import summaries as event_summaries
 from app.features.events.domain.filters import _search_tokens
+from app.features.events.domain.routing import (
+    BackendCircuitBreaker,
+    QuerySignals,
+    RouteDecision,
+    classify_backend_failure,
+    decide_backend_chain,
+    failure_counts_toward_breaker,
+    is_wide_window,
+    route_trusts_es,
+)
 from app.features.events.recent_feed import fetch_recent_events as fetch_recent_feed_events
 from app.features.events.recent_feed import recent_feed_health
 from app.features.events.schemas import (
     DdosLiveSnapshotResponse,
     EventHuntResponse,
     EventStreamSnapshotResponse,
+    HuntRouteCircuitState,
+    HuntRouteExplainResponse,
+    HuntRouteSignals,
     NetEventDB,
     NetEventRollup1s,
     ProtocolIntelSummaryResponse,
@@ -290,6 +303,7 @@ def _pg_hunt_query(
     start_ts: datetime | None,
     end_ts: datetime | None,
     tokens: list[str],
+    timeout_seconds: float | None = None,
 ) -> tuple[list[NetEventDB], str | None, bool]:
     _bind_query_module()
     return event_queries._pg_hunt_query(
@@ -301,6 +315,7 @@ def _pg_hunt_query(
         start_ts=start_ts,
         end_ts=end_ts,
         tokens=tokens,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -314,6 +329,7 @@ def _es_hunt_query(
     start_ts: datetime | None,
     end_ts: datetime | None,
     search: str | None,
+    timeout_seconds: float | None = None,
 ) -> tuple[list[NetEventDB], str | None, bool]:
     _bind_query_module()
     return event_queries._es_hunt_query(
@@ -325,6 +341,7 @@ def _es_hunt_query(
         start_ts=start_ts,
         end_ts=end_ts,
         search=search,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -338,6 +355,7 @@ def _ch_hunt_query(
     start_ts: datetime | None,
     end_ts: datetime | None,
     search: str | None,
+    timeout_seconds: float | None = None,
 ) -> tuple[list[NetEventDB], str | None, bool]:
     _bind_query_module()
     return event_queries._ch_hunt_query(
@@ -349,27 +367,196 @@ def _ch_hunt_query(
         start_ts=start_ts,
         end_ts=end_ts,
         search=search,
+        timeout_seconds=timeout_seconds,
     )
 
 
-def _select_hunt_chain(*, has_search: bool, window_minutes: int | None) -> list[str]:
-    if has_search:
-        return ["elasticsearch", "postgres"]
+def _build_hunt_breaker() -> BackendCircuitBreaker:
+    return BackendCircuitBreaker(
+        failure_threshold=int(getattr(settings, "SEAGULL_ROUTE_BREAKER_FAILURE_THRESHOLD", 5) or 5),
+        window_seconds=float(getattr(settings, "SEAGULL_ROUTE_BREAKER_WINDOW_SECONDS", 30.0) or 30.0),
+        cooldown_seconds=float(getattr(settings, "SEAGULL_ROUTE_BREAKER_COOLDOWN_SECONDS", 30.0) or 30.0),
+    )
 
-    ch_min_minutes = max(15, int(getattr(settings, "SEAGULL_EVENTS_HUNT_CLICKHOUSE_MINUTES", 240) or 240))
-    if window_minutes is not None and int(window_minutes) >= int(ch_min_minutes):
-        chain = ["clickhouse", "postgres"]
-    else:
-        chain = ["postgres", "clickhouse"]
 
-    if search_backend_mode() != "postgres":
-        chain.append("elasticsearch")
+_hunt_breaker = _build_hunt_breaker()
 
-    out: list[str] = []
-    for source in chain:
-        if source not in out:
-            out.append(source)
-    return out
+_WILDCARD_MARKERS = ("*", "?")
+
+
+def _route_decision(signals: QuerySignals) -> RouteDecision:
+    return decide_backend_chain(
+        signals,
+        es_enabled=search_backend_mode() != "postgres",
+        wide_window_minutes=int(getattr(settings, "SEAGULL_EVENTS_HUNT_CLICKHOUSE_MINUTES", 240) or 240),
+        many_clauses_threshold=int(getattr(settings, "SEAGULL_ROUTE_MANY_CLAUSES_THRESHOLD", 5) or 5),
+    )
+
+
+def _hunt_backend_timeout_seconds(backend: str, signals: QuerySignals) -> float:
+    if backend == "elasticsearch":
+        if signals.has_search or signals.has_wildcard:
+            return float(getattr(settings, "SEAGULL_ROUTE_ES_SEARCH_TIMEOUT_SECONDS", 2.0) or 2.0)
+        return float(getattr(settings, "SEAGULL_ROUTE_ES_TERM_TIMEOUT_SECONDS", 0.5) or 0.5)
+    if backend == "clickhouse":
+        scan_shaped = (
+            signals.aggregate
+            or signals.has_search
+            or signals.has_wildcard
+            or is_wide_window(
+                signals,
+                wide_window_minutes=int(getattr(settings, "SEAGULL_EVENTS_HUNT_CLICKHOUSE_MINUTES", 240) or 240),
+            )
+        )
+        if scan_shaped:
+            return float(getattr(settings, "SEAGULL_ROUTE_CH_AGGREGATE_TIMEOUT_SECONDS", 3.0) or 3.0)
+        return float(getattr(settings, "SEAGULL_ROUTE_CH_KEYED_TIMEOUT_SECONDS", 0.5) or 0.5)
+    return float(getattr(settings, "SEAGULL_ROUTE_PG_TIMEOUT_SECONDS", 0.5) or 0.5)
+
+
+def _resolve_hunt_window(
+    *,
+    now: datetime,
+    since_minutes: int | None,
+    start_ts_iso: str | None,
+    end_ts_iso: str | None,
+) -> tuple[datetime | None, datetime, int | None]:
+    start_ts = _coerce_utc_iso(start_ts_iso)
+    end_ts = _coerce_utc_iso(end_ts_iso)
+    if since_minutes is not None and start_ts is not None:
+        raise HTTPException(status_code=422, detail="Use either since_minutes or start_ts, not both")
+    if since_minutes is not None and end_ts is not None and start_ts is None:
+        start_ts = end_ts - timedelta(minutes=max(1, int(since_minutes)))
+    elif since_minutes is not None and start_ts is None:
+        start_ts = now - timedelta(minutes=max(1, int(since_minutes)))
+    if end_ts is None:
+        end_ts = now
+    if start_ts is not None and start_ts > end_ts:
+        raise HTTPException(status_code=422, detail="start_ts must be less than or equal to end_ts")
+
+    window_minutes: int | None = None
+    if start_ts is not None:
+        window_minutes = int(max(1, (end_ts - start_ts).total_seconds() // 60))
+    elif since_minutes is not None:
+        window_minutes = int(max(1, int(since_minutes)))
+    return start_ts, end_ts, window_minutes
+
+
+def _build_hunt_signals(
+    *,
+    search: str | None,
+    tokens: list[str],
+    agent_id: str | None,
+    event_type: str | None,
+    start_ts: datetime | None,
+    window_minutes: int | None,
+    aggregate: bool = False,
+    transactional_join: bool = False,
+) -> QuerySignals:
+    raw_search = str(search or "")
+    filter_clauses = len(tokens)
+    if agent_id:
+        filter_clauses += 1
+    if event_type:
+        filter_clauses += 1
+    if start_ts is not None:
+        filter_clauses += 1
+    return QuerySignals(
+        has_search=bool(tokens),
+        has_wildcard=any(marker in raw_search for marker in _WILDCARD_MARKERS),
+        filter_clauses=filter_clauses,
+        window_minutes=window_minutes,
+        aggregate=bool(aggregate),
+        transactional_join=bool(transactional_join),
+    )
+
+
+def _rollback_quietly(db: Session) -> None:
+    rollback = getattr(db, "rollback", None)
+    if not callable(rollback):
+        return
+    try:
+        rollback()
+    except Exception:
+        pass
+
+
+def _record_hunt_failure(backend: str, reason: str) -> None:
+    if _hunt_breaker.record_failure(backend):
+        incr_counter("hunt_backend_circuit_open_total", backend=backend)
+        log_event(logger, "warning", "hunt_backend_circuit_opened", backend=backend, reason=reason)
+
+
+def _execute_hunt_backend(
+    db: Session,
+    backend: str,
+    *,
+    signals: QuerySignals,
+    page_size: int,
+    cursor: str | None,
+    agent_id: str | None,
+    event_type: str | None,
+    start_ts: datetime | None,
+    end_ts: datetime,
+    search: str | None,
+    tokens: list[str],
+) -> tuple[list[NetEventDB], str | None, bool]:
+    timeout_seconds = _hunt_backend_timeout_seconds(backend, signals)
+
+    if backend == "elasticsearch":
+        es = _es_client_or_none()
+        if es is None:
+            raise LookupError("elasticsearch_unavailable")
+        items, next_cursor, has_more = _es_hunt_query(
+            es=es,
+            page_size=page_size,
+            cursor=cursor,
+            agent_id=agent_id,
+            event_type=event_type,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            search=search,
+            timeout_seconds=timeout_seconds,
+        )
+        if items and _es_failover_allowed() and not route_trusts_es():
+            if _pg_has_newer_event(db, latest_ts=items[0].timestamp, agent_id=agent_id, event_type=event_type):
+                raise LookupError("elasticsearch_stale")
+        return items, next_cursor, has_more
+
+    if backend == "clickhouse":
+        ch = _ch_client_or_none()
+        if ch is None:
+            raise LookupError("clickhouse_unavailable")
+        items, next_cursor, has_more = _ch_hunt_query(
+            ch=ch,
+            page_size=page_size,
+            cursor=cursor,
+            agent_id=agent_id,
+            event_type=event_type,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            search=search,
+            timeout_seconds=timeout_seconds,
+        )
+        if items and _pg_has_newer_event(db, latest_ts=items[0].timestamp, agent_id=agent_id, event_type=event_type):
+            raise LookupError("clickhouse_stale")
+        return items, next_cursor, has_more
+
+    try:
+        return _pg_hunt_query(
+            db,
+            page_size=page_size,
+            cursor=cursor,
+            agent_id=agent_id,
+            event_type=event_type,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            tokens=tokens,
+            timeout_seconds=timeout_seconds,
+        )
+    except Exception:
+        _rollback_quietly(db)
+        raise
 
 
 def hunt_events(
@@ -388,32 +575,29 @@ def hunt_events(
     now = _now_utc()
     size = max(1, min(int(page_size), 1000))
 
-    start_ts = _coerce_utc_iso(start_ts_iso)
-    end_ts = _coerce_utc_iso(end_ts_iso)
-    if since_minutes is not None and start_ts is not None:
-        raise HTTPException(status_code=422, detail="Use either since_minutes or start_ts, not both")
-    if since_minutes is not None and end_ts is not None and start_ts is None:
-        start_ts = end_ts - timedelta(minutes=max(1, int(since_minutes)))
-    elif since_minutes is not None and start_ts is None:
-        start_ts = now - timedelta(minutes=max(1, int(since_minutes)))
-    if end_ts is None:
-        end_ts = now
-    if start_ts is not None and end_ts is not None and start_ts > end_ts:
-        raise HTTPException(status_code=422, detail="start_ts must be less than or equal to end_ts")
+    start_ts, end_ts, window_minutes = _resolve_hunt_window(
+        now=now,
+        since_minutes=since_minutes,
+        start_ts_iso=start_ts_iso,
+        end_ts_iso=end_ts_iso,
+    )
 
     tokens = _search_tokens(search)
-    has_search = bool(tokens)
     if search is not None and not str(search).strip():
         raise HTTPException(status_code=422, detail="search must contain non-whitespace characters")
 
-    window_minutes = None
-    if start_ts is not None and end_ts is not None:
-        window_minutes = int(max(1, (end_ts - start_ts).total_seconds() // 60))
-    elif since_minutes is not None:
-        window_minutes = int(max(1, int(since_minutes)))
+    signals = _build_hunt_signals(
+        search=search,
+        tokens=tokens,
+        agent_id=agent_id,
+        event_type=event_type,
+        start_ts=start_ts,
+        window_minutes=window_minutes,
+    )
+    decision = _route_decision(signals)
 
-    chain = _select_hunt_chain(has_search=has_search, window_minutes=window_minutes)
     attempted: list[str] = []
+    pending_fallbacks: list[tuple[str, str]] = []
     degraded_reason: str | None = None
     items: list[NetEventDB] = []
     next_cursor: str | None = None
@@ -421,80 +605,66 @@ def hunt_events(
     succeeded = False
     selected_source: QuerySource = "postgres"
 
-    for candidate in chain:
+    for candidate in decision.chain:
+        if not _hunt_breaker.allow(candidate):
+            pending_fallbacks.append((candidate, "circuit_open"))
+            degraded_reason = f"{candidate}_skipped:circuit_open"[:200]
+            continue
+
+        for from_backend, fallback_reason in pending_fallbacks:
+            incr_counter(
+                "hunt_backend_fallback_total",
+                from_backend=from_backend,
+                to_backend=candidate,
+                reason=fallback_reason,
+            )
+        pending_fallbacks.clear()
+
+        if not attempted:
+            chosen_reason = decision.reason if candidate == decision.chain[0] else "fallback"
+            incr_counter("hunt_backend_chosen_total", backend=candidate, reason=chosen_reason)
         attempted.append(candidate)
+
+        attempt_started = time.perf_counter()
         try:
-            if candidate == "elasticsearch":
-                es = _es_client_or_none()
-                if es is None:
-                    raise LookupError("elasticsearch_unavailable")
-                items, next_cursor, has_more = _es_hunt_query(
-                    es=es,
-                    page_size=size,
-                    cursor=cursor,
-                    agent_id=agent_id,
-                    event_type=event_type,
-                    start_ts=start_ts,
-                    end_ts=end_ts,
-                    search=search,
-                )
-                if items and _es_failover_allowed():
-                    if _pg_has_newer_event(db, latest_ts=items[0].timestamp, agent_id=agent_id, event_type=event_type):
-                        raise LookupError("elasticsearch_stale")
-                selected_source = "elasticsearch"
-                succeeded = True
-                break
-
-            if candidate == "clickhouse":
-                ch = _ch_client_or_none()
-                if ch is None:
-                    raise LookupError("clickhouse_unavailable")
-                items, next_cursor, has_more = _ch_hunt_query(
-                    ch=ch,
-                    page_size=size,
-                    cursor=cursor,
-                    agent_id=agent_id,
-                    event_type=event_type,
-                    start_ts=start_ts,
-                    end_ts=end_ts,
-                    search=search,
-                )
-                if items and _pg_has_newer_event(
-                    db,
-                    latest_ts=items[0].timestamp,
-                    agent_id=agent_id,
-                    event_type=event_type,
-                ):
-                    raise LookupError("clickhouse_stale")
-                selected_source = "clickhouse"
-                succeeded = True
-                break
-
-            items, next_cursor, has_more = _pg_hunt_query(
+            items, next_cursor, has_more = _execute_hunt_backend(
                 db,
+                candidate,
+                signals=signals,
                 page_size=size,
                 cursor=cursor,
                 agent_id=agent_id,
                 event_type=event_type,
                 start_ts=start_ts,
                 end_ts=end_ts,
+                search=search,
                 tokens=tokens,
             )
-            selected_source = "postgres"
-            succeeded = True
-            break
         except HTTPException:
+            observe_hist("hunt_backend_query_seconds", time.perf_counter() - attempt_started, backend=candidate)
+            _record_hunt_failure(candidate, "required_unavailable")
             raise
         except Exception as exc:
-            reason = type(exc).__name__
-            if isinstance(exc, LookupError):
-                reason = str(exc)
+            observe_hist("hunt_backend_query_seconds", time.perf_counter() - attempt_started, backend=candidate)
+            reason = classify_backend_failure(exc)
             degraded_reason = f"{candidate}_fallback:{reason}"[:200]
+            pending_fallbacks.append((candidate, reason))
+            if failure_counts_toward_breaker(reason):
+                _record_hunt_failure(candidate, reason)
+            else:
+                _hunt_breaker.record_success(candidate)
+        else:
+            observe_hist("hunt_backend_query_seconds", time.perf_counter() - attempt_started, backend=candidate)
+            _hunt_breaker.record_success(candidate)
+            selected_source = candidate
+            succeeded = True
+            break
 
-    if not attempted:
-        attempted = ["postgres"]
     if not succeeded:
-        raise HTTPException(status_code=503, detail="No analytics backend is currently available for event hunt")
+        raise HTTPException(
+            status_code=503,
+            detail="Event hunt is temporarily unavailable: all backends failed or have an open circuit",
+        )
 
     meta = _meta(
         source=selected_source,
@@ -508,6 +678,72 @@ def hunt_events(
         query_window_end=end_ts,
     )
     return EventHuntResponse(items=items, next_cursor=next_cursor, has_more=has_more, meta=meta)
+
+
+def explain_hunt_route(
+    *,
+    agent_id: Optional[str] = None,
+    event_type: Optional[str] = None,
+    since_minutes: Optional[int] = None,
+    start_ts_iso: Optional[str] = None,
+    end_ts_iso: Optional[str] = None,
+    search: Optional[str] = None,
+    aggregate: bool = False,
+) -> HuntRouteExplainResponse:
+    now = _now_utc()
+    start_ts, end_ts, window_minutes = _resolve_hunt_window(
+        now=now,
+        since_minutes=since_minutes,
+        start_ts_iso=start_ts_iso,
+        end_ts_iso=end_ts_iso,
+    )
+
+    tokens = _search_tokens(search)
+    if search is not None and not str(search).strip():
+        raise HTTPException(status_code=422, detail="search must contain non-whitespace characters")
+
+    signals = _build_hunt_signals(
+        search=search,
+        tokens=tokens,
+        agent_id=agent_id,
+        event_type=event_type,
+        start_ts=start_ts,
+        window_minutes=window_minutes,
+        aggregate=aggregate,
+    )
+    decision = _route_decision(signals)
+    circuit = {backend: _hunt_breaker.state(backend) for backend in decision.chain}
+    return HuntRouteExplainResponse(
+        generated_at=now,
+        decision_backend=decision.chain[0],
+        decision_reason=decision.reason,
+        chain=list(decision.chain),
+        attempt_plan=[backend for backend in decision.chain if circuit[backend].state != "open"],
+        signals=HuntRouteSignals(
+            has_search=signals.has_search,
+            has_wildcard=signals.has_wildcard,
+            filter_clauses=signals.filter_clauses,
+            window_minutes=signals.window_minutes,
+            aggregate=signals.aggregate,
+            transactional_join=signals.transactional_join,
+        ),
+        timeouts_seconds={
+            backend: _hunt_backend_timeout_seconds(backend, signals) for backend in decision.chain
+        },
+        circuit={
+            backend: HuntRouteCircuitState(
+                state=state.state,
+                recent_failures=state.recent_failures,
+                open_remaining_seconds=state.open_remaining_seconds,
+                probe_in_flight=state.probe_in_flight,
+            )
+            for backend, state in circuit.items()
+        },
+        trust_es=route_trusts_es(),
+        search_backend_mode=search_backend_mode(),
+        query_window_start=start_ts,
+        query_window_end=end_ts,
+    )
 
 
 def list_events(
