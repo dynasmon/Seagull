@@ -11,12 +11,13 @@ from app.core.api.conditional import maybe_not_modified
 from app.core.db import SessionLocal, get_db
 from app.core.db.session import managed_session
 from app.core.observability import incr_counter
-from app.features.auth.session import get_current_user
+from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 from app.features.events import service as events_service
 from app.features.events.schemas import (
     DdosLiveSnapshotResponse,
     EventHuntResponse,
     EventStreamSnapshotResponse,
+    HuntRouteExplainResponse,
     NetEventDB,
     NetEventRollup1s,
     ProtocolIntelSummaryResponse,
@@ -178,6 +179,28 @@ def list_events_endpoint(
             end_ts_iso=end_ts,
             search=search,
         )
+
+
+@router.get("/hunt/explain", response_model=HuntRouteExplainResponse)
+def explain_hunt_route_endpoint(
+    agent_id: Optional[str] = Query(None, min_length=1, max_length=64, description="Filter by agent identifier"),
+    event_type: Optional[str] = Query(None, min_length=1, max_length=32, description="Filter by event type"),
+    since_minutes: Optional[int] = Query(None, ge=1, le=60 * 24 * 30, description="Lookback window in minutes"),
+    start_ts: Optional[str] = Query(None, description="Optional explicit start timestamp (ISO-8601)"),
+    end_ts: Optional[str] = Query(None, description="Optional explicit end timestamp (ISO-8601)"),
+    search: Optional[str] = Query(None, min_length=1, max_length=256, description="Server-side hunt query"),
+    aggregate: bool = Query(False, description="Simulate an aggregation-shaped query"),
+    _: PortalPrincipal = Depends(require_admin),
+):
+    return events_service.explain_hunt_route(
+        agent_id=agent_id,
+        event_type=event_type,
+        since_minutes=since_minutes,
+        start_ts_iso=start_ts,
+        end_ts_iso=end_ts,
+        search=search,
+        aggregate=aggregate,
+    )
 
 
 @router.get("/recent", response_model=List[NetEventDB])
