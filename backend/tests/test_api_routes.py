@@ -84,3 +84,30 @@ def test_admin_route_ok_with_admin_and_mocked_db(monkeypatch) -> None:
             assert r.json() == []
     finally:
         app.dependency_overrides.pop(require_admin, None)
+
+
+def test_events_hunt_explain_forbidden_for_non_admin() -> None:
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=2, username="ana", role="analyst")
+    try:
+        with TestClient(app) as client:
+            r = client.get("/events/hunt/explain?search=needle&since_minutes=60")
+            assert r.status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_events_hunt_explain_returns_route_plan_for_admin() -> None:
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=1, username="root", role="admin")
+    try:
+        with TestClient(app) as client:
+            r = client.get("/events/hunt/explain?search=needle&since_minutes=60")
+            assert r.status_code == 200
+            body = r.json()
+            assert body["decision_backend"] == "elasticsearch"
+            assert body["decision_reason"] == "fulltext"
+            assert body["chain"][0] == "elasticsearch"
+            assert set(body["timeouts_seconds"]) == set(body["chain"])
+            assert set(body["circuit"]) == set(body["chain"])
+            assert body["signals"]["has_search"] is True
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
