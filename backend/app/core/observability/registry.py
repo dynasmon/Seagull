@@ -116,6 +116,16 @@ _SPECS: Tuple[MetricSpec, ...] = (
           ("sink",), buckets=DEPTH_BUCKETS),
     _spec("ingest_optional_sink_dropped_total", "counter", "Events dropped from optional sinks.", ("sink", "reason")),
 
+    _spec("hunt_backend_chosen_total", "counter",
+          "Event-hunt router first-choice backend by decision reason.", ("backend", "reason")),
+    _spec("hunt_backend_fallback_total", "counter",
+          "Event-hunt router fallbacks between backends.", ("from_backend", "to_backend", "reason")),
+    _spec("hunt_backend_circuit_open_total", "counter",
+          "Event-hunt circuit-breaker open transitions per backend.", ("backend",)),
+    _spec("hunt_backend_query_seconds", "histogram",
+          "Event-hunt per-backend query attempt duration in seconds.",
+          ("backend",), buckets=SECONDS_BUCKETS),
+
     _spec("overview_live_write_failed_total", "counter", "Overview live snapshot write failures.", ("reason",)),
     _spec("overview_source_selected_total", "counter",
           "Overview chart data-source selections by chart, source, and degraded state.",
