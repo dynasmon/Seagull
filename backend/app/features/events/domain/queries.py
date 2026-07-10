@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy import String, and_, cast, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
@@ -55,6 +55,36 @@ def _es_failover_allowed() -> bool:
     return search_backend_mode() != "elasticsearch"
 
 
+def _es_with_request_timeout(es: Any, timeout_seconds: float | None) -> Any:
+    if not timeout_seconds or float(timeout_seconds) <= 0:
+        return es
+    options = getattr(es, "options", None)
+    if not callable(options):
+        return es
+    try:
+        return options(request_timeout=float(timeout_seconds))
+    except TypeError:
+        return es
+
+
+def _ch_timeout_settings(timeout_seconds: float | None) -> Dict[str, Any]:
+    if not timeout_seconds or float(timeout_seconds) <= 0:
+        return {}
+    return {"max_execution_time": round(float(timeout_seconds), 3)}
+
+
+def _pg_apply_statement_timeout(db: Session, timeout_seconds: float | None) -> None:
+    if not timeout_seconds or float(timeout_seconds) <= 0:
+        return
+    try:
+        bind = db.get_bind()
+    except Exception:
+        return
+    if getattr(getattr(bind, "dialect", None), "name", "") != "postgresql":
+        return
+    db.execute(text(f"SET LOCAL statement_timeout = {max(1, int(float(timeout_seconds) * 1000.0))}"))
+
+
 def _es_terms_top(
     es,
     *,
@@ -89,8 +119,16 @@ def _ch_client_or_none() -> Any | None:
         return None
 
 
-def _ch_query_dicts(ch: Any, sql: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-    res = ch.query(sql, parameters=(params or {}))
+def _ch_query_dicts(
+    ch: Any,
+    sql: str,
+    params: Optional[Dict[str, Any]] = None,
+    ch_settings: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    if ch_settings:
+        res = ch.query(sql, parameters=(params or {}), settings=dict(ch_settings))
+    else:
+        res = ch.query(sql, parameters=(params or {}))
     cols = list(getattr(res, "column_names", []) or [])
     rows = list(getattr(res, "result_rows", []) or [])
     if not cols or not rows:
@@ -179,6 +217,7 @@ def _ch_hunt_query(
     start_ts: datetime | None,
     end_ts: datetime | None,
     search: str | None,
+    timeout_seconds: float | None = None,
 ) -> tuple[list[NetEventDB], str | None, bool]:
     where_sql, params = _ch_where(since=start_ts, agent_id=agent_id, event_type=event_type)
     if end_ts is not None:
@@ -214,7 +253,7 @@ def _ch_hunt_query(
         "ORDER BY timestamp DESC, pg_event_id DESC, ingested_at DESC "
         f"LIMIT {int(page_size) + 1}"
     )
-    rows = _ch_query_dicts(ch, sql, params)
+    rows = _ch_query_dicts(ch, sql, params, ch_settings=_ch_timeout_settings(timeout_seconds))
     out: list[NetEventDB] = []
     for r in rows[: int(page_size) + 1]:
         ev = _ch_row_to_event(r)
@@ -240,7 +279,9 @@ def _es_hunt_query(
     start_ts: datetime | None,
     end_ts: datetime | None,
     search: str | None,
+    timeout_seconds: float | None = None,
 ) -> tuple[list[NetEventDB], str | None, bool]:
+    es = _es_with_request_timeout(es, timeout_seconds)
     filters = _es_base_filters(since=start_ts, agent_id=agent_id, event_type=event_type)
     if end_ts is not None:
         filters.append({"range": {"timestamp": {"lte": end_ts.isoformat()}}})
@@ -267,6 +308,7 @@ def _es_hunt_query(
                         "extra.*",
                     ],
                     "default_operator": "and",
+                    "lenient": True,
                 }
             }
         ]
@@ -311,7 +353,9 @@ def _pg_hunt_query(
     start_ts: datetime | None,
     end_ts: datetime | None,
     tokens: list[str],
+    timeout_seconds: float | None = None,
 ) -> tuple[list[NetEventDB], str | None, bool]:
+    _pg_apply_statement_timeout(db, timeout_seconds)
     stmt = select(NetEventModel).order_by(NetEventModel.timestamp.desc(), NetEventModel.id.desc())
 
     if agent_id:
