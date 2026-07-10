@@ -108,10 +108,6 @@ def failure_counts_toward_breaker(reason: str) -> bool:
 
 
 class BackendCircuitBreaker:
-    """In-process breaker: failures within a sliding window open the circuit
-    for ``cooldown_seconds``; after cooldown a single half-open probe decides
-    between closing (success) and re-opening (failure)."""
-
     def __init__(
         self,
         *,
