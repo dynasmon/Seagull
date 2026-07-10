@@ -53,6 +53,37 @@ class EventHuntResponse(BaseModel):
     meta: QueryProvenanceMeta
 
 
+class HuntRouteSignals(BaseModel):
+    has_search: bool = False
+    has_wildcard: bool = False
+    filter_clauses: int = 0
+    window_minutes: Optional[int] = None
+    aggregate: bool = False
+    transactional_join: bool = False
+
+
+class HuntRouteCircuitState(BaseModel):
+    state: Literal["closed", "open", "half_open"]
+    recent_failures: int = 0
+    open_remaining_seconds: float = 0.0
+    probe_in_flight: bool = False
+
+
+class HuntRouteExplainResponse(BaseModel):
+    generated_at: datetime
+    decision_backend: str
+    decision_reason: str
+    chain: List[str] = Field(default_factory=list)
+    attempt_plan: List[str] = Field(default_factory=list)
+    signals: HuntRouteSignals
+    timeouts_seconds: Dict[str, float] = Field(default_factory=dict)
+    circuit: Dict[str, HuntRouteCircuitState] = Field(default_factory=dict)
+    trust_es: bool = False
+    search_backend_mode: str = "auto"
+    query_window_start: Optional[datetime] = None
+    query_window_end: Optional[datetime] = None
+
+
 class EventStreamSnapshotResponse(BaseModel):
     generated_at: datetime
     window_minutes: int
