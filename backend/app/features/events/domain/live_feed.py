@@ -31,6 +31,7 @@ from app.features.events.domain.queries import (
     _pg_has_newer_event,
     clickhouse_events_table_ref,
 )
+from app.features.events.domain.routing import route_trusts_es
 from app.features.events.models import NetEventModel
 from app.features.events.recent_feed import fetch_recent_events as fetch_recent_feed_events
 from app.features.events.recent_feed import recent_feed_health
@@ -209,7 +210,7 @@ def get_recent_events(
             if not hits and _es_failover_allowed():
                 raise LookupError("es_empty_recent")
             out = [_hit_to_event(h) for h in hits]
-            if out and _es_failover_allowed():
+            if out and _es_failover_allowed() and not route_trusts_es():
                 if _pg_has_newer_event(db, latest_ts=out[0].timestamp, agent_id=agent_id, event_type=event_type):
                     raise LookupError("es_stale_recent")
             return _merge_recent_events(primary=feed_events, secondary=out, limit=int(limit))

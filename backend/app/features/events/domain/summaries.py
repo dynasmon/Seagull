@@ -52,6 +52,7 @@ from app.features.events.domain.queries import (
     _pg_has_protocol_metadata,
     _pg_rollup_l4_snapshot,
 )
+from app.features.events.domain.routing import route_trusts_es
 from app.features.events.models import NetEventModel
 from app.features.events.schemas import (
     ProtocolIntelSummaryResponse,
@@ -1590,7 +1591,11 @@ def get_protocol_intel_summary(
                     raise LookupError("es_empty_summary")
                 if with_proto_metadata <= 0 and _pg_has_protocol_metadata(db, since=since_ts, agent_id=agent_id):
                     raise LookupError("es_proto_metadata_stale")
-                if es_latest_ts is not None and _pg_has_newer_event(db, latest_ts=es_latest_ts, agent_id=agent_id):
+                if (
+                    es_latest_ts is not None
+                    and not route_trusts_es()
+                    and _pg_has_newer_event(db, latest_ts=es_latest_ts, agent_id=agent_id)
+                ):
                     raise LookupError("es_stale_summary")
 
             def _buckets(name: str) -> list[dict[str, Any]]:
