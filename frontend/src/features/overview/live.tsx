@@ -12,6 +12,7 @@ import {
   applyOverviewRealtimeAlertsDelta,
   applyOverviewRealtimePatch,
   applyStormStatusToOverviewSnapshot,
+  isRegressiveOverviewWindow,
   mergeStormStatus,
   reconcileFetchedOverviewSnapshot,
 } from "./live_realtime";
@@ -162,9 +163,7 @@ export function OverviewLiveProvider({
       );
       if (refreshSeqRef.current !== mySeq) return;
 
-      const prevEnd = Date.parse(snapshotRef.current?.meta?.window_end || "");
-      const nextFastEnd = Date.parse(fast?.meta?.window_end || "");
-      if (Number.isFinite(prevEnd) && Number.isFinite(nextFastEnd) && nextFastEnd < prevEnd) {
+      if (isRegressiveOverviewWindow(snapshotRef.current, fast)) {
         return;
       }
 
@@ -189,9 +188,7 @@ export function OverviewLiveProvider({
         )
           .then((full) => {
             if (fullRefreshSeqRef.current !== myFullSeq) return;
-            const currentEnd = Date.parse(snapshotRef.current?.meta?.window_end || "");
-            const incomingEnd = Date.parse(full?.meta?.window_end || "");
-            if (Number.isFinite(currentEnd) && Number.isFinite(incomingEnd) && incomingEnd < currentEnd) {
+            if (isRegressiveOverviewWindow(snapshotRef.current, full)) {
               return;
             }
             const reconciled = reconcileFetchedOverviewSnapshot(snapshotRef.current, full, {
