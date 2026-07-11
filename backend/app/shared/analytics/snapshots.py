@@ -56,6 +56,7 @@ class SnapshotPage:
     snapshotable: Callable[[ParamsT], bool] = field(default=_always_snapshotable)
     track_params: Optional[Callable[[ParamsT], Optional[ParamsT]]] = None
     scope_label: Callable[[ParamsT], str] = field(default=_global_scope_label)
+    freshness_probe: Optional[Callable[[dict, ParamsT], bool]] = None
 
     def enabled(self) -> bool:
         return bool(getattr(settings, self.flag_env, False))
@@ -100,6 +101,14 @@ class SnapshotPage:
         if age_s > self.max_age_seconds():
             self._fallback("stale", scope_key, age_s=round(age_s, 1))
             return None
+        if self.freshness_probe is not None:
+            try:
+                outdated = bool(self.freshness_probe(row.payload, params))
+            except Exception:
+                outdated = False
+            if outdated:
+                self._fallback("outdated", scope_key, age_s=round(age_s, 1))
+                return None
         degraded = age_s > snapshot_tick_seconds() * 2.0
         incr_counter("snapshot_lookup_total", page=self.page, outcome="degraded" if degraded else "hit")
         payload = dict(row.payload)
