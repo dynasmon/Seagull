@@ -117,6 +117,25 @@ def record_overview_live_drop(*, dropped_events: int, bucket_ts: Optional[dateti
         return
 
 
+def read_overview_live_last_ts(*, lookback_s: int = 15) -> Optional[datetime]:
+    r = get_redis()
+    if r is None:
+        return None
+    end_s = int(time.time())
+    points = list(range(end_s, max(0, end_s - max(1, int(lookback_s))), -1))
+    try:
+        pipe = r.pipeline()
+        for ts in points:
+            pipe.exists(_overview_live_key(ts))
+        flags = list(pipe.execute() or [])
+    except Exception:
+        return None
+    for ts, flag in zip(points, flags, strict=False):
+        if flag:
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+    return None
+
+
 def read_overview_live_window(*, now_s: Optional[int] = None, seconds: int = 900) -> Dict[str, Any]:
 
     r = get_redis()
