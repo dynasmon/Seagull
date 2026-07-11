@@ -381,14 +381,51 @@ def _best_effort_ingest_backlog() -> Tuple[int, int]:
         return (0, 0)
 
 
-def _choose_series_source(*, rollups_fresh: bool, rollup_stuck: bool, live_fresh: bool, fallback: str) -> tuple[str, str | None]:
+def _max_ts(*candidates: Optional[datetime]) -> Optional[datetime]:
+    known = [_to_utc(c) for c in candidates if c is not None]
+    return max(known) if known else None
+
+
+def _choose_series_source(
+    *,
+    rollups_fresh: bool,
+    rollup_stuck: bool,
+    live_fresh: bool,
+    fallback: str,
+    stream_idle: bool = False,
+    rollups_cover_idle: bool = False,
+) -> tuple[str, str | None]:
     if rollups_fresh and not rollup_stuck:
         return ("rollup_1s", None)
+    if stream_idle:
+        # A quiet stream is not a degraded pipeline: every source already covers
+        # the last observed data, so serve the best covering one without alarms.
+        return (("rollup_1s" if rollups_cover_idle else fallback), None)
     if live_fresh:
         return ("live_1s", "rollup_stale_fallback_live")
     if rollup_stuck:
         return (fallback, "rollup_stuck_live_stale")
     return (fallback, "rollup_stale_live_stale")
+
+
+def _resolve_data_end_ts(
+    *,
+    requested_end_ts: datetime,
+    fixed_range: bool,
+    stream_idle: bool,
+    last_activity_ts: Optional[datetime],
+    use_ingest_rollups: bool,
+    last_roll_ts: Optional[datetime],
+) -> datetime:
+    if fixed_range:
+        return requested_end_ts
+    if stream_idle and last_activity_ts is not None:
+        # Freeze the window at the last activity instead of letting it slide
+        # into an empty region while the stream is quiet.
+        return min(requested_end_ts, last_activity_ts)
+    if use_ingest_rollups and last_roll_ts is not None:
+        return min(requested_end_ts, last_roll_ts)
+    return requested_end_ts
 
 
 def _source_meta(
@@ -727,53 +764,89 @@ def get_overview_payload(
             "dropped_last_second": 0,
         }
 
+    ch = _ch_client_or_none()
+    ch_latest_ts = None
+    pg_latest_ts = None
+    if not fixed_range:
+        pg_latest_ts = _pg_latest_event_ts(db, agent_id=agent_id)
+        if ch is not None:
+            ch_latest_rows = _ch_query_dicts(
+                ch,
+                f"SELECT maxOrNull(timestamp) AS last_ts FROM {clickhouse_events_table_ref()} "
+                + ("WHERE agent_id = {agent_id:String}" if agent_id else ""),
+                ({"agent_id": agent_id} if agent_id else None),
+            )
+            ch_latest_ts = _to_utc((ch_latest_rows or [{}])[0].get("last_ts"))
+            stale_margin_s = int(getattr(settings, "SEAGULL_EVENTS_ES_STALE_MARGIN_SECONDS", 15) or 15)
+            if pg_latest_ts is not None and (
+                ch_latest_ts is None or (pg_latest_ts - ch_latest_ts).total_seconds() > float(max(1, stale_margin_s))
+            ):
+                log_event(
+                    logger,
+                    "warning",
+                    "overview_clickhouse_stale_fallback",
+                    ch_last_ts=(ch_latest_ts.isoformat() if ch_latest_ts else None),
+                    pg_last_ts=pg_latest_ts.isoformat(),
+                )
+                ch = None
+
+    last_alert_ts = None
+    # Alerts extend the frozen window only on the global scope: they carry no
+    # agent linkage, so they say nothing about an agent-filtered window.
+    if not fixed_range and not agent_id:
+        try:
+            last_alert_ts = _to_utc(db.execute(select(func.max(AlertModel.created_at))).scalar())
+        except Exception:
+            last_alert_ts = None
+
+    # The live window is global-only; on agent scopes it must not anchor idle
+    # detection to other agents' traffic.
+    last_event_data_ts = _max_ts(last_roll_ts, live_last_ts if not agent_id else None, pg_latest_ts, ch_latest_ts)
+    last_activity_ts = _max_ts(last_event_data_ts, last_alert_ts)
+    stream_idle = (
+        not fixed_range
+        and last_event_data_ts is not None
+        and (now - last_event_data_ts).total_seconds() > float(rollup_fresh_s)
+    )
+    rollups_cover_idle = (
+        last_roll_ts is not None
+        and last_event_data_ts is not None
+        and (last_event_data_ts - last_roll_ts).total_seconds() <= float(rollup_fresh_s)
+    )
+
     if fixed_range:
         traffic_source = "historical"
         traffic_degraded_reason = None
         ddos_source = "historical"
         ddos_degraded_reason = None
     else:
-        traffic_fallback = "rollup_1m"
-        if protection_active or draining:
-            traffic_fallback = "rollup_1m"
         traffic_source, traffic_degraded_reason = _choose_series_source(
             rollups_fresh=bool(rollups_fresh),
             rollup_stuck=bool(rollup_stuck),
             live_fresh=bool(live_fresh),
-            fallback=traffic_fallback,
+            stream_idle=bool(stream_idle),
+            rollups_cover_idle=bool(rollups_cover_idle),
+            fallback="rollup_1m",
         )
         ddos_source, ddos_degraded_reason = _choose_series_source(
             rollups_fresh=bool(rollups_fresh),
             rollup_stuck=bool(rollup_stuck),
             live_fresh=bool(live_fresh),
+            stream_idle=bool(stream_idle),
+            rollups_cover_idle=bool(rollups_cover_idle),
             fallback="historical",
         )
 
     use_ingest_rollups = (not fixed_range) and traffic_source == "rollup_1s"
-    data_end_ts = min(requested_end_ts, last_roll_ts) if (use_ingest_rollups and last_roll_ts is not None) else requested_end_ts
+    data_end_ts = _resolve_data_end_ts(
+        requested_end_ts=requested_end_ts,
+        fixed_range=fixed_range,
+        stream_idle=bool(stream_idle),
+        last_activity_ts=last_activity_ts,
+        use_ingest_rollups=use_ingest_rollups,
+        last_roll_ts=last_roll_ts,
+    )
     start_ts = requested_start_ts if fixed_range else (data_end_ts - timedelta(minutes=requested_window_minutes))
-    ch = _ch_client_or_none()
-    if ch is not None and not fixed_range:
-        ch_latest_rows = _ch_query_dicts(
-            ch,
-            f"SELECT max(timestamp) AS last_ts FROM {clickhouse_events_table_ref()} "
-            + ("WHERE agent_id = {agent_id:String}" if agent_id else ""),
-            ({"agent_id": agent_id} if agent_id else None),
-        )
-        ch_latest_ts = _to_utc((ch_latest_rows or [{}])[0].get("last_ts"))
-        pg_latest_ts = _pg_latest_event_ts(db, agent_id=agent_id)
-        stale_margin_s = int(getattr(settings, "SEAGULL_EVENTS_ES_STALE_MARGIN_SECONDS", 15) or 15)
-        if pg_latest_ts is not None and (
-            ch_latest_ts is None or (pg_latest_ts - ch_latest_ts).total_seconds() > float(max(1, stale_margin_s))
-        ):
-            log_event(
-                logger,
-                "warning",
-                "overview_clickhouse_stale_fallback",
-                ch_last_ts=(ch_latest_ts.isoformat() if ch_latest_ts else None),
-                pg_last_ts=pg_latest_ts.isoformat(),
-            )
-            ch = None
     recent_feed = [] if fixed_range else fetch_recent_feed_events(limit=30, agent_id=agent_id)
     recent_health = {} if fixed_range else recent_feed_health(agent_id=agent_id)
 
@@ -804,7 +877,7 @@ def get_overview_payload(
         if agent_id:
             ev_stmt = ev_stmt.where(NetEventRollup1sModel.agent_id == agent_id)
         events_5m = int(db.execute(ev_stmt).scalar() or 0)
-        last_event_ts = data_end_ts if last_roll_ts is not None else None
+        last_event_ts = last_roll_ts
     elif traffic_source == "live_1s":
         cutoff = now - timedelta(minutes=5)
         events_5m = 0
@@ -825,7 +898,7 @@ def get_overview_payload(
             params["agent_id"] = agent_id
         ev_rows = _ch_query_dicts(
             ch,
-            f"SELECT count() AS events_5m, max(timestamp) AS last_event_ts FROM {clickhouse_events_table_ref()} WHERE {where_sql}",
+            f"SELECT count() AS events_5m, maxOrNull(timestamp) AS last_event_ts FROM {clickhouse_events_table_ref()} WHERE {where_sql}",
             params,
         )
         ev_row = (ev_rows or [{}])[0]
@@ -839,7 +912,10 @@ def get_overview_payload(
         ev_row = db.execute(ev_stmt2).one()
         last_event_ts = _to_utc(ev_row[1])
 
-        ev_5m_stmt = select(func.count()).select_from(NetEventModel).where(NetEventModel.timestamp >= now - timedelta(minutes=5))
+        ev_5m_stmt = select(func.count()).select_from(NetEventModel).where(
+            NetEventModel.timestamp >= data_end_ts - timedelta(minutes=5),
+            NetEventModel.timestamp <= data_end_ts,
+        )
         if agent_id:
             ev_5m_stmt = ev_5m_stmt.where(NetEventModel.agent_id == agent_id)
         events_5m = int(db.execute(ev_5m_stmt).scalar() or 0)
@@ -1581,7 +1657,7 @@ def get_overview_payload(
             ingest_stats_last_ts is not None
             and (now - ingest_stats_last_ts).total_seconds() <= float(rollup_fresh_s)
         )
-        ingest_source_reason = None if ingest_stats_fresh else "live_stale_fallback_ingest_stats"
+        ingest_source_reason = None if (ingest_stats_fresh or stream_idle) else "live_stale_fallback_ingest_stats"
 
     query_source = _overview_query_source(traffic_source, use_clickhouse=bool(ch is not None and traffic_source not in {"rollup_1s", "live_1s"}))
     query_freshness = _source_meta(
@@ -1623,6 +1699,7 @@ def get_overview_payload(
                 "window_start": start_ts.isoformat(),
                 "window_end": data_end_ts.isoformat(),
                 "data_lag_seconds": data_lag_s,
+                "stream_idle": bool(stream_idle),
                 "backlog_events": int(backlog_ev),
                 "backlog_messages": int(backlog_msgs),
                 "ddos_telemetry_emission_per_sec": int(live_payload.get("ddos_samples_last_second") or 0),
@@ -1702,5 +1779,6 @@ def get_overview_payload(
         use_ingest_rollups=bool(use_ingest_rollups),
         traffic_source=str(traffic_source),
         ddos_source=str(ddos_source),
+        stream_idle=bool(stream_idle),
     )
     return payload
