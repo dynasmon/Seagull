@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.observability import observe_hist
+from app.features.ingest.control.overview_live import read_overview_live_last_ts
 from app.features.overview.repository import get_overview_payload
 from app.shared.analytics import (
     AnalyticalReadModel,
@@ -17,6 +18,7 @@ from app.shared.analytics import (
     register_snapshot_page,
     serve_read_model,
 )
+from app.shared.analytics.snapshots import snapshot_tick_seconds
 
 
 def get_overview(
@@ -141,6 +143,24 @@ def _overview_snapshot_scopes() -> list[Dict[str, Any]]:
     return scopes
 
 
+def _overview_snapshot_outdated(payload: Dict[str, Any], params: Dict[str, Any]) -> bool:
+    if str(params.get("agent_id") or "").strip():
+        return False
+    window_end_raw = str((payload.get("meta") or {}).get("window_end") or "")
+    if not window_end_raw:
+        return False
+    try:
+        window_end = datetime.fromisoformat(window_end_raw)
+    except ValueError:
+        return False
+    if window_end.tzinfo is None:
+        window_end = window_end.replace(tzinfo=timezone.utc)
+    live_last_ts = read_overview_live_last_ts()
+    if live_last_ts is None:
+        return False
+    return (live_last_ts - window_end).total_seconds() > 2.0 * snapshot_tick_seconds()
+
+
 OVERVIEW_SNAPSHOT_PAGE = register_snapshot_page(
     SnapshotPage(
         page="overview",
@@ -152,6 +172,7 @@ OVERVIEW_SNAPSHOT_PAGE = register_snapshot_page(
         snapshotable=_overview_snapshotable,
         track_params=_overview_track_params,
         scope_label=_overview_scope_label,
+        freshness_probe=_overview_snapshot_outdated,
     )
 )
 
