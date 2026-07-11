@@ -69,6 +69,7 @@ export type OverviewMeta = {
   window_start: string;
   window_end: string;
   data_lag_seconds: number;
+  stream_idle?: boolean;
   backlog_events: number;
   backlog_messages: number;
   ddos_telemetry_emission_per_sec: number;
