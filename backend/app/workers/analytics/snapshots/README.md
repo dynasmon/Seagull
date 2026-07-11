@@ -1,111 +1,129 @@
 # Dashboard snapshots worker
 
-Materializa em Postgres o payload agregado das páginas de dashboard mais quentes
-(padrão CQRS: compute em background, leitura O(1) no handler). O handler HTTP nunca
-chama este worker — toda comunicação acontece via a tabela `dashboard_snapshots`.
+Materializes the aggregated payload of the hottest dashboard pages into Postgres
+(CQRS pattern: background compute, O(1) read in the handler). The HTTP handler
+never calls this worker — all communication happens through the
+`dashboard_snapshots` table.
 
-## Topologia
+## Topology
 
 ```
-worker (este processo)                 API (uvicorn)
-  tick fixo (30s)                        GET /overview, /vuln/..., ...
-  para cada página habilitada              SWR (Redis) --------- fresh? serve
-    para cada scope registrado              | miss/revalidate
-      lock Redis por scope                  v
+worker (this process)                  API (uvicorn)
+  fixed tick (30s)                       GET /overview, /vuln/..., ...
+  for each enabled page                    SWR (Redis) --------- fresh? serve
+    for each registered scope               | miss/revalidate
+      Redis lock per scope                  v
       raw_compute(params)              SnapshotPage.compute
-      UPSERT dashboard_snapshots  -->    SELECT por (page, scope_key)
-                                          fresco? serve : fallback raw_compute
+      UPSERT dashboard_snapshots  -->    SELECT by (page, scope_key)
+                                          fresh? serve : fallback raw_compute
 ```
 
-Páginas convertidas (uma feature flag por página, rollback = desligar a flag):
+Converted pages (one feature flag per page, rollback = turn the flag off):
 
-| página | flag | scopes |
+| page | flag | scopes |
 | --- | --- | --- |
-| `overview` | `SEAGULL_SNAPSHOT_OVERVIEW_ENABLED` | estáticos (janelas `SEAGULL_SNAPSHOT_OVERVIEW_WINDOWS` global + lite) + dinâmicos |
-| `exposure_summary` | `SEAGULL_SNAPSHOT_EXPOSURE_SUMMARY_ENABLED` | único (global) |
-| `network_topology_summary` | `SEAGULL_SNAPSHOT_TOPOLOGY_SUMMARY_ENABLED` | único (global) |
-| `vuln_summary` | `SEAGULL_SNAPSHOT_VULN_SUMMARY_ENABLED` | defaults do router |
-| `vuln_posture` | `SEAGULL_SNAPSHOT_VULN_POSTURE_ENABLED` | defaults do router |
+| `overview` | `SEAGULL_SNAPSHOT_OVERVIEW_ENABLED` | static (global `SEAGULL_SNAPSHOT_OVERVIEW_WINDOWS` windows + lite) + dynamic |
+| `exposure_summary` | `SEAGULL_SNAPSHOT_EXPOSURE_SUMMARY_ENABLED` | single (global) |
+| `network_topology_summary` | `SEAGULL_SNAPSHOT_TOPOLOGY_SUMMARY_ENABLED` | single (global) |
+| `vuln_summary` | `SEAGULL_SNAPSHOT_VULN_SUMMARY_ENABLED` | router defaults |
+| `vuln_posture` | `SEAGULL_SNAPSHOT_VULN_POSTURE_ENABLED` | router defaults |
 
-## Store: por que Postgres (e não ClickHouse)
+## Store: why Postgres (and not ClickHouse)
 
-- Cardinalidade baixa: scopes = páginas globais + agentes efetivamente consultados
-  (cap `SEAGULL_SNAPSHOTS_DYNAMIC_MAX_SCOPES`, default 20). O ponto forte do CH
-  (bulk write barato, TTL nativo) não pesa com ~1 linha/s.
-- Atomicidade real: `INSERT ... ON CONFLICT DO UPDATE` troca a linha inteira numa
-  transação — nunca há estado parcial visível. No CH (ReplacingMergeTree) a
-  convergência depende de merges e exigiria `FINAL`/`argMax` no read path.
-- Disponibilidade: o read path do dashboard não pode depender do CH, que é opcional
-  (`SEAGULL_CLICKHOUSE_REQUIRED=false` nos workers) e entra em modo degradado sob
-  storm de ingest — exatamente o cenário em que o dashboard mais precisa responder.
-- Tabela genérica única (`page` + `scope_key` como PK, payload JSONB) em vez de uma
-  tabela por página: todos os leitores fazem o mesmo point-read por PK, não há
-  necessidade de indexação fina por página, e novas páginas não exigem migration.
-  O versionamento do payload é por página via `schema_version`.
+- Low cardinality: scopes = global pages + agents actually being queried
+  (capped by `SEAGULL_SNAPSHOTS_DYNAMIC_MAX_SCOPES`, default 20). ClickHouse's
+  strengths (cheap bulk writes, native TTL) carry no weight at ~1 row/s.
+- Real atomicity: `INSERT ... ON CONFLICT DO UPDATE` swaps the whole row in one
+  transaction — partial state is never visible. In ClickHouse
+  (ReplacingMergeTree) convergence depends on merges and would require
+  `FINAL`/`argMax` on the read path.
+- Availability: the dashboard read path cannot depend on ClickHouse, which is
+  optional (`SEAGULL_CLICKHOUSE_REQUIRED=false` in the workers) and enters
+  degraded mode under ingest storms — exactly the scenario where the dashboard
+  most needs to respond.
+- One generic table (`page` + `scope_key` as PK, JSONB payload) instead of a
+  table per page: every reader does the same PK point-read, no per-page
+  indexing is needed, and new pages require no migration. Payload versioning is
+  per page via `schema_version`.
 
-## Registry de scopes
+## Scope registry
 
-- **Estático (código)**: cada página registra `static_scopes()` junto ao
-  `register_snapshot_page(...)` no service da feature (garante que worker e handler
-  derivam o mesmo `scope_key` do mesmo `key_builder` do read model).
-- **Dinâmico (consulta real)**: páginas com `track_params` (hoje só `overview`)
-  gravam cada scope consultado num ZSET Redis (`seagull:snapshots:seen:<page>`,
-  score = último acesso). O worker recomputa apenas os scopes vistos nas últimas
-  `SEAGULL_SNAPSHOTS_DYNAMIC_WINDOW_HOURS` horas (cap de
-  `SEAGULL_SNAPSHOTS_DYNAMIC_MAX_SCOPES`). Assim, overview por agente só é
-  materializado para agentes que alguém de fato consultou; o primeiro acesso cai no
-  fallback inline e a partir do tick seguinte é servido do snapshot.
-- Scopes altamente combinatórios (ranges fixos `start_ts`/`end_ts`, janelas fora do
-  preset, params fora do default) são `bypass`: nem consultam o store, seguem SWR
-  direto com compute inline.
+- **Static (code)**: each page registers `static_scopes()` alongside
+  `register_snapshot_page(...)` in the feature's service (guarantees worker and
+  handler derive the same `scope_key` from the same read-model `key_builder`).
+- **Dynamic (actual queries)**: pages with `track_params` (today only
+  `overview`) record every queried scope in a Redis ZSET
+  (`seagull:snapshots:seen:<page>`, score = last access). The worker recomputes
+  only the scopes seen within the last `SEAGULL_SNAPSHOTS_DYNAMIC_WINDOW_HOURS`
+  hours (capped by `SEAGULL_SNAPSHOTS_DYNAMIC_MAX_SCOPES`). Per-agent overview
+  is therefore only materialized for agents someone actually queried; the first
+  access falls back to inline compute and from the next tick onward it is
+  served from the snapshot.
+- Highly combinatorial scopes (fixed `start_ts`/`end_ts` ranges, windows
+  outside the preset, non-default params) are `bypass`: they never consult the
+  store and go straight through SWR with inline compute.
 
 ## Freshness contract
 
-Cada linha carrega `computed_at` e `computed_ms`; o handler expõe ambos em
-`meta.snapshot` (com `age_s` e `degraded`) para debug. Regras no handler:
+Each row carries `computed_at` and `computed_ms`; the handler exposes both in
+`meta.snapshot` (with `age_s` and `degraded`) for debugging. Handler rules:
 
-- `age <= 2 × tick` → serve normal (`snapshot_lookup_total{outcome="hit"}`).
-- `2 × tick < age <= SEAGULL_SNAPSHOTS_MAX_AGE_MULTIPLIER × tick` → serve com
+- `age <= 2 × tick` → serve normally (`snapshot_lookup_total{outcome="hit"}`).
+- `2 × tick < age <= SEAGULL_SNAPSHOTS_MAX_AGE_MULTIPLIER × tick` → serve with
   `meta.snapshot.degraded=true` (`outcome="degraded"`).
-- `age` acima do teto, linha ausente, `schema_version` divergente ou erro de leitura
-  → fallback para o compute inline antigo, com warning estruturado
-  (`snapshot_fallback_inline_compute`) e `snapshot_fallback_total{reason}`.
+- `age` above the ceiling, missing row, `schema_version` mismatch, or read
+  error → fallback to the old inline compute, with a structured warning
+  (`snapshot_fallback_inline_compute`) and `snapshot_fallback_total{reason}`.
+- A page may register an optional `freshness_probe(payload, params)`: when the
+  probe detects that the stored payload has fallen behind reality, the read
+  falls back to inline compute (`reason="outdated"`). Snapshot age cannot catch
+  this case: while the stream is idle the worker keeps recomputing on every
+  tick (`computed_at` stays fresh) but the content remains frozen at the last
+  activity. The overview probe compares the payload's `meta.window_end` against
+  the newest live bucket in Redis, with a margin of 2 × tick — the margin must
+  exceed one worker tick plus compute time, otherwise steady traffic would
+  bypass the store on every read — and applies to global scopes only, since the
+  live peek carries no agent dimension. Probe errors never break the read —
+  when in doubt, the snapshot is served.
 
-O contrato de resposta dos endpoints não muda: o SWR/ETag da Onda 1 continua acima
-desta camada, e `meta` é excluído do hash de ETag.
+The endpoints' response contract does not change: the SWR/ETag layer stays
+above this one, and `meta` is excluded from the ETag hash.
 
-## Concorrência
+## Concurrency
 
-Múltiplas instâncias do worker podem coexistir: cada scope é protegido por lock
-distribuído (`acquire_lock`/`release_lock` de `app/core/cache/locks.py`, a mesma
-primitiva do `single_flight` usado no path SWR). Quem não pega o lock pula o scope
-(`outcome="locked"`). Sem Redis, assume-se instância única e computa mesmo assim.
+Multiple worker instances can coexist: each scope is protected by a distributed
+lock (`acquire_lock`/`release_lock` from `app/core/cache/locks.py`, the same
+primitive as the `single_flight` used on the SWR path). Whoever misses the lock
+skips the scope (`outcome="locked"`). Without Redis, a single instance is
+assumed and the compute proceeds anyway.
 
-## Invalidação
+## Invalidation
 
-v1 é somente tick fixo (`SEAGULL_SNAPSHOTS_EVERY_SECONDS`, default 30s) — barato,
-previsível e suficiente dado que o SWR acima já absorve rajadas. Invalidação por
-evento (ex.: alerta crítico publica wake-up via Redis pub/sub para adiantar o tick)
-fica para uma iteração seguinte; o desenho atual comporta isso sem mudança de schema.
-Retenção: linhas não reescritas há `SEAGULL_SNAPSHOTS_RETENTION_HOURS` (24h) são
-podadas — remove scopes dinâmicos que deixaram de ser consultados.
+v1 is fixed-tick only (`SEAGULL_SNAPSHOTS_EVERY_SECONDS`, default 30s) — cheap,
+predictable, and sufficient given that the SWR layer above already absorbs
+bursts. Event-driven invalidation (e.g. a critical alert publishing a wake-up
+via Redis pub/sub to advance the tick) is left for a later iteration; the
+current design accommodates it without a schema change. Retention: rows not
+rewritten for `SEAGULL_SNAPSHOTS_RETENTION_HOURS` (24h) are pruned — this
+removes dynamic scopes that stopped being queried.
 
-## Métricas (Prometheus)
+## Metrics (Prometheus)
 
-- `snapshot_compute_seconds{page,scope}` — latência de compute por página+scope
-  (label `scope` é a forma compacta `w60:global:lite`, não o scope_key inteiro,
-  para manter a cardinalidade limitada).
-- `snapshot_oldest_age_seconds{page}` — idade do snapshot mais velho por página.
-- `snapshot_fallback_total{page,reason}` — fallbacks inline (missing/stale/schema/error).
-- `snapshot_compute_errors_total{page}` — erros de compute no worker.
-- `snapshot_lookup_total{page,outcome}` — hit/degraded/bypass/misses no handler.
+- `snapshot_compute_seconds{page,scope}` — compute latency per page+scope
+  (the `scope` label is the compact form `w60:global:lite`, not the full
+  scope_key, to keep cardinality bounded).
+- `snapshot_oldest_age_seconds{page}` — age of the oldest snapshot per page.
+- `snapshot_fallback_total{page,reason}` — inline fallbacks (missing/stale/schema/error/outdated).
+- `snapshot_compute_errors_total{page}` — worker compute errors.
+- `snapshot_lookup_total{page,outcome}` — hit/degraded/bypass/misses in the handler.
 - `snapshot_writes_total{page,outcome}` / `snapshot_cycle_seconds` /
-  `snapshot_store_read_seconds{page}` — saúde do ciclo e custo do point-read.
+  `snapshot_store_read_seconds{page}` — cycle health and point-read cost.
 
-## Operação
+## Operations
 
-Roda como child `dashboard-snapshots` do grupo `intelligence`
-(`python -m app.workers.manager intelligence`), gate por
-`SEAGULL_SNAPSHOTS_WORKER_ENABLED`. Backoff automático quando o ClickHouse está em
-estado `degraded` (mesmo sinal usado pelo prewarm). Se o worker estiver parado, os
-handlers continuam funcionando pelo fallback inline — o custo volta a ser o da Onda 1.
+Runs as the `dashboard-snapshots` child of the `intelligence` group
+(`python -m app.workers.manager intelligence`), gated by
+`SEAGULL_SNAPSHOTS_WORKER_ENABLED`. Automatic backoff while ClickHouse is in
+`degraded` state (the same signal used by the prewarm). If the worker is down,
+the handlers keep working through the inline fallback — the cost returns to the
+pre-snapshot SWR-only path.
