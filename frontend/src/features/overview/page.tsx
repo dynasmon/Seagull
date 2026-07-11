@@ -150,6 +150,14 @@ function telemetryKeptColor(keptPercent: number): "success" | "warning" | "dange
 
 type TelemetryQualityRow = NonNullable<StormStatus["quality_by_event_type"]>[number];
 
+function idleBadgeText(meta?: { stream_idle?: boolean; window_end?: string } | null): string | null {
+  if (!meta?.stream_idle) return null;
+  const endMs = Date.parse(meta.window_end || "");
+  if (!Number.isFinite(endMs)) return "Idle · no recent data";
+  const ageMinutes = Math.max(1, Math.round((Date.now() - endMs) / 60000));
+  return `Idle · data as of ${fmtHHMM(endMs)} (${fmtDurationCompact(ageMinutes)} ago)`;
+}
+
 function fmtSource(meta?: { source?: string; source_freshness_seconds?: number | null; degraded_reason?: string | null }) {
   if (!meta) return "source: -";
   const src = String(meta.source || "unknown");
@@ -334,6 +342,7 @@ function OverviewPageView({
   const stormPhaseLabel = stormUi.phaseLabel;
   const hasDdosDetectionsSignal = timeSeriesHasSignal(ddosChart?.data || []);
   const hasDdosVolumeSignal = timeSeriesHasSignal(ddosVolumeChart?.data || []);
+  const idleBadge = idleBadgeText(snapshot?.meta);
   const activeWindowStart = snapshot?.query_meta?.query_window_start || snapshot?.meta?.window_start || resolvedQuery.startTs || null;
   const activeWindowEnd = snapshot?.query_meta?.query_window_end || snapshot?.meta?.window_end || resolvedQuery.endTs || null;
   const windowDurationMinutes = durationMinutesBetween(activeWindowStart, activeWindowEnd) ?? resolvedQuery.windowMinutes;
@@ -359,6 +368,7 @@ function OverviewPageView({
   const headerRight = (
     <div className="flex flex-wrap items-center justify-end gap-2">
       {resolvedQuery.fixedRange ? <HeaderBadge text="Historical range" tone="neutral" /> : null}
+      {idleBadge ? <HeaderBadge text={idleBadge} tone="neutral" /> : null}
       {degradedSources > 0 ? <HeaderBadge text={`Degraded sources: ${degradedSources}`} tone="warning" /> : null}
       {snapshot.meta?.ddos_telemetry_dropped_per_sec > 0 ? (
         <HeaderBadge text={`DDoS drop/s: ${snapshot.meta.ddos_telemetry_dropped_per_sec}`} tone="warning" />
