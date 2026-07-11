@@ -449,6 +449,19 @@ export function applyStormStatusToOverviewSnapshot(
   };
 }
 
+export function isRegressiveOverviewWindow(
+  current: OverviewSnapshot | null,
+  incoming: OverviewSnapshot | null | undefined,
+): boolean {
+  const currentEnd = toSafeTsMs(current?.meta?.window_end);
+  const incomingEnd = toSafeTsMs(incoming?.meta?.window_end);
+  if (currentEnd === null || incomingEnd === null) return false;
+  if (incomingEnd >= currentEnd) return false;
+  // An idle snapshot's window is frozen at the last activity, so it may
+  // legitimately end before the previously rendered clock-anchored window.
+  return !incoming?.meta?.stream_idle;
+}
+
 export function reconcileFetchedOverviewSnapshot(
   current: OverviewSnapshot | null,
   incoming: OverviewSnapshot,
