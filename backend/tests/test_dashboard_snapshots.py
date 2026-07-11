@@ -42,6 +42,7 @@ def _page(
     snapshotable=None,
     track_params=None,
     static_scopes=None,
+    freshness_probe=None,
 ) -> SnapshotPage:
     monkeypatch.setattr(settings, _FLAG, True, raising=False)
     monkeypatch.setattr(snapshots, "get_redis", lambda: None)
@@ -55,6 +56,8 @@ def _page(
         kwargs["snapshotable"] = snapshotable
     if track_params is not None:
         kwargs["track_params"] = track_params
+    if freshness_probe is not None:
+        kwargs["freshness_probe"] = freshness_probe
     return SnapshotPage(
         page="unit_page",
         flag_env=_FLAG,
@@ -151,6 +154,38 @@ def test_stale_snapshot_falls_back_to_compute(monkeypatch) -> None:
     payload = asyncio.run(page.compute({"value": 7}))
     assert payload["value"] == 7
     assert calls["n"] == 1
+
+
+def test_outdated_snapshot_falls_back_to_compute(monkeypatch) -> None:
+    calls = {"n": 0}
+    probes: list[tuple[dict, dict]] = []
+
+    def _probe(payload: dict, params: dict) -> bool:
+        probes.append((payload, params))
+        return True
+
+    page = _page(monkeypatch, calls=calls, freshness_probe=_probe)
+    monkeypatch.setattr(snapshot_store, "read_snapshot", lambda page_name, scope_key: _row(age_s=1.0))
+
+    payload = asyncio.run(page.compute({"value": 7}))
+    assert payload["value"] == 7
+    assert calls["n"] == 1
+    assert probes and probes[0][0]["value"] == 42
+    assert probes[0][1] == {"value": 7}
+
+
+def test_freshness_probe_error_still_serves_snapshot(monkeypatch) -> None:
+    calls = {"n": 0}
+
+    def _probe(payload: dict, params: dict) -> bool:
+        raise RuntimeError("redis down")
+
+    page = _page(monkeypatch, calls=calls, freshness_probe=_probe)
+    monkeypatch.setattr(snapshot_store, "read_snapshot", lambda page_name, scope_key: _row(age_s=1.0))
+
+    payload = asyncio.run(page.compute({"value": 1}))
+    assert payload["value"] == 42
+    assert calls["n"] == 0
 
 
 def test_schema_mismatch_falls_back_to_compute(monkeypatch) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -99,6 +100,33 @@ def test_overview_handler_sets_cache_headers_and_metric(monkeypatch: pytest.Monk
     assert metric_calls == [
         ("api_cache_outcome_total", {"route": "/overview", "outcome": "stale"})
     ]
+
+
+def test_overview_snapshot_outdated_detects_resumed_traffic(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(overview_service, "read_overview_live_last_ts", lambda: now)
+    frozen = {"meta": {"window_end": (now - timedelta(minutes=10)).isoformat()}}
+
+    assert overview_service._overview_snapshot_outdated(frozen, {"agent_id": None}) is True
+    assert overview_service._overview_snapshot_outdated(frozen, {"agent_id": "a1"}) is False
+
+    recent = {"meta": {"window_end": (now - timedelta(seconds=20)).isoformat()}}
+    assert overview_service._overview_snapshot_outdated(recent, {"agent_id": None}) is False
+
+
+def test_overview_snapshot_outdated_defaults_to_serving_the_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(overview_service, "read_overview_live_last_ts", lambda: None)
+    frozen = {"meta": {"window_end": "2026-01-01T00:00:00+00:00"}}
+    assert overview_service._overview_snapshot_outdated(frozen, {"agent_id": None}) is False
+
+    monkeypatch.setattr(
+        overview_service, "read_overview_live_last_ts", lambda: datetime.now(timezone.utc)
+    )
+    assert overview_service._overview_snapshot_outdated({"meta": {}}, {"agent_id": None}) is False
+    assert (
+        overview_service._overview_snapshot_outdated({"meta": {"window_end": "junk"}}, {"agent_id": None})
+        is False
+    )
 
 
 def test_overview_handler_returns_304_on_matching_etag(monkeypatch: pytest.MonkeyPatch) -> None:
