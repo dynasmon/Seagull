@@ -20,7 +20,10 @@ from app.core.integrations.clickhouse import (
 from app.core.integrations.es import es_is_available, get_es_client, search_backend_mode
 from app.core.observability import log_event
 from app.features.events import repository
+from app.features.events.domain.eql import eql_response_is_incomplete
+from app.features.events.domain.field_catalog import HUNT_FREE_TEXT_FIELDS
 from app.features.events.domain.filters import _ch_where, _es_base_filters
+from app.features.events.domain.hunt_dialects import HuntQueryError, translate_es_query_error
 from app.features.events.domain.normalizers import (
     _ch_row_to_event,
     _hit_to_event,
@@ -292,21 +295,7 @@ def _es_hunt_query(
             {
                 "simple_query_string": {
                     "query": str(search),
-                    "fields": [
-                        "agent_id^2",
-                        "event_type^2",
-                        "src_ip",
-                        "dst_ip",
-                        "proto",
-                        "ssh_username",
-                        "http_host",
-                        "dns_qname",
-                        "tls_sni",
-                        "ja3",
-                        "ja4",
-                        "extra_json",
-                        "extra.*",
-                    ],
+                    "fields": list(HUNT_FREE_TEXT_FIELDS),
                     "default_operator": "and",
                     "lenient": True,
                 }
@@ -341,6 +330,108 @@ def _es_hunt_query(
         last_evt = items[-1]
         next_cursor = make_cursor_ts_id(last_evt.timestamp, last_evt.id)
     return items, next_cursor, has_more
+
+
+def _es_kql_hunt_query(
+    *,
+    es: Any,
+    compiled_query: Dict[str, Any],
+    page_size: int,
+    cursor: str | None,
+    agent_id: str | None,
+    event_type: str | None,
+    start_ts: datetime | None,
+    end_ts: datetime | None,
+    timeout_seconds: float | None = None,
+    terminate_after: int | None = None,
+) -> tuple[list[NetEventDB], str | None, bool]:
+    scoped = _es_with_request_timeout(es, timeout_seconds)
+    filters = _es_base_filters(since=start_ts, agent_id=agent_id, event_type=event_type)
+    if end_ts is not None:
+        filters.append({"range": {"timestamp": {"lte": end_ts.isoformat()}}})
+
+    body: Dict[str, Any] = {
+        "size": int(page_size) + 1,
+        "sort": [
+            {"timestamp": {"order": "desc", "unmapped_type": "date"}},
+            {"id": {"order": "desc", "unmapped_type": "long"}},
+        ],
+        "query": {"bool": {"filter": [*filters, compiled_query]}},
+    }
+    if timeout_seconds and float(timeout_seconds) > 0:
+        body["timeout"] = f"{max(100, int(float(timeout_seconds) * 1000.0))}ms"
+    if terminate_after and int(terminate_after) > 0:
+        body["terminate_after"] = int(terminate_after)
+    if cursor:
+        c_ts, c_id = parse_cursor_ts_id(cursor)
+        body["search_after"] = [c_ts.isoformat(), int(c_id)]
+
+    try:
+        res = scoped.search(
+            index=_es_index_pattern(),
+            body=body,
+            ignore_unavailable=True,
+            allow_no_indices=True,
+            track_total_hits=False,
+        )
+    except Exception as exc:
+        raise translate_es_query_error(exc, dialect="kql") from exc
+    if bool(res.get("timed_out")):
+        raise HuntQueryError("KQL query timed out against Elasticsearch", reason="timeout")
+
+    hits = (res.get("hits") or {}).get("hits") or []
+    has_more = len(hits) > int(page_size)
+    page_hits = hits[: int(page_size)]
+    items = [_hit_to_event(h) for h in page_hits]
+    next_cursor = None
+    if has_more and items:
+        last_evt = items[-1]
+        next_cursor = make_cursor_ts_id(last_evt.timestamp, last_evt.id)
+    return items, next_cursor, has_more
+
+
+def _eql_delete_quietly(es: Any, search_id: str) -> None:
+    try:
+        es.eql.delete(id=search_id)
+    except Exception:
+        pass
+
+
+def _es_eql_query(
+    *,
+    es: Any,
+    query: str,
+    filters: List[Dict[str, Any]],
+    size: int,
+    fetch_size: int,
+    timeout_seconds: float,
+) -> Dict[str, Any]:
+    scoped = _es_with_request_timeout(es, float(timeout_seconds) + 1.0)
+    wait = f"{max(100, int(float(timeout_seconds) * 1000.0))}ms"
+    try:
+        res = scoped.eql.search(
+            index=_es_index_pattern(),
+            query=query,
+            filter={"bool": {"filter": filters}},
+            size=int(size),
+            fetch_size=int(fetch_size),
+            timestamp_field="timestamp",
+            event_category_field="event_type",
+            wait_for_completion_timeout=wait,
+            keep_on_completion=False,
+            allow_no_indices=True,
+            ignore_unavailable=True,
+        )
+    except Exception as exc:
+        raise translate_es_query_error(exc, dialect="eql") from exc
+
+    data: Dict[str, Any] = res if isinstance(res, dict) else dict(res)
+    search_id = data.get("id")
+    if search_id and (data.get("is_running") or data.get("is_partial")):
+        _eql_delete_quietly(es, str(search_id))
+    if eql_response_is_incomplete(data):
+        raise HuntQueryError("EQL query timed out against Elasticsearch", reason="timeout")
+    return data
 
 
 def _pg_hunt_query(
