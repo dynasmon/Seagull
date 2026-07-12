@@ -25,7 +25,20 @@ from app.features.events.domain import live_feed as event_live_feed
 from app.features.events.domain import normalizers as event_normalizers
 from app.features.events.domain import queries as event_queries
 from app.features.events.domain import summaries as event_summaries
+from app.features.events.domain.eql import eql_sequences_from_response, normalize_eql_query
+from app.features.events.domain.field_catalog import (
+    HUNT_FREE_TEXT_FIELDS,
+    hunt_field_listing,
+    hunt_field_types,
+)
 from app.features.events.domain.filters import _search_tokens
+from app.features.events.domain.hunt_dialects import (
+    EQL_ENDPOINT_HINT,
+    HuntDialect,
+    HuntQueryError,
+    resolve_hunt_dialect,
+)
+from app.features.events.domain.kql import compile_kql
 from app.features.events.domain.routing import (
     BackendCircuitBreaker,
     QuerySignals,
@@ -40,8 +53,11 @@ from app.features.events.recent_feed import fetch_recent_events as fetch_recent_
 from app.features.events.recent_feed import recent_feed_health
 from app.features.events.schemas import (
     DdosLiveSnapshotResponse,
+    EqlHuntResponse,
     EventHuntResponse,
     EventStreamSnapshotResponse,
+    HuntFieldSpec,
+    HuntFieldsResponse,
     HuntRouteCircuitState,
     HuntRouteExplainResponse,
     HuntRouteSignals,
@@ -371,6 +387,54 @@ def _ch_hunt_query(
     )
 
 
+def _es_kql_hunt_query(
+    *,
+    es: Any,
+    compiled_query: Dict[str, Any],
+    page_size: int,
+    cursor: str | None,
+    agent_id: str | None,
+    event_type: str | None,
+    start_ts: datetime | None,
+    end_ts: datetime | None,
+    timeout_seconds: float | None = None,
+    terminate_after: int | None = None,
+) -> tuple[list[NetEventDB], str | None, bool]:
+    _bind_query_module()
+    return event_queries._es_kql_hunt_query(
+        es=es,
+        compiled_query=compiled_query,
+        page_size=page_size,
+        cursor=cursor,
+        agent_id=agent_id,
+        event_type=event_type,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        timeout_seconds=timeout_seconds,
+        terminate_after=terminate_after,
+    )
+
+
+def _es_eql_query(
+    *,
+    es: Any,
+    query: str,
+    filters: List[Dict[str, Any]],
+    size: int,
+    fetch_size: int,
+    timeout_seconds: float,
+) -> Dict[str, Any]:
+    _bind_query_module()
+    return event_queries._es_eql_query(
+        es=es,
+        query=query,
+        filters=filters,
+        size=size,
+        fetch_size=fetch_size,
+        timeout_seconds=timeout_seconds,
+    )
+
+
 def _build_hunt_breaker() -> BackendCircuitBreaker:
     return BackendCircuitBreaker(
         failure_threshold=int(getattr(settings, "SEAGULL_ROUTE_BREAKER_FAILURE_THRESHOLD", 5) or 5),
@@ -395,6 +459,8 @@ def _route_decision(signals: QuerySignals) -> RouteDecision:
 
 def _hunt_backend_timeout_seconds(backend: str, signals: QuerySignals) -> float:
     if backend == "elasticsearch":
+        if signals.dialect == "kql":
+            return float(getattr(settings, "SEAGULL_HUNT_KQL_TIMEOUT_SECONDS", 3.0) or 3.0)
         if signals.has_search or signals.has_wildcard:
             return float(getattr(settings, "SEAGULL_ROUTE_ES_SEARCH_TIMEOUT_SECONDS", 2.0) or 2.0)
         return float(getattr(settings, "SEAGULL_ROUTE_ES_TERM_TIMEOUT_SECONDS", 0.5) or 0.5)
@@ -471,6 +537,82 @@ def _build_hunt_signals(
     )
 
 
+_HUNT_QUERY_ERROR_STATUS: Dict[str, int] = {
+    "timeout": 504,
+    "es_unavailable": 503,
+    "circuit_open": 503,
+}
+
+
+def _hunt_query_http_error(error: HuntQueryError, dialect: str) -> HTTPException:
+    incr_counter("hunt_query_error_total", dialect=dialect, reason=error.reason)
+    return HTTPException(
+        status_code=_HUNT_QUERY_ERROR_STATUS.get(error.reason, 400),
+        detail=str(error),
+    )
+
+
+def _resolve_hunt_dialect_or_http(
+    search: Optional[str],
+    search_dialect: Optional[str],
+) -> tuple[HuntDialect, Optional[str]]:
+    try:
+        dialect, search_text = resolve_hunt_dialect(search=search, search_dialect=search_dialect)
+    except HuntQueryError as err:
+        raise _hunt_query_http_error(err, "invalid") from err
+    if dialect == "eql":
+        raise _hunt_query_http_error(HuntQueryError(EQL_ENDPOINT_HINT, reason="eql_endpoint"), "eql")
+    return dialect, search_text
+
+
+def _default_hunt_window_minutes() -> int:
+    return int(getattr(settings, "SEAGULL_HUNT_DEFAULT_WINDOW_MINUTES", 1440) or 1440)
+
+
+def _prepare_kql_hunt(
+    search_text: str | None,
+    *,
+    end_ts: datetime,
+    start_ts: datetime | None,
+    window_minutes: int | None,
+    agent_id: str | None,
+    event_type: str | None,
+) -> tuple[Dict[str, Any], QuerySignals, datetime | None, int | None]:
+    try:
+        if not (search_text or "").strip():
+            raise HuntQueryError("KQL dialect requires a non-empty search query", reason="syntax")
+        if search_backend_mode() == "postgres":
+            raise HuntQueryError("KQL requires the Elasticsearch search backend", reason="es_unavailable")
+        compiled = compile_kql(
+            str(search_text),
+            field_types=hunt_field_types(),
+            free_text_fields=HUNT_FREE_TEXT_FIELDS,
+            max_clauses=int(getattr(settings, "SEAGULL_HUNT_MAX_QUERY_CLAUSES", 32) or 32),
+        )
+    except HuntQueryError as err:
+        raise _hunt_query_http_error(err, "kql") from err
+
+    if start_ts is None and not compiled.has_timestamp_range:
+        start_ts = end_ts - timedelta(minutes=_default_hunt_window_minutes())
+        window_minutes = int(max(1, (end_ts - start_ts).total_seconds() // 60))
+
+    filter_clauses = compiled.clause_count
+    if agent_id:
+        filter_clauses += 1
+    if event_type:
+        filter_clauses += 1
+    if start_ts is not None:
+        filter_clauses += 1
+    signals = QuerySignals(
+        has_search=True,
+        has_wildcard=compiled.has_wildcard,
+        filter_clauses=filter_clauses,
+        window_minutes=window_minutes,
+        dialect="kql",
+    )
+    return compiled.query, signals, start_ts, window_minutes
+
+
 def _rollback_quietly(db: Session) -> None:
     rollback = getattr(db, "rollback", None)
     if not callable(rollback):
@@ -500,6 +642,7 @@ def _execute_hunt_backend(
     end_ts: datetime,
     search: str | None,
     tokens: list[str],
+    kql_query: Dict[str, Any] | None = None,
 ) -> tuple[list[NetEventDB], str | None, bool]:
     timeout_seconds = _hunt_backend_timeout_seconds(backend, signals)
 
@@ -507,6 +650,22 @@ def _execute_hunt_backend(
         es = _es_client_or_none()
         if es is None:
             raise LookupError("elasticsearch_unavailable")
+        if kql_query is not None:
+            try:
+                return _es_kql_hunt_query(
+                    es=es,
+                    compiled_query=kql_query,
+                    page_size=page_size,
+                    cursor=cursor,
+                    agent_id=agent_id,
+                    event_type=event_type,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                    timeout_seconds=timeout_seconds,
+                    terminate_after=int(getattr(settings, "SEAGULL_HUNT_TERMINATE_AFTER", 10000) or 10000),
+                )
+            except HuntQueryError as err:
+                raise _hunt_query_http_error(err, "kql") from err
         items, next_cursor, has_more = _es_hunt_query(
             es=es,
             page_size=page_size,
@@ -570,10 +729,14 @@ def hunt_events(
     start_ts_iso: Optional[str] = None,
     end_ts_iso: Optional[str] = None,
     search: Optional[str] = None,
+    search_dialect: Optional[str] = None,
 ) -> EventHuntResponse:
     started = time.perf_counter()
     now = _now_utc()
     size = max(1, min(int(page_size), 1000))
+
+    dialect, search_text = _resolve_hunt_dialect_or_http(search, search_dialect)
+    incr_counter("hunt_query_dialect_total", dialect=dialect)
 
     start_ts, end_ts, window_minutes = _resolve_hunt_window(
         now=now,
@@ -582,18 +745,29 @@ def hunt_events(
         end_ts_iso=end_ts_iso,
     )
 
-    tokens = _search_tokens(search)
-    if search is not None and not str(search).strip():
-        raise HTTPException(status_code=422, detail="search must contain non-whitespace characters")
-
-    signals = _build_hunt_signals(
-        search=search,
-        tokens=tokens,
-        agent_id=agent_id,
-        event_type=event_type,
-        start_ts=start_ts,
-        window_minutes=window_minutes,
-    )
+    tokens: list[str] = []
+    kql_query: Dict[str, Any] | None = None
+    if dialect == "kql":
+        kql_query, signals, start_ts, window_minutes = _prepare_kql_hunt(
+            search_text,
+            end_ts=end_ts,
+            start_ts=start_ts,
+            window_minutes=window_minutes,
+            agent_id=agent_id,
+            event_type=event_type,
+        )
+    else:
+        tokens = _search_tokens(search_text)
+        if search_text is not None and not str(search_text).strip():
+            raise HTTPException(status_code=422, detail="search must contain non-whitespace characters")
+        signals = _build_hunt_signals(
+            search=search_text,
+            tokens=tokens,
+            agent_id=agent_id,
+            event_type=event_type,
+            start_ts=start_ts,
+            window_minutes=window_minutes,
+        )
     decision = _route_decision(signals)
 
     attempted: list[str] = []
@@ -637,12 +811,16 @@ def hunt_events(
                 event_type=event_type,
                 start_ts=start_ts,
                 end_ts=end_ts,
-                search=search,
+                search=search_text,
                 tokens=tokens,
+                kql_query=kql_query,
             )
-        except HTTPException:
+        except HTTPException as exc:
             observe_hist("hunt_backend_query_seconds", time.perf_counter() - attempt_started, backend=candidate)
-            _record_hunt_failure(candidate, "required_unavailable")
+            if int(getattr(exc, "status_code", 500) or 500) >= 500:
+                _record_hunt_failure(candidate, "required_unavailable")
+            else:
+                _hunt_breaker.record_success(candidate)
             raise
         except Exception as exc:
             observe_hist("hunt_backend_query_seconds", time.perf_counter() - attempt_started, backend=candidate)
@@ -661,11 +839,20 @@ def hunt_events(
             break
 
     if not succeeded:
+        if dialect == "kql":
+            raise _hunt_query_http_error(
+                HuntQueryError(
+                    "KQL hunt is unavailable: Elasticsearch is unreachable or its circuit is open",
+                    reason="es_unavailable",
+                ),
+                "kql",
+            )
         raise HTTPException(
             status_code=503,
             detail="Event hunt is temporarily unavailable: all backends failed or have an open circuit",
         )
 
+    observe_hist("hunt_query_seconds", time.perf_counter() - started, dialect=dialect)
     meta = _meta(
         source=selected_source,
         fallback_chain=attempted,
@@ -688,9 +875,11 @@ def explain_hunt_route(
     start_ts_iso: Optional[str] = None,
     end_ts_iso: Optional[str] = None,
     search: Optional[str] = None,
+    search_dialect: Optional[str] = None,
     aggregate: bool = False,
 ) -> HuntRouteExplainResponse:
     now = _now_utc()
+    dialect, search_text = _resolve_hunt_dialect_or_http(search, search_dialect)
     start_ts, end_ts, window_minutes = _resolve_hunt_window(
         now=now,
         since_minutes=since_minutes,
@@ -698,19 +887,28 @@ def explain_hunt_route(
         end_ts_iso=end_ts_iso,
     )
 
-    tokens = _search_tokens(search)
-    if search is not None and not str(search).strip():
-        raise HTTPException(status_code=422, detail="search must contain non-whitespace characters")
-
-    signals = _build_hunt_signals(
-        search=search,
-        tokens=tokens,
-        agent_id=agent_id,
-        event_type=event_type,
-        start_ts=start_ts,
-        window_minutes=window_minutes,
-        aggregate=aggregate,
-    )
+    if dialect == "kql":
+        _kql_query, signals, start_ts, window_minutes = _prepare_kql_hunt(
+            search_text,
+            end_ts=end_ts,
+            start_ts=start_ts,
+            window_minutes=window_minutes,
+            agent_id=agent_id,
+            event_type=event_type,
+        )
+    else:
+        tokens = _search_tokens(search_text)
+        if search_text is not None and not str(search_text).strip():
+            raise HTTPException(status_code=422, detail="search must contain non-whitespace characters")
+        signals = _build_hunt_signals(
+            search=search_text,
+            tokens=tokens,
+            agent_id=agent_id,
+            event_type=event_type,
+            start_ts=start_ts,
+            window_minutes=window_minutes,
+            aggregate=aggregate,
+        )
     decision = _route_decision(signals)
     circuit = {backend: _hunt_breaker.state(backend) for backend in decision.chain}
     return HuntRouteExplainResponse(
@@ -726,6 +924,7 @@ def explain_hunt_route(
             window_minutes=signals.window_minutes,
             aggregate=signals.aggregate,
             transactional_join=signals.transactional_join,
+            dialect=dialect,
         ),
         timeouts_seconds={
             backend: _hunt_backend_timeout_seconds(backend, signals) for backend in decision.chain
@@ -743,6 +942,101 @@ def explain_hunt_route(
         search_backend_mode=search_backend_mode(),
         query_window_start=start_ts,
         query_window_end=end_ts,
+    )
+
+
+def hunt_events_eql(
+    *,
+    query: str,
+    since_minutes: Optional[int] = None,
+    start_ts_iso: Optional[str] = None,
+    end_ts_iso: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    event_type: Optional[str] = None,
+    size: Optional[int] = None,
+) -> EqlHuntResponse:
+    started = time.perf_counter()
+    now = _now_utc()
+    incr_counter("hunt_query_dialect_total", dialect="eql")
+
+    try:
+        query_text = normalize_eql_query(query)
+        if search_backend_mode() == "postgres":
+            raise HuntQueryError("EQL requires the Elasticsearch search backend", reason="es_unavailable")
+    except HuntQueryError as err:
+        raise _hunt_query_http_error(err, "eql") from err
+
+    start_ts, end_ts, _window_minutes = _resolve_hunt_window(
+        now=now,
+        since_minutes=since_minutes,
+        start_ts_iso=start_ts_iso,
+        end_ts_iso=end_ts_iso,
+    )
+    if start_ts is None:
+        start_ts = end_ts - timedelta(minutes=_default_hunt_window_minutes())
+
+    es = _es_client_or_none()
+    if es is None:
+        raise _hunt_query_http_error(
+            HuntQueryError("Elasticsearch is unavailable for EQL queries", reason="es_unavailable"),
+            "eql",
+        )
+    if not _hunt_breaker.allow("elasticsearch"):
+        raise _hunt_query_http_error(
+            HuntQueryError(
+                "Elasticsearch circuit is open; EQL queries are temporarily rejected",
+                reason="circuit_open",
+            ),
+            "eql",
+        )
+
+    max_sequences = int(getattr(settings, "SEAGULL_HUNT_EQL_MAX_SEQUENCES", 50) or 50)
+    effective_size = min(int(size), max_sequences) if size else max_sequences
+    filters = _es_base_filters(since=start_ts, agent_id=agent_id, event_type=event_type)
+    filters.append({"range": {"timestamp": {"lte": end_ts.isoformat()}}})
+
+    attempt_started = time.perf_counter()
+    try:
+        data = _es_eql_query(
+            es=es,
+            query=query_text,
+            filters=filters,
+            size=effective_size,
+            fetch_size=int(getattr(settings, "SEAGULL_HUNT_EQL_FETCH_SIZE", 512) or 512),
+            timeout_seconds=float(getattr(settings, "SEAGULL_HUNT_EQL_TIMEOUT_SECONDS", 5.0) or 5.0),
+        )
+    except HuntQueryError as err:
+        observe_hist("hunt_backend_query_seconds", time.perf_counter() - attempt_started, backend="elasticsearch")
+        if err.reason in ("timeout", "es_unavailable"):
+            _record_hunt_failure("elasticsearch", err.reason)
+        else:
+            _hunt_breaker.record_success("elasticsearch")
+        raise _hunt_query_http_error(err, "eql") from err
+
+    observe_hist("hunt_backend_query_seconds", time.perf_counter() - attempt_started, backend="elasticsearch")
+    _hunt_breaker.record_success("elasticsearch")
+
+    sequences, total = eql_sequences_from_response(data)
+    observe_hist("hunt_eql_sequences_returned", float(len(sequences)))
+    observe_hist("hunt_query_seconds", time.perf_counter() - started, dialect="eql")
+    meta = _meta(
+        source="elasticsearch",
+        fallback_chain=["elasticsearch"],
+        degraded_reason=None,
+        source_freshness_seconds=None,
+        query_latency_ms=(time.perf_counter() - started) * 1000.0,
+        cache_hit=False,
+        approximate=False,
+        query_window_start=start_ts,
+        query_window_end=end_ts,
+    )
+    return EqlHuntResponse(generated_at=now, total=total, sequences=sequences, meta=meta)
+
+
+def hunt_field_catalog() -> HuntFieldsResponse:
+    return HuntFieldsResponse(
+        generated_at=_now_utc(),
+        fields=[HuntFieldSpec(name=name, type=field_type) for name, field_type in hunt_field_listing()],
     )
 
 

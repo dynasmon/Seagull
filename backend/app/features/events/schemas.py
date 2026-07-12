@@ -60,6 +60,7 @@ class HuntRouteSignals(BaseModel):
     window_minutes: Optional[int] = None
     aggregate: bool = False
     transactional_join: bool = False
+    dialect: Literal["simple", "kql", "eql"] = "simple"
 
 
 class HuntRouteCircuitState(BaseModel):
@@ -82,6 +83,38 @@ class HuntRouteExplainResponse(BaseModel):
     search_backend_mode: str = "auto"
     query_window_start: Optional[datetime] = None
     query_window_end: Optional[datetime] = None
+
+
+class EqlHuntRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=2048, description="EQL query (sequence or event query)")
+    since_minutes: Optional[int] = Field(None, ge=1, le=60 * 24 * 30)
+    start_ts: Optional[str] = None
+    end_ts: Optional[str] = None
+    agent_id: Optional[str] = Field(None, min_length=1, max_length=64)
+    event_type: Optional[str] = Field(None, min_length=1, max_length=32)
+    size: Optional[int] = Field(None, ge=1, le=100)
+
+
+class EqlSequence(BaseModel):
+    join_keys: List[Any] = Field(default_factory=list)
+    events: List[NetEventDB] = Field(default_factory=list)
+
+
+class EqlHuntResponse(BaseModel):
+    generated_at: datetime
+    total: int = 0
+    sequences: List[EqlSequence] = Field(default_factory=list)
+    meta: QueryProvenanceMeta
+
+
+class HuntFieldSpec(BaseModel):
+    name: str
+    type: str
+
+
+class HuntFieldsResponse(BaseModel):
+    generated_at: datetime
+    fields: List[HuntFieldSpec] = Field(default_factory=list)
 
 
 class EventStreamSnapshotResponse(BaseModel):
