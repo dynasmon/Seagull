@@ -23,6 +23,7 @@ class QuerySignals:
     window_minutes: int | None = None
     aggregate: bool = False
     transactional_join: bool = False
+    dialect: str = "simple"
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,9 @@ def decide_backend_chain(
     wide_window_minutes: int,
     many_clauses_threshold: int,
 ) -> RouteDecision:
+    if signals.dialect == "kql":
+        return RouteDecision(("elasticsearch",), "kql")
+
     wide = is_wide_window(signals, wide_window_minutes=wide_window_minutes)
     search_tail: Tuple[RouteBackend, ...] = (
         ("clickhouse", "postgres") if wide else ("postgres", "clickhouse")
