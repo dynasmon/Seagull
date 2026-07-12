@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
@@ -15,8 +15,11 @@ from app.features.auth.session import PortalPrincipal, get_current_user, require
 from app.features.events import service as events_service
 from app.features.events.schemas import (
     DdosLiveSnapshotResponse,
+    EqlHuntRequest,
+    EqlHuntResponse,
     EventHuntResponse,
     EventStreamSnapshotResponse,
+    HuntFieldsResponse,
     HuntRouteExplainResponse,
     NetEventDB,
     NetEventRollup1s,
@@ -164,7 +167,11 @@ def list_events_endpoint(
     since_minutes: Optional[int] = Query(None, ge=1, le=60 * 24 * 30, description="Lookback window in minutes"),
     start_ts: Optional[str] = Query(None, description="Optional explicit start timestamp (ISO-8601)"),
     end_ts: Optional[str] = Query(None, description="Optional explicit end timestamp (ISO-8601)"),
-    search: Optional[str] = Query(None, min_length=1, max_length=256, description="Server-side hunt query"),
+    search: Optional[str] = Query(None, min_length=1, max_length=512, description="Server-side hunt query"),
+    search_dialect: Optional[Literal["simple", "kql", "eql"]] = Query(
+        None,
+        description="Query dialect for search; defaults to simple, kql:/eql: prefixes apply when omitted",
+    ),
     db: Session = Depends(get_db),
 ):
     with managed_session(db) as db_session:
@@ -178,6 +185,7 @@ def list_events_endpoint(
             start_ts_iso=start_ts,
             end_ts_iso=end_ts,
             search=search,
+            search_dialect=search_dialect,
         )
 
 
@@ -188,7 +196,11 @@ def explain_hunt_route_endpoint(
     since_minutes: Optional[int] = Query(None, ge=1, le=60 * 24 * 30, description="Lookback window in minutes"),
     start_ts: Optional[str] = Query(None, description="Optional explicit start timestamp (ISO-8601)"),
     end_ts: Optional[str] = Query(None, description="Optional explicit end timestamp (ISO-8601)"),
-    search: Optional[str] = Query(None, min_length=1, max_length=256, description="Server-side hunt query"),
+    search: Optional[str] = Query(None, min_length=1, max_length=512, description="Server-side hunt query"),
+    search_dialect: Optional[Literal["simple", "kql", "eql"]] = Query(
+        None,
+        description="Query dialect for search; defaults to simple, kql:/eql: prefixes apply when omitted",
+    ),
     aggregate: bool = Query(False, description="Simulate an aggregation-shaped query"),
     _: PortalPrincipal = Depends(require_admin),
 ):
@@ -199,8 +211,27 @@ def explain_hunt_route_endpoint(
         start_ts_iso=start_ts,
         end_ts_iso=end_ts,
         search=search,
+        search_dialect=search_dialect,
         aggregate=aggregate,
     )
+
+
+@router.post("/hunt/eql", response_model=EqlHuntResponse)
+def hunt_events_eql_endpoint(payload: EqlHuntRequest) -> EqlHuntResponse:
+    return events_service.hunt_events_eql(
+        query=payload.query,
+        since_minutes=payload.since_minutes,
+        start_ts_iso=payload.start_ts,
+        end_ts_iso=payload.end_ts,
+        agent_id=payload.agent_id,
+        event_type=payload.event_type,
+        size=payload.size,
+    )
+
+
+@router.get("/hunt/fields", response_model=HuntFieldsResponse)
+def hunt_fields_endpoint() -> HuntFieldsResponse:
+    return events_service.hunt_field_catalog()
 
 
 @router.get("/recent", response_model=List[NetEventDB])
