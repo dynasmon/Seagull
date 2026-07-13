@@ -75,6 +75,14 @@ class Settings:
     SEAGULL_REDIS_PORT: int = _env_int("SEAGULL_REDIS_PORT", 6379)
     SEAGULL_REDIS_USERNAME: str | None = _env_str("SEAGULL_REDIS_USERNAME", None)
     SEAGULL_REDIS_PASSWORD: str | None = _env_str("SEAGULL_REDIS_PASSWORD", None)
+
+    SEAGULL_REDPANDA_ENABLED: bool = _env_bool("SEAGULL_REDPANDA_ENABLED", False)
+    SEAGULL_REDPANDA_BROKERS: str = _env_str("SEAGULL_REDPANDA_BROKERS", "redpanda:9092") or "redpanda:9092"
+    SEAGULL_REDPANDA_DUAL_WRITE_ENABLED: bool = _env_bool("SEAGULL_REDPANDA_DUAL_WRITE_ENABLED", False)
+    SEAGULL_REDPANDA_PRODUCER_MESSAGE_TIMEOUT_MS: int = _env_int("SEAGULL_REDPANDA_PRODUCER_MESSAGE_TIMEOUT_MS", 30000)
+    SEAGULL_REDPANDA_PRODUCER_QUEUE_MAX_MESSAGES: int = _env_int("SEAGULL_REDPANDA_PRODUCER_QUEUE_MAX_MESSAGES", 100000)
+    SEAGULL_ES_INDEXER_SOURCE: str = (_env_str("SEAGULL_ES_INDEXER_SOURCE", "redis") or "redis").strip().lower()
+
     SEAGULL_REALTIME_STREAM_TOKEN_TTL_SECONDS: int = _env_int("SEAGULL_REALTIME_STREAM_TOKEN_TTL_SECONDS", 30)
     SEAGULL_REALTIME_SSE_KEEPALIVE_SECONDS: int = _env_int("SEAGULL_REALTIME_SSE_KEEPALIVE_SECONDS", 15)
     SEAGULL_REALTIME_STREAM_READ_BLOCK_MS: int = _env_int("SEAGULL_REALTIME_STREAM_READ_BLOCK_MS", 200)
@@ -498,6 +506,14 @@ class Settings:
             errors.append("SEAGULL_MAX_REQUEST_BODY_BYTES must be >= 1024")
         if (self.SEAGULL_REDIS_PORT or 0) < 1:
             errors.append("SEAGULL_REDIS_PORT must be >= 1")
+        if self.SEAGULL_ES_INDEXER_SOURCE not in {"redis", "redpanda"}:
+            errors.append("SEAGULL_ES_INDEXER_SOURCE must be one of: redis, redpanda")
+        if self.SEAGULL_REDPANDA_DUAL_WRITE_ENABLED and not self.SEAGULL_REDPANDA_ENABLED:
+            errors.append("SEAGULL_REDPANDA_DUAL_WRITE_ENABLED requires SEAGULL_REDPANDA_ENABLED")
+        if self.SEAGULL_ES_INDEXER_SOURCE == "redpanda" and not self.SEAGULL_REDPANDA_ENABLED:
+            errors.append("SEAGULL_ES_INDEXER_SOURCE=redpanda requires SEAGULL_REDPANDA_ENABLED")
+        if self.SEAGULL_REDPANDA_ENABLED and not (self.SEAGULL_REDPANDA_BROKERS or "").strip():
+            errors.append("SEAGULL_REDPANDA_BROKERS must not be empty when Redpanda is enabled")
         if (self.SEAGULL_REALTIME_STREAM_TOKEN_TTL_SECONDS or 0) < 5:
             errors.append("SEAGULL_REALTIME_STREAM_TOKEN_TTL_SECONDS must be >= 5")
         if (self.SEAGULL_REALTIME_STREAM_TOKEN_TTL_SECONDS or 0) > 300:
