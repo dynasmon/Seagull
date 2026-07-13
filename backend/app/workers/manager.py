@@ -68,12 +68,18 @@ class ChildSpec:
     argv: tuple[str, ...] | None = None
     enabled_env: str | None = None
     enabled_default: bool = False
+    selector_env: str | None = None
+    selector_value: str | None = None
+    selector_default: str | None = None
     required_paths: tuple[str, ...] = ()
 
     def is_enabled(self) -> bool:
-        if not self.enabled_env:
-            return True
-        return _env_bool(self.enabled_env, self.enabled_default)
+        if self.enabled_env and not _env_bool(self.enabled_env, self.enabled_default):
+            return False
+        if self.selector_env:
+            raw = getenv_compat(self.selector_env, self.selector_default) or self.selector_default or ""
+            return raw.strip().lower() == (self.selector_value or "").strip().lower()
+        return True
 
     def command(self) -> list[str]:
         if self.argv:
@@ -115,6 +121,18 @@ GROUPS: dict[str, tuple[ChildSpec, ...]] = {
             module="app.workers.indexing.es_stream",
             enabled_env="SEAGULL_ES_INDEXER_STREAM_ENABLED",
             enabled_default=False,
+            selector_env="SEAGULL_ES_INDEXER_SOURCE",
+            selector_value="redis",
+            selector_default="redis",
+        ),
+        ChildSpec(
+            name="es-indexer-redpanda",
+            module="app.workers.indexing.es_redpanda",
+            enabled_env="SEAGULL_ES_INDEXER_STREAM_ENABLED",
+            enabled_default=False,
+            selector_env="SEAGULL_ES_INDEXER_SOURCE",
+            selector_value="redpanda",
+            selector_default="redis",
         ),
         ChildSpec(name="rollup-1m", module="app.workers.analytics.rollup_1m"),
     ),
