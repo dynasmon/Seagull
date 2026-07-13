@@ -24,16 +24,19 @@ Three groups are defined in `app.workers.manager.GROUPS`.
 
 ### ingest
 
-| Child name        | Module                                    | Env gate                              |
-|-------------------|-------------------------------------------|---------------------------------------|
-| ingest-worker     | `app.workers.ingest.main`                 | always on                             |
-| es-indexer        | `app.workers.indexing.elasticsearch`      | `SEAGULL_ES_INDEXER_LEGACY_ENABLED` (default on) |
-| es-indexer-stream | `app.workers.indexing.es_stream`          | `SEAGULL_ES_INDEXER_STREAM_ENABLED` (default off) |
-| rollup-1m         | `app.workers.analytics.rollup_1m`         | always on                             |
+| Child name          | Module                                    | Env gate                              |
+|---------------------|-------------------------------------------|---------------------------------------|
+| ingest-worker       | `app.workers.ingest.main`                 | always on                             |
+| es-indexer          | `app.workers.indexing.elasticsearch`      | `SEAGULL_ES_INDEXER_LEGACY_ENABLED` (default on) |
+| es-indexer-stream   | `app.workers.indexing.es_stream`          | `SEAGULL_ES_INDEXER_STREAM_ENABLED` (default off) + `SEAGULL_ES_INDEXER_SOURCE=redis` (default) |
+| es-indexer-redpanda | `app.workers.indexing.es_redpanda`        | `SEAGULL_ES_INDEXER_STREAM_ENABLED` (default off) + `SEAGULL_ES_INDEXER_SOURCE=redpanda` |
+| rollup-1m           | `app.workers.analytics.rollup_1m`         | always on                             |
 
 Drain the ingest queue, index events into Elasticsearch, and pre-aggregate 1-minute rollups.
 
 Two ES indexers coexist during the Onda 3 migration: `es-indexer` tail-scans `net_events` in Postgres, and `es-indexer-stream` consumes the ingest index stream as a Redis Streams consumer group (at-least-once, DLQ, pending replay). See [es_indexer_stream.md](es_indexer_stream.md).
+
+`es-indexer-redpanda` is the pilot consumer: same indexing contract, but it reads `seagull.events.index` from Redpanda with manual offset commits and a DLQ topic. `SEAGULL_ES_INDEXER_SOURCE` selects exactly one of the two stream consumers, so reverting the pilot is a single env flip plus container restart. See [infra/redpanda/README.md](../../infra/redpanda/README.md).
 
 ### intelligence
 
