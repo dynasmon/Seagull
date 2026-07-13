@@ -1,7 +1,7 @@
 # Redpanda — distributed event log
 
 Redpanda is the Kafka-compatible distributed log that will replace Redis Streams in the
-Seagull ingest pipeline. This wave (Onda 4 / Tarefa 01) introduces it in coexistence
+Seagull ingest pipeline. This introduces it in coexistence
 mode: Redis Streams remains the primary transport, producers dual-write to both, and a
 single pilot consumer reads from Redpanda behind a feature flag. Nothing is removed.
 
@@ -140,37 +140,3 @@ docker exec seagull-redpanda rpk topic consume seagull.events.index.dlq -n 10 --
 docker exec seagull-redpanda rpk cluster logdirs describe --topics seagull.events.index
 docker compose up redpanda-provision
 ```
-
-## Cutover playbook (documented, not executed in this wave)
-
-Gate for every promotion step: `ingest_dual_write_discrepancy_total` rate below 0.1%
-of `redpanda_producer_msgs_total` over the observation window, and
-`redpanda_consumer_lag` stable near zero.
-
-1. Deploy this code to production with `SEAGULL_REDPANDA_ENABLED=false`. Nothing
-   changes at runtime; the Redpanda containers may stay down (stub phase).
-2. In staging, start the brokers and `redpanda-provision`, then set
-   `SEAGULL_REDPANDA_ENABLED=true` and `SEAGULL_REDPANDA_DUAL_WRITE_ENABLED=true`.
-   Both event topics now mirror the Redis paths.
-3. Compare dual-write metrics for at least 7 days: discrepancy counter against
-   producer totals, Redis Stream length vs topic end offsets, spot-check payload
-   parity with `rpk topic consume`. The gate above must hold.
-4. Switch the staging pilot: `SEAGULL_ES_INDEXER_SOURCE=redpanda`. Watch
-   `redpanda_consumer_lag`, `es_indexer_bulk_*` and the DLQ topic. Rollback is the
-   same flag back to `redis`; the Redis Stream kept receiving writes the whole time,
-   and the stream consumer resumes from its own pending-entries list.
-5. Repeat steps 2-4 in production, one environment at a time, brokers first
-   (`compose.prod.yml`, replication 3), dual-write next, pilot last.
-6. Migrate the remaining consumers one by one, each in its own consumer group, each
-   with its own `*_SOURCE` flag, ordered by blast radius: exports/enrichment-class
-   consumers first, rule engine and ClickHouse writer last. Consumer groups isolate
-   the migrations from each other.
-7. Once every consumer of a stream reads from Redpanda, stop the Redis write for that
-   stream (producer flag) and keep the dual-write discrepancy metric exported to
-   confirm zero regressions.
-8. After 30 incident-free days, delete the Redis Streams producer/consumer code and
-   the migration flags in a dedicated wave.
-
-This wave delivers steps 1 and 4 in the local environment: dual-write validated with
-zero discrepancies, and the pilot (`es-indexer-redpanda`) indexing end-to-end from
-`seagull.events.index`.
