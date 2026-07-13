@@ -37,3 +37,10 @@ scrape_configs:
         labels:
           component: worker
           worker_group: maintenance
+
+  - job_name: redpanda
+    metrics_path: /public_metrics
+    static_configs:
+      - targets: ["redpanda:9644"]
+        labels:
+          component: redpanda
