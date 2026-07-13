@@ -11,6 +11,9 @@ volumes:
   es-snapshots:
   postgres-data:
   redis-data:
+  redpanda-1-data:
+  redpanda-2-data:
+  redpanda-3-data:
 
 x-es-node-env: &es-node-env
   cluster.name: ${SEAGULL_PROD_ES_CLUSTER_NAME:-seagull-es}
@@ -24,6 +27,19 @@ x-es-node-env: &es-node-env
   xpack.ml.enabled: "false"
   ES_JAVA_OPTS: "-Xms${SEAGULL_PROD_ES_HEAP:-2g} -Xmx${SEAGULL_PROD_ES_HEAP:-2g}"
   ELASTIC_PASSWORD: ${SEAGULL_ES_PASSWORD:-${NETWATCH_ES_PASSWORD:-}}
+
+x-redpanda-node: &redpanda-node
+  image: redpandadata/redpanda:${SEAGULL_REDPANDA_VERSION:-v24.2.20}
+  networks:
+    - seagull
+  healthcheck:
+    test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' >/dev/null 2>&1"]
+    interval: 10s
+    timeout: 5s
+    retries: 30
+    start_period: 30s
+  mem_limit: ${SEAGULL_PROD_REDPANDA_MEM_LIMIT:-2g}
+  restart: unless-stopped
 
 x-es-node: &es-node
   image: docker.elastic.co/elasticsearch/elasticsearch:${SEAGULL_PROD_ES_VERSION:-8.13.4}
@@ -107,6 +123,87 @@ services:
     ports:
       - "${SEAGULL_PROD_ES03_PORT:-127.0.0.1:9203}:9200"
 
+  # Redpanda cluster
+
+  redpanda-1:
+    <<: *redpanda-node
+    container_name: seagull-prod-redpanda-1
+    command:
+      - redpanda
+      - start
+      - --smp=${SEAGULL_PROD_REDPANDA_SMP:-1}
+      - --memory=${SEAGULL_PROD_REDPANDA_MEMORY:-1536M}
+      - --reserve-memory=0M
+      - --set=redpanda.empty_seed_starts_cluster=false
+      - --seeds=redpanda-1:33145,redpanda-2:33145,redpanda-3:33145
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda-1:9092,external://127.0.0.1:19092
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=redpanda-1:33145
+    volumes:
+      - redpanda-1-data:/var/lib/redpanda/data
+    ports:
+      - "${SEAGULL_PROD_REDPANDA1_PORT:-127.0.0.1:19092}:19092"
+      - "${SEAGULL_PROD_REDPANDA1_ADMIN_PORT:-127.0.0.1:19644}:9644"
+
+  redpanda-2:
+    <<: *redpanda-node
+    container_name: seagull-prod-redpanda-2
+    command:
+      - redpanda
+      - start
+      - --smp=${SEAGULL_PROD_REDPANDA_SMP:-1}
+      - --memory=${SEAGULL_PROD_REDPANDA_MEMORY:-1536M}
+      - --reserve-memory=0M
+      - --set=redpanda.empty_seed_starts_cluster=false
+      - --seeds=redpanda-1:33145,redpanda-2:33145,redpanda-3:33145
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda-2:9092,external://127.0.0.1:19093
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=redpanda-2:33145
+    volumes:
+      - redpanda-2-data:/var/lib/redpanda/data
+    ports:
+      - "${SEAGULL_PROD_REDPANDA2_PORT:-127.0.0.1:19093}:19092"
+      - "${SEAGULL_PROD_REDPANDA2_ADMIN_PORT:-127.0.0.1:19645}:9644"
+
+  redpanda-3:
+    <<: *redpanda-node
+    container_name: seagull-prod-redpanda-3
+    command:
+      - redpanda
+      - start
+      - --smp=${SEAGULL_PROD_REDPANDA_SMP:-1}
+      - --memory=${SEAGULL_PROD_REDPANDA_MEMORY:-1536M}
+      - --reserve-memory=0M
+      - --set=redpanda.empty_seed_starts_cluster=false
+      - --seeds=redpanda-1:33145,redpanda-2:33145,redpanda-3:33145
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda-3:9092,external://127.0.0.1:19094
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=redpanda-3:33145
+    volumes:
+      - redpanda-3-data:/var/lib/redpanda/data
+    ports:
+      - "${SEAGULL_PROD_REDPANDA3_PORT:-127.0.0.1:19094}:19092"
+      - "${SEAGULL_PROD_REDPANDA3_ADMIN_PORT:-127.0.0.1:19646}:9644"
+
+  redpanda-provision:
+    extends:
+      file: compose.yml
+      service: redpanda-provision
+    container_name: seagull-prod-redpanda-provision
+    depends_on: !override
+      redpanda-1:
+        condition: service_healthy
+      redpanda-2:
+        condition: service_healthy
+      redpanda-3:
+        condition: service_healthy
+    environment:
+      SEAGULL_REDPANDA_BROKERS: ${SEAGULL_PROD_REDPANDA_BROKERS:-redpanda-1:9092,redpanda-2:9092,redpanda-3:9092}
+      SEAGULL_REDPANDA_TOPIC_REPLICATION: ${SEAGULL_PROD_REDPANDA_TOPIC_REPLICATION:-3}
+
   # Application
 
   postgres:
@@ -137,6 +234,7 @@ services:
       SEAGULL_ES_URL: ${SEAGULL_PROD_ES_URL:-http://es01:9200,http://es02:9200,http://es03:9200}
       SEAGULL_ES_EXPECTED_STATUS: ${SEAGULL_PROD_ES_EXPECTED_STATUS:-green}
       SEAGULL_ES_YELLOW_ALERT_MINUTES: ${SEAGULL_ES_YELLOW_ALERT_MINUTES:-15}
+      SEAGULL_REDPANDA_BROKERS: ${SEAGULL_PROD_REDPANDA_BROKERS:-redpanda-1:9092,redpanda-2:9092,redpanda-3:9092}
       SEAGULL_CLICKHOUSE_ENABLED: "false"
       SEAGULL_PROMETHEUS_ENABLED: "false"
 
@@ -154,6 +252,7 @@ services:
         condition: service_healthy
     environment:
       SEAGULL_ES_URL: ${SEAGULL_PROD_ES_URL:-http://es01:9200,http://es02:9200,http://es03:9200}
+      SEAGULL_REDPANDA_BROKERS: ${SEAGULL_PROD_REDPANDA_BROKERS:-redpanda-1:9092,redpanda-2:9092,redpanda-3:9092}
       SEAGULL_ES_BOOTSTRAP: "true"
       SEAGULL_ES_NUMBER_OF_SHARDS: ${SEAGULL_PROD_ES_NUMBER_OF_SHARDS:-3}
       SEAGULL_ES_NUMBER_OF_REPLICAS: ${SEAGULL_PROD_ES_NUMBER_OF_REPLICAS:-1}

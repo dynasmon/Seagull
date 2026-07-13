@@ -7,6 +7,7 @@ volumes:
   redis-data:
   elastic-data:
   clickhouse-data:
+  redpanda-data:
   prometheus-data:
   caddy-data:
   caddy-config:
@@ -134,6 +135,63 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  redpanda:
+    image: redpandadata/redpanda:${SEAGULL_REDPANDA_VERSION:-v24.2.20}
+    container_name: seagull-redpanda
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=768M
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://${SEAGULL_REDPANDA_EXTERNAL_HOST:-127.0.0.1}:${SEAGULL_REDPANDA_KAFKA_PORT:-19092}
+      - --pandaproxy-addr=internal://0.0.0.0:8082
+      - --advertise-pandaproxy-addr=internal://redpanda:8082
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=redpanda:33145
+    ports:
+      - "${SEAGULL_REDPANDA_KAFKA_PORT:-}:19092"
+      - "${SEAGULL_REDPANDA_ADMIN_PORT:-}:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    networks:
+      - seagull
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    mem_limit: 1024m
+    cpus: "1.00"
+    restart: unless-stopped
+
+  redpanda-provision:
+    build: ./backend
+    container_name: seagull-redpanda-provision
+    command: ["python", "-m", "app.core.messaging.provision"]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      SEAGULL_REDPANDA_ENABLED: "true"
+      SEAGULL_REDPANDA_BROKERS: ${SEAGULL_REDPANDA_BROKERS:-redpanda:9092}
+      SEAGULL_REDPANDA_TOPIC_REPLICATION: ${SEAGULL_REDPANDA_TOPIC_REPLICATION:-1}
+      SEAGULL_REDPANDA_EVENTS_PARTITIONS: ${SEAGULL_REDPANDA_EVENTS_PARTITIONS:-12}
+      SEAGULL_REDPANDA_EVENTS_RETENTION_HOURS: ${SEAGULL_REDPANDA_EVENTS_RETENTION_HOURS:-168}
+      SEAGULL_REDPANDA_ALERTS_RETENTION_HOURS: ${SEAGULL_REDPANDA_ALERTS_RETENTION_HOURS:-720}
+      SEAGULL_REDPANDA_DLQ_RETENTION_HOURS: ${SEAGULL_REDPANDA_DLQ_RETENTION_HOURS:-720}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 256m
+    cpus: "0.25"
+    networks:
+      - seagull
+    restart: "no"
+
   # Backend
 
   seagull-backend:
@@ -242,6 +300,9 @@ services:
       SEAGULL_INGEST_VALUES_PAGE_SIZE: ${SEAGULL_INGEST_VALUES_PAGE_SIZE:-1000}
       SEAGULL_INGEST_ROLLUP_PAGE_SIZE: ${SEAGULL_INGEST_ROLLUP_PAGE_SIZE:-500}
       SEAGULL_INGEST_QUEUE_KEY: ${SEAGULL_INGEST_QUEUE_KEY:-seagull:ingest:queue}
+      SEAGULL_REDPANDA_ENABLED: ${SEAGULL_REDPANDA_ENABLED:-false}
+      SEAGULL_REDPANDA_BROKERS: ${SEAGULL_REDPANDA_BROKERS:-redpanda:9092}
+      SEAGULL_REDPANDA_DUAL_WRITE_ENABLED: ${SEAGULL_REDPANDA_DUAL_WRITE_ENABLED:-false}
       SEAGULL_INGEST_WORKER_BATCH_MESSAGES: ${SEAGULL_INGEST_WORKER_BATCH_MESSAGES:-50}
       SEAGULL_INGEST_WORKER_IDLE_SLEEP_SECONDS: ${SEAGULL_INGEST_WORKER_IDLE_SLEEP_SECONDS:-0.25}
       SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS: ${SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS:-50000}
@@ -409,7 +470,11 @@ services:
       SEAGULL_INGEST_WARM_ENABLED: ${SEAGULL_INGEST_WARM_ENABLED:-true}
       SEAGULL_ES_INDEXER_LEGACY_ENABLED: ${SEAGULL_ES_INDEXER_LEGACY_ENABLED:-true}
       SEAGULL_ES_INDEXER_STREAM_ENABLED: ${SEAGULL_ES_INDEXER_STREAM_ENABLED:-false}
+      SEAGULL_ES_INDEXER_SOURCE: ${SEAGULL_ES_INDEXER_SOURCE:-redis}
       SEAGULL_ES_STREAM_PRODUCER_ENABLED: ${SEAGULL_ES_STREAM_PRODUCER_ENABLED:-false}
+      SEAGULL_REDPANDA_ENABLED: ${SEAGULL_REDPANDA_ENABLED:-false}
+      SEAGULL_REDPANDA_BROKERS: ${SEAGULL_REDPANDA_BROKERS:-redpanda:9092}
+      SEAGULL_REDPANDA_DUAL_WRITE_ENABLED: ${SEAGULL_REDPANDA_DUAL_WRITE_ENABLED:-false}
       SEAGULL_ES_STREAM_KEY: ${SEAGULL_ES_STREAM_KEY:-seagull:events:index}
       SEAGULL_ES_STREAM_GROUP: ${SEAGULL_ES_STREAM_GROUP:-es-indexer}
       SEAGULL_ES_STREAM_CONSUMER: ${SEAGULL_ES_STREAM_CONSUMER:-}
