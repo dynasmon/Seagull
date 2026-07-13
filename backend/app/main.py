@@ -25,6 +25,7 @@ from app.core.integrations.clickhouse import (
     get_clickhouse_client,
 )
 from app.core.integrations.es import es_cluster_status_report, es_is_available, search_backend_mode
+from app.core.messaging.health import redpanda_connectivity
 from app.core.observability import (
     clear_request_context,
     incr_counter,
@@ -430,6 +431,17 @@ async def health_ready(response: Response):
         "error": ch_error,
         "mvs": ch_mvs,
     }
+
+    if settings.SEAGULL_REDPANDA_ENABLED:
+        redpanda = redpanda_connectivity(timeout_seconds=2.0)
+        components["redpanda"] = {
+            "enabled": True,
+            "status": redpanda.get("status"),
+            "latency_ms": redpanda.get("latency_ms"),
+            "brokers": redpanda.get("brokers"),
+            "dual_write": bool(settings.SEAGULL_REDPANDA_DUAL_WRITE_ENABLED),
+            "error": redpanda.get("error"),
+        }
 
     response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
     return {
