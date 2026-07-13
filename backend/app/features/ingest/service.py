@@ -36,6 +36,7 @@ from app.features.ingest.control.service import (
     recover_runtime_state,
     storm_maybe_open_alert,
 )
+from app.features.ingest.event_log import publish_raw_events
 from app.features.ingest.storm_control import evaluate_storm, stable_sample
 from app.features.realtime.projectors import (
     project_ddos_live_patch,
@@ -1088,6 +1089,7 @@ def ingest_events(
     }
 
     enqueued = enqueue_ingest_message(message=msg, received=len(events))
+    publish_raw_events(rows=all_rows, redis_ok=bool(enqueued))
 
     try:
         received_count = len(events)
