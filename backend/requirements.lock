@@ -3,6 +3,7 @@ uvicorn[standard]==0.34.0
 pydantic==2.9.2
 prometheus-client==0.21.1
 redis==5.0.8
+confluent-kafka==2.6.1
 psycopg2-binary==2.9.9
 SQLAlchemy==2.0.34
 python-dotenv==1.1.0
