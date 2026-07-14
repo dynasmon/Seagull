@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.params import Depends as DependsParam
 from sqlalchemy.orm import Session
 
-from app.core.db import SessionLocal, get_db
+from app.core.db import SessionLocal, get_db, routed_db
 from app.features.admin import service
 from app.features.admin.schemas import AdminAuditQueryOut, LoginEventOut, RuntimeConfigOut
 from app.features.auth.session import PortalPrincipal, require_admin
@@ -34,7 +34,7 @@ def admin_audit_events(
     since: datetime | None = Query(None),
     until: datetime | None = Query(None),
     _: PortalPrincipal = Depends(require_admin),
-    db: Session = Depends(get_db),
+    db: Session = Depends(routed_db("admin-audit-events")),
 ):
     db2, owns_db = _resolve_db(db)
     try:
@@ -64,7 +64,7 @@ def admin_login_history(
     limit: int = Query(20, ge=1, le=100),
     include_failed: bool = Query(False),
     _: PortalPrincipal = Depends(require_admin),
-    db: Session = Depends(get_db),
+    db: Session = Depends(routed_db("admin-login-history")),
 ):
     db2, owns_db = _resolve_db(db)
     try:
