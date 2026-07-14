@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit_event
-from app.core.db import get_db
+from app.core.db import get_db, routed_db
 from app.core.db.session import managed_session
 from app.features.agents import service
 from app.features.agents.auth import AgentPrincipal, get_current_agent
@@ -138,7 +138,7 @@ async def get_agent_config(agent: AgentPrincipal = Depends(get_current_agent), d
 
 
 @router.get("", response_model=List[AgentPublic])
-async def list_agents(_user=Depends(get_current_user), db: Session = Depends(get_db)):
+async def list_agents(_user=Depends(get_current_user), db: Session = Depends(routed_db("agents-list"))):
     with managed_session(db) as db_session:
         return service.list_agents(db_session)
 
