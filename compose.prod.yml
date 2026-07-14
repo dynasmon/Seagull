@@ -10,6 +10,8 @@ volumes:
   es03-data:
   es-snapshots:
   postgres-data:
+  postgres-replica-1-data:
+  postgres-replica-2-data:
   redis-data:
   redpanda-1-data:
   redpanda-2-data:
@@ -40,6 +42,37 @@ x-redpanda-node: &redpanda-node
     start_period: 30s
   mem_limit: ${SEAGULL_PROD_REDPANDA_MEM_LIMIT:-2g}
   restart: unless-stopped
+
+x-pg-replica: &pg-replica
+  image: postgres:16-alpine
+  user: postgres
+  entrypoint: ["/bin/sh", "/usr/local/bin/seagull-replica-start.sh"]
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks:
+    - seagull
+  healthcheck:
+    test:
+      - "CMD-SHELL"
+      - >-
+        psql -h /var/run/postgresql -U "${POSTGRES_USER:-seagull}" -d "${POSTGRES_DB:-seagull}" -tAc 'SELECT 1' >/dev/null 2>&1
+    interval: 5s
+    timeout: 3s
+    retries: 30
+    start_period: 40s
+  restart: unless-stopped
+
+x-pg-replica-env: &pg-replica-env
+  PGDATA: /var/lib/postgresql/data
+  POSTGRES_USER: ${POSTGRES_USER:-seagull}
+  POSTGRES_DB: ${POSTGRES_DB:-seagull}
+  POSTGRES_REPLICATION_USER: ${SEAGULL_PG_REPLICATION_USER:-replicator}
+  POSTGRES_REPLICATION_PASSWORD: ${SEAGULL_PG_REPLICATION_PASSWORD:-${POSTGRES_PASSWORD:-}}
+  SEAGULL_PG_PRIMARY_HOST: postgres
+  SEAGULL_PG_PRIMARY_PORT: "5432"
+  SEAGULL_PG_SHARED_BUFFERS: ${SEAGULL_PG_SHARED_BUFFERS:-128MB}
+  SEAGULL_PG_MAX_CONNECTIONS: ${SEAGULL_PROD_PG_MAX_CONNECTIONS:-300}
 
 x-es-node: &es-node
   image: docker.elastic.co/elasticsearch/elasticsearch:${SEAGULL_PROD_ES_VERSION:-8.13.4}
@@ -211,6 +244,56 @@ services:
       file: compose.yml
       service: postgres
     container_name: seagull-prod-postgres
+    command: !override
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - shared_buffers=${SEAGULL_PG_SHARED_BUFFERS:-128MB}
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=${SEAGULL_PROD_PG_MAX_WAL_SENDERS:-10}
+      - -c
+      - max_replication_slots=${SEAGULL_PROD_PG_MAX_REPLICATION_SLOTS:-10}
+      - -c
+      - max_slot_wal_keep_size=${SEAGULL_PROD_PG_MAX_SLOT_WAL_KEEP_SIZE:-2GB}
+      - -c
+      - max_connections=${SEAGULL_PROD_PG_MAX_CONNECTIONS:-300}
+      - -c
+      - synchronous_commit=${SEAGULL_PROD_PG_SYNCHRONOUS_COMMIT:-on}
+    environment:
+      POSTGRES_REPLICATION_USER: ${SEAGULL_PG_REPLICATION_USER:-replicator}
+      POSTGRES_REPLICATION_PASSWORD: ${SEAGULL_PG_REPLICATION_PASSWORD:-${POSTGRES_PASSWORD:-}}
+      POSTGRES_REPLICATION_SLOTS: ${SEAGULL_PROD_PG_REPLICATION_SLOTS:-seagull_replica_1,seagull_replica_2}
+    volumes:
+      - ./infra/postgres/primary-replication-init.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
+    ports:
+      - "${SEAGULL_PROD_PG_PORT:-127.0.0.1:5440}:5432"
+
+  postgres-replica-1:
+    <<: *pg-replica
+    container_name: seagull-prod-postgres-replica-1
+    environment:
+      <<: *pg-replica-env
+      SEAGULL_PG_REPLICATION_SLOT: seagull_replica_1
+    volumes:
+      - postgres-replica-1-data:/var/lib/postgresql/data
+      - ./infra/postgres/replica-start.sh:/usr/local/bin/seagull-replica-start.sh:ro
+    ports:
+      - "${SEAGULL_PROD_PG_REPLICA1_PORT:-127.0.0.1:5441}:5432"
+
+  postgres-replica-2:
+    <<: *pg-replica
+    container_name: seagull-prod-postgres-replica-2
+    environment:
+      <<: *pg-replica-env
+      SEAGULL_PG_REPLICATION_SLOT: seagull_replica_2
+    volumes:
+      - postgres-replica-2-data:/var/lib/postgresql/data
+      - ./infra/postgres/replica-start.sh:/usr/local/bin/seagull-replica-start.sh:ro
+    ports:
+      - "${SEAGULL_PROD_PG_REPLICA2_PORT:-127.0.0.1:5442}:5432"
 
   redis:
     extends:
@@ -237,6 +320,12 @@ services:
       SEAGULL_REDPANDA_BROKERS: ${SEAGULL_PROD_REDPANDA_BROKERS:-redpanda-1:9092,redpanda-2:9092,redpanda-3:9092}
       SEAGULL_CLICKHOUSE_ENABLED: "false"
       SEAGULL_PROMETHEUS_ENABLED: "false"
+      SEAGULL_DB_REPLICA_HOSTS: ${SEAGULL_PROD_DB_REPLICA_HOSTS:-postgres-replica-1:5432,postgres-replica-2:5432}
+      SEAGULL_DB_READ_ROUTES: ${SEAGULL_DB_READ_ROUTES:-}
+      SEAGULL_DB_POOL_SIZE: ${SEAGULL_PROD_DB_POOL_SIZE:-20}
+      SEAGULL_DB_MAX_OVERFLOW: ${SEAGULL_PROD_DB_MAX_OVERFLOW:-10}
+      SEAGULL_DB_READ_POOL_SIZE: ${SEAGULL_PROD_DB_READ_POOL_SIZE:-50}
+      SEAGULL_DB_READ_MAX_OVERFLOW: ${SEAGULL_PROD_DB_READ_MAX_OVERFLOW:-10}
 
   seagull-ingest-pipeline:
     extends:
