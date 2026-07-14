@@ -21,6 +21,9 @@ MS_BUCKETS: Tuple[float, ...] = (
 DEPTH_BUCKETS: Tuple[float, ...] = (
     1, 10, 50, 100, 500, 1000, 5000, 10000, 50000,
 )
+PG_QUERY_BUCKETS: Tuple[float, ...] = (
+    0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
+)
 
 
 @dataclass(frozen=True)
@@ -191,6 +194,21 @@ _SPECS: Tuple[MetricSpec, ...] = (
           ("topic", "group"), multiproc_mode="mostrecent"),
     _spec("ingest_dual_write_discrepancy_total", "counter",
           "Dual-write outcomes that diverged between Redis and Redpanda.", ("stream", "reason")),
+
+    _spec("postgres_query_seconds", "histogram",
+          "Postgres query latency in seconds by engine role and table.",
+          ("engine", "table"), buckets=PG_QUERY_BUCKETS),
+    _spec("postgres_replica_lag_bytes", "gauge",
+          "Replication lag in WAL bytes between the primary and each replica.",
+          ("replica",), multiproc_mode="mostrecent"),
+    _spec("postgres_replica_degraded_total", "counter",
+          "Transitions of a Postgres replica into the degraded state.", ("replica",)),
+    _spec("postgres_pool_saturation", "gauge",
+          "Fraction of the Postgres connection pool in use by engine role.",
+          ("engine",), multiproc_mode="mostrecent"),
+    _spec("postgres_read_route_total", "counter",
+          "Read-routed session acquisitions by route key and engine role served.",
+          ("route", "engine")),
 
     _spec("es_cluster_status", "gauge",
           "Elasticsearch cluster health status (0=green, 1=yellow, 2=red, -1=unreachable).",

@@ -45,6 +45,12 @@ def _session():
     return SessionLocal()
 
 
+def _read_session():
+    from app.core.db import open_routed_session
+
+    return open_routed_session("dashboard-snapshots")
+
+
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
@@ -52,7 +58,7 @@ def _as_utc(value: datetime) -> datetime:
 
 
 def read_snapshot(page: str, scope_key: str) -> Optional[SnapshotRow]:
-    db = _session()
+    db = _read_session()
     try:
         row = db.execute(_READ_SQL, {"page": page, "scope_key": scope_key}).fetchone()
     finally:
