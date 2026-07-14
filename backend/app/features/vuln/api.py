@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.api.conditional import maybe_not_modified
-from app.core.db import get_db
+from app.core.db import get_db, routed_db
 from app.core.observability import incr_counter
 from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.features.auth.session import require_admin
@@ -80,7 +80,7 @@ def list_scans_endpoint(
     reporter_agent_id: Optional[str] = Query(None, min_length=1, max_length=64),
     status_q: Optional[str] = Query(None, min_length=1, max_length=32),
     tool: Optional[str] = Query(None, min_length=1, max_length=64),
-    db: Session = Depends(get_db),
+    db: Session = Depends(routed_db("vuln-read")),
 ):
     return list_scans(
         db,
@@ -109,7 +109,7 @@ def list_findings_endpoint(
     cve: Optional[str] = Query(None, min_length=1, max_length=32),
     q: Optional[str] = Query(None, min_length=1, max_length=128, description="Search (title/target/cve/external_id)"),
     include_suppressed: bool = Query(False),
-    db: Session = Depends(get_db),
+    db: Session = Depends(routed_db("vuln-read")),
 ):
     return list_findings(
         db,
