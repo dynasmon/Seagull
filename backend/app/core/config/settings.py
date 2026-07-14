@@ -110,6 +110,15 @@ class Settings:
     DB_PASSWORD: str | None = _env_str("SEAGULL_DB_PASSWORD", _env_str("POSTGRES_PASSWORD", None))
     SEAGULL_DB_POOL_SIZE: int = _env_int("SEAGULL_DB_POOL_SIZE", 10)
     SEAGULL_DB_MAX_OVERFLOW: int = _env_int("SEAGULL_DB_MAX_OVERFLOW", 20)
+    DB_REPLICA_URLS: list[str] = _env_csv("SEAGULL_DB_REPLICA_URLS", "")
+    DB_REPLICA_HOSTS: list[str] = _env_csv("SEAGULL_DB_REPLICA_HOSTS", "")
+    SEAGULL_DB_READ_POOL_SIZE: int = _env_int("SEAGULL_DB_READ_POOL_SIZE", 50)
+    SEAGULL_DB_READ_MAX_OVERFLOW: int = _env_int("SEAGULL_DB_READ_MAX_OVERFLOW", 10)
+    SEAGULL_DB_REPLICA_LAG_THRESHOLD_BYTES: int = _env_int("SEAGULL_DB_REPLICA_LAG_THRESHOLD_BYTES", 16 * 1024 * 1024)
+    SEAGULL_DB_REPLICA_LAG_DEGRADE_SECONDS: float = _env_float("SEAGULL_DB_REPLICA_LAG_DEGRADE_SECONDS", 30.0)
+    SEAGULL_DB_REPLICA_PROBE_INTERVAL_SECONDS: float = _env_float("SEAGULL_DB_REPLICA_PROBE_INTERVAL_SECONDS", 5.0)
+    SEAGULL_DB_REPLICA_CONNECT_TIMEOUT_SECONDS: int = _env_int("SEAGULL_DB_REPLICA_CONNECT_TIMEOUT_SECONDS", 2)
+    SEAGULL_DB_READ_ROUTES: list[str] = _env_csv("SEAGULL_DB_READ_ROUTES", "")
     SEAGULL_DB_EXECUTEMANY_MODE: str = _env_str("SEAGULL_DB_EXECUTEMANY_MODE", "values_plus_batch") or "values_plus_batch"
     SEAGULL_DB_EXECUTEMANY_VALUES_PAGE_SIZE: int = _env_int("SEAGULL_DB_EXECUTEMANY_VALUES_PAGE_SIZE", 1000)
 
@@ -500,6 +509,18 @@ class Settings:
             errors.append("SEAGULL_DB_MAX_OVERFLOW must be >= 0")
         if (self.SEAGULL_DB_EXECUTEMANY_VALUES_PAGE_SIZE or 0) < 100:
             errors.append("SEAGULL_DB_EXECUTEMANY_VALUES_PAGE_SIZE must be >= 100")
+        if (self.SEAGULL_DB_READ_POOL_SIZE or 0) < 1:
+            errors.append("SEAGULL_DB_READ_POOL_SIZE must be >= 1")
+        if (self.SEAGULL_DB_READ_MAX_OVERFLOW or 0) < 0:
+            errors.append("SEAGULL_DB_READ_MAX_OVERFLOW must be >= 0")
+        if (self.SEAGULL_DB_REPLICA_LAG_THRESHOLD_BYTES or 0) < 1:
+            errors.append("SEAGULL_DB_REPLICA_LAG_THRESHOLD_BYTES must be >= 1")
+        if (self.SEAGULL_DB_REPLICA_LAG_DEGRADE_SECONDS or 0.0) < 0.0:
+            errors.append("SEAGULL_DB_REPLICA_LAG_DEGRADE_SECONDS must be >= 0")
+        if (self.SEAGULL_DB_REPLICA_PROBE_INTERVAL_SECONDS or 0.0) <= 0.0:
+            errors.append("SEAGULL_DB_REPLICA_PROBE_INTERVAL_SECONDS must be > 0")
+        if (self.SEAGULL_DB_REPLICA_CONNECT_TIMEOUT_SECONDS or 0) < 1:
+            errors.append("SEAGULL_DB_REPLICA_CONNECT_TIMEOUT_SECONDS must be >= 1")
         if (self.SEAGULL_INGEST_MAX_BATCH or 0) < 1:
             errors.append("SEAGULL_INGEST_MAX_BATCH must be >= 1")
         if (self.SEAGULL_MAX_REQUEST_BODY_BYTES or 0) < 1024:
