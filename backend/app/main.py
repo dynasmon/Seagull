@@ -13,7 +13,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.core.cache import get_redis
 from app.core.config import settings
-from app.core.db import engine
+from app.core.db import engine, read_router, start_replica_monitor, stop_replica_monitor
 from app.core.db.lifecycle import ensure_database_ready
 from app.core.db.locks import advisory_lock
 from app.core.db.model_registry import load_all_models
@@ -268,6 +268,8 @@ def on_startup():
         if settings.SEAGULL_SKIP_STARTUP_BOOTSTRAP:
             return
 
+        start_replica_monitor()
+
         # Ensure all models are loaded before bootstrap hooks.
         load_all_models()
 
@@ -301,6 +303,7 @@ async def on_shutdown():
         drained=bool(remaining == 0),
     )
     realtime_drain.reset_state()
+    stop_replica_monitor()
 
 
 @app.get("/health")
@@ -333,6 +336,17 @@ async def health_ready(response: Response):
         "latency_ms": db_latency_ms,
         "error": db_error,
     }
+
+    if read_router.enabled:
+        try:
+            read_router.probe_if_stale()
+        except Exception:
+            pass
+        replication = read_router.status_report()
+        healthy_replicas = int(replication.get("healthy") or 0)
+        total_replicas = int(replication.get("total") or 0)
+        replication["status"] = "ok" if healthy_replicas == total_replicas else "degraded"
+        components["postgres_replication"] = replication
 
     redis_latency_ms = None
     redis_error = None
