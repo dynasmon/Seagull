@@ -3,29 +3,28 @@ from __future__ import annotations
 import pytest
 
 from app.shared.network.ip_classification import classify_ip
-from app.workers.intelligence.ip_intel.normalization import _is_public_ip
 
 
 @pytest.mark.parametrize("ip", ["10.0.0.1", "172.16.1.1", "192.168.1.1"])
 def test_is_public_ip_false_for_rfc1918(ip):
-    assert not _is_public_ip(ip)
+    assert not classify_ip(ip)["is_public"]
 
 
 def test_is_public_ip_false_for_loopback():
-    assert not _is_public_ip("127.0.0.1")
+    assert not classify_ip("127.0.0.1")["is_public"]
 
 
 def test_is_public_ip_false_for_link_local():
-    assert not _is_public_ip("169.254.0.1")
+    assert not classify_ip("169.254.0.1")["is_public"]
 
 
 def test_is_public_ip_false_for_cgnat():
-    assert not _is_public_ip("100.64.0.1")
+    assert not classify_ip("100.64.0.1")["is_public"]
 
 
 @pytest.mark.parametrize("ip", ["8.8.8.8", "1.1.1.1", "104.21.0.1"])
 def test_is_public_ip_true_for_public(ip):
-    assert _is_public_ip(ip)
+    assert classify_ip(ip)["is_public"]
 
 
 def test_skip_patch_metadata_private():
