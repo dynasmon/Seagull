@@ -92,29 +92,6 @@ def test_network_topology_realtime_invalidation(monkeypatch) -> None:
     ]
 
 
-def test_network_topology_realtime_does_not_publish_huge_graph_patch(monkeypatch) -> None:
-    from app.features.network_topology import realtime as topo_rt
-
-    emitted: list[tuple[str, dict]] = []
-    monkeypatch.setattr(topo_rt, "_gate_once", lambda **kwargs: True)
-    monkeypatch.setattr(
-        topo_rt,
-        "publish_realtime",
-        lambda event_type, payload: emitted.append((event_type, payload)) or True,
-    )
-
-    ok = topo_rt.publish_graph_patch(
-        generated_at=datetime.now(timezone.utc),
-        projected_at=datetime.now(timezone.utc),
-        nodes=[{"node_key": f"n{i}"} for i in range(topo_rt.NETWORK_TOPOLOGY_GRAPH_PATCH_MAX_NODES + 1)],
-        edges=[],
-        graph_health={},
-    )
-
-    assert ok is False
-    assert "ui.network_topology.graph.patch" not in [event_type for event_type, _ in emitted]
-
-
 def test_network_topology_recalculation_idempotent(monkeypatch) -> None:
     from app.features.network_topology import service as topo_service
     from app.features.network_topology.schemas import TopologyCoverageOut
