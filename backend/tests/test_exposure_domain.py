@@ -376,10 +376,9 @@ def test_empty_reason_codes_gives_no_recommendations() -> None:
 def test_model_registry_includes_exposure_import() -> None:
     import importlib  # noqa: PLC0415
 
-    # Load the module source without triggering engine creation.
     spec = importlib.util.spec_from_file_location(
         "model_registry_source_check",
-        __import__("pathlib").Path(__file__).parents[1] / "app" / "core" / "model_registry.py",
+        __import__("pathlib").Path(__file__).parents[1] / "app" / "core" / "db" / "model_registry.py",
     )
     source = spec.origin
     text = __import__("pathlib").Path(source).read_text()

@@ -180,10 +180,6 @@ _SPECS: Tuple[QuerySpec, ...] = (
 CATALOGUE: Dict[str, QuerySpec] = {s.key: s for s in _SPECS}
 
 
-def get_spec(key: str) -> Optional[QuerySpec]:
-    return CATALOGUE.get(key)
-
-
 def _spec_kinds(spec: QuerySpec) -> List[str]:
     kinds: List[str] = []
     if spec.allow_instant:
