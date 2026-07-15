@@ -3,7 +3,7 @@ from __future__ import annotations
 import operator as _py_op
 from datetime import datetime, timedelta
 from functools import reduce
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from sqlalchemy import and_, case, func, not_, or_
 
@@ -16,7 +16,6 @@ from app.features.detections.domain.condition_ast import (
     SelectionReference,
     UnaryExpression,
 )
-from app.features.detections.domain.scoring import build_rule_provenance
 from app.features.detections.rules.registry import resolve_runtime_jsonb_accessor
 from app.features.events.worker_runtime import NetEventModel
 from app.workers.intelligence.rules.conditions import (
@@ -170,58 +169,3 @@ def compile_detection_filters(
     if expr is not None:
         filters.append(expr)
     return filters
-
-
-def _build_v2_details(
-    *,
-    agg_type: str,
-    group_fields: List[str],
-    group_key: Dict[str, Any],
-    window: timedelta,
-    enrichment: Dict[str, Any],
-    rule: Dict[str, Any],
-    eval_cfg: Dict[str, Any],
-    eff_min_events: int,
-    eff_condition: Dict[str, Any],
-    eff_cooldown: timedelta,
-    eff_severity: str,
-    mitre: Dict[str, Any],
-    count: Optional[int] = None,
-    distinct_field: Optional[str] = None,
-    distinct_count: Optional[int] = None,
-    event_count: Optional[int] = None,
-    distinct_results: Optional[Dict[str, int]] = None,
-) -> Dict[str, Any]:
-    details: Dict[str, Any] = {
-        "schema_version": 2,
-        "type": agg_type,
-        "group_by": group_fields,
-        "group_key": group_key,
-        "window_seconds": int(window.total_seconds()),
-        "enrichment": enrichment,
-        "rule_meta": build_rule_provenance(rule),
-    }
-    if count is not None:
-        details["count"] = count
-    if distinct_field is not None:
-        details["distinct_field"] = distinct_field
-    if distinct_count is not None:
-        details["distinct_count"] = distinct_count
-    if event_count is not None:
-        details["event_count"] = event_count
-    if distinct_results is not None:
-        details["distinct"] = distinct_results
-    if eval_cfg.get("applied_scopes"):
-        details["tuning"] = {
-            "applied_scopes": list(eval_cfg.get("applied_scopes") or []),
-            "effective_min_events": eff_min_events,
-            "effective_condition": eff_condition,
-            "effective_cooldown_seconds": int(eff_cooldown.total_seconds()),
-            "effective_severity": eff_severity,
-        }
-    if enrichment.get("src_ips"):
-        details["src_ips"] = enrichment["src_ips"]
-        details["unique_src_ips"] = enrichment.get("unique_src_ips", 0)
-    if mitre:
-        details["mitre"] = mitre
-    return details
