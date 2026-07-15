@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
@@ -71,6 +72,71 @@ from app.shared.analytics import swr_cache_control_middleware
 setup_logging("backend-api")
 logger = logging.getLogger("seagull.api")
 
+
+def _shutdown_drain_seconds() -> float:
+    configured = int(getattr(settings, "SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS", 5) or 5)
+    if configured < 1:
+        return 1.0
+    if configured > 30:
+        return 30.0
+    return float(configured)
+
+
+def _startup() -> None:
+    settings.validate_for_service("backend-api")
+
+    realtime_drain.reset_state()
+    realtime_drain.install_signal_handlers()
+
+    for severity in ("critical", "high", "medium", "low"):
+        init_counter("alert_created_total", severity=severity, detector_type="none")
+
+    if settings.SEAGULL_SKIP_STARTUP_BOOTSTRAP:
+        return
+
+    start_replica_monitor()
+    load_all_models()
+
+    if engine.dialect.name == "postgresql":
+        with advisory_lock(8_642_709):
+            ensure_database_ready()
+            bootstrap_portal_admin()
+            bootstrap_correlation_rules()
+    else:
+        ensure_database_ready()
+        bootstrap_portal_admin()
+        bootstrap_correlation_rules()
+    log_event(logger, "info", "startup_complete", env=settings.SEAGULL_ENV)
+
+
+async def _shutdown() -> None:
+    realtime_drain.begin_draining()
+    drain_deadline = time.monotonic() + _shutdown_drain_seconds()
+    while realtime_drain.active_connection_count() > 0 and time.monotonic() < drain_deadline:
+        await asyncio.sleep(0.05)
+    remaining = realtime_drain.active_connection_count()
+    log_event(
+        logger,
+        "info",
+        "realtime_drain_complete",
+        remaining_connections=remaining,
+        drained=bool(remaining == 0),
+    )
+    realtime_drain.reset_state()
+    stop_replica_monitor()
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    try:
+        _startup()
+    except Exception as exc:
+        logger.exception("startup_failed: %s", exc)
+        raise
+    yield
+    await _shutdown()
+
+
 _prod = settings.SEAGULL_ENV in {"prod", "production"}
 app = FastAPI(
     title="Seagull Backend",
@@ -79,6 +145,7 @@ app = FastAPI(
     openapi_url=None if _prod else "/openapi.json",
     docs_url=None if _prod else "/docs",
     redoc_url=None if _prod else "/redoc",
+    lifespan=_lifespan,
 )
 
 if settings.SEAGULL_TRUST_PROXY_HEADERS:
@@ -245,67 +312,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return res
 
 
-def _shutdown_drain_seconds() -> float:
-    configured = int(getattr(settings, "SEAGULL_REALTIME_SHUTDOWN_DRAIN_SECONDS", 5) or 5)
-    if configured < 1:
-        return 1.0
-    if configured > 30:
-        return 30.0
-    return float(configured)
-
-
-@app.on_event("startup")
-def on_startup():
-    try:
-        settings.validate_for_service("backend-api")
-
-        realtime_drain.reset_state()
-        realtime_drain.install_signal_handlers()
-
-        for severity in ("critical", "high", "medium", "low"):
-            init_counter("alert_created_total", severity=severity, detector_type="none")
-
-        if settings.SEAGULL_SKIP_STARTUP_BOOTSTRAP:
-            return
-
-        start_replica_monitor()
-
-        # Ensure all models are loaded before bootstrap hooks.
-        load_all_models()
-
-        if engine.dialect.name == "postgresql":
-            with advisory_lock(8_642_709):
-                ensure_database_ready()
-                bootstrap_portal_admin()
-                bootstrap_correlation_rules()
-        else:
-            ensure_database_ready()
-            bootstrap_portal_admin()
-            bootstrap_correlation_rules()
-        log_event(logger, "info", "startup_complete", env=settings.SEAGULL_ENV)
-    except Exception as exc:
-        logger.exception("startup_failed: %s", exc)
-        raise
-
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    realtime_drain.begin_draining()
-    drain_deadline = time.monotonic() + _shutdown_drain_seconds()
-    while realtime_drain.active_connection_count() > 0 and time.monotonic() < drain_deadline:
-        await asyncio.sleep(0.05)
-    remaining = realtime_drain.active_connection_count()
-    log_event(
-        logger,
-        "info",
-        "realtime_drain_complete",
-        remaining_connections=remaining,
-        drained=bool(remaining == 0),
-    )
-    realtime_drain.reset_state()
-    stop_replica_monitor()
-
-
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -317,7 +323,7 @@ async def health_live():
 
 
 @app.get("/health/ready")
-async def health_ready(response: Response):
+def health_ready(response: Response):
     ready = True
     components = {}
 
@@ -467,10 +473,9 @@ async def health_ready(response: Response):
 
 
 @app.get("/metrics")
-async def metrics():
+def metrics():
     if not settings.SEAGULL_METRICS_ENABLED:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
-    # Keeps es_cluster_* gauges fresh when nothing polls /health/ready (TTL-cached).
     if search_backend_mode() != "postgres":
         try:
             es_cluster_status_report()
