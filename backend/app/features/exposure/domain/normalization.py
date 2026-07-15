@@ -9,12 +9,10 @@ from app.features.exposure.domain.constants import (
     ASSET_STATUS_ACTIVE,
     ASSET_STATUS_STALE,
     ASSET_STATUS_UNKNOWN,
-    ASSET_STATUSES,
     EVIDENCE_SOURCE_TYPES,
     FINDING_STATUS_OPEN,
     FINDING_STATUSES,
     FINDING_TYPES,
-    NODE_TYPES,
     SEVERITY_CRITICAL,
     SEVERITY_HIGH,
     SEVERITY_INFORMATIONAL,
@@ -127,16 +125,6 @@ def normalize_finding_status(value: str | None) -> str:
 def normalize_finding_type(value: str | None) -> str:
     raw = str(value or "").strip().lower()
     return raw if raw in FINDING_TYPES else "event"
-
-
-def normalize_node_type(value: str | None) -> str:
-    raw = str(value or "").strip().lower()
-    return raw if raw in NODE_TYPES else "asset"
-
-
-def normalize_asset_status(value: str | None) -> str:
-    raw = str(value or "").strip().lower()
-    return raw if raw in ASSET_STATUSES else ASSET_STATUS_UNKNOWN
 
 
 def normalize_evidence_source_type(value: str | None) -> str:
