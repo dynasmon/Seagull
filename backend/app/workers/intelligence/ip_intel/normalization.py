@@ -55,11 +55,6 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _is_public_ip(ip: str) -> bool:
-    from app.shared.network.ip_classification import classify_ip
-    return classify_ip(ip)["scope"] == "public_internet"
-
-
 def _compact(d: Dict[str, Any]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for k, v in d.items():
