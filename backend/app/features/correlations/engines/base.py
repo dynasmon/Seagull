@@ -9,9 +9,9 @@ from typing import Any, Iterable, List, Mapping, Optional, Sequence
 
 from app.features.alerts.public import AlertDTO
 from app.features.attack_chain.public import AttackChainCaseDTO, AttackChainStepDTO
-from app.features.detections.domain.scoring import severity_baseline_score
 from app.features.correlations.models import EntityBaselineModel
 from app.features.correlations.schemas import CorrelationAlertRef, CorrelationEvidenceMatch, CorrelationIncidentOut
+from app.features.detections.domain.scoring import severity_baseline_score
 from app.features.events.models import NetEventModel
 from app.features.exposure.models import ExposureFindingModel
 from app.features.vuln.public import VulnFindingDTO
@@ -107,30 +107,6 @@ def segment_by_window(alerts: List[AlertDTO], window_seconds: int) -> List[List[
     if cur:
         segments.append(cur)
     return segments
-
-
-def segment_records_by_window(rows: Sequence[Any], source: str, dataset: "CorrelationDataset", window_seconds: int) -> List[List[Any]]:
-    if not rows:
-        return []
-
-    ordered = sorted(rows, key=lambda row: record_timestamp(row, source, dataset))
-    start = record_timestamp(ordered[0], source, dataset)
-    current: List[Any] = [ordered[0]]
-    out: List[List[Any]] = []
-    window = max(1, int(window_seconds))
-
-    for row in ordered[1:]:
-        ts = record_timestamp(row, source, dataset)
-        if (ts - start).total_seconds() <= window:
-            current.append(row)
-            continue
-        out.append(current)
-        current = [row]
-        start = ts
-
-    if current:
-        out.append(current)
-    return out
 
 
 def compute_stage_hits(seg: List[AlertDTO], stages: List[dict]) -> dict[str, int]:
