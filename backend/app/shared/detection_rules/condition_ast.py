@@ -14,11 +14,6 @@ class FieldPredicate:
 
 
 @dataclass(frozen=True)
-class MatchCondition:
-    predicates: tuple[FieldPredicate, ...] = field(default_factory=tuple)
-
-
-@dataclass(frozen=True)
 class DetectionSelection:
     name: str
     predicates: tuple[FieldPredicate, ...] = field(default_factory=tuple)
@@ -59,9 +54,3 @@ class DetectionCondition:
 class DetectionBlock:
     selections: tuple[DetectionSelection, ...]
     condition: DetectionCondition
-
-
-@dataclass(frozen=True)
-class ThresholdCondition:
-    operator: str = ">="
-    value: int = 0
