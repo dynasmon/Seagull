@@ -30,7 +30,7 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 
 
 @router.post("/{agent_id}/bootstrap-tokens", response_model=AgentBootstrapTokenOut, status_code=status.HTTP_201_CREATED)
-async def create_agent_bootstrap_token(
+def create_agent_bootstrap_token(
     agent_id: str,
     payload: AgentBootstrapTokenCreateIn,
     request: Request,
@@ -49,7 +49,7 @@ async def create_agent_bootstrap_token(
 
 
 @router.post("/{agent_id}/identity/reissue", response_model=AgentBootstrapTokenOut, status_code=status.HTTP_201_CREATED)
-async def reissue_agent_identity(
+def reissue_agent_identity(
     agent_id: str,
     payload: AgentBootstrapTokenCreateIn,
     request: Request,
@@ -68,7 +68,7 @@ async def reissue_agent_identity(
 
 
 @router.post("/enroll", response_model=AgentEnrollOut, status_code=status.HTTP_201_CREATED)
-async def enroll_agent(request: Request, payload: AgentEnrollIn, db: Session = Depends(get_db)):
+def enroll_agent(request: Request, payload: AgentEnrollIn, db: Session = Depends(get_db)):
     raw_bootstrap = (request.headers.get("X-Agent-Bootstrap-Token") or "").strip()
     if not raw_bootstrap:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bootstrap token")
@@ -78,13 +78,13 @@ async def enroll_agent(request: Request, payload: AgentEnrollIn, db: Session = D
 
 
 @router.post("/credential/rotate", response_model=AgentCredentialOut)
-async def rotate_agent_credential(agent: AgentPrincipal = Depends(get_current_agent), db: Session = Depends(get_db)):
+def rotate_agent_credential(agent: AgentPrincipal = Depends(get_current_agent), db: Session = Depends(get_db)):
     with managed_session(db) as db_session:
         return service.rotate_credential(db_session, agent=agent)
 
 
 @router.post("/certificate/renew", response_model=AgentCertificateRenewOut)
-async def renew_agent_certificate(
+def renew_agent_certificate(
     payload: AgentCertificateRenewIn,
     request: Request,
     agent: AgentPrincipal = Depends(get_current_agent),
@@ -101,7 +101,7 @@ async def renew_agent_certificate(
 
 
 @router.put("/{agent_id}/config", status_code=status.HTTP_204_NO_CONTENT)
-async def set_agent_config(
+def set_agent_config(
     agent_id: str,
     payload: AgentConfigUpdateIn,
     request: Request,
@@ -121,7 +121,7 @@ async def set_agent_config(
 
 
 @router.post("/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
-async def agent_heartbeat(
+def agent_heartbeat(
     payload: AgentHeartbeatIn,
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
@@ -132,25 +132,25 @@ async def agent_heartbeat(
 
 
 @router.get("/config")
-async def get_agent_config(agent: AgentPrincipal = Depends(get_current_agent), db: Session = Depends(get_db)):
+def get_agent_config(agent: AgentPrincipal = Depends(get_current_agent), db: Session = Depends(get_db)):
     with managed_session(db) as db_session:
         return service.get_config(db_session, agent=agent)
 
 
 @router.get("", response_model=List[AgentPublic])
-async def list_agents(_user=Depends(get_current_user), db: Session = Depends(routed_db("agents-list"))):
+def list_agents(_user=Depends(get_current_user), db: Session = Depends(routed_db("agents-list"))):
     with managed_session(db) as db_session:
         return service.list_agents(db_session)
 
 
 @router.get("/{agent_id}", response_model=AgentDetail)
-async def get_agent(agent_id: str, _user=Depends(get_current_user), db: Session = Depends(get_db)):
+def get_agent(agent_id: str, _user=Depends(get_current_user), db: Session = Depends(get_db)):
     with managed_session(db) as db_session:
         return service.get_agent(db_session, agent_id=agent_id)
 
 
 @router.patch("/{agent_id}", response_model=AgentDetail)
-async def update_agent(
+def update_agent(
     agent_id: str,
     payload: AgentUpdateIn,
     request: Request,
@@ -169,7 +169,7 @@ async def update_agent(
 
 
 @router.post("/{agent_id}/disable", status_code=status.HTTP_204_NO_CONTENT)
-async def disable_agent(
+def disable_agent(
     agent_id: str,
     request: Request,
     admin: PortalPrincipal = Depends(require_admin),
@@ -187,7 +187,7 @@ async def disable_agent(
 
 
 @router.post("/{agent_id}/enable", status_code=status.HTTP_204_NO_CONTENT)
-async def enable_agent(
+def enable_agent(
     agent_id: str,
     request: Request,
     admin: PortalPrincipal = Depends(require_admin),
