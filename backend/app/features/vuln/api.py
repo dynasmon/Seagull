@@ -10,6 +10,11 @@ from app.core.db import get_db, routed_db
 from app.core.observability import incr_counter
 from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.features.auth.session import require_admin
+from app.features.vuln.overview import (
+    VULN_DEFAULT_ACTIVE_WITHIN_DAYS,
+    VULN_DEFAULT_INCLUDE_SUPPRESSED,
+    VULN_POSTURE_DEFAULT_TOP_N,
+)
 from app.features.vuln.schemas import (
     VulnFindingOut,
     VulnFindingPatchIn,
@@ -20,11 +25,6 @@ from app.features.vuln.schemas import (
     VulnPostureOut,
     VulnScanOut,
     VulnSummaryOut,
-)
-from app.features.vuln.overview import (
-    VULN_DEFAULT_ACTIVE_WITHIN_DAYS,
-    VULN_DEFAULT_INCLUDE_SUPPRESSED,
-    VULN_POSTURE_DEFAULT_TOP_N,
 )
 from app.features.vuln.service import (
     get_finding,

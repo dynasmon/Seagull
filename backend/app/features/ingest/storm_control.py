@@ -56,16 +56,6 @@ def _storm_key(agent_id: str) -> str:
     return f"storm:agent:{agent_id}"
 
 
-def is_storm_active(agent_id: str) -> bool:
-    r = _get_redis()
-    if r is None:
-        return False
-    try:
-        return bool(r.get(_storm_key(agent_id)))
-    except Exception:
-        return False
-
-
 def evaluate_storm(agent_id: str, batch_size: int) -> StormDecision:
 
     # Safe defaults (tune via env without code changes).

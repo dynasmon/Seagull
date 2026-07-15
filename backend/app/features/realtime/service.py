@@ -355,10 +355,6 @@ def cursor_to_int(cursor: str | None) -> int:
     return _cursor_to_int(cursor)
 
 
-def envelope_cursor_to_int(envelope: RealtimeEnvelope) -> int:
-    return _cursor_to_int(envelope.cursor)
-
-
 def _normalize_realtime_payload(parsed: Dict[str, Any]) -> Dict[str, Any]:
     event_type = str(parsed.get("type") or "").strip()
     if not event_type:
