@@ -5,7 +5,6 @@ from typing import Any
 
 from app.features.detections.domain.canonical_fields import CANONICAL_FIELD_MAP
 from app.features.detections.domain.condition_ast import parse_detection_block
-from app.features.detections.domain.operators import split_operator_suffix
 from app.features.detections.domain.rule_types import (
     DEFAULT_RULE_SCHEMA_VERSION,
     SUPPORTED_RULE_SCHEMA_VERSIONS,
@@ -32,13 +31,6 @@ _RUNTIME_TO_CANONICAL_FIELD = {
     runtime_field_name(spec): canonical_name
     for canonical_name, spec in CANONICAL_FIELD_MAP.items()
 }
-_V1_TO_V2_AGGREGATION_TYPES = {
-    "aggregate_count": "threshold",
-    "distinct_count": "cardinality",
-    "multi_distinct": "multi_cardinality",
-}
-
-
 def deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = dict(base or {})
     for key, value in (patch or {}).items():
@@ -114,14 +106,6 @@ def resolve_rule_schema_version(raw_rule: dict[str, Any], file_meta: dict[str, A
     if schema_version not in SUPPORTED_RULE_SCHEMA_VERSIONS:
         raise DetectionRuleValidationError(f"Unsupported schema_version: {schema_version}")
     return schema_version
-
-
-def is_runtime_compatible_rule(rule: dict[str, Any]) -> bool:
-    from app.features.detections.domain.rule_types import SUPPORTED_RUNTIME_RULE_SCHEMA_VERSIONS
-    try:
-        return int(rule.get("schema_version") or DEFAULT_RULE_SCHEMA_VERSION) in SUPPORTED_RUNTIME_RULE_SCHEMA_VERSIONS
-    except Exception:
-        return False
 
 
 def runtime_field_to_canonical(field_name: str) -> str:
@@ -208,134 +192,6 @@ def _normalize_v2_aggregation(aggregation: Any) -> dict[str, Any]:
             )
         out["distinct_conditions"] = normalized_conditions
     return out
-
-
-def normalize_v1_match_to_v2_selection(match: Any) -> dict[str, Any]:
-    normalized_match = normalize_match_fields(match or {})
-    selection: dict[str, Any] = {}
-    for raw_key, value in normalized_match.items():
-        key = str(raw_key or "").strip()
-        if key.startswith("extra_"):
-            selection[key] = value
-            continue
-        field_name, operator = split_operator_suffix(key)
-        canonical_field = runtime_field_to_canonical(field_name)
-        if operator == "eq":
-            selection[canonical_field] = value
-        else:
-            selection[f"{canonical_field}|{operator}"] = value
-    return selection
-
-
-def _normalize_v1_group_by_to_v2(group_by: Any) -> str | list[str] | None:
-    normalized_group_by = normalize_group_by_fields(group_by)
-    if normalized_group_by is None:
-        return None
-    if isinstance(normalized_group_by, str):
-        return runtime_field_to_canonical(normalized_group_by)
-    return [runtime_field_to_canonical(field_name) for field_name in normalized_group_by]
-
-
-def _normalize_v1_distinct_conditions_to_v2(distinct_conditions: Any) -> list[dict[str, Any]]:
-    if not isinstance(distinct_conditions, list):
-        return []
-    out: list[dict[str, Any]] = []
-    for condition in distinct_conditions:
-        if not isinstance(condition, dict):
-            continue
-        field_name = condition.get("field")
-        if not isinstance(field_name, str) or not field_name.strip():
-            continue
-        out.append(
-            {
-                "field": runtime_field_to_canonical(field_name),
-                "operator": ensure_threshold_operator(str(condition.get("operator") or ">=")),
-                "value": ensure_number(condition.get("value"), field_name=f"{field_name}.value"),
-            }
-        )
-    return out
-
-
-def normalize_v1_rule_to_v2(rule: dict[str, Any]) -> dict[str, Any]:
-    rule_id = ensure_non_empty_string(rule.get("id"), field_name="rule id")
-    rule_type = str(rule.get("type") or "").strip()
-    aggregation_type = _V1_TO_V2_AGGREGATION_TYPES.get(rule_type, "threshold")
-    match = rule.get("match") if isinstance(rule.get("match"), dict) else {}
-    mitigation = rule.get("mitre") if isinstance(rule.get("mitre"), dict) else {}
-
-    response: dict[str, Any] = {}
-    if rule.get("response"):
-        if isinstance(rule.get("response"), dict):
-            response.update(rule.get("response"))
-        else:
-            response["playbook"] = str(rule.get("response"))
-    if rule.get("false_positives"):
-        response["false_positives"] = rule.get("false_positives")
-
-    logsource: dict[str, Any] = {}
-    if rule.get("source"):
-        logsource["source"] = str(rule.get("source"))
-    if match.get("event_type"):
-        logsource["event_type"] = match.get("event_type")
-
-    aggregation: dict[str, Any] = {
-        "type": aggregation_type,
-        "window": rule.get("window"),
-        "group_by": _normalize_v1_group_by_to_v2(rule.get("group_by")),
-        "condition": _normalize_threshold_condition(
-            rule.get("condition") or {},
-            field_name=f"{rule_id}.condition",
-        ),
-    }
-    min_events = rule.get("min_events")
-    if min_events is not None:
-        aggregation["min_events"] = int(ensure_number(min_events, field_name=f"{rule_id}.min_events"))
-
-    if aggregation_type == "cardinality":
-        distinct_field = rule.get("distinct_field")
-        if isinstance(distinct_field, str) and distinct_field.strip():
-            aggregation["field"] = runtime_field_to_canonical(distinct_field)
-    if aggregation_type == "multi_cardinality":
-        aggregation["distinct_conditions"] = _normalize_v1_distinct_conditions_to_v2(rule.get("distinct_conditions"))
-
-    status = str(rule.get("status") or ("disabled" if rule.get("enabled") is False else "active")).strip().lower()
-    confidence = rule.get("confidence")
-    if confidence is None and isinstance(mitigation, dict):
-        confidence = mitigation.get("confidence")
-
-    suppression = {
-        "cooldown": rule.get("cooldown"),
-        "rules": list(rule.get("suppressions") or []),
-    }
-
-    normalized = {
-        "schema_version": V2_RULE_SCHEMA_VERSION,
-        "id": rule_id,
-        "name": rule.get("name"),
-        "description": rule.get("description"),
-        "enabled": rule.get("enabled", True),
-        "status": status,
-        "maturity": rule.get("maturity"),
-        "severity": rule.get("severity"),
-        "risk_score": rule.get("risk_score"),
-        "confidence": confidence,
-        "logsource": logsource,
-        "attack": mitigation,
-        "detection": {
-            "selection": normalize_v1_match_to_v2_selection(match),
-            "condition": "selection",
-        },
-        "aggregation": aggregation,
-        "suppression": suppression,
-        "tuning": rule.get("tuning") if isinstance(rule.get("tuning"), dict) else {},
-        "response": response,
-        "tests": list(rule.get("tests") or []),
-    }
-
-    for extra_key in ("pack", "category", "pack_version", "source_file", "environments", "rule_version"):
-        if extra_key in rule:
-            normalized[extra_key] = rule.get(extra_key)
-    return normalized
 
 
 def _normalize_v1_rule_document(

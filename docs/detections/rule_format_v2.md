@@ -311,5 +311,3 @@ To migrate a v1 rule to v2:
 4. Move `distinct_field` into `aggregation.field`.
 5. Set `schema_version: 2`.
 6. Keep the old v1 rule disabled in the same pack file until the v2 version is validated in production.
-
-The `compatibility.normalize_v1_rule_to_v2()` function in `backend/app/features/detections/rules/compatibility.py` performs this conversion programmatically.

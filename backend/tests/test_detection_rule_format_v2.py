@@ -10,7 +10,6 @@ os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 os.environ.setdefault("SEAGULL_DB_URL", "postgresql://seagull:seagull@127.0.0.1:5432/seagull")
 
 from app.features.detections.domain.validation import DetectionRuleValidationError
-from app.features.detections.rules.compatibility import normalize_v1_rule_to_v2
 from app.features.detections.rules.loader import (
     load_and_validate_rules,
 )
@@ -222,52 +221,6 @@ def test_invalid_condition_expression_fails(tmp_path: Path) -> None:
     )
     assert len(report["errors"]) == 1
     assert "Unexpected token in condition: or" in report["errors"][0]["message"]
-
-
-def test_v1_compatibility_normalization_maps_to_v2_shape() -> None:
-    v1_rule = {
-        "schema_version": 1,
-        "id": "ssh_scan_v1",
-        "name": "SSH Scan",
-        "description": "Detect SSH scan behavior.",
-        "enabled": True,
-        "status": "active",
-        "maturity": "stable",
-        "severity": "high",
-        "type": "distinct_count",
-        "window": "5m",
-        "cooldown": "10m",
-        "source": "scan_probe",
-        "match": {
-            "event_type": "scan_probe",
-            "dst_port": 22,
-        },
-        "group_by": ["src_ip"],
-        "distinct_field": "dst_ip",
-        "condition": {"operator": ">=", "value": 4},
-        "min_events": 10,
-        "mitre": {
-            "tactic": "discovery",
-            "technique_id": "T1046",
-            "technique": "Network Service Scanning",
-            "confidence": 77,
-        },
-        "false_positives": "Authorized scanners.",
-        "response": "Check scanner allowlists.",
-        "tuning": {"allowlist": {"src_ips": ["10.0.0.10"]}},
-        "suppressions": [{"reason": "trusted host"}],
-    }
-
-    normalized = normalize_v1_rule_to_v2(v1_rule)
-    assert int(normalized["schema_version"]) == 2
-    assert normalized["aggregation"]["type"] == "cardinality"
-    assert normalized["aggregation"]["field"] == "destination.ip"
-    assert normalized["detection"]["selection"]["event.type"] == "scan_probe"
-    assert normalized["detection"]["selection"]["destination.port"] == 22
-    assert normalized["attack"]["technique_id"] == "T1046"
-    assert normalized["response"]["playbook"] == "Check scanner allowlists."
-    assert normalized["response"]["false_positives"] == "Authorized scanners."
-    assert normalized["suppression"]["cooldown"] == "10m"
 
 
 def test_v2_shorthand_parsing_supports_core_operators(tmp_path: Path) -> None:
