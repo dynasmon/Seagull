@@ -11,10 +11,6 @@ from app.core.security.password_policy import validate_password_policy
 from app.features.auth.models import PortalUserModel
 
 
-def _is_prod() -> bool:
-    return settings.SEAGULL_ENV in {"prod", "production"}
-
-
 def assert_portal_secrets() -> None:
     secret = (settings.SEAGULL_JWT_SECRET or "").strip()
     if len(secret) < 32:
