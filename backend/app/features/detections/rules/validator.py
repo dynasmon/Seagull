@@ -32,7 +32,6 @@ from app.features.detections.rules.registry import (
     resolve_runtime_field,
 )
 
-
 _SUPPORTED_TEST_EXPECTATIONS = frozenset({"hit", "no_hit", "match", "no_match"})
 
 
