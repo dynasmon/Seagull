@@ -29,25 +29,6 @@ def _safe_dict(v: Any) -> Dict[str, Any]:
     return {}
 
 
-def get_or_create_open_case(
-    conn,
-    *,
-    agent_id: str,
-    suspect_ip: Optional[str],
-    now: datetime,
-    context_patch: Optional[Dict[str, Any]] = None,
-) -> CaseRow:
-
-    case, _created = get_or_create_open_case_ex(
-        conn,
-        agent_id=agent_id,
-        suspect_ip=suspect_ip,
-        now=now,
-        context_patch=context_patch,
-    )
-    return case
-
-
 def get_or_create_open_case_ex(
     conn,
     *,
