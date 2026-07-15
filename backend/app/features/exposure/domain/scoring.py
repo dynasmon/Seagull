@@ -57,13 +57,6 @@ _SEVERITY_SCORE_MAP: dict[str, int] = {
 }
 
 
-def _safe_float(v: Any, default: float = 0.0) -> float:
-    try:
-        return float(v) if v is not None else default
-    except (TypeError, ValueError):
-        return default
-
-
 def _safe_int(v: Any, default: int = 0) -> int:
     try:
         return int(float(v)) if v is not None else default

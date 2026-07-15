@@ -30,7 +30,6 @@ from app.features.exposure.domain.constants import (
     REC_TYPE_REVIEW_ATTACK_CHAIN,
     REC_TYPE_REVIEW_FIM,
     REC_TYPE_REVIEW_SUSPICIOUS_PROCESS,
-    REC_TYPE_SUPPRESS_KNOWN_BENIGN,
     REC_TYPE_UPDATE_AGENT,
     REC_TYPE_VALIDATE_AGENT_HEALTH,
     REC_TYPE_VERIFY_SERVICE_EXPOSURE,
@@ -266,16 +265,3 @@ def generate_recommendations(
 
     candidates.sort(key=lambda r: r.priority)
     return candidates[:_MAX_RECOMMENDATIONS]
-
-
-def generate_suppress_recommendation(reason: str, evidence_refs: list[dict[str, Any]] | None = None) -> Recommendation:
-    return Recommendation(
-        rec_type=REC_TYPE_SUPPRESS_KNOWN_BENIGN,
-        priority=90,
-        title="Mark as known-benign",
-        detail=f"This asset shows no active risk signals. If all activity is expected, consider marking known-benign findings as accepted. Reason: {reason}",
-        reason_code="low_evidence_confidence",
-        safety_level="safe",
-        requires_admin=False,
-        related_evidence_refs=(evidence_refs or [])[:8],
-    )
