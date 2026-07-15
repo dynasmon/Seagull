@@ -54,11 +54,5 @@ def _recent_alert_last_at(
     return idx.get(_normalize_dedup_key(rule_id, src_ip, dst_ip, dst_port))
 
 
-def _recent_alert_exists_cached(
-    idx: Dict, rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]
-) -> bool:
-    return _recent_alert_last_at(idx, rule_id, src_ip, dst_ip, dst_port) is not None
-
-
 def _index_add(idx: Dict, rule_id: str, src_ip: Optional[str], dst_ip: Optional[str], dst_port: Optional[int]):
     idx[_normalize_dedup_key(rule_id, src_ip, dst_ip, dst_port)] = datetime.utcnow()
