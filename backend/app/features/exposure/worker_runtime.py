@@ -1941,17 +1941,6 @@ def _sev_to_score(sev: str) -> int:
     }.get(sev, 0)
 
 
-def _sev_rank(sev: str) -> int:
-    return {
-        "critical": 5,
-        "high": 4,
-        "medium": 3,
-        "low": 2,
-        "informational": 1,
-        "unknown": 0,
-    }.get(sev, 0)
-
-
 def _alert_score_delta(sev: str, kind: str) -> int:
     base = {"critical": 25, "high": 15, "medium": 8, "low": 3, "informational": 1, "unknown": 2}.get(sev, 2)
     if kind == "lateral_movement":
