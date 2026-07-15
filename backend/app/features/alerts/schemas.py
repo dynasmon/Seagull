@@ -84,21 +84,6 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class RuleSchedule(BaseModel):
-
-    enabled: bool = False
-    timezone: str = "UTC"
-    days: List[str] = Field(default_factory=list)
-    start: str = "00:00"
-    end: str = "23:59"
-
-
-class RuleCondition(BaseModel):
-    field: Optional[str] = None
-    operator: str = ">="
-    value: int = 0
-
-
 class RuleOverrideIn(BaseModel):
     enabled: Optional[bool] = None
     severity: Optional[str] = None

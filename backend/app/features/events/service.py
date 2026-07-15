@@ -79,7 +79,6 @@ from app.shared.indexing.watermark import (
     clickhouse_watermark_lag_seconds,
     read_proto_intel_materialization_floor,
 )
-from app.shared.schemas import CursorPage
 
 logger = logging.getLogger("seagull.api.events")
 
@@ -1038,24 +1037,6 @@ def hunt_field_catalog() -> HuntFieldsResponse:
         generated_at=_now_utc(),
         fields=[HuntFieldSpec(name=name, type=field_type) for name, field_type in hunt_field_listing()],
     )
-
-
-def list_events(
-    db: Session,
-    *,
-    page_size: int = 50,
-    cursor: Optional[str] = None,
-    agent_id: Optional[str] = None,
-    event_type: Optional[str] = None,
-) -> CursorPage[NetEventDB]:
-    out = hunt_events(
-        db,
-        page_size=page_size,
-        cursor=cursor,
-        agent_id=agent_id,
-        event_type=event_type,
-    )
-    return CursorPage(items=out.items, next_cursor=out.next_cursor, has_more=out.has_more)
 
 
 def get_recent_events(

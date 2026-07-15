@@ -292,13 +292,6 @@ def list_feedback_for_finding(db: Session, finding_id: int) -> list[UebaFeedback
     return db.execute(stmt).scalars().all()
 
 
-def count_verdicts_since(db: Session, *, since: datetime) -> int:
-    value = db.execute(
-        select(func.count(UebaFeedbackModel.id)).where(UebaFeedbackModel.annotated_at >= _utc(since))
-    ).scalar()
-    return int(value or 0)
-
-
 def update_baseline_feedback(db: Session, baseline: UebaBaselineModel, **updates) -> UebaBaselineModel:
     for field, value in updates.items():
         setattr(baseline, field, value)
@@ -505,16 +498,6 @@ def latest_peer_group_run_id(db: Session) -> str | None:
 def list_peer_groups_for_run(db: Session, *, run_id: str) -> list[UebaPeerGroupModel]:
     stmt = select(UebaPeerGroupModel).where(UebaPeerGroupModel.run_id == run_id)
     return db.execute(stmt).scalars().all()
-
-
-def get_latest_peer_group_for_agent(db: Session, *, agent_id: str) -> UebaPeerGroupModel | None:
-    stmt = (
-        select(UebaPeerGroupModel)
-        .where(UebaPeerGroupModel.agent_id == agent_id)
-        .order_by(UebaPeerGroupModel.computed_at.desc(), UebaPeerGroupModel.id.desc())
-        .limit(1)
-    )
-    return db.execute(stmt).scalars().first()
 
 
 def sweep_peer_groups(db: Session, *, cutoff: datetime) -> int:
