@@ -205,7 +205,7 @@ def test_websocket_closes_1001_when_draining_mid_stream(monkeypatch) -> None:
 def test_shutdown_hook_returns_fast_when_no_active_connections(monkeypatch) -> None:
     monkeypatch.setattr(main, "_shutdown_drain_seconds", lambda: 5.0)
     start = time.monotonic()
-    asyncio.run(main.on_shutdown())
+    asyncio.run(main._shutdown())
     elapsed = time.monotonic() - start
     assert elapsed < 1.0
 
@@ -214,7 +214,7 @@ def test_shutdown_hook_is_bounded_when_connection_never_drains(monkeypatch) -> N
     monkeypatch.setattr(main, "_shutdown_drain_seconds", lambda: 0.3)
     realtime_drain.register()
     start = time.monotonic()
-    asyncio.run(main.on_shutdown())
+    asyncio.run(main._shutdown())
     elapsed = time.monotonic() - start
     assert 0.3 <= elapsed < 1.5
 
@@ -230,7 +230,7 @@ def test_shutdown_hook_marks_draining_during_wait(monkeypatch) -> None:
 
     monkeypatch.setattr(main.asyncio, "sleep", _recording_sleep)
     realtime_drain.register()
-    asyncio.run(main.on_shutdown())
+    asyncio.run(main._shutdown())
 
     assert observed.get("draining") is True
     assert realtime_drain.is_draining() is False
