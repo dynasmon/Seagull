@@ -7,7 +7,6 @@ from typing import Any
 
 from app.core.cache import get_redis
 from app.features.network_topology.schemas import (
-    NetworkTopologyGraphPatchPayload,
     NetworkTopologyInvalidatePayload,
     NetworkTopologySummaryPatchPayload,
 )
@@ -21,11 +20,6 @@ NETWORK_TOPOLOGY_INVALIDATE_GATE_KEY = "seagull:realtime:network_topology:invali
 NETWORK_TOPOLOGY_SUMMARY_GATE_KEY = "seagull:realtime:network_topology:summary:2s"
 NETWORK_TOPOLOGY_RECALC_REQUEST_TTL_SECONDS = 3600
 NETWORK_TOPOLOGY_RECALC_DEBOUNCE_SECONDS = 10
-NETWORK_TOPOLOGY_GRAPH_PATCH_MAX_NODES = 50
-NETWORK_TOPOLOGY_GRAPH_PATCH_MAX_EDGES = 100
-NETWORK_TOPOLOGY_GRAPH_PATCH_MAX_BYTES = 32 * 1024
-
-
 def graph_nodes_hard_limit() -> int:
     return 2000
 
@@ -198,45 +192,6 @@ def publish_summary_patch(
         truncation=truncation if isinstance(truncation, dict) else {},
     )
     publish_realtime("ui.network_topology.summary.patch", _payload_dict(payload))
-
-
-def publish_graph_patch(
-    *,
-    generated_at: datetime,
-    projected_at: datetime | None,
-    nodes: list[dict[str, Any]],
-    edges: list[dict[str, Any]],
-    graph_health: dict[str, Any],
-) -> bool:
-    if len(nodes) > NETWORK_TOPOLOGY_GRAPH_PATCH_MAX_NODES or len(edges) > NETWORK_TOPOLOGY_GRAPH_PATCH_MAX_EDGES:
-        publish_topology_invalidate(
-            reason="graph_patch_too_large",
-            source="network_topology",
-            schedule_recalculation=False,
-        )
-        return False
-
-    payload = NetworkTopologyGraphPatchPayload(
-        generated_at=_to_iso(generated_at) or "",
-        projected_at=_to_iso(projected_at),
-        nodes=nodes,
-        edges=edges,
-        graph_health=graph_health,
-        requires_reconcile=False,
-    )
-    payload_dict = _payload_dict(payload)
-    payload_bytes = len(
-        json.dumps(payload_dict, ensure_ascii=True, separators=(",", ":"), default=str).encode("utf-8")
-    )
-    if payload_bytes > NETWORK_TOPOLOGY_GRAPH_PATCH_MAX_BYTES:
-        publish_topology_invalidate(
-            reason="graph_patch_too_large",
-            source="network_topology",
-            schedule_recalculation=False,
-        )
-        return False
-
-    return publish_realtime("ui.network_topology.graph.patch", payload_dict)
 
 
 def publish_topology_updated(*, projected_nodes: int, projected_edges: int) -> None:

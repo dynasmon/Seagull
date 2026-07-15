@@ -569,7 +569,6 @@ def test_different_subnets_both_created():
 # ── project_topology signature ────────────────────────────────────────────────
 
 def test_project_topology_accepts_window_and_max_events_params():
-    now = _now()
     written_nodes: list[dict] = []
     written_edges: list[dict] = []
 
@@ -587,7 +586,7 @@ def test_project_topology_accepts_window_and_max_events_params():
 
 
 def test_project_topology_flow_edges_respects_window_minutes():
-    from datetime import timedelta, timezone
+    from datetime import timezone
 
     captured_since: list[Any] = []
 
@@ -617,7 +616,6 @@ def test_project_topology_flow_edges_respects_window_minutes():
 
     now = datetime.now(timezone.utc)
     window_minutes = 120
-    expected_since = now - timedelta(minutes=window_minutes)
 
     with patch.object(repo, "upsert_node"), \
          patch.object(repo, "upsert_edge"):

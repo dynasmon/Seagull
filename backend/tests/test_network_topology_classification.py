@@ -5,11 +5,10 @@ import pytest
 from app.features.network_topology.classification import (
     EDGE_TYPES,
     NODE_TYPES,
-    classify_topology_flow,
     classify_topology_ip,
     infer_subnet_cidr,
 )
-from app.shared.network.ip_classification import classify_flow, classify_ip
+from app.shared.network.ip_classification import classify_ip
 
 # ---- Reuse assertion: classify_topology_ip delegates to classify_ip ----------------
 
@@ -20,14 +19,6 @@ def test_classify_topology_ip_delegates_scope_to_classify_ip() -> None:
     assert topo["is_public"] == base["is_public"]
     assert topo["is_internal"] == base["is_internal"]
     assert topo["version"] == base["version"]
-
-
-def test_classify_topology_flow_delegates_locality_to_classify_flow() -> None:
-    base = classify_flow("192.168.1.1", "8.8.8.8")
-    topo = classify_topology_flow("192.168.1.1", "8.8.8.8")
-    assert topo["flow"]["locality"] == base["flow"]["locality"]
-    assert topo["src"]["scope"] == base["src"]["scope"]
-    assert topo["dst"]["scope"] == base["dst"]["scope"]
 
 
 # ---- node_class derivation --------------------------------------------------------
@@ -91,22 +82,6 @@ def test_configured_cidr_override_still_maps_to_host() -> None:
 
 # ---- node_class added to flow endpoints -------------------------------------------
 
-def test_flow_adds_node_class_to_src_and_dst() -> None:
-    r = classify_topology_flow("192.168.1.1", "8.8.8.8")
-    assert "node_class" in r["src"]
-    assert "node_class" in r["dst"]
-    assert r["src"]["node_class"] == "host"
-    assert r["dst"]["node_class"] == "external_ip"
-
-
-def test_flow_with_configured_cidrs_respected() -> None:
-    r = classify_topology_flow("10.20.30.1", "1.1.1.1", internal_cidrs=["10.20.30.0/24"])
-    assert r["src"]["scope"] == "internal_network"
-    assert r["src"]["node_class"] == "host"
-    assert r["dst"]["node_class"] == "external_ip"
-    assert r["flow"]["locality"] == "internal_to_public"
-
-
 # ---- infer_subnet_cidr ------------------------------------------------------------
 
 def test_infer_subnet_cidr_basic() -> None:
@@ -151,20 +126,12 @@ def test_edge_types_contains_required_types() -> None:
     assert required.issubset(EDGE_TYPES)
 
 
-# ---- no duplication: verify classify_ip / classify_flow are reused -----------------
+# ---- no duplication: verify classify_ip is reused ----------------------------------
 
 def test_topology_ip_result_contains_all_base_keys() -> None:
     base_keys = {"ip", "version", "scope", "label", "is_internal", "is_public", "is_special", "matched_cidr", "match_source"}
     r = classify_topology_ip("10.0.0.1")
     assert base_keys.issubset(set(r.keys()))
-
-
-def test_topology_flow_result_contains_all_base_flow_keys() -> None:
-    r = classify_topology_flow("10.0.0.1", "8.8.8.8")
-    assert "flow" in r
-    assert "locality" in r["flow"]
-    assert "src_internal" in r["flow"]
-    assert "dst_internal" in r["flow"]
 
 
 # ---- IP scope classifications consistent with ip_classification module --------------

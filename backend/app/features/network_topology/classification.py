@@ -3,7 +3,7 @@ from __future__ import annotations
 import ipaddress
 from typing import Any
 
-from app.shared.network.ip_classification import classify_flow, classify_ip
+from app.shared.network.ip_classification import classify_ip
 
 _DOCKER_BRIDGE_DEFAULT = ipaddress.IPv4Network("172.17.0.0/16")
 
@@ -41,22 +41,6 @@ def classify_topology_ip(
     base = classify_ip(ip, internal_cidrs=internal_cidrs)
     node_class = _derive_node_class(base, ip)
     return {**base, "node_class": node_class}
-
-
-def classify_topology_flow(
-    src_ip: str | None,
-    dst_ip: str | None,
-    *,
-    internal_cidrs: list[str] | None = None,
-) -> dict[str, Any]:
-    base = classify_flow(src_ip, dst_ip, internal_cidrs=internal_cidrs)
-    src_class = _derive_node_class(base["src"], src_ip)
-    dst_class = _derive_node_class(base["dst"], dst_ip)
-    return {
-        **base,
-        "src": {**base["src"], "node_class": src_class},
-        "dst": {**base["dst"], "node_class": dst_class},
-    }
 
 
 def infer_subnet_cidr(ip: str, *, prefix_len: int = 24) -> str | None:

@@ -417,15 +417,6 @@ class NetworkTopologySummaryPatchPayload(BaseModel):
     truncation: Dict[str, Any] = Field(default_factory=dict)
 
 
-class NetworkTopologyGraphPatchPayload(BaseModel):
-    generated_at: str
-    projected_at: Optional[str] = None
-    nodes: List[Dict[str, Any]] = Field(default_factory=list)
-    edges: List[Dict[str, Any]] = Field(default_factory=list)
-    graph_health: Dict[str, Any] = Field(default_factory=dict)
-    requires_reconcile: bool = False
-
-
 class TopologyGraphQuery(BaseModel):
     max_nodes: int = Field(default=200, ge=1, le=2000)
     max_edges: int = Field(default=300, ge=1, le=3000)
