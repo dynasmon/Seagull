@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
-from app.core.audit import AuditActor, write_audit_event
 from app.core.cache import get_redis
 from app.core.config import settings
 from app.core.integrations.clickhouse import clickhouse_is_available, clickhouse_is_enabled, get_clickhouse_client
@@ -16,39 +15,6 @@ from app.features.admin.schemas import AdminAuditEventOut, AdminAuditQueryOut, L
 from app.features.ingest.control.service import get_storm_status
 
 _STARTED_AT_MONO = time.monotonic()
-
-
-def record_audit(
-    db: Session,
-    *,
-    request,
-    actor: AuditActor,
-    action: str,
-    resource_type: str,
-    resource_id: str | None,
-    outcome: str = "success",
-    before: dict | None = None,
-    after: dict | None = None,
-    context: dict | None = None,
-    reason: str | None = None,
-    error: str | None = None,
-    event_type: str = "admin_action",
-) -> None:
-    write_audit_event(
-        db,
-        request=request,
-        actor=actor,
-        event_type=event_type,
-        action=action,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        outcome=outcome,
-        before=(before or {}),
-        after=(after or {}),
-        context=(context or {}),
-        reason=reason,
-        error=error,
-    )
 
 
 def admin_audit_events(
