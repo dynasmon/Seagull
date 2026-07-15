@@ -28,7 +28,3 @@ def iter_warm_specs() -> List[WarmSpec]:
         except Exception:
             continue
     return out
-
-
-def reset_warm_sets() -> None:
-    _PROVIDERS.clear()

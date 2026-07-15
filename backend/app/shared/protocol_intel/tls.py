@@ -57,20 +57,8 @@ def _alpn_tag(first_proto: bytes) -> str:
     return hx[0] + hx[-1]
 
 
-def _read_u8(b: bytes, i: int) -> Tuple[int, int]:
-    return b[i], i + 1
-
-
 def _read_u16(b: bytes, i: int) -> Tuple[int, int]:
     return (b[i] << 8 | b[i + 1]), i + 2
-
-
-def _read_u24(b: bytes, i: int) -> Tuple[int, int]:
-    return (b[i] << 16 | b[i + 1] << 8 | b[i + 2]), i + 3
-
-
-def _slice(b: bytes, i: int, n: int) -> Tuple[bytes, int]:
-    return b[i : i + n], i + n
 
 
 def _parse_sni(ext: bytes) -> Optional[str]:
