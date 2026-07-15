@@ -338,4 +338,4 @@ class VulnFindingPriorityOut(BaseModel):
     factors: List[str] = Field(default_factory=list)
 
 
-VulnFindingOut.update_forward_refs()
+VulnFindingOut.model_rebuild()

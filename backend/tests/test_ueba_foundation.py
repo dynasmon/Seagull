@@ -19,6 +19,8 @@ from app.core.db import Base
 from app.core.db.model_registry import load_all_models
 from app.features.admin.models import AdminAuditEventModel
 from app.features.ueba import lifecycle, repository, service
+from app.features.ueba.domain import feedback as fb
+from app.features.ueba.domain.support import _record_finding
 from app.features.ueba.models import (
     UebaBaselineModel,
     UebaDetectorRunModel,
@@ -30,9 +32,7 @@ from app.features.ueba.models import (
     UebaPeerGroupModel,
     UebaSuppressionModel,
 )
-from app.features.ueba.domain import feedback as fb
-from app.features.ueba.domain.support import _record_finding
-from app.features.ueba.schemas import UebaBaselinesQuery, UebaFindingTriageIn, UebaFindingsQuery, UebaRunsQuery
+from app.features.ueba.schemas import UebaBaselinesQuery, UebaFindingsQuery, UebaFindingTriageIn, UebaRunsQuery
 
 
 @compiles(JSONB, "sqlite")
