@@ -450,10 +450,6 @@ ACTION_REGISTRY: Dict[str, ActionDefinition] = {
 }
 
 
-def get_definition(action_type: str) -> Optional[ActionDefinition]:
-    return ACTION_REGISTRY.get(action_type)
-
-
 def action_catalog() -> List[Dict[str, Any]]:
     return [
         {
