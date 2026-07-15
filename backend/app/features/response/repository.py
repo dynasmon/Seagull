@@ -36,19 +36,6 @@ def create_action(
     return row
 
 
-def list_actions_by_status(
-    db: Session,
-    *,
-    status: str,
-    agent_id: str | None = None,
-    limit: int = 100,
-) -> list[ResponseActionModel]:
-    q = db.query(ResponseActionModel).filter(ResponseActionModel.status == status)
-    if agent_id:
-        q = q.filter(ResponseActionModel.agent_id == agent_id)
-    return q.order_by(ResponseActionModel.requested_at.desc(), ResponseActionModel.id.desc()).limit(int(limit)).all()
-
-
 def list_actions(
     db: Session,
     *,
