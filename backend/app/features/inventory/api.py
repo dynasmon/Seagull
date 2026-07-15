@@ -26,7 +26,7 @@ router = APIRouter(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def ingest_inventory_endpoint(
+def ingest_inventory_endpoint(
     payload: InventorySnapshotIn,
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
@@ -36,7 +36,7 @@ async def ingest_inventory_endpoint(
 
 
 @router.get("/me/latest", response_model=InventorySnapshotOut)
-async def get_my_latest_inventory_endpoint(
+def get_my_latest_inventory_endpoint(
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ):
@@ -45,7 +45,7 @@ async def get_my_latest_inventory_endpoint(
 
 
 @router.get("/me/history", response_model=list[InventorySnapshotOut])
-async def get_my_inventory_history_endpoint(
+def get_my_inventory_history_endpoint(
     limit: int = Query(20, ge=1, le=200),
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
@@ -55,7 +55,7 @@ async def get_my_inventory_history_endpoint(
 
 
 @router.get("/me/history/page", response_model=CursorPage[InventorySnapshotOut])
-async def get_my_inventory_history_page_endpoint(
+def get_my_inventory_history_page_endpoint(
     page_size: int = Query(50, ge=1, le=200, description="Page size (max 200)"),
     cursor: Optional[str] = Query(None, description="Opaque cursor from a previous call"),
     agent: AgentPrincipal = Depends(get_current_agent),
@@ -66,7 +66,7 @@ async def get_my_inventory_history_page_endpoint(
 
 
 @router.get("/{agent_id}/latest", response_model=InventorySnapshotOut)
-async def get_agent_latest_inventory_endpoint(
+def get_agent_latest_inventory_endpoint(
     agent_id: str,
     _user=Depends(get_current_user),
     db: Session = Depends(routed_db("inventory-read")),
@@ -76,7 +76,7 @@ async def get_agent_latest_inventory_endpoint(
 
 
 @router.get("/{agent_id}/history", response_model=list[InventorySnapshotOut])
-async def get_agent_inventory_history_endpoint(
+def get_agent_inventory_history_endpoint(
     agent_id: str,
     limit: int = Query(20, ge=1, le=200),
     _user=Depends(get_current_user),
@@ -87,7 +87,7 @@ async def get_agent_inventory_history_endpoint(
 
 
 @router.get("/{agent_id}/history/page", response_model=CursorPage[InventorySnapshotOut])
-async def get_agent_inventory_history_page_endpoint(
+def get_agent_inventory_history_page_endpoint(
     agent_id: str,
     page_size: int = Query(50, ge=1, le=200, description="Page size (max 200)"),
     cursor: Optional[str] = Query(None, description="Opaque cursor from a previous call"),
@@ -99,7 +99,7 @@ async def get_agent_inventory_history_page_endpoint(
 
 
 @router.get("/overview")
-async def get_inventory_overview_endpoint(
+def get_inventory_overview_endpoint(
     window_minutes: int = Query(360, ge=30, le=7 * 24 * 60, description="Time window (minutes) for inventory charts"),
     agent_id: Optional[str] = Query(None, description="Optional agent filter. Use '__all' or omit for all agents."),
     _user=Depends(get_current_user),

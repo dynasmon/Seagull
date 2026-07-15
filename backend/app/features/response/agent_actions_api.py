@@ -17,7 +17,7 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 
 @router.get("/response-actions/pending", response_model=List[AgentResponseActionOut])
 @router.get("/response/actions/pending", response_model=List[AgentResponseActionOut], include_in_schema=False)
-async def list_pending_response_actions(
+def list_pending_response_actions(
     request: Request,
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
@@ -28,7 +28,7 @@ async def list_pending_response_actions(
 
 @router.post("/response-actions/results", status_code=status.HTTP_201_CREATED)
 @router.post("/response/actions/results", status_code=status.HTTP_201_CREATED, include_in_schema=False)
-async def report_response_action_result(
+def report_response_action_result(
     payload: AgentResponseActionResultIn,
     request: Request,
     agent: AgentPrincipal = Depends(get_current_agent),
