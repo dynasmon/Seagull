@@ -14,11 +14,6 @@ def get_rule_health_map(db: Session) -> dict[str, DetectionRuleHealthModel]:
     return {row.rule_id: row for row in rows}
 
 
-def list_rule_health(db: Session) -> list[DetectionRuleHealthModel]:
-    stmt = select(DetectionRuleHealthModel).order_by(DetectionRuleHealthModel.rule_id)
-    return db.execute(stmt).scalars().all()
-
-
 def upsert_rule_health_batch(db: Session, records: list[dict[str, Any]]) -> None:
     if not records:
         return
