@@ -51,9 +51,3 @@ def redpanda_connectivity(timeout_seconds: float = 2.0) -> Dict[str, Any]:
             "brokers": 0,
             "error": str(exc).splitlines()[0][:200],
         }
-
-
-def reset_admin_for_tests() -> None:
-    global _ADMIN
-    with _LOCK:
-        _ADMIN = None
