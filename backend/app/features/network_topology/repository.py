@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from app.features.network_topology.repositories.constants import _MAX_GRAPH_FETCH, _MAX_PAGE
 from app.features.network_topology.repositories.graph import (
     count_observations_for_edge,
