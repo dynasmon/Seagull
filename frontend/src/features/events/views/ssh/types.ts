@@ -77,5 +77,6 @@ export type SshSummaryResponse = {
   root_logins: SshLoginEvent[];
   users_attempted: SshUserStat[];
   sudo_recent: SudoEventSummary[];
+  effective_since_minutes?: number | null;
   meta?: QueryProvenanceMeta | null;
 };
