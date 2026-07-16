@@ -27,6 +27,14 @@ Converted pages (one feature flag per page, rollback = turn the flag off):
 | `network_topology_summary` | `SEAGULL_SNAPSHOT_TOPOLOGY_SUMMARY_ENABLED` | single (global) |
 | `vuln_summary` | `SEAGULL_SNAPSHOT_VULN_SUMMARY_ENABLED` | router defaults |
 | `vuln_posture` | `SEAGULL_SNAPSHOT_VULN_POSTURE_ENABLED` | router defaults |
+| `threat_map` | `SEAGULL_SNAPSHOT_THREAT_MAP_ENABLED` | static (`SEAGULL_SNAPSHOT_THREAT_MAP_WINDOWS` windows, default filters) + dynamic (recently used filter combos) |
+
+`threat_map` aggregates every event type over the full window (ClickHouse when
+available, Postgres fallback — `meta.source` reports which). The heavy
+GROUP BYs therefore run on the worker tick instead of the request path; the
+largest static window (30d) is the most expensive scope, so shrink
+`SEAGULL_SNAPSHOT_THREAT_MAP_WINDOWS` on constrained deployments if the
+`snapshot_compute_seconds{page="threat_map"}` histogram grows.
 
 ## Store: why Postgres (and not ClickHouse)
 
@@ -51,8 +59,8 @@ Converted pages (one feature flag per page, rollback = turn the flag off):
 - **Static (code)**: each page registers `static_scopes()` alongside
   `register_snapshot_page(...)` in the feature's service (guarantees worker and
   handler derive the same `scope_key` from the same read-model `key_builder`).
-- **Dynamic (actual queries)**: pages with `track_params` (today only
-  `overview`) record every queried scope in a Redis ZSET
+- **Dynamic (actual queries)**: pages with `track_params` (today `overview`
+  and `threat_map`) record every queried scope in a Redis ZSET
   (`seagull:snapshots:seen:<page>`, score = last access). The worker recomputes
   only the scopes seen within the last `SEAGULL_SNAPSHOTS_DYNAMIC_WINDOW_HOURS`
   hours (capped by `SEAGULL_SNAPSHOTS_DYNAMIC_MAX_SCOPES`). Per-agent overview
