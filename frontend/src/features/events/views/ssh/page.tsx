@@ -5,6 +5,7 @@ import { useSearchParams } from "react-router-dom";
 import AsyncState from "@/shared/components/AsyncState";
 import { Button } from "@/shared/components/Button";
 import EmptyState from "@/shared/components/EmptyState";
+import { InlineAlert } from "@/shared/components/InlineAlert";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { MetricCard } from "@/shared/components/MetricCard";
 import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
@@ -78,6 +79,15 @@ function fmtWhen(iso?: string | null) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso);
   return d.toLocaleString();
+}
+
+function fmtDuration(minutes: number) {
+  const m = Math.max(0, Math.round(minutes));
+  if (m < 60) return `${m}m`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h`;
+  const d = Math.round(h / 24);
+  return `${d}d`;
 }
 
 function fmtAgo(ms: number) {
@@ -220,6 +230,7 @@ export default function SshInsightsPage() {
         agent_id: viewRef.current.agent_id,
         since_minutes: viewRef.current.since_minutes,
         limit: viewRef.current.limit,
+        widen_if_empty: true,
       });
       if (reqSeq.current !== mySeq) return;
       setData(r);
@@ -259,6 +270,7 @@ export default function SshInsightsPage() {
             agent_id: viewRef.current.agent_id,
             since_minutes: viewRef.current.since_minutes,
             limit: viewRef.current.limit,
+            widen_if_empty: true,
           },
           { signal },
         );
@@ -322,14 +334,17 @@ export default function SshInsightsPage() {
     setIpDrawerOpen(true);
   }
 
+  const effectiveSinceMinutes = data?.effective_since_minutes ?? null;
+  const shownSinceMinutes = effectiveSinceMinutes ?? view.since_minutes;
+
   const rightHint = useMemo(() => {
     const parts: string[] = [];
-    parts.push(`Lookback: ${view.since_minutes}m`);
+    parts.push(`Lookback: ${fmtDuration(shownSinceMinutes)}${effectiveSinceMinutes ? " (widened)" : ""}`);
     parts.push(`Rows: ${view.limit}`);
     if (data?.meta?.source) parts.push(`Source: ${data.meta.source}`);
     if (lastUpdatedAt) parts.push(`Updated: ${fmtAgo(Date.now() - lastUpdatedAt)}`);
     return parts.join(" · ");
-  }, [view.since_minutes, view.limit, lastUpdatedAt, data?.meta?.source]);
+  }, [shownSinceMinutes, effectiveSinceMinutes, view.limit, lastUpdatedAt, data?.meta?.source]);
 
   const headerRight = (
     <div className="flex items-center gap-2">
@@ -358,10 +373,16 @@ export default function SshInsightsPage() {
           { label: "Total actions", value: totals.actions },
           { label: "Unique source IPs", value: totals.uniqueIps },
           { label: "Enriched source IPs", value: `${totals.enrichPct}%`, hint: `${totals.enriched}/${totals.uniqueIps}` },
-          { label: "Scope", value: view.agent_id || "all agents", hint: `Lookback ${view.since_minutes}m` },
+          { label: "Scope", value: view.agent_id || "all agents", hint: `Lookback ${fmtDuration(shownSinceMinutes)}` },
           { label: "Rows", value: view.limit, hint: view.auto_refresh ? `${Math.round(live.state.profile.fallbackMs / 1000)}s shared fallback` : "Manual refresh" },
         ]}
       />
+
+      {effectiveSinceMinutes ? (
+        <InlineAlert tone="info" className="text-xs">
+          No SSH activity in the selected {fmtDuration(view.since_minutes)} window. Showing the most recent SSH activity from the last {fmtDuration(effectiveSinceMinutes)}.
+        </InlineAlert>
+      ) : null}
 
       {current?.meta ? (
         <DataQueryStateBanner
