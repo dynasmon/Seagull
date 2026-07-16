@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib
 import logging
 import time
 from typing import Dict
@@ -31,10 +32,14 @@ _PRUNE_EVERY_SECONDS = 1800.0
 
 
 def _load_snapshot_pages() -> None:
-    from app.features.exposure import service as _exposure_service  # noqa: F401
-    from app.features.network_topology import service as _topology_service  # noqa: F401
-    from app.features.overview import service as _overview_service  # noqa: F401
-    from app.features.vuln import overview as _vuln_overview  # noqa: F401
+    for module_name in (
+        "app.features.exposure.service",
+        "app.features.network_topology.service",
+        "app.features.overview.service",
+        "app.features.threat_map.service",
+        "app.features.vuln.overview",
+    ):
+        importlib.import_module(module_name)
 
 
 def _clickhouse_busy() -> bool:
