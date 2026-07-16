@@ -1278,11 +1278,16 @@ async def get_protocol_intel_summary_async(
     return payload, etag, outcome
 
 
+_SSH_SUMMARY_MAX_SINCE_MINUTES = 60 * 24 * 30
+
+
 def _ssh_summary_cache_key(params: Dict[str, Any]) -> str:
     agent = str(params.get("agent_id") or "").strip() or "*"
+    widen = 1 if params.get("widen_if_empty") else 0
     return (
-        "seagull:events:ssh_summary:swr:v4:"
-        f"sb={search_backend_mode()}:sm={int(params['since_minutes'])}:l={int(params['limit'])}:a={agent}"
+        "seagull:events:ssh_summary:swr:v5:"
+        f"sb={search_backend_mode()}:sm={int(params['since_minutes'])}:l={int(params['limit'])}"
+        f":a={agent}:w={widen}"
     )
 
 
@@ -1294,20 +1299,36 @@ def _resolve_ssh_summary_blocking(*, since_minutes: int, limit: int, agent_id: O
         db.close()
 
 
+def _ssh_summary_is_empty(payload: SshSummaryResponse) -> bool:
+    return int(payload.total_actions or 0) <= 0 and not payload.sudo_recent
+
+
 async def _compute_ssh_summary(params: Dict[str, Any]) -> dict:
+    since_minutes = int(params["since_minutes"])
+    limit = int(params["limit"])
+    agent_id = params.get("agent_id") or None
+    widen = bool(params.get("widen_if_empty"))
+
     payload = await asyncio.to_thread(
-        _resolve_ssh_summary_blocking,
-        since_minutes=int(params["since_minutes"]),
-        limit=int(params["limit"]),
-        agent_id=params.get("agent_id") or None,
+        _resolve_ssh_summary_blocking, since_minutes=since_minutes, limit=limit, agent_id=agent_id
     )
+    if _ssh_summary_is_empty(payload) and widen and since_minutes < _SSH_SUMMARY_MAX_SINCE_MINUTES:
+        widened_payload = await asyncio.to_thread(
+            _resolve_ssh_summary_blocking,
+            since_minutes=_SSH_SUMMARY_MAX_SINCE_MINUTES,
+            limit=limit,
+            agent_id=agent_id,
+        )
+        if not _ssh_summary_is_empty(widened_payload):
+            widened_payload.effective_since_minutes = _SSH_SUMMARY_MAX_SINCE_MINUTES
+            return widened_payload.dict()
     return payload.dict()
 
 
 SSH_SUMMARY_READ_MODEL = register_read_model(
     AnalyticalReadModel(
         name="ssh_summary",
-        schema_version=4,
+        schema_version=5,
         fresh_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_FRESH_SECONDS", 240) or 240),
         stale_s=int(getattr(settings, "SEAGULL_EVENTS_SUMMARY_STALE_SECONDS", 1800) or 1800),
         key_builder=_ssh_summary_cache_key,
@@ -1321,9 +1342,15 @@ async def get_ssh_summary_async(
     since_minutes: int = 60 * 24,
     limit: int = 50,
     agent_id: Optional[str] = None,
+    widen_if_empty: bool = False,
 ) -> tuple[dict, str, str]:
     started = time.perf_counter()
-    params = {"since_minutes": int(since_minutes), "limit": int(limit), "agent_id": agent_id or None}
+    params = {
+        "since_minutes": int(since_minutes),
+        "limit": int(limit),
+        "agent_id": agent_id or None,
+        "widen_if_empty": bool(widen_if_empty),
+    }
     payload, etag, outcome = await serve_read_model(SSH_SUMMARY_READ_MODEL, params)
     payload = dict(payload)
     meta = dict(payload.get("meta") or {})
@@ -1385,7 +1412,15 @@ def _ssh_summary_warm_specs() -> List[WarmSpec]:
     for since_minutes in (1440, 10080):
         for agent_id in agents:
             specs.append(
-                WarmSpec(feature="ssh_summary", params={"since_minutes": since_minutes, "limit": 50, "agent_id": agent_id})
+                WarmSpec(
+                    feature="ssh_summary",
+                    params={
+                        "since_minutes": since_minutes,
+                        "limit": 50,
+                        "agent_id": agent_id,
+                        "widen_if_empty": True,
+                    },
+                )
             )
     return specs
 
