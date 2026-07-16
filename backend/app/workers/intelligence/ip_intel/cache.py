@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Optional
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.db import engine
@@ -136,7 +136,13 @@ def _fetch_threat_geo_candidates(window_minutes: int, limit: int) -> list[str]:
         cached = {
             str(row[0])
             for row in conn.execute(
-                select(IpEnrichmentCacheModel.ip).where(IpEnrichmentCacheModel.ip.in_(ordered))
+                select(IpEnrichmentCacheModel.ip).where(
+                    IpEnrichmentCacheModel.ip.in_(ordered),
+                    or_(
+                        IpEnrichmentCacheModel.expires_at.is_(None),
+                        IpEnrichmentCacheModel.expires_at > _utc_now(),
+                    ),
+                )
             ).all()
         }
     return [ip for ip in ordered if ip not in cached]
