@@ -7,10 +7,12 @@ export function getSshSummary(params?: {
   since_minutes?: number;
   limit?: number;
   agent_id?: string;
+  widen_if_empty?: boolean;
 }, opts?: ApiGetOptions) {
   const q = new URLSearchParams();
   q.set("since_minutes", String(params?.since_minutes ?? 60 * 24));
   q.set("limit", String(params?.limit ?? 50));
+  if (params?.widen_if_empty) q.set("widen_if_empty", "true");
   const agent = (params?.agent_id ?? "").trim();
   if (agent) q.set("agent_id", agent);
 
