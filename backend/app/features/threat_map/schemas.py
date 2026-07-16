@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class ThreatGeoIp(BaseModel):
     ip: str
     count: int
+    info: int = 0
     severity: str = "unknown"
     scope: Optional[str] = None
     label: Optional[str] = None
@@ -36,6 +37,7 @@ class ThreatGeoPoint(BaseModel):
     high: int = 0
     medium: int = 0
     low: int = 0
+    info: int = 0
     severity: str = "unknown"
     unique_ips: int = 0
     last_seen: Optional[datetime] = None
