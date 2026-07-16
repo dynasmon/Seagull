@@ -342,11 +342,13 @@ async def get_ssh_summary_endpoint(
     since_minutes: int = Query(60 * 24, ge=1, le=60 * 24 * 30, description="Lookback window in minutes"),
     limit: int = Query(50, ge=1, le=500, description="Row limit for recent/raw SSH views and supporting aggregations"),
     agent_id: Optional[str] = Query(None, description="Filter by agent identifier"),
+    widen_if_empty: bool = Query(False, description="Widen the window to the retention horizon once server-side when empty"),
 ):
     payload, etag, outcome = await events_service.get_ssh_summary_async(
         since_minutes=since_minutes,
         limit=limit,
         agent_id=agent_id,
+        widen_if_empty=widen_if_empty,
     )
     response.headers["X-Cache-Outcome"] = outcome
     incr_counter("api_cache_outcome_total", route="/events/ssh/summary", outcome=outcome)
