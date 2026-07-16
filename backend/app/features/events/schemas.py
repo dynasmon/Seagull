@@ -229,6 +229,7 @@ class SshSummaryResponse(BaseModel):
     root_logins: list[SshLoginEvent]
     users_attempted: list[SshUserStat]
     sudo_recent: list[SudoEventSummary]
+    effective_since_minutes: Optional[int] = None
     meta: Optional[QueryProvenanceMeta] = None
 
 
