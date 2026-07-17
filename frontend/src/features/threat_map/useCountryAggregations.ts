@@ -71,6 +71,7 @@ export function useCountryAggregations(points: ThreatGeoPoint[]): Map<string, Co
       aggregation.severityCounts.high += point.high;
       aggregation.severityCounts.medium += point.medium;
       aggregation.severityCounts.low += point.low;
+      aggregation.severityCounts.info += point.info ?? 0;
       if (point.last_seen && (!aggregation.lastSeen || point.last_seen > aggregation.lastSeen)) {
         aggregation.lastSeen = point.last_seen;
       }
