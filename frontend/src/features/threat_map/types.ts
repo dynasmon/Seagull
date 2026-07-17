@@ -6,6 +6,7 @@ export type ThreatSourceMode = "both" | "events" | "alerts";
 export type ThreatGeoIp = {
   ip: string;
   count: number;
+  info?: number;
   severity: string;
   scope?: string | null;
   label?: string | null;
@@ -35,6 +36,7 @@ export type ThreatGeoPoint = {
   high: number;
   medium: number;
   low: number;
+  info: number;
   severity: string;
   unique_ips: number;
   last_seen?: string | null;
