@@ -37,6 +37,7 @@ const SEVERITY_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "high", label: "High" },
   { value: "medium", label: "Medium" },
   { value: "low", label: "Low" },
+  { value: "info", label: "Ambient" },
 ];
 
 const SOURCE_OPTIONS: Array<{ value: ThreatSourceMode; label: string }> = [
@@ -58,6 +59,7 @@ const LEGEND: Array<{ level: SeverityLevel; label: string }> = [
   { level: "high", label: "High" },
   { level: "medium", label: "Medium" },
   { level: "low", label: "Low" },
+  { level: "info", label: "Ambient" },
 ];
 
 function fmtClock(date: Date | null): string | null {
@@ -163,7 +165,7 @@ export default function ThreatMapPage() {
             hint={`${ddosAttacks.toLocaleString()} flood attack${ddosAttacks === 1 ? "" : "s"} in this window · ${ddosUnlocated.toLocaleString()} attacker source${ddosUnlocated === 1 ? "" : "s"} are private/simulated or awaiting geo-enrichment.`}
           />
         )
-        : <EmptyState title="No geolocated threats" hint="No suspicious source IPs could be placed on the map for this window." />
+        : <EmptyState title="No geolocated activity" hint="No source IPs could be placed on the map for this window. Geo enrichment fills in as sources are resolved." />
       : null;
 
   return (
@@ -278,7 +280,7 @@ export default function ThreatMapPage() {
 
       <Panel
         title="Network threat map"
-        subtitle="Ambient suspicious traffic with confirmed alerts promoted"
+        subtitle="All observed network activity, with suspicious classes and confirmed alerts promoted"
         actions={
           isRefreshing ? (
             <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">syncing</span>
