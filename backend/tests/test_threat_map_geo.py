@@ -7,19 +7,24 @@ import pytest
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
+os.environ.setdefault("SEAGULL_DB_URL", "sqlite+pysqlite:///:memory:")
 
 from app.features.threat_map import service as threat_map_service
+from app.shared.analytics.snapshots import get_snapshot_page
 
 
 class _FakeResult:
-    def __init__(self, rows):
-        self._rows = rows
+    def __init__(self, response):
+        self._response = response
 
     def mappings(self):
         return self
 
     def all(self):
-        return self._rows
+        return self._response
+
+    def scalar(self):
+        return self._response
 
 
 class _FakeDB:
@@ -39,6 +44,8 @@ def _disable_cache(monkeypatch):
     monkeypatch.setattr(threat_map_service, "_cache_get_json", lambda key: None)
     monkeypatch.setattr(threat_map_service, "_cache_set_json", lambda key, payload, ttl: None)
     monkeypatch.setattr(threat_map_service, "_resolve_home_endpoint", lambda: None)
+    monkeypatch.setattr(threat_map_service, "push_wanted_ips", lambda entries: None)
+    monkeypatch.setattr(threat_map_service.repository, "clickhouse_client_or_none", lambda: None)
 
 
 def test_resolve_home_via_maxmind_uses_public_ip_and_local_provider(monkeypatch):
@@ -60,9 +67,10 @@ def test_resolve_home_via_maxmind_uses_public_ip_and_local_provider(monkeypatch)
     )
     monkeypatch.delenv("SEAGULL_THREAT_MAP_HOME_LABEL", raising=False)
 
-    endpoint = threat_map_service._resolve_home_via_maxmind()
+    endpoint, public_ip = threat_map_service._resolve_home_via_maxmind()
 
     assert endpoint is not None
+    assert public_ip == "203.0.113.8"
     assert endpoint.lat == pytest.approx(-3.7319)
     assert endpoint.lon == pytest.approx(-38.5267)
     assert endpoint.label == "Fortaleza · BR"
@@ -76,7 +84,7 @@ def test_resolve_home_via_maxmind_uses_public_ip_and_local_provider(monkeypatch)
     ]
 
 
-def test_resolve_home_endpoint_caches_maxmind_before_ipinfo(monkeypatch):
+def test_resolve_home_endpoint_caches_maxmind_with_public_ip(monkeypatch):
     endpoint = threat_map_service.ThreatGeoEndpoint(
         lat=-3.7319,
         lon=-38.5267,
@@ -94,7 +102,7 @@ def test_resolve_home_endpoint_caches_maxmind_before_ipinfo(monkeypatch):
         "_cache_set_json",
         lambda key, payload, ttl: cache_writes.append((key, payload, ttl)),
     )
-    monkeypatch.setattr(threat_map_service, "_resolve_home_via_maxmind", lambda: endpoint)
+    monkeypatch.setattr(threat_map_service, "_resolve_home_via_maxmind", lambda: (endpoint, "203.0.113.8"))
 
     def fail_ipinfo():
         raise AssertionError("ipinfo must not run after a MaxMind hit")
@@ -105,7 +113,11 @@ def test_resolve_home_endpoint_caches_maxmind_before_ipinfo(monkeypatch):
 
     assert resolved == endpoint
     assert cache_writes == [
-        (threat_map_service.HOME_CACHE_KEY, endpoint.dict(), threat_map_service.HOME_CACHE_TTL_SECONDS)
+        (
+            threat_map_service.HOME_CACHE_KEY,
+            {**endpoint.model_dump(), "public_ip": "203.0.113.8"},
+            threat_map_service.HOME_CACHE_TTL_SECONDS,
+        )
     ]
 
 
@@ -119,7 +131,7 @@ def test_resolve_home_endpoint_caches_short_miss_after_all_providers_fail(monkey
         "_cache_set_json",
         lambda key, payload, ttl: cache_writes.append((key, payload, ttl)),
     )
-    monkeypatch.setattr(threat_map_service, "_resolve_home_via_maxmind", lambda: None)
+    monkeypatch.setattr(threat_map_service, "_resolve_home_via_maxmind", lambda: (None, None))
     monkeypatch.setattr(threat_map_service, "_fetch_self_geo", lambda: None)
 
     assert threat_map_service._resolve_home_endpoint() is None
@@ -151,12 +163,12 @@ def test_threat_geo_clusters_public_sources_and_skips_private_and_unlocated(monk
         {"src_ip": "1.1.1.1", "rule_id": "ssh-bruteforce", "count": 4},
     ]
 
-    db = _FakeDB([sources, geo_rows, rule_rows, []])
+    db = _FakeDB([sources, [], geo_rows, rule_rows])
     payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="alerts")
 
     assert payload.located_ips == 3
     assert payload.unlocated_ips == 1
-    assert payload.total_alerts == 20
+    assert payload.total_alerts == 30
     assert payload.total_events == 0
     assert payload.source == "alerts"
     assert payload.flows == []
@@ -201,14 +213,14 @@ def test_threat_geo_without_public_sources_returns_empty_without_geo_or_rule_que
         {"src_ip": "192.168.1.50", "count": 4, "critical": 0, "high": 0, "medium": 4, "low": 0, "last_seen": now},
     ]
 
-    db = _FakeDB([sources])
+    db = _FakeDB([sources, []])
     payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="alerts")
 
     assert payload.points == []
     assert payload.flows == []
     assert payload.located_ips == 0
     assert payload.unlocated_ips == 0
-    assert payload.total_alerts == 0
+    assert payload.total_alerts == 16
     assert payload.ddos_attacks == 0
 
 
@@ -233,7 +245,7 @@ def test_threat_geo_serves_cached_payload_without_touching_db(monkeypatch):
             )
         ],
         meta=threat_map_service.ThreatGeoMeta(source="postgres", cache_hit=False),
-    ).dict()
+    ).model_dump()
 
     monkeypatch.setattr(threat_map_service, "_cache_get_json", lambda key: cached)
 
@@ -278,7 +290,7 @@ def test_threat_geo_events_place_inbound_sources_and_outbound_destinations(monke
         {"ip": "45.83.12.7", "country": "NL", "region": "North Holland", "city": "Amsterdam", "loc": "52.37,4.89", "org": "EvilHost", "asn": "AS9999", "asn_org": "EvilHost"},
     ]
 
-    db = _FakeDB([event_sources, event_destinations, [], geo_rows, []])
+    db = _FakeDB([event_sources, event_destinations, [], 20, [], geo_rows])
     payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="events")
 
     assert payload.source == "events"
@@ -305,6 +317,140 @@ def test_threat_geo_events_place_inbound_sources_and_outbound_destinations(monke
     assert [c.country for c in payload.top_destination_countries] == ["NL"]
 
 
+def test_threat_geo_ambient_events_render_as_info(monkeypatch):
+    _disable_cache(monkeypatch)
+    now = datetime.now(timezone.utc)
+
+    event_sources = [
+        {
+            "src_ip": "8.8.8.8", "count": 120, "high": 0, "medium": 0, "low": 0, "info": 120, "last_seen": now,
+            "geo_loc": "37.42,-122.08", "country": "US", "region": "California",
+            "city": "Mountain View", "org": "Google LLC", "asn": "AS15169", "asn_org": "Google LLC",
+        },
+    ]
+
+    db = _FakeDB([event_sources, [], [], 120, []])
+    payload = threat_map_service.get_threat_geo(db, since_minutes=360, limit=200, severity=None, source="events")
+
+    assert payload.total_events == 120
+    assert len(payload.points) == 1
+    point = payload.points[0]
+    assert point.severity == "info"
+    assert point.info == 120
+    assert point.count == 120
+    assert point.top_ips[0].severity == "info"
+    assert payload.top_source_ips[0].severity == "info"
+
+
+def test_threat_geo_point_limit_does_not_affect_located_counters(monkeypatch):
+    _disable_cache(monkeypatch)
+    now = datetime.now(timezone.utc)
+
+    event_sources = [
+        {"src_ip": "8.8.8.8", "count": 50, "info": 50, "last_seen": now, "geo_loc": "37.42,-122.08", "country": "US", "region": None, "city": None, "org": None, "asn": None, "asn_org": None},
+        {"src_ip": "1.1.1.1", "count": 30, "info": 30, "last_seen": now, "geo_loc": "-33.87,151.21", "country": "AU", "region": None, "city": None, "org": None, "asn": None, "asn_org": None},
+        {"src_ip": "9.9.9.9", "count": 10, "info": 10, "last_seen": now, "geo_loc": None, "country": None, "region": None, "city": None, "org": None, "asn": None, "asn_org": None},
+    ]
+
+    db = _FakeDB([event_sources, [], [], 90, [], []])
+    payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=1, severity=None, source="events")
+
+    assert len(payload.points) == 1
+    assert payload.points[0].country == "US"
+    assert payload.located_ips == 2
+    assert payload.unlocated_ips == 1
+    assert payload.total_events == 90
+
+
+def test_threat_geo_publishes_unlocated_public_ips_to_wanted_set(monkeypatch):
+    _disable_cache(monkeypatch)
+    pushed: list[list[tuple[str, int]]] = []
+    monkeypatch.setattr(threat_map_service, "push_wanted_ips", lambda entries: pushed.append(list(entries)))
+    now = datetime.now(timezone.utc)
+
+    event_sources = [
+        {"src_ip": "8.8.8.8", "count": 40, "info": 40, "last_seen": now, "geo_loc": None, "country": None, "region": None, "city": None, "org": None, "asn": None, "asn_org": None},
+        {"src_ip": "10.0.0.5", "count": 99, "info": 99, "last_seen": now, "geo_loc": None, "country": None, "region": None, "city": None, "org": None, "asn": None, "asn_org": None},
+    ]
+
+    db = _FakeDB([event_sources, [], [], 139, [], []])
+    threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="events")
+
+    assert pushed == [[("8.8.8.8", 40)]]
+
+
+def test_threat_geo_uses_clickhouse_layers_when_available(monkeypatch):
+    _disable_cache(monkeypatch)
+    now = datetime.now(timezone.utc)
+
+    ch_sources = [
+        {"src_ip": "8.8.8.8", "count": 200, "high": 0, "medium": 20, "low": 0, "info": 180, "last_seen": now},
+    ]
+    ch_flows = [
+        {"src_ip": "8.8.8.8", "dst_ip": "45.83.12.7", "count": 9, "high": 0, "medium": 0, "low": 0, "info": 9, "last_seen": now},
+    ]
+
+    monkeypatch.setattr(threat_map_service.repository, "clickhouse_client_or_none", lambda: object())
+    monkeypatch.setattr(
+        threat_map_service.repository,
+        "ch_aggregate_event_sources",
+        lambda client, *, since, severity=None, limit=4000: list(ch_sources),
+    )
+    monkeypatch.setattr(
+        threat_map_service.repository,
+        "ch_aggregate_event_destinations",
+        lambda client, *, since, severity=None, limit=2000: [],
+    )
+    monkeypatch.setattr(
+        threat_map_service.repository,
+        "ch_aggregate_event_flows",
+        lambda client, *, since, severity=None, limit=1500: list(ch_flows),
+    )
+    monkeypatch.setattr(
+        threat_map_service.repository,
+        "ch_count_events",
+        lambda client, *, since, severity=None: 1234,
+    )
+
+    geo_rows = [
+        {"ip": "8.8.8.8", "country": "US", "region": "California", "city": "Mountain View", "loc": "37.42,-122.08", "org": "Google LLC", "asn": "AS15169", "asn_org": "Google LLC"},
+        {"ip": "45.83.12.7", "country": "NL", "region": "North Holland", "city": "Amsterdam", "loc": "52.37,4.89", "org": "EvilHost", "asn": "AS9999", "asn_org": "EvilHost"},
+    ]
+
+    db = _FakeDB([[], geo_rows])
+    payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="events")
+
+    assert payload.meta.source == "clickhouse"
+    assert payload.total_events == 1234
+    assert len(payload.points) == 1
+    assert payload.points[0].severity == "medium"
+    assert payload.points[0].info == 180
+    assert len(payload.flows) == 1
+    assert payload.flows[0].severity == "info"
+
+
+def test_threat_geo_falls_back_to_postgres_when_clickhouse_errors(monkeypatch):
+    _disable_cache(monkeypatch)
+    now = datetime.now(timezone.utc)
+
+    def _boom(client, **kwargs):
+        raise RuntimeError("clickhouse down")
+
+    monkeypatch.setattr(threat_map_service.repository, "clickhouse_client_or_none", lambda: object())
+    monkeypatch.setattr(threat_map_service.repository, "ch_aggregate_event_sources", _boom)
+
+    event_sources = [
+        {"src_ip": "8.8.8.8", "count": 5, "info": 5, "last_seen": now, "geo_loc": "37.42,-122.08", "country": "US", "region": None, "city": None, "org": None, "asn": None, "asn_org": None},
+    ]
+
+    db = _FakeDB([event_sources, [], [], 5, []])
+    payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="events")
+
+    assert payload.meta.source == "postgres"
+    assert payload.total_events == 5
+    assert len(payload.points) == 1
+
+
 def test_threat_geo_both_merges_alert_and_event_into_promoted_point(monkeypatch):
     _disable_cache(monkeypatch)
     now = datetime.now(timezone.utc)
@@ -319,9 +465,8 @@ def test_threat_geo_both_merges_alert_and_event_into_promoted_point(monkeypatch)
             "city": "Mountain View", "org": "Google LLC", "asn": "AS15169", "asn_org": "Google LLC",
         },
     ]
-    event_destinations: list = []
 
-    db = _FakeDB([alert_sources, event_sources, event_destinations, [], [], [], []])
+    db = _FakeDB([alert_sources, event_sources, [], [], 10, [], [], []])
     payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="both")
 
     assert payload.source == "both"
@@ -349,7 +494,6 @@ def test_threat_geo_events_emit_directed_flow_when_both_endpoints_geolocate(monk
             "city": "Mountain View", "org": "Google LLC", "asn": "AS15169", "asn_org": "Google LLC",
         },
     ]
-    event_destinations: list = []
     event_flows = [
         {
             "src_ip": "8.8.8.8", "dst_ip": "45.83.12.7", "count": 8, "high": 8, "medium": 0, "last_seen": now,
@@ -360,7 +504,7 @@ def test_threat_geo_events_emit_directed_flow_when_both_endpoints_geolocate(monk
         {"ip": "45.83.12.7", "country": "NL", "region": "North Holland", "city": "Amsterdam", "loc": "52.37,4.89", "org": "EvilHost", "asn": "AS9999", "asn_org": "EvilHost"},
     ]
 
-    db = _FakeDB([event_sources, event_destinations, [], event_flows, flow_geo_rows])
+    db = _FakeDB([event_sources, [], event_flows, 18, [], flow_geo_rows])
     payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="events")
 
     assert len(payload.points) == 1
@@ -379,12 +523,14 @@ def test_threat_geo_events_emit_directed_flow_when_both_endpoints_geolocate(monk
 def test_threat_geo_includes_home_endpoint_when_resolved(monkeypatch):
     monkeypatch.setattr(threat_map_service, "_cache_get_json", lambda key: None)
     monkeypatch.setattr(threat_map_service, "_cache_set_json", lambda key, payload, ttl: None)
+    monkeypatch.setattr(threat_map_service, "push_wanted_ips", lambda entries: None)
+    monkeypatch.setattr(threat_map_service.repository, "clickhouse_client_or_none", lambda: None)
     home = threat_map_service.ThreatGeoEndpoint(
         lat=-3.71, lon=-38.54, city="Fortaleza", country="BR", label="Fortaleza · BR", scope="home"
     )
     monkeypatch.setattr(threat_map_service, "_resolve_home_endpoint", lambda: home)
 
-    db = _FakeDB([[], [], []])
+    db = _FakeDB([[], [], [], 0, []])
     payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="events")
 
     assert payload.points == []
@@ -392,6 +538,27 @@ def test_threat_geo_includes_home_endpoint_when_resolved(monkeypatch):
     assert payload.home.scope == "home"
     assert payload.home.label == "Fortaleza · BR"
     assert payload.home.lat == pytest.approx(-3.71)
+
+
+def test_threat_geo_suppresses_home_public_ip_destination(monkeypatch):
+    _disable_cache(monkeypatch)
+    monkeypatch.setattr(threat_map_service, "_home_public_ip", lambda: "203.0.113.8")
+    now = datetime.now(timezone.utc)
+
+    event_destinations = [
+        {"src_ip": "203.0.113.8", "count": 900, "info": 900, "last_seen": now},
+        {"src_ip": "45.83.12.7", "count": 6, "high": 6, "medium": 0, "last_seen": now},
+    ]
+    geo_rows = [
+        {"ip": "45.83.12.7", "country": "NL", "region": "North Holland", "city": "Amsterdam", "loc": "52.37,4.89", "org": "EvilHost", "asn": "AS9999", "asn_org": "EvilHost"},
+    ]
+
+    db = _FakeDB([[], event_destinations, [], 906, [], geo_rows])
+    payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="events")
+
+    assert len(payload.points) == 1
+    assert payload.points[0].country == "NL"
+    assert all(ip.ip != "203.0.113.8" for point in payload.points for ip in point.top_ips)
 
 
 def test_threat_geo_events_plot_ddos_top_src_and_recon_sources(monkeypatch):
@@ -404,7 +571,6 @@ def test_threat_geo_events_plot_ddos_top_src_and_recon_sources(monkeypatch):
             "geo_loc": None, "country": None, "region": None, "city": None, "org": None, "asn": None, "asn_org": None,
         },
     ]
-    event_destinations: list = []
     dos_events = [
         {
             "dst_ip": "192.168.1.10",
@@ -424,7 +590,7 @@ def test_threat_geo_events_plot_ddos_top_src_and_recon_sources(monkeypatch):
         {"ip": "5.45.207.1", "country": "DE", "region": "Hesse", "city": "Frankfurt", "loc": "50.11,8.68", "org": "ScanCorp", "asn": "AS3333", "asn_org": "ScanCorp"},
     ]
 
-    db = _FakeDB([event_sources, event_destinations, dos_events, geo_rows, []])
+    db = _FakeDB([event_sources, [], [], 1503, dos_events, geo_rows])
     payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="events")
 
     assert payload.source == "events"
@@ -464,7 +630,7 @@ def test_threat_geo_reports_unlocated_ddos_when_sources_private(monkeypatch):
         },
     ]
 
-    db = _FakeDB([[], [], dos_events])
+    db = _FakeDB([[], [], [], 0, dos_events])
     payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="events")
 
     assert payload.points == []
@@ -488,7 +654,7 @@ def test_threat_geo_reports_unlocated_ddos_when_public_source_cache_cold(monkeyp
         },
     ]
 
-    db = _FakeDB([[], [], dos_events, []])
+    db = _FakeDB([[], [], [], 0, dos_events, []])
     payload = threat_map_service.get_threat_geo(db, since_minutes=60, limit=200, severity=None, source="events")
 
     assert payload.points == []
@@ -497,3 +663,21 @@ def test_threat_geo_reports_unlocated_ddos_when_public_source_cache_cold(monkeyp
     assert payload.ddos_unlocated_sources == 1
     assert payload.located_ips == 0
     assert payload.unlocated_ips == 1
+
+
+def test_threat_map_snapshot_page_registered_with_static_scopes():
+    page = get_snapshot_page("threat_map")
+
+    assert page is not None
+    assert page.flag_env == "SEAGULL_SNAPSHOT_THREAT_MAP_ENABLED"
+    assert page.schema_version == 3
+
+    scopes = page.static_scopes()
+    windows = {scope["since_minutes"] for scope in scopes}
+    assert {360, 1440, 10080, 43200} <= windows
+    for scope in scopes:
+        assert scope["limit"] == threat_map_service.DEFAULT_POINT_LIMIT
+        assert scope["severity"] is None
+        assert scope["source"] == "both"
+        assert page.scope_key(scope) == threat_map_service._threat_geo_cache_key(scope)
+        assert page.snapshotable(scope)
