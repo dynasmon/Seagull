@@ -38,7 +38,16 @@ const DIRECTION_OPTIONS: FilterOption[] = [
   { value: "transit", label: "Transit" },
 ];
 
-const SEVERITY_LEVELS: SeverityLevel[] = ["critical", "high", "medium", "low"];
+const SEVERITY_LEVELS: SeverityLevel[] = ["critical", "high", "medium", "low", "info"];
+
+const SEVERITY_LABELS: Record<SeverityLevel, string> = {
+  critical: "Critical",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  info: "Ambient",
+  neutral: "Neutral",
+};
 
 function placeLabel(point: ThreatGeoPoint): string {
   const place = [point.city, point.region].filter(Boolean)[0];
@@ -100,14 +109,14 @@ export function CountryDetailDrawer({
   }, [points, selection]);
 
   const severityOptions = useMemo<FilterOption[]>(() => {
-    const counts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+    const counts: Record<SeverityLevel, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0, neutral: 0 };
     for (const point of countryPoints) {
       const level = toSeverityLevel(point.severity);
       if (level in counts) counts[level] += 1;
     }
     return SEVERITY_LEVELS.map((level) => ({
       value: level,
-      label: level.charAt(0).toUpperCase() + level.slice(1),
+      label: SEVERITY_LABELS[level],
       count: counts[level],
     }));
   }, [countryPoints]);
@@ -148,9 +157,10 @@ export function CountryDetailDrawer({
       counts.high += point.high;
       counts.medium += point.medium;
       counts.low += point.low;
+      counts.info += point.info ?? 0;
     }
     return SEVERITY_LEVELS.map((level) => ({
-      label: level.charAt(0).toUpperCase() + level.slice(1),
+      label: SEVERITY_LABELS[level],
       value: counts[level],
     })).filter((entry) => entry.value > 0);
   }, [filteredPoints]);
