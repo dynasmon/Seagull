@@ -62,8 +62,21 @@ def _scope_lock_key(page: SnapshotPage, scope_key: str) -> str:
     return f"seagull:snapshots:lock:{digest}"
 
 
+def _scope_is_fresh(page: SnapshotPage, params: dict, scope_key: str) -> bool:
+    interval = page.scope_refresh_interval_seconds(params)
+    if interval <= 0.0:
+        return False
+    row = snapshot_store.read_snapshot(page.page, scope_key)
+    if row is None or int(row.schema_version) != int(page.schema_version):
+        return False
+    age_s = max(0.0, time.time() - row.computed_at.timestamp())
+    return age_s < interval
+
+
 async def materialize_scope(page: SnapshotPage, params: dict) -> str:
     scope_key = page.scope_key(params)
+    if await asyncio.to_thread(_scope_is_fresh, page, params, scope_key):
+        return "fresh"
     lock_key = _scope_lock_key(page, scope_key)
     token = await acquire_lock(lock_key, ttl_s=_lock_ttl_seconds())
     if token is None and get_redis() is not None:
@@ -93,7 +106,7 @@ async def materialize_scope(page: SnapshotPage, params: dict) -> str:
 
 
 async def run_page(page: SnapshotPage) -> Dict[str, int]:
-    stats = {"ok": 0, "error": 0, "locked": 0}
+    stats = {"ok": 0, "error": 0, "locked": 0, "fresh": 0}
     try:
         scopes = collect_scopes(page)
     except Exception as exc:
