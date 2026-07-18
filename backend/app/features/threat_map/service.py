@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy.orm import Session
 
 from app.core.cache import get_json, set_json
+from app.core.cache.locks import single_flight
 from app.core.config import settings
 from app.core.observability import log_event
 from app.features.threat_map import repository
@@ -25,10 +26,12 @@ from app.features.threat_map.schemas import (
     ThreatGeoPoint,
     ThreatGeoRankCountry,
     ThreatGeoRankIp,
+    ThreatGeoRecentEvent,
     ThreatGeoResponse,
     ThreatGeoRuleCount,
 )
 from app.shared.analytics import SnapshotPage, register_snapshot_page
+from app.shared.analytics.snapshots import snapshot_tick_seconds
 from app.shared.enrichment.geo_wanted import push_wanted_ips
 from app.shared.network.ip_classification import classify_ip
 from app.workers.intelligence.ip_intel.normalization import GEOIP_PROVIDER_MAXMIND
@@ -42,7 +45,18 @@ TOP_RULES_PER_POINT = 6
 TOP_RANK = 8
 FLOW_LIMIT = 60
 DEFAULT_POINT_LIMIT = 200
+RECENT_EVENTS_LIMIT = 50
 WANTED_PUSH_LIMIT = 256
+
+SNAPSHOT_SCHEMA_VERSION = 4
+RESPONSE_CACHE_KEY_PREFIX = "seagull:threat_map:geo:v4"
+RESPONSE_CACHE_MIN_TTL_SECONDS = 60
+RESPONSE_CACHE_MAX_TTL_SECONDS = 1800
+SNAPSHOT_REFRESH_MIN_SECONDS = 60.0
+SNAPSHOT_REFRESH_MAX_SECONDS = 3600.0
+SNAPSHOT_REFRESH_WINDOW_DIVISOR = 240.0
+INLINE_COMPUTE_LOCK_TTL_SECONDS = 45.0
+INLINE_COMPUTE_WAIT_SECONDS = 20.0
 
 VALID_SOURCES = ("both", "events", "alerts")
 
@@ -287,32 +301,6 @@ def _expand_dos_sources(rows: list[Any]) -> list[dict[str, Any]]:
     return list(accumulator.values())
 
 
-def _extra_geo_record(
-    *,
-    loc: Any,
-    country: Any = None,
-    region: Any = None,
-    city: Any = None,
-    org: Any = None,
-    asn: Any = None,
-    asn_org: Any = None,
-) -> Optional[dict[str, Any]]:
-    coords = repository.parse_loc(loc)
-    if not coords:
-        return None
-    lat, lon = coords
-    return {
-        "lat": lat,
-        "lon": lon,
-        "country": _clean_text(country),
-        "region": _clean_text(region),
-        "city": _clean_text(city),
-        "org": _clean_text(org),
-        "asn": _clean_text(asn),
-        "asn_org": _clean_text(asn_org),
-    }
-
-
 def _role_for_direction(direction: str) -> Optional[str]:
     if direction == "outbound":
         return "destination"
@@ -531,7 +519,6 @@ def _endpoint(geo: dict[str, Any], classification: dict[str, Any] | None) -> Thr
 
 
 def _build_flows(
-    db: Session,
     *,
     event_rows: list[Any],
     alert_rows: list[Any],
@@ -539,37 +526,12 @@ def _build_flows(
     classification_by_ip: dict[str, dict[str, Any]],
     limit: int,
 ) -> list[ThreatGeoFlow]:
-    flow_geo = dict(geo_by_ip)
-    endpoint_ips: set[str] = set()
-
-    def _register(ip: str) -> None:
-        if ip and ip not in classification_by_ip:
-            classification = classify_ip(ip)
-            classification_by_ip[ip] = {
-                "scope": classification["scope"],
-                "label": classification["label"],
-                "is_public": classification["is_public"],
-                "is_internal": classification["is_internal"],
-            }
-
     pairs: list[dict[str, Any]] = []
     for row in event_rows:
         src_ip = str(row.get("src_ip") or "").strip()
         dst_ip = str(row.get("dst_ip") or "").strip()
         if not src_ip or not dst_ip or src_ip == dst_ip:
             continue
-        if src_ip not in flow_geo:
-            rec = _extra_geo_record(
-                loc=row.get("src_geo_loc"),
-                country=row.get("src_country"),
-                region=row.get("src_region"),
-                city=row.get("src_city"),
-            )
-            if rec:
-                flow_geo[src_ip] = rec
-        endpoint_ips.update((src_ip, dst_ip))
-        _register(src_ip)
-        _register(dst_ip)
         high = int(row.get("high", 0) or 0)
         medium = int(row.get("medium", 0) or 0)
         low = int(row.get("low", 0) or 0)
@@ -589,9 +551,6 @@ def _build_flows(
         dst_ip = str(row.get("dst_ip") or "").strip()
         if not src_ip or not dst_ip or src_ip == dst_ip:
             continue
-        endpoint_ips.update((src_ip, dst_ip))
-        _register(src_ip)
-        _register(dst_ip)
         critical = int(row.get("critical", 0) or 0)
         high = int(row.get("high", 0) or 0)
         medium = int(row.get("medium", 0) or 0)
@@ -607,18 +566,10 @@ def _build_flows(
             }
         )
 
-    missing_public = sorted(
-        ip
-        for ip in endpoint_ips
-        if ip not in flow_geo and classification_by_ip.get(ip, {}).get("is_public")
-    )
-    if missing_public:
-        flow_geo.update(repository.load_geo_cache(db, missing_public))
-
     flows: list[ThreatGeoFlow] = []
     for pair in pairs:
-        src_geo = flow_geo.get(pair["src_ip"])
-        dst_geo = flow_geo.get(pair["dst_ip"])
+        src_geo = geo_by_ip.get(pair["src_ip"])
+        dst_geo = geo_by_ip.get(pair["dst_ip"])
         if not src_geo or not dst_geo:
             continue
         src_cls = classification_by_ip.get(pair["src_ip"])
@@ -639,6 +590,51 @@ def _build_flows(
 
     flows.sort(key=lambda flow: (flow.provenance != "alert", -flow.weight))
     return flows[: max(0, int(limit))]
+
+
+def _build_recent_events(
+    rows: list[Any],
+    geo_by_ip: dict[str, dict[str, Any]],
+    classification_by_ip: dict[str, dict[str, Any]],
+    home_ip: Optional[str],
+    *,
+    limit: int = RECENT_EVENTS_LIMIT,
+) -> list[ThreatGeoRecentEvent]:
+    events: list[ThreatGeoRecentEvent] = []
+    for row in rows:
+        timestamp = row.get("timestamp")
+        if timestamp is None:
+            continue
+        src_ip = _clean_text(row.get("src_ip"))
+        dst_ip = _clean_text(row.get("dst_ip"))
+        src_cls = classification_by_ip.get(src_ip) if src_ip else None
+        dst_cls = classification_by_ip.get(dst_ip) if dst_ip else None
+        remote_ip = None
+        if src_ip and src_ip != home_ip and (src_cls or {}).get("is_public"):
+            remote_ip = src_ip
+        elif dst_ip and dst_ip != home_ip and (dst_cls or {}).get("is_public"):
+            remote_ip = dst_ip
+        geo = geo_by_ip.get(remote_ip) if remote_ip else None
+        dst_port = row.get("dst_port")
+        events.append(
+            ThreatGeoRecentEvent(
+                timestamp=_as_utc(timestamp),
+                event_type=str(row.get("event_type") or "unknown"),
+                severity=repository.classify_event_severity(row.get("event_type"), row.get("ssh_action")),
+                src_ip=src_ip,
+                dst_ip=dst_ip,
+                dst_port=int(dst_port) if dst_port is not None else None,
+                proto=_clean_text(row.get("proto")),
+                direction=_flow_direction(src_cls, dst_cls),
+                lat=(geo or {}).get("lat"),
+                lon=(geo or {}).get("lon"),
+                country=_clean_text((geo or {}).get("country")),
+                city=_clean_text((geo or {}).get("city")),
+            )
+        )
+        if len(events) >= int(limit):
+            break
+    return events
 
 
 def _build_rankings(
@@ -768,15 +764,16 @@ def _fetch_event_layers(
     *,
     since: datetime,
     severity: str | None,
-) -> tuple[list[Any], list[Any], list[Any], int, str]:
+) -> tuple[list[Any], list[Any], list[Any], list[Any], int, str]:
     ch = repository.clickhouse_client_or_none()
     if ch is not None:
         try:
             source_rows = repository.ch_aggregate_event_sources(ch, since=since, severity=severity)
             dest_rows = repository.ch_aggregate_event_destinations(ch, since=since, severity=severity)
             flow_rows = repository.ch_aggregate_event_flows(ch, since=since, severity=severity)
+            recent_rows = repository.ch_recent_events(ch, since=since, severity=severity)
             total = repository.ch_count_events(ch, since=since, severity=severity)
-            return source_rows, dest_rows, flow_rows, total, "clickhouse"
+            return source_rows, dest_rows, flow_rows, recent_rows, total, "clickhouse"
         except Exception as exc:
             log_event(
                 logger,
@@ -787,13 +784,15 @@ def _fetch_event_layers(
     source_rows = repository.pg_aggregate_event_sources(db, since=since, severity=severity)
     dest_rows = repository.pg_aggregate_event_destinations(db, since=since, severity=severity)
     flow_rows = repository.pg_aggregate_event_flows(db, since=since, severity=severity)
+    recent_rows = repository.pg_recent_events(db, since=since, severity=severity)
     total = repository.pg_count_events(db, since=since, severity=severity)
-    return source_rows, dest_rows, flow_rows, total, "postgres"
+    return source_rows, dest_rows, flow_rows, recent_rows, total, "postgres"
 
 
 def _publish_wanted_ips(
     sources: list[dict[str, Any]],
     flow_rows: list[Any],
+    recent_rows: list[Any],
     geo_by_ip: dict[str, dict[str, Any]],
     classification_by_ip: dict[str, dict[str, Any]],
     home_ip: Optional[str],
@@ -813,11 +812,20 @@ def _publish_wanted_ips(
         count = int(row.get("count", 0) or 0)
         _consider(str(row.get("src_ip") or "").strip(), count)
         _consider(str(row.get("dst_ip") or "").strip(), count)
+    for row in recent_rows:
+        _consider(str(row.get("src_ip") or "").strip(), 1)
+        _consider(str(row.get("dst_ip") or "").strip(), 1)
 
     if not weights:
         return
     ranked = sorted(weights.items(), key=lambda item: item[1], reverse=True)[:WANTED_PUSH_LIMIT]
     push_wanted_ips(ranked)
+
+
+def _response_cache_ttl_seconds(since_minutes: int) -> int:
+    configured = int(getattr(settings, "SEAGULL_THREAT_GEO_CACHE_TTL_SECONDS", 30) or 30)
+    proportional = min(max(int(since_minutes), RESPONSE_CACHE_MIN_TTL_SECONDS), RESPONSE_CACHE_MAX_TTL_SECONDS)
+    return max(configured, proportional)
 
 
 def get_threat_geo(
@@ -860,7 +868,7 @@ def get_threat_geo(
     events_backend = "postgres"
     event_flow_rows: list[Any] = []
     alert_flow_rows: list[Any] = []
-    extra_geo_by_ip: dict[str, dict[str, Any]] = {}
+    recent_event_rows: list[Any] = []
     ddos_attacks = 0
     dos_source_ips: set[str] = set()
 
@@ -870,24 +878,9 @@ def get_threat_geo(
         sources.extend(_normalize_source_rows(alert_rows, provenance="alert", direction="inbound"))
 
     if want_events:
-        source_rows, dest_rows, event_flow_rows, total_events, events_backend = _fetch_event_layers(
+        source_rows, dest_rows, event_flow_rows, recent_event_rows, total_events, events_backend = _fetch_event_layers(
             db, since=since, severity=sev
         )
-        for row in source_rows:
-            ip = str(row.get("src_ip") or "").strip()
-            if not ip:
-                continue
-            rec = _extra_geo_record(
-                loc=row.get("geo_loc"),
-                country=row.get("country"),
-                region=row.get("region"),
-                city=row.get("city"),
-                org=row.get("org"),
-                asn=row.get("asn"),
-                asn_org=row.get("asn_org"),
-            )
-            if rec:
-                extra_geo_by_ip[ip] = rec
         if home_ip:
             dest_rows = [row for row in dest_rows if str(row.get("src_ip") or "").strip() != home_ip]
         sources.extend(_normalize_source_rows(source_rows, provenance="event", direction="inbound"))
@@ -902,7 +895,6 @@ def get_threat_geo(
         alert_flow_rows = repository.aggregate_alert_flows(db, since=since, severity=sev)
 
     classification_by_ip: dict[str, dict[str, Any]] = {}
-    public_ips: list[str] = []
 
     def _classify(ip: str) -> None:
         if not ip or ip in classification_by_ip:
@@ -926,28 +918,23 @@ def get_threat_geo(
     for row in alert_flow_rows:
         _classify(str(row.get("src_ip") or "").strip())
         _classify(str(row.get("dst_ip") or "").strip())
+    for row in recent_event_rows:
+        _classify(str(row.get("src_ip") or "").strip())
+        _classify(str(row.get("dst_ip") or "").strip())
 
     public_ips = [ip for ip in source_ip_set if classification_by_ip.get(ip, {}).get("is_public")]
 
-    geo_by_ip: dict[str, dict[str, Any]] = {
-        ip: rec
-        for ip, rec in extra_geo_by_ip.items()
-        if classification_by_ip.get(ip, {}).get("is_public")
-    }
-    lookup_ips = {
-        ip
-        for ip, cls in classification_by_ip.items()
-        if cls.get("is_public") and ip not in geo_by_ip
-    }
-    if lookup_ips:
-        geo_by_ip.update(repository.load_geo_cache(db, sorted(lookup_ips)))
+    lookup_ips = {ip for ip, cls in classification_by_ip.items() if cls.get("is_public")}
+    geo_by_ip: dict[str, dict[str, Any]] = (
+        repository.load_geo_cache(db, sorted(lookup_ips)) if lookup_ips else {}
+    )
 
     located_source_ips = {ip for ip in source_ip_set if ip in geo_by_ip}
     located_sources = [row for row in sources if str(row["src_ip"] or "").strip() in located_source_ips]
     ddos_located_sources = len(dos_source_ips & located_source_ips)
     ddos_unlocated_sources = len(dos_source_ips - located_source_ips)
 
-    _publish_wanted_ips(sources, event_flow_rows, geo_by_ip, classification_by_ip, home_ip)
+    _publish_wanted_ips(sources, event_flow_rows, recent_event_rows, geo_by_ip, classification_by_ip, home_ip)
 
     rules_by_ip: dict[str, list[tuple[str, int]]] = {}
     alert_located = sorted(
@@ -971,13 +958,14 @@ def get_threat_geo(
     flows: list[ThreatGeoFlow] = []
     if event_flow_rows or alert_flow_rows:
         flows = _build_flows(
-            db,
             event_rows=event_flow_rows,
             alert_rows=alert_flow_rows,
             geo_by_ip=geo_by_ip,
             classification_by_ip=classification_by_ip,
             limit=FLOW_LIMIT,
         )
+
+    recent_events = _build_recent_events(recent_event_rows, geo_by_ip, classification_by_ip, home_ip)
 
     rankings = _build_rankings(located_sources, geo_by_ip, classification_by_ip)
 
@@ -996,6 +984,7 @@ def get_threat_geo(
         ddos_unlocated_sources=int(ddos_unlocated_sources),
         points=points,
         flows=flows,
+        recent_events=recent_events,
         top_source_countries=rankings["top_source_countries"],
         top_destination_countries=rankings["top_destination_countries"],
         top_source_ips=rankings["top_source_ips"],
@@ -1012,7 +1001,7 @@ def get_threat_geo(
         _cache_set_json(
             cache_key,
             payload.model_dump(),
-            int(getattr(settings, "SEAGULL_THREAT_GEO_CACHE_TTL_SECONDS", 30) or 30),
+            _response_cache_ttl_seconds(int(since_minutes)),
         )
     return payload
 
@@ -1037,7 +1026,7 @@ def _threat_geo_params(
 
 def _threat_geo_cache_key(params: Dict[str, Any]) -> str:
     return (
-        f"seagull:threat_map:geo:v3:sm={int(params['since_minutes'])}:l={int(params['limit'])}"
+        f"{RESPONSE_CACHE_KEY_PREFIX}:sm={int(params['since_minutes'])}:l={int(params['limit'])}"
         f":sev={params.get('severity') or '*'}:src={params['source']}"
     )
 
@@ -1070,6 +1059,13 @@ def _threat_geo_scope_label(params: Dict[str, Any]) -> str:
     return f"w{int(params.get('since_minutes') or 0)}:sev={params.get('severity') or '*'}:src={params.get('source')}"
 
 
+def _threat_geo_refresh_interval_seconds(params: Dict[str, Any]) -> float:
+    window_seconds = float(max(0, int(params.get("since_minutes") or 0)) * 60)
+    proportional = window_seconds / SNAPSHOT_REFRESH_WINDOW_DIVISOR
+    floor = max(SNAPSHOT_REFRESH_MIN_SECONDS, snapshot_tick_seconds())
+    return min(max(proportional, floor), SNAPSHOT_REFRESH_MAX_SECONDS)
+
+
 def _resolve_threat_geo_blocking(params: Dict[str, Any], *, cache: bool = False) -> Dict[str, Any]:
     from app.core.db import SessionLocal
 
@@ -1091,16 +1087,33 @@ async def _compute_threat_geo(params: Dict[str, Any]) -> dict:
     return await asyncio.to_thread(_resolve_threat_geo_blocking, dict(params), cache=False)
 
 
+async def _resolve_threat_geo_shared(params: Dict[str, Any]) -> Dict[str, Any]:
+    cache_key = _threat_geo_cache_key(params)
+
+    async def _factory() -> Dict[str, Any]:
+        return await asyncio.to_thread(_resolve_threat_geo_blocking, dict(params), cache=True)
+
+    payload, _role = await single_flight(
+        f"{cache_key}:compute",
+        _factory,
+        lock_ttl_s=INLINE_COMPUTE_LOCK_TTL_SECONDS,
+        wait_timeout_s=INLINE_COMPUTE_WAIT_SECONDS,
+        poll=lambda: _cache_get_json(cache_key),
+    )
+    return dict(payload)
+
+
 THREAT_MAP_SNAPSHOT_PAGE = register_snapshot_page(
     SnapshotPage(
         page="threat_map",
         flag_env="SEAGULL_SNAPSHOT_THREAT_MAP_ENABLED",
-        schema_version=3,
+        schema_version=SNAPSHOT_SCHEMA_VERSION,
         raw_compute=_compute_threat_geo,
         scope_key_builder=_threat_geo_cache_key,
         static_scopes=_threat_geo_static_scopes,
         track_params=_threat_geo_track_params,
         scope_label=_threat_geo_scope_label,
+        refresh_interval_s=_threat_geo_refresh_interval_seconds,
     )
 )
 
@@ -1113,10 +1126,13 @@ async def get_threat_geo_async(
     source: str,
 ) -> Dict[str, Any]:
     params = _threat_geo_params(since_minutes=since_minutes, limit=limit, severity=severity, source=source)
+    payload: Optional[Dict[str, Any]] = None
     if THREAT_MAP_SNAPSHOT_PAGE.enabled():
-        payload = dict(await THREAT_MAP_SNAPSHOT_PAGE.compute(params))
-    else:
-        payload = dict(await asyncio.to_thread(_resolve_threat_geo_blocking, dict(params), cache=True))
+        snapshot = await THREAT_MAP_SNAPSHOT_PAGE.read(params)
+        if snapshot is not None:
+            payload = dict(snapshot)
+    if payload is None:
+        payload = await _resolve_threat_geo_shared(params)
     meta = dict(payload.get("meta") or {})
     if meta.get("snapshot"):
         meta["cache_hit"] = True
