@@ -57,6 +57,7 @@ class SnapshotPage:
     track_params: Optional[Callable[[ParamsT], Optional[ParamsT]]] = None
     scope_label: Callable[[ParamsT], str] = field(default=_global_scope_label)
     freshness_probe: Optional[Callable[[dict, ParamsT], bool]] = None
+    refresh_interval_s: Optional[Callable[[ParamsT], float]] = None
 
     def enabled(self) -> bool:
         return bool(getattr(settings, self.flag_env, False))
@@ -64,7 +65,20 @@ class SnapshotPage:
     def scope_key(self, params: ParamsT) -> str:
         return self.scope_key_builder(params)
 
-    def max_age_seconds(self) -> float:
+    def scope_refresh_interval_seconds(self, params: ParamsT) -> float:
+        if self.refresh_interval_s is None:
+            return 0.0
+        try:
+            return max(0.0, float(self.refresh_interval_s(params)))
+        except Exception:
+            return 0.0
+
+    def max_age_seconds(self, params: Optional[ParamsT] = None) -> float:
+        if params is not None:
+            interval = self.scope_refresh_interval_seconds(params)
+            if interval > 0.0:
+                multiplier = float(getattr(settings, "SEAGULL_SNAPSHOTS_MAX_AGE_MULTIPLIER", 6.0) or 6.0)
+                return max(interval * multiplier, interval + 5.0)
         return default_max_age_seconds()
 
     async def compute(self, params: ParamsT) -> dict:
@@ -78,6 +92,15 @@ class SnapshotPage:
         if payload is not None:
             return payload
         return await self.raw_compute(params)
+
+    async def read(self, params: ParamsT) -> Optional[dict]:
+        if not self.enabled():
+            return None
+        if not self.snapshotable(params):
+            incr_counter("snapshot_lookup_total", page=self.page, outcome="bypass")
+            return None
+        self._record_seen(params)
+        return await self._read_store(params)
 
     async def _read_store(self, params: ParamsT) -> Optional[dict]:
         from app.shared.analytics import snapshot_store
@@ -98,7 +121,7 @@ class SnapshotPage:
             self._fallback("schema", scope_key)
             return None
         age_s = max(0.0, time.time() - row.computed_at.timestamp())
-        if age_s > self.max_age_seconds():
+        if age_s > self.max_age_seconds(params):
             self._fallback("stale", scope_key, age_s=round(age_s, 1))
             return None
         if self.freshness_probe is not None:
@@ -109,7 +132,7 @@ class SnapshotPage:
             if outdated:
                 self._fallback("outdated", scope_key, age_s=round(age_s, 1))
                 return None
-        degraded = age_s > snapshot_tick_seconds() * 2.0
+        degraded = age_s > max(snapshot_tick_seconds(), self.scope_refresh_interval_seconds(params)) * 2.0
         incr_counter("snapshot_lookup_total", page=self.page, outcome="degraded" if degraded else "hit")
         payload = dict(row.payload)
         meta = dict(payload.get("meta") or {})
