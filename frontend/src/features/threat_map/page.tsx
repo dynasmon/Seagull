@@ -15,6 +15,7 @@ import type { SeverityLevel } from "@/shared/lib/severity";
 import { usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { ThreatRankPanels } from "./components/ThreatRankPanels";
+import { RecentEventsPanel } from "./components/RecentEventsPanel";
 import CountryDetailDrawer, { type CountrySelection } from "./components/CountryDetailDrawer";
 import type { DirectionFilter } from "./components/ThreatGlobe";
 import { useThreatGeo } from "./useThreatGeo";
@@ -319,6 +320,8 @@ export default function ThreatMapPage() {
           ) : null}
         </div>
       </Panel>
+
+      <RecentEventsPanel events={data?.recent_events ?? []} />
 
       <ThreatRankPanels
         topSourceCountries={data?.top_source_countries ?? []}

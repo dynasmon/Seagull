@@ -93,6 +93,21 @@ export type ThreatGeoRankIp = {
   role?: ThreatEndpointRole | null;
 };
 
+export type ThreatGeoRecentEvent = {
+  timestamp: string;
+  event_type: string;
+  severity: string;
+  src_ip?: string | null;
+  dst_ip?: string | null;
+  dst_port?: number | null;
+  proto?: string | null;
+  direction: ThreatDirection;
+  lat?: number | null;
+  lon?: number | null;
+  country?: string | null;
+  city?: string | null;
+};
+
 export type ThreatGeoMeta = {
   source: string;
   cache_hit: boolean;
@@ -116,6 +131,7 @@ export type ThreatGeoResponse = {
   ddos_unlocated_sources: number;
   points: ThreatGeoPoint[];
   flows: ThreatGeoFlow[];
+  recent_events?: ThreatGeoRecentEvent[];
   top_source_countries: ThreatGeoRankCountry[];
   top_destination_countries: ThreatGeoRankCountry[];
   top_source_ips: ThreatGeoRankIp[];
