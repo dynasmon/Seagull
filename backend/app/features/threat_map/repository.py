@@ -13,7 +13,6 @@ from app.core.integrations.clickhouse import (
     get_clickhouse_client,
 )
 from app.features.alerts.models import AlertModel
-from app.features.events.domain.queries import _ch_deduped_events_source_sql
 from app.features.events.models import NetEventModel
 from app.shared.enrichment.models import IpEnrichmentCacheModel
 
@@ -27,6 +26,13 @@ SOURCE_SCAN_LIMIT = 4000
 DESTINATION_SCAN_LIMIT = 2000
 FLOW_SCAN_LIMIT = 1500
 DOS_ATTACK_SCAN_LIMIT = 200
+ALERT_SOURCE_SCAN_LIMIT = 4000
+RECENT_EVENTS_SCAN_LIMIT = 50
+
+CLICKHOUSE_STATEMENT_GUARDS = {
+    "max_execution_time": 4,
+    "max_memory_usage": 1_000_000_000,
+}
 
 SEVERITY_CLASSES = ("critical", "high", "medium", "low", "info")
 
@@ -50,27 +56,23 @@ _CH_CLASS_COLUMNS = (
     f"countIf(NOT {_CH_SUSPECT}) AS info"
 )
 
-_CH_SOURCE_GEO_COLUMNS = (
-    "nullIf(argMax(JSONExtractString(extra_json, 'geo_loc'), timestamp), '') AS geo_loc, "
-    "nullIf(argMax(JSONExtractString(extra_json, 'geo_country'), timestamp), '') AS country, "
-    "nullIf(argMax(JSONExtractString(extra_json, 'geo_region'), timestamp), '') AS region, "
-    "nullIf(argMax(JSONExtractString(extra_json, 'geo_city'), timestamp), '') AS city, "
-    "nullIf(argMax(JSONExtractString(extra_json, 'geo_org'), timestamp), '') AS org, "
-    "nullIf(argMax(JSONExtractString(extra_json, 'asn'), timestamp), '') AS asn, "
-    "nullIf(argMax(JSONExtractString(extra_json, 'asn_org'), timestamp), '') AS asn_org"
-)
-
-_CH_FLOW_SOURCE_GEO_COLUMNS = (
-    "nullIf(argMax(JSONExtractString(extra_json, 'geo_loc'), timestamp), '') AS src_geo_loc, "
-    "nullIf(argMax(JSONExtractString(extra_json, 'geo_country'), timestamp), '') AS src_country, "
-    "nullIf(argMax(JSONExtractString(extra_json, 'geo_region'), timestamp), '') AS src_region, "
-    "nullIf(argMax(JSONExtractString(extra_json, 'geo_city'), timestamp), '') AS src_city"
-)
-
 
 def normalize_severity(severity: str | None) -> str | None:
     value = (severity or "").strip().lower()
     return value if value in SEVERITY_CLASSES else None
+
+
+def classify_event_severity(event_type: Any, ssh_action: Any) -> str:
+    etype = str(event_type or "").strip()
+    if etype in EVENT_FLOOD_TYPES or etype in EVENT_OUTBOUND_HIGH_TYPES:
+        return "high"
+    if etype == "ssh_auth" and str(ssh_action or "").strip() in EVENT_SSH_SUSPECT_ACTIONS:
+        return "medium"
+    if etype in EVENT_OUTBOUND_MEDIUM_TYPES:
+        return "medium"
+    if etype in EVENT_RECON_TYPES:
+        return "low"
+    return "info"
 
 
 def parse_loc(loc: Any) -> tuple[float, float] | None:
@@ -107,15 +109,19 @@ def clickhouse_client_or_none() -> Optional[Any]:
 
 
 def _ch_rows(client: Any, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
-    res = client.query(sql, parameters=params)
+    res = client.query(sql, parameters=params, settings=CLICKHOUSE_STATEMENT_GUARDS)
     cols = list(getattr(res, "column_names", []) or [])
-    return [dict(zip(cols, row)) for row in (getattr(res, "result_rows", []) or [])]
+    return [dict(zip(cols, row, strict=False)) for row in (getattr(res, "result_rows", []) or [])]
 
 
 def _ch_not_private(col: str) -> str:
     prefixes = " OR ".join(f"startsWith({col}, '{prefix}')" for prefix in _PRIVATE_LIKE_PREFIXES)
     regex = _PRIVATE_172_REGEX.replace("\\", "\\\\")
     return f"NOT ({prefixes} OR {col} = '::1' OR match({col}, '{regex}'))"
+
+
+def _ch_public_endpoint(col: str) -> str:
+    return f"(ifNull({col}, '') != '' AND {_ch_not_private(col)})"
 
 
 def _ch_severity_predicate(severity: str | None) -> str | None:
@@ -130,13 +136,6 @@ def _ch_severity_predicate(severity: str | None) -> str | None:
     return None
 
 
-def _ch_source_sql(conditions: list[str]) -> str:
-    return _ch_deduped_events_source_sql(
-        table=clickhouse_events_table_ref(),
-        where_sql=" AND ".join(conditions),
-    )
-
-
 def ch_aggregate_event_sources(
     client: Any,
     *,
@@ -149,17 +148,15 @@ def ch_aggregate_event_sources(
         return []
     conditions = [
         "timestamp >= {since:DateTime64(3)}",
-        "ifNull(src_ip, '') != ''",
-        _ch_not_private("src_ip"),
+        _ch_public_endpoint("src_ip"),
     ]
     predicate = _ch_severity_predicate(sev)
     if predicate:
         conditions.append(predicate)
-    source_sql = _ch_source_sql(conditions)
     sql = (
-        f"SELECT src_ip, count() AS cnt, {_CH_CLASS_COLUMNS}, max(timestamp) AS last_seen, "
-        f"{_CH_SOURCE_GEO_COLUMNS} "
-        f"FROM ({source_sql}) AS events "
+        f"SELECT src_ip, count() AS cnt, {_CH_CLASS_COLUMNS}, max(timestamp) AS last_seen "
+        f"FROM {clickhouse_events_table_ref()} "
+        f"WHERE {' AND '.join(conditions)} "
         "GROUP BY src_ip ORDER BY cnt DESC "
         f"LIMIT {int(limit)}"
     )
@@ -172,13 +169,6 @@ def ch_aggregate_event_sources(
             "low": int(row.get("low") or 0),
             "info": int(row.get("info") or 0),
             "last_seen": row.get("last_seen"),
-            "geo_loc": row.get("geo_loc"),
-            "country": row.get("country"),
-            "region": row.get("region"),
-            "city": row.get("city"),
-            "org": row.get("org"),
-            "asn": row.get("asn"),
-            "asn_org": row.get("asn_org"),
         }
         for row in _ch_rows(client, sql, {"since": _naive_utc(since)})
     ]
@@ -196,8 +186,7 @@ def ch_aggregate_event_destinations(
         return []
     conditions = [
         "timestamp >= {since:DateTime64(3)}",
-        "ifNull(dst_ip, '') != ''",
-        _ch_not_private("dst_ip"),
+        _ch_public_endpoint("dst_ip"),
     ]
     if sev == "high":
         conditions.append(_CH_OUT_HIGH)
@@ -205,10 +194,10 @@ def ch_aggregate_event_destinations(
         conditions.append(_CH_EGRESS)
     elif sev == "info":
         conditions.append(f"NOT {_CH_SUSPECT}")
-    source_sql = _ch_source_sql(conditions)
     sql = (
         f"SELECT dst_ip AS src_ip, count() AS cnt, {_CH_CLASS_COLUMNS}, max(timestamp) AS last_seen "
-        f"FROM ({source_sql}) AS events "
+        f"FROM {clickhouse_events_table_ref()} "
+        f"WHERE {' AND '.join(conditions)} "
         "GROUP BY dst_ip ORDER BY cnt DESC "
         f"LIMIT {int(limit)}"
     )
@@ -246,11 +235,10 @@ def ch_aggregate_event_flows(
     predicate = _ch_severity_predicate(sev)
     if predicate:
         conditions.append(predicate)
-    source_sql = _ch_source_sql(conditions)
     sql = (
-        f"SELECT src_ip, dst_ip, count() AS cnt, {_CH_CLASS_COLUMNS}, max(timestamp) AS last_seen, "
-        f"{_CH_FLOW_SOURCE_GEO_COLUMNS} "
-        f"FROM ({source_sql}) AS events "
+        f"SELECT src_ip, dst_ip, count() AS cnt, {_CH_CLASS_COLUMNS}, max(timestamp) AS last_seen "
+        f"FROM {clickhouse_events_table_ref()} "
+        f"WHERE {' AND '.join(conditions)} "
         "GROUP BY src_ip, dst_ip ORDER BY cnt DESC "
         f"LIMIT {int(limit)}"
     )
@@ -264,10 +252,6 @@ def ch_aggregate_event_flows(
             "low": int(row.get("low") or 0),
             "info": int(row.get("info") or 0),
             "last_seen": row.get("last_seen"),
-            "src_geo_loc": row.get("src_geo_loc"),
-            "src_country": row.get("src_country"),
-            "src_region": row.get("src_region"),
-            "src_city": row.get("src_city"),
         }
         for row in _ch_rows(client, sql, {"since": _naive_utc(since)})
     ]
@@ -281,10 +265,39 @@ def ch_count_events(client: Any, *, since: datetime, severity: str | None = None
     predicate = _ch_severity_predicate(sev)
     if predicate:
         conditions.append(predicate)
-    source_sql = _ch_source_sql(conditions)
-    sql = f"SELECT count() AS total FROM ({source_sql}) AS events"
+    sql = (
+        f"SELECT count() AS total FROM {clickhouse_events_table_ref()} "
+        f"WHERE {' AND '.join(conditions)}"
+    )
     rows = _ch_rows(client, sql, {"since": _naive_utc(since)})
     return int(rows[0].get("total") or 0) if rows else 0
+
+
+def ch_recent_events(
+    client: Any,
+    *,
+    since: datetime,
+    severity: str | None = None,
+    limit: int = RECENT_EVENTS_SCAN_LIMIT,
+) -> list[dict[str, Any]]:
+    sev = normalize_severity(severity)
+    if sev == "critical":
+        return []
+    conditions = [
+        "timestamp >= {since:DateTime64(3)}",
+        f"({_ch_public_endpoint('src_ip')} OR {_ch_public_endpoint('dst_ip')})",
+    ]
+    predicate = _ch_severity_predicate(sev)
+    if predicate:
+        conditions.append(predicate)
+    sql = (
+        "SELECT timestamp, event_type, ssh_action, src_ip, dst_ip, dst_port, proto "
+        f"FROM {clickhouse_events_table_ref()} "
+        f"WHERE {' AND '.join(conditions)} "
+        "ORDER BY timestamp DESC "
+        f"LIMIT {int(limit)}"
+    )
+    return _ch_rows(client, sql, {"since": _naive_utc(since)})
 
 
 def _event_ssh_action():
@@ -351,13 +364,6 @@ def pg_aggregate_event_sources(
             func.count().label("count"),
             *_pg_class_columns(preds),
             func.max(NetEventModel.timestamp).label("last_seen"),
-            func.max(NetEventModel.extra["geo_loc"].astext).label("geo_loc"),
-            func.max(NetEventModel.extra["geo_country"].astext).label("country"),
-            func.max(NetEventModel.extra["geo_region"].astext).label("region"),
-            func.max(NetEventModel.extra["geo_city"].astext).label("city"),
-            func.max(NetEventModel.extra["geo_org"].astext).label("org"),
-            func.max(NetEventModel.extra["asn"].astext).label("asn"),
-            func.max(NetEventModel.extra["asn_org"].astext).label("asn_org"),
         )
         .where(
             NetEventModel.timestamp >= since,
@@ -427,10 +433,6 @@ def pg_aggregate_event_flows(
             func.count().label("count"),
             *_pg_class_columns(preds),
             func.max(NetEventModel.timestamp).label("last_seen"),
-            func.max(NetEventModel.extra["geo_loc"].astext).label("src_geo_loc"),
-            func.max(NetEventModel.extra["geo_country"].astext).label("src_country"),
-            func.max(NetEventModel.extra["geo_region"].astext).label("src_region"),
-            func.max(NetEventModel.extra["geo_city"].astext).label("src_city"),
         )
         .where(
             NetEventModel.timestamp >= since,
@@ -456,6 +458,42 @@ def pg_count_events(db: Session, *, since: datetime, severity: str | None = None
     if sev:
         stmt = stmt.where(_pg_class_predicates()[sev])
     return int(db.execute(stmt).scalar() or 0)
+
+
+def pg_recent_events(
+    db: Session,
+    *,
+    since: datetime,
+    severity: str | None = None,
+    limit: int = RECENT_EVENTS_SCAN_LIMIT,
+) -> list[Any]:
+    sev = normalize_severity(severity)
+    if sev == "critical":
+        return []
+    preds = _pg_class_predicates()
+    stmt = (
+        select(
+            NetEventModel.timestamp.label("timestamp"),
+            NetEventModel.event_type.label("event_type"),
+            _event_ssh_action().label("ssh_action"),
+            NetEventModel.src_ip.label("src_ip"),
+            NetEventModel.dst_ip.label("dst_ip"),
+            NetEventModel.dst_port.label("dst_port"),
+            NetEventModel.proto.label("proto"),
+        )
+        .where(
+            NetEventModel.timestamp >= since,
+            or_(
+                and_(NetEventModel.src_ip.is_not(None), _pg_not_private(NetEventModel.src_ip)),
+                and_(NetEventModel.dst_ip.is_not(None), _pg_not_private(NetEventModel.dst_ip)),
+            ),
+        )
+        .order_by(NetEventModel.timestamp.desc())
+        .limit(int(limit))
+    )
+    if sev:
+        stmt = stmt.where(preds[sev])
+    return db.execute(stmt).mappings().all()
 
 
 def recent_dos_attack_events(
@@ -491,6 +529,7 @@ def aggregate_threat_sources(
     *,
     since: datetime,
     severity: str | None = None,
+    limit: int = ALERT_SOURCE_SCAN_LIMIT,
 ) -> list[Any]:
     sev = func.lower(AlertModel.severity)
     stmt = (
@@ -506,6 +545,7 @@ def aggregate_threat_sources(
         .where(AlertModel.created_at >= _naive_utc(since), AlertModel.src_ip.is_not(None))
         .group_by(AlertModel.src_ip)
         .order_by(func.count().desc())
+        .limit(int(limit))
     )
     if severity:
         stmt = stmt.where(sev == severity.lower())
@@ -583,13 +623,7 @@ def load_geo_cache(db: Session, ips: list[str]) -> dict[str, dict[str, Any]]:
                 IpEnrichmentCacheModel.org,
                 IpEnrichmentCacheModel.asn,
                 IpEnrichmentCacheModel.asn_org,
-            ).where(
-                IpEnrichmentCacheModel.ip.in_(clean_ips),
-                or_(
-                    IpEnrichmentCacheModel.expires_at.is_(None),
-                    IpEnrichmentCacheModel.expires_at > func.now(),
-                ),
-            )
+            ).where(IpEnrichmentCacheModel.ip.in_(clean_ips))
         )
         .mappings()
         .all()
