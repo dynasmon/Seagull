@@ -43,6 +43,7 @@ def _page(
     track_params=None,
     static_scopes=None,
     freshness_probe=None,
+    refresh_interval_s=None,
 ) -> SnapshotPage:
     monkeypatch.setattr(settings, _FLAG, True, raising=False)
     monkeypatch.setattr(snapshots, "get_redis", lambda: None)
@@ -58,6 +59,8 @@ def _page(
         kwargs["track_params"] = track_params
     if freshness_probe is not None:
         kwargs["freshness_probe"] = freshness_probe
+    if refresh_interval_s is not None:
+        kwargs["refresh_interval_s"] = refresh_interval_s
     return SnapshotPage(
         page="unit_page",
         flag_env=_FLAG,
@@ -294,7 +297,7 @@ def test_worker_materializes_scope_and_handler_serves_it(monkeypatch) -> None:
     monkeypatch.setattr(worker_main, "release_lock", _release)
 
     stats = asyncio.run(worker_main.run_page(page))
-    assert stats == {"ok": 1, "error": 0, "locked": 0}
+    assert stats == {"ok": 1, "error": 0, "locked": 0, "fresh": 0}
     assert ("unit_page", "unit:1") in stored
     assert calls["n"] == 1
 
@@ -302,6 +305,75 @@ def test_worker_materializes_scope_and_handler_serves_it(monkeypatch) -> None:
     assert calls["n"] == 1
     assert payload["value"] == 1
     assert "snapshot" in payload["meta"]
+
+
+def test_worker_honors_scope_refresh_interval_and_serves_stale_within_max_age(monkeypatch) -> None:
+    from app.workers.analytics.snapshots import main as worker_main
+
+    calls = {"n": 0}
+    page = _page(monkeypatch, calls=calls, refresh_interval_s=lambda params: 600.0)
+    stored: dict[tuple[str, str], SnapshotRow] = {}
+
+    def _fake_upsert(
+        *,
+        page: str,
+        scope_key: str,
+        schema_version: int,
+        payload: dict,
+        computed_ms: float,
+        computed_at: datetime | None = None,
+    ) -> None:
+        stored[(page, scope_key)] = SnapshotRow(
+            page=page,
+            scope_key=scope_key,
+            schema_version=schema_version,
+            payload=payload,
+            computed_at=computed_at or datetime.now(timezone.utc),
+            computed_ms=computed_ms,
+        )
+
+    def _fake_read(page_name: str, scope_key: str) -> SnapshotRow | None:
+        return stored.get((page_name, scope_key))
+
+    monkeypatch.setattr(snapshot_store, "upsert_snapshot", _fake_upsert)
+    monkeypatch.setattr(snapshot_store, "read_snapshot", _fake_read)
+    monkeypatch.setattr(worker_main, "get_redis", lambda: None)
+
+    async def _acquire(_key: str, *, ttl_s: float):
+        return "token"
+
+    async def _release(_key: str, _token: str) -> None:
+        return None
+
+    monkeypatch.setattr(worker_main, "acquire_lock", _acquire)
+    monkeypatch.setattr(worker_main, "release_lock", _release)
+
+    stats = asyncio.run(worker_main.run_page(page))
+    assert stats == {"ok": 1, "error": 0, "locked": 0, "fresh": 0}
+    assert calls["n"] == 1
+
+    stats = asyncio.run(worker_main.run_page(page))
+    assert stats == {"ok": 0, "error": 0, "locked": 0, "fresh": 1}
+    assert calls["n"] == 1
+
+    row = stored[("unit_page", "unit:1")]
+    stored[("unit_page", "unit:1")] = SnapshotRow(
+        page=row.page,
+        scope_key=row.scope_key,
+        schema_version=row.schema_version,
+        payload=row.payload,
+        computed_at=datetime.now(timezone.utc) - timedelta(seconds=900),
+        computed_ms=row.computed_ms,
+    )
+
+    served = asyncio.run(page.read({"value": 1}))
+    assert served is not None
+    assert calls["n"] == 1
+    assert served["meta"]["snapshot"]["degraded"] is False
+
+    stats = asyncio.run(worker_main.run_page(page))
+    assert stats == {"ok": 1, "error": 0, "locked": 0, "fresh": 0}
+    assert calls["n"] == 2
 
 
 def test_worker_page_error_does_not_abort_other_scopes(monkeypatch) -> None:
