@@ -80,6 +80,21 @@ class ThreatGeoRankCountry(BaseModel):
     provenance: str = "event"
 
 
+class ThreatGeoRecentEvent(BaseModel):
+    timestamp: datetime
+    event_type: str
+    severity: str = "info"
+    src_ip: Optional[str] = None
+    dst_ip: Optional[str] = None
+    dst_port: Optional[int] = None
+    proto: Optional[str] = None
+    direction: str = "inbound"
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
+
+
 class ThreatGeoRankIp(BaseModel):
     ip: str
     count: int
@@ -117,6 +132,7 @@ class ThreatGeoResponse(BaseModel):
     ddos_unlocated_sources: int = 0
     points: List[ThreatGeoPoint] = Field(default_factory=list)
     flows: List[ThreatGeoFlow] = Field(default_factory=list)
+    recent_events: List[ThreatGeoRecentEvent] = Field(default_factory=list)
     top_source_countries: List[ThreatGeoRankCountry] = Field(default_factory=list)
     top_destination_countries: List[ThreatGeoRankCountry] = Field(default_factory=list)
     top_source_ips: List[ThreatGeoRankIp] = Field(default_factory=list)
