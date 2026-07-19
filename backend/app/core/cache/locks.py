@@ -82,21 +82,30 @@ async def single_flight(
     exc: Optional[BaseException] = None
     role = "leader"
     try:
-        token = await acquire_lock(key, ttl_s=lock_ttl_s)
-        if token is not None:
+        if get_redis() is None:
             if on_role:
                 on_role("leader")
-            try:
-                result = await factory()
-            finally:
-                await release_lock(key, token)
+            result = await factory()
         else:
-            role = "waiter"
-            if on_role:
-                on_role("waiter")
-            result = await _wait_for_leader(
-                factory, poll=poll, wait_timeout_s=wait_timeout_s, poll_interval_s=poll_interval_s
-            )
+            token = await acquire_lock(key, ttl_s=lock_ttl_s)
+            if token is not None:
+                if on_role:
+                    on_role("leader")
+                try:
+                    result = await factory()
+                finally:
+                    await release_lock(key, token)
+            else:
+                role = "waiter"
+                if on_role:
+                    on_role("waiter")
+                result = await _wait_for_leader(
+                    key,
+                    factory,
+                    poll=poll,
+                    wait_timeout_s=wait_timeout_s,
+                    poll_interval_s=poll_interval_s,
+                )
     except BaseException as e:  # noqa: BLE001
         exc = e
     finally:
@@ -106,7 +115,18 @@ async def single_flight(
     return result, role
 
 
+def _lock_held(lock_key: str) -> bool:
+    r = get_redis()
+    if r is None:
+        return False
+    try:
+        return r.get(lock_key) is not None
+    except Exception:
+        return False
+
+
 async def _wait_for_leader(
+    lock_key: str,
     factory: Callable[[], Awaitable[Any]],
     *,
     poll: Optional[Callable[[], Optional[Any]]],
@@ -119,5 +139,10 @@ async def _wait_for_leader(
             found = poll()
             if found is not None:
                 return found
+            if not _lock_held(lock_key):
+                break
             await asyncio.sleep(poll_interval_s)
+        found = poll()
+        if found is not None:
+            return found
     return await factory()
