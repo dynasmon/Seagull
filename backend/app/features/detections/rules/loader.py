@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Any
 
@@ -29,12 +30,22 @@ def _discover_rule_files(rules_dir: Path) -> list[Path]:
     return [Path(path) for path in sorted({path.resolve() for path in files})]
 
 
+_YAML_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+_rule_file_cache: dict[Path, tuple[int, int, dict[str, Any]]] = {}
+
+
 def _load_rule_file(path: Path) -> dict[str, Any]:
+    stat = path.stat()
+    cached = _rule_file_cache.get(path)
+    if cached is not None and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+        return copy.deepcopy(cached[2])
     with path.open("r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle) or {}
+        data = yaml.load(handle, Loader=_YAML_SAFE_LOADER) or {}
     if not isinstance(data, dict):
         raise DetectionRuleValidationError(f"Rule file must contain a mapping: {path}")
-    return data
+    _rule_file_cache[path] = (stat.st_mtime_ns, stat.st_size, data)
+    return copy.deepcopy(data)
 
 
 def _file_meta_from_document(data: dict[str, Any]) -> dict[str, Any]:
