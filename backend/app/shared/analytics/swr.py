@@ -46,7 +46,7 @@ def _store_entry(key: str, payload: dict, *, fresh_s: int, stale_s: int, schema_
     return entry
 
 
-def _fresh_or_any_entry(key: str) -> Optional[dict]:
+def _fresh_entry(key: str) -> Optional[dict]:
     entry = _read_entry(key)
     if entry is None:
         return None
@@ -117,11 +117,11 @@ async def _compute_single_flight(
     wait_timeout = float(getattr(settings, "SEAGULL_ANALYTICS_SINGLEFLIGHT_WAIT_SECONDS", 9.0) or 9.0)
 
     entry, _role = await single_flight(
-        key,
+        f"{key}:lock",
         _factory,
         lock_ttl_s=lock_ttl,
         wait_timeout_s=wait_timeout,
-        poll=lambda: _fresh_or_any_entry(key),
+        poll=lambda: _fresh_entry(key),
         on_role=lambda role: incr_counter(
             "analytics_single_flight_total", feature=feature, role="leader" if role == "leader" else "waiter"
         ),
