@@ -82,6 +82,15 @@ def _shutdown_drain_seconds() -> float:
     return float(configured)
 
 
+def _prewarm_rule_registry() -> None:
+    from app.workers.intelligence.rules.registry import load_baseline_rules
+
+    try:
+        load_baseline_rules(include_disabled=True)
+    except Exception as exc:
+        log_event(logger, "warning", "rule_registry_prewarm_failed", error_type=type(exc).__name__)
+
+
 def _startup() -> None:
     settings.validate_for_service("backend-api")
 
@@ -96,6 +105,7 @@ def _startup() -> None:
 
     start_replica_monitor()
     load_all_models()
+    _prewarm_rule_registry()
 
     if engine.dialect.name == "postgresql":
         with advisory_lock(8_642_709):
