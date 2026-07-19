@@ -158,8 +158,12 @@ def get_recent_events(
         try:
             table = clickhouse_events_table_ref()
             where_sql, params = _ch_where(since=since_ts, agent_id=agent_id, event_type=event_type)
-            dedup_source_sql = _ch_deduped_events_source_sql(table=table, where_sql=where_sql)
             fetch_limit = min(max(int(limit) * 2, int(limit)), 5000)
+            dedup_source_sql = _ch_deduped_events_source_sql(
+                table=table,
+                where_sql=where_sql,
+                recent_limit=min(fetch_limit * 3, 15000),
+            )
             sql = (
                 f"SELECT pg_event_id, agent_id, event_type, schema_version, timestamp, "
                 f"src_ip, dst_ip, src_port, dst_port, proto, bytes, extra_json "
