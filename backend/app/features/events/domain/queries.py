@@ -162,24 +162,29 @@ def _ch_dedup_key_expr(alias: str = "") -> str:
     )
 
 
-def _ch_deduped_events_source_sql(*, table: str, where_sql: str) -> str:
+_CH_EVENT_COLUMNS = (
+    "timestamp, pg_event_id, agent_id, event_type, schema_version, severity, "
+    "src_ip, dst_ip, src_port, dst_port, proto, bytes, app_proto, app_proto_reason, "
+    "app_proto_conf_band, dns_qname, http_host, http_method, tls_sni, tls_alpn_first, "
+    "ja3, ja4, ja4_ptype, ssh_action, ssh_username, sudo_username, sudo_target_user, "
+    "sudo_command, sudo_tty, extra_json, ingested_at"
+)
+
+
+def _ch_deduped_events_source_sql(*, table: str, where_sql: str, recent_limit: int | None = None) -> str:
     dedup_key = _ch_dedup_key_expr()
+    from_clause = f"{table} WHERE {where_sql}"
+    if recent_limit is not None:
+        from_clause = (
+            f"(SELECT {_CH_EVENT_COLUMNS} FROM {table} WHERE {where_sql} "
+            f"ORDER BY timestamp DESC, pg_event_id DESC LIMIT {int(recent_limit)})"
+        )
     return (
-        "SELECT timestamp, pg_event_id, agent_id, event_type, schema_version, severity, "
-        "src_ip, dst_ip, src_port, dst_port, proto, bytes, app_proto, app_proto_reason, "
-        "app_proto_conf_band, dns_qname, http_host, http_method, tls_sni, tls_alpn_first, "
-        "ja3, ja4, ja4_ptype, ssh_action, ssh_username, sudo_username, sudo_target_user, "
-        "sudo_command, sudo_tty, extra_json, ingested_at "
+        f"SELECT {_CH_EVENT_COLUMNS} "
         "FROM ("
-        "SELECT "
-        "timestamp, pg_event_id, agent_id, event_type, schema_version, severity, "
-        "src_ip, dst_ip, src_port, dst_port, proto, bytes, app_proto, app_proto_reason, "
-        "app_proto_conf_band, dns_qname, http_host, http_method, tls_sni, tls_alpn_first, "
-        "ja3, ja4, ja4_ptype, ssh_action, ssh_username, sudo_username, sudo_target_user, "
-        "sudo_command, sudo_tty, extra_json, ingested_at, "
+        f"SELECT {_CH_EVENT_COLUMNS}, "
         f"{dedup_key} AS dedup_key "
-        f"FROM {table} "
-        f"WHERE {where_sql} "
+        f"FROM {from_clause} "
         "ORDER BY dedup_key, ingested_at DESC, timestamp DESC, pg_event_id DESC "
         "LIMIT 1 BY dedup_key"
         ")"
