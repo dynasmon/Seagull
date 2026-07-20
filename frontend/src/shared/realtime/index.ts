@@ -41,6 +41,18 @@ export {
   type LiveRefreshState,
 } from "@/shared/realtime/useLiveRefresh";
 export {
+  DASHBOARD_INVALIDATE_BURST_MS,
+  DASHBOARD_PAGE_EVENT,
+  createDashboardInvalidateRouter,
+  scopeIdentity,
+  scopeMatches,
+  useDashboardInvalidation,
+  type DashboardInvalidateRouter,
+  type DashboardInvalidateSignal,
+  type UseDashboardInvalidationOptions,
+} from "@/shared/realtime/dashboards";
+export {
+  DASHBOARD_INVALIDATE_PAGES,
   PORTAL_REALTIME_EVENT_TYPES,
   PORTAL_REALTIME_EVENT_MODE,
   PORTAL_REALTIME_EVENT_SCOPE,
@@ -49,6 +61,10 @@ export {
   isPortalRealtimeEventType,
   isPortalRealtimeMode,
   isPortalRealtimeTopic,
+  type DashboardInvalidatePayload,
+  type DashboardPage,
+  type DashboardScope,
+  type DashboardScopeValue,
   type PortalRealtimeAnyEvent,
   type PortalRealtimeEnvelope,
   type PortalRealtimeEventPayloadMap,
