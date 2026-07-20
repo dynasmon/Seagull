@@ -431,7 +431,7 @@ export default function VulnerabilitiesPage() {
 
   const live = useLiveRefresh({
     enabled: isAdmin,
-    profile: "admin",
+    profile: "push-driven",
     refresh: async (context) => {
       await refreshDashboard(context.signal);
     },
