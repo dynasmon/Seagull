@@ -2,6 +2,7 @@ export type LiveRefreshProfileName =
   | "operational"
   | "hot-operational"
   | "expensive-operational"
+  | "push-driven"
   | "admin"
   | "background-detail";
 
@@ -54,6 +55,18 @@ export const LIVE_REFRESH_POLICY = {
       minGapMs: 5_000,
       invalidateDebounceMs: 500,
       reconnectDebounceMs: 900,
+      immediateRefreshOnReconnect: true,
+      immediateRefreshOnVisible: true,
+    },
+    "push-driven": {
+      name: "push-driven",
+      label: "Push driven",
+      reconcileMs: 180_000,
+      fallbackMs: 15_000,
+      hiddenMs: 300_000,
+      minGapMs: 5_000,
+      invalidateDebounceMs: 400,
+      reconnectDebounceMs: 800,
       immediateRefreshOnReconnect: true,
       immediateRefreshOnVisible: true,
     },
