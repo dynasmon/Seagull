@@ -52,6 +52,7 @@ REALTIME_EVENT_POLICIES: dict[str, dict[str, str]] = {
     "ui.vulnerabilities.invalidate": {"topic": "vulnerabilities", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE_ADMIN},
     "ui.vulnerabilities.finding.patch": {"topic": "vulnerabilities", "mode": "patch", "scope": STREAM_TOKEN_SCOPE_ADMIN},
     "ui.vulnerabilities.scan.lifecycle": {"topic": "vulnerabilities", "mode": "patch", "scope": STREAM_TOKEN_SCOPE_ADMIN},
+    "ui.threat_map.invalidate": {"topic": "threat_map", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
     "overview.invalidate": {"topic": "overview", "mode": "invalidate", "scope": STREAM_TOKEN_SCOPE},
     "overview.patch": {"topic": "overview", "mode": "patch", "scope": STREAM_TOKEN_SCOPE},
     "storm.status": {"topic": "overview", "mode": "replace", "scope": STREAM_TOKEN_SCOPE},
@@ -75,6 +76,7 @@ TOPIC_REQUIRED_SCOPE: dict[str, str] = {
     "inventory": STREAM_TOKEN_SCOPE,
     "network_topology": STREAM_TOKEN_SCOPE,
     "vulnerabilities": STREAM_TOKEN_SCOPE_ADMIN,
+    "threat_map": STREAM_TOKEN_SCOPE,
 }
 TOPIC_INVALIDATE_EVENT: dict[str, str] = {
     "overview": "ui.overview.invalidate",
@@ -88,6 +90,7 @@ TOPIC_INVALIDATE_EVENT: dict[str, str] = {
     "inventory": "ui.inventory.invalidate",
     "network_topology": "ui.network_topology.invalidate",
     "vulnerabilities": "ui.vulnerabilities.invalidate",
+    "threat_map": "ui.threat_map.invalidate",
 }
 TOPIC_COALESCED_INVALIDATES: frozenset[str] = frozenset(
     {
@@ -102,6 +105,7 @@ TOPIC_COALESCED_INVALIDATES: frozenset[str] = frozenset(
         "inventory",
         "network_topology",
         "vulnerabilities",
+        "threat_map",
     }
 )
 
@@ -415,14 +419,32 @@ def allow_envelope_for_stream(
     return True
 
 
+def invalidate_coalesce_key(envelope: RealtimeEnvelope) -> tuple[str, str, str, str]:
+    payload = envelope.payload if isinstance(envelope.payload, dict) else {}
+    page = str(payload.get("page") or "").strip()
+    if not page:
+        return (envelope.topic, envelope.type, envelope.scope, "")
+    try:
+        scope_params = json.dumps(
+            payload.get("scope_params") or {},
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+            default=str,
+        )
+    except (TypeError, ValueError):
+        scope_params = ""
+    return (envelope.topic, envelope.type, envelope.scope, f"{page}|{scope_params}")
+
+
 def coalesce_realtime_envelopes(envelopes: Iterable[RealtimeEnvelope]) -> list[RealtimeEnvelope]:
     out: list[RealtimeEnvelope] = []
-    invalidate_positions: dict[tuple[str, str, str], int] = {}
+    invalidate_positions: dict[tuple[str, str, str, str], int] = {}
     coalesced_total = 0
 
     for envelope in envelopes:
         if envelope.mode == "invalidate" and envelope.topic in TOPIC_COALESCED_INVALIDATES:
-            key = (envelope.topic, envelope.type, envelope.scope)
+            key = invalidate_coalesce_key(envelope)
             existing_index = invalidate_positions.get(key)
             if existing_index is not None:
                 out.pop(existing_index)
