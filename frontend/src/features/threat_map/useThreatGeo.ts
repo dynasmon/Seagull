@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getErrorMessage } from "@/shared/lib/errors";
-import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
+import { useDashboardInvalidation, useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { getThreatGeo } from "./api";
 import type { ThreatGeoResponse, ThreatSourceMode } from "./types";
@@ -53,7 +53,7 @@ export function useThreatGeo(query: ThreatGeoQuery) {
   const activeKeyRef = useRef<string | null>(null);
 
   const live = useLiveRefresh({
-    profile: "operational",
+    profile: "push-driven",
     refresh: async ({ signal }) => {
       const requestQuery = queryRef.current;
       const requestKey = queryCacheKey(requestQuery);
@@ -99,6 +99,26 @@ export function useThreatGeo(query: ThreatGeoQuery) {
 
   usePortalRealtimeSubscription("ui.alerts.invalidate", () => {
     invalidate();
+  });
+
+  const snapshotScope = useMemo(
+    () => ({
+      since_minutes: query.sinceMinutes,
+      limit: query.limit,
+      severity: query.severity,
+      source: query.source,
+    }),
+    [query.limit, query.severity, query.sinceMinutes, query.source],
+  );
+
+  const onSnapshotInvalidate = useCallback(() => {
+    invalidate();
+  }, [invalidate]);
+
+  useDashboardInvalidation({
+    page: "threat_map",
+    scope: snapshotScope,
+    onInvalidate: onSnapshotInvalidate,
   });
 
   return useMemo(
