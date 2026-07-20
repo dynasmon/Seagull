@@ -5,6 +5,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from redis.exceptions import TimeoutError as RedisTimeoutError
+
 from app.core.cache import get_redis
 from app.core.config.env_secrets import getenv_compat
 from app.core.observability import incr_counter, log_event
@@ -23,6 +25,7 @@ PORTAL_REALTIME_TOPICS = (
     "inventory",
     "vulnerabilities",
     "network_topology",
+    "threat_map",
 )
 PORTAL_REALTIME_STREAM_KEY = "seagull:portal:realtime:v3:stream"
 PORTAL_REALTIME_CURSOR_KEY = "seagull:portal:realtime:v3:cursor"
@@ -42,6 +45,7 @@ TOPIC_STREAM_PARTITION: dict[str, str] = {
     "inventory": "control",
     "vulnerabilities": "control",
     "network_topology": "control",
+    "threat_map": "control",
 }
 
 _UNMAPPED_PORTAL_REALTIME_TOPICS = tuple(
@@ -59,6 +63,10 @@ if _UNKNOWN_PORTAL_REALTIME_PARTITIONS:
     raise RuntimeError(
         f"portal realtime topics mapped to unknown stream partitions: {_UNKNOWN_PORTAL_REALTIME_PARTITIONS}"
     )
+
+
+class PortalRealtimeStreamUnavailable(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -297,14 +305,21 @@ def read_portal_realtime_stream(
     streams: dict[str, str],
     block_ms: int = 1000,
     count: int = 100,
+    raise_on_error: bool = False,
 ) -> tuple[list[PortalRealtimeStreamEntry], dict[str, str]]:
     if redis_client is None or not streams:
+        if raise_on_error and redis_client is None:
+            raise PortalRealtimeStreamUnavailable("realtime backplane unavailable")
         return [], {}
 
     requested = {str(key): (str(value or "").strip() or "$") for key, value in streams.items()}
     try:
         result = redis_client.xread(streams=requested, count=max(1, int(count or 1)), block=max(0, int(block_ms or 0)))
-    except Exception:
+    except RedisTimeoutError:
+        return [], {}
+    except Exception as exc:
+        if raise_on_error:
+            raise PortalRealtimeStreamUnavailable(str(exc)) from exc
         return [], {}
 
     out: list[PortalRealtimeStreamEntry] = []
