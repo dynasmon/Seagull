@@ -16,3 +16,4 @@ class DashboardSnapshotModel(Base):
     computed_at = Column(DateTime(timezone=True), nullable=False)
     computed_ms = Column(Float, nullable=False, default=0.0)
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    published_hash = Column(String(96), nullable=True)

@@ -58,6 +58,7 @@ class SnapshotPage:
     scope_label: Callable[[ParamsT], str] = field(default=_global_scope_label)
     freshness_probe: Optional[Callable[[dict, ParamsT], bool]] = None
     refresh_interval_s: Optional[Callable[[ParamsT], float]] = None
+    volatile_keys: frozenset[str] = frozenset()
 
     def enabled(self) -> bool:
         return bool(getattr(settings, self.flag_env, False))
@@ -177,6 +178,15 @@ class SnapshotPage:
             r.expire(key, _SEEN_TTL_SECONDS)
         except Exception:
             return
+
+
+def snapshot_content_version(page: SnapshotPage, payload: dict) -> str:
+    from app.shared.analytics.swr import payload_etag
+
+    if not page.volatile_keys:
+        return payload_etag(payload, schema_version=page.schema_version)
+    stable = {key: value for key, value in payload.items() if key not in page.volatile_keys}
+    return payload_etag(stable, schema_version=page.schema_version)
 
 
 _PAGES: Dict[str, SnapshotPage] = {}
