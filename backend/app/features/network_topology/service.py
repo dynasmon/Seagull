@@ -303,6 +303,7 @@ TOPOLOGY_SUMMARY_SNAPSHOT_PAGE = register_snapshot_page(
         raw_compute=_compute_topology_summary,
         scope_key_builder=_topology_summary_cache_key,
         static_scopes=lambda: [{}],
+        volatile_keys=frozenset({"freshness_seconds"}),
     )
 )
 
