@@ -1,8 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-import { useLiveRefresh, usePortalRealtime, usePortalRealtimeSubscription } from "@/shared/realtime";
-import type { RealtimeConnectionStatus } from "@/shared/realtime";
+import {
+  LIVE_REFRESH_POLICY,
+  useDashboardInvalidation,
+  useLiveRefresh,
+  usePortalRealtime,
+  usePortalRealtimeSubscription,
+} from "@/shared/realtime";
+import type { LiveRefreshCadenceProfile, RealtimeConnectionStatus } from "@/shared/realtime";
 import { isAbortError } from "@/shared/lib/http";
 
 import { getOverview, getStormStatus } from "./api";
@@ -29,6 +35,13 @@ const REALTIME_BURST_WINDOW_MS = 1000;
 const REALTIME_KPI_BURST_LIMIT = 60;
 const REALTIME_ALERTS_BURST_LIMIT = 80;
 const REALTIME_STORM_BURST_LIMIT = 80;
+
+const OVERVIEW_LIVE_PROFILE: LiveRefreshCadenceProfile = {
+  ...LIVE_REFRESH_POLICY.profiles["push-driven"],
+  label: "Overview push driven",
+  fallbackMs: LIVE_REFRESH_POLICY.profiles["hot-operational"].fallbackMs,
+  minGapMs: LIVE_REFRESH_POLICY.profiles["hot-operational"].minGapMs,
+};
 
 type OverviewLiveCtx = {
   snapshot: OverviewSnapshot | null;
@@ -220,7 +233,7 @@ export function OverviewLiveProvider({
 
   const overviewLive = useLiveRefresh({
     enabled: realtimeEnabled,
-    profile: "hot-operational",
+    profile: OVERVIEW_LIVE_PROFILE,
     refresh,
     immediate: false,
   });
@@ -269,6 +282,11 @@ export function OverviewLiveProvider({
     if (!realtimeEnabledRef.current) return;
     overviewLive.invalidate();
   }, [overviewLive.invalidate]);
+
+  const snapshotScope = useMemo(
+    () => ({ window_minutes: query.windowMinutes, agent_id: null }),
+    [query.windowMinutes],
+  );
 
   const consumeBurstBudget = useCallback(
     (startRef: { current: number }, countRef: { current: number }, limit: number): boolean => {
@@ -393,9 +411,17 @@ export function OverviewLiveProvider({
     enqueueKpiPatch((event.payload || {}) as Record<string, unknown>);
   });
 
-  usePortalRealtimeSubscription("ui.overview.invalidate", () => {
+  usePortalRealtimeSubscription("ui.overview.invalidate", (event) => {
     if (!realtimeEnabledRef.current) return;
+    if (event.payload?.page) return;
     scheduleRefreshFromInvalidate();
+  });
+
+  useDashboardInvalidation({
+    page: "overview",
+    enabled: realtimeEnabled && !query.fixedRange,
+    scope: snapshotScope,
+    onInvalidate: scheduleRefreshFromInvalidate,
   });
 
   usePortalRealtimeSubscription("overview.invalidate", () => {
