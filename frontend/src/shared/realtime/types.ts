@@ -10,9 +10,32 @@ export const PORTAL_REALTIME_TOPICS = [
   "vulnerabilities",
   "exposure",
   "network_topology",
+  "threat_map",
 ] as const;
 
 export type PortalRealtimeTopic = (typeof PORTAL_REALTIME_TOPICS)[number];
+
+export const DASHBOARD_INVALIDATE_PAGES = [
+  "overview",
+  "exposure_summary",
+  "network_topology_summary",
+  "threat_map",
+  "vuln_summary",
+  "vuln_posture",
+] as const;
+
+export type DashboardPage = (typeof DASHBOARD_INVALIDATE_PAGES)[number];
+
+export type DashboardScopeValue = string | number | boolean | null;
+
+export type DashboardScope = Record<string, DashboardScopeValue | undefined>;
+
+export type DashboardInvalidatePayload = {
+  page?: DashboardPage;
+  scope_params?: DashboardScope;
+  version?: string;
+  emitted_at?: string;
+};
 
 export const PORTAL_REALTIME_MODES = [
   "patch",
@@ -44,6 +67,8 @@ export const PORTAL_REALTIME_EVENT_TYPES = [
   "ui.vulnerabilities.invalidate",
   "ui.vulnerabilities.finding.patch",
   "ui.vulnerabilities.scan.lifecycle",
+  "ui.exposure.invalidate",
+  "ui.threat_map.invalidate",
   "exposure.summary.updated",
   "exposure.asset.updated",
   "exposure.finding.updated",
@@ -83,6 +108,8 @@ export const PORTAL_REALTIME_EVENT_TOPIC: Record<PortalRealtimeEventType, Portal
   "ui.vulnerabilities.invalidate": "vulnerabilities",
   "ui.vulnerabilities.finding.patch": "vulnerabilities",
   "ui.vulnerabilities.scan.lifecycle": "vulnerabilities",
+  "ui.exposure.invalidate": "exposure",
+  "ui.threat_map.invalidate": "threat_map",
   "exposure.summary.updated": "exposure",
   "exposure.asset.updated": "exposure",
   "exposure.finding.updated": "exposure",
@@ -120,6 +147,8 @@ export const PORTAL_REALTIME_EVENT_MODE: Record<PortalRealtimeEventType, PortalR
   "ui.vulnerabilities.invalidate": "invalidate",
   "ui.vulnerabilities.finding.patch": "patch",
   "ui.vulnerabilities.scan.lifecycle": "patch",
+  "ui.exposure.invalidate": "invalidate",
+  "ui.threat_map.invalidate": "invalidate",
   "exposure.summary.updated": "patch",
   "exposure.asset.updated": "patch",
   "exposure.finding.updated": "patch",
@@ -157,6 +186,8 @@ export const PORTAL_REALTIME_EVENT_SCOPE: Record<PortalRealtimeEventType, string
   "ui.vulnerabilities.invalidate": "portal:admin",
   "ui.vulnerabilities.finding.patch": "portal:admin",
   "ui.vulnerabilities.scan.lifecycle": "portal:admin",
+  "ui.exposure.invalidate": "portal:realtime",
+  "ui.threat_map.invalidate": "portal:realtime",
   "exposure.summary.updated": "portal:realtime",
   "exposure.asset.updated": "portal:realtime",
   "exposure.finding.updated": "portal:realtime",
@@ -174,11 +205,23 @@ export const PORTAL_REALTIME_EVENT_SCOPE: Record<PortalRealtimeEventType, string
 };
 
 export type PortalRealtimeEventPayloadMap = {
-  "ui.overview.invalidate": {
+  "ui.overview.invalidate": DashboardInvalidatePayload & {
     reason?: string;
     source?: string;
     scope?: string;
     phase?: "ok" | "storm" | "shedding" | "draining";
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
+  };
+  "ui.exposure.invalidate": DashboardInvalidatePayload & {
+    reason?: string;
+    scope?: string;
+    resume_from_cursor?: string;
+    resume_to_cursor?: string;
+  };
+  "ui.threat_map.invalidate": DashboardInvalidatePayload & {
+    reason?: string;
+    scope?: string;
     resume_from_cursor?: string;
     resume_to_cursor?: string;
   };
@@ -446,7 +489,7 @@ export type PortalRealtimeEventPayloadMap = {
     resume_from_cursor?: string;
     resume_to_cursor?: string;
   };
-  "ui.vulnerabilities.invalidate": {
+  "ui.vulnerabilities.invalidate": DashboardInvalidatePayload & {
     reason?: string;
     scope?: string;
     agent_id?: string;
@@ -591,7 +634,7 @@ export type PortalRealtimeEventPayloadMap = {
     resume_from_cursor?: string;
     resume_to_cursor?: string;
   };
-  "ui.network_topology.invalidate": {
+  "ui.network_topology.invalidate": DashboardInvalidatePayload & {
     reason?: string;
     scope?: string;
     source?: string;
