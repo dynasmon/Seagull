@@ -24,6 +24,15 @@ _UPSERT_SQL = text(
     "updated_at = EXCLUDED.updated_at"
 )
 
+_READ_PUBLISHED_HASH_SQL = text(
+    "SELECT published_hash FROM dashboard_snapshots WHERE page = :page AND scope_key = :scope_key"
+)
+
+_MARK_PUBLISHED_SQL = text(
+    "UPDATE dashboard_snapshots SET published_hash = :published_hash "
+    "WHERE page = :page AND scope_key = :scope_key"
+)
+
 _OLDEST_SQL = text("SELECT page, min(computed_at) FROM dashboard_snapshots GROUP BY page")
 
 _PRUNE_SQL = text("DELETE FROM dashboard_snapshots WHERE updated_at < :cutoff")
@@ -106,6 +115,29 @@ def upsert_snapshot(
                 "computed_ms": float(computed_ms),
                 "updated_at": now,
             },
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def read_published_hash(page: str, scope_key: str) -> Optional[str]:
+    db = _session()
+    try:
+        row = db.execute(_READ_PUBLISHED_HASH_SQL, {"page": page, "scope_key": scope_key}).fetchone()
+    finally:
+        db.close()
+    if row is None or row[0] is None:
+        return None
+    return str(row[0])
+
+
+def mark_published(*, page: str, scope_key: str, published_hash: str) -> None:
+    db = _session()
+    try:
+        db.execute(
+            _MARK_PUBLISHED_SQL,
+            {"page": page, "scope_key": scope_key, "published_hash": str(published_hash)},
         )
         db.commit()
     finally:
