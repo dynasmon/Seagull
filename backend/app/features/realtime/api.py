@@ -18,6 +18,7 @@ from app.core.realtime import (
     ConnectionAdmission,
     PortalRealtimeConnectionLedger,
     PortalRealtimeStreamEntry,
+    PortalRealtimeStreamUnavailable,
     load_portal_realtime_replay_state,
     partitions_for_topics,
     read_portal_realtime_stream,
@@ -25,6 +26,7 @@ from app.core.realtime import (
 )
 from app.core.security.rate_limit import rate_limit
 from app.features.auth.session import PortalPrincipal, get_current_user
+from app.features.realtime.dashboards import record_dashboard_invalidate_delivery
 from app.features.realtime.schemas import RealtimeEnvelope, StreamTokenOut
 from app.features.realtime.service import (
     StreamPrincipal,
@@ -140,6 +142,15 @@ async def _ws_pong_reader(websocket: WebSocket, liveness: dict) -> None:
             error=str(exc),
         )
         liveness["disconnected"] = True
+
+
+def _backplane_grace_seconds() -> float:
+    configured = float(getattr(settings, "SEAGULL_REALTIME_BACKPLANE_GRACE_SECONDS", 5.0) or 5.0)
+    if configured < 1.0:
+        return 1.0
+    if configured > 60.0:
+        return 60.0
+    return configured
 
 
 def _replay_delivery_max() -> int:
@@ -258,7 +269,10 @@ def _filter_delivery_batch(
             continue
         envelopes.append(envelope)
 
-    return coalesce_realtime_envelopes(envelopes), max_cursor
+    delivered = coalesce_realtime_envelopes(envelopes)
+    for envelope in delivered:
+        record_dashboard_invalidate_delivery(envelope)
+    return delivered, max_cursor
 
 
 async def _iter_stream_batches(
@@ -268,6 +282,7 @@ async def _iter_stream_batches(
     redis_client: object,
     topics: list[str],
     replay_after_cursor: int,
+    transport: str,
 ) -> AsyncGenerator[list[RealtimeEnvelope], None]:
     allowed_topics = set(topics)
     read_block_ms = _stream_read_block_ms()
@@ -332,17 +347,38 @@ async def _iter_stream_batches(
                     if replay_batch:
                         yield replay_batch
 
+    backplane_failing_since = 0.0
     while True:
         if await disconnect_check():
             break
 
-        rows, advanced_ids = await asyncio.to_thread(
-            read_portal_realtime_stream,
-            redis_client,
-            streams=last_stream_ids,
-            block_ms=read_block_ms,
-            count=100,
-        )
+        try:
+            rows, advanced_ids = await asyncio.to_thread(
+                read_portal_realtime_stream,
+                redis_client,
+                streams=last_stream_ids,
+                block_ms=read_block_ms,
+                count=100,
+                raise_on_error=True,
+            )
+        except PortalRealtimeStreamUnavailable:
+            now = time.monotonic()
+            if backplane_failing_since <= 0.0:
+                backplane_failing_since = now
+            elif now - backplane_failing_since >= _backplane_grace_seconds():
+                incr_counter("realtime_backplane_unavailable_total", transport=transport)
+                log_event(
+                    logger,
+                    "warning",
+                    "realtime_backplane_unavailable",
+                    transport=transport,
+                    topics=",".join(topics),
+                )
+                break
+            await asyncio.sleep(read_block_ms / 1000.0)
+            continue
+
+        backplane_failing_since = 0.0
         if rows:
             last_stream_ids.update(advanced_ids)
             batch, batch_cursor = _filter_delivery_batch(
@@ -473,6 +509,7 @@ async def _stream_events(
             redis_client=redis_client,
             topics=topics,
             replay_after_cursor=replay_after_cursor,
+            transport=transport,
         ):
             if realtime_drain.is_draining():
                 yield format_sse_chunk(data=REALTIME_DRAIN_SIGNAL_JSON)
@@ -571,6 +608,7 @@ async def portal_websocket_endpoint(websocket: WebSocket) -> None:
             redis_client=redis_client,
             topics=resolved_topics,
             replay_after_cursor=cursor_to_int(cursor),
+            transport="ws",
         ):
             if realtime_drain.is_draining():
                 await websocket.close(code=1001, reason=REALTIME_DRAIN_CLOSE_REASON)
