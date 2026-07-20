@@ -12,7 +12,7 @@ import PageHeader from "@/shared/components/PageHeader";
 import { Tabs } from "@/shared/components/Tabs";
 import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences";
 import { isAbortError } from "@/shared/lib/http";
-import { usePortalRealtimeSubscription } from "@/shared/realtime";
+import { useDashboardInvalidation, usePortalRealtimeSubscription } from "@/shared/realtime";
 import { CursorPage } from "@/shared/types/pagination";
 
 import {
@@ -628,6 +628,17 @@ export default function ExposurePage() {
     queueRealtimeRefresh("summary", () => {
       void fetchSummary();
     });
+  });
+
+  const refreshSummaryFromSnapshot = useCallback(() => {
+    queueRealtimeRefresh("summary", () => {
+      void fetchSummary();
+    });
+  }, [fetchSummary, queueRealtimeRefresh]);
+
+  useDashboardInvalidation({
+    page: "exposure_summary",
+    onInvalidate: refreshSummaryFromSnapshot,
   });
 
   usePortalRealtimeSubscription("exposure.asset.updated", (event) => {
