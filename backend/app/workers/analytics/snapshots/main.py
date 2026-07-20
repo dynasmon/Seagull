@@ -17,11 +17,13 @@ from app.core.observability import (
     set_gauge,
     setup_logging,
 )
+from app.features.realtime.dashboards import dashboard_channel, publish_dashboard_invalidate
 from app.shared.analytics import snapshot_store
 from app.shared.analytics.snapshots import (
     SnapshotPage,
     collect_scopes,
     iter_snapshot_pages,
+    snapshot_content_version,
     snapshot_tick_seconds,
 )
 
@@ -73,6 +75,42 @@ def _scope_is_fresh(page: SnapshotPage, params: dict, scope_key: str) -> bool:
     return age_s < interval
 
 
+def _broadcast_scope(page: SnapshotPage, params: dict) -> dict:
+    if page.track_params is None:
+        return dict(params)
+    try:
+        tracked = page.track_params(params)
+    except Exception:
+        return dict(params)
+    return dict(tracked) if isinstance(tracked, dict) else dict(params)
+
+
+def _announce_change(page: SnapshotPage, params: dict, scope_key: str, version: str) -> None:
+    try:
+        previous = snapshot_store.read_published_hash(page.page, scope_key)
+        if previous == version:
+            return
+        outcome = publish_dashboard_invalidate(
+            page=page.page,
+            version=version,
+            scope_key=scope_key,
+            scope=_broadcast_scope(page, params),
+            scope_label=page.scope_label(params),
+        )
+        if outcome != "emitted":
+            return
+        snapshot_store.mark_published(page=page.page, scope_key=scope_key, published_hash=version)
+    except Exception as exc:
+        log_event(
+            logger,
+            "warning",
+            "dashboard_invalidate_announce_error",
+            page=page.page,
+            scope=page.scope_label(params),
+            error_type=type(exc).__name__,
+        )
+
+
 async def materialize_scope(page: SnapshotPage, params: dict) -> str:
     scope_key = page.scope_key(params)
     if await asyncio.to_thread(_scope_is_fresh, page, params, scope_key):
@@ -99,6 +137,9 @@ async def materialize_scope(page: SnapshotPage, params: dict) -> str:
             payload=payload,
             computed_ms=computed_ms,
         )
+        if dashboard_channel(page.page) is not None:
+            version = snapshot_content_version(page, payload)
+            await asyncio.to_thread(_announce_change, page, dict(params), scope_key, version)
         return "ok"
     finally:
         if token is not None:
