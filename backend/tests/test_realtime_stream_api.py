@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import jwt
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from starlette.websockets import WebSocketState
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
@@ -368,12 +369,69 @@ def test_stream_batches_read_only_subscribed_partitions() -> None:
             redis_client=redis_client,
             topics=["alerts"],
             replay_after_cursor=0,
+            transport="sse",
         ):
             break
 
     asyncio.run(_run())
 
     assert redis_client.xread_calls == [{critical_key: "0"}]
+
+
+class _UnreadableRedis(_FakeRedis):
+    def xread(self, streams: dict[str, str], count: int, block: int):
+        _ = (streams, count, block)
+        self.xread_calls.append(dict(streams))
+        raise ConnectionError("backplane down")
+
+
+class _IdleRedis(_FakeRedis):
+    def xread(self, streams: dict[str, str], count: int, block: int):
+        _ = (streams, count, block)
+        self.xread_calls.append(dict(streams))
+        raise RedisTimeoutError("Timeout reading from socket")
+
+
+def test_idle_block_timeout_is_not_a_backplane_outage(monkeypatch) -> None:
+    monkeypatch.setattr(realtime_api, "_backplane_grace_seconds", lambda: 0.0)
+    redis_client = _IdleRedis(replay_rows={}, live_batches={})
+
+    async def _run() -> list:
+        batches = []
+        async for batch in realtime_api._iter_stream_batches(
+            disconnect_check=_DisconnectAfter(4).is_disconnected,
+            principal=_admin_principal(),
+            redis_client=redis_client,
+            topics=["overview"],
+            replay_after_cursor=0,
+            transport="sse",
+        ):
+            batches.append(batch)
+        return batches
+
+    assert asyncio.run(_run()) == [[], [], [], []]
+    assert len(redis_client.xread_calls) == 4
+
+
+def test_stream_batches_close_when_the_backplane_stays_unreadable(monkeypatch) -> None:
+    monkeypatch.setattr(realtime_api, "_backplane_grace_seconds", lambda: 0.0)
+    redis_client = _UnreadableRedis(replay_rows={}, live_batches={})
+
+    async def _run() -> list:
+        batches = []
+        async for batch in realtime_api._iter_stream_batches(
+            disconnect_check=_DisconnectAfter(50).is_disconnected,
+            principal=_admin_principal(),
+            redis_client=redis_client,
+            topics=["overview"],
+            replay_after_cursor=0,
+            transport="sse",
+        ):
+            batches.append(batch)
+        return batches
+
+    assert asyncio.run(_run()) == []
+    assert len(redis_client.xread_calls) == 2
 
 
 def test_stream_events_detects_cursor_gap_across_partitions() -> None:
