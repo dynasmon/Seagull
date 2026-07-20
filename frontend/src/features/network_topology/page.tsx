@@ -308,7 +308,7 @@ export default function NetworkTopologyPage() {
   }, []);
 
   const { state: liveState, refreshNow, invalidate } = useLiveRefresh({
-    profile: "expensive-operational",
+    profile: "push-driven",
     refresh: refreshTopology,
     onError: (err) => {
       if (!isAbortError(err)) setError(getErrorMessage(err, "Failed to refresh network topology"));
