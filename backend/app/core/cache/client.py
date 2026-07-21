@@ -9,8 +9,12 @@ import redis
 from app.core.config import settings
 
 _redis: Optional[redis.Redis] = None
+_blocking_redis: Optional[redis.Redis] = None
 _redis_unavailable_until: float = 0.0
 _REDIS_RETRY_COOLDOWN_SECONDS = 5.0
+
+_BLOCKING_SOCKET_TIMEOUT_SECONDS = 5.0
+_BLOCKING_CONNECT_TIMEOUT_SECONDS = 1.0
 
 
 def get_redis(*, decode_responses: bool = True) -> Optional[redis.Redis]:
@@ -35,6 +39,32 @@ def get_redis(*, decode_responses: bool = True) -> Optional[redis.Redis]:
         return _redis
     except Exception:
         _redis = None
+        _redis_unavailable_until = time.monotonic() + _REDIS_RETRY_COOLDOWN_SECONDS
+        return None
+
+
+def get_blocking_redis(*, decode_responses: bool = True) -> Optional[redis.Redis]:
+
+    global _blocking_redis, _redis_unavailable_until
+    if _blocking_redis is not None:
+        return _blocking_redis
+    if time.monotonic() < _redis_unavailable_until:
+        return None
+
+    try:
+        r = redis.Redis(
+            host=getattr(settings, "SEAGULL_REDIS_HOST", "redis"),
+            port=int(getattr(settings, "SEAGULL_REDIS_PORT", 6379)),
+            username=getattr(settings, "SEAGULL_REDIS_USERNAME", None) or None,
+            password=getattr(settings, "SEAGULL_REDIS_PASSWORD", None) or None,
+            decode_responses=bool(decode_responses),
+            socket_connect_timeout=_BLOCKING_CONNECT_TIMEOUT_SECONDS,
+            socket_timeout=_BLOCKING_SOCKET_TIMEOUT_SECONDS,
+        )
+        _blocking_redis = r
+        return _blocking_redis
+    except Exception:
+        _blocking_redis = None
         _redis_unavailable_until = time.monotonic() + _REDIS_RETRY_COOLDOWN_SECONDS
         return None
 
