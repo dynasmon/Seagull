@@ -20,6 +20,13 @@ from app.features.agents.auth import AgentPrincipal
 from app.features.alerts.models import AlertModel
 from app.features.alerts.realtime import publish_alert_created_from_row
 from app.features.events.recent_feed import push_recent_events
+from app.features.events.rollup_keys import (
+    rollup_agent_id,
+    rollup_dst_ip,
+    rollup_dst_port,
+    rollup_event_type,
+    rollup_proto,
+)
 from app.features.events.schemas import NetEvent
 from app.features.events.service import invalidate_live_event_summary_caches
 from app.features.ingest import repository
@@ -971,11 +978,11 @@ def ingest_events(
             bucket_ts = ts_eff.replace(microsecond=0)
             k = (
                 bucket_ts,
-                e.agent_id,
-                e.event_type,
-                e.dst_ip,
-                e.dst_port,
-                e.proto,
+                rollup_agent_id(e.agent_id),
+                rollup_event_type(e.event_type),
+                rollup_dst_ip(e.dst_ip),
+                rollup_dst_port(e.dst_port),
+                rollup_proto(e.proto),
             )
             prev = rollups.get(k)
             c_prev, b_prev = (prev if prev is not None else (0, 0))
