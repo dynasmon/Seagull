@@ -40,6 +40,7 @@ from app.features.events.models import (
 )
 from app.features.events.recent_feed import fetch_recent_events as fetch_recent_feed_events
 from app.features.events.recent_feed import recent_feed_health
+from app.features.events.rollup_keys import ROLLUP_NO_PORT
 from app.features.ingest.control.service import get_backlog as ingest_get_backlog
 from app.features.ingest.control.service import read_overview_live_window
 
@@ -1299,6 +1300,7 @@ def get_overview_payload(
                     NetEventRollup1sModel.bucket_ts >= start_ts,
                     NetEventRollup1sModel.bucket_ts <= data_end_ts,
                     NetEventRollup1sModel.dst_port.is_not(None),
+                    NetEventRollup1sModel.dst_port != ROLLUP_NO_PORT,
                 )
                 .group_by(NetEventRollup1sModel.dst_port)
                 .order_by(func.sum(NetEventRollup1sModel.count).desc())
