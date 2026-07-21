@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import time
 from typing import Any, Dict
 
@@ -61,7 +62,7 @@ def setup_logging(service: str) -> None:
 
     root = logging.getLogger()
     root.handlers.clear()
-    handler = logging.StreamHandler()
+    handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
     root.addHandler(handler)
     root.setLevel(level)
