@@ -31,6 +31,7 @@ from app.features.events.domain.normalizers import (
     _strip_large_extra,
 )
 from app.features.events.models import NetEventModel, NetEventRollup1sModel
+from app.features.events.rollup_keys import ROLLUP_NO_PORT, ROLLUP_NO_PROTO
 from app.features.events.schemas import NetEventDB, NetEventRollup1s, ProtoCount
 
 logger = logging.getLogger("seagull.api.events")
@@ -660,7 +661,11 @@ def _pg_rollup_l4_snapshot(
             func.lower(cast(NetEventRollup1sModel.proto, String)).label("k"),
             func.coalesce(func.sum(NetEventRollup1sModel.count), 0).label("c"),
         )
-        .where(NetEventRollup1sModel.bucket_ts >= since_ts, NetEventRollup1sModel.proto.is_not(None))
+        .where(
+            NetEventRollup1sModel.bucket_ts >= since_ts,
+            NetEventRollup1sModel.proto.is_not(None),
+            NetEventRollup1sModel.proto != ROLLUP_NO_PROTO,
+        )
         .group_by("k")
         .order_by(func.coalesce(func.sum(NetEventRollup1sModel.count), 0).desc())
         .limit(int(limit))
@@ -675,7 +680,11 @@ def _pg_rollup_l4_snapshot(
             cast(NetEventRollup1sModel.dst_port, String).label("k"),
             func.coalesce(func.sum(NetEventRollup1sModel.count), 0).label("c"),
         )
-        .where(NetEventRollup1sModel.bucket_ts >= since_ts, NetEventRollup1sModel.dst_port.is_not(None))
+        .where(
+            NetEventRollup1sModel.bucket_ts >= since_ts,
+            NetEventRollup1sModel.dst_port.is_not(None),
+            NetEventRollup1sModel.dst_port != ROLLUP_NO_PORT,
+        )
         .group_by("k")
         .order_by(func.coalesce(func.sum(NetEventRollup1sModel.count), 0).desc())
         .limit(int(limit))
