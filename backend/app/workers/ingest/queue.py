@@ -4,11 +4,30 @@ import json
 import logging
 from typing import Any
 
-from app.core.observability import log_event
+from app.core.observability import incr_counter, log_event
 
 from .config import WorkerConfig
 
 logger = logging.getLogger("seagull.worker.ingest")
+
+_DEADLETTER_MAX_MESSAGES = 200
+_DEADLETTER_TTL_SECONDS = 7 * 86400
+
+
+def _deadletter_key(cfg: WorkerConfig) -> str:
+    return f"{cfg.queue_key}:deadletter"
+
+
+def _push_deadletter(r: Any, cfg: WorkerConfig, payload: Any) -> None:
+    try:
+        key = _deadletter_key(cfg)
+        pipe = r.pipeline()
+        pipe.rpush(key, payload)
+        pipe.ltrim(key, -_DEADLETTER_MAX_MESSAGES, -1)
+        pipe.expire(key, _DEADLETTER_TTL_SECONDS)
+        pipe.execute()
+    except Exception:
+        return
 
 
 def _decr_backlog_events(r: Any, received: int) -> None:
@@ -79,6 +98,8 @@ def _requeue_processing_with_retry_cap(r: Any, cfg: WorkerConfig) -> None:
 
             if received > 0:
                 _decr_backlog_events(r, received)
+            incr_counter("ingest_deadletter_messages_total")
+            _push_deadletter(r, cfg, payload if payload is not None else raw)
             log_event(
                 logger,
                 "warning",
