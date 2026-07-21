@@ -58,9 +58,9 @@ class NetEventRollup1sModel(Base):
     agent_id = Column(String(64), primary_key=True, nullable=False)
     event_type = Column(String(32), primary_key=True, nullable=False)
 
-    dst_ip = Column(String(45), primary_key=True, nullable=True)
-    dst_port = Column(Integer, primary_key=True, nullable=True)
-    proto = Column(String(16), primary_key=True, nullable=True)
+    dst_ip = Column(String(45), primary_key=True, nullable=False, default="")
+    dst_port = Column(Integer, primary_key=True, nullable=False, default=0)
+    proto = Column(String(16), primary_key=True, nullable=False, default="")
 
     count = Column(BigInteger, nullable=False, default=0)
     bytes_sum = Column(BigInteger, nullable=False, default=0)
