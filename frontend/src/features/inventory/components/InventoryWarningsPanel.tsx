@@ -95,13 +95,15 @@ export function InventoryWarningsPanel({ domain, domainWarnings, domainPivotRows
               {
                 key: "packages_count",
                 title: "PKGS",
-                className: "text-right font-mono text-muted-foreground w-20",
+                align: "right",
+                className: "font-mono text-muted-foreground w-20",
                 render: (r: FleetHealthRow) => r.packages_count ?? "-",
               },
               {
                 key: "warnings_count",
                 title: "WARN",
-                className: "text-right font-mono text-muted-foreground w-20",
+                align: "right",
+                className: "font-mono text-muted-foreground w-20",
                 render: (r: FleetHealthRow) => r.warnings_count,
               },
             ]}
