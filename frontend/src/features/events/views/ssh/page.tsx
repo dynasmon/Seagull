@@ -12,7 +12,7 @@ import { DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/
 import { Card } from "@/shared/components/Card";
 import { SelectInput } from "@/shared/components/SelectInput";
 import { StatusPill } from "@/shared/components/StatusPill";
-import { Table } from "@/shared/components/Table";
+import { Table, type Column } from "@/shared/components/Table";
 import { ToggleSwitch } from "@/shared/components/ToggleSwitch";
 import { Badge } from "@/shared/components/Badge";
 import { getErrorMessage } from "@/shared/lib/errors";
@@ -640,13 +640,14 @@ function IpTableCard({
   countryVariant?: Parameters<typeof Badge>[0]["variant"];
   onViewIp?: (row: SshIpStat) => void;
 }) {
-  const cols = useMemo(
+  const cols = useMemo<Array<Column<SshIpStat>>>(
     () => [
       {
         key: "count",
         title: "Count",
         width: 52,
-        className: "text-right font-mono",
+        align: "right",
+        className: "font-mono",
         render: (r: SshIpStat) => <span className="font-mono">{r.count}</span>,
       },
       {
@@ -707,13 +708,14 @@ function IpTableCard({
 }
 
 function UserTableCard({ title, rows, viewAgentId }: { title: string; rows: SshUserStat[]; viewAgentId: string }) {
-  const cols = useMemo(
+  const cols = useMemo<Array<Column<SshUserStat>>>(
     () => [
       {
         key: "count",
         title: "Count",
         width: 64,
-        className: "text-right font-mono",
+        align: "right",
+        className: "font-mono",
         render: (r: SshUserStat) => <span className="font-mono">{r.count}</span>,
       },
       {
@@ -725,7 +727,7 @@ function UserTableCard({ title, rows, viewAgentId }: { title: string; rows: SshU
         key: "actions",
         title: "Actions",
         width: 92,
-        className: "text-right",
+        align: "right",
         render: (r: SshUserStat) => {
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "ssh_auth", search: r.username });
           return <EventsLinkButton to={to}>Open</EventsLinkButton>;
@@ -826,7 +828,7 @@ function RootLoginsCard({
 }
 
 function SudoRecentCard({ title, rows, viewAgentId }: { title: string; rows: SudoEventSummary[]; viewAgentId: string }) {
-  const cols = useMemo(
+  const cols = useMemo<Array<Column<SudoEventSummary>>>(
     () => [
       {
         key: "who",
@@ -857,7 +859,7 @@ function SudoRecentCard({ title, rows, viewAgentId }: { title: string; rows: Sud
         key: "actions",
         title: "",
         width: 84,
-        className: "text-right",
+        align: "right",
         render: (r: SudoEventSummary) => {
           const search = r.command ? r.command.split(" ")[0] : "sudo";
           const to = toEventsLink({ agent_id: viewAgentId || undefined, event_type: "sudo_cmd", search });
