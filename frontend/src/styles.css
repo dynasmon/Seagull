@@ -277,6 +277,16 @@ html.dark {
     min-inline-size: 100%;
   }
 
+  .seagullTable-inset .euiTableHeaderCell:first-child .euiTableCellContent,
+  .seagullTable-inset .euiTableRowCell:first-child .euiTableCellContent {
+    padding-inline-start: 1rem;
+  }
+
+  .seagullTable-inset .euiTableHeaderCell:last-child .euiTableCellContent,
+  .seagullTable-inset .euiTableRowCell:last-child .euiTableCellContent {
+    padding-inline-end: 1rem;
+  }
+
   /* EuiAccordion animates its height from a JS-measured value; under React
      StrictMode (dev) the internal ResizeObserver can misfire and leave an
      open section clipped to 0. Pin open sections to their natural height so
