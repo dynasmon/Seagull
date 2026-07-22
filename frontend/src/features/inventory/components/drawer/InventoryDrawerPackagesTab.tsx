@@ -56,7 +56,8 @@ export function InventoryDrawerPackagesTab({
               {
                 key: "arch",
                 title: "Arch",
-                className: "text-right font-mono text-muted-foreground w-20",
+                align: "right",
+                className: "font-mono text-muted-foreground w-20",
                 render: (p: PackageEntry) => p.arch || "",
               },
             ]}

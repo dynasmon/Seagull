@@ -64,7 +64,8 @@ export function InventoryChangesPanel({
                   {
                     key: "delta",
                     title: "Δ PKGS",
-                    className: "text-right font-mono text-muted-foreground w-20",
+                    align: "right",
+                    className: "font-mono text-muted-foreground w-20",
                     render: (r: InventoryChangeRow) => {
                       if (r.old_count === null || r.old_count === undefined) return "-";
                       return `${Number(r.new_count ?? 0) - Number(r.old_count ?? 0)}`;
