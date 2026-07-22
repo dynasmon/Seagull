@@ -141,7 +141,7 @@ export default function AuditEventsTable({
             {
               key: "details",
               title: "Details",
-              className: "text-right",
+              align: "right",
               render: (r) => (
                 <Button
                   variant="secondary"
