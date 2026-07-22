@@ -724,7 +724,7 @@ export default function ProtocolIntelPage() {
                       <span className="font-mono">tls</span>/<span className="font-mono">quic</span>/<span className="font-mono">dtls</span> = encrypted, handshake only
                     </div>
                     <Table
-                      className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                      className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                       columns={[
                         {
                           key: "key",
@@ -734,14 +734,14 @@ export default function ProtocolIntelPage() {
                         {
                           key: "count",
                           title: "COUNT",
-                          className: "text-right",
+                          align: "right",
                           width: 80,
                           render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                         },
                         {
                           key: "act",
                           title: "",
-                          className: "text-right",
+                          align: "right",
                           render: (r) => (
                             <InspectButton
                               onClick={() =>
@@ -762,7 +762,7 @@ export default function ProtocolIntelPage() {
                 {!loading && data && data.transport_protocols.length === 0 ? <div className="p-4"><TableEmpty title="No transport protocols" /></div> : null}
                 {data && data.transport_protocols.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "key",
@@ -772,14 +772,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => (
                           <InspectButton onClick={() => mkPick("transport", r.key, "Transport protocol", r.count, "Layer-4 protocol mix")} />
                         )
@@ -797,7 +797,7 @@ export default function ProtocolIntelPage() {
                 ) : null}
                 {data && data.http_methods.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "key",
@@ -807,14 +807,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => (
                           <InspectButton onClick={() => mkPick("http_method", r.key, "HTTP method", r.count, "HTTP request methods")} />
                         )
@@ -832,7 +832,7 @@ export default function ProtocolIntelPage() {
                 ) : null}
                 {data && data.ja4_ptypes.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "key",
@@ -842,14 +842,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => (
                           <InspectButton
                             onClick={() =>
@@ -871,7 +871,7 @@ export default function ProtocolIntelPage() {
                 ) : null}
                 {data && data.app_proto_reasons.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "key",
@@ -881,14 +881,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => (
                           <InspectButton
                             onClick={() =>
@@ -910,7 +910,7 @@ export default function ProtocolIntelPage() {
                 ) : null}
                 {data && data.app_proto_conf_bands.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "key",
@@ -920,14 +920,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => (
                           <InspectButton
                             onClick={() =>
@@ -951,7 +951,7 @@ export default function ProtocolIntelPage() {
                 {!loading && data && data.top_dst_ports.length === 0 ? <div className="p-4"><TableEmpty title="No destination ports" /></div> : null}
                 {data && data.top_dst_ports.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "key",
@@ -961,14 +961,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => <InspectButton onClick={() => mkPick("dst_port", r.key, "Destination port", r.count)} />
                       }
                     ] as Array<Column<any>>}
@@ -982,7 +982,7 @@ export default function ProtocolIntelPage() {
                 {!loading && data && data.top_src_ports.length === 0 ? <div className="p-4"><TableEmpty title="No source ports" /></div> : null}
                 {data && data.top_src_ports.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "key",
@@ -992,14 +992,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => <InspectButton onClick={() => mkPick("src_port", r.key, "Source port", r.count)} />
                       }
                     ] as Array<Column<any>>}
@@ -1017,7 +1017,7 @@ export default function ProtocolIntelPage() {
                 {!loading && data && data.top_dns_queries.length === 0 ? <div className="p-4"><TableEmpty title="No DNS evidence" desc="DNS queries require payload evidence." /></div> : null}
                 {data && data.top_dns_queries.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "qname",
@@ -1033,14 +1033,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => <InspectButton onClick={() => mkPick("dns_qname", r.qname, "DNS qname", r.count, "Top DNS queries")} />
                       }
                     ] as Array<Column<any>>}
@@ -1054,7 +1054,7 @@ export default function ProtocolIntelPage() {
                 {!loading && data && data.top_http_hosts.length === 0 ? <div className="p-4"><TableEmpty title="No HTTP evidence" desc="HTTP hosts require payload evidence." /></div> : null}
                 {data && data.top_http_hosts.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "key",
@@ -1064,14 +1064,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => <InspectButton onClick={() => mkPick("http_host", r.key, "HTTP host", r.count, "Top HTTP Host headers")} />
                       }
                     ] as Array<Column<any>>}
@@ -1085,7 +1085,7 @@ export default function ProtocolIntelPage() {
                 {!loading && data && data.top_tls_sni.length === 0 ? <div className="p-4"><TableEmpty title="No SNI" desc="SNI requires TLS ClientHello evidence." /></div> : null}
                 {data && data.top_tls_sni.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "key",
@@ -1095,14 +1095,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => <InspectButton onClick={() => mkPick("tls_sni", r.key, "TLS SNI", r.count, "Top SNI values")} />
                       }
                     ] as Array<Column<any>>}
@@ -1116,7 +1116,7 @@ export default function ProtocolIntelPage() {
                 {!loading && data && data.top_alpn.length === 0 ? <div className="p-4"><TableEmpty title="No ALPN" desc="ALPN requires TLS ClientHello evidence." /></div> : null}
                 {data && data.top_alpn.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "key",
@@ -1126,14 +1126,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => <InspectButton onClick={() => mkPick("tls_alpn_first", r.key, "ALPN", r.count, "Top ALPN values")} />
                       }
                     ] as Array<Column<any>>}
@@ -1151,7 +1151,7 @@ export default function ProtocolIntelPage() {
                 {!loading && data && data.top_ja4.length === 0 ? <div className="p-4"><TableEmpty title="No JA4" desc="JA4 requires TLS/DTLS/QUIC fingerprint evidence." /></div> : null}
                 {data && data.top_ja4.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "ja4",
@@ -1171,14 +1171,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => <InspectButton onClick={() => mkPick("ja4", r.ja4, "JA4 fingerprint", r.count, `ptype=${r.ptype}`)} />
                       }
                     ] as Array<Column<any>>}
@@ -1192,7 +1192,7 @@ export default function ProtocolIntelPage() {
                 {!loading && data && data.top_ja3.length === 0 ? <div className="p-4"><TableEmpty title="No JA3" desc="JA3 requires TLS ClientHello evidence." /></div> : null}
                 {data && data.top_ja3.length > 0 ? (
                   <Table
-                    className="!shadow-none !border-0 !bg-transparent !rounded-none"
+                    className="!shadow-none !border-0 !bg-transparent !rounded-none seagullTable-inset"
                     columns={[
                       {
                         key: "key",
@@ -1202,14 +1202,14 @@ export default function ProtocolIntelPage() {
                       {
                         key: "count",
                         title: "COUNT",
-                        className: "text-right",
+                        align: "right",
                         width: 80,
                         render: (r) => <span className="font-mono text-[12px]">{r.count}</span>
                       },
                       {
                         key: "act",
                         title: "",
-                        className: "text-right",
+                        align: "right",
                         render: (r) => <InspectButton onClick={() => mkPick("ja3", r.key, "JA3 fingerprint", r.count)} />
                       }
                     ] as Array<Column<any>>}
