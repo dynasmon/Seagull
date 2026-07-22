@@ -155,7 +155,7 @@ export default function InternalDebugView() {
                 { key: "method", title: "Method", className: "font-mono text-xs" },
                 { key: "path", title: "Path", className: "font-mono text-xs" },
                 { key: "status", title: "Status", className: "font-mono text-xs" },
-                { key: "value", title: "Count", className: "text-right font-mono text-xs", render: (r) => Number(r.value).toLocaleString("en-US") }
+                { key: "value", title: "Count", align: "right", className: "font-mono text-xs", render: (r) => Number(r.value).toLocaleString("en-US") }
               ]}
             />
           )}
@@ -172,9 +172,9 @@ export default function InternalDebugView() {
                 { key: "method", title: "Method", className: "font-mono text-xs" },
                 { key: "path", title: "Path", className: "font-mono text-xs" },
                 { key: "status", title: "Status", className: "font-mono text-xs" },
-                { key: "count", title: "N", className: "text-right font-mono text-xs", render: (r) => Math.round(r.count) },
-                { key: "avg", title: "Avg", className: "text-right font-mono text-xs", render: (r) => `${Math.round(r.avg)} ms` },
-                { key: "max", title: "Max", className: "text-right font-mono text-xs", render: (r) => `${Math.round(r.max)} ms` }
+                { key: "count", title: "N", align: "right", className: "font-mono text-xs", render: (r) => Math.round(r.count) },
+                { key: "avg", title: "Avg", align: "right", className: "font-mono text-xs", render: (r) => `${Math.round(r.avg)} ms` },
+                { key: "max", title: "Max", align: "right", className: "font-mono text-xs", render: (r) => `${Math.round(r.max)} ms` }
               ]}
             />
           )}
@@ -205,7 +205,7 @@ export default function InternalDebugView() {
               rowKey={(r) => r.key}
               columns={[
                 { key: "key", title: "Event type", className: "font-mono text-xs" },
-                { key: "count", title: "Count", className: "text-right font-mono text-xs", render: (r) => r.count.toLocaleString("en-US") }
+                { key: "count", title: "Count", align: "right", className: "font-mono text-xs", render: (r) => r.count.toLocaleString("en-US") }
               ]}
             />
           )}
