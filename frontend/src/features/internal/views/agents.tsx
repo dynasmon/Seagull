@@ -258,7 +258,8 @@ export default function InternalAgentsInspectorView() {
                   {
                     key: "packages_count",
                     title: "Packages",
-                    className: "font-mono text-xs text-right",
+                    align: "right",
+                    className: "font-mono text-xs",
                     render: (r) => Number(r.packages_count ?? (r.packages || []).length).toLocaleString("en-US")
                   },
                   { key: "manager", title: "Manager", className: "font-mono text-xs" }
@@ -280,7 +281,7 @@ export default function InternalAgentsInspectorView() {
                     { key: "event_type", title: "Type", className: "font-mono text-xs" },
                     { key: "src_ip", title: "Source", className: "font-mono text-xs", render: (r) => <IpAddressPill ip={r.src_ip} ipContext={getFlowIpContext(r.extra?.ip_context, "src")} compact /> },
                     { key: "dst_ip", title: "Destination", className: "font-mono text-xs", render: (r) => <IpAddressPill ip={r.dst_ip} ipContext={getFlowIpContext(r.extra?.ip_context, "dst")} compact /> },
-                    { key: "dst_port", title: "Port", className: "font-mono text-xs text-right", render: (r) => r.dst_port ?? "-" }
+                    { key: "dst_port", title: "Port", align: "right", className: "font-mono text-xs", render: (r) => r.dst_port ?? "-" }
                   ]}
                 />
               </div>
