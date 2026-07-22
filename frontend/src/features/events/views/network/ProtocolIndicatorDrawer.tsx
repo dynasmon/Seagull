@@ -132,7 +132,7 @@ export default function ProtocolIndicatorDrawer({
       {
         key: "open",
         title: "",
-        className: "text-right",
+        align: "right",
         render: (ev) => (
           <Button
             variant="subtle"
@@ -151,7 +151,7 @@ export default function ProtocolIndicatorDrawer({
       {
         key: "pin",
         title: "",
-        className: "text-right",
+        align: "right",
         render: (ev) => (
           <Button variant="subtle" size="sm" onClick={(e) => { e.stopPropagation(); setPinEvent(ev); }}>
             Pin
