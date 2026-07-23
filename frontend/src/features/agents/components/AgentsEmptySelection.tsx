@@ -28,14 +28,11 @@ export default function AgentsEmptySelection({ agents, compact }: AgentsEmptySel
       <div className="grid min-w-0 gap-4 xl:grid-cols-12">
         <div className="min-w-0 xl:col-span-4">
           <AgentFleetPanel
-            agentsFiltered={agents.agentsFiltered}
-            agentsSorted={agents.agentsSorted}
+            agents={agents.agents}
             selectedAgentId={agents.selectedAgentId}
-            agentQuery={agents.agentQuery}
-            onAgentQueryChange={agents.setAgentQuery}
             onSelectAgent={agents.selectAgent}
             compact={compact}
-            height={H_PANEL_TALL}
+            maxHeight={H_PANEL_TALL}
           />
         </div>
         <div className="min-w-0 xl:col-span-8">
