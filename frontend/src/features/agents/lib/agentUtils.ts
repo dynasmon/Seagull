@@ -1,5 +1,7 @@
 import type { NetEvent } from "@/features/events/types";
 
+import type { AgentPublic } from "../types";
+
 // Grafana-like fixed panel heights.
 export const H_PANEL_MD = 420;
 export const H_PANEL_TALL = 860;
@@ -243,6 +245,37 @@ export function eventMatchesSearch(e: NetEvent, query: string) {
 
   const hay = parts.join(" ").toLowerCase();
   return hay.includes(q);
+}
+
+export function sameEventList(prev: NetEvent[], next: NetEvent[]): boolean {
+  if (prev === next) return true;
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i += 1) {
+    if (prev[i].id !== next[i].id) return false;
+    if (prev[i].timestamp !== next[i].timestamp) return false;
+  }
+  return true;
+}
+
+function sameAgentRow(a: AgentPublic, b: AgentPublic): boolean {
+  return (
+    a.agent_id === b.agent_id &&
+    a.last_seen_at === b.last_seen_at &&
+    a.is_revoked === b.is_revoked &&
+    a.display_name === b.display_name &&
+    a.description === b.description &&
+    a.metrics?.status === b.metrics?.status &&
+    (a.tags || []).join(" ") === (b.tags || []).join(" ")
+  );
+}
+
+export function sameAgentList(prev: AgentPublic[], next: AgentPublic[]): boolean {
+  if (prev === next) return true;
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i += 1) {
+    if (!sameAgentRow(prev[i], next[i])) return false;
+  }
+  return true;
 }
 
 export function buildTopCounts(values: string[], limit: number) {
