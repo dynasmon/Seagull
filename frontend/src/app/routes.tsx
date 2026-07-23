@@ -155,7 +155,7 @@ export function Routes() {
 
   return (
     <Suspense fallback={<Fallback />}>
-      <RouteErrorBoundary key={location.pathname} currentPath={`${location.pathname}${location.search}`}>
+      <RouteErrorBoundary currentPath={`${location.pathname}${location.search}`}>
         <RRRoutes>
           <Route path="/login" element={<LoginPage />} />
 
