@@ -18,38 +18,23 @@ import {
   DEFAULT_EVENTS_LIMIT,
   type EventsCfg,
   safeNumber,
+  sameEventList,
 } from "../lib/agentUtils";
 
 export function useAgents() {
   const { agents, selectedAgentId, setSelectedAgentId, refresh } = useAgentsCatalog();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [agentQuery, setAgentQuery] = useState("");
-
-  const agentsSorted = useMemo(() => {
-    return [...(agents || [])].sort((a, b) => {
-      const ad = a.display_name || a.agent_id;
-      const bd = b.display_name || b.agent_id;
-      return ad.localeCompare(bd);
-    });
-  }, [agents]);
-
-  const agentsFiltered = useMemo(() => {
-    const q = agentQuery.trim().toLowerCase();
-    if (!q) return agentsSorted;
-    return agentsSorted.filter((a) => {
-      const parts = [a.display_name, a.agent_id, ...(a.tags || [])].filter(Boolean).join(" ").toLowerCase();
-      return parts.includes(q);
-    });
-  }, [agentsSorted, agentQuery]);
-
-  const selectAgent = (agentId: string) => {
-    const next = new URLSearchParams(searchParams);
-    if (agentId) next.set("agent_id", agentId);
-    else next.delete("agent_id");
-    setSearchParams(next, { replace: true });
-    setSelectedAgentId(agentId);
-  };
+  const selectAgent = useCallback(
+    (agentId: string) => {
+      const next = new URLSearchParams(searchParams);
+      if (agentId) next.set("agent_id", agentId);
+      else next.delete("agent_id");
+      setSearchParams(next, { replace: true });
+      setSelectedAgentId(agentId);
+    },
+    [searchParams, setSearchParams, setSelectedAgentId]
+  );
 
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
@@ -88,7 +73,6 @@ export function useAgents() {
   useEffect(() => {
     const q = (searchParams.get("agent_id") || "").trim();
 
-    // Apply only when the URL actually changes.
     if (lastUrlId.current !== q) {
       lastUrlId.current = q;
       setSelectedAgentId(q);
@@ -157,11 +141,11 @@ export function useAgents() {
       );
       if (eventsSeqRef.current !== mySeq) return;
 
-      setEvents(ev);
+      setEvents((prev) => (sameEventList(prev, ev) ? prev : ev));
       setSelectedEvent((prev) => {
         if (!prev) return ev[0] || null;
-        const still = ev.find((x) => x.id === prev.id);
-        return still || ev[0] || null;
+        if (ev.some((x) => x.id === prev.id)) return prev;
+        return ev[0] || null;
       });
 
       setEventsError(null);
@@ -266,10 +250,6 @@ export function useAgents() {
 
   return {
     agents,
-    agentsSorted,
-    agentsFiltered,
-    agentQuery,
-    setAgentQuery,
     selectedAgentId,
     selectedAgentRow,
     selectAgent,
