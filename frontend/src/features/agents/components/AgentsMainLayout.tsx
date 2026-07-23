@@ -19,16 +19,13 @@ export default function AgentsMainLayout({ model }: AgentsMainLayoutProps) {
     <div className="grid min-w-0 gap-4 xl:grid-cols-12">
       <div className="space-y-4 xl:col-span-4 min-w-0">
         <AgentFleetPanel
-          agentsFiltered={agents.agentsFiltered}
-          agentsSorted={agents.agentsSorted}
+          agents={agents.agents}
           selectedAgentId={agents.selectedAgentId}
-          agentQuery={agents.agentQuery}
-          onAgentQueryChange={agents.setAgentQuery}
           onSelectAgent={agents.selectAgent}
           onOpenConfig={openConfig}
           compact={compact}
           showConfigButton
-          height={H_PANEL_TALL}
+          maxHeight={H_PANEL_TALL}
         />
         <AgentActionsPanel
           agent={agents.agent}
