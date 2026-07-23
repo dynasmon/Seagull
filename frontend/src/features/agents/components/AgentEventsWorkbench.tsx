@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import { memo, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { EuiFacetButton, EuiFacetGroup } from "@elastic/eui";
 
 import type { NetEvent } from "@/features/events/types";
@@ -22,7 +22,9 @@ type EventsCfg = {
   limit: number;
 };
 
-export default function AgentEventsWorkbench({
+const EVENT_ROWS_PAGE = 100;
+
+export default memo(function AgentEventsWorkbench({
   selectedAgentId,
   eventsCfg,
   setEventsCfg,
@@ -63,6 +65,19 @@ export default function AgentEventsWorkbench({
   streamHeight: number;
   compact: boolean;
 }) {
+  const [visibleRows, setVisibleRows] = useState(EVENT_ROWS_PAGE);
+
+  useEffect(() => {
+    setVisibleRows(EVENT_ROWS_PAGE);
+  }, [selectedAgentId, eventsCfg.event_type, eventsCfg.search, eventsCfg.window_minutes]);
+
+  const visibleEvents = useMemo(
+    () => (filteredEvents.length <= visibleRows ? filteredEvents : filteredEvents.slice(0, visibleRows)),
+    [filteredEvents, visibleRows]
+  );
+
+  const hiddenCount = filteredEvents.length - visibleEvents.length;
+
   return (
     <div className="grid gap-6 xl:grid-cols-12 min-w-0">
       <div className="xl:col-span-4 space-y-6 min-h-0 min-w-0">
@@ -185,14 +200,18 @@ export default function AgentEventsWorkbench({
             {ddosEvents.length === 0 ? (
               <EmptyState title="No DDoS events" hint="No DDoS-classified telemetry matches the current filters/window." />
             ) : (
-              <DdosDeepDive events={ddosEvents} selectedId={selectedEvent?.id ?? null} onSelect={(e) => onSelectEvent(e)} />
+              <DdosDeepDive events={ddosEvents} selectedId={selectedEvent?.id ?? null} onSelect={onSelectEvent} />
             )}
           </Panel>
         )}
 
         <Panel
           title="Recent alerts/events"
-          actions={<span className="text-[10px] font-mono text-muted-foreground">{eventsError ? "Error" : `${filteredEvents.length} events`}</span>}
+          actions={
+            <span className="text-[10px] font-mono text-muted-foreground">
+              {eventsError ? "Error" : `${visibleEvents.length}/${filteredEvents.length} events`}
+            </span>
+          }
           scrollY
           style={{ height: streamHeight }}
         >
@@ -203,18 +222,33 @@ export default function AgentEventsWorkbench({
           ) : filteredEvents.length === 0 ? (
             <EmptyState title="No events" hint="No events match the current filters/window." />
           ) : (
-            <div className="h-full min-w-0">
+            <div className="h-full min-w-0 space-y-3">
               <EventsTable
-                rows={filteredEvents}
+                rows={visibleEvents}
                 selectedId={selectedEvent?.id ?? null}
                 compact={compact}
                 showExtra
-                onSelect={(e) => onSelectEvent(e)}
+                onSelect={onSelectEvent}
               />
+              {hiddenCount > 0 ? (
+                <div className="flex items-center justify-between gap-3 px-1 pb-1">
+                  <span className="text-[11px] text-muted-foreground">
+                    {hiddenCount} more in the current window
+                  </span>
+                  <Button
+                    variant="subtle"
+                    size="sm"
+                    onClick={() => setVisibleRows((prev) => prev + EVENT_ROWS_PAGE)}
+                    className="font-mono uppercase tracking-widest"
+                  >
+                    Show more
+                  </Button>
+                </div>
+              ) : null}
             </div>
           )}
         </Panel>
       </div>
     </div>
   );
-}
+});
