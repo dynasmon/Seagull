@@ -11,18 +11,29 @@ type Props = {
 type State = {
   error: Error | null;
   recovering: boolean;
+  path: string;
 };
 
 export default class RouteErrorBoundary extends Component<Props, State> {
   state: State = {
     error: null,
     recovering: false,
+    path: "",
   };
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return {
       error,
       recovering: false,
+    };
+  }
+
+  static getDerivedStateFromProps(props: Props, state: State): Partial<State> | null {
+    if (props.currentPath === state.path) return null;
+    return {
+      error: null,
+      recovering: false,
+      path: props.currentPath,
     };
   }
 
