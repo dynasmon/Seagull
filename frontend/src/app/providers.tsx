@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { applyAgentHeartbeatRealtime } from "@/app/agents_realtime";
 import { listAgents } from "@/features/agents/api";
+import { sameAgentList } from "@/features/agents/lib/agentUtils";
 import type { AgentPublic } from "@/features/agents/types";
 import { AuthProvider, useAuth } from "@/features/auth/context";
 import EuiRoot from "@/app/eui/EuiRoot";
@@ -96,15 +97,13 @@ function AgentsProvider({ children }: { children: ReactNode }) {
     }
   });
 
-  const setSelectedAgentId = (id: string) => {
+  const setSelectedAgentId = useCallback((id: string) => {
     const safe = (id || "").trim();
     setSelectedAgentIdState(safe);
     try {
       localStorage.setItem(SELECTED_AGENT_KEY, safe);
-    } catch {
-      // no-op
-    }
-  };
+    } catch {}
+  }, []);
 
   const selectedAgentRef = useRef(selectedAgentId);
   const agentsRef = useRef<AgentPublic[]>(agents);
@@ -118,10 +117,9 @@ function AgentsProvider({ children }: { children: ReactNode }) {
   const refreshAgents = useCallback(async () => {
     try {
       const rows = await listAgents();
-      setAgents(rows);
+      setAgents((prev) => (sameAgentList(prev, rows) ? prev : rows));
       setAgentsError(null);
 
-      // If an agent was removed, drop the selection.
       const currentSel = (selectedAgentRef.current || "").trim();
       if (currentSel && !rows.some((a) => a.agent_id === currentSel)) {
         setSelectedAgentId("");
@@ -131,7 +129,7 @@ function AgentsProvider({ children }: { children: ReactNode }) {
     } finally {
       setAgentsLoading(false);
     }
-  }, []);
+  }, [setSelectedAgentId]);
 
   const live = useLiveRefresh({
     profile: "operational",
@@ -163,7 +161,7 @@ function AgentsProvider({ children }: { children: ReactNode }) {
       setSelectedAgentId,
       refresh: live.refreshNow
     }),
-    [agents, agentsLoading, agentsError, live.refreshNow, selectedAgentId]
+    [agents, agentsLoading, agentsError, live.refreshNow, selectedAgentId, setSelectedAgentId]
   );
 
   return (
