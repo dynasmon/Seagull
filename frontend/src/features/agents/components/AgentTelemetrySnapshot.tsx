@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import Loading from "@/shared/components/Loading";
 import { Panel } from "@/shared/components/Panel";
 
@@ -24,7 +26,7 @@ function ChartPanel({ title, chart, height }: { title: string; chart: ChartData 
   );
 }
 
-export default function AgentTelemetrySnapshot({
+export default memo(function AgentTelemetrySnapshot({
   height,
   charts,
 }: {
@@ -44,4 +46,4 @@ export default function AgentTelemetrySnapshot({
       <ChartPanel title="Security posture: Alert severity" chart={charts.sev} height={height} />
     </div>
   );
-}
+});
