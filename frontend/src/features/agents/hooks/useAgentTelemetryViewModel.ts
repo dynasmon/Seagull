@@ -1,9 +1,24 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
 import type { OverviewSnapshot } from "@/features/overview/types";
 
 import type { AgentPublic } from "../types";
 import { fmtDateTime } from "../lib/agentUtils";
+
+type ChartData = { series: string[]; data: Array<Record<string, any>> };
+
+type AgentCharts = {
+  traffic: ChartData | null;
+  ssh: ChartData | null;
+  ddos: ChartData | null;
+  sev: ChartData | null;
+};
+
+const EMPTY_CHARTS: AgentCharts = { traffic: null, ssh: null, ddos: null, sev: null };
+
+function chartsSignature(charts: AgentCharts): string {
+  return JSON.stringify(charts);
+}
 
 interface UseAgentTelemetryViewModelProps {
   snapshot: OverviewSnapshot | null;
@@ -11,21 +26,26 @@ interface UseAgentTelemetryViewModelProps {
 }
 
 export function useAgentTelemetryViewModel({ snapshot, selectedAgentRow }: UseAgentTelemetryViewModelProps) {
+  const chartsRef = useRef<{ signature: string; value: AgentCharts }>({
+    signature: chartsSignature(EMPTY_CHARTS),
+    value: EMPTY_CHARTS,
+  });
+
   const charts = useMemo(() => {
-    if (!snapshot) {
-      return {
-        traffic: null as null | { series: string[]; data: Array<Record<string, any>> },
-        ssh: null as null | { series: string[]; data: Array<Record<string, any>> },
-        ddos: null as null | { series: string[]; data: Array<Record<string, any>> },
-        sev: null as null | { series: string[]; data: Array<Record<string, any>> },
-      };
-    }
-    return {
-      traffic: snapshot.traffic,
-      ssh: snapshot.ssh_failures,
-      ddos: snapshot.ddos,
-      sev: snapshot.alert_severity,
-    };
+    const next: AgentCharts = snapshot
+      ? {
+          traffic: snapshot.traffic,
+          ssh: snapshot.ssh_failures,
+          ddos: snapshot.ddos,
+          sev: snapshot.alert_severity,
+        }
+      : EMPTY_CHARTS;
+
+    const signature = chartsSignature(next);
+    if (signature === chartsRef.current.signature) return chartsRef.current.value;
+
+    chartsRef.current = { signature, value: next };
+    return next;
   }, [snapshot]);
 
   const eventsRate = useMemo(() => {
