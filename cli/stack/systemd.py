@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import ssl
 import subprocess
@@ -229,6 +230,14 @@ def repo_bootstrap_token_for_agent(agent_id: str) -> str:
     if not target:
         return ""
 
+    token_file = _env.root() / "secrets" / "bootstrap" / f"{target}.token"
+    try:
+        token = token_file.read_text().strip()
+        if token:
+            return token
+    except OSError:
+        pass
+
     for agent_key, token_key in _AGENT_ENV_MAP:
         mapped_agent_id = (_env.read(agent_key, "") or "").strip()
         if mapped_agent_id != target:
@@ -352,9 +361,11 @@ def sync_ca() -> int:
 
 def install(*, bootstrap_token: str | None = None) -> int:
     script = _env.root() / "deploy" / "systemd" / "install-agent.sh"
-    cmd = ["sudo", "env", "AUTO_START_IF_READY=1"]
     token = str(bootstrap_token or "").strip()
+    child_env = {**os.environ, "AUTO_START_IF_READY": "1"}
+    preserve = ["AUTO_START_IF_READY"]
     if token:
-        cmd.append(f"SEAGULL_AGENT_BOOTSTRAP_TOKEN={token}")
-    cmd += ["bash", str(script)]
-    return subprocess.run(cmd, cwd=str(_env.root())).returncode
+        child_env["SEAGULL_AGENT_BOOTSTRAP_TOKEN"] = token
+        preserve.append("SEAGULL_AGENT_BOOTSTRAP_TOKEN")
+    cmd = ["sudo", f"--preserve-env={','.join(preserve)}", "bash", str(script)]
+    return subprocess.run(cmd, cwd=str(_env.root()), env=child_env).returncode
