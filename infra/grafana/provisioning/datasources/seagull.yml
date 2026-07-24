@@ -8,9 +8,9 @@ datasources:
     uid: seagull-postgres
     isDefault: true
     url: postgres:5432
-    user: seagull
+    user: ${POSTGRES_USER}
     secureJsonData:
-      password: seagull123
+      password: ${POSTGRES_PASSWORD}
     jsonData:
       database: seagull
       sslmode: disable
