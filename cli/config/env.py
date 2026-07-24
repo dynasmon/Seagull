@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import os
 import re
-import shutil
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 
 _DEPRECATED_KEYS = ["COMPOSE_IGNORE_ORPHANS"]
 
+ENV_FILE_MODE = 0o600
+
 
 def root() -> Path:
     return ROOT
@@ -18,6 +20,26 @@ def root() -> Path:
 
 def env_path(name: str = ".env") -> Path:
     return ROOT / name
+
+
+def write_secure(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, ENV_FILE_MODE)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.chmod(tmp, ENV_FILE_MODE)
+    os.replace(tmp, path)
+
+
+def enforce_secure_mode(path: Optional[Path] = None) -> None:
+    p = path or env_path()
+    if p.exists():
+        os.chmod(p, ENV_FILE_MODE)
 
 
 def read(key: str, default: str = "", path: Optional[Path] = None) -> str:
@@ -45,7 +67,7 @@ def upsert(key: str, value: str, path: Optional[Path] = None) -> None:
         if out and out[-1].strip():
             out.append("")
         out.append(f"{key}={value}")
-    p.write_text("\n".join(out) + "\n")
+    write_secure(p, "\n".join(out) + "\n")
 
 
 def bootstrap(env_file: Optional[Path] = None, template: Optional[Path] = None) -> None:
@@ -56,9 +78,11 @@ def bootstrap(env_file: Optional[Path] = None, template: Optional[Path] = None) 
         raise FileNotFoundError(f"template not found: {tmpl}")
 
     if not path.exists():
-        shutil.copy(tmpl, path)
+        write_secure(path, tmpl.read_text())
         print(f"[bootstrap] created {path.name} from {tmpl.name}")
         return
+
+    enforce_secure_mode(path)
 
     text = path.read_text()
     removed = 0
@@ -69,11 +93,9 @@ def bootstrap(env_file: Optional[Path] = None, template: Optional[Path] = None) 
         if new_text != text:
             text = new_text
             removed += 1
-    if removed:
-        path.write_text(text)
 
     existing: set[str] = set()
-    for line in path.read_text().splitlines():
+    for line in text.splitlines():
         m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)=", line)
         if m:
             existing.add(m.group(1))
@@ -85,12 +107,15 @@ def bootstrap(env_file: Optional[Path] = None, template: Optional[Path] = None) 
             added.append(line)
             existing.add(m.group(1))
 
+    if added or removed:
+        if not text.endswith("\n"):
+            text += "\n"
+        if added:
+            header = f"\n# --- Auto-added from {tmpl.name} on {date.today().isoformat()} ---\n"
+            text += header + "".join(f"{line}\n" for line in added)
+        write_secure(path, text)
+
     if added:
-        header = f"\n# --- Auto-added from {tmpl.name} on {date.today().isoformat()} ---"
-        with path.open("a") as f:
-            f.write(header + "\n")
-            for line in added:
-                f.write(line + "\n")
         print(f"[bootstrap] synced {len(added)} missing vars from {tmpl.name} into {path.name}")
     else:
         print(f"[bootstrap] {path.name} already up-to-date")
