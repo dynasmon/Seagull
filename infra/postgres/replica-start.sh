@@ -8,6 +8,26 @@ set -eu
 
 PRIMARY_HOST="${SEAGULL_PG_PRIMARY_HOST:-postgres}"
 PRIMARY_PORT="${SEAGULL_PG_PRIMARY_PORT:-5432}"
+PASSFILE="/tmp/seagull-replication.pgpass"
+
+escape_pgpass() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/:/\\:/g'
+}
+
+write_passfile() {
+  escaped_user="$(escape_pgpass "$POSTGRES_REPLICATION_USER")"
+  escaped_password="$(escape_pgpass "$POSTGRES_REPLICATION_PASSWORD")"
+  (
+    umask 077
+    printf '%s:%s:replication:%s:%s\n%s:%s:*:%s:%s\n' \
+      "$PRIMARY_HOST" "$PRIMARY_PORT" "$escaped_user" "$escaped_password" \
+      "$PRIMARY_HOST" "$PRIMARY_PORT" "$escaped_user" "$escaped_password" \
+      > "$PASSFILE"
+  )
+  chmod 0600 "$PASSFILE"
+}
+
+write_passfile
 
 if [ ! -s "$PGDATA/PG_VERSION" ]; then
   until pg_isready -h "$PRIMARY_HOST" -p "$PRIMARY_PORT" -U "$POSTGRES_REPLICATION_USER" >/dev/null 2>&1; do
@@ -15,11 +35,11 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
     sleep 1
   done
   rm -rf "$PGDATA"/* "$PGDATA"/.[!.]* 2>/dev/null || true
-  PGPASSWORD="$POSTGRES_REPLICATION_PASSWORD" pg_basebackup \
+  PGPASSFILE="$PASSFILE" pg_basebackup \
     -h "$PRIMARY_HOST" -p "$PRIMARY_PORT" -U "$POSTGRES_REPLICATION_USER" \
     -D "$PGDATA" -X stream -S "$SEAGULL_PG_REPLICATION_SLOT" --checkpoint=fast --no-password
   {
-    echo "primary_conninfo = 'host=$PRIMARY_HOST port=$PRIMARY_PORT user=$POSTGRES_REPLICATION_USER password=$POSTGRES_REPLICATION_PASSWORD application_name=$SEAGULL_PG_REPLICATION_SLOT'"
+    echo "primary_conninfo = 'host=$PRIMARY_HOST port=$PRIMARY_PORT user=$POSTGRES_REPLICATION_USER passfile=$PASSFILE application_name=$SEAGULL_PG_REPLICATION_SLOT'"
     echo "primary_slot_name = '$SEAGULL_PG_REPLICATION_SLOT'"
   } >> "$PGDATA/postgresql.auto.conf"
   touch "$PGDATA/standby.signal"
