@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 from ..config import env as _env
 
@@ -20,12 +21,41 @@ _AGENT_MAP: list[tuple[str, str]] = [
     ("AGENT_VULN_ID", "AGENT_VULN_BOOTSTRAP_TOKEN"),
 ]
 
+def _abs(path_str: str) -> Path:
+    p = Path(path_str)
+    return p if p.is_absolute() else _env.root() / p
 
-def _insecure_ssl() -> ssl.SSLContext:
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    return ctx
+
+def _trust_anchors() -> list[Path]:
+    anchors: list[Path] = []
+    for key, default in (
+        ("SEAGULL_AGENT_SERVER_CA_FILE", "./secrets/tls/ca.crt"),
+        ("SEAGULL_TLS_CERT_FILE", "./secrets/tls/tls.crt"),
+    ):
+        raw = _env.read(key, default)
+        if not raw:
+            continue
+        candidate = _abs(raw)
+        if candidate.is_file() and candidate not in anchors:
+            anchors.append(candidate)
+    return anchors
+
+
+def _tls_context() -> ssl.SSLContext:
+    context = ssl.create_default_context()
+    for anchor in _trust_anchors():
+        try:
+            context.load_verify_locations(cafile=str(anchor))
+        except (ssl.SSLError, OSError):
+            continue
+    return context
+
+
+def _context_for(url: str) -> Optional[ssl.SSLContext]:
+    parsed = urlsplit(url)
+    if parsed.scheme != "https":
+        return None
+    return _tls_context()
 
 
 def _post_json(
@@ -37,7 +67,7 @@ def _post_json(
     for k, v in (headers or {}).items():
         req.add_header(k, v)
     try:
-        with urllib.request.urlopen(req, context=_insecure_ssl(), timeout=10) as resp:
+        with urllib.request.urlopen(req, context=_context_for(url), timeout=10) as resp:
             return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         try:
@@ -100,8 +130,13 @@ def _write_token_file(agent_id: str, token: str, output_dir: Path) -> None:
     token_file.chmod(0o600)
 
 
+def default_output_dir() -> Path:
+    return _env.root() / "secrets" / "bootstrap"
+
+
 def mint(output_dir: Optional[Path] = None) -> None:
     ev = _env.read
+    output_dir = output_dir or default_output_dir()
 
     def _port_of(value: str, default: str) -> str:
         # Compose port vars may carry a bind address ("127.0.0.1:8000").
@@ -148,14 +183,7 @@ def mint(output_dir: Optional[Path] = None) -> None:
                 f"failed to mint token for {agent_id} (HTTP {code}): {data}"
             )
 
-        if output_dir:
-            _write_token_file(agent_id, token, output_dir)
-            print(f"[tokens] minted {agent_id} -> {output_dir}/{agent_id}.token")
-        else:
-            _env.upsert(token_key, token)
-            print(f"[tokens] minted {token_key} for {agent_id}")
+        _write_token_file(agent_id, token, output_dir)
+        print(f"[tokens] minted {agent_id} -> {output_dir}/{agent_id}.token")
 
-    if output_dir:
-        print(f"[tokens] updated bootstrap token files in {output_dir}")
-    else:
-        print("[tokens] updated .env with AGENT_*_BOOTSTRAP_TOKEN values")
+    print(f"[tokens] updated bootstrap token files in {output_dir}")
