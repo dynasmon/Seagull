@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -57,6 +58,20 @@ def _ensure_secret_dirs(root: Path) -> None:
         f.chmod(0o600)
 
 
+def _enforce_env_file_security() -> None:
+    env_file = _env.env_path()
+    if not env_file.exists():
+        return
+    st = env_file.stat()
+    if st.st_uid != os.getuid():
+        raise RuntimeError(
+            f"[prod-prepare] {env_file} is owned by uid {st.st_uid}, not the deploying user "
+            f"(uid {os.getuid()}); refusing to run with secrets owned by another account"
+        )
+    if st.st_mode & 0o077:
+        _env.enforce_secure_mode(env_file)
+
+
 def _read_file_secret(path_str: str) -> str:
     p = Path(path_str)
     if not p.exists() or not p.is_file():
@@ -101,13 +116,35 @@ def _reject_pair_conflict(key: str, file_key: str) -> None:
         )
 
 
+def _is_prod() -> bool:
+    env = (_env.read("SEAGULL_ENV", "") or _env.read("SEAGULL_MODE", "dev")).strip().lower()
+    return env in ("prod", "production")
+
+
+def _enforce_es_production_security() -> None:
+    if not _is_prod():
+        return
+    search_backend = (_env.read("SEAGULL_SEARCH_BACKEND", "auto") or "auto").strip().lower()
+    if search_backend not in ("auto", "elasticsearch"):
+        return
+    enabled = (_env.read("SEAGULL_ES_SECURITY_ENABLED", "false") or "false").strip().lower() in ("true", "1")
+    if not enabled:
+        raise RuntimeError(
+            "[prod-prepare] Elasticsearch authentication is disabled (SEAGULL_ES_SECURITY_ENABLED=false) "
+            "while the search backend uses Elasticsearch in production; set it to true and provide "
+            "SEAGULL_ES_USERNAME/SEAGULL_ES_PASSWORD, or set SEAGULL_SEARCH_BACKEND=postgres"
+        )
+
+
 def run(auto_fix: Optional[bool] = None) -> None:
     root = _env.root()
     if auto_fix is None:
         auto_fix = _env.read("SEAGULL_PROD_AUTO_FIX_ENV", "true").lower() == "true"
 
     _check_merge_state(root)
+    _enforce_env_file_security()
     _ensure_secret_dirs(root)
+    _enforce_es_production_security()
 
     _validate_secret("POSTGRES_PASSWORD", 12, 36, auto_fix)
     _validate_secret_or_file(
