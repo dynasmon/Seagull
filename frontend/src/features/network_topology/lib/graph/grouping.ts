@@ -33,12 +33,27 @@ const SCOPE_LABELS: Record<string, string> = {
   unknown:          "Unknown Scope",
 };
 
+function isPublicEndpoint(node: TopologyNode): boolean {
+  return (
+    node.node_type === "external_ip" ||
+    String(node.metadata?.ip_scope ?? "").toLowerCase() === "public_internet"
+  );
+}
+
+function subnetRef(targetNodeKey: string, cidrByNodeKey: Map<string, string>): string {
+  const cidr = cidrByNodeKey.get(targetNodeKey);
+  if (cidr) return cidr;
+  const prefix = "topo:subnet:";
+  return targetNodeKey.startsWith(prefix) ? targetNodeKey.slice(prefix.length) : targetNodeKey;
+}
+
 function groupKeyForNode(node: TopologyNode, subnetByNodeKey: Map<string, string>): string {
+  const scope = String(node.metadata?.ip_scope ?? "").toLowerCase();
+  if (isPublicEndpoint(node)) return `scope:${scope || "public_internet"}`;
   if (node.agent_id) return `agent:${node.agent_id}`;
   const subnet = subnetByNodeKey.get(node.node_key);
   if (subnet) return `subnet:${subnet}`;
   if (node.cidr) return `subnet:${node.cidr}`;
-  const scope = String(node.metadata?.ip_scope ?? "").toLowerCase();
   if (scope) return `scope:${scope}`;
   return "ungrouped";
 }
@@ -77,7 +92,7 @@ export function groupTopologyGraph(
   const subnetByNodeKey = new Map<string, string>();
   for (const edge of graph.edges) {
     if (edge.edge_type === "member_of_subnet") {
-      subnetByNodeKey.set(edge.source_node_key, edge.target_node_key);
+      subnetByNodeKey.set(edge.source_node_key, subnetRef(edge.target_node_key, subnetCidrByNodeKey));
     }
   }
 
@@ -101,8 +116,8 @@ export function groupTopologyGraph(
     const riskScore = Math.max(0, ...nodes.map((n) => n.risk_score));
     const stale = nodes.every((n) => n.is_stale);
     const agentId = nodes.find((n) => n.agent_id)?.agent_id ?? null;
-    const subnetRef = gk.startsWith("subnet:") ? gk.slice("subnet:".length) : null;
-    const cidr = nodes.find((n) => n.cidr)?.cidr ?? (subnetRef ? subnetCidrByNodeKey.get(subnetRef) ?? null : null);
+    const groupSubnetRef = gk.startsWith("subnet:") ? gk.slice("subnet:".length) : null;
+    const cidr = nodes.find((n) => n.cidr)?.cidr ?? groupSubnetRef;
     groups.push({
       group_key: gk,
       group_type: groupTypeFor(gk),
@@ -170,17 +185,83 @@ function backendGroupToGroup(group: TopologyGroupBackend): TopologyGroup {
   };
 }
 
+function backendGroupEdgeTypes(edge: TopologyGroupEdgeBackend): TopologyEdgeType[] {
+  const breakdown = edge.metadata?.edge_types;
+  if (!breakdown || typeof breakdown !== "object") return [edge.edge_type as TopologyEdgeType];
+  const types = Object.keys(breakdown as Record<string, unknown>);
+  if (types.length === 0) return [edge.edge_type as TopologyEdgeType];
+  return [
+    edge.edge_type as TopologyEdgeType,
+    ...types.filter((type) => type !== edge.edge_type),
+  ] as TopologyEdgeType[];
+}
+
+function backendGroupEdgeTypeCounts(edge: TopologyGroupEdgeBackend): Record<string, number> {
+  const breakdown = edge.metadata?.edge_types;
+  if (!breakdown || typeof breakdown !== "object") return { [edge.edge_type]: edge.edge_count };
+  const counts: Record<string, number> = {};
+  for (const [type, value] of Object.entries(breakdown as Record<string, unknown>)) {
+    const count = Number(value);
+    if (Number.isFinite(count) && count > 0) counts[type] = count;
+  }
+  return Object.keys(counts).length > 0 ? counts : { [edge.edge_type]: edge.edge_count };
+}
+
 function backendGroupEdgeToGroupEdge(edge: TopologyGroupEdgeBackend): TopologyGroupEdge {
   return {
     edge_key: edge.edge_key,
     source_group_key: edge.source_group_key,
     target_group_key: edge.target_group_key,
-    edge_types: [edge.edge_type as TopologyEdgeType],
+    edge_types: backendGroupEdgeTypes(edge),
+    edge_type_counts: backendGroupEdgeTypeCounts(edge),
     weight: edge.weight,
     event_count: edge.edge_count,
     alert_count: edge.alert_count,
     severity: edge.highest_severity,
   };
+}
+
+/**
+ * The API caps `child_node_keys` per group, so large groups arrive truncated. Resolve every
+ * node in the graph to a group, falling back to the same identity the grouper used.
+ */
+export function resolveNodeGroupKeys(
+  graph: TopologyGraph | null,
+  groups: TopologyGroup[],
+): Map<string, string> {
+  const assigned = new Map<string, string>();
+  if (!graph) return assigned;
+
+  const present = new Set(graph.nodes.map((node) => node.node_key));
+  for (const group of groups) {
+    for (const key of group.node_keys) {
+      if (present.has(key) && !assigned.has(key)) assigned.set(key, group.group_key);
+    }
+  }
+
+  const byAgent = new Map<string, string>();
+  const byCidr = new Map<string, string>();
+  const byScope = new Map<string, string>();
+  for (const group of groups) {
+    if (group.agent_id && !byAgent.has(group.agent_id)) byAgent.set(group.agent_id, group.group_key);
+    if (group.cidr && !byCidr.has(group.cidr)) byCidr.set(group.cidr, group.group_key);
+    if (group.group_key.startsWith("scope:")) {
+      byScope.set(group.group_key.slice("scope:".length), group.group_key);
+    }
+  }
+
+  for (const node of graph.nodes) {
+    if (assigned.has(node.node_key)) continue;
+    const scope = String(node.metadata?.ip_scope ?? "").toLowerCase();
+    const fallback = isPublicEndpoint(node)
+      ? byScope.get(scope || "public_internet")
+      : (node.agent_id ? byAgent.get(node.agent_id) : undefined) ??
+        (node.cidr ? byCidr.get(node.cidr) : undefined) ??
+        (scope ? byScope.get(scope) : undefined);
+    if (fallback) assigned.set(node.node_key, fallback);
+  }
+
+  return assigned;
 }
 
 export function resolveTopologyGroups(
