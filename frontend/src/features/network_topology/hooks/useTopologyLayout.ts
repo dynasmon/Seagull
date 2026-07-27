@@ -7,7 +7,7 @@ import {
   type TopologyGroupLayoutPoint,
   type TopologyLayout,
 } from "../lib/layout/topologyLayout";
-import type { TopologyGraph, TopologyGroup, TopologyViewMode } from "../types";
+import type { TopologyGraph, TopologyGroup, TopologyGroupEdge, TopologyViewMode } from "../types";
 
 type LayoutState = {
   connectionLayout: TopologyLayout | null;
@@ -20,18 +20,27 @@ export function useTopologyLayout(
   groups: TopologyGroup[],
   viewMode: TopologyViewMode,
   focusedGroupKey: string | null,
+  pinnedNodeKeys: Set<string> = EMPTY_KEYS,
+  groupEdges: TopologyGroupEdge[] = EMPTY_GROUP_EDGES,
 ): LayoutState {
   const topologyKey = useMemo(() => topologyNodeSetKey(graph), [graph]);
 
   return useMemo(() => {
     if (!graph) return { connectionLayout: null, locationPositions: null, topologyKey };
     if (viewMode === "location") {
-      return { connectionLayout: null, locationPositions: buildLocationLayout(graph, groups), topologyKey };
+      return {
+        connectionLayout: null,
+        locationPositions: buildLocationLayout(graph, groups, groupEdges),
+        topologyKey,
+      };
     }
     return {
-      connectionLayout: buildConnectionLayout(graph, groups, focusedGroupKey),
+      connectionLayout: buildConnectionLayout(graph, groups, focusedGroupKey, pinnedNodeKeys),
       locationPositions: null,
       topologyKey,
     };
-  }, [graph, groups, viewMode, focusedGroupKey, topologyKey]);
+  }, [graph, groups, viewMode, focusedGroupKey, pinnedNodeKeys, groupEdges, topologyKey]);
 }
+
+const EMPTY_KEYS: Set<string> = new Set();
+const EMPTY_GROUP_EDGES: TopologyGroupEdge[] = [];

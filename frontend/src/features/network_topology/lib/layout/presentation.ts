@@ -2,11 +2,11 @@ import type { TopologyEdge, TopologyNode } from "../../types";
 
 export type TopologyNodeImportance = "anchor" | "elevated" | "normal";
 
-const LABEL_CHAR_PX = 6.2;
-const CARD_OVERHEAD = 60;
-const CARD_MIN_W = 148;
-const CARD_MAX_W = 240;
-const CARD_H = 52;
+const LABEL_CHAR_PX = 7.4;
+const CARD_OVERHEAD = 96;
+const CARD_MIN_W = 236;
+const CARD_MAX_W = 340;
+const CARD_H = 116;
 
 export function groupCardSize(label: string): { w: number; h: number } {
   const w = Math.max(CARD_MIN_W, Math.min(CARD_MAX_W, Math.ceil(label.length * LABEL_CHAR_PX) + CARD_OVERHEAD));
@@ -41,16 +41,17 @@ export function shouldShowLabel(
   groupNodeCount: number,
 ): boolean {
   if (isSelected || isSearchMatch) return true;
-  if (importance === "anchor" && groupNodeCount < 30) return true;
-  const sev = String(node.severity ?? "").toLowerCase();
-  if (node.alert_count > 0 && (sev === "critical" || sev === "high")) return true;
-  return false;
+  if (importance !== "normal") return true;
+  if (node.alert_count > 0) return true;
+  return groupNodeCount <= LABELLED_GROUP_LIMIT;
 }
 
+const LABELLED_GROUP_LIMIT = 40;
+
 export function nodeBoundingRadius(importance: TopologyNodeImportance): number {
-  if (importance === "anchor") return 26;
+  if (importance === "anchor") return 24;
   if (importance === "elevated") return 20;
-  return 16;
+  return 17;
 }
 
 export type EdgeRoutingHint = {
