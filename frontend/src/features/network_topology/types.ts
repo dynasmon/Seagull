@@ -472,6 +472,7 @@ export type TopologyGroupEdge = {
   source_group_key: string;
   target_group_key: string;
   edge_types: TopologyEdgeType[];
+  edge_type_counts?: Record<string, number>;
   weight: number;
   event_count: number;
   alert_count: number;
