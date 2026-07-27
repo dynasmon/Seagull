@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createTopologyInvalidationScheduler } from "@/features/network_topology/lib/realtime";
+import { createTopologyInvalidationScheduler } from "@/features/network_topology/lib/realtime/realtime";
 
 describe("network topology realtime invalidation scheduler", () => {
   it("debounces bursts and enforces a minimum refresh gap", () => {

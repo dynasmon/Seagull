@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { TopologyIpScopeBadge } from "@/features/network_topology/components/TopologyIpScopeBadge";
+import { TopologyIpScopeBadge } from "@/features/network_topology/components/common/TopologyIpScopeBadge";
 
 describe("TopologyIpScopeBadge", () => {
   it("renders backend IP scope labels using shared classification labels", () => {

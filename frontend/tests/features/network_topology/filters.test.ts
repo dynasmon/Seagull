@@ -6,7 +6,7 @@ import {
   parseTopologyFilters,
   resolveTopologyGraphParams,
   serializeTopologyFilters,
-} from "@/features/network_topology/lib/filters";
+} from "@/features/network_topology/lib/filtering/filters";
 import type { TopologyGraph } from "@/features/network_topology/types";
 
 describe("network topology filter serialization", () => {
