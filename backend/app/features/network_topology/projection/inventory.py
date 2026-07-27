@@ -54,7 +54,7 @@ def _project_agents(
             confidence=95,
             first_seen_at=_to_utc(agent.created_at) or now,
             last_seen_at=last_seen,
-            extra_data={"is_stale_agent": is_stale},
+            extra_data={"is_stale_agent": is_stale, "is_agent_asset": True},
         )
         agent_nodes[agent.agent_id] = node_key
 
@@ -336,6 +336,7 @@ def _project_network_context_interfaces(
                 "is_loopback": is_loopback,
                 "is_link_local": is_link_local,
                 "ips": ips[:10],
+                "is_agent_asset": True,
             },
         )
         coverage.interfaces_extracted += 1
@@ -357,7 +358,7 @@ def _project_network_context_interfaces(
             confidence=90,
             first_seen_at=first_seen,
             last_seen_at=last_seen,
-            extra_data={"hostname": hostname, "interface_name": iface_name},
+            extra_data={"hostname": hostname, "interface_name": iface_name, "is_agent_asset": True},
         )
 
         if agent_node_key:
@@ -470,7 +471,7 @@ def _project_ip_addresses_fallback(
         confidence=85,
         first_seen_at=first_seen,
         last_seen_at=last_seen,
-        extra_data={"hostname": hostname, "ip_addresses": ip_addresses[:20]},
+        extra_data={"hostname": hostname, "ip_addresses": ip_addresses[:20], "is_agent_asset": True},
     )
 
     if agent_node_key:
@@ -511,7 +512,7 @@ def _project_ip_addresses_fallback(
             confidence=75,
             first_seen_at=last_seen,
             last_seen_at=last_seen,
-            extra_data={"ip_scope": ip_info.get("scope"), "node_class": ip_info.get("node_class")},
+            extra_data={"ip_scope": ip_info.get("scope"), "node_class": ip_info.get("node_class"), "is_agent_asset": True},
         )
 
         repository.upsert_edge(
