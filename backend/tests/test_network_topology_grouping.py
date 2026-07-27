@@ -185,9 +185,41 @@ class TestGroupingBySubnet:
             ),
         ]
         groups, _ = build_groups(nodes, edges, strategy="subnet")
-        host_group = next(g for g in groups if g["group_key"] == "subnet:topo:subnet:10.0.0.0/24")
+        host_group = next(g for g in groups if g["group_key"] == "subnet:10.0.0.0/24")
         assert host_group["metadata"]["cidr"] == "10.0.0.0/24"
         assert host_group["metadata"]["subnet_node_key"] == "topo:subnet:10.0.0.0/24"
+
+    def test_subnet_members_and_subnet_node_share_one_group(self) -> None:
+        nodes = [
+            _node(node_key="host-1"),
+            _node(node_key="topo:subnet:10.0.0.0/24", node_type="subnet", cidr="10.0.0.0/24"),
+        ]
+        edges = [
+            _edge(
+                edge_key="member-1",
+                source_node_key="host-1",
+                target_node_key="topo:subnet:10.0.0.0/24",
+                edge_type="member_of_subnet",
+            ),
+        ]
+        groups, group_edges = build_groups(nodes, edges, strategy="subnet")
+        assert [g["group_key"] for g in groups] == ["subnet:10.0.0.0/24"]
+        assert groups[0]["label"] == "10.0.0.0/24"
+        assert group_edges == []
+
+    def test_subnet_reference_without_subnet_node_falls_back_to_cidr(self) -> None:
+        nodes = [_node(node_key="host-1")]
+        edges = [
+            _edge(
+                edge_key="member-1",
+                source_node_key="host-1",
+                target_node_key="topo:subnet:10.0.0.0/24",
+                edge_type="member_of_subnet",
+            ),
+        ]
+        groups, _ = build_groups(nodes, edges, strategy="subnet")
+        assert groups[0]["group_key"] == "subnet:10.0.0.0/24"
+        assert groups[0]["metadata"]["cidr"] == "10.0.0.0/24"
 
 
 class TestGroupingByIpScope:
@@ -221,6 +253,13 @@ class TestAutoGrouping:
 
     def test_auto_falls_back_to_scope(self) -> None:
         nodes = [_node(node_key="n1", agent_id=None, cidr=None, extra_data={"ip_scope": "public_internet"})]
+        groups, _ = build_groups(nodes, [], strategy="auto")
+        assert groups[0]["group_key"] == "scope:public_internet"
+
+    def test_auto_keeps_public_endpoints_out_of_the_observing_agent_group(self) -> None:
+        nodes = [
+            _node(node_key="n1", node_type="external_ip", agent_id="a1", extra_data={"ip_scope": "public_internet"}),
+        ]
         groups, _ = build_groups(nodes, [], strategy="auto")
         assert groups[0]["group_key"] == "scope:public_internet"
 
