@@ -1,27 +1,28 @@
 import type { TopologyNodeImportance } from "./presentation";
 
-export const MEMBER_W = 96;
-export const MEMBER_H = 96;
+export const MEMBER_W = 92;
+export const MEMBER_H = 84;
 const MEMBER_HALF = MEMBER_W / 2;
 
-export const REGION_HEADER = 38;
-export const REGION_PADDING = 30;
-export const REGION_GAP = 96;
+export const REGION_HEADER = 34;
+export const REGION_PADDING = 18;
+export const REGION_GAP = 44;
 
-const SATELLITE_SPACING = 132;
-const RING_BASE = 124;
-const RING_STEP = 124;
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+export const MARKER_FOOTPRINT = 76;
 
-export const MARKER_FOOTPRINT = 72;
+const CELL_W = 104;
+const CELL_H = 96;
+const MAX_GRID_COLUMNS = 8;
+const GRID_ASPECT_BIAS = 1.6;
+const REGION_ROW_ASPECT = 1.9;
 
-const HEADER_CHAR_PX = 6.6;
-const HEADER_OVERHEAD = 104;
-const HEADER_MIN_W = 196;
-const HEADER_MAX_W = 360;
+const HEADER_CHAR_PX = 6.9;
+const HEADER_OVERHEAD = 116;
+const HEADER_MIN_W = 208;
+const HEADER_MAX_W = 380;
 
-export const SMALL_GROUP_LIMIT = 9;
-export const REPRESENTATIVE_LIMIT = 4;
+export const SMALL_GROUP_LIMIT = 24;
+export const REPRESENTATIVE_LIMIT = 12;
 
 export type Rect = { x: number; y: number; w: number; h: number };
 
@@ -86,6 +87,11 @@ export function headerMinWidth(label: string): number {
   return Math.max(HEADER_MIN_W, Math.min(HEADER_MAX_W, raw));
 }
 
+export function gridColumns(count: number): number {
+  if (count <= 1) return 1;
+  return Math.min(MAX_GRID_COLUMNS, Math.max(1, Math.ceil(Math.sqrt(count * GRID_ASPECT_BIAS))));
+}
+
 export function classifyGroupMembers(members: ClusterMember[], expanded: boolean): ClassifiedMembers {
   const lowSignal = members.filter((member) => !member.alwaysShow).sort(compareSignal);
   const fullyShown =
@@ -121,51 +127,41 @@ function orderSatellites(satellites: ClusterSatellite[]): ClusterSatellite[] {
   });
 }
 
-function ringCapacity(radius: number): number {
-  return Math.max(1, Math.floor((2 * Math.PI * radius) / SATELLITE_SPACING));
-}
-
 export function arrangeGroupCluster(
   hubKey: string,
   satellites: ClusterSatellite[],
   label: string,
 ): ClusterArrangement {
   const ordered = orderSatellites(satellites);
-  const placements: Array<{ key: string; radius: number; angle: number }> = [];
+  const columns = gridColumns(ordered.length);
+  const rows = ordered.length === 0 ? 0 : Math.ceil(ordered.length / columns);
 
-  let index = 0;
-  let ringIndex = 0;
-  while (index < ordered.length) {
-    const radius = RING_BASE + ringIndex * RING_STEP;
-    const capacity = ringCapacity(radius);
-    const onThisRing = Math.min(capacity, ordered.length - index);
-    const rotation = ringIndex * GOLDEN_ANGLE - Math.PI / 2;
-    for (let slot = 0; slot < onThisRing; slot += 1) {
-      const angle = rotation + (2 * Math.PI * slot) / onThisRing;
-      placements.push({ key: ordered[index + slot].key, radius, angle });
-    }
-    index += onThisRing;
-    ringIndex += 1;
-  }
+  const contentWidth = Math.max(columns * CELL_W, CELL_W);
+  const width = Math.max(contentWidth + REGION_PADDING * 2, headerMinWidth(label));
+  const height = REGION_HEADER + REGION_PADDING + CELL_H * (rows + 1) + REGION_PADDING;
 
-  const maxRadius = placements.reduce((max, p) => Math.max(max, p.radius), 0);
-  const contentRadius = maxRadius + MEMBER_HALF + REGION_PADDING;
-  const contentDiameter = Math.max(contentRadius * 2, MEMBER_H + REGION_PADDING * 2);
-  const width = Math.max(contentDiameter, headerMinWidth(label));
-  const height = REGION_HEADER + contentDiameter;
-
-  const hubX = width / 2;
-  const hubY = REGION_HEADER + contentDiameter / 2;
+  const hubY = REGION_HEADER + REGION_PADDING + CELL_H / 2;
   const centers = new Map<string, { x: number; y: number }>();
-  centers.set(hubKey, { x: hubX, y: hubY });
-  for (const placement of placements) {
-    centers.set(placement.key, {
-      x: hubX + placement.radius * Math.cos(placement.angle),
-      y: hubY + placement.radius * Math.sin(placement.angle),
+  centers.set(hubKey, { x: width / 2, y: hubY });
+
+  ordered.forEach((satellite, index) => {
+    const row = Math.floor(index / columns);
+    const column = index % columns;
+    const inRow = Math.min(columns, ordered.length - row * columns);
+    const rowStartX = (width - inRow * CELL_W) / 2;
+    centers.set(satellite.key, {
+      x: rowStartX + column * CELL_W + CELL_W / 2,
+      y: hubY + CELL_H * (row + 1),
     });
-  }
+  });
 
   return { centers, width, height };
+}
+
+export type RegionLinks = Map<string, number>;
+
+export function regionLinkKey(a: string, b: string): string {
+  return a < b ? `${a}|||${b}` : `${b}|||${a}`;
 }
 
 export function orderRegions(regions: RegionInput[]): RegionInput[] {
@@ -176,94 +172,125 @@ export function orderRegions(regions: RegionInput[]): RegionInput[] {
   });
 }
 
-function reach(width: number, height: number): number {
-  return Math.hypot(width / 2, height / 2);
-}
+/**
+ * Priority alone scatters heavily linked regions across the canvas, which is what turns the
+ * inter-region traffic into long crossing lines. Walk the regions greedily instead: after the
+ * primary one, always take whichever unplaced region is most strongly tied to what is already
+ * down, falling back to priority when nothing links.
+ */
+export function orderRegionsByAdjacency(regions: RegionInput[], links: RegionLinks): RegionInput[] {
+  const byPriority = orderRegions(regions);
+  if (links.size === 0 || byPriority.length < 3) return byPriority;
 
-function separateRegions(
-  ordered: RegionInput[],
-  centers: Map<string, { x: number; y: number }>,
-): void {
-  const coreKey = ordered[0]?.key;
-  const sizeByKey = new Map(ordered.map((r) => [r.key, r]));
-  for (let iter = 0; iter < 80; iter += 1) {
-    let moved = false;
-    for (let i = 0; i < ordered.length; i += 1) {
-      for (let j = i + 1; j < ordered.length; j += 1) {
-        const a = ordered[i];
-        const b = ordered[j];
-        const ca = centers.get(a.key)!;
-        const cb = centers.get(b.key)!;
-        const ra = sizeByKey.get(a.key)!;
-        const rb = sizeByKey.get(b.key)!;
-        const dx = cb.x - ca.x;
-        const dy = cb.y - ca.y;
-        const penX = ra.width / 2 + rb.width / 2 + REGION_GAP - Math.abs(dx);
-        const penY = ra.height / 2 + rb.height / 2 + REGION_GAP - Math.abs(dy);
-        if (penX <= 0 || penY <= 0) continue;
-        let shiftX = 0;
-        let shiftY = 0;
-        if (penX < penY) shiftX = (dx >= 0 ? 1 : -1) * penX;
-        else shiftY = (dy >= 0 ? 1 : -1) * penY;
-        const aPinned = a.key === coreKey;
-        const bPinned = b.key === coreKey;
-        if (aPinned && !bPinned) {
-          cb.x += shiftX;
-          cb.y += shiftY;
-        } else if (bPinned && !aPinned) {
-          ca.x -= shiftX;
-          ca.y -= shiftY;
-        } else {
-          ca.x -= shiftX / 2;
-          ca.y -= shiftY / 2;
-          cb.x += shiftX / 2;
-          cb.y += shiftY / 2;
-        }
-        moved = true;
+  const remaining = new Map(byPriority.map((region) => [region.key, region]));
+  const placed: RegionInput[] = [];
+  const first = byPriority[0];
+  placed.push(first);
+  remaining.delete(first.key);
+
+  while (remaining.size > 0) {
+    let best: RegionInput | null = null;
+    let bestWeight = -1;
+    for (const region of byPriority) {
+      if (!remaining.has(region.key)) continue;
+      let weight = 0;
+      for (const done of placed) {
+        weight += links.get(regionLinkKey(region.key, done.key)) ?? 0;
+      }
+      if (weight > bestWeight) {
+        bestWeight = weight;
+        best = region;
       }
     }
-    if (!moved) break;
+    const next = best ?? remaining.values().next().value!;
+    placed.push(next);
+    remaining.delete(next.key);
   }
+
+  return placed;
 }
 
-export function placeRegionsOrbital(regions: RegionInput[]): RegionPlacement {
+type Shelf = { members: RegionInput[]; width: number; height: number };
+
+function shelveRegions(ordered: RegionInput[], targetWidth: number): Shelf[] {
+  const shelves: Shelf[] = [];
+  let shelf: Shelf = { members: [], width: 0, height: 0 };
+
+  for (const region of ordered) {
+    const nextWidth = shelf.members.length === 0 ? region.width : shelf.width + REGION_GAP + region.width;
+    if (shelf.members.length > 0 && nextWidth > targetWidth) {
+      shelves.push(shelf);
+      shelf = { members: [], width: 0, height: 0 };
+    }
+    shelf.width = shelf.members.length === 0 ? region.width : shelf.width + REGION_GAP + region.width;
+    shelf.height = Math.max(shelf.height, region.height);
+    shelf.members.push(region);
+  }
+  if (shelf.members.length > 0) shelves.push(shelf);
+  return shelves;
+}
+
+function shelfCanvas(shelves: Shelf[]): { width: number; height: number } {
+  const width = shelves.reduce((max, shelf) => Math.max(max, shelf.width), 0);
+  const height = shelves.reduce((sum, shelf) => sum + shelf.height + REGION_GAP, 0) - REGION_GAP;
+  return { width, height: Math.max(0, height) };
+}
+
+/**
+ * Shelf packing off a single estimated row width leaves ragged rows and a canvas that ends up
+ * roughly square, so fitting it into a wide viewport wastes most of the horizontal space. Try
+ * every row width where the packing actually changes and keep the one whose canvas comes out
+ * closest to the viewport's shape.
+ */
+function bestShelves(ordered: RegionInput[]): Shelf[] {
+  const widest = ordered.reduce((max, region) => Math.max(max, region.width), 0);
+  const candidates: number[] = [widest];
+  for (let start = 0; start < ordered.length; start += 1) {
+    let run = 0;
+    for (let end = start; end < ordered.length; end += 1) {
+      run += (end > start ? REGION_GAP : 0) + ordered[end].width;
+      if (run > widest) candidates.push(run);
+    }
+  }
+
+  let best: Shelf[] | null = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const candidate of candidates) {
+    const shelves = shelveRegions(ordered, candidate);
+    const { width, height } = shelfCanvas(shelves);
+    if (height <= 0) continue;
+    const score = Math.abs(Math.log(width / height / REGION_ROW_ASPECT));
+    if (score < bestScore) {
+      bestScore = score;
+      best = shelves;
+    }
+  }
+  return best ?? shelveRegions(ordered, widest);
+}
+
+export function packRegions(regions: RegionInput[], links: RegionLinks = new Map()): RegionPlacement {
   if (regions.length === 0) return { origins: new Map(), width: 0, height: 0 };
 
-  const ordered = orderRegions(regions);
-  const centers = new Map<string, { x: number; y: number }>();
-  const core = ordered[0];
-  centers.set(core.key, { x: 0, y: 0 });
-
-  const rest = ordered.slice(1);
-  const maxReach = ordered.reduce((max, r) => Math.max(max, reach(r.width, r.height)), 0);
-  const seedSpacing = maxReach + REGION_GAP;
-  rest.forEach((region, i) => {
-    const radius = seedSpacing * Math.sqrt(i + 1);
-    const angle = i * GOLDEN_ANGLE;
-    centers.set(region.key, { x: radius * Math.cos(angle), y: radius * Math.sin(angle) });
-  });
-
-  separateRegions(ordered, centers);
-
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const region of ordered) {
-    const center = centers.get(region.key)!;
-    minX = Math.min(minX, center.x - region.width / 2);
-    minY = Math.min(minY, center.y - region.height / 2);
-    maxX = Math.max(maxX, center.x + region.width / 2);
-    maxY = Math.max(maxY, center.y + region.height / 2);
-  }
+  const ordered = orderRegionsByAdjacency(regions, links);
+  const shelves = bestShelves(ordered);
+  const { width: canvasWidth, height: canvasHeight } = shelfCanvas(shelves);
 
   const origins = new Map<string, { x: number; y: number }>();
-  for (const region of ordered) {
-    const center = centers.get(region.key)!;
-    origins.set(region.key, { x: center.x - region.width / 2 - minX, y: center.y - region.height / 2 - minY });
+  let cursorY = 0;
+
+  for (const shelf of shelves) {
+    let cursorX = Math.round((canvasWidth - shelf.width) / 2);
+    for (const region of shelf.members) {
+      origins.set(region.key, {
+        x: cursorX,
+        y: Math.round(cursorY + (shelf.height - region.height) / 2),
+      });
+      cursorX += region.width + REGION_GAP;
+    }
+    cursorY += shelf.height + REGION_GAP;
   }
 
-  return { origins, width: maxX - minX, height: maxY - minY };
+  return { origins, width: canvasWidth, height: canvasHeight };
 }
 
 export function rectsOverlap(a: Rect, b: Rect, gap = 0): boolean {
