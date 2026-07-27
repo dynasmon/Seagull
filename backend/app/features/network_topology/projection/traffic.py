@@ -10,6 +10,7 @@ from app.features.events.models import NetEventModel
 from app.features.network_topology import repository
 from app.features.network_topology.classification import classify_topology_ip
 from app.features.network_topology.projection.helpers import (
+    _WELL_KNOWN_PORTS,
     _edge_key,
     _flow_edge_key,
     _ip_node_key,
@@ -22,6 +23,26 @@ from app.features.network_topology.projection.helpers import (
 from app.features.network_topology.schemas import TopologyCoverageOut
 
 _MAX_ALERT_ROWS = 2000
+
+_EPHEMERAL_PORT_FLOOR = 32768
+
+
+def _is_listening_port(port: int | None) -> bool:
+    """A client's ephemeral source port shows up as a flow destination on the return path.
+    Projecting a service node per random high port buries real listeners under thousands of
+    decoys, and DPI does not help: the return leg of a DNS query is still tagged `dns`."""
+    if not port:
+        return False
+    return port < _EPHEMERAL_PORT_FLOOR or port in _WELL_KNOWN_PORTS
+
+
+_AGENT_SCOPED_SCOPES = frozenset({
+    "private_address",
+    "internal_network",
+    "unique_local",
+    "loopback",
+    "link_local",
+})
 
 
 def _project_flow_edges(
@@ -74,13 +95,19 @@ def _project_flow_edges(
         edge_ts = _to_utc(last_seen) or now
         flow_first = _to_utc(first_seen) or now
         agent_id_str = str(agent_id) if agent_id else None
+        src_owner_agent_id = (
+            agent_id_str if src_info.get("scope") in _AGENT_SCOPED_SCOPES else None
+        )
+        src_extra: dict[str, object] = {"ip_scope": src_info.get("scope")}
+        if agent_id_str and not src_owner_agent_id:
+            src_extra["observed_by_agent_id"] = agent_id_str
 
         repository.upsert_node(
             db,
             node_key=src_key,
             node_type=src_info.get("node_class", "unknown"),
             label=src_ip,
-            agent_id=agent_id_str,
+            agent_id=src_owner_agent_id,
             ip=src_ip,
             cidr=None,
             port=None,
@@ -90,7 +117,7 @@ def _project_flow_edges(
             confidence=70,
             first_seen_at=flow_first,
             last_seen_at=edge_ts,
-            extra_data={"ip_scope": src_info.get("scope")},
+            extra_data=src_extra,
         )
 
         repository.upsert_node(
@@ -135,6 +162,7 @@ def _project_flow_edges(
             dst_port
             and dst_info.get("node_class") in ("host", "interface")
             and dst_info.get("scope") in ("private_address", "internal_network")
+            and _is_listening_port(dst_port)
         ):
             svc_node_key = _node_key(
                 "service", dst_ip, str(proto or ""), str(dst_port)
