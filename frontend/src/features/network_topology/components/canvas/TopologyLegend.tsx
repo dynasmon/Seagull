@@ -1,56 +1,83 @@
 import { memo, useState } from "react";
 
-import { NODE_TYPE_LABELS, SEVERITY_COLORS, edgeVisual, nodeVisualByType } from "../../lib/presentation/visuals";
+import { cx } from "@/shared/lib/cx";
+
+import { groupTypeMeta } from "../../lib/presentation/groups";
+import {
+  EDGE_TYPE_LABELS,
+  NODE_TYPE_LABELS,
+  SEVERITY_COLORS,
+  edgeVisual,
+  nodeVisualByType,
+} from "../../lib/presentation/visuals";
 import type { TopologyViewMode } from "../../types";
 
-const EDGE_LEGEND_ROWS: Array<{ key: string; label: string }> = [
-  { key: "alert_related",       label: "Alert context" },
-  { key: "exposure_related",    label: "Exposure context" },
-  { key: "observed_flow",       label: "Observed flow" },
-  { key: "listens_on",          label: "Listening service" },
-  { key: "resolved_dns",        label: "DNS" },
-  { key: "member_of_subnet",    label: "Subnet member" },
-  { key: "route_next_hop",      label: "Route / next hop" },
-  { key: "inferred_relationship", label: "Inferred" },
+const EDGE_LEGEND_KEYS = [
+  "alert_related",
+  "exposure_related",
+  "observed_flow",
+  "listens_on",
+  "resolved_dns",
+  "route_next_hop",
+  "member_of_subnet",
+  "owns_interface",
+  "same_agent",
+  "inferred_relationship",
+];
+
+const NODE_LEGEND_KEYS = [
+  "agent",
+  "gateway",
+  "subnet",
+  "host",
+  "interface",
+  "service",
+  "docker_network",
+  "external_ip",
+  "unknown",
 ];
 
 const SEVERITY_KEYS = ["critical", "high", "medium", "low", "informational", "unknown"] as const;
-const NODE_LEGEND_KEYS = Object.keys(NODE_TYPE_LABELS);
 
 function EdgeSample({ edgeKey, dim }: { edgeKey: string; dim: boolean }) {
-  const v = edgeVisual({ edge_type: edgeKey, confidence: 80 });
+  const visual = edgeVisual({ edge_type: edgeKey, confidence: 80 });
   return (
-    <svg width="28" height="8" style={{ overflow: "visible", flexShrink: 0 }}>
+    <svg width="26" height="8" style={{ overflow: "visible", flexShrink: 0 }}>
       <line
-        x1="0" y1="4" x2="24" y2="4"
-        stroke={v.stroke}
-        strokeWidth={v.width + 0.3}
-        strokeDasharray={v.dashArray}
-        opacity={dim ? 0.25 : Math.min(1, v.opacity * 2.5 + 0.2)}
+        x1="0"
+        y1="4"
+        x2="24"
+        y2="4"
+        stroke={visual.stroke}
+        strokeWidth={visual.width + 0.4}
+        strokeDasharray={visual.dashArray}
+        opacity={dim ? 0.25 : Math.min(1, visual.opacity * 1.6 + 0.25)}
       />
     </svg>
   );
 }
 
-function LegendSection({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/45">
+      <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/45">
         {title}
       </div>
-      <div className="space-y-1">{children}</div>
+      <div className="space-y-0.5">{children}</div>
     </div>
   );
 }
 
-function LegendRow({
+function Row({
   label,
+  title,
   active,
   dimmed,
   onClick,
   children,
 }: {
   label: string;
+  title?: string;
   active?: boolean;
   dimmed?: boolean;
   onClick?: () => void;
@@ -60,21 +87,25 @@ function LegendRow({
   return (
     <button
       type="button"
+      title={title}
       disabled={!interactive}
       onClick={onClick}
-      className="flex w-full items-center gap-2 rounded text-left text-[10px]"
+      aria-pressed={interactive ? Boolean(active) : undefined}
+      className={cx(
+        "flex w-full items-center gap-2 rounded text-left text-[10px] transition-colors",
+        interactive && "hover:bg-white/5",
+      )}
       style={{
-        opacity: dimmed ? 0.4 : 1,
+        opacity: dimmed ? 0.35 : 1,
         cursor: interactive ? "pointer" : "default",
-        background: active ? "rgba(96,165,250,0.10)" : "transparent",
-        padding: interactive ? "2px 4px" : "0",
-        transition: "opacity 140ms ease, background 140ms ease",
+        background: active ? "rgba(34,211,238,0.12)" : "transparent",
+        padding: "2px 4px",
       }}
     >
       <span className="flex w-7 shrink-0 items-center">{children}</span>
       <span
-        className={active ? "text-foreground/95" : "text-muted-foreground/70"}
-        style={{ fontWeight: active ? 700 : 400 }}
+        className={active ? "text-foreground/95" : "text-muted-foreground/75"}
+        style={{ fontWeight: active ? 600 : 400 }}
       >
         {label}
       </span>
@@ -84,144 +115,153 @@ function LegendRow({
 
 type Props = {
   viewMode: TopologyViewMode;
-  onFilterToggle?: (edgeType: string) => void;
+  activeEdgeTypes: string[];
+  onEdgeTypeToggle: (edgeType: string) => void;
+  onEdgeTypeReset: () => void;
 };
 
-function TopologyLegend({ viewMode, onFilterToggle }: Props) {
+function TopologyLegend({ viewMode, activeEdgeTypes, onEdgeTypeToggle, onEdgeTypeReset }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const [activeEdgeType, setActiveEdgeType] = useState<string | null>(null);
-
-  const handleEdgeRowClick = (edgeKey: string) => {
-    setActiveEdgeType((prev) => (prev === edgeKey ? null : edgeKey));
-    onFilterToggle?.(edgeKey);
-  };
-
-  const resetActive = () => {
-    setActiveEdgeType(null);
-  };
+  const hasEdgeFilter = activeEdgeTypes.length > 0;
 
   return (
     <div className="absolute bottom-[68px] left-2 z-20 select-none" style={{ pointerEvents: "all" }}>
       <div
         className="rounded-xl border border-border/35"
-        style={{
-          background: "rgba(10,16,28,0.94)",
-          backdropFilter: "blur(10px)",
-          minWidth: 164,
-        }}
+        style={{ background: "rgba(10,16,28,0.95)", backdropFilter: "blur(10px)", minWidth: 178 }}
       >
-        <div className="flex items-center justify-between px-2.5 py-1.5">
-          <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/50">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5"
+          onClick={() => setExpanded((prev) => !prev)}
+          aria-expanded={expanded}
+        >
+          <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/55">
             Legend
           </span>
-          <div className="flex items-center gap-1">
-            {activeEdgeType && (
-              <button
-                type="button"
-                className="rounded px-1.5 text-[9px] font-medium text-muted-foreground/70 transition-colors hover:text-foreground/95"
-                onClick={resetActive}
-                title="Reset legend filter"
+          <span className="flex items-center gap-1.5">
+            {hasEdgeFilter && (
+              <span
+                className="rounded-[3px] px-1 text-[9px] font-semibold"
+                style={{ color: "#22D3EE", background: "rgba(34,211,238,0.14)" }}
               >
-                Reset
-              </button>
+                {activeEdgeTypes.length}
+              </span>
             )}
-            <button
-              type="button"
-              className="flex h-4 w-4 items-center justify-center rounded text-[11px] text-muted-foreground/45 transition-colors hover:text-foreground/80"
-              onClick={() => setExpanded((p) => !p)}
-              title={expanded ? "Collapse legend" : "Expand legend"}
-            >
-              {expanded ? "−" : "+"}
-            </button>
-          </div>
-        </div>
+            <span className="text-[11px] text-muted-foreground/50">{expanded ? "−" : "+"}</span>
+          </span>
+        </button>
 
         <div className="flex items-center gap-1.5 border-t border-border/20 px-2.5 py-1.5">
-          {SEVERITY_KEYS.slice(0, 5).map((sev) => (
+          {SEVERITY_KEYS.slice(0, 5).map((severity) => (
             <span
-              key={sev}
+              key={severity}
               className="h-[8px] w-[8px] shrink-0 rounded-full"
-              style={{ background: SEVERITY_COLORS[sev] }}
-              title={sev}
+              style={{ background: SEVERITY_COLORS[severity] }}
+              title={severity}
             />
           ))}
-          <span className="ml-0.5 text-[9px] text-muted-foreground/38">severity</span>
+          <span className="ml-0.5 text-[9px] text-muted-foreground/45">severity</span>
         </div>
 
         {expanded && (
           <div
-            className="flex flex-col gap-3 border-t border-border/20 px-2.5 py-2.5"
-            style={{ maxHeight: 360, overflowY: "auto" }}
+            className="flex w-[212px] flex-col gap-3 border-t border-border/20 px-2.5 py-2.5"
+            style={{ maxHeight: 380, overflowY: "auto" }}
           >
-            {viewMode === "connection" && (
-              <LegendSection title="Node types">
+            {viewMode === "connection" ? (
+              <Section title="Node types">
                 {NODE_LEGEND_KEYS.map((key) => {
-                  const v = nodeVisualByType(key);
+                  const visual = nodeVisualByType(key);
                   return (
-                    <LegendRow key={key} label={NODE_TYPE_LABELS[key] ?? key}>
+                    <Row key={key} label={NODE_TYPE_LABELS[key] ?? key}>
                       <span
-                        className="inline-block h-[9px] w-[9px] rounded-full"
-                        style={{ background: v.fill, border: `1px solid ${v.stroke}` }}
+                        className="inline-block h-[10px] w-[10px] rounded-full"
+                        style={{
+                          background: visual.fill,
+                          border: `1px ${key === "external_ip" ? "dashed" : "solid"} ${visual.stroke}`,
+                        }}
                       />
-                    </LegendRow>
+                    </Row>
                   );
                 })}
-              </LegendSection>
+              </Section>
+            ) : (
+              <Section title="Group types">
+                {["agent", "subnet", "ip_scope", "ungrouped"].map((key) => {
+                  const meta = groupTypeMeta(key);
+                  return (
+                    <Row key={key} label={meta.label} title={meta.description}>
+                      <span
+                        className="inline-block h-[10px] w-[10px] rounded-[3px]"
+                        style={{ background: `${meta.color}30`, border: `1px solid ${meta.color}` }}
+                      />
+                    </Row>
+                  );
+                })}
+              </Section>
             )}
 
-            {viewMode === "location" && (
-              <LegendSection title="Group types">
-                <LegendRow label="Agent (observed host)"><span className="text-[13px] text-[#60A5FA]">◎</span></LegendRow>
-                <LegendRow label="Subnet (CIDR block)"><span className="text-[13px] text-[#FBBF24]">⌁</span></LegendRow>
-                <LegendRow label="Scope (IP class)"><span className="text-[13px] text-muted-foreground/60">◌</span></LegendRow>
-              </LegendSection>
-            )}
-
-            <LegendSection title="Edge types">
-              {EDGE_LEGEND_ROWS.map(({ key, label }) => {
-                const isActive = activeEdgeType === key;
-                const isDim = activeEdgeType !== null && !isActive;
+            <Section title={hasEdgeFilter ? "Relationships · filtering" : "Relationships · click to filter"}>
+              {EDGE_LEGEND_KEYS.map((key) => {
+                const isActive = activeEdgeTypes.includes(key);
                 return (
-                  <LegendRow
+                  <Row
                     key={key}
-                    label={label}
+                    label={EDGE_TYPE_LABELS[key] ?? key}
                     active={isActive}
-                    dimmed={isDim}
-                    onClick={() => handleEdgeRowClick(key)}
+                    dimmed={hasEdgeFilter && !isActive}
+                    onClick={() => onEdgeTypeToggle(key)}
                   >
-                    <EdgeSample edgeKey={key} dim={isDim} />
-                  </LegendRow>
+                    <EdgeSample edgeKey={key} dim={hasEdgeFilter && !isActive} />
+                  </Row>
                 );
               })}
-            </LegendSection>
+              {hasEdgeFilter && (
+                <button
+                  type="button"
+                  className="mt-1 w-full rounded px-1.5 py-1 text-left text-[10px] text-muted-foreground/75 hover:bg-white/5 hover:text-foreground/95"
+                  onClick={onEdgeTypeReset}
+                >
+                  Show all relationships
+                </button>
+              )}
+            </Section>
 
-            <LegendSection title="Severity">
-              {SEVERITY_KEYS.map((sev) => (
-                <LegendRow key={sev} label={sev.charAt(0).toUpperCase() + sev.slice(1)}>
+            <Section title="Severity">
+              {SEVERITY_KEYS.map((severity) => (
+                <Row key={severity} label={severity.charAt(0).toUpperCase() + severity.slice(1)}>
                   <span
                     className="inline-block h-[8px] w-[8px] rounded-full"
-                    style={{ background: SEVERITY_COLORS[sev] }}
+                    style={{ background: SEVERITY_COLORS[severity] }}
                   />
-                </LegendRow>
+                </Row>
               ))}
-            </LegendSection>
+            </Section>
 
-            <LegendSection title="State">
-              <LegendRow label="Alert badge">
-                <span className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: "#F87171" }} />
-              </LegendRow>
-              <LegendRow label="Stale / offline">
-                <span className="inline-block h-[9px] w-[9px] rounded-full border border-muted-foreground/30 opacity-45" />
-              </LegendRow>
-              <LegendRow label="Low confidence">
-                <svg width="28" height="8" style={{ flexShrink: 0 }}>
-                  <line x1="0" y1="4" x2="24" y2="4" stroke="#60A5FA" strokeWidth="1.2" strokeDasharray="4 3" opacity="0.55" />
-                </svg>
-              </LegendRow>
-              <LegendRow label="Focused group">
-                <span className="inline-block h-[7px] w-[7px] rounded-full" style={{ background: "#4ADE80" }} />
-              </LegendRow>
-            </LegendSection>
+            <Section title="Markers">
+              <Row label="Security signal" title="Ring drawn around nodes with alerts, exposure, or high risk">
+                <span
+                  className="inline-block h-[11px] w-[11px] rounded-full"
+                  style={{ border: "1.5px solid #F87171" }}
+                />
+              </Row>
+              <Row label="Part of this host" title="Assets reported by the local Seagull agent">
+                <span className="inline-block h-[8px] w-[8px] rounded-full" style={{ background: "#22D3EE" }} />
+              </Row>
+              <Row label="Outside your network" title="Public internet endpoints use a dashed outline">
+                <span
+                  className="inline-block h-[10px] w-[10px] rounded-full"
+                  style={{ border: "1px dashed #94A3B8" }}
+                />
+              </Row>
+              <Row label="Stale / not seen recently">
+                <span
+                  className="inline-block h-[10px] w-[10px] rounded-full border border-muted-foreground/30"
+                  style={{ opacity: 0.45 }}
+                />
+              </Row>
+            </Section>
           </div>
         )}
       </div>

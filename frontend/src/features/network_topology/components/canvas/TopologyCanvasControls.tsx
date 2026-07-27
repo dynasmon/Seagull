@@ -22,6 +22,7 @@ type Props = {
   onToggleFullscreen: () => void;
   onRefresh: () => void;
   onResetLayout: () => void;
+  onFitView: () => void;
   onClearFocus?: () => void;
   onSearchChange: (query: string) => void;
   onPrevMatch: () => void;
@@ -45,13 +46,13 @@ function IconButton({
     <button
       type="button"
       title={title}
+      aria-label={title}
+      aria-pressed={active}
       onClick={onClick}
       disabled={disabled}
       className={cx(
         "flex h-8 w-8 items-center justify-center rounded-md text-[13px] transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-        active
-          ? "bg-primary/18 text-primary"
-          : "text-muted-foreground/75 hover:bg-white/6 hover:text-foreground",
+        active ? "bg-[#22D3EE]/18 text-[#67E8F9]" : "text-muted-foreground/75 hover:bg-white/6 hover:text-foreground",
       )}
     >
       {children}
@@ -76,16 +77,16 @@ function TopologyCanvasControls({
   onToggleFullscreen,
   onRefresh,
   onResetLayout,
+  onFitView,
   onClearFocus,
   onSearchChange,
   onPrevMatch,
   onNextMatch,
 }: Props) {
-  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  const { zoomIn, zoomOut } = useReactFlow();
   const zoom = useStore((state) => Math.round(state.transform[2] * 100));
   const hasSearch = Boolean(searchQuery.trim());
   const hasMatches = hasSearch && searchTotal > 0;
-  const displayIndex = hasMatches ? searchMatchIndex + 1 : 0;
 
   return (
     <>
@@ -93,10 +94,10 @@ function TopologyCanvasControls({
         <Panel position="top-left" style={{ marginLeft: 12, marginTop: 12 }}>
           <div
             className="flex items-center gap-2 rounded-xl border border-white/10 px-2.5 py-2 shadow-[0_16px_48px_rgba(0,0,0,0.28)]"
-            style={{ background: "rgba(7,14,25,0.88)", backdropFilter: "blur(12px)" }}
+            style={{ background: "rgba(7,17,31,0.9)", backdropFilter: "blur(12px)" }}
           >
             <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/60">
-              Show
+              View
             </span>
             <div className="flex rounded-md border border-white/10 bg-black/20 p-0.5">
               {(["location", "connection"] as TopologyViewMode[]).map((mode) => (
@@ -107,7 +108,7 @@ function TopologyCanvasControls({
                   className={cx(
                     "rounded-[4px] px-2.5 py-1 text-[11px] font-medium transition-colors",
                     viewMode === mode
-                      ? "bg-primary/90 text-primary-foreground"
+                      ? "bg-[#22D3EE] text-[#062231]"
                       : "text-muted-foreground hover:bg-white/5",
                   )}
                 >
@@ -122,13 +123,13 @@ function TopologyCanvasControls({
       <Panel position="top-right" style={{ marginRight: 12, marginTop: 12 }}>
         <div
           className="flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-1.5 rounded-xl border border-white/10 p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.28)]"
-          style={{ background: "rgba(7,14,25,0.88)", backdropFilter: "blur(12px)" }}
+          style={{ background: "rgba(7,17,31,0.9)", backdropFilter: "blur(12px)" }}
         >
-          <div className="flex h-8 min-w-[180px] items-center rounded-md border border-white/10 bg-black/20 px-2">
+          <div className="flex h-8 min-w-[196px] items-center rounded-md border border-white/10 bg-black/20 px-2">
             <span className="mr-1.5 text-[12px] text-muted-foreground/45">⌕</span>
             <input
               type="text"
-              placeholder="Search nodes, IPs…"
+              placeholder="Find host, IP, port…"
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
               onKeyDown={(event) => {
@@ -154,7 +155,7 @@ function TopologyCanvasControls({
           {hasSearch && (
             <div className="flex h-8 items-center gap-0.5 rounded-md border border-white/10 bg-black/15 px-1">
               <span className="min-w-8 px-1 text-center font-mono text-[10px] text-muted-foreground/60 tabular-nums">
-                {hasMatches ? `${displayIndex}/${searchTotal}` : "0"}
+                {hasMatches ? `${searchMatchIndex + 1}/${searchTotal}` : "0"}
               </span>
               <IconButton onClick={onPrevMatch} title="Previous match" disabled={!hasMatches}>‹</IconButton>
               <IconButton onClick={onNextMatch} title="Next match" disabled={!hasMatches}>›</IconButton>
@@ -166,39 +167,34 @@ function TopologyCanvasControls({
           <IconButton onClick={onToggleFilterRail} title={filterRailOpen ? "Hide filters" : "Show filters"} active={filterRailOpen}>
             ☰
           </IconButton>
-          <IconButton onClick={() => fitView({ padding: 0.14, duration: 320 })} title="Fit view">
-            ⊞
-          </IconButton>
+          <IconButton onClick={onFitView} title="Fit graph to view">⊞</IconButton>
           <IconButton onClick={onToggleMinimap} title={showMinimap ? "Hide minimap" : "Show minimap"} active={showMinimap}>
             ◫
           </IconButton>
           <IconButton onClick={onToggleFullscreen} title={isFullscreen ? "Exit fullscreen" : "Fullscreen"} active={isFullscreen}>
             {isFullscreen ? "⊡" : "⛶"}
           </IconButton>
-          <IconButton onClick={onRefresh} title="Refresh" disabled={isRefreshing}>
-            ↻
-          </IconButton>
+          <IconButton onClick={onRefresh} title="Refresh data" disabled={isRefreshing}>↻</IconButton>
           {hasCustomPositions && (
             <>
               <div className="mx-0.5 h-6 w-px bg-white/10" />
-              <IconButton onClick={onResetLayout} title="Reset layout to auto-arranged positions">
-                ⟳
-              </IconButton>
+              <IconButton onClick={onResetLayout} title="Reset dragged nodes to the auto layout">⟳</IconButton>
             </>
           )}
         </div>
 
         {focusedGroupLabel && (
           <div
-            className="ml-auto mt-2 flex w-fit max-w-[260px] items-center gap-2 rounded-lg border border-[#4ADE80]/25 px-2.5 py-1.5 text-[11px] text-[#4ADE80]"
-            style={{ background: "rgba(7,14,25,0.84)", backdropFilter: "blur(12px)" }}
+            className="ml-auto mt-2 flex w-fit max-w-[280px] items-center gap-2 rounded-lg border border-[#4ADE80]/30 px-2.5 py-1.5 text-[11px] text-[#4ADE80]"
+            style={{ background: "rgba(7,17,31,0.88)", backdropFilter: "blur(12px)" }}
           >
+            <span className="text-[9px] uppercase tracking-[0.1em] opacity-70">Focused</span>
             <span className="truncate">{focusedGroupLabel}</span>
             <button
               type="button"
               className="text-[#4ADE80]/65 hover:text-[#4ADE80]"
               onClick={onClearFocus}
-              title="Exit group focus"
+              title="Exit group focus (Esc)"
             >
               ✕
             </button>
@@ -209,7 +205,7 @@ function TopologyCanvasControls({
       <Panel position="bottom-right" style={{ marginBottom: 12, marginRight: 12 }}>
         <div
           className="flex items-center gap-1 rounded-xl border border-white/10 p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.28)]"
-          style={{ background: "rgba(7,14,25,0.88)", backdropFilter: "blur(12px)" }}
+          style={{ background: "rgba(7,17,31,0.9)", backdropFilter: "blur(12px)" }}
         >
           <IconButton onClick={() => zoomOut({ duration: 180 })} title="Zoom out">−</IconButton>
           <span className="min-w-11 select-none text-center font-mono text-[10px] text-muted-foreground/65 tabular-nums">
