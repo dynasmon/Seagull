@@ -19,6 +19,7 @@ import { pinAttackChainCaseToWorkspace, pinEventToWorkspace } from "@/features/i
 
 import { TopologyIpScopeBadge } from "../common/TopologyIpScopeBadge";
 import { formatTopologyTimestamp, toTitleLabel, topologySeverityVariant } from "../../lib/presentation/labels";
+import { groupTypeMeta } from "../../lib/presentation/groups";
 import { severityColor } from "../../lib/presentation/visuals";
 import {
   alertPivotUrl,
@@ -620,11 +621,8 @@ export function NetworkTopologyEdgeDetailContent({
   );
 }
 
-function GroupTypeLabel({ groupType }: { groupType: string }) {
-  if (groupType === "agent") return <>Agent</>;
-  if (groupType === "subnet") return <>Subnet</>;
-  if (groupType === "ip_scope" || groupType === "scope") return <>IP Scope</>;
-  return <>Ungrouped</>;
+function GroupTypeLabel({ groupType, groupKey }: { groupType: string; groupKey?: string }) {
+  return <>{groupTypeMeta(groupType, groupKey).label}</>;
 }
 
 function TruncationNotice({ omitted, label }: { omitted?: number; label: string }) {
@@ -818,7 +816,11 @@ export function NetworkTopologyGroupDetailContent({
       )}
 
       <InvestigationSummaryGrid>
-        <InvestigationFactCard label="Group type" value={<GroupTypeLabel groupType={group.group_type} />} />
+        <InvestigationFactCard
+          label="Group type"
+          value={<GroupTypeLabel groupType={group.group_type} groupKey={group.group_key} />}
+          hint={groupTypeMeta(group.group_type, group.group_key).description}
+        />
         <InvestigationFactCard label="Nodes" value={String(nodeCount)} />
         <InvestigationFactCard label="Alert count" value={String(alertCount)} />
         {sev && <InvestigationFactCard label="Highest severity" value={<span style={{ color: severityColor(sev), textTransform: "capitalize" }}>{sev}</span>} />}
