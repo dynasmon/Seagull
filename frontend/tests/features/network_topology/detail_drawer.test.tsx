@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   NetworkTopologyEdgeDetailContent,
   NetworkTopologyNodeDetailContent,
-} from "@/features/network_topology/components/NetworkTopologyDetailDrawer";
+} from "@/features/network_topology/components/details/NetworkTopologyDetailDrawer";
 import type { TopologyEdgeDetail, TopologyNode, TopologyNodeDetail } from "@/features/network_topology/types";
 
 const now = "2026-05-13T12:00:00.000Z";

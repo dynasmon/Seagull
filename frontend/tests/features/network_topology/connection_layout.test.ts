@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { graphToConnectionView } from "@/features/network_topology/lib/graphTransform";
+import { graphToConnectionView } from "@/features/network_topology/lib/graph/graphTransform";
 import {
   REPRESENTATIVE_LIMIT,
   type Rect,
   pointInRect,
   rectsOverlap,
   regionContainsMember,
-} from "@/features/network_topology/lib/layoutContainment";
+} from "@/features/network_topology/lib/layout/layoutContainment";
 import {
   AGGREGATE_NODE_PREFIX,
   buildConnectionLayout,
   type TopologyLayoutArea,
-} from "@/features/network_topology/lib/topologyLayout";
+} from "@/features/network_topology/lib/layout/topologyLayout";
 import type { TopologyEdge, TopologyGraph, TopologyGroup, TopologyNode } from "@/features/network_topology/types";
 
 const now = "2026-05-24T12:00:00.000Z";

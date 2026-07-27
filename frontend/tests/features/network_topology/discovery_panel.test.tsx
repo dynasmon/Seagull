@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ComponentProps } from "react";
 import { describe, expect, it } from "vitest";
 
-import { NetworkTopologyDiscoveryPanel } from "@/features/network_topology/components/NetworkTopologyDiscoveryPanel";
+import { NetworkTopologyDiscoveryPanel } from "@/features/network_topology/components/panels/NetworkTopologyDiscoveryPanel";
 
 function renderPanel(overrides: Partial<ComponentProps<typeof NetworkTopologyDiscoveryPanel>> = {}) {
   return renderToStaticMarkup(

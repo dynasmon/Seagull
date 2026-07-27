@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from "path"
@@ -26,6 +27,19 @@ export default defineConfig({
           }
           return undefined;
         },
+      },
+    },
+  },
+  test: {
+    setupFiles: ["./tests/setup.ts"],
+    // Vitest resolves @elastic/eui to its CommonJS build, which require()s the ESM-only
+    // uuid package and throws on import. Point tests at the ESM build instead.
+    alias: [
+      { find: /^@elastic\/eui$/, replacement: path.resolve(__dirname, "node_modules/@elastic/eui/es/index.js") },
+    ],
+    server: {
+      deps: {
+        inline: [/@elastic\/eui/],
       },
     },
   },

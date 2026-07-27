@@ -4,16 +4,16 @@ import { describe, expect, it } from "vitest";
 import {
   NetworkTopologyGroupDetailContent,
   NetworkTopologySubnetDetailContent,
-} from "@/features/network_topology/components/NetworkTopologyDetailDrawer";
-import TopologyStatusStrip from "@/features/network_topology/components/TopologyStatusStrip";
-import TopologyTooltip from "@/features/network_topology/components/TopologyTooltip";
-import { DEFAULT_TOPOLOGY_FILTERS, resolveTopologyGraphParams } from "@/features/network_topology/lib/filters";
+} from "@/features/network_topology/components/details/NetworkTopologyDetailDrawer";
+import TopologyStatusStrip from "@/features/network_topology/components/canvas/TopologyStatusStrip";
+import TopologyTooltip from "@/features/network_topology/components/canvas/TopologyTooltip";
+import { DEFAULT_TOPOLOGY_FILTERS, resolveTopologyGraphParams } from "@/features/network_topology/lib/filtering/filters";
 import {
   canExploreSubnetGroup,
   filtersForSubnetExplore,
   focusedGroupDisplayLabel,
   subnetCidrForGroup,
-} from "@/features/network_topology/lib/subnets";
+} from "@/features/network_topology/lib/filtering/subnets";
 import type {
   TopologyEdge,
   TopologyGroup,
