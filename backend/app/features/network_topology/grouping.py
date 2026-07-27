@@ -27,6 +27,25 @@ _SCOPE_LABELS: dict[str, str] = {
 
 VALID_STRATEGIES = frozenset({"auto", "agent", "subnet", "ip_scope"})
 
+# A group edge bundles every edge between two groups; label it with the most significant
+# relationship in the bundle rather than whichever one happened to be aggregated first.
+_EDGE_TYPE_SIGNIFICANCE = {
+    "alert_related": 0,
+    "exposure_related": 1,
+    "route_next_hop": 2,
+    "observed_flow": 3,
+    "listens_on": 4,
+    "resolved_dns": 5,
+    "member_of_subnet": 6,
+    "owns_interface": 7,
+    "inferred_relationship": 8,
+    "same_agent": 9,
+}
+
+
+def _edge_significance(edge_type: str) -> int:
+    return _EDGE_TYPE_SIGNIFICANCE.get(edge_type, 10)
+
 
 def _sev_weight(sev: str | None) -> int:
     return _SEVERITY_ORDER.get(str(sev or "").lower(), 0)
@@ -50,6 +69,21 @@ def _ip_scope(node: Any) -> str:
 def _has_exposure(node: Any) -> bool:
     extra = node.extra_data if isinstance(node.extra_data, dict) else {}
     return bool(_clean(extra.get("exposure_asset_key", "")))
+
+
+def _is_public_endpoint(node: Any) -> bool:
+    return _clean(node.node_type).lower() == "external_ip" or _ip_scope(node) == "public_internet"
+
+
+def _subnet_ref(target_node_key: str, cidr_by_node_key: dict[str, str]) -> str:
+    key = _clean(target_node_key)
+    cidr = cidr_by_node_key.get(key)
+    if cidr:
+        return cidr
+    prefix = "topo:subnet:"
+    if key.startswith(prefix):
+        return key[len(prefix):]
+    return key
 
 
 def _has_gateway_metadata(edge: Any) -> bool:
@@ -81,6 +115,9 @@ def _node_group_key(node: Any, subnet_by_node_key: dict[str, str], strategy: str
     if strategy == "ip_scope":
         scope = _ip_scope(node)
         return f"scope:{scope}" if scope else "ungrouped"
+
+    if _is_public_endpoint(node):
+        return f"scope:{_ip_scope(node) or 'public_internet'}"
 
     agent = _clean(node.agent_id)
     if agent:
@@ -138,10 +175,15 @@ def build_groups(
         for node in nodes
         if _clean(node.node_type) == "subnet" and _clean(node.cidr)
     }
+    node_key_by_cidr: dict[str, str] = {
+        cidr: node_key for node_key, cidr in subnet_cidr_by_node_key.items()
+    }
     subnet_by_node_key: dict[str, str] = {}
     for edge in edges:
         if _clean(edge.edge_type) == "member_of_subnet":
-            subnet_by_node_key[edge.source_node_key] = edge.target_node_key
+            subnet_by_node_key[edge.source_node_key] = _subnet_ref(
+                edge.target_node_key, subnet_cidr_by_node_key
+            )
 
     node_to_group: dict[str, str] = {}
     for node in nodes:
@@ -194,10 +236,12 @@ def build_groups(
         agent_id = next((n.agent_id for n in bucket_nodes if n.agent_id), None)
         cidr = next((n.cidr for n in bucket_nodes if n.cidr), None)
         subnet_ref = gk[len("subnet:"):] if gk.startswith("subnet:") else ""
-        subnet_node_key = subnet_ref if subnet_ref in subnet_cidr_by_node_key else next(
+        subnet_node_key = node_key_by_cidr.get(subnet_ref) or next(
             (_clean(n.node_key) for n in bucket_nodes if _clean(n.node_type) == "subnet"),
             None,
         )
+        if not cidr and subnet_ref:
+            cidr = subnet_ref
         if not cidr and subnet_node_key:
             cidr = subnet_cidr_by_node_key.get(subnet_node_key)
 
@@ -242,12 +286,17 @@ def build_groups(
         fs = getattr(edge, "first_seen_at", None)
         ls = getattr(edge, "last_seen_at", None)
 
+        edge_type = _clean(edge.edge_type) or "observed_flow"
         existing = group_edge_agg.get(ek)
         if existing:
             existing["weight"] = float(existing["weight"]) + float(edge.weight or 1.0)
             existing["alert_count"] = int(existing["alert_count"]) + int(edge.alert_count or 0)
             existing["confidence"] = max(int(existing["confidence"]), int(edge.confidence or 0))
             existing["edge_count"] = int(existing["edge_count"]) + 1
+            breakdown = existing["metadata"]["edge_types"]
+            breakdown[edge_type] = int(breakdown.get(edge_type, 0)) + 1
+            if _edge_significance(edge_type) < _edge_significance(existing["edge_type"]):
+                existing["edge_type"] = edge_type
             if _sev_weight(edge_sev) > _sev_weight(existing["highest_severity"]):
                 existing["highest_severity"] = edge_sev
             if fs:
@@ -263,7 +312,7 @@ def build_groups(
                 "edge_key": ek,
                 "source_group_key": a,
                 "target_group_key": b,
-                "edge_type": _clean(edge.edge_type) or "observed_flow",
+                "edge_type": edge_type,
                 "weight": float(edge.weight or 1.0),
                 "alert_count": int(edge.alert_count or 0),
                 "confidence": int(edge.confidence or 0),
@@ -271,7 +320,7 @@ def build_groups(
                 "edge_count": 1,
                 "first_seen": fs.isoformat() if fs else None,
                 "last_seen": ls.isoformat() if ls else None,
-                "metadata": {},
+                "metadata": {"edge_types": {edge_type: 1}},
             }
 
     group_by_key = {g["group_key"]: g for g in groups}
