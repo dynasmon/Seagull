@@ -90,6 +90,7 @@ def project_topology(
     _project_flow_edges(db, now=now, cidrs=cidrs, coverage=coverage, window_minutes=window_minutes, max_events_per_run=max_events_per_run)
     _project_alert_edges(db, now=now, cidrs=cidrs, coverage=coverage, window_minutes=window_minutes)
     _project_exposure_graph(db, now=now, coverage=coverage, agent_nodes=agent_nodes)
+    repository.release_external_node_ownership(db)
 
     coverage.stale_nodes_marked = repository.count_stale_nodes(db)
     return coverage
