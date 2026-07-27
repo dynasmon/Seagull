@@ -219,7 +219,7 @@ export function resolveTopologyGraphParams(
     ip_scope: filters.ip_scopes[0] || undefined,
     include_stale: filters.include_stale || false,
     view_mode: filters.view_mode,
-    group_by: filters.view_mode === "location" ? "auto" : undefined,
+    group_by: "auto",
     focused_group_key: focusedGroupKey,
     exclusive_focus: focusedGroupKey ? filters.view_mode === "connection" : undefined,
     ...bounds,
@@ -331,24 +331,24 @@ export function filterTopologyGraph(graph: TopologyGraph | null, filters: Topolo
   });
   const filteredNodes = graph.nodes.filter((node) => visibleNodeKeys.has(node.node_key));
   const visibleGroupKeys = new Set<string>();
-  if (graph.groups) {
-    for (const group of graph.groups) {
-      const groupAgentId = (group.metadata?.agent_id as string | null) ?? null;
-      const groupCidr = (group.metadata?.cidr as string | null) ?? null;
-      const visible = filteredNodes.some((node) =>
-        group.child_node_keys.includes(node.node_key) ||
-        Boolean(groupAgentId && node.agent_id === groupAgentId) ||
-        Boolean(groupCidr && node.cidr === groupCidr),
-      );
-      if (visible) visibleGroupKeys.add(group.group_key);
-    }
-  }
+  const rescopedGroups = graph.groups
+    ?.map((group) => {
+      const keptKeys = group.child_node_keys.filter((key) => visibleNodeKeys.has(key));
+      if (keptKeys.length === 0) return null;
+      visibleGroupKeys.add(group.group_key);
+      if (keptKeys.length === group.child_node_keys.length) return group;
+      // node_count covers the whole group; only re-derive it when the key list is complete.
+      return group.child_node_keys_truncated
+        ? { ...group, child_node_keys: keptKeys }
+        : { ...group, child_node_keys: keptKeys, node_count: keptKeys.length };
+    })
+    .filter((group): group is NonNullable<typeof group> => group !== null);
 
   return {
     ...graph,
     nodes: filteredNodes,
     edges,
-    groups: graph.groups?.filter((group) => visibleGroupKeys.has(group.group_key)),
+    groups: rescopedGroups,
     group_edges: graph.group_edges?.filter(
       (edge) => visibleGroupKeys.has(edge.source_group_key) && visibleGroupKeys.has(edge.target_group_key),
     ),
