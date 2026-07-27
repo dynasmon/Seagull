@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { graphToConnectionView } from "@/features/network_topology/lib/graphTransform";
-import type { DeviceNodeData } from "@/features/network_topology/lib/graphTransform";
+import { graphToConnectionView } from "@/features/network_topology/lib/graph/graphTransform";
+import type { DeviceNodeData } from "@/features/network_topology/lib/graph/graphTransform";
 import {
   findLocalAnchor,
   nodeImportance,
   type TopologyLayout,
   type TopologyLayoutNode,
-} from "@/features/network_topology/lib/topologyLayout";
+} from "@/features/network_topology/lib/layout/topologyLayout";
 import type {
   TopologyEdge,
   TopologyGraph,
@@ -207,11 +207,11 @@ describe("label policy in connection view", () => {
     highlightedKeys: new Set<string>(),
   };
 
-  it("normal host node does not show label by default", () => {
+  it("normal host node shows its label in a group small enough to read", () => {
     const layout = buildLayout(graph(), groups);
     const { nodes } = graphToConnectionView(graph(), layout, selNone);
     const hostNode = nodes.find((n) => n.type === "device" && n.id === "host-a");
-    expect((hostNode?.data as unknown as DeviceNodeData).showLabel).toBe(false);
+    expect((hostNode?.data as unknown as DeviceNodeData).showLabel).toBe(true);
   });
 
   it("agent node in a small group shows label", () => {

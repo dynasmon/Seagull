@@ -9,7 +9,7 @@ import {
   groupNodeBoundingBox,
   nodeBoundingRadius,
   shouldShowLabel,
-} from "@/features/network_topology/lib/presentation";
+} from "@/features/network_topology/lib/layout/presentation";
 import type { TopologyEdge } from "@/features/network_topology/types";
 
 function edge(overrides: Partial<Pick<TopologyEdge, "edge_type" | "confidence" | "alert_count">>): Pick<TopologyEdge, "edge_type" | "confidence" | "alert_count"> {
@@ -18,22 +18,22 @@ function edge(overrides: Partial<Pick<TopologyEdge, "edge_type" | "confidence" |
 
 describe("groupCardSize", () => {
   it("returns the minimum width for a short label", () => {
-    expect(groupCardSize("A").w).toBe(148);
+    expect(groupCardSize("A").w).toBe(236);
   });
 
   it("grows beyond minimum for a longer label", () => {
-    const medium = groupCardSize("Internal Network");
-    expect(medium.w).toBeGreaterThan(148);
-    expect(medium.w).toBeLessThanOrEqual(240);
+    const medium = groupCardSize("Internal Network 10.4.0.0/16");
+    expect(medium.w).toBeGreaterThan(236);
+    expect(medium.w).toBeLessThanOrEqual(340);
   });
 
   it("caps width at maximum for a very long label", () => {
-    expect(groupCardSize("Kubernetes Production Cluster Node Network").w).toBe(240);
+    expect(groupCardSize("Kubernetes Production Cluster Node Network").w).toBe(340);
   });
 
   it("height is always constant", () => {
-    expect(groupCardSize("A").h).toBe(52);
-    expect(groupCardSize("Kubernetes Production Cluster Node Network").h).toBe(52);
+    expect(groupCardSize("A").h).toBe(116);
+    expect(groupCardSize("Kubernetes Production Cluster Node Network").h).toBe(116);
   });
 });
 
@@ -93,37 +93,30 @@ describe("groupEdgePriorityRank", () => {
 describe("shouldShowLabel", () => {
   const baseNode = { node_type: "host", alert_count: 0, severity: "low" } as const;
 
-  it("returns false for a plain normal host with no alerts", () => {
-    expect(shouldShowLabel(baseNode, false, false, "normal", 5)).toBe(false);
+  it("labels a plain host while the group is small enough to stay readable", () => {
+    expect(shouldShowLabel(baseNode, false, false, "normal", 5)).toBe(true);
+  });
+
+  it("drops labels for plain hosts once the group is too dense to read", () => {
+    expect(shouldShowLabel(baseNode, false, false, "normal", 80)).toBe(false);
   });
 
   it("returns true when selected", () => {
-    expect(shouldShowLabel(baseNode, true, false, "normal", 5)).toBe(true);
+    expect(shouldShowLabel(baseNode, true, false, "normal", 500)).toBe(true);
   });
 
   it("returns true when search match", () => {
-    expect(shouldShowLabel(baseNode, false, true, "normal", 5)).toBe(true);
+    expect(shouldShowLabel(baseNode, false, true, "normal", 500)).toBe(true);
   });
 
-  it("returns true for an anchor node in a small group", () => {
+  it("always labels anchors, however dense the group", () => {
     expect(shouldShowLabel({ node_type: "subnet", alert_count: 0, severity: "unknown" }, false, false, "anchor", 4)).toBe(true);
-    expect(shouldShowLabel({ node_type: "gateway", alert_count: 0, severity: "unknown" }, false, false, "anchor", 10)).toBe(true);
+    expect(shouldShowLabel({ node_type: "subnet", alert_count: 0, severity: "unknown" }, false, false, "anchor", 300)).toBe(true);
   });
 
-  it("returns false for an anchor node in a very large group", () => {
-    expect(shouldShowLabel({ node_type: "subnet", alert_count: 0, severity: "unknown" }, false, false, "anchor", 30)).toBe(false);
-  });
-
-  it("returns true for a high-severity node with alerts", () => {
-    expect(shouldShowLabel({ node_type: "host", alert_count: 1, severity: "high" }, false, false, "elevated", 50)).toBe(true);
-  });
-
-  it("returns true for a critical-severity node with alerts", () => {
-    expect(shouldShowLabel({ node_type: "host", alert_count: 2, severity: "critical" }, false, false, "elevated", 50)).toBe(true);
-  });
-
-  it("returns false for an alerted node with only medium severity", () => {
-    expect(shouldShowLabel({ node_type: "host", alert_count: 1, severity: "medium" }, false, false, "elevated", 5)).toBe(false);
+  it("always labels a node carrying alerts, whatever its severity", () => {
+    expect(shouldShowLabel({ node_type: "host", alert_count: 1, severity: "high" }, false, false, "elevated", 500)).toBe(true);
+    expect(shouldShowLabel({ node_type: "host", alert_count: 1, severity: "medium" }, false, false, "normal", 500)).toBe(true);
   });
 });
 

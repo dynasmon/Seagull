@@ -1,18 +1,18 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { TopologyFilterRail } from "@/features/network_topology/components/TopologyFilterRail";
-import { DEFAULT_TOPOLOGY_FILTERS } from "@/features/network_topology/lib/filters";
+import { TopologyFilterRail } from "@/features/network_topology/components/filters/TopologyFilterRail";
+import { DEFAULT_TOPOLOGY_FILTERS } from "@/features/network_topology/lib/filtering/filters";
 import {
   graphToConnectionView,
   graphToLocationView,
-} from "@/features/network_topology/lib/graphTransform";
+} from "@/features/network_topology/lib/graph/graphTransform";
 import {
   nodeImportance,
   type TopologyGroupLayoutPoint,
   type TopologyLayout,
   type TopologyLayoutNode,
-} from "@/features/network_topology/lib/topologyLayout";
+} from "@/features/network_topology/lib/layout/topologyLayout";
 import type {
   TopologyGraph,
   TopologyGroup,
@@ -117,26 +117,24 @@ function buildLayout(g: TopologyGraph, gs: TopologyGroup[]): TopologyLayout {
 }
 
 describe("topology map transforms", () => {
-  it("generates compact location markers", () => {
+  it("generates readable location cards carrying group metrics", () => {
     const groups = [group({ node_count: 4, alert_count: 1 })];
     const positions = new Map<string, TopologyGroupLayoutPoint>([
       [groups[0].group_key, { x: 100, y: 100, ring: 0, degree: 0, isCentral: true }],
     ]);
     const { nodes } = graphToLocationView(groups, [], positions, selection);
-    expect(nodes[0]).toMatchObject({
-      type: "group",
-      width: 148,
-      height: 52,
-    });
+    expect(nodes[0]).toMatchObject({ type: "group", height: 116 });
+    expect(nodes[0].width).toBeGreaterThanOrEqual(236);
+    expect(nodes[0].data).toMatchObject({ isCentral: true, linkCount: 0 });
   });
 
-  it("creates cluster halos and suppresses labels for dense normal nodes", () => {
+  it("creates cluster halos and labels every node in a group small enough to read", () => {
     const groups = [group({ node_keys: ["agent", "quiet-1", "quiet-2", "risky"], node_count: 4 })];
     const layout = buildLayout(graph(), groups);
     const { nodes } = graphToConnectionView(graph(), layout, selection);
     expect(nodes.some((item) => item.type === "clusterHalo")).toBe(true);
-    expect(nodes.find((item) => item.id === "quiet-1")?.data.showLabel).toBe(false);
-    expect(nodes.find((item) => item.id === "quiet-2")?.data.showLabel).toBe(false);
+    expect(nodes.find((item) => item.id === "quiet-1")?.data.showLabel).toBe(true);
+    expect(nodes.find((item) => item.id === "quiet-2")?.data.showLabel).toBe(true);
   });
 
   it("keeps labels visible for important nodes and search matches", () => {

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { buildTopologyGraphPath } from "@/features/network_topology/api";
-import { resolveTopologyGraphParams, DEFAULT_TOPOLOGY_FILTERS } from "@/features/network_topology/lib/filters";
-import { groupTopologyGraph, resolveTopologyGroups } from "@/features/network_topology/lib/grouping";
+import { resolveTopologyGraphParams, DEFAULT_TOPOLOGY_FILTERS } from "@/features/network_topology/lib/filtering/filters";
+import {
+  groupTopologyGraph,
+  resolveNodeGroupKeys,
+  resolveTopologyGroups,
+} from "@/features/network_topology/lib/graph/grouping";
 import type {
   TopologyGraph,
   TopologyGroupBackend,
@@ -162,6 +166,84 @@ describe("backend groups used when present in graph response", () => {
   });
 });
 
+describe("resolveNodeGroupKeys", () => {
+  const agentGroup = {
+    group_key: "agent:agent-1",
+    group_type: "agent" as const,
+    label: "Agent One",
+    node_keys: ["node-1"],
+    node_count: 3,
+    alert_count: 0,
+    highest_severity: "low",
+    risk_score: 0,
+    is_stale: false,
+    agent_id: "agent-1",
+    cidr: null,
+  };
+  const scopeGroup = {
+    ...agentGroup,
+    group_key: "scope:public_internet",
+    group_type: "scope" as const,
+    label: "Public Internet",
+    node_keys: [],
+    agent_id: null,
+  };
+  const subnetGroup = {
+    ...agentGroup,
+    group_key: "subnet:10.0.0.0/24",
+    group_type: "subnet" as const,
+    label: "10.0.0.0/24",
+    node_keys: [],
+    agent_id: null,
+    cidr: "10.0.0.0/24",
+  };
+
+  it("re-attaches members the API dropped from a truncated child key list", () => {
+    const graph: TopologyGraph = {
+      nodes: [makeNode("node-1", "agent-1"), makeNode("node-2", "agent-1")],
+      edges: [],
+      ...freshness,
+    };
+    const assigned = resolveNodeGroupKeys(graph, [agentGroup]);
+    expect(assigned.get("node-1")).toBe("agent:agent-1");
+    expect(assigned.get("node-2")).toBe("agent:agent-1");
+  });
+
+  it("keeps public endpoints in the internet scope even when an agent observed them", () => {
+    const graph: TopologyGraph = {
+      nodes: [
+        makeNode("pub-1", "agent-1", {
+          node_type: "external_ip",
+          metadata: { ip_scope: "public_internet" },
+        }),
+      ],
+      edges: [makeEdge("pub-1", "node-1")],
+      ...freshness,
+    };
+    const assigned = resolveNodeGroupKeys(graph, [agentGroup, scopeGroup]);
+    expect(assigned.get("pub-1")).toBe("scope:public_internet");
+  });
+
+  it("falls back to the subnet group for nodes carrying a matching CIDR", () => {
+    const graph: TopologyGraph = {
+      nodes: [makeNode("sub-1", null, { cidr: "10.0.0.0/24" })],
+      edges: [],
+      ...freshness,
+    };
+    const assigned = resolveNodeGroupKeys(graph, [subnetGroup]);
+    expect(assigned.get("sub-1")).toBe("subnet:10.0.0.0/24");
+  });
+
+  it("leaves a node unassigned when no group identity matches", () => {
+    const graph: TopologyGraph = {
+      nodes: [makeNode("lonely", null)],
+      edges: [],
+      ...freshness,
+    };
+    expect(resolveNodeGroupKeys(graph, [agentGroup]).has("lonely")).toBe(false);
+  });
+});
+
 describe("resolveTopologyGraphParams includes grouping params", () => {
   it("includes view_mode in params", () => {
     const params = resolveTopologyGraphParams({ ...DEFAULT_TOPOLOGY_FILTERS, view_mode: "location" });
@@ -173,9 +255,9 @@ describe("resolveTopologyGraphParams includes grouping params", () => {
     expect(params.group_by).toBe("auto");
   });
 
-  it("does not send group_by when view_mode=connection", () => {
+  it("sends group_by=auto in connection view too, so both views group identically", () => {
     const params = resolveTopologyGraphParams({ ...DEFAULT_TOPOLOGY_FILTERS, view_mode: "connection" });
-    expect(params.group_by).toBeUndefined();
+    expect(params.group_by).toBe("auto");
   });
 
   it("includes focused_group_key when provided via opts", () => {
