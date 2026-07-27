@@ -17,17 +17,8 @@ import {
   TOPOLOGY_SEVERITY_OPTIONS,
   TOPOLOGY_TIME_WINDOWS,
 } from "../../lib/filtering/filters";
-import { nodeVisualByType } from "../../lib/presentation/visuals";
+import { NODE_TYPE_LABELS, SEVERITY_COLORS, nodeVisualByType } from "../../lib/presentation/visuals";
 import type { TopologyFacets, TopologyFilters, TopologyGroup, TopologyIpScope, TopologySeverity, TopologyViewMode } from "../../types";
-
-const SEVERITY_DOT: Record<string, string> = {
-  critical:      "#F87171",
-  high:          "#F97316",
-  medium:        "#FBBF24",
-  low:           "#4ADE80",
-  informational: "#60A5FA",
-  unknown:       "#9CA3AF",
-};
 
 type AgentOption = { value: string; label: string };
 
@@ -170,11 +161,15 @@ export function TopologyFilterRail({
 
       <div className="border-b border-border/30 px-3 py-2.5">
         <TextInput
-          placeholder="Search nodes, IPs, ports…"
+          placeholder="Keep only matches…"
           value={filters.q}
           onChange={(e) => onChange({ q: e.target.value })}
           className="h-7 text-[12px]"
         />
+        <div className="mt-1.5 text-[10px] leading-snug text-muted-foreground/50">
+          Removes everything else from the graph. Use Find on the canvas to jump between matches
+          without hiding context.
+        </div>
       </div>
 
       <FilterSection title="Severity">
@@ -188,7 +183,7 @@ export function TopologyFilterRail({
                   <span className="flex items-center gap-1.5">
                     <span
                       className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ background: SEVERITY_DOT[value] ?? "#9CA3AF" }}
+                      style={{ background: SEVERITY_COLORS[value] ?? SEVERITY_COLORS.unknown }}
                     />
                     <span className="text-[12px]">{label}</span>
                     {count != null && (
@@ -206,8 +201,9 @@ export function TopologyFilterRail({
 
       <FilterSection title="Type" defaultOpen={false}>
         <div className="space-y-1.5">
-          {TOPOLOGY_NODE_TYPE_OPTIONS.map(({ value, label }) => {
+          {TOPOLOGY_NODE_TYPE_OPTIONS.map(({ value, label: fallbackLabel }) => {
             const visual = nodeVisualByType(value);
+            const label = NODE_TYPE_LABELS[value] ?? fallbackLabel;
             const count = facets?.node_types[value];
             return (
               <CheckboxField
