@@ -41,6 +41,8 @@ import {
   resolveTopologySubnetParams,
 } from "./lib/filtering/filters";
 import {
+  BUNDLE_EDGE_PREFIX,
+  computeGroupStats,
   computeHighlightedKeys,
   graphToConnectionView,
   graphToLocationView,
@@ -68,6 +70,9 @@ function firstRejectedMessage(results: PromiseSettledResult<unknown>[]): string 
 function isTerminalDiscoveryActionStatus(status: string) {
   return ["success", "failed", "cancelled", "expired"].includes(status);
 }
+
+const EMPTY_KEY_SET: Set<string> = new Set();
+const PINNED_MATCH_LIMIT = 40;
 
 export default function NetworkTopologyPage() {
   const { user } = useAuth();
@@ -107,13 +112,16 @@ export default function NetworkTopologyPage() {
   const [detailSelection, setDetailSelection] = useState<NetworkTopologyDetailSelection>(null);
   const [secondaryOpen, setSecondaryOpen] = useState(false);
   const [showIsolated, setShowIsolated] = useState(false);
+  const [activeEdgeTypes, setActiveEdgeTypes] = useState<string[]>([]);
+  const [expandedBundleKeys, setExpandedBundleKeys] = useState<Set<string>>(() => new Set());
+  const [newNodeIds, setNewNodeIds] = useState<Set<string>>(() => new Set());
 
   const filtersRef = useRef(appliedFilters);
   const focusedGroupKeyRef = useRef<string | null>(null);
   const loadedOnceRef = useRef(false);
   const detailSeqRef = useRef(0);
   const discoveryActionSeqRef = useRef(0);
-  const prevNodeIdsRef = useRef<Set<string>>(new Set());
+  const seenNodeIdsRef = useRef<Set<string> | null>(null);
 
   const agentOptions = useMemo(
     () =>
@@ -194,61 +202,126 @@ export default function NetworkTopologyPage() {
     };
   }, [workspace.searchQuery, searchResult]);
 
-  const activeMatchKey = useMemo(() => {
-    if (!workspace.searchQuery.trim()) return null;
-    if (appliedFilters.view_mode === "location") {
-      return searchResult.orderedGroupKeys[workspace.searchMatchIndex] ?? null;
+  const searchStateWithActive = searchState;
+
+  const pinnedMatchKeys = useMemo(() => {
+    if (appliedFilters.view_mode !== "connection") return EMPTY_KEY_SET;
+    const matched = searchResult.matchedNodeKeys;
+    return matched.size > 0 && matched.size <= PINNED_MATCH_LIMIT ? matched : EMPTY_KEY_SET;
+  }, [appliedFilters.view_mode, searchResult.matchedNodeKeys]);
+
+  useEffect(() => {
+    if (!graph) return;
+    const currentIds = new Set(graph.nodes.map((node) => node.node_key));
+    const seen = seenNodeIdsRef.current;
+    seenNodeIdsRef.current = currentIds;
+    if (seen === null) {
+      setNewNodeIds(new Set());
+      return;
     }
-    return searchResult.orderedNodeKeys[workspace.searchMatchIndex] ?? null;
-  }, [workspace.searchQuery, workspace.searchMatchIndex, appliedFilters.view_mode, searchResult]);
-
-  const searchStateWithActive = useMemo(() => {
-    if (!searchState) return undefined;
-    return { ...searchState, activeMatchKey };
-  }, [searchState, activeMatchKey]);
-
-  const searchTotal = appliedFilters.view_mode === "location"
-    ? searchResult.orderedGroupKeys.length
-    : searchResult.orderedNodeKeys.length;
-
-  const newNodeIds = new Set(
-    graph?.nodes
-      .filter((n) => !prevNodeIdsRef.current.has(n.node_key))
-      .map((n) => n.node_key) ?? [],
-  );
-  prevNodeIdsRef.current = new Set(graph?.nodes.map((n) => n.node_key) ?? []);
+    const added = new Set<string>();
+    for (const id of currentIds) {
+      if (!seen.has(id)) added.add(id);
+    }
+    setNewNodeIds(added);
+  }, [graph]);
 
   const { activeGraph, isolatedCount } = useMemo(() => {
     if (!visibleGraph) return { activeGraph: null as TopologyGraph | null, isolatedCount: 0 };
     return pruneIsolatedNodes(visibleGraph, searchStateWithActive, showIsolated);
   }, [visibleGraph, searchStateWithActive, showIsolated]);
 
+  const edgeTypeFilter = useMemo(() => new Set(activeEdgeTypes), [activeEdgeTypes]);
+
+  const legendFilteredGraph = useMemo(() => {
+    if (!activeGraph || edgeTypeFilter.size === 0) return activeGraph;
+    return { ...activeGraph, edges: activeGraph.edges.filter((edge) => edgeTypeFilter.has(edge.edge_type)) };
+  }, [activeGraph, edgeTypeFilter]);
+
+  const legendFilteredGroupEdges = useMemo(() => {
+    if (edgeTypeFilter.size === 0) return groupEdges;
+    return groupEdges.filter((edge) => edge.edge_types.some((type) => edgeTypeFilter.has(type)));
+  }, [groupEdges, edgeTypeFilter]);
+
+  const groupStats = useMemo(
+    () => computeGroupStats(visibleGraph, groups),
+    [visibleGraph, groups],
+  );
+
   const { connectionLayout, locationPositions } = useTopologyLayout(
-    activeGraph,
+    legendFilteredGraph,
     groups,
     appliedFilters.view_mode,
     workspace.focusedGroupKey,
+    pinnedMatchKeys,
+    legendFilteredGroupEdges,
   );
+
+  const navigableMatchKeys = useMemo(() => {
+    if (!workspace.searchQuery.trim()) return [] as string[];
+    if (appliedFilters.view_mode === "location") {
+      const drawn = new Set(groups.map((group) => group.group_key));
+      return searchResult.orderedGroupKeys.filter((key) => drawn.has(key));
+    }
+    const drawn = new Set((connectionLayout?.nodes ?? []).map((node) => node.node_key));
+    return searchResult.orderedNodeKeys.filter((key) => drawn.has(key));
+  }, [workspace.searchQuery, appliedFilters.view_mode, groups, connectionLayout, searchResult]);
+
+  const searchTotal = navigableMatchKeys.length;
+  const searchMatchTotal =
+    appliedFilters.view_mode === "location"
+      ? searchResult.orderedGroupKeys.length
+      : searchResult.orderedNodeKeys.length;
+  const activeMatchKey = navigableMatchKeys[workspace.searchMatchIndex] ?? null;
 
   const { nodes: rfNodes, edges: rfEdges } = useMemo(() => {
     if (appliedFilters.view_mode === "location") {
-      return graphToLocationView(groups, groupEdges, locationPositions, selState, searchStateWithActive);
+      return graphToLocationView(
+        groups,
+        legendFilteredGroupEdges,
+        locationPositions,
+        selState,
+        searchStateWithActive,
+        groupStats,
+      );
     }
     return graphToConnectionView(
-      activeGraph,
+      legendFilteredGraph,
       connectionLayout,
       selState,
       searchStateWithActive,
       focusState,
       newNodeIds,
       isolatedCount,
+      expandedBundleKeys,
     );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appliedFilters.view_mode, groups, groupEdges, locationPositions, connectionLayout, activeGraph, isolatedCount, selState, searchStateWithActive, focusState]);
+  }, [
+    appliedFilters.view_mode,
+    groups,
+    legendFilteredGroupEdges,
+    locationPositions,
+    connectionLayout,
+    legendFilteredGraph,
+    groupStats,
+    isolatedCount,
+    newNodeIds,
+    expandedBundleKeys,
+    selState,
+    searchStateWithActive,
+    focusState,
+  ]);
 
   const handleShowIsolated = useCallback(() => {
     setShowIsolated(true);
   }, []);
+
+  const handleEdgeTypeToggle = useCallback((edgeType: string) => {
+    setActiveEdgeTypes((prev) =>
+      prev.includes(edgeType) ? prev.filter((type) => type !== edgeType) : [...prev, edgeType],
+    );
+  }, []);
+
+  const handleEdgeTypeReset = useCallback(() => setActiveEdgeTypes([]), []);
 
   const selectedDiscoveryAgent = useMemo(
     () => agents.find((agent) => agent.agent_id === selectedDiscoveryAgentId) ?? null,
@@ -396,19 +469,23 @@ export default function NetworkTopologyPage() {
     async (id: string, kind: "node" | "group") => {
       if (kind === "group") {
         workspace.selectGroup(id);
-        const group = groups.find((g) => g.group_key === id) ?? null;
+        const group =
+          groups.find((g) => g.group_key === id) ??
+          connectionLayout?.areas.find((area) => area.group.group_key === id)?.group ??
+          null;
         if (group) {
           const subnetCidr = subnetCidrForGroup(group);
           const memberNodes = (visibleGraph?.nodes ?? [])
             .filter((n) => group.node_keys.includes(n.node_key))
             .slice(0, 20);
+          const canFetchBackendDetail = !id.startsWith("__");
           setDetailSelection({
             kind: "group",
             key: id,
             group,
             memberNodes,
             backendDetail: null,
-            backendDetailLoading: true,
+            backendDetailLoading: canFetchBackendDetail,
             backendDetailError: null,
             subnetCidr,
             subnetDetail: null,
@@ -418,7 +495,9 @@ export default function NetworkTopologyPage() {
           });
           const seq = detailSeqRef.current + 1;
           detailSeqRef.current = seq;
-          void getTopologyGroupDetail(id)
+          const detailParams = resolveTopologyGraphParams(appliedFilters, new Date());
+          if (canFetchBackendDetail) {
+          void getTopologyGroupDetail(id, detailParams)
             .then((backendDetail) => {
               if (detailSeqRef.current !== seq) return;
               setDetailSelection((prev) =>
@@ -435,6 +514,7 @@ export default function NetworkTopologyPage() {
                   : prev,
               );
             });
+          }
           if (subnetCidr) {
             void getTopologySubnetDetail(subnetCidr)
               .then((subnetDetail) => {
@@ -470,11 +550,21 @@ export default function NetworkTopologyPage() {
         setDetailSelection({ kind: "node", key: id, detail: null, loading: false, error: getErrorMessage(err, "Failed to load node detail") });
       }
     },
-    [workspace, groups, visibleGraph, handleExploreGroupInConnection],
+    [workspace, groups, connectionLayout, visibleGraph, appliedFilters, handleExploreGroupInConnection],
   );
 
   const handleEdgeClick = useCallback(
     async (id: string) => {
+      if (id.startsWith(BUNDLE_EDGE_PREFIX)) {
+        const bundleKey = id.slice(BUNDLE_EDGE_PREFIX.length);
+        setExpandedBundleKeys((prev) => {
+          const next = new Set(prev);
+          if (next.has(bundleKey)) next.delete(bundleKey);
+          else next.add(bundleKey);
+          return next;
+        });
+        return;
+      }
       workspace.selectEdge(id);
       const seq = detailSeqRef.current + 1;
       detailSeqRef.current = seq;
@@ -553,6 +643,14 @@ export default function NetworkTopologyPage() {
           workspace.setSearchQuery("");
           return;
         }
+        if (activeEdgeTypes.length > 0) {
+          setActiveEdgeTypes([]);
+          return;
+        }
+        if (expandedBundleKeys.size > 0) {
+          setExpandedBundleKeys(new Set());
+          return;
+        }
         workspace.clearSelection();
         setDetailSelection(null);
         detailSeqRef.current += 1;
@@ -560,7 +658,7 @@ export default function NetworkTopologyPage() {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [workspace]);
+  }, [workspace, activeEdgeTypes, expandedBundleKeys]);
 
   return (
     <div
@@ -589,7 +687,7 @@ export default function NetworkTopologyPage() {
           />
         )}
 
-        <div className="relative min-h-0 min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1" style={{ minHeight: 240 }}>
           <TopologyCanvas
             nodes={rfNodes}
             edges={rfEdges}
@@ -605,12 +703,16 @@ export default function NetworkTopologyPage() {
             activeMatchKey={activeMatchKey}
             searchQuery={workspace.searchQuery}
             searchTotal={searchTotal}
+            searchMatchTotal={searchMatchTotal}
             searchMatchIndex={workspace.searchMatchIndex}
             focusedGroupLabel={focusedGroupLabel}
             realtimeStatus={liveState.realtimeStatus}
             isRefreshing={liveState.isRefreshing}
             isolatedCount={isolatedCount}
             showIsolated={showIsolated}
+            activeEdgeTypes={activeEdgeTypes}
+            onEdgeTypeToggle={handleEdgeTypeToggle}
+            onEdgeTypeReset={handleEdgeTypeReset}
             onShowIsolated={handleShowIsolated}
             onViewModeChange={(mode) => applyWith({ ...draftFilters, view_mode: mode })}
             onToggleFilterRail={() => workspace.setFilterRailOpen((prev) => !prev)}
@@ -660,7 +762,10 @@ export default function NetworkTopologyPage() {
         </div>
 
         {secondaryOpen && (
-          <div className="max-h-[480px] overflow-y-auto border-t border-border/30 bg-background/30 px-4 py-4">
+          <div
+            className="overflow-y-auto border-t border-border/30 bg-background/30 px-4 py-4"
+            style={{ maxHeight: "min(480px, 42vh)" }}
+          >
             <div className="space-y-4">
               {isAdmin && (
                 <NetworkTopologyDiscoveryPanel

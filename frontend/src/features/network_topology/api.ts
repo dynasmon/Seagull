@@ -115,8 +115,24 @@ export function listTopologyObservations(params: TopologyObservationParams = {})
   });
 }
 
-export function getTopologyGroupDetail(groupKey: string, signal?: AbortSignal) {
-  return apiGet<TopologyGroupDetail>(`${BASE}/groups/${encodeURIComponent(groupKey)}`, { cacheMs: 0, signal });
+export function buildTopologyGroupDetailPath(groupKey: string, params: TopologyGraphParams = {}): string {
+  const q = new URLSearchParams();
+  appendOptional(q, "max_nodes", params.max_nodes);
+  appendOptional(q, "max_edges", params.max_edges);
+  appendOptional(q, "min_confidence", params.min_confidence);
+  appendOptional(q, "agent_id", params.agent_id);
+  appendOptional(q, "group_by", params.group_by);
+  appendOptional(q, "since", params.since);
+  appendOptional(q, "until", params.until);
+  appendOptional(q, "include_stale", params.include_stale);
+  return withQuery(`${BASE}/groups/${encodeURIComponent(groupKey)}`, q);
+}
+
+export function getTopologyGroupDetail(groupKey: string, params: TopologyGraphParams = {}) {
+  return apiGet<TopologyGroupDetail>(buildTopologyGroupDetailPath(groupKey, params), {
+    cacheMs: 0,
+    signal: params.signal,
+  });
 }
 
 export function requestTopologyRecalculate() {

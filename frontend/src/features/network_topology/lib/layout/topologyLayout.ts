@@ -2,16 +2,20 @@ import type {
   TopologyEdge,
   TopologyGraph,
   TopologyGroup,
+  TopologyGroupEdge,
   TopologyNode,
 } from "../../types";
 import {
   arrangeGroupCluster,
   classifyGroupMembers,
-  placeRegionsOrbital,
+  packRegions,
+  regionLinkKey,
   type ClusterMember,
   type ClusterSatellite,
   type RegionInput,
+  type RegionLinks,
 } from "./layoutContainment";
+import { resolveNodeGroupKeys } from "../graph/grouping";
 import { groupCardSize } from "./presentation";
 import type { TopologyNodeImportance } from "./presentation";
 
@@ -79,9 +83,9 @@ export function nodeImportance(node: TopologyNode): TopologyNodeImportance {
 
 function nodeRadius(node: TopologyNode): number {
   const importance = nodeImportance(node);
-  if (importance === "anchor") return 13;
-  if (importance === "elevated") return 10;
-  return 7;
+  if (importance === "anchor") return 24;
+  if (importance === "elevated") return 20;
+  return 17;
 }
 
 export function findLocalAnchor(nodes: TopologyNode[]): TopologyNode | null {
@@ -202,16 +206,11 @@ export function buildConnectionLayout(
   graph: TopologyGraph,
   groups: TopologyGroup[],
   focusedGroupKey: string | null = null,
+  pinnedNodeKeys: Set<string> = new Set(),
 ): TopologyLayout {
   if (graph.nodes.length === 0) return emptyLayout();
 
-  const presentByKey = new Map(graph.nodes.map((node) => [node.node_key, node]));
-  const groupOfNode = new Map<string, string>();
-  for (const group of groups) {
-    for (const key of group.node_keys) {
-      if (presentByKey.has(key) && !groupOfNode.has(key)) groupOfNode.set(key, group.group_key);
-    }
-  }
+  const groupOfNode = resolveNodeGroupKeys(graph, groups);
 
   const membersByGroup = new Map<string, TopologyNode[]>();
   const orphans: TopologyNode[] = [];
@@ -253,6 +252,7 @@ export function buildConnectionLayout(
         node.node_key === hub.node_key ||
         nodeImportance(node) !== "normal" ||
         node.alert_count > 0 ||
+        pinnedNodeKeys.has(node.node_key) ||
         relationshipKeys.has(node.node_key),
     }));
 
@@ -309,7 +309,16 @@ export function buildConnectionLayout(
 
   if (regionInputs.length === 0) return emptyLayout();
 
-  const placement = placeRegionsOrbital(regionInputs);
+  const regionLinks: RegionLinks = new Map();
+  for (const edge of graph.edges) {
+    const source = groupOfNode.get(edge.source_node_key);
+    const target = groupOfNode.get(edge.target_node_key);
+    if (!source || !target || source === target) continue;
+    const key = regionLinkKey(source, target);
+    regionLinks.set(key, (regionLinks.get(key) ?? 0) + 1);
+  }
+
+  const placement = packRegions(regionInputs, regionLinks);
 
   const layoutNodes: TopologyLayoutNode[] = [];
   const nodeByKey = new Map<string, TopologyLayoutNode>();
@@ -353,6 +362,7 @@ export function buildConnectionLayout(
 export function buildLocationLayout(
   graph: TopologyGraph | null,
   groups: TopologyGroup[],
+  groupEdges: TopologyGroupEdge[] = [],
 ): Map<string, TopologyGroupLayoutPoint> {
   const positions = new Map<string, TopologyGroupLayoutPoint>();
   if (groups.length === 0) return positions;
@@ -369,7 +379,13 @@ export function buildLocationLayout(
     };
   });
 
-  const placement = placeRegionsOrbital(regionInputs);
+  const regionLinks: RegionLinks = new Map();
+  for (const edge of groupEdges) {
+    const key = regionLinkKey(edge.source_group_key, edge.target_group_key);
+    regionLinks.set(key, (regionLinks.get(key) ?? 0) + Math.max(1, Number(edge.event_count || 1)));
+  }
+
+  const placement = packRegions(regionInputs, regionLinks);
   for (const group of groups) {
     const origin = placement.origins.get(group.group_key);
     if (!origin) continue;
