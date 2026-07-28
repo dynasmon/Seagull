@@ -18,7 +18,7 @@ import {
   nodeEventsPivot,
   nodePrimaryIp,
   observationPivotUrl,
-} from "@/features/network_topology/lib/pivots";
+} from "@/features/network_topology/lib/details/pivots";
 import type {
   TopologyEdge,
   TopologyNode,

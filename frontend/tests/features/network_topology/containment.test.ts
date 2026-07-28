@@ -11,11 +11,11 @@ import {
   type RegionInput,
   arrangeGroupCluster,
   classifyGroupMembers,
-  placeRegionsOrbital,
+  packRegions,
   pointInRect,
   rectsOverlap,
   regionContainsMember,
-} from "@/features/network_topology/lib/layoutContainment";
+} from "@/features/network_topology/lib/layout/layoutContainment";
 
 function member(key: string, overrides: Partial<ClusterMember> = {}): ClusterMember {
   return { key, importance: "normal", risk_score: 0, alert_count: 0, alwaysShow: false, ...overrides };
@@ -73,17 +73,25 @@ describe("classifyGroupMembers density aggregation", () => {
   });
 });
 
-describe("arrangeGroupCluster radial layout", () => {
+describe("arrangeGroupCluster grid layout", () => {
   function cluster(satelliteCount: number) {
     const sats = Array.from({ length: satelliteCount }, (_, i) => satellite(`s-${i}`));
     return arrangeGroupCluster("hub", sats, "Agent web-01");
   }
 
-  it("centers the hub horizontally and below the header band", () => {
+  it("centers the hub horizontally on its own row under the header band", () => {
     const arrangement = cluster(8);
     const hub = arrangement.centers.get("hub")!;
+    const satellites = [...arrangement.centers.entries()].filter(([key]) => key !== "hub");
     expect(hub.x).toBeCloseTo(arrangement.width / 2);
-    expect(hub.y).toBeCloseTo(REGION_HEADER + (arrangement.height - REGION_HEADER) / 2);
+    expect(hub.y).toBeGreaterThan(REGION_HEADER);
+    for (const [, center] of satellites) expect(center.y).toBeGreaterThan(hub.y);
+  });
+
+  it("packs the group tightly enough to stay readable when fitted", () => {
+    const arrangement = cluster(8);
+    expect(arrangement.width).toBeLessThanOrEqual(560);
+    expect(arrangement.height).toBeLessThanOrEqual(560);
   });
 
   it("keeps every member inside the region bounds", () => {
@@ -113,27 +121,24 @@ describe("arrangeGroupCluster radial layout", () => {
     }
   });
 
-  it("does not lay members out on a rigid shared row or column", () => {
+  it("wraps members across a grid instead of one long row", () => {
     const arrangement = cluster(10);
     const sats = [...arrangement.centers.entries()].filter(([key]) => key !== "hub").map(([, c]) => c);
     const distinctX = new Set(sats.map((c) => Math.round(c.x)));
     const distinctY = new Set(sats.map((c) => Math.round(c.y)));
-    expect(distinctX.size).toBeGreaterThan(2);
-    expect(distinctY.size).toBeGreaterThan(2);
+    expect(distinctX.size).toBeGreaterThan(1);
+    expect(distinctY.size).toBeGreaterThan(1);
   });
 
-  it("places the aggregate satellite on the outer ring", () => {
+  it("orders the aggregate satellite after the real members", () => {
     const sats: ClusterSatellite[] = [
       satellite("near", { importance: "elevated" }),
       satellite("agg", { isAggregate: true }),
     ];
     const arrangement = arrangeGroupCluster("hub", sats, "Group");
-    const hub = arrangement.centers.get("hub")!;
     const near = arrangement.centers.get("near")!;
     const agg = arrangement.centers.get("agg")!;
-    const distNear = Math.hypot(near.x - hub.x, near.y - hub.y);
-    const distAgg = Math.hypot(agg.x - hub.x, agg.y - hub.y);
-    expect(distAgg).toBeGreaterThanOrEqual(distNear);
+    expect(agg.y > near.y || (agg.y === near.y && agg.x > near.x)).toBe(true);
   });
 
   it("is deterministic", () => {
@@ -145,7 +150,7 @@ describe("arrangeGroupCluster radial layout", () => {
   });
 });
 
-describe("placeRegionsOrbital", () => {
+describe("packRegions", () => {
   function region(key: string, overrides: Partial<RegionInput> = {}): RegionInput {
     return { key, width: 300, height: 260, isCentral: false, priority: 0, ...overrides };
   }
@@ -159,7 +164,7 @@ describe("placeRegionsOrbital", () => {
       region("e", { width: 360, height: 280, priority: 20 }),
       region("f", { width: 240, height: 240, priority: 10 }),
     ];
-    const { origins } = placeRegionsOrbital(regions);
+    const { origins } = packRegions(regions);
     const rects = regions.map((r): Rect => {
       const o = origins.get(r.key)!;
       return { x: o.x, y: o.y, w: r.width, h: r.height };
@@ -171,32 +176,39 @@ describe("placeRegionsOrbital", () => {
     }
   });
 
-  it("keeps the core region away from the horizontal edges", () => {
+  it("puts the primary region first in reading order", () => {
     const regions = [
-      region("core", { isCentral: true, width: 420, height: 360 }),
       region("b", { priority: 80 }),
+      region("core", { isCentral: true, width: 420, height: 360 }),
       region("c", { priority: 60 }),
       region("d", { priority: 40 }),
       region("e", { priority: 20 }),
     ];
-    const placement = placeRegionsOrbital(regions);
-    const o = placement.origins.get("core")!;
-    const coreCenterX = o.x + 420 / 2;
-    expect(coreCenterX).toBeGreaterThan(placement.width * 0.2);
-    expect(coreCenterX).toBeLessThan(placement.width * 0.8);
+    const placement = packRegions(regions);
+    const core = placement.origins.get("core")!;
+    for (const key of ["b", "c", "d", "e"]) {
+      const other = placement.origins.get(key)!;
+      expect(other.y > core.y || (other.y === core.y && other.x > core.x)).toBe(true);
+    }
+  });
+
+  it("packs regions into a canvas that is not absurdly wider than it is tall", () => {
+    const regions = Array.from({ length: 9 }, (_, i) => region(`r-${i}`, { priority: 9 - i }));
+    const placement = packRegions(regions);
+    expect(placement.width / Math.max(1, placement.height)).toBeLessThan(4);
   });
 
   it("is deterministic", () => {
     const regions = [region("core", { isCentral: true }), region("b", { priority: 9 }), region("c", { priority: 4 })];
-    const first = placeRegionsOrbital(regions);
-    const second = placeRegionsOrbital(regions);
+    const first = packRegions(regions);
+    const second = packRegions(regions);
     for (const r of regions) {
       expect(second.origins.get(r.key)).toEqual(first.origins.get(r.key));
     }
   });
 
   it("returns an empty placement for no regions", () => {
-    const placement = placeRegionsOrbital([]);
+    const placement = packRegions([]);
     expect(placement.origins.size).toBe(0);
   });
 });

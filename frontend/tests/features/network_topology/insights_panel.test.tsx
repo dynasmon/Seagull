@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { NetworkTopologyInsightsPanel } from "@/features/network_topology/components/NetworkTopologyInsightsPanel";
+import { NetworkTopologyInsightsPanel } from "@/features/network_topology/components/panels/NetworkTopologyInsightsPanel";
 import type { TopologyInsight, TopologyVisibility } from "@/features/network_topology/types";
 
 function insight(overrides: Partial<TopologyInsight> = {}): TopologyInsight {
