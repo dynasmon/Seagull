@@ -31,10 +31,14 @@ export type NetworkTopologyDiscoveryPanelProps = {
   onTrigger: () => void;
 };
 
+// Agents report a zero timestamp when a run never happened; rendering it yields year 1 dates.
+const PLAUSIBLE_TIMESTAMP_FLOOR = Date.UTC(2000, 0, 1);
+
 function formatTimestamp(value: string | null) {
   if (!value) return "Never";
   const dt = new Date(value);
-  return Number.isNaN(dt.getTime()) ? value : dt.toLocaleString();
+  if (Number.isNaN(dt.getTime())) return value;
+  return dt.getTime() < PLAUSIBLE_TIMESTAMP_FLOOR ? "Never" : dt.toLocaleString();
 }
 
 export function NetworkTopologyDiscoveryPanel({
