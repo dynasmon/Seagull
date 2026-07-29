@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 from app.core.audit import audit_actor, write_audit_event
 from app.core.config import settings
 from app.core.observability import incr_counter
-from app.features.agents import certs, repository
+from app.core.security.rate_limit import rate_limit
+from app.features.agents import certs, onboarding, profiles, protocol, repository
 from app.features.agents.auth import (
     AgentPrincipal,
     generate_agent_credential,
@@ -29,9 +30,13 @@ from app.features.agents.schemas import (
     AgentConfigUpdateIn,
     AgentCredentialOut,
     AgentDetail,
+    AgentEnrollCertificateOut,
     AgentEnrollIn,
+    AgentEnrollmentTicketIn,
+    AgentEnrollmentTicketOut,
     AgentEnrollOut,
     AgentHeartbeatIn,
+    AgentProtocolOut,
     AgentPublic,
     AgentUpdateIn,
 )
@@ -329,17 +334,117 @@ def create_bootstrap_token(
     )
 
 
+def create_enrollment_ticket(
+    db: Session,
+    *,
+    payload: AgentEnrollmentTicketIn,
+    request,
+    admin: PortalPrincipal,
+    audit_writer=write_audit_event,
+) -> AgentEnrollmentTicketOut:
+    profile = profiles.normalize(payload.profile) or profiles.SENSOR
+    token = create_bootstrap_token(
+        db,
+        agent_id=payload.agent_id,
+        payload=AgentBootstrapTokenCreateIn(
+            ttl_seconds=payload.ttl_seconds,
+            max_uses=1,
+            description=payload.description,
+        ),
+        request=request,
+        admin=admin,
+        audit_writer=audit_writer,
+    )
+
+    row = repository.get_agent_by_agent_id(db, payload.agent_id)
+    if row is not None:
+        meta = row.agent_metadata if isinstance(row.agent_metadata, dict) else {}
+        row.agent_metadata = {**meta, "profile": profile}
+        repository.save_agent(db, row)
+        repository.commit(db)
+
+    described = onboarding.describe(request)
+    return AgentEnrollmentTicketOut(
+        agent_id=token.agent_id,
+        profile=profile,
+        bootstrap_token=token.bootstrap_token,
+        expires_at=token.expires_at,
+        max_uses=token.max_uses,
+        api_url=described.api_url,
+        enroll_url=described.enroll_url,
+        server_ca_required=described.server_ca_required,
+        server_ca_fingerprint_sha256=described.server_ca_fingerprint_sha256,
+        install_command=onboarding.install_command(
+            agent_id=token.agent_id,
+            profile=profile,
+            token=token.bootstrap_token,
+            request=request,
+        ),
+    )
+
+
+def _guard_enroll_rate_limit(request, agent_id: str) -> None:
+    if request is None:
+        return
+    ip = (request.client.host if request.client else "") or "unknown"
+    ip_rl = rate_limit(f"rl:agent-enroll:ip:{ip}", limit=30, window_seconds=300)
+    agent_rl = rate_limit(f"rl:agent-enroll:agent:{agent_id}", limit=10, window_seconds=300)
+    if not ip_rl.allowed or not agent_rl.allowed:
+        incr_counter("agent_identity_enroll_total", outcome="rate_limited")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many enrollment attempts. Try again in a few minutes.",
+        )
+
+
+def _issue_enrollment_certificate(db: Session, *, agent_id: str, csr_pem: str) -> AgentEnrollCertificateOut:
+    try:
+        issued = certs.issue_enrollment_certificate(agent_id, csr_pem, db=db)
+    except certs.CertificateAuthorityUnavailable:
+        incr_counter("agent_enroll_cert_issue_total", outcome="failure", reason="ca_unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Certificate authority unavailable",
+        ) from None
+    except certs.CertificateRequestError as exc:
+        incr_counter("agent_enroll_cert_issue_total", outcome="failure", reason=exc.reason)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid certificate request: {exc.detail}",
+        ) from exc
+    incr_counter("agent_enroll_cert_issue_total", outcome="success")
+    return AgentEnrollCertificateOut(
+        certificate_pem=issued.certificate_pem,
+        ca_pem=issued.ca_pem,
+        server_ca_pem=certs.server_ca_bundle(),
+        serial_hex=issued.serial_hex,
+        not_before=issued.not_before,
+        not_after=issued.not_after,
+    )
+
+
 def enroll(
     db: Session,
     *,
     payload: AgentEnrollIn,
     raw_bootstrap_token: str,
+    request=None,
+    audit_writer=write_audit_event,
 ) -> AgentEnrollOut:
+    _guard_enroll_rate_limit(request, payload.agent_id)
+    protocol.ensure_supported(payload.protocol_version, context="enroll")
     bootstrap = _consume_bootstrap_token(db, payload.agent_id, raw_bootstrap_token)
     rotated_at = datetime.utcnow()
     overlap_until = _credential_overlap_until(rotated_at)
     agent = repository.get_agent_by_agent_id(db, payload.agent_id)
-    meta = {"hostname": payload.hostname, "os": payload.os, "version": payload.version}
+    meta = {
+        "hostname": payload.hostname,
+        "os": payload.os,
+        "arch": payload.arch,
+        "version": payload.version,
+        "protocol_version": payload.protocol_version,
+        "profile": profiles.normalize(payload.profile) or profiles.DEFAULT_PROFILE,
+    }
     if not agent:
         default_cfg = settings.default_agent_config()
         if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.SEAGULL_MAX_AGENT_CONFIG_BYTES:
@@ -380,7 +485,30 @@ def enroll(
     )
     renewal_token, renewal_row = _issue_renewal_token(db, agent_id=payload.agent_id)
 
+    certificate: AgentEnrollCertificateOut | None = None
+    if (payload.csr_pem or "").strip():
+        certificate = _issue_enrollment_certificate(db, agent_id=payload.agent_id, csr_pem=payload.csr_pem)
+
     repository.save_agent(db, agent)
+    if request is not None:
+        audit_writer(
+            db,
+            request=request,
+            actor=audit_actor(None, payload.agent_id),
+            event_type="agent_action",
+            action="agents.enroll",
+            resource_type="agent",
+            resource_id=payload.agent_id,
+            outcome="success",
+            after={
+                "agent_id": payload.agent_id,
+                "token_type": str(bootstrap.token_type or "enrollment"),
+                "certificate_issued": certificate is not None,
+                "certificate_serial": certificate.serial_hex if certificate else None,
+                "hostname": payload.hostname,
+                "version": payload.version,
+            },
+        )
     repository.commit(db)
     incr_counter("agent_identity_enroll_total", outcome="success", token_type=str(bootstrap.token_type or "enrollment"))
 
@@ -395,6 +523,8 @@ def enroll(
             renewal_token=renewal_token,
             renewal_token_expires_at=renewal_row.expires_at,
         ),
+        certificate=certificate,
+        protocol=AgentProtocolOut(**protocol.descriptor()),
     )
 
 
@@ -531,15 +661,24 @@ def set_config(
 
 
 def heartbeat(db: Session, *, payload: AgentHeartbeatIn, agent: AgentPrincipal) -> None:
+    protocol.ensure_supported(payload.protocol_version, context="heartbeat")
     row = repository.get_agent_by_id(db, agent.id)
     if not row or row.is_revoked:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
     status_text = str(payload.status or "").strip()[:32]
     row.last_seen_at = datetime.utcnow()
+    current_meta = row.agent_metadata if isinstance(row.agent_metadata, dict) else {}
+    effective_profile = profiles.resolve_reported(profiles.of(current_meta), payload.profile)
+    if effective_profile != profiles.of(current_meta):
+        row.agent_metadata = {**current_meta, "profile": effective_profile}
     row.metrics = {
         **(row.metrics or {}),
         "status": status_text,
         "uptime_seconds": payload.uptime_seconds,
+        "agent_version": payload.agent_version,
+        "protocol_version": payload.protocol_version,
+        "profile": effective_profile,
+        "capabilities": payload.capabilities,
         "modules": payload.modules,
         "metrics": payload.metrics,
         "auth_method": agent.auth_method,
@@ -606,6 +745,14 @@ def update_agent(
                 continue
             if v is None:
                 meta.pop(key, None)
+            elif key == "profile":
+                declared = profiles.normalize(v)
+                if not declared:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=f"metadata.profile must be one of {', '.join(profiles.VALID_PROFILES)}",
+                    )
+                meta[key] = declared
             else:
                 meta[key] = v
         _safe_json_size(meta, 32 * 1024, "metadata")
