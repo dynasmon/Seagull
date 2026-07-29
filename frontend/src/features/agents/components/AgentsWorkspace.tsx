@@ -10,11 +10,17 @@ interface AgentsWorkspaceProps {
 }
 
 export default function AgentsWorkspace({ model }: AgentsWorkspaceProps) {
-  const { agents, events, compact, setCompact } = model;
+  const { agents, events, compact, setCompact, isAdmin, openEnroll } = model;
 
   return (
     <div className="space-y-4">
-      <AgentsHeader agents={agents} compact={compact} setCompact={setCompact} />
+      <AgentsHeader
+        agents={agents}
+        compact={compact}
+        setCompact={setCompact}
+        isAdmin={isAdmin}
+        onEnroll={openEnroll}
+      />
 
       <AgentsMainLayout model={model} />
 
