@@ -163,29 +163,40 @@ class TestSystemdTokenHandling:
 
 
 class TestProdPrepareGuards:
-    def _read_map(self, values):
-        return lambda key, default="": values.get(key, default)
+    def _use_env_values(self, monkeypatch, values):
+        monkeypatch.delenv("SEAGULL_ENV", raising=False)
+        monkeypatch.delenv("SEAGULL_MODE", raising=False)
+        monkeypatch.setattr(
+            _prepare._env, "read", lambda key, default="", path=None: values.get(key, default)
+        )
 
     def test_es_guard_rejects_disabled_security_in_prod(self, monkeypatch):
         values = {"SEAGULL_ENV": "prod", "SEAGULL_SEARCH_BACKEND": "auto", "SEAGULL_ES_SECURITY_ENABLED": "false"}
-        monkeypatch.setattr(_prepare._env, "read", self._read_map(values))
+        self._use_env_values(monkeypatch, values)
         with pytest.raises(RuntimeError, match="Elasticsearch authentication is disabled"):
             _prepare._enforce_es_production_security()
 
     def test_es_guard_allows_enabled_security(self, monkeypatch):
         values = {"SEAGULL_ENV": "prod", "SEAGULL_SEARCH_BACKEND": "elasticsearch", "SEAGULL_ES_SECURITY_ENABLED": "true"}
-        monkeypatch.setattr(_prepare._env, "read", self._read_map(values))
+        self._use_env_values(monkeypatch, values)
         _prepare._enforce_es_production_security()
 
     def test_es_guard_skips_postgres_backend(self, monkeypatch):
         values = {"SEAGULL_ENV": "prod", "SEAGULL_SEARCH_BACKEND": "postgres", "SEAGULL_ES_SECURITY_ENABLED": "false"}
-        monkeypatch.setattr(_prepare._env, "read", self._read_map(values))
+        self._use_env_values(monkeypatch, values)
         _prepare._enforce_es_production_security()
 
     def test_es_guard_skips_dev(self, monkeypatch):
         values = {"SEAGULL_ENV": "dev", "SEAGULL_SEARCH_BACKEND": "auto", "SEAGULL_ES_SECURITY_ENABLED": "false"}
-        monkeypatch.setattr(_prepare._env, "read", self._read_map(values))
+        self._use_env_values(monkeypatch, values)
         _prepare._enforce_es_production_security()
+
+    def test_es_guard_honours_process_environment_over_env_file(self, monkeypatch):
+        values = {"SEAGULL_ENV": "dev", "SEAGULL_SEARCH_BACKEND": "auto", "SEAGULL_ES_SECURITY_ENABLED": "false"}
+        self._use_env_values(monkeypatch, values)
+        monkeypatch.setenv("SEAGULL_ENV", "production")
+        with pytest.raises(RuntimeError, match="Elasticsearch authentication is disabled"):
+            _prepare._enforce_es_production_security()
 
     def test_env_file_guard_tightens_loose_mode(self, tmp_path, monkeypatch):
         env = tmp_path / ".env"
@@ -213,3 +224,4 @@ class TestReplicationSecretDelivery:
         assert "passfile=" in script
         assert "password=$POSTGRES_REPLICATION_PASSWORD" not in script
         assert 'PGPASSFILE="$PASSFILE"' in script
+

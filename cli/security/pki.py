@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
+from urllib.parse import urlparse
 
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
@@ -24,6 +25,7 @@ SERVER_DIR_NAME = "server"
 SERVER_CERT_NAME = "mtls.crt"
 SERVER_KEY_NAME = "mtls.key"
 DEFAULT_SERVER_NAMES = "localhost,127.0.0.1"
+EDGE_NAME_KEYS = ("SEAGULL_CADDY_DOMAIN", "SEAGULL_AGENT_TLS_SERVER_NAME")
 
 MTLS_SHARED_KEY_MODE = 0o640
 
@@ -202,17 +204,41 @@ def validate_cert_chain(cert_path: Path, ca_path: Path) -> bool:
     return True
 
 
+def _api_url_host() -> str:
+    return (urlparse(_cfg("SEAGULL_API_URL", "")).hostname or "").strip()
+
+
+def resolve_edge_server_names() -> List[str]:
+    candidates = [_cfg(key, "") for key in EDGE_NAME_KEYS]
+    candidates.append(_api_url_host())
+    return [name for name in candidates if name]
+
+
 def resolve_server_names() -> List[str]:
     raw = _cfg("SEAGULL_AGENT_MTLS_SERVER_NAMES", DEFAULT_SERVER_NAMES)
+    configured = raw.split(",")
+    names = resolve_edge_server_names() + configured if _env.is_production() else configured
+
     out: List[str] = []
     seen: set[str] = set()
-    for item in raw.split(","):
+    for item in names:
         name = item.strip()
         if not name or name in seen:
             continue
         seen.add(name)
         out.append(name)
     return out
+
+
+def validate_edge_coverage(label: str) -> None:
+    if not _env.is_production():
+        return
+    if not resolve_edge_server_names():
+        raise RuntimeError(
+            f"[{label}] SEAGULL_ENV is production but no public edge hostname is configured; "
+            "set SEAGULL_CADDY_DOMAIN so the agent mTLS certificate can be issued for it "
+            "(agents fail TLS verification against a localhost-only certificate)"
+        )
 
 
 def _build_san(server_names: List[str]) -> x509.SubjectAlternativeName:
@@ -331,6 +357,20 @@ def ensure_server_pki(pki_dir: Optional[Path] = None) -> bool:
     if key_path.exists():
         _chmod(key_path, MTLS_SHARED_KEY_MODE)
     return reissue
+
+
+def ensure(label: str) -> bool:
+    validate_edge_coverage(label)
+    if ensure_agent_ca():
+        print(f"[{label}] mTLS: generated agent CA")
+    reissued = ensure_server_pki()
+    if reissued:
+        print(
+            f"[{label}] mTLS: generated/renewed mTLS server cert for: "
+            f"{', '.join(resolve_server_names())}"
+        )
+    print(f"[{label}] mTLS: agent CA + server PKI ready")
+    return reissued
 
 
 def ensure_agent_ca(pki_dir: Optional[Path] = None) -> bool:

@@ -117,8 +117,8 @@ def _reject_pair_conflict(key: str, file_key: str) -> None:
 
 
 def _is_prod() -> bool:
-    env = (_env.read("SEAGULL_ENV", "") or _env.read("SEAGULL_MODE", "dev")).strip().lower()
-    return env in ("prod", "production")
+    return _env.is_production()
+
 
 
 def _enforce_es_production_security() -> None:
@@ -136,7 +136,7 @@ def _enforce_es_production_security() -> None:
         )
 
 
-def run(auto_fix: Optional[bool] = None) -> None:
+def run(auto_fix: Optional[bool] = None) -> bool:
     root = _env.root()
     if auto_fix is None:
         auto_fix = _env.read("SEAGULL_PROD_AUTO_FIX_ENV", "true").lower() == "true"
@@ -162,14 +162,11 @@ def run(auto_fix: Optional[bool] = None) -> None:
     _reject_pair_conflict("SEAGULL_BOOTSTRAP_ADMIN_PASSWORD", "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD_FILE")
 
     mtls_enabled = _env.read("SEAGULL_MTLS_ENABLED", "true").lower() in ("true", "1")
+    mtls_reissued = False
     if mtls_enabled:
         from ..security import pki as _pki
 
-        if _pki.ensure_agent_ca():
-            print("[prod-prepare] mTLS: generated agent CA")
-        if _pki.ensure_server_pki():
-            print(f"[prod-prepare] mTLS: generated/renewed mTLS server cert for: {', '.join(_pki.resolve_server_names())}")
-        print("[prod-prepare] mTLS: agent CA + server PKI ready")
+        mtls_reissued = _pki.ensure("prod-prepare")
     else:
         print("[prod-prepare] mTLS: disabled (SEAGULL_MTLS_ENABLED=false); skipping agent PKI")
 
@@ -177,3 +174,4 @@ def run(auto_fix: Optional[bool] = None) -> None:
         raise RuntimeError("[prod-prepare] docker compose config validation failed")
 
     print("[prod-prepare] ok: production environment validated")
+    return mtls_reissued

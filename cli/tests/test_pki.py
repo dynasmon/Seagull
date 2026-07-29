@@ -152,3 +152,84 @@ class TestServerPki:
         assert pki.ensure_server_pki(tmp_path) is True
         cert = x509.load_pem_x509_certificate((tmp_path / "server" / "mtls.crt").read_bytes())
         assert pki._cert_san_names(cert) == {"agents.example.com"}
+
+
+class TestProductionServerNames:
+    def _isolate(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(pki._env, "ROOT", tmp_path)
+        for key in (
+            "SEAGULL_CADDY_DOMAIN",
+            "SEAGULL_AGENT_TLS_SERVER_NAME",
+            "SEAGULL_API_URL",
+            "SEAGULL_AGENT_MTLS_SERVER_NAMES",
+            "SEAGULL_MODE",
+        ):
+            monkeypatch.delenv(key, raising=False)
+
+    def test_dev_ignores_the_edge_hostname(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        monkeypatch.setenv("SEAGULL_CADDY_DOMAIN", "seagull.example.com")
+        assert pki.resolve_server_names() == ["localhost", "127.0.0.1"]
+
+    def test_production_leads_with_the_edge_hostname(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        monkeypatch.setenv("SEAGULL_ENV", "production")
+        monkeypatch.setenv("SEAGULL_CADDY_DOMAIN", "seagull.example.com")
+        assert pki.resolve_server_names() == ["seagull.example.com", "localhost", "127.0.0.1"]
+
+    def test_production_covers_the_api_url_host(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        monkeypatch.setenv("SEAGULL_ENV", "prod")
+        monkeypatch.setenv("SEAGULL_API_URL", "https://agents.example.com:8444/agent")
+        assert "agents.example.com" in pki.resolve_server_names()
+
+    def test_production_does_not_duplicate_configured_names(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        monkeypatch.setenv("SEAGULL_ENV", "production")
+        monkeypatch.setenv("SEAGULL_CADDY_DOMAIN", "seagull.example.com")
+        monkeypatch.setenv("SEAGULL_AGENT_TLS_SERVER_NAME", "seagull.example.com")
+        monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_NAMES", "seagull.example.com,localhost")
+        assert pki.resolve_server_names() == ["seagull.example.com", "localhost"]
+
+    def test_production_cert_is_issued_for_the_edge_hostname(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        monkeypatch.setenv("SEAGULL_ENV", "production")
+        monkeypatch.setenv("SEAGULL_CADDY_DOMAIN", "seagull.example.com")
+        pki_dir = tmp_path / "pki"
+        pki.ensure_server_pki(pki_dir)
+        cert = x509.load_pem_x509_certificate((pki_dir / "server" / "mtls.crt").read_bytes())
+        assert "seagull.example.com" in pki._cert_san_names(cert)
+        cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+        assert cn == "seagull.example.com"
+
+    def test_localhost_only_cert_is_reissued_after_switching_to_production(
+        self, tmp_path, monkeypatch
+    ):
+        self._isolate(tmp_path, monkeypatch)
+        monkeypatch.setenv("SEAGULL_CADDY_DOMAIN", "seagull.example.com")
+        pki_dir = tmp_path / "pki"
+        pki.ensure_server_pki(pki_dir)
+        monkeypatch.setenv("SEAGULL_ENV", "production")
+        assert pki.ensure_server_pki(pki_dir) is True
+        cert = x509.load_pem_x509_certificate((pki_dir / "server" / "mtls.crt").read_bytes())
+        assert "seagull.example.com" in pki._cert_san_names(cert)
+
+
+class TestValidateEdgeCoverage:
+    def test_dev_without_edge_hostname_is_allowed(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(pki._env, "ROOT", tmp_path)
+        for key in ("SEAGULL_CADDY_DOMAIN", "SEAGULL_AGENT_TLS_SERVER_NAME", "SEAGULL_API_URL"):
+            monkeypatch.delenv(key, raising=False)
+        pki.validate_edge_coverage("preflight")
+
+    def test_production_without_edge_hostname_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(pki._env, "ROOT", tmp_path)
+        for key in ("SEAGULL_CADDY_DOMAIN", "SEAGULL_AGENT_TLS_SERVER_NAME", "SEAGULL_API_URL"):
+            monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv("SEAGULL_ENV", "production")
+        try:
+            pki.validate_edge_coverage("prod-prepare")
+            raised = False
+        except RuntimeError as exc:
+            raised = "SEAGULL_CADDY_DOMAIN" in str(exc)
+        assert raised

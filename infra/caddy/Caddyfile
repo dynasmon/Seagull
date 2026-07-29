@@ -52,7 +52,7 @@
 }
 
 {$SEAGULL_CADDY_DOMAIN}:{$SEAGULL_AGENT_MTLS_PORT:8444} {
-	tls /etc/seagull/mtls/server.crt /etc/seagull/mtls/server.key {
+	tls {
 		client_auth {
 			mode {$SEAGULL_AGENT_MTLS_CLIENT_AUTH:require_and_verify}
 			trust_pool file /etc/seagull/mtls/agent-ca.crt
