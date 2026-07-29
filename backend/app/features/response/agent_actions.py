@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor, write_audit_event
+from app.features.agents import profiles
 from app.features.agents.auth import AgentPrincipal
 from app.features.response import repository
 from app.features.response.models import ResponseActionModel, ResponseActionResultModel
@@ -32,6 +33,8 @@ def list_pending_actions(
     row_agent = repository.get_agent_by_id(db, agent.id)
     if not row_agent or row_agent.is_revoked:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
+    if not profiles.allows_response_actions(profiles.of_agent(row_agent)):
+        return []
     now = datetime.utcnow()
     rows = repository.list_pending_actions_for_agent(db, agent_id=agent.agent_id, limit=100, for_update=True)
     out: List[ResponseActionModel] = []
