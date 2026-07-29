@@ -69,11 +69,10 @@ class TestShippedTemplatePassesDevPreflight:
 class TestFreshHostArtifacts:
     def test_full_pki_and_tls_init_produces_no_world_readable_keys(self, tmp_path, monkeypatch):
         monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_NAMES", "localhost")
-        monkeypatch.setenv("SEAGULL_BOOTSTRAP_ROTATOR_AGENT_IDS", "agent-core-1")
         pki_dir = tmp_path / "secrets" / "pki"
         tls_dir = tmp_path / "secrets" / "tls"
 
-        pki.ensure_agent_pki(pki_dir)
+        pki.ensure_agent_ca(pki_dir)
         pki.ensure_server_pki(pki_dir)
         tls.generate_dev_cert(tls_dir / "tls.crt", tls_dir / "tls.key", "localhost")
 
@@ -99,9 +98,8 @@ class TestFreshHostArtifacts:
             assert not (mode & 0o004), f"{key} is world-readable ({oct(mode)})"
 
     def test_pki_group_id_matches_generated_key_group(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("SEAGULL_BOOTSTRAP_ROTATOR_AGENT_IDS", "agent-core-1")
         pki_dir = tmp_path / "secrets" / "pki"
-        pki.ensure_agent_pki(pki_dir)
+        pki.ensure_agent_ca(pki_dir)
         monkeypatch.setattr(_compose._env, "root", lambda: tmp_path)
         assert _compose.pki_group_id() == os.stat(pki_dir / "agent-ca.key").st_gid
 
@@ -111,11 +109,10 @@ class TestFreshHostArtifacts:
 
     def test_pki_init_is_idempotent(self, tmp_path, monkeypatch):
         monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_NAMES", "localhost")
-        monkeypatch.setenv("SEAGULL_BOOTSTRAP_ROTATOR_AGENT_IDS", "agent-core-1")
         pki_dir = tmp_path / "secrets" / "pki"
-        pki.ensure_agent_pki(pki_dir)
+        pki.ensure_agent_ca(pki_dir)
         pki.ensure_server_pki(pki_dir)
         ca_mtime = (pki_dir / "agent-ca.key").stat().st_mtime_ns
         assert pki.ensure_server_pki(pki_dir) is False
-        pki.ensure_agent_pki(pki_dir)
+        pki.ensure_agent_ca(pki_dir)
         assert (pki_dir / "agent-ca.key").stat().st_mtime_ns == ca_mtime
