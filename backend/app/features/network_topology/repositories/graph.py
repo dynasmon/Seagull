@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Sequence
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.features.network_topology.models import (
@@ -13,6 +13,43 @@ from app.features.network_topology.models import (
     TopologySnapshotModel,
 )
 from app.features.network_topology.repositories.constants import _MAX_GRAPH_FETCH, _MAX_PAGE
+
+# Node and edge budgets are small next to the projection, so spend them on what carries
+# meaning: security signal first, then the structure that frames it, then the long tail of
+# per-port service nodes and same-host scaffolding.
+_NODE_TYPE_RANK = {
+    "agent": 0,
+    "gateway": 1,
+    "subnet": 2,
+    "host": 3,
+    "external_ip": 4,
+    "docker_network": 5,
+    "interface": 6,
+    "service": 7,
+}
+
+# Structural edges are few but frame everything else, so they rank above the flow tail.
+# same_agent is pure scaffolding and goes last, where it can no longer crowd the budget.
+_EDGE_TYPE_RANK = {
+    "alert_related": 0,
+    "exposure_related": 1,
+    "route_next_hop": 2,
+    "member_of_subnet": 3,
+    "owns_interface": 4,
+    "observed_flow": 5,
+    "listens_on": 6,
+    "resolved_dns": 7,
+    "inferred_relationship": 8,
+    "same_agent": 9,
+}
+
+
+def _node_type_rank():
+    return case(_NODE_TYPE_RANK, value=TopologyNodeModel.node_type, else_=9)
+
+
+def _edge_type_rank():
+    return case(_EDGE_TYPE_RANK, value=TopologyEdgeModel.edge_type, else_=10)
 
 
 def get_node(db: Session, node_key: str) -> TopologyNodeModel | None:
@@ -61,7 +98,10 @@ def list_nodes(
     if until is not None:
         stmt = stmt.where(TopologyNodeModel.last_seen_at <= until)
     stmt = stmt.order_by(
+        TopologyNodeModel.alert_count.desc(),
         TopologyNodeModel.risk_score.desc(),
+        _node_type_rank().asc(),
+        TopologyNodeModel.event_count.desc(),
         TopologyNodeModel.confidence.desc(),
         TopologyNodeModel.id.desc(),
     )
@@ -90,8 +130,11 @@ def list_edges(
     if until is not None:
         stmt = stmt.where(TopologyEdgeModel.last_seen_at <= until)
     stmt = stmt.order_by(
-        TopologyEdgeModel.confidence.desc(),
+        TopologyEdgeModel.alert_count.desc(),
+        _edge_type_rank().asc(),
+        TopologyEdgeModel.event_count.desc(),
         TopologyEdgeModel.weight.desc(),
+        TopologyEdgeModel.confidence.desc(),
         TopologyEdgeModel.id.desc(),
     )
     return db.execute(stmt.limit(limit)).scalars().all()
