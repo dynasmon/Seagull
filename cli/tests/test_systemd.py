@@ -131,6 +131,7 @@ def test_installed_agent_id_falls_back_to_repo_env_when_env_file_unreadable(
 
 
 def test_repo_bootstrap_token_for_agent_uses_matching_repo_mapping(
+    tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     values = {
@@ -139,7 +140,8 @@ def test_repo_bootstrap_token_for_agent_uses_matching_repo_mapping(
         "AGENT_SENSOR_ID": "agent-sensor-1",
         "AGENT_SENSOR_BOOTSTRAP_TOKEN": "abt.sensor.token",
     }
-    monkeypatch.setattr(systemd._env, "read", lambda key, default="": values.get(key, default))
+    monkeypatch.setattr(systemd._env, "root", lambda: tmp_path)
+    monkeypatch.setattr(systemd._env, "read", lambda key, default="", path=None: values.get(key, default))
 
     assert systemd.repo_bootstrap_token_for_agent("agent-core-1") == "abt.core.token"
     assert systemd.repo_bootstrap_token_for_agent("agent-sensor-1") == "abt.sensor.token"
