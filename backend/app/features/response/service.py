@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.audit import audit_actor, write_audit_event
+from app.features.agents import profiles
 from app.features.response import repository
 from app.features.response.models import ResponseActionModel, ResponseActionResultModel
 from app.features.response.realtime import publish_response_action_lifecycle
@@ -115,6 +116,7 @@ def create_response_action(
         raise HTTPException(status_code=404, detail="Agent not found")
     if bool(row_agent.is_revoked):
         raise HTTPException(status_code=403, detail="Agent is revoked")
+    profiles.require_response_capable(row_agent, agent_id=payload.agent_id)
 
     now = _utc_now()
     expires_at = _to_utc(payload.expires_at)
@@ -206,6 +208,9 @@ def create_response_action_batch(
             continue
         if bool(row_agent.is_revoked):
             skipped.append({"agent_id": agent_id, "reason": "revoked"})
+            continue
+        if not profiles.allows_response_actions(profiles.of_agent(row_agent)):
+            skipped.append({"agent_id": agent_id, "reason": "sensor_profile"})
             continue
         if action_type == _SHELL_EXEC_ACTION_TYPE and _shell_exec_rate_exceeded(db, agent_id=agent_id, now=now):
             skipped.append({"agent_id": agent_id, "reason": "rate_limited"})
