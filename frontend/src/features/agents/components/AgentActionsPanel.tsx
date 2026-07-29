@@ -6,6 +6,11 @@ import EmptyState from "@/shared/components/EmptyState";
 import { Panel } from "@/shared/components/Panel";
 import { StatusPill } from "@/shared/components/StatusPill";
 
+function agentProfile(agent: AgentDetail | null): string {
+  const raw = String(agent?.metadata?.profile || "").trim().toLowerCase();
+  return raw === "sensor" || raw === "managed" ? raw : "managed";
+}
+
 export default function AgentActionsPanel({
   agent,
   isAdmin,
@@ -22,14 +27,18 @@ export default function AgentActionsPanel({
   onToggleRevoked: () => void;
 }) {
   const navigate = useNavigate();
+  const profile = agentProfile(agent);
+  const responseCapable = profile !== "sensor";
   return (
     <Panel
       title="Response actions"
       actions={
         agent?.is_revoked ? (
           <StatusPill variant="neutral" withDot>Disabled</StatusPill>
-        ) : (
+        ) : responseCapable ? (
           <StatusPill variant="active" withDot>Enabled</StatusPill>
+        ) : (
+          <StatusPill variant="neutral" withDot>Sensor only</StatusPill>
         )
       }
       style={{ minHeight: 220 }}
@@ -55,9 +64,16 @@ export default function AgentActionsPanel({
                 size="md"
                 onClick={() => navigate(`/response-center?agent_id=${encodeURIComponent(agent.agent_id)}&mode=dispatch`)}
                 className="w-full"
+                disabled={!responseCapable}
               >
                 Queue response action
               </Button>
+            )}
+
+            {!responseCapable && (
+              <div className="text-[11px] text-muted-foreground">
+                This endpoint runs the sensor profile: it collects telemetry and cannot execute response actions.
+              </div>
             )}
 
             <Button
