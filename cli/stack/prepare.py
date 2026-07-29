@@ -120,6 +120,33 @@ def _is_prod() -> bool:
     return _env.is_production()
 
 
+_DATA_STORE_PORT_KEYS = (
+    ("ELASTICSEARCH_PORT", "elasticsearch"),
+    ("CLICKHOUSE_HTTP_PORT", "clickhouse"),
+    ("CLICKHOUSE_NATIVE_PORT", "clickhouse"),
+    ("KIBANA_PORT", "kibana"),
+)
+
+_LOOPBACK_BIND_PREFIXES = ("127.0.0.1:", "localhost:", "[::1]:", "::1:")
+
+
+def _enforce_data_store_binding() -> None:
+    if not _is_prod():
+        return
+    exposed = []
+    for key, service in _DATA_STORE_PORT_KEYS:
+        value = (_env.read(key, "") or "").strip()
+        if value and value.startswith(_LOOPBACK_BIND_PREFIXES):
+            continue
+        exposed.append(f"{key} ({service}) = {value or '<empty>'}")
+    if exposed:
+        raise RuntimeError(
+            "[prod-prepare] datastore ports would be published on every network interface:\n  "
+            + "\n  ".join(exposed)
+            + "\n  fix: bind them to loopback, e.g. ELASTICSEARCH_PORT=127.0.0.1:9200 "
+            "(an empty value does not disable publishing — docker picks a public random port)"
+        )
+
 
 def _enforce_es_production_security() -> None:
     if not _is_prod():
@@ -145,6 +172,7 @@ def run(auto_fix: Optional[bool] = None) -> bool:
     _enforce_env_file_security()
     _ensure_secret_dirs(root)
     _enforce_es_production_security()
+    _enforce_data_store_binding()
 
     _validate_secret("POSTGRES_PASSWORD", 12, 36, auto_fix)
     _validate_secret_or_file(
