@@ -2,6 +2,9 @@ import { apiGet, apiPatch, apiPost, apiPut } from "@/shared/lib/http";
 import type { ApiGetOptions } from "@/shared/lib/http";
 import type {
   AgentDetail,
+  AgentEnrollmentTicket,
+  AgentEnrollmentTicketIn,
+  AgentOnboardingInfo,
   AgentPublic,
   AgentUpdateIn,
   ResponseActionCreateIn,
@@ -38,6 +41,14 @@ export async function enableAgent(agentId: string) {
 export async function disableAgent(agentId: string) {
   await apiPost<void>(`/api/agents/${encodeURIComponent(agentId)}/disable`);
   return getAgent(agentId);
+}
+
+export function getAgentOnboarding(opts?: ApiGetOptions) {
+  return apiGet<AgentOnboardingInfo>("/api/agents/onboarding", opts);
+}
+
+export function createEnrollmentTicket(payload: AgentEnrollmentTicketIn) {
+  return apiPost<AgentEnrollmentTicket>("/api/agents/enrollment-tickets", payload);
 }
 
 export function createResponseAction(payload: ResponseActionCreateIn) {
