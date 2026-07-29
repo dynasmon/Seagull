@@ -165,12 +165,11 @@ def run(auto_fix: Optional[bool] = None) -> None:
     if mtls_enabled:
         from ..security import pki as _pki
 
-        renewed = _pki.ensure_agent_pki()
-        if renewed:
-            print(f"[prod-prepare] mTLS: generated/renewed agent certs for: {', '.join(renewed)}")
+        if _pki.ensure_agent_ca():
+            print("[prod-prepare] mTLS: generated agent CA")
         if _pki.ensure_server_pki():
             print(f"[prod-prepare] mTLS: generated/renewed mTLS server cert for: {', '.join(_pki.resolve_server_names())}")
-        print("[prod-prepare] mTLS: agent + server PKI ready")
+        print("[prod-prepare] mTLS: agent CA + server PKI ready")
     else:
         print("[prod-prepare] mTLS: disabled (SEAGULL_MTLS_ENABLED=false); skipping agent PKI")
 
