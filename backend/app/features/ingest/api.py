@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
+from app.core.api.idempotency import read_batch_id, run_once
 from app.core.db import get_db
 from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.features.auth.session import get_current_user, require_admin
@@ -37,11 +38,14 @@ def storm_recover_endpoint(
 @router.post("/events")
 def ingest_events_endpoint(
     events: List[NetEvent],
+    request: Request,
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ):
-    return ingest_events(
-        db,
-        events=events,
-        agent=agent,
+    return run_once(
+        scope="ingest_events",
+        agent_id=agent.agent_id,
+        batch_id=read_batch_id(request),
+        handler=lambda: ingest_events(db, events=events, agent=agent),
+        duplicate_result={"received": len(events), "enqueued": 0},
     )
