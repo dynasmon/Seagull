@@ -9,7 +9,7 @@ from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
-_DEPRECATED_KEYS = ["COMPOSE_IGNORE_ORPHANS"]
+_DEPRECATED_KEYS = ["COMPOSE_IGNORE_ORPHANS", "SEAGULL_SKIP_AGENT_RECONCILE"]
 
 ENV_FILE_MODE = 0o600
 
