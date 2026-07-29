@@ -10,6 +10,7 @@ from ..config import env as _env
 
 STACK_FILES = ["compose.yml"]
 DEV_RELOAD_FILES = ["compose.yml", "compose.dev-reload.yml"]
+LOCAL_OVERRIDE_FILE = "compose.override.yml"
 
 PROD_CORE_SERVICES = [
     "postgres", "redis", "elasticsearch", "clickhouse",
@@ -19,9 +20,15 @@ PROD_CORE_SERVICES = [
 ]
 
 
+def local_override_files() -> list[str]:
+    if (_env.root() / LOCAL_OVERRIDE_FILE).exists():
+        return [LOCAL_OVERRIDE_FILE]
+    return []
+
+
 def _file_flags(files: list[str]) -> list[str]:
     flags: list[str] = []
-    for f in files:
+    for f in list(files) + local_override_files():
         flags += ["-f", f]
     return flags
 

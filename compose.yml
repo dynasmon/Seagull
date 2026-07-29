@@ -750,6 +750,7 @@ services:
       SEAGULL_AGENT_ENROLL_PORT: ${SEAGULL_AGENT_ENROLL_PORT:-8445}
     volumes:
       - ${SEAGULL_CADDY_CONFIG_FILE:-./infra/caddy/Caddyfile}:/etc/caddy/Caddyfile:ro
+      - ${SEAGULL_CADDY_LOCAL_CONFIG_DIR:-./infra/caddy/local}:/etc/caddy/conf.d:ro
       - ${SEAGULL_TLS_CERT_FILE:-./secrets/tls/tls.crt}:/etc/seagull/tls/tls.crt:ro
       - ${SEAGULL_TLS_KEY_FILE:-./secrets/tls/tls.key}:/etc/seagull/tls/tls.key:ro
       - ${SEAGULL_AGENT_MTLS_CA_FILE:-./secrets/pki/agent-ca.crt}:/etc/seagull/mtls/agent-ca.crt:ro

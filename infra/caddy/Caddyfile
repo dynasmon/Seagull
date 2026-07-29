@@ -2,6 +2,8 @@
 	admin off
 }
 
+import /etc/caddy/conf.d/*.caddy
+
 {$SEAGULL_CADDY_DOMAIN} {
 	@compressible {
 		not path /api/realtime/portal /api/realtime/portal/ws
