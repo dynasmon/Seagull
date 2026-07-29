@@ -21,6 +21,42 @@ export type AgentUpdateIn = {
   metadata?: Record<string, any> | null;
 };
 
+export type AgentProfile = "sensor" | "managed";
+
+export type AgentOnboardingInfo = {
+  api_url: string;
+  enroll_url: string;
+  profiles: string[];
+  default_profile: string;
+  token_ttl_seconds: number;
+  token_max_uses: number;
+  protocol_version: number;
+  min_supported_protocol: number;
+  max_supported_protocol: number;
+  server_ca_required: boolean;
+  server_ca_fingerprint_sha256?: string | null;
+};
+
+export type AgentEnrollmentTicketIn = {
+  agent_id: string;
+  profile?: AgentProfile;
+  ttl_seconds?: number;
+  description?: string;
+};
+
+export type AgentEnrollmentTicket = {
+  agent_id: string;
+  profile: AgentProfile;
+  bootstrap_token: string;
+  expires_at: string;
+  max_uses: number;
+  api_url: string;
+  enroll_url: string;
+  server_ca_required: boolean;
+  server_ca_fingerprint_sha256?: string | null;
+  install_command: string;
+};
+
 export type ResponseActionCreateIn = {
   action_type: string;
   agent_id: string;

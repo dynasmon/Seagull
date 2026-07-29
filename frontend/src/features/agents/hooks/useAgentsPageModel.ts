@@ -5,6 +5,7 @@ import { useDataTablePreferences } from "@/shared/hooks/useDataTablePreferences"
 
 import { useAgents } from "./useAgents";
 import { useAgentConfig } from "./useAgentConfig";
+import { useAgentEnrollment } from "./useAgentEnrollment";
 import { useAgentTelemetryViewModel } from "./useAgentTelemetryViewModel";
 import { useAgentEventsExplorer } from "./useAgentEventsExplorer";
 
@@ -15,6 +16,10 @@ export function useAgentsPageModel() {
   const [configOpen, setConfigOpen] = useState(false);
   const openConfig = useCallback(() => setConfigOpen(true), []);
   const closeConfig = useCallback(() => setConfigOpen(false), []);
+
+  const [enrollOpen, setEnrollOpen] = useState(false);
+  const openEnroll = useCallback(() => setEnrollOpen(true), []);
+  const closeEnroll = useCallback(() => setEnrollOpen(false), []);
 
   const tablePrefs = useDataTablePreferences({
     storageKey: "nw_agents_tables_v2",
@@ -40,6 +45,12 @@ export function useAgentsPageModel() {
     eventsCfg: agents.eventsCfg,
   });
 
+  const enrollment = useAgentEnrollment({
+    open: enrollOpen,
+    isAdmin,
+    onEnrolled: agents.refresh,
+  });
+
   return {
     user,
     isAdmin,
@@ -53,6 +64,10 @@ export function useAgentsPageModel() {
     configOpen,
     openConfig,
     closeConfig,
+    enrollment,
+    enrollOpen,
+    openEnroll,
+    closeEnroll,
   };
 }
 
