@@ -80,7 +80,7 @@ def test_cmd_restart_systemd_reconciles_after_compose_up(monkeypatch) -> None:
     monkeypatch.setattr(cli_main._env, "bootstrap", lambda *args, **kwargs: None)
     monkeypatch.setattr(cli_main._geoip, "ensure", lambda: False)
     monkeypatch.setattr(cli_main._preflight, "run", lambda: None)
-    monkeypatch.setenv("SEAGULL_SKIP_AGENT_RECONCILE", "false")
+    monkeypatch.setenv("SEAGULL_AGENT_LOCAL_RECONCILE", "true")
     monkeypatch.setattr(cli_main.shutil, "which", lambda name: "/usr/bin/systemctl")
     monkeypatch.setattr(cli_main._systemd, "sync_ca", lambda: 0)
     monkeypatch.setattr(
@@ -137,7 +137,7 @@ def _dev_stack_up(monkeypatch, run_calls):
 def test_up_dev_skips_agent_when_systemd_absent(monkeypatch) -> None:
     run_calls, sync_calls = [], []
     _dev_stack_up(monkeypatch, run_calls)
-    monkeypatch.setenv("SEAGULL_SKIP_AGENT_RECONCILE", "false")
+    monkeypatch.setenv("SEAGULL_AGENT_LOCAL_RECONCILE", "true")
     monkeypatch.setattr(cli_main.shutil, "which", lambda name: None)
     monkeypatch.setattr(cli_main._systemd, "sync_ca", lambda: sync_calls.append(True) or 0)
 
@@ -152,6 +152,7 @@ def test_up_dev_skips_agent_when_flag_set(monkeypatch) -> None:
     run_calls, sync_calls = [], []
     _dev_stack_up(monkeypatch, run_calls)
     monkeypatch.setenv("SEAGULL_SKIP_AGENT_RECONCILE", "true")
+    monkeypatch.setenv("SEAGULL_AGENT_LOCAL_RECONCILE", "true")
     monkeypatch.setattr(cli_main.shutil, "which", lambda name: "/usr/bin/systemctl")
     monkeypatch.setattr(cli_main._systemd, "sync_ca", lambda: sync_calls.append(True) or 0)
 
@@ -164,7 +165,7 @@ def test_up_dev_skips_agent_when_flag_set(monkeypatch) -> None:
 def test_up_dev_agent_failure_is_non_fatal(monkeypatch) -> None:
     run_calls = []
     _dev_stack_up(monkeypatch, run_calls)
-    monkeypatch.setenv("SEAGULL_SKIP_AGENT_RECONCILE", "false")
+    monkeypatch.setenv("SEAGULL_AGENT_LOCAL_RECONCILE", "true")
     monkeypatch.setattr(cli_main.shutil, "which", lambda name: "/usr/bin/systemctl")
     monkeypatch.setattr(cli_main._systemd, "sync_ca", lambda: 1)
     monkeypatch.setattr(cli_main, "_reconcile_systemd_agent", lambda: 1)
@@ -177,7 +178,7 @@ def test_up_dev_agent_failure_is_non_fatal(monkeypatch) -> None:
 def test_up_dev_agent_exception_is_non_fatal(monkeypatch) -> None:
     run_calls = []
     _dev_stack_up(monkeypatch, run_calls)
-    monkeypatch.setenv("SEAGULL_SKIP_AGENT_RECONCILE", "false")
+    monkeypatch.setenv("SEAGULL_AGENT_LOCAL_RECONCILE", "true")
     monkeypatch.setattr(cli_main.shutil, "which", lambda name: "/usr/bin/systemctl")
 
     def _boom():

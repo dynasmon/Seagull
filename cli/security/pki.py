@@ -15,14 +15,8 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from ..config import env as _env
 
 
-DEFAULT_AGENT_IDS = (
-    "agent-core-1,agent-sensor-1,agent-lateral-1,"
-    "agent-proc-1,agent-scan-1,agent-ddos-1,agent-vuln-1"
-)
-
 CA_KEY_NAME = "agent-ca.key"
 CA_CERT_NAME = "agent-ca.crt"
-AGENTS_DIR_NAME = "agents"
 
 SERVER_CA_KEY_NAME = "server-ca.key"
 SERVER_CA_CERT_NAME = "server-ca.crt"
@@ -89,19 +83,6 @@ def _write_key(key: rsa.RSAPrivateKey, path: Path, mode: int = 0o600) -> None:
 def _write_cert(cert: x509.Certificate, path: Path) -> None:
     path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
     _chmod(path, 0o644)
-
-
-def resolve_agent_ids() -> List[str]:
-    raw = _cfg("SEAGULL_BOOTSTRAP_ROTATOR_AGENT_IDS", DEFAULT_AGENT_IDS)
-    out: List[str] = []
-    seen: set[str] = set()
-    for item in raw.split(","):
-        agent_id = item.strip()
-        if not agent_id or agent_id in seen:
-            continue
-        seen.add(agent_id)
-        out.append(agent_id)
-    return out
 
 
 def _build_ca(
@@ -200,65 +181,6 @@ def load_ca(pki_dir: Path) -> Tuple[rsa.RSAPrivateKey, x509.Certificate]:
 
 def load_server_ca(pki_dir: Path) -> Tuple[rsa.RSAPrivateKey, x509.Certificate]:
     return _load_ca(pki_dir, SERVER_CA_KEY_NAME, SERVER_CA_CERT_NAME)
-
-
-def issue_agent_cert(
-    ca_key: rsa.RSAPrivateKey,
-    ca_cert: x509.Certificate,
-    agent_id: str,
-    pki_dir: Path,
-) -> x509.Certificate:
-    pki_dir = Path(pki_dir)
-    agents_dir = pki_dir / AGENTS_DIR_NAME
-    agents_dir.mkdir(parents=True, exist_ok=True)
-
-    key_size = _cfg_int("SEAGULL_AGENT_CERT_KEY_SIZE", 2048)
-    validity_days = _cfg_int("SEAGULL_AGENT_CERT_VALIDITY_DAYS", 365)
-
-    key = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
-    public_key = key.public_key()
-    subject = x509.Name(
-        [
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Seagull Agents"),
-            x509.NameAttribute(NameOID.COMMON_NAME, agent_id),
-        ]
-    )
-    now = _utcnow()
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(ca_cert.subject)
-        .public_key(public_key)
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(minutes=1))
-        .not_valid_after(now + timedelta(days=validity_days))
-        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
-        .add_extension(
-            x509.KeyUsage(
-                digital_signature=True,
-                content_commitment=False,
-                key_encipherment=False,
-                data_encipherment=False,
-                key_agreement=False,
-                key_cert_sign=False,
-                crl_sign=False,
-                encipher_only=False,
-                decipher_only=False,
-            ),
-            critical=True,
-        )
-        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]), critical=False)
-        .add_extension(x509.SubjectKeyIdentifier.from_public_key(public_key), critical=False)
-        .add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_cert.public_key()),
-            critical=False,
-        )
-        .sign(ca_key, hashes.SHA256())
-    )
-
-    _write_key(key, agents_dir / f"{agent_id}.key")
-    _write_cert(cert, agents_dir / f"{agent_id}.crt")
-    return cert
 
 
 def cert_needs_renewal(cert_path: Path, renew_before_days: int) -> bool:
@@ -411,35 +333,17 @@ def ensure_server_pki(pki_dir: Optional[Path] = None) -> bool:
     return reissue
 
 
-def ensure_agent_pki(pki_dir: Optional[Path] = None) -> List[str]:
+def ensure_agent_ca(pki_dir: Optional[Path] = None) -> bool:
     pki_dir = _resolve_pki_dir(pki_dir)
-    agents_dir = pki_dir / AGENTS_DIR_NAME
     pki_dir.mkdir(parents=True, exist_ok=True)
-    agents_dir.mkdir(parents=True, exist_ok=True)
     _chmod(pki_dir, 0o700)
-    _chmod(agents_dir, 0o700)
 
     ca_cert_path = pki_dir / CA_CERT_NAME
+    created = False
     if ca_cert_path.exists():
-        ca_key, ca_cert = load_ca(pki_dir)
+        load_ca(pki_dir)
     else:
-        ca_key, ca_cert = generate_ca(pki_dir)
+        generate_ca(pki_dir)
+        created = True
     _chmod(pki_dir / CA_KEY_NAME, MTLS_SHARED_KEY_MODE)
-
-    renew_before_days = _cfg_int("SEAGULL_AGENT_CERT_RENEW_BEFORE_DAYS", 30)
-    renewed: List[str] = []
-    for agent_id in resolve_agent_ids():
-        cert_path = agents_dir / f"{agent_id}.crt"
-        key_path = agents_dir / f"{agent_id}.key"
-        if not cert_path.exists() or not key_path.exists():
-            issue_agent_cert(ca_key, ca_cert, agent_id, pki_dir)
-            renewed.append(agent_id)
-            continue
-        if cert_needs_renewal(cert_path, renew_before_days):
-            issue_agent_cert(ca_key, ca_cert, agent_id, pki_dir)
-            renewed.append(agent_id)
-            continue
-        if not validate_cert_chain(cert_path, ca_cert_path):
-            issue_agent_cert(ca_key, ca_cert, agent_id, pki_dir)
-            renewed.append(agent_id)
-    return renewed
+    return created

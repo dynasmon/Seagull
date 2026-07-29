@@ -162,10 +162,7 @@ def _validate_live_tls(api_url: str, ca_file: Path) -> str | None:
     key_file = (_read_agent_env("SEAGULL_TLS_KEY_FILE") or "").strip()
     if cert_file and key_file:
         if not Path(cert_file).exists() or not Path(key_file).exists():
-            return (
-                f"mTLS client certificate not found ({cert_file}, {key_file})\n"
-                "  fix: run ./seagull up to generate the agent PKI, then re-run install-agent.sh"
-            )
+            return None
         try:
             context.load_cert_chain(certfile=cert_file, keyfile=key_file)
         except (ssl.SSLError, OSError) as exc:
