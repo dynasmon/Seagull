@@ -54,6 +54,7 @@ from app.features.network_topology.repositories.subnets import (
 from app.features.network_topology.repositories.writes import (
     insert_observation,
     mark_all_nodes_stale,
+    release_external_node_ownership,
     upsert_edge,
     upsert_node,
     upsert_snapshot,
@@ -103,6 +104,7 @@ __all__ = [
     "list_subnet_member_nodes",
     "list_subnet_nodes_page",
     "mark_all_nodes_stale",
+    "release_external_node_ownership",
     "subnet_member_metrics",
     "topology_insight_metrics",
     "topology_summary_metrics",
