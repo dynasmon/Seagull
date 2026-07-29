@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.api.idempotency import read_batch_id, run_once
 from app.core.db import get_db, routed_db
 from app.core.db.session import managed_session
 from app.features.agents.auth import AgentPrincipal, get_current_agent
@@ -28,11 +29,20 @@ router = APIRouter(
 @router.post("", status_code=status.HTTP_201_CREATED)
 def ingest_inventory_endpoint(
     payload: InventorySnapshotIn,
+    request: Request,
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ):
-    with managed_session(db) as db_session:
-        return ingest_inventory(db_session, payload=payload, agent_id=agent.agent_id)
+    def _ingest():
+        with managed_session(db) as db_session:
+            return ingest_inventory(db_session, payload=payload, agent_id=agent.agent_id)
+
+    return run_once(
+        scope="ingest_inventory",
+        agent_id=agent.agent_id,
+        batch_id=read_batch_id(request),
+        handler=_ingest,
+    )
 
 
 @router.get("/me/latest", response_model=InventorySnapshotOut)
