@@ -224,6 +224,10 @@ services:
       SEAGULL_AGENT_CERT_VALIDITY_DAYS: ${SEAGULL_AGENT_CERT_VALIDITY_DAYS:-365}
       SEAGULL_AGENT_MTLS_CA_CERT_FILE: /etc/seagull/pki/agent-ca.crt
       SEAGULL_AGENT_MTLS_CA_KEY_FILE: /etc/seagull/pki/agent-ca.key
+      SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE: /etc/seagull/pki/server-ca.crt
+      SEAGULL_AGENT_PUBLIC_HOST: ${SEAGULL_AGENT_PUBLIC_HOST:-}
+      SEAGULL_AGENT_MTLS_PORT: ${SEAGULL_AGENT_MTLS_PORT:-8444}
+      SEAGULL_AGENT_ENROLL_PORT: ${SEAGULL_AGENT_ENROLL_PORT:-8445}
       SEAGULL_DB_HOST: postgres
       SEAGULL_DB_PORT: "5432"
       SEAGULL_DB_NAME: ${POSTGRES_DB:-seagull}
@@ -364,6 +368,7 @@ services:
       - ./backend/data/geoip:/app/data/geoip:ro
       - ./secrets/pki/agent-ca.crt:/etc/seagull/pki/agent-ca.crt:ro
       - ./secrets/pki/agent-ca.key:/etc/seagull/pki/agent-ca.key:ro
+      - ./secrets/pki/server-ca.crt:/etc/seagull/pki/server-ca.crt:ro
     # agent-ca.key is 0640 (host owner + PKI group); uid 10001 reads it via this
     # supplementary group instead of the key being world-readable.
     group_add:
@@ -737,10 +742,12 @@ services:
       - "${SEAGULL_EDGE_HTTP_PORT:-8081}:${SEAGULL_CADDY_HTTP_INTERNAL_PORT:-8081}"
       - "${SEAGULL_EDGE_HTTPS_PORT:-8443}:${SEAGULL_CADDY_HTTPS_INTERNAL_PORT:-8443}"
       - "${SEAGULL_AGENT_MTLS_PORT:-8444}:8444"
+      - "${SEAGULL_AGENT_ENROLL_PORT:-8445}:8445"
     environment:
       SEAGULL_CADDY_DOMAIN: ${SEAGULL_CADDY_DOMAIN:-}
       SEAGULL_CADDY_EMAIL: ${SEAGULL_CADDY_EMAIL:-}
       SEAGULL_PORTAL_INTERNAL_PORT: ${SEAGULL_PORTAL_INTERNAL_PORT:-8080}
+      SEAGULL_AGENT_ENROLL_PORT: ${SEAGULL_AGENT_ENROLL_PORT:-8445}
     volumes:
       - ${SEAGULL_CADDY_CONFIG_FILE:-./infra/caddy/Caddyfile}:/etc/caddy/Caddyfile:ro
       - ${SEAGULL_TLS_CERT_FILE:-./secrets/tls/tls.crt}:/etc/seagull/tls/tls.crt:ro
