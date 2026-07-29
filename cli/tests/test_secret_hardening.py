@@ -225,3 +225,45 @@ class TestReplicationSecretDelivery:
         assert "password=$POSTGRES_REPLICATION_PASSWORD" not in script
         assert 'PGPASSFILE="$PASSFILE"' in script
 
+
+class TestDataStoreBindingGuard:
+    def _use_env_values(self, monkeypatch, values):
+        monkeypatch.delenv("SEAGULL_ENV", raising=False)
+        monkeypatch.delenv("SEAGULL_MODE", raising=False)
+        monkeypatch.setattr(
+            _prepare._env, "read", lambda key, default="", path=None: values.get(key, default)
+        )
+
+    def _ports(self, **overrides):
+        values = {
+            "SEAGULL_ENV": "production",
+            "ELASTICSEARCH_PORT": "127.0.0.1:9200",
+            "CLICKHOUSE_HTTP_PORT": "127.0.0.1:8123",
+            "CLICKHOUSE_NATIVE_PORT": "127.0.0.1:9000",
+            "KIBANA_PORT": "127.0.0.1:5601",
+        }
+        values.update(overrides)
+        return values
+
+    def test_loopback_bindings_are_accepted(self, monkeypatch):
+        self._use_env_values(monkeypatch, self._ports())
+        _prepare._enforce_data_store_binding()
+
+    def test_empty_value_is_rejected_because_docker_publishes_publicly(self, monkeypatch):
+        self._use_env_values(monkeypatch, self._ports(ELASTICSEARCH_PORT=""))
+        with pytest.raises(RuntimeError, match="ELASTICSEARCH_PORT"):
+            _prepare._enforce_data_store_binding()
+
+    def test_bare_port_is_rejected(self, monkeypatch):
+        self._use_env_values(monkeypatch, self._ports(CLICKHOUSE_HTTP_PORT="8123"))
+        with pytest.raises(RuntimeError, match="CLICKHOUSE_HTTP_PORT"):
+            _prepare._enforce_data_store_binding()
+
+    def test_explicit_wildcard_bind_is_rejected(self, monkeypatch):
+        self._use_env_values(monkeypatch, self._ports(CLICKHOUSE_NATIVE_PORT="0.0.0.0:9000"))
+        with pytest.raises(RuntimeError, match="CLICKHOUSE_NATIVE_PORT"):
+            _prepare._enforce_data_store_binding()
+
+    def test_dev_is_not_restricted(self, monkeypatch):
+        self._use_env_values(monkeypatch, self._ports(SEAGULL_ENV="dev", ELASTICSEARCH_PORT=""))
+        _prepare._enforce_data_store_binding()
