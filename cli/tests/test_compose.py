@@ -44,3 +44,26 @@ def test_run_respects_preset_pki_gid(tmp_path, monkeypatch):
     monkeypatch.setenv("SEAGULL_PKI_GID", "4242")
     _compose.run(["compose.yml"], ["config", "-q"])
     assert captured["env"]["SEAGULL_PKI_GID"] == "4242"
+
+
+def test_file_flags_without_local_override(tmp_path, monkeypatch):
+    monkeypatch.setattr(_compose._env, "ROOT", tmp_path)
+    assert _compose._file_flags(["compose.yml"]) == ["-f", "compose.yml"]
+
+
+def test_file_flags_appends_local_override_last(tmp_path, monkeypatch):
+    monkeypatch.setattr(_compose._env, "ROOT", tmp_path)
+    (tmp_path / _compose.LOCAL_OVERRIDE_FILE).write_text("services: {}\n")
+    assert _compose._file_flags(["compose.yml", "compose.dev-reload.yml"]) == [
+        "-f", "compose.yml",
+        "-f", "compose.dev-reload.yml",
+        "-f", _compose.LOCAL_OVERRIDE_FILE,
+    ]
+
+
+def test_file_flags_does_not_mutate_the_caller_list(tmp_path, monkeypatch):
+    monkeypatch.setattr(_compose._env, "ROOT", tmp_path)
+    (tmp_path / _compose.LOCAL_OVERRIDE_FILE).write_text("services: {}\n")
+    files = ["compose.yml"]
+    _compose._file_flags(files)
+    assert files == ["compose.yml"]
