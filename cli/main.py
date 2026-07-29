@@ -80,9 +80,12 @@ def _reconcile_systemd_agent() -> int:
 
 
 def _agent_reconcile_enabled() -> bool:
-    flag = (os.environ.get("SEAGULL_SKIP_AGENT_RECONCILE") or _env.read("SEAGULL_SKIP_AGENT_RECONCILE", "false"))
-    if flag.strip().lower() in ("true", "1", "yes", "on"):
+    legacy_skip = (os.environ.get("SEAGULL_SKIP_AGENT_RECONCILE") or _env.read("SEAGULL_SKIP_AGENT_RECONCILE", "")).strip().lower()
+    if legacy_skip in ("true", "1", "yes", "on"):
         print("[systemd-agent] SEAGULL_SKIP_AGENT_RECONCILE set; skipping host agent reconcile")
+        return False
+    flag = (os.environ.get("SEAGULL_AGENT_LOCAL_RECONCILE") or _env.read("SEAGULL_AGENT_LOCAL_RECONCILE", "false")).strip().lower()
+    if flag not in ("true", "1", "yes", "on"):
         return False
     if shutil.which("systemctl") is None:
         print("[systemd-agent] systemd not available on this host; skipping host agent reconcile (Docker stack unaffected)")
@@ -161,9 +164,9 @@ def _up_prod(fresh: bool) -> int:
         _health.print_summary(_compose.STACK_FILES)
         return 1
 
-    _tokens.mint(output_dir=_env.root() / "secrets" / "bootstrap")
-
-    _reconcile_host_agent_best_effort()
+    if _agent_reconcile_enabled():
+        _tokens.mint(output_dir=_env.root() / "secrets" / "bootstrap")
+        _reconcile_host_agent_best_effort()
 
     _state.commit()
     print()
@@ -421,22 +424,32 @@ def cmd_db(args: argparse.Namespace) -> int:
     return 1
 
 
+def _agent_toolchain_available() -> bool:
+    if shutil.which("go") is not None:
+        return True
+    print("[ci] go toolchain not found; skipping agent steps (build agents on a release machine)")
+    return False
+
+
 def cmd_lint(args: argparse.Namespace) -> int:
     root = _env.root()
     steps = [
         (["python3", "-m", "ruff", "check", "app", "tests"], root / "backend"),
         (["lint-imports"], root / "backend"),
         (["npm", "run", "lint"], root / "frontend"),
-        (
-            [
-                "sh", "-c",
-                'test -z "$(gofmt -l $(find . -name \'*.go\' -type f))" '
-                '|| (echo "gofmt required on agent sources" && exit 1)',
-            ],
-            root / "agent",
-        ),
-        (["go", "vet", "./..."], root / "agent"),
     ]
+    if _agent_toolchain_available():
+        steps.extend([
+            (
+                [
+                    "sh", "-c",
+                    'test -z "$(gofmt -l $(find . -name \'*.go\' -type f))" '
+                    '|| (echo "gofmt required on agent sources" && exit 1)',
+                ],
+                root / "agent",
+            ),
+            (["go", "vet", "./..."], root / "agent"),
+        ])
     for cmd, cwd in steps:
         rc = subprocess.run(cmd, cwd=str(cwd)).returncode
         if rc != 0:
@@ -456,11 +469,10 @@ def cmd_test(args: argparse.Namespace) -> int:
             ],
             cwd=str(root / "backend"),
         ).returncode
-    steps = [
-        (["python3", "-m", "pytest", "-q"], root / "backend"),
-        (["go", "test", "./..."], root / "agent"),
-        (["npm", "run", "smoke"], root / "frontend"),
-    ]
+    steps = [(["python3", "-m", "pytest", "-q"], root / "backend")]
+    if _agent_toolchain_available():
+        steps.append((["go", "test", "./..."], root / "agent"))
+    steps.append((["npm", "run", "smoke"], root / "frontend"))
     for cmd, cwd in steps:
         rc = subprocess.run(cmd, cwd=str(cwd)).returncode
         if rc != 0:
@@ -479,7 +491,8 @@ def cmd_ci(args: argparse.Namespace) -> int:
 def cmd_deps(args: argparse.Namespace) -> int:
     if getattr(args, "install", False):
         return _deps.install()
-    return _deps.check_and_report()
+    include_agent_build = True if getattr(args, "agent", False) else None
+    return _deps.check_and_report(include_agent_build=include_agent_build)
 
 
 def cmd_deps_check(args: argparse.Namespace) -> int:
@@ -569,6 +582,10 @@ def _build_parser() -> argparse.ArgumentParser:
     deps_p.add_argument(
         "--install", action="store_true",
         help="install missing host dependencies via deploy/install-deps.sh (uses sudo)",
+    )
+    deps_p.add_argument(
+        "--agent", action="store_true",
+        help="also check the toolchain needed to build the agent (go, gcc, libpcap headers, systemd)",
     )
 
     up_p = sub.add_parser("up", help="start the stack (first run and reruns)")
