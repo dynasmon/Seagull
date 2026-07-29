@@ -108,7 +108,7 @@ def test_cmd_up_ensures_geoip_before_starting_stack(monkeypatch) -> None:
     calls = []
 
     monkeypatch.setattr(cli_main._env, "bootstrap", lambda: calls.append("bootstrap"))
-    monkeypatch.setattr(cli_main._env, "read", lambda key, default="": "dev" if key == "SEAGULL_MODE" else default)
+    monkeypatch.setattr(cli_main._env, "environment", lambda: "dev")
     monkeypatch.setattr(cli_main._geoip, "ensure", lambda: calls.append("geoip") or False)
     monkeypatch.setattr(
         cli_main,
