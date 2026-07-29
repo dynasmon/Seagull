@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.api.conditional import maybe_not_modified
+from app.core.api.idempotency import read_batch_id, run_once
 from app.core.db import get_db, routed_db
 from app.core.observability import incr_counter
 from app.features.agents.auth import AgentPrincipal, get_current_agent
@@ -51,10 +52,20 @@ router = APIRouter(
 )
 def ingest_findings_endpoint(
     payload: VulnIngestBatch,
+    request: Request,
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ):
-    return ingest_findings(db, payload=payload, agent=agent)
+    return run_once(
+        scope="ingest_vuln",
+        agent_id=agent.agent_id,
+        batch_id=read_batch_id(request),
+        handler=lambda: ingest_findings(db, payload=payload, agent=agent),
+        duplicate_result={
+            "received_findings": len(payload.findings or []),
+            "stored_findings": 0,
+        },
+    )
 
 
 @router.post(
