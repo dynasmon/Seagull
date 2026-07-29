@@ -8,9 +8,11 @@ interface AgentsHeaderProps {
   agents: AgentsController;
   compact: boolean;
   setCompact: (next: boolean) => void;
+  isAdmin: boolean;
+  onEnroll: () => void;
 }
 
-export default function AgentsHeader({ agents, compact, setCompact }: AgentsHeaderProps) {
+export default function AgentsHeader({ agents, compact, setCompact, isAdmin, onEnroll }: AgentsHeaderProps) {
   const { selectedAgentId, agent, autoRefresh, setAutoRefresh, lastUpdatedAt, refreshSelectedAgent } = agents;
 
   return (
@@ -25,6 +27,11 @@ export default function AgentsHeader({ agents, compact, setCompact }: AgentsHead
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        {isAdmin && (
+          <Button variant="primary" size="md" onClick={onEnroll}>
+            Enroll agent
+          </Button>
+        )}
         <Button variant={compact ? "secondary" : "subtle"} size="md" onClick={() => setCompact(!compact)}>
           {compact ? "Compact rows" : "Comfortable rows"}
         </Button>
