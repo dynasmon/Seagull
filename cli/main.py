@@ -110,17 +110,26 @@ def _reconcile_host_agent_best_effort() -> None:
         print(f"[systemd-agent] warning: host agent reconcile skipped ({exc}); Docker stack is up regardless", file=sys.stderr)
 
 
+def _reload_edge_certificates(files: list[str], reissued: bool) -> None:
+    if not reissued:
+        return
+    print("[edge] restarting caddy to serve the reissued mTLS server certificate")
+    _compose.run(files, ["restart", "caddy"])
+
+
 def _up_dev(
     files: list[str],
     persist: bool,
 ) -> int:
-    _preflight.run()
+    mtls_reissued = _preflight.run()
 
     rc = _compose.run(
         files, ["up", "-d", "--build", "--remove-orphans"], persist_redis=persist
     ).returncode
     if rc != 0:
         return rc
+
+    _reload_edge_certificates(files, mtls_reissued)
 
     print()
     if not _health.wait_healthy(files, _health.ESSENTIAL_DEV):
@@ -136,7 +145,7 @@ def _up_dev(
 
 
 def _up_prod(fresh: bool) -> int:
-    _prepare.run()
+    mtls_reissued = _prepare.run()
 
     if fresh:
         _compose.run(_compose.STACK_FILES, ["down", "-v", "--remove-orphans"])
@@ -158,6 +167,8 @@ def _up_prod(fresh: bool) -> int:
     if rc != 0:
         return rc
 
+    _reload_edge_certificates(_compose.STACK_FILES, mtls_reissued)
+
     print()
     if not _health.wait_healthy(_compose.STACK_FILES, _health.ESSENTIAL_PROD, timeout=180):
         print()
@@ -178,12 +189,12 @@ def cmd_up(args: argparse.Namespace) -> int:
     _env.bootstrap()
     _geoip.ensure()
 
-    mode = getattr(args, "mode", None) or _env.read("SEAGULL_MODE", "dev")
+    mode = getattr(args, "mode", None) or _env.environment()
     persist = getattr(args, "persist", False)
     dev_reload = getattr(args, "dev_reload", False)
     fresh = getattr(args, "fresh", False)
 
-    if mode == "prod":
+    if mode in _env.PRODUCTION_ENVIRONMENTS:
         return _up_prod(fresh=fresh)
 
     files = _compose.DEV_RELOAD_FILES if dev_reload else _compose.STACK_FILES
@@ -200,8 +211,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     _env.bootstrap()
     deps_rc = _deps.check_and_report()
     print()
-    mode = _env.read("SEAGULL_MODE", "dev")
-    if mode == "prod":
+    if _env.is_production():
         _prepare.run()
     _preflight.run()
     result, msg = _state.check()
@@ -590,8 +600,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     up_p = sub.add_parser("up", help="start the stack (first run and reruns)")
     up_p.add_argument(
-        "--mode", choices=["dev", "prod"], default=None,
-        help="runtime mode (default: value of SEAGULL_MODE in .env, or dev)",
+        "--mode", choices=["dev", "prod", "production"], default=None,
+        help="runtime mode (default: value of SEAGULL_ENV in .env, or dev)",
     )
     up_p.add_argument("--persist", action="store_true", help="enable persistent Redis storage (dev)")
     up_p.add_argument(
