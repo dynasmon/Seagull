@@ -59,7 +59,14 @@ def _docker_daemon_status() -> tuple[bool, str]:
     return False, "docker daemon unreachable — start it: sudo systemctl enable --now docker"
 
 
-def check() -> list[tuple[str, bool, str]]:
+def agent_build_enabled() -> bool:
+    raw = os.environ.get("SEAGULL_AGENT_LOCAL_RECONCILE")
+    if raw is None:
+        raw = _env.read("SEAGULL_AGENT_LOCAL_RECONCILE", "false")
+    return str(raw).strip().lower() in ("true", "1", "yes", "on")
+
+
+def check(*, include_agent_build: bool | None = None) -> list[tuple[str, bool, str]]:
     results: list[tuple[str, bool, str]] = []
 
     docker_present = shutil.which("docker") is not None
@@ -73,6 +80,27 @@ def check() -> list[tuple[str, bool, str]]:
         daemon_ok, daemon_hint = _docker_daemon_status()
         results.append(("docker daemon", daemon_ok, daemon_hint))
 
+    crypto_present = importlib.util.find_spec("cryptography") is not None
+    results.append((
+        "python cryptography", crypto_present,
+        "" if crypto_present else "python3-cryptography not installed (needed for the internal PKI)",
+    ))
+
+    for name in ("curl", "jq", "git", "sudo"):
+        present = shutil.which(name) is not None
+        results.append((name, present, "" if present else f"{name} not found in PATH"))
+
+    if include_agent_build is None:
+        include_agent_build = agent_build_enabled()
+    if include_agent_build:
+        results.extend(agent_build_check())
+
+    return results
+
+
+def agent_build_check() -> list[tuple[str, bool, str]]:
+    results: list[tuple[str, bool, str]] = []
+
     go_ok, go_detail = _go_status()
     results.append((f"go (>= {GO_MIN[0]}.{GO_MIN[1]})", go_ok, go_detail))
 
@@ -85,13 +113,7 @@ def check() -> list[tuple[str, bool, str]]:
         "" if pcap_present else "libpcap-dev (or libpcap-devel) not installed",
     ))
 
-    crypto_present = importlib.util.find_spec("cryptography") is not None
-    results.append((
-        "python cryptography", crypto_present,
-        "" if crypto_present else "python3-cryptography not installed (needed for the internal PKI)",
-    ))
-
-    for name in ("curl", "jq", "git", "setcap", "systemctl", "sudo"):
+    for name in ("setcap", "systemctl"):
         present = shutil.which(name) is not None
         results.append((name, present, "" if present else f"{name} not found in PATH"))
 
@@ -118,8 +140,8 @@ def print_report(results: list[tuple[str, bool, str]]) -> int:
     return 0
 
 
-def check_and_report() -> int:
-    return print_report(check())
+def check_and_report(*, include_agent_build: bool | None = None) -> int:
+    return print_report(check(include_agent_build=include_agent_build))
 
 
 def install() -> int:
