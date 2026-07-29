@@ -13,6 +13,9 @@ _DEPRECATED_KEYS = ["COMPOSE_IGNORE_ORPHANS", "SEAGULL_SKIP_AGENT_RECONCILE"]
 
 ENV_FILE_MODE = 0o600
 
+DEFAULT_ENVIRONMENT = "dev"
+PRODUCTION_ENVIRONMENTS = ("prod", "production")
+
 
 def root() -> Path:
     return ROOT
@@ -50,6 +53,23 @@ def read(key: str, default: str = "", path: Optional[Path] = None) -> str:
         if line.startswith(f"{key}="):
             return line[len(key) + 1:].strip()
     return default
+
+
+def environment(path: Optional[Path] = None) -> str:
+    for source in (
+        os.environ.get("SEAGULL_ENV"),
+        read("SEAGULL_ENV", "", path),
+        os.environ.get("SEAGULL_MODE"),
+        read("SEAGULL_MODE", "", path),
+    ):
+        value = (source or "").strip().lower()
+        if value:
+            return value
+    return DEFAULT_ENVIRONMENT
+
+
+def is_production(path: Optional[Path] = None) -> bool:
+    return environment(path) in PRODUCTION_ENVIRONMENTS
 
 
 def upsert(key: str, value: str, path: Optional[Path] = None) -> None:

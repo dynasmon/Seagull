@@ -116,3 +116,44 @@ class TestFreshHostArtifacts:
         assert pki.ensure_server_pki(pki_dir) is False
         pki.ensure_agent_ca(pki_dir)
         assert (pki_dir / "agent-ca.key").stat().st_mtime_ns == ca_mtime
+
+
+class TestEnvironmentMode:
+    def _clear_process_env(self, monkeypatch):
+        monkeypatch.delenv("SEAGULL_ENV", raising=False)
+        monkeypatch.delenv("SEAGULL_MODE", raising=False)
+
+    def test_defaults_to_dev_without_env_file(self, tmp_path, monkeypatch):
+        self._clear_process_env(monkeypatch)
+        assert _env.environment(path=tmp_path / ".env") == "dev"
+        assert _env.is_production(path=tmp_path / ".env") is False
+
+    def test_reads_production_from_env_file(self, tmp_path, monkeypatch):
+        self._clear_process_env(monkeypatch)
+        env = tmp_path / ".env"
+        env.write_text("SEAGULL_ENV=production\n")
+        assert _env.is_production(path=env) is True
+
+    def test_accepts_prod_alias(self, tmp_path, monkeypatch):
+        self._clear_process_env(monkeypatch)
+        env = tmp_path / ".env"
+        env.write_text("SEAGULL_ENV=Prod\n")
+        assert _env.is_production(path=env) is True
+
+    def test_process_env_overrides_env_file(self, tmp_path, monkeypatch):
+        env = tmp_path / ".env"
+        env.write_text("SEAGULL_ENV=production\n")
+        monkeypatch.setenv("SEAGULL_ENV", "dev")
+        assert _env.is_production(path=env) is False
+
+    def test_falls_back_to_legacy_mode_key(self, tmp_path, monkeypatch):
+        self._clear_process_env(monkeypatch)
+        env = tmp_path / ".env"
+        env.write_text("SEAGULL_MODE=prod\n")
+        assert _env.is_production(path=env) is True
+
+    def test_env_key_wins_over_legacy_mode_key(self, tmp_path, monkeypatch):
+        self._clear_process_env(monkeypatch)
+        env = tmp_path / ".env"
+        env.write_text("SEAGULL_ENV=dev\nSEAGULL_MODE=prod\n")
+        assert _env.is_production(path=env) is False
