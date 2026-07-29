@@ -18,6 +18,7 @@ from app.features.agents.models import AgentCertificateModel, AgentCertificateSt
 
 DEFAULT_CA_CERT_FILE = "/etc/seagull/pki/agent-ca.crt"
 DEFAULT_CA_KEY_FILE = "/etc/seagull/pki/agent-ca.key"
+DEFAULT_SERVER_CA_CERT_FILE = "/etc/seagull/pki/server-ca.crt"
 MIN_RSA_KEY_SIZE = 2048
 ALLOWED_EC_CURVES = ("secp256r1", "secp384r1")
 
@@ -222,3 +223,35 @@ def renew_agent_certificate(
         raise CertificateRenewalDisabled("agent certificate renewal is disabled")
     csr = validate_csr(csr_pem, agent_id)
     return sign_agent_csr(csr, agent_id, db=db)
+
+
+def issue_enrollment_certificate(
+    agent_id: str,
+    csr_pem: str,
+    db: Optional[Session] = None,
+) -> IssuedCertificate:
+    csr = validate_csr(csr_pem, agent_id)
+    return sign_agent_csr(csr, agent_id, db=db)
+
+
+def certificate_fingerprint(pem: str) -> Optional[str]:
+    try:
+        cert = x509.load_pem_x509_certificate(pem.encode("utf-8"))
+    except (ValueError, AttributeError):
+        return None
+    return cert.fingerprint(hashes.SHA256()).hex()
+
+
+def server_ca_bundle() -> Optional[str]:
+    path = (getenv_compat("SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE", DEFAULT_SERVER_CA_CERT_FILE) or "").strip()
+    if not path:
+        return None
+    try:
+        pem = Path(path).read_bytes()
+    except OSError:
+        return None
+    try:
+        x509.load_pem_x509_certificate(pem)
+    except ValueError:
+        return None
+    return pem.decode("utf-8", errors="replace")

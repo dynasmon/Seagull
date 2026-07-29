@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import write_audit_event
 from app.core.db import get_db, routed_db
 from app.core.db.session import managed_session
-from app.features.agents import service
+from app.features.agents import onboarding, service
 from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.features.agents.schemas import (
     AgentBootstrapTokenCreateIn,
@@ -19,14 +19,42 @@ from app.features.agents.schemas import (
     AgentCredentialOut,
     AgentDetail,
     AgentEnrollIn,
+    AgentEnrollmentTicketIn,
+    AgentEnrollmentTicketOut,
     AgentEnrollOut,
     AgentHeartbeatIn,
+    AgentOnboardingOut,
     AgentPublic,
     AgentUpdateIn,
 )
 from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+@router.get("/onboarding", response_model=AgentOnboardingOut)
+def get_agent_onboarding(
+    request: Request,
+    _admin: PortalPrincipal = Depends(require_admin),
+):
+    return onboarding.describe(request)
+
+
+@router.post("/enrollment-tickets", response_model=AgentEnrollmentTicketOut, status_code=status.HTTP_201_CREATED)
+def create_agent_enrollment_ticket(
+    payload: AgentEnrollmentTicketIn,
+    request: Request,
+    admin: PortalPrincipal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    with managed_session(db) as db_session:
+        return service.create_enrollment_ticket(
+            db_session,
+            payload=payload,
+            request=request,
+            admin=admin,
+            audit_writer=write_audit_event,
+        )
 
 
 @router.post("/{agent_id}/bootstrap-tokens", response_model=AgentBootstrapTokenOut, status_code=status.HTTP_201_CREATED)
@@ -74,7 +102,13 @@ def enroll_agent(request: Request, payload: AgentEnrollIn, db: Session = Depends
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bootstrap token")
 
     with managed_session(db) as db_session:
-        return service.enroll(db_session, payload=payload, raw_bootstrap_token=raw_bootstrap)
+        return service.enroll(
+            db_session,
+            payload=payload,
+            raw_bootstrap_token=raw_bootstrap,
+            request=request,
+            audit_writer=write_audit_event,
+        )
 
 
 @router.post("/credential/rotate", response_model=AgentCredentialOut)
