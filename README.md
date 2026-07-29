@@ -62,17 +62,20 @@ Core services are declared in [`compose.yml`](compose.yml):
 
 Agents are not containers: they run as a native `systemd` service
 (`seagull-agent`) on each monitored host and reach the platform through the
-mTLS listener on port 8444.
+mTLS listener on port 8444, after a one-time enrollment on port 8445. The agent
+is a separate product with its own release artifacts — the platform runs with no
+agent installed, and an agent installs with no access to this repository.
 
 ## Quickstart
 
 ### Requirements
 
-- Linux host with `systemd` (required for the agent and PCAP collectors).
 - Docker with the Compose plugin.
 - Git, curl, jq.
 - Python 3 with the `cryptography` package (internal PKI generation).
-- Go >= 1.21, gcc, and libpcap headers (the host agent is built from source).
+
+Building the agent additionally needs Go >= 1.22, gcc and libpcap headers, on
+the build machine only. Monitored hosts need `systemd` and libpcap at runtime.
 
 On a new machine, install everything in one step:
 
@@ -105,9 +108,10 @@ ${EDITOR:-nano} .env
 `./seagull up` is the only command needed from then on: it bootstraps `.env`
 from [`.env.example`](.env.example), downloads and validates the MaxMind
 GeoLite2 City and ASN databases when missing, validates the environment,
-generates the TLS/mTLS PKI, builds the containers, waits for core services,
-creates short-lived agent bootstrap tokens, and reconciles the host `systemd`
-agent (building and installing it automatically when missing).
+generates the TLS/mTLS PKI, builds the containers, and waits for core services.
+It does not install or require a local agent; set
+`SEAGULL_AGENT_LOCAL_RECONCILE=true` to also mint dev tokens and reconcile a
+host agent on the platform machine.
 
 ### Access
 
@@ -197,8 +201,37 @@ never as containers. The default identity collects
 `authlog`, `proc`, `scan`, `ddos`, `l7`, `syscollector`, and `vuln`; sources are
 configured per host in `/etc/seagull/agent.env` (`SEAGULL_SOURCES`).
 
-On the platform host, `./seagull up` installs and reconciles the local agent
-automatically. To manage it directly:
+Monitored hosts are installed from a release package, not from this repository.
+Build one with [`agent/build.sh`](agent/build.sh), which emits versioned
+tarballs plus `SHA256SUMS` under `agent/dist/`:
+
+```bash
+./agent/build.sh --channel stable
+```
+
+Copy the tarball to the endpoint, mint a single-use enrollment token in the
+Agents view (**Enroll agent**, or `POST /api/agents/enrollment-tickets`), and run
+the bundled installer with the command the portal renders:
+
+```bash
+sudo ./install.sh \
+  --agent-id web-01 \
+  --api-url https://siem.example.com:8444/agent \
+  --enroll-url https://siem.example.com:8445 \
+  --profile sensor \
+  --enroll-token abt.web-01.<secret>
+```
+
+The endpoint generates its own private key and sends only a CSR; the server
+returns a certificate bound to the agent id. Client certificates then renew
+automatically over the mTLS channel. The `sensor` profile collects telemetry
+only and cannot execute response actions; `managed` additionally accepts
+server-dispatched actions. See [`agent/packaging/README.md`](agent/packaging/README.md)
+for the operator reference and [`secrets/README.md`](secrets/README.md) for the
+mTLS trust model.
+
+For a host agent on the platform machine itself (development convenience), set
+`SEAGULL_AGENT_LOCAL_RECONCILE=true` and use:
 
 ```bash
 sudo ./seagull agent install-systemd
@@ -206,13 +239,6 @@ sudo ./seagull agent install-systemd
 ./seagull agent validate-systemd
 journalctl -u seagull-agent -f
 ```
-
-For additional monitored hosts, deliver `secrets/pki/server-ca.crt` plus the
-per-agent client certificate and run
-`sudo ./deploy/systemd/install-agent.sh` — see
-[`secrets/README.md`](secrets/README.md) for the full distributed rollout and
-the mTLS trust model. Client certificates renew automatically over the mTLS
-channel (CSR-based, zero-touch).
 
 PCAP collectors require Linux capture permissions and the right interface
 configuration. Set the interfaces in `/etc/seagull/agent.env`
