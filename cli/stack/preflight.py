@@ -54,7 +54,7 @@ def _abs(p: str) -> Path:
     return path if path.is_absolute() else _env.root() / path
 
 
-def run() -> None:
+def run() -> bool:
     for cmd in ("docker", "curl", "jq"):
         _require_cmd(cmd)
 
@@ -160,14 +160,11 @@ def run() -> None:
                 f"run: chmod g+r {path}"
             )
 
+    mtls_reissued = False
     if mtls_enabled:
         from ..security import pki as _pki
 
-        if _pki.ensure_agent_ca():
-            print("[preflight] mTLS: generated agent CA")
-        if _pki.ensure_server_pki():
-            print(f"[preflight] mTLS: generated/renewed mTLS server cert for: {', '.join(_pki.resolve_server_names())}")
-        print("[preflight] mTLS: agent CA + server PKI ready")
+        mtls_reissued = _pki.ensure("preflight")
     else:
         print("[preflight] mTLS: disabled (SEAGULL_MTLS_ENABLED=false); skipping agent PKI")
 
@@ -175,3 +172,4 @@ def run() -> None:
         raise RuntimeError("[preflight] docker compose config validation failed")
 
     print("[preflight] ok: docker, compose, curl, jq and compose config are ready")
+    return mtls_reissued
