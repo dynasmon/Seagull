@@ -219,3 +219,15 @@ def upsert_snapshot(
 def mark_all_nodes_stale(db: Session) -> int:
     result = db.execute(update(TopologyNodeModel).values(is_stale=1))
     return int(result.rowcount or 0)
+
+
+def release_external_node_ownership(db: Session) -> int:
+    result = db.execute(
+        update(TopologyNodeModel)
+        .where(
+            TopologyNodeModel.agent_id.isnot(None),
+            TopologyNodeModel.node_type == "external_ip",
+        )
+        .values(agent_id=None)
+    )
+    return int(result.rowcount or 0)
