@@ -46,6 +46,7 @@ class _FakeResult:
     def __init__(self, rows=None, scalar_val=None):
         self._rows = rows or []
         self._scalar_val = scalar_val
+        self.rowcount = len(self._rows)
 
     def scalars(self):
         return _FakeScalars(self._rows)
