@@ -1,43 +1,45 @@
 from pathlib import Path
 
-_TUNING_KEYS = {
-    "SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_ENABLED",
-    "SEAGULL_TOPOLOGY_ACTIVE_DISCOVERY_CIDRS",
-    "SEAGULL_DDOS_MIN_PPS",
-    "SEAGULL_VULN_SCAN_EVERY",
-    "SEAGULL_RESPONSE_ALLOW_SHELL_EXEC",
-}
 
-_BOOTSTRAP_KEYS = {
-    "SEAGULL_AGENT_ID",
-    "SEAGULL_API_URL",
-    "SEAGULL_ENROLL_URL",
-    "SEAGULL_AGENT_PROFILE",
-    "SEAGULL_TLS_CA_FILE",
-    "SEAGULL_TLS_CERT_FILE",
-    "SEAGULL_TLS_KEY_FILE",
-    "SEAGULL_AGENT_BOOTSTRAP_TOKEN_FILE",
-    "SEAGULL_AGENT_IDENTITY_STATE_FILE",
-    "SEAGULL_AGENT_CREDENTIAL_FILE",
-}
-
-
-def test_agent_packaging_env_covers_bootstrap_keys_only() -> None:
+def test_platform_contains_no_agent_product_source() -> None:
     root = Path(__file__).resolve().parents[2]
-    packaged_env = (root / "agent/packaging/seagull-agent.env.example").read_text()
 
-    for key in _BOOTSTRAP_KEYS:
-        assert key in packaged_env
+    assert not (root / "agent/go.mod").exists()
+    assert not (root / "agent/cmd").exists()
+    assert not (root / "agent/internal").exists()
+    assert not (root / "agent/packaging").exists()
+    assert not (root / "deploy/systemd/install-agent.sh").exists()
+    assert not (root / "scripts/ci/agent-package-smoke.sh").exists()
 
-    for key in _TUNING_KEYS:
-        assert key not in packaged_env
 
-
-def test_agent_packaging_installer_is_repo_independent() -> None:
+def test_platform_deployment_does_not_build_agent_artifacts() -> None:
     root = Path(__file__).resolve().parents[2]
-    installer = (root / "agent/packaging/install.sh").read_text()
+    paths = (
+        root / "Makefile",
+        root / ".gitlab-ci.yml",
+        root / "deploy/install-deps.sh",
+        root / "compose.yml",
+        root / "cli/main.py",
+    )
+    forbidden = ("go build", "go test", "libpcap-dev", "install-agent.sh")
 
-    assert "REPO_ROOT" not in installer
-    assert "../" not in installer
-    assert "secrets/" not in installer
-    assert "go build" not in installer
+    for path in paths:
+        text = path.read_text()
+        assert all(value not in text for value in forbidden)
+
+
+def test_platform_pins_an_agent_release() -> None:
+    root = Path(__file__).resolve().parents[2]
+    env = (root / ".env.example").read_text()
+
+    assert "SEAGULL_AGENT_RELEASE_VERSION=0.1.0" in env
+    assert "SEAGULL_AGENT_RELEASE_BASE_URL=https://github.com/dynasmon/seagull-agent/releases/download" in env
+
+
+def test_agent_listeners_serve_the_platform_server_identity() -> None:
+    root = Path(__file__).resolve().parents[2]
+    caddyfile = (root / "infra/caddy/Caddyfile").read_text()
+
+    assert ":8444" in caddyfile
+    assert ":8445" in caddyfile
+    assert caddyfile.count("tls /etc/seagull/mtls/server.crt /etc/seagull/mtls/server.key") == 2
