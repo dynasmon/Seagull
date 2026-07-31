@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,7 +13,6 @@ from .stack import deps as _deps
 from .stack import geoip as _geoip
 from .stack import health as _health
 from .config import wizard as _wizard
-from .stack import systemd as _systemd
 
 
 class _MissingHostDependency:
@@ -44,72 +41,6 @@ def _clear_bootstrap_tokens() -> None:
             f.unlink()
 
 
-def _reconcile_systemd_agent() -> int:
-    try:
-        _systemd.validate()
-        if _systemd.is_active():
-            return 0
-        rc = _systemd.restart()
-        if rc == 0 and _systemd.is_active():
-            return 0
-    except _systemd.ValidationError:
-        pass
-
-    agent_id = _systemd.installed_agent_id()
-    print(f"[systemd-agent] attempting automatic recovery for {agent_id}")
-    _tokens.mint()
-    bootstrap_token = _systemd.repo_bootstrap_token_for_agent(agent_id)
-    if not bootstrap_token:
-        print(
-            f"[systemd-agent] no repo bootstrap token found for {agent_id}; "
-            "run ./seagull agent tokens or set AGENT_*_BOOTSTRAP_TOKEN in .env",
-            file=sys.stderr,
-        )
-        return 1
-
-    rc = _systemd.install(bootstrap_token=bootstrap_token)
-    if rc != 0:
-        return rc
-
-    try:
-        _systemd.validate()
-    except _systemd.ValidationError:
-        return 1
-
-    return 0 if _systemd.is_active() else 1
-
-
-def _agent_reconcile_enabled() -> bool:
-    legacy_skip = (os.environ.get("SEAGULL_SKIP_AGENT_RECONCILE") or _env.read("SEAGULL_SKIP_AGENT_RECONCILE", "")).strip().lower()
-    if legacy_skip in ("true", "1", "yes", "on"):
-        print("[systemd-agent] SEAGULL_SKIP_AGENT_RECONCILE set; skipping host agent reconcile")
-        return False
-    flag = (os.environ.get("SEAGULL_AGENT_LOCAL_RECONCILE") or _env.read("SEAGULL_AGENT_LOCAL_RECONCILE", "false")).strip().lower()
-    if flag not in ("true", "1", "yes", "on"):
-        return False
-    if shutil.which("systemctl") is None:
-        print("[systemd-agent] systemd not available on this host; skipping host agent reconcile (Docker stack unaffected)")
-        return False
-    return True
-
-
-def _reconcile_host_agent_best_effort() -> None:
-    """Sync the CA and reconcile the host systemd agent without ever failing `up`.
-
-    The Docker stack is the success criterion; the host agent is a separate
-    integration that must not block a fresh machine from bringing the stack up.
-    """
-    if not _agent_reconcile_enabled():
-        return
-    try:
-        if _systemd.sync_ca() != 0:
-            print("[systemd-agent] warning: CA sync did not complete; continuing (Docker stack is up)", file=sys.stderr)
-        if _reconcile_systemd_agent() != 0:
-            print("[systemd-agent] warning: host agent reconcile incomplete; Docker stack is up regardless", file=sys.stderr)
-    except Exception as exc:
-        print(f"[systemd-agent] warning: host agent reconcile skipped ({exc}); Docker stack is up regardless", file=sys.stderr)
-
-
 def _reload_edge_certificates(files: list[str], reissued: bool) -> None:
     if not reissued:
         return
@@ -136,8 +67,6 @@ def _up_dev(
         print()
         _health.print_summary(files)
         return 1
-
-    _reconcile_host_agent_best_effort()
 
     print()
     _health.print_summary(files)
@@ -174,10 +103,6 @@ def _up_prod(fresh: bool) -> int:
         print()
         _health.print_summary(_compose.STACK_FILES)
         return 1
-
-    if _agent_reconcile_enabled():
-        _tokens.mint(output_dir=_env.root() / "secrets" / "bootstrap")
-        _reconcile_host_agent_best_effort()
 
     _state.commit()
     print()
@@ -284,7 +209,6 @@ def cmd_restart(args: argparse.Namespace) -> int:
         ).returncode
         if rc != 0:
             return rc
-        _reconcile_host_agent_best_effort()
         return 0
 
     _compose.run(files, ["down", "--remove-orphans"], persist_redis=persist)
@@ -295,7 +219,6 @@ def cmd_restart(args: argparse.Namespace) -> int:
     ).returncode
     if rc != 0:
         return rc
-    _reconcile_host_agent_best_effort()
     return 0
 
 
@@ -369,21 +292,8 @@ def cmd_agent(args: argparse.Namespace) -> int:
     if sub == "tokens":
         _env.bootstrap()
         output_dir = Path(args.output_dir) if getattr(args, "output_dir", None) else None
-        _tokens.mint(output_dir=output_dir)
+        _tokens.mint(args.agent_ids, output_dir=output_dir)
         return 0
-    if sub in ("install", "install-systemd"):
-        return _systemd.install()
-    if sub in ("restart", "restart-systemd"):
-        return _systemd.restart()
-    if sub in ("status", "status-systemd"):
-        return _systemd.status()
-    if sub in ("validate", "validate-systemd"):
-        try:
-            _systemd.validate()
-            print("[systemd-agent] ok")
-            return 0
-        except _systemd.ValidationError:
-            return 1
     print(f"[seagull] unknown agent subcommand: {sub}", file=sys.stderr)
     return 1
 
@@ -434,13 +344,6 @@ def cmd_db(args: argparse.Namespace) -> int:
     return 1
 
 
-def _agent_toolchain_available() -> bool:
-    if shutil.which("go") is not None:
-        return True
-    print("[ci] go toolchain not found; skipping agent steps (build agents on a release machine)")
-    return False
-
-
 def cmd_lint(args: argparse.Namespace) -> int:
     root = _env.root()
     steps = [
@@ -448,18 +351,6 @@ def cmd_lint(args: argparse.Namespace) -> int:
         (["lint-imports"], root / "backend"),
         (["npm", "run", "lint"], root / "frontend"),
     ]
-    if _agent_toolchain_available():
-        steps.extend([
-            (
-                [
-                    "sh", "-c",
-                    'test -z "$(gofmt -l $(find . -name \'*.go\' -type f))" '
-                    '|| (echo "gofmt required on agent sources" && exit 1)',
-                ],
-                root / "agent",
-            ),
-            (["go", "vet", "./..."], root / "agent"),
-        ])
     for cmd, cwd in steps:
         rc = subprocess.run(cmd, cwd=str(cwd)).returncode
         if rc != 0:
@@ -480,8 +371,6 @@ def cmd_test(args: argparse.Namespace) -> int:
             cwd=str(root / "backend"),
         ).returncode
     steps = [(["python3", "-m", "pytest", "-q"], root / "backend")]
-    if _agent_toolchain_available():
-        steps.append((["go", "test", "./..."], root / "agent"))
     steps.append((["npm", "run", "smoke"], root / "frontend"))
     for cmd, cwd in steps:
         rc = subprocess.run(cmd, cwd=str(cwd)).returncode
@@ -501,8 +390,7 @@ def cmd_ci(args: argparse.Namespace) -> int:
 def cmd_deps(args: argparse.Namespace) -> int:
     if getattr(args, "install", False):
         return _deps.install()
-    include_agent_build = True if getattr(args, "agent", False) else None
-    return _deps.check_and_report(include_agent_build=include_agent_build)
+    return _deps.check_and_report()
 
 
 def cmd_deps_check(args: argparse.Namespace) -> int:
@@ -510,11 +398,6 @@ def cmd_deps_check(args: argparse.Namespace) -> int:
     steps = [
         (["python3", "-m", "pip_audit", "-r", "requirements.lock"], root / "backend"),
         (["npm", "audit", "--audit-level=high"], root / "frontend"),
-        (
-            ["sh", "-c",
-             "go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./..."],
-            root / "agent",
-        ),
     ]
     for cmd, cwd in steps:
         rc = subprocess.run(cmd, cwd=str(cwd)).returncode
@@ -552,7 +435,7 @@ def _print_help() -> None:
         "  -d | deps            check host dependencies\n"
         "  -d --install         install missing host dependencies (uses sudo)\n"
         "\n"
-        "Stack (agents always run via systemd on the host):\n"
+        "Stack:\n"
         "  up [--mode dev|prod] [--persist] [--dev-reload] [--fresh]\n"
         "  down\n"
         "  restart [--quick] [--persist]\n"
@@ -564,8 +447,7 @@ def _print_help() -> None:
         "Management:\n"
         "  env bootstrap | wizard | prepare\n"
         "  geoip install [--force] | status\n"
-        "  agent tokens [--output-dir path]\n"
-        "  agent install-systemd | restart-systemd | status-systemd | validate-systemd\n"
+        "  agent tokens --agent-id id [--agent-id id] [--output-dir path]\n"
         "  admin reset\n"
         "  state check | clear\n"
         "  db upgrade | current\n"
@@ -593,11 +475,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--install", action="store_true",
         help="install missing host dependencies via deploy/install-deps.sh (uses sudo)",
     )
-    deps_p.add_argument(
-        "--agent", action="store_true",
-        help="also check the toolchain needed to build the agent (go, gcc, libpcap headers, systemd)",
-    )
-
     up_p = sub.add_parser("up", help="start the stack (first run and reruns)")
     up_p.add_argument(
         "--mode", choices=["dev", "prod", "production"], default=None,
@@ -655,16 +532,17 @@ def _build_parser() -> argparse.ArgumentParser:
     geoip_install.add_argument("--force", action="store_true", help="download even when databases are valid")
     geoip_sub.add_parser("status", help="validate installed GeoLite2 databases")
 
-    agent_p = sub.add_parser("agent", help="agent lifecycle operations")
+    agent_p = sub.add_parser("agent", help="agent control-plane operations")
     agent_sub = agent_p.add_subparsers(dest="agent_cmd", metavar="agent_cmd")
     tok_p = agent_sub.add_parser("tokens", help="mint agent bootstrap tokens")
+    tok_p.add_argument(
+        "--agent-id",
+        dest="agent_ids",
+        action="append",
+        required=True,
+        help="registered agent identifier; repeat for multiple agents",
+    )
     tok_p.add_argument("--output-dir", dest="output_dir", default=None)
-    agent_sub.add_parser("install-systemd", help="install or update the host systemd agent")
-    agent_sub.add_parser("restart-systemd", help="restart the host systemd agent service")
-    agent_sub.add_parser("status-systemd", help="show host systemd agent service status")
-    agent_sub.add_parser("validate-systemd", help="validate systemd agent installation and config")
-    agent_sub.add_parser("install", help="(alias for install-systemd)")
-    agent_sub.add_parser("restart", help="(alias for restart-systemd)")
 
     admin_p = sub.add_parser("admin", help="admin account operations")
     admin_sub = admin_p.add_subparsers(dest="admin_cmd", metavar="admin_cmd")
@@ -680,7 +558,7 @@ def _build_parser() -> argparse.ArgumentParser:
     db_sub.add_parser("upgrade", help="run alembic upgrade head")
     db_sub.add_parser("current", help="show current alembic revision")
 
-    sub.add_parser("lint", help="lint backend, frontend, and agent")
+    sub.add_parser("lint", help="lint backend and frontend")
 
     test_p = sub.add_parser("test", help="run automated test suite")
     test_p.add_argument("--detections", action="store_true")
