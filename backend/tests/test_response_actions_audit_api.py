@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
@@ -10,10 +11,17 @@ os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
 
 from app.core.db import get_db
 from app.features.agents.models import AgentModel
-from app.features.auth.session import PortalPrincipal, require_admin
+from app.features.auth.session import PortalPrincipal, get_current_user, require_admin
 from app.features.response import api as response_api
 from app.features.response.models import ResponseActionModel
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def _risk_gate_admin():
+    app.dependency_overrides[get_current_user] = lambda: PortalPrincipal(id=9, username="root", role="admin")
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 class _FakeQuery:
@@ -29,7 +37,22 @@ class _FakeQuery:
 
 class _FakeDB:
     def __init__(self):
-        self.agent = AgentModel(id=1, agent_id="agent-1", is_revoked=False)
+        self.agent = AgentModel(
+            id=1,
+            agent_id="agent-1",
+            is_revoked=False,
+            agent_metadata={"profile": "managed"},
+            metrics={
+                "capabilities": {
+                    "response_action_types": [
+                        "collect_triage_bundle",
+                        "refresh_runtime_config",
+                        "trigger_inventory_snapshot",
+                        "trigger_topology_discovery",
+                    ]
+                }
+            },
+        )
         self.created = None
 
     def query(self, model):
