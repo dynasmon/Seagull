@@ -5,7 +5,6 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
-from urllib.parse import urlparse
 
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
@@ -25,7 +24,7 @@ SERVER_DIR_NAME = "server"
 SERVER_CERT_NAME = "mtls.crt"
 SERVER_KEY_NAME = "mtls.key"
 DEFAULT_SERVER_NAMES = "localhost,127.0.0.1"
-EDGE_NAME_KEYS = ("SEAGULL_CADDY_DOMAIN", "SEAGULL_AGENT_TLS_SERVER_NAME")
+EDGE_NAME_KEYS = ("SEAGULL_AGENT_PUBLIC_HOST", "SEAGULL_CADDY_DOMAIN")
 
 MTLS_SHARED_KEY_MODE = 0o640
 
@@ -130,7 +129,9 @@ def _build_ca(
             ),
             critical=True,
         )
-        .add_extension(x509.SubjectKeyIdentifier.from_public_key(public_key), critical=False)
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(public_key), critical=False
+        )
         .sign(key, hashes.SHA256())
     )
 
@@ -204,20 +205,23 @@ def validate_cert_chain(cert_path: Path, ca_path: Path) -> bool:
     return True
 
 
-def _api_url_host() -> str:
-    return (urlparse(_cfg("SEAGULL_API_URL", "")).hostname or "").strip()
-
-
 def resolve_edge_server_names() -> List[str]:
-    candidates = [_cfg(key, "") for key in EDGE_NAME_KEYS]
-    candidates.append(_api_url_host())
-    return [name for name in candidates if name]
+    names: List[str] = []
+    for value in (_cfg(key, "") for key in EDGE_NAME_KEYS):
+        name = value.strip()
+        if name.startswith("[") and name.endswith("]"):
+            name = name[1:-1]
+        if name:
+            names.append(name)
+    return names
 
 
 def resolve_server_names() -> List[str]:
     raw = _cfg("SEAGULL_AGENT_MTLS_SERVER_NAMES", DEFAULT_SERVER_NAMES)
     configured = raw.split(",")
-    names = resolve_edge_server_names() + configured if _env.is_production() else configured
+    names = (
+        resolve_edge_server_names() + configured if _env.is_production() else configured
+    )
 
     out: List[str] = []
     seen: set[str] = set()
@@ -236,7 +240,8 @@ def validate_edge_coverage(label: str) -> None:
     if not resolve_edge_server_names():
         raise RuntimeError(
             f"[{label}] SEAGULL_ENV is production but no public edge hostname is configured; "
-            "set SEAGULL_CADDY_DOMAIN so the agent mTLS certificate can be issued for it "
+            "set SEAGULL_AGENT_PUBLIC_HOST or SEAGULL_CADDY_DOMAIN so the agent mTLS "
+            "certificate can be issued for it "
             "(agents fail TLS verification against a localhost-only certificate)"
         )
 
@@ -308,9 +313,13 @@ def issue_server_cert(
             ),
             critical=True,
         )
-        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+        .add_extension(
+            x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False
+        )
         .add_extension(_build_san(server_names), critical=False)
-        .add_extension(x509.SubjectKeyIdentifier.from_public_key(public_key), critical=False)
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(public_key), critical=False
+        )
         .add_extension(
             x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_cert.public_key()),
             critical=False,
