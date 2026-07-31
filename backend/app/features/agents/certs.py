@@ -251,7 +251,20 @@ def server_ca_bundle() -> Optional[str]:
     except OSError:
         return None
     try:
-        x509.load_pem_x509_certificate(pem)
-    except ValueError:
+        decoded = pem.decode("ascii")
+        certificates = x509.load_pem_x509_certificates(pem)
+    except (UnicodeDecodeError, ValueError):
         return None
-    return pem.decode("utf-8", errors="replace")
+    if not certificates:
+        return None
+    canonical = b"".join(cert.public_bytes(serialization.Encoding.PEM) for cert in certificates)
+    if pem.replace(b"\r\n", b"\n").strip() != canonical.strip():
+        return None
+    for certificate in certificates:
+        try:
+            constraints = certificate.extensions.get_extension_for_class(x509.BasicConstraints)
+        except x509.ExtensionNotFound:
+            return None
+        if not constraints.value.ca:
+            return None
+    return decoded
