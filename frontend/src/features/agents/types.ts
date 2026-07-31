@@ -22,6 +22,27 @@ export type AgentUpdateIn = {
 };
 
 export type AgentProfile = "sensor" | "managed";
+export type AgentArchitecture = "amd64" | "arm64";
+
+export type AgentReleaseArtifact = {
+  os: "linux";
+  architecture: AgentArchitecture;
+  filename: string;
+  download_url: string;
+  sbom_url: string;
+};
+
+export type AgentRelease = {
+  version: string;
+  tag: string;
+  channel: "stable";
+  artifacts: AgentReleaseArtifact[];
+  checksums_url: string;
+  checksums_signature_url: string;
+  checksums_certificate_url: string;
+  protocol_contract_url: string;
+  compatibility_contract_url: string;
+};
 
 export type AgentOnboardingInfo = {
   api_url: string;
@@ -35,11 +56,14 @@ export type AgentOnboardingInfo = {
   max_supported_protocol: number;
   server_ca_required: boolean;
   server_ca_fingerprint_sha256?: string | null;
+  server_ca_pem?: string | null;
+  release: AgentRelease;
 };
 
 export type AgentEnrollmentTicketIn = {
   agent_id: string;
   profile?: AgentProfile;
+  architecture?: AgentArchitecture;
   ttl_seconds?: number;
   description?: string;
 };
@@ -52,8 +76,12 @@ export type AgentEnrollmentTicket = {
   max_uses: number;
   api_url: string;
   enroll_url: string;
+  architecture: AgentArchitecture;
+  artifact: AgentReleaseArtifact;
+  release: AgentRelease;
   server_ca_required: boolean;
   server_ca_fingerprint_sha256?: string | null;
+  server_ca_pem?: string | null;
   install_command: string;
 };
 
