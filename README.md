@@ -3,17 +3,17 @@
 ![GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)
 ![Python 3.12](https://img.shields.io/badge/backend-Python%203.12-3776AB)
 ![React](https://img.shields.io/badge/portal-React%20%2B%20Vite-61DAFB)
-![Go](https://img.shields.io/badge/agent-Go-00ADD8)
 ![Docker Compose](https://img.shields.io/badge/runtime-Docker%20Compose-2496ED)
 
 Seagull is an open security operations platform for collecting endpoint and
 network telemetry, detecting suspicious behavior, and giving analysts a focused
 SOC portal for investigation.
 
-It combines a Go endpoint/network agent, a FastAPI control plane, detection and
-enrichment workers, PostgreSQL/ClickHouse/Elasticsearch storage, and a React
-portal built for alert triage, hunting, topology, exposure, vulnerabilities,
-audit, and operational observability.
+It combines a FastAPI control plane, detection and enrichment workers,
+PostgreSQL/ClickHouse/Elasticsearch storage, and a React portal built for alert
+triage, hunting, topology, exposure, vulnerabilities, audit, and operational
+observability. Endpoint collection is provided by the independently released
+[Seagull Agent](https://github.com/dynasmon/seagull-agent).
 
 ![Seagull Portal](docs/assets/seagull-portal-overview.png)
 
@@ -24,7 +24,7 @@ audit, and operational observability.
 | Telemetry collection | Go agents collect process/network flows, SSH auth logs, PCAP-based scan/DDoS/L7 signals, syscollector inventory, and vulnerability context. |
 | Detection engineering | YAML rule packs, correlation incidents, attack-chain stories, Sigma import support, backtesting, and rule health/governance. |
 | Analyst portal | Overview, alerts, event hunting, SSH insights, protocol intelligence, agents, inventory, vulnerabilities, exposure graph, network topology, investigations, UEBA, audit, and settings. |
-| Agent control plane | Bootstrap enrollment, rotating credentials, heartbeats, remote config, response-action staging, and optional native `systemd` deployment. |
+| Agent control plane | Bootstrap enrollment, rotating credentials, heartbeats, remote config, response-action staging, compatibility policy, and release-based onboarding. |
 | Data pipeline | Fast ingest API, Redis backpressure queue, PostgreSQL operational store, ClickHouse analytics sink, Elasticsearch hunting index, and worker groups for ingest/intelligence/maintenance. |
 | Security operations | RBAC, HttpOnly refresh cookies, admin audit events, login audit trail, hardened headers, rate limiting, and production-oriented secret handling through `*_FILE` variables. |
 | Observability | Health endpoints, Prometheus-format metrics, internal Prometheus scraping, and authenticated observability APIs in the portal. |
@@ -74,9 +74,6 @@ agent installed, and an agent installs with no access to this repository.
 - Git, curl, jq.
 - Python 3 with the `cryptography` package (internal PKI generation).
 
-Building the agent additionally needs Go >= 1.22, gcc and libpcap headers, on
-the build machine only. Monitored hosts need `systemd` and libpcap at runtime.
-
 On a new machine, install everything in one step:
 
 ```bash
@@ -109,9 +106,7 @@ ${EDITOR:-nano} .env
 from [`.env.example`](.env.example), downloads and validates the MaxMind
 GeoLite2 City and ASN databases when missing, validates the environment,
 generates the TLS/mTLS PKI, builds the containers, and waits for core services.
-It does not install or require a local agent; set
-`SEAGULL_AGENT_LOCAL_RECONCILE=true` to also mint dev tokens and reconcile a
-host agent on the platform machine.
+It does not install, compile, or require a local agent.
 
 ### Access
 
@@ -141,7 +136,7 @@ Do not keep the development password for production.
 
 ```bash
 ./seagull -d --install               # one-time host dependency install (new machines)
-./seagull up                         # start dev stack (platform in Docker, agent via systemd)
+./seagull up                         # start the development platform stack
 ./seagull up --mode prod             # production-oriented startup
 ./seagull down                       # stop containers
 ./seagull restart --quick            # recreate without rebuild
@@ -152,10 +147,10 @@ Do not keep the development password for production.
 ./seagull db upgrade                 # run Alembic migrations
 ./seagull geoip status               # validate local GeoLite2 databases
 ./seagull geoip install --force      # refresh local GeoLite2 databases
-./seagull agent tokens               # mint agent bootstrap tokens
+./seagull agent tokens --agent-id id # mint an agent bootstrap token
 ./seagull admin reset                # reset bootstrap admin from .env
-./seagull test                       # backend, agent, and portal smoke tests
-./seagull lint                       # Python, frontend, and Go checks
+./seagull test                       # backend and portal smoke tests
+./seagull lint                       # Python and frontend checks
 ./seagull ci                         # lint + tests + image build
 ./seagull reset --volumes            # destructive local reset
 ```
@@ -187,6 +182,10 @@ Important production settings:
 | `SEAGULL_COOKIE_SECURE=true` | Required when serving through HTTPS. |
 | `SEAGULL_ALLOWED_HOSTS` | Restrict accepted hostnames outside local development. |
 | `SEAGULL_CADDY_DOMAIN`, `SEAGULL_CADDY_EMAIL` | Public TLS/domain configuration for Caddy. |
+| `SEAGULL_AGENT_PUBLIC_HOST` | Public hostname used by remote agents; defaults to the Caddy domain. |
+| `SEAGULL_AGENT_RELEASE_VERSION` | Explicit Seagull Agent release offered by onboarding. |
+| `SEAGULL_AGENT_RELEASE_BASE_URL` | HTTPS base URL for immutable agent release assets. |
+| `SEAGULL_AGENT_SUPPORTED_ARCHITECTURES` | Architectures offered by onboarding (`amd64,arm64`). |
 | `SEAGULL_AUDIT_HASH_PEPPER` or `SEAGULL_AUDIT_HASH_PEPPER_FILE` | Audit hashing pepper. |
 | `MAXMIND_LICENSE_KEY` | Downloads GeoLite2 City and ASN automatically during `./seagull up`. |
 | `SEAGULL_CLICKHOUSE_ENABLED` | Enable/disable ClickHouse analytics sink. |
@@ -194,24 +193,38 @@ Important production settings:
 
 Prefer `*_FILE` variables with Docker secrets for real deployments.
 
-## Agents (systemd)
+## Seagull Agent
 
 Agents run exclusively as a native `systemd` service on each monitored host —
-never as containers. The default identity collects
-`authlog`, `proc`, `scan`, `ddos`, `l7`, `syscollector`, and `vuln`; sources are
-configured per host in `/etc/seagull/agent.env` (`SEAGULL_SOURCES`).
+never as part of the platform deployment. Source, packaging, CI, installation,
+upgrade, rollback, and uninstall are maintained in
+[`dynasmon/seagull-agent`](https://github.com/dynasmon/seagull-agent).
 
-Monitored hosts are installed from a release package, not from this repository.
-Build one with [`agent/build.sh`](agent/build.sh), which emits versioned
-tarballs plus `SHA256SUMS` under `agent/dist/`:
+The platform pins `SEAGULL_AGENT_RELEASE_VERSION` and exposes matching Linux
+`amd64` and `arm64` artifacts in the Agents onboarding flow. Operators download
+the versioned package and its `SHA256SUMS` from the release:
 
 ```bash
-./agent/build.sh --channel stable
+VERSION=0.1.0
+ARCH=amd64
+BASE="https://github.com/dynasmon/seagull-agent/releases/download/v${VERSION}"
+curl --fail --location --remote-name "${BASE}/seagull-agent_${VERSION}_linux_${ARCH}.tar.gz"
+curl --fail --location --remote-name "${BASE}/SHA256SUMS"
+curl --fail --location --remote-name "${BASE}/SHA256SUMS.sig"
+curl --fail --location --remote-name "${BASE}/SHA256SUMS.pem"
+cosign verify-blob \
+  --certificate SHA256SUMS.pem \
+  --signature SHA256SUMS.sig \
+  --certificate-identity "https://github.com/dynasmon/seagull-agent/.github/workflows/release.yml@refs/tags/v${VERSION}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  SHA256SUMS
+sha256sum --check SHA256SUMS --ignore-missing
+tar xzf "seagull-agent_${VERSION}_linux_${ARCH}.tar.gz"
+cd "seagull-agent_${VERSION}_linux_${ARCH}"
 ```
 
-Copy the tarball to the endpoint, mint a single-use enrollment token in the
-Agents view (**Enroll agent**, or `POST /api/agents/enrollment-tickets`), and run
-the bundled installer with the command the portal renders:
+Mint a single-use enrollment token in the Agents view and run the command
+rendered by the portal:
 
 ```bash
 sudo ./install.sh \
@@ -219,31 +232,17 @@ sudo ./install.sh \
   --api-url https://siem.example.com:8444/agent \
   --enroll-url https://siem.example.com:8445 \
   --profile sensor \
-  --enroll-token abt.web-01.<secret>
+  --prompt-enroll-token
 ```
 
 The endpoint generates its own private key and sends only a CSR; the server
 returns a certificate bound to the agent id. Client certificates then renew
 automatically over the mTLS channel. The `sensor` profile collects telemetry
 only and cannot execute response actions; `managed` additionally accepts
-server-dispatched actions. See [`agent/packaging/README.md`](agent/packaging/README.md)
-for the operator reference and [`secrets/README.md`](secrets/README.md) for the
-mTLS trust model.
-
-For a host agent on the platform machine itself (development convenience), set
-`SEAGULL_AGENT_LOCAL_RECONCILE=true` and use:
-
-```bash
-sudo ./seagull agent install-systemd
-./seagull agent status-systemd
-./seagull agent validate-systemd
-journalctl -u seagull-agent -f
-```
-
-PCAP collectors require Linux capture permissions and the right interface
-configuration. Set the interfaces in `/etc/seagull/agent.env`
-(`SEAGULL_L7_PCAP_IFACE`) and keep collectors scoped to the network segment you
-intend to monitor.
+server-dispatched actions that remain permitted by local endpoint policy.
+Release signatures, SBOMs, runtime dependencies, and lifecycle commands are
+documented in the agent repository. See [`secrets/README.md`](secrets/README.md)
+for the platform mTLS trust model.
 
 ## Development
 
@@ -259,7 +258,6 @@ Run focused checks:
 cd backend && python3 -m pytest -q
 cd frontend && npm test
 cd frontend && npm run build
-cd agent && go test ./...
 ```
 
 For a faster local portal/backend loop:
@@ -269,7 +267,7 @@ For a faster local portal/backend loop:
 ```
 
 The frontend expects Node 20+ and npm 10+. The backend container runs Python
-3.12. The agent module targets Go 1.22+.
+3.12.
 
 ## Documentation
 
