@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.api.idempotency import read_batch_id, run_once
+from app.core.api.idempotency import read_batch_id, request_fingerprint, run_once
 from app.core.db import get_db, routed_db
 from app.core.db.session import managed_session
 from app.features.agents.auth import AgentPrincipal, get_current_agent
@@ -42,6 +42,7 @@ def ingest_inventory_endpoint(
         agent_id=agent.agent_id,
         batch_id=read_batch_id(request),
         handler=_ingest,
+        request_digest=request_fingerprint(payload),
     )
 
 
