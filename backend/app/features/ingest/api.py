@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from app.core.api.idempotency import read_batch_id, run_once
+from app.core.api.idempotency import read_batch_id, request_fingerprint, run_once
 from app.core.db import get_db
 from app.features.agents.auth import AgentPrincipal, get_current_agent
 from app.features.auth.session import get_current_user, require_admin
@@ -47,5 +47,5 @@ def ingest_events_endpoint(
         agent_id=agent.agent_id,
         batch_id=read_batch_id(request),
         handler=lambda: ingest_events(db, events=events, agent=agent),
-        duplicate_result={"received": len(events), "enqueued": 0},
+        request_digest=request_fingerprint(events),
     )
