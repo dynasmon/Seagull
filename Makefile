@@ -5,7 +5,6 @@ CLI   := ./seagull
   up down restart status logs doctor reset \
   dev prod dev-persist dev-reload prod-fresh prod-setup prod-state-clear \
   admin-reset agent-tokens \
-  systemd-install systemd-restart systemd-status systemd-validate \
   up-extra observability \
   build build-prod pull clean nuke psql \
   db-upgrade db-current \
@@ -66,18 +65,6 @@ admin-reset:
 
 agent-tokens:
 	@$(CLI) agent tokens
-
-systemd-install:
-	@$(CLI) agent install-systemd
-
-systemd-restart:
-	@$(CLI) agent restart-systemd
-
-systemd-status:
-	@$(CLI) agent status-systemd
-
-systemd-validate:
-	@$(CLI) agent validate-systemd
 
 # Optional profiles
 
