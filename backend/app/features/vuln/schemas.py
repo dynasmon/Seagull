@@ -217,6 +217,9 @@ class VulnFindingPatchIn(BaseModel):
 
 
 class VulnIngestResult(BaseModel):
+    accepted: bool = True
+    durable: bool = True
+    duplicate: bool = False
     scan_id: Optional[int] = None
     scan_uuid: Optional[str] = None
     lifecycle_state: Optional[str] = None
