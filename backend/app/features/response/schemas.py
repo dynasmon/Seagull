@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, validator
 
@@ -78,7 +78,7 @@ class AgentResponseActionOut(BaseModel):
     id: int
     action_type: str
     agent_id: str
-    status: str
+    status: Literal["pending", "delivered"]
     payload: Dict[str, Any] = Field(default_factory=dict)
     requested_at: datetime
     expires_at: Optional[datetime] = None
