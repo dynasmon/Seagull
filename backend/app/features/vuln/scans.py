@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.api.pagination import make_cursor_ts_id, parse_cursor_ts_id
 from app.core.config import settings
+from app.features.agents import configuration
 from app.features.agents.auth import AgentPrincipal
 from app.features.realtime.service import publish_realtime
 from app.features.vuln.domain import (
@@ -131,7 +132,7 @@ def _clear_agent_scan_token(db: Session, *, agent_id: str, scan_uuid: str) -> No
     vuln_cfg["scan_now_token"] = ""
     modules["vulnscanner"] = vuln_cfg
     cfg["modules"] = modules
-    agent_row.config = cfg
+    agent_row.config = configuration.replace(agent_row.config, cfg)
     add_agent(db, agent_row)
 
 
@@ -241,6 +242,8 @@ def ingest_findings(db: Session, *, payload: VulnIngestBatch, agent: AgentPrinci
         pass
 
     return VulnIngestResult(
+        accepted=True,
+        durable=True,
         scan_id=scan_row.id if scan_row is not None else None,
         scan_uuid=scan_uuid,
         lifecycle_state=scan_row.lifecycle_state if scan_row is not None else None,
@@ -274,7 +277,7 @@ def trigger_manual_scan(db: Session, *, body: VulnManualScanIn) -> VulnManualSca
             vuln_cfg["scan_now_at"] = now.isoformat()
             modules["vulnscanner"] = vuln_cfg
             cfg["modules"] = modules
-            row.config = cfg
+            row.config = configuration.replace(row.config, cfg)
             add_agent(db, row)
             commit(db)
 
@@ -305,7 +308,7 @@ def trigger_manual_scan(db: Session, *, body: VulnManualScanIn) -> VulnManualSca
 
     modules["vulnscanner"] = vuln_cfg
     cfg["modules"] = modules
-    row.config = cfg
+    row.config = configuration.replace(row.config, cfg)
 
     queued_scan = VulnScanModel(
         scan_uuid=scan_uuid,

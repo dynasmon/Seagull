@@ -42,7 +42,19 @@ class _FakeQuery:
 
 class _PendingDB:
     def __init__(self):
-        self.agent = AgentModel(id=1, agent_id="agent-1", is_revoked=False)
+        self.agent = AgentModel(
+            id=1,
+            agent_id="agent-1",
+            is_revoked=False,
+            metrics={
+                "capabilities": {
+                    "profile": "managed",
+                    "response_actions": True,
+                    "response_action_types": ["collect_triage_bundle"],
+                    "shell_exec": False,
+                }
+            },
+        )
         self.action = ResponseActionModel(
             id=101,
             action_type="collect_triage_bundle",

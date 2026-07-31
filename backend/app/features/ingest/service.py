@@ -16,6 +16,7 @@ from app.core.integrations.clickhouse import (
     get_clickhouse_client,
 )
 from app.core.observability import incr_counter, log_event
+from app.features.agents import protocol
 from app.features.agents.auth import AgentPrincipal
 from app.features.alerts.models import AlertModel
 from app.features.alerts.realtime import publish_alert_created_from_row
@@ -832,7 +833,7 @@ def ingest_events(
 ):
 
     if not events:
-        return {"received": 0, "enqueued": 0}
+        return {"accepted": True, "durable": True, "received": 0, "enqueued": 0}
 
     max_batch = max(1, int(settings.SEAGULL_INGEST_MAX_BATCH or 10000))
     if len(events) > max_batch:
@@ -845,6 +846,12 @@ def ingest_events(
     for e in events:
         if e.agent_id != agent.agent_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="agent_id mismatch")
+        if e.event_id:
+            extra_event_id = str(e.extra.get("event_id") or "").strip()
+            if extra_event_id and extra_event_id != e.event_id:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="event_id mismatch")
+            e.extra["event_id"] = e.event_id
+        protocol.ensure_event_schema(e.schema_version, context="ingest_events")
 
     live_summary = _build_live_overview_summary(events)
     record_overview_live_telemetry(
@@ -1156,6 +1163,8 @@ def ingest_events(
         )
 
         return {
+            "accepted": True,
+            "durable": True,
             "received": len(events),
             "stored": stored,
             "enqueued": 0,
@@ -1220,6 +1229,8 @@ def ingest_events(
     )
 
     return {
+        "accepted": True,
+        "durable": True,
         "received": len(events),
         "enqueued": 1,
         "mode": mode,

@@ -186,7 +186,7 @@ def test_docker_compose_config_is_valid() -> None:
     if not _docker_compose_available():
         pytest.skip("docker compose not available")
     proc = subprocess.run(
-        ["docker", "compose", "config", "-q"],
+            ["docker", "compose", "--env-file", ".env.example", "config", "-q"],
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,

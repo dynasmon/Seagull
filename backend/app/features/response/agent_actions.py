@@ -23,6 +23,22 @@ def _to_utc_naive(dt: datetime | None) -> datetime | None:
     return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def _same_timestamp(left: datetime | None, right: datetime | None) -> bool:
+    return _to_utc_naive(left) == _to_utc_naive(right)
+
+
+def _same_result(latest: ResponseActionResultModel | None, payload: AgentResponseActionResultIn) -> bool:
+    if latest is None:
+        return False
+    return (
+        str(latest.status or "").strip().lower() == payload.status
+        and dict(latest.result_payload or {}) == dict(payload.result_payload or {})
+        and (latest.error or None) == (payload.error or None)
+        and _same_timestamp(latest.started_at, payload.started_at)
+        and _same_timestamp(latest.finished_at, payload.finished_at)
+    )
+
+
 def list_pending_actions(
     db: Session,
     *,
@@ -47,6 +63,17 @@ def list_pending_actions(
             row.last_error = row.last_error or "action expired before execution"
             repository.save_action(db, row)
             lifecycle_events.append((row, "expired"))
+            continue
+        supported, unsupported_reason = profiles.response_action_support(
+            row_agent,
+            action_type=row.action_type,
+        )
+        if not supported:
+            row.status = "failed"
+            row.finished_at = row.finished_at or now
+            row.last_error = row.last_error or f"agent capability unavailable: {unsupported_reason}"
+            repository.save_action(db, row)
+            lifecycle_events.append((row, "failed"))
             continue
         before_status = str(row.status or "").strip().lower()
         if before_status == "pending":
@@ -117,6 +144,19 @@ def report_action_result(
         action_id=row_action.id,
         agent_id=agent.agent_id,
     )
+    if current_status in {"success", "failed"}:
+        if _same_result(latest, payload):
+            return {"status": current_status, "duplicate": True}
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "terminal_result_conflict",
+                "message": "response action already has an immutable terminal result",
+                "status": current_status,
+            },
+        )
+    if current_status == "running" and payload.status == "running" and _same_result(latest, payload):
+        return {"status": current_status, "duplicate": True}
     if latest is None:
         latest = ResponseActionResultModel(response_action_id=row_action.id, agent_id=agent.agent_id)
     latest.status = payload.status

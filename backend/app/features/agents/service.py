@@ -13,11 +13,12 @@ from app.core.audit import audit_actor, write_audit_event
 from app.core.config import settings
 from app.core.observability import incr_counter
 from app.core.security.rate_limit import rate_limit
-from app.features.agents import certs, onboarding, profiles, protocol, repository
+from app.features.agents import certs, configuration, enrollment_replay, onboarding, profiles, protocol, repository
 from app.features.agents.auth import (
     AgentPrincipal,
     generate_agent_credential,
     generate_bootstrap_token,
+    hash_agent_credential,
     hash_bootstrap_token,
     require_cert_identity,
 )
@@ -117,7 +118,7 @@ def _agent_to_public(a: AgentModel) -> AgentPublic:
 
 def _agent_to_detail(a: AgentModel) -> AgentDetail:
     pub = _agent_to_public(a)
-    return AgentDetail(**pub.dict(), config=a.config or {})
+    return AgentDetail(**pub.dict(), config=configuration.normalize(a.config))
 
 
 def _credential_overlap_until(now: datetime | None = None) -> datetime:
@@ -126,27 +127,66 @@ def _credential_overlap_until(now: datetime | None = None) -> datetime:
     return base + timedelta(seconds=overlap_seconds)
 
 
-def _consume_bootstrap_token(db: Session, agent_id: str, raw_token: str) -> AgentBootstrapTokenModel:
+def _authorize_enrollment_token(
+    db: Session,
+    payload: AgentEnrollIn,
+    raw_token: str,
+) -> tuple[AgentBootstrapTokenModel, AgentEnrollOut | None]:
     now = datetime.utcnow()
-    candidates = repository.list_active_bootstrap_tokens_for_update(db, agent_id)
+    candidates = repository.list_bootstrap_tokens_for_update(db, payload.agent_id)
     for tok in candidates:
         got = hash_bootstrap_token(raw_token, tok.token_salt)
         if not secrets.compare_digest(got, tok.token_hash):
             continue
         if tok.expires_at <= now:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bootstrap token expired")
+        if tok.revoked_at is not None and str(tok.revoked_reason or "") != "consumed":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bootstrap token revoked")
+        replay = enrollment_replay.load(tok, payload, raw_token)
+        if replay is not None:
+            if not _enrollment_replay_is_current(db, tok, replay, now):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Enrollment transaction is no longer active",
+                )
+            incr_counter("agent_identity_enroll_total", outcome="replayed", token_type=str(tok.token_type or "enrollment"))
+            return tok, replay
         if int(tok.used_uses or 0) >= int(tok.max_uses or 1):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bootstrap token already consumed")
-        tok.used_uses = int(tok.used_uses or 0) + 1
-        tok.last_used_at = now
-        if int(tok.used_uses or 0) >= int(tok.max_uses or 1):
-            tok.revoked_at = now
-            tok.revoked_reason = "consumed"
-        repository.save_bootstrap_token(db, tok)
-        incr_counter("agent_bootstrap_token_consumed_total", token_type=str(tok.token_type or "enrollment"))
-        return tok
+        return tok, None
     incr_counter("agent_bootstrap_token_consumed_total", outcome="invalid")
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid bootstrap token")
+
+
+def _enrollment_replay_is_current(
+    db: Session,
+    token: AgentBootstrapTokenModel,
+    replay: AgentEnrollOut,
+    now: datetime,
+) -> bool:
+    raw_credential = str(replay.credential.credential or "")
+    for credential in repository.list_active_credentials(db, replay.agent_id):
+        if credential.issued_from_bootstrap_token_id != token.id:
+            continue
+        if credential.expires_at <= now:
+            continue
+        if int(credential.used_uses or 0) >= int(credential.max_uses or 1):
+            continue
+        got = hash_agent_credential(raw_credential, credential.credential_salt)
+        if secrets.compare_digest(got, credential.credential_hash):
+            return True
+    return False
+
+
+def _consume_enrollment_token(db: Session, token: AgentBootstrapTokenModel) -> None:
+    now = datetime.utcnow()
+    token.used_uses = int(token.used_uses or 0) + 1
+    token.last_used_at = now
+    if int(token.used_uses or 0) >= int(token.max_uses or 1):
+        token.revoked_at = now
+        token.revoked_reason = "consumed"
+    repository.save_bootstrap_token(db, token)
+    incr_counter("agent_bootstrap_token_consumed_total", token_type=str(token.token_type or "enrollment"))
 
 
 def _revoke_active_credentials(
@@ -282,7 +322,7 @@ def create_bootstrap_token(
     if not row:
         default_cfg = settings.default_agent_config()
         if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.SEAGULL_MAX_AGENT_CONFIG_BYTES:
-            default_cfg = {}
+            default_cfg = {"revision": 1}
         row = AgentModel(
             agent_id=agent_id,
             agent_metadata={},
@@ -343,6 +383,8 @@ def create_enrollment_ticket(
     audit_writer=write_audit_event,
 ) -> AgentEnrollmentTicketOut:
     profile = profiles.normalize(payload.profile) or profiles.SENSOR
+    described = onboarding.describe(request)
+    artifact = onboarding.artifact_for(described.release, payload.architecture)
     token = create_bootstrap_token(
         db,
         agent_id=payload.agent_id,
@@ -363,7 +405,6 @@ def create_enrollment_ticket(
         repository.save_agent(db, row)
         repository.commit(db)
 
-    described = onboarding.describe(request)
     return AgentEnrollmentTicketOut(
         agent_id=token.agent_id,
         profile=profile,
@@ -372,12 +413,15 @@ def create_enrollment_ticket(
         max_uses=token.max_uses,
         api_url=described.api_url,
         enroll_url=described.enroll_url,
+        architecture=payload.architecture,
+        artifact=artifact,
+        release=described.release,
         server_ca_required=described.server_ca_required,
         server_ca_fingerprint_sha256=described.server_ca_fingerprint_sha256,
+        server_ca_pem=described.server_ca_pem,
         install_command=onboarding.install_command(
             agent_id=token.agent_id,
             profile=profile,
-            token=token.bootstrap_token,
             request=request,
         ),
     )
@@ -432,8 +476,14 @@ def enroll(
     audit_writer=write_audit_event,
 ) -> AgentEnrollOut:
     _guard_enroll_rate_limit(request, payload.agent_id)
+    bootstrap, replay = _authorize_enrollment_token(db, payload, raw_bootstrap_token)
+    if replay is not None:
+        agent = repository.get_agent_by_agent_id(db, payload.agent_id)
+        if not agent or agent.is_revoked:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
+        return replay
     protocol.ensure_supported(payload.protocol_version, context="enroll")
-    bootstrap = _consume_bootstrap_token(db, payload.agent_id, raw_bootstrap_token)
+    _consume_enrollment_token(db, bootstrap)
     rotated_at = datetime.utcnow()
     overlap_until = _credential_overlap_until(rotated_at)
     agent = repository.get_agent_by_agent_id(db, payload.agent_id)
@@ -448,7 +498,7 @@ def enroll(
     if not agent:
         default_cfg = settings.default_agent_config()
         if len(json.dumps(default_cfg, separators=(",", ":")).encode("utf-8")) > settings.SEAGULL_MAX_AGENT_CONFIG_BYTES:
-            default_cfg = {}
+            default_cfg = {"revision": 1}
         agent = AgentModel(
             agent_id=payload.agent_id,
             agent_metadata=meta,
@@ -465,6 +515,7 @@ def enroll(
         if agent.is_revoked:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
         agent.agent_metadata = {**(agent.agent_metadata or {}), **meta}
+        agent.config = configuration.normalize(agent.config)
         agent.last_seen_at = datetime.utcnow()
         if not (agent.display_name or "").strip():
             agent.display_name = (payload.hostname or payload.agent_id)[:128]
@@ -489,6 +540,22 @@ def enroll(
     if (payload.csr_pem or "").strip():
         certificate = _issue_enrollment_certificate(db, agent_id=payload.agent_id, csr_pem=payload.csr_pem)
 
+    response = AgentEnrollOut(
+        agent_id=payload.agent_id,
+        config=configuration.normalize(agent.config),
+        credential=AgentCredentialOut(
+            credential=credential,
+            expires_at=cred_row.expires_at,
+            max_uses=int(cred_row.max_uses or 1),
+            used_uses=int(cred_row.used_uses or 0),
+            renewal_token=renewal_token,
+            renewal_token_expires_at=renewal_row.expires_at,
+        ),
+        certificate=certificate,
+        protocol=AgentProtocolOut(**protocol.descriptor()),
+    )
+    enrollment_replay.store(bootstrap, payload, raw_bootstrap_token, response)
+    repository.save_bootstrap_token(db, bootstrap)
     repository.save_agent(db, agent)
     if request is not None:
         audit_writer(
@@ -511,21 +578,7 @@ def enroll(
         )
     repository.commit(db)
     incr_counter("agent_identity_enroll_total", outcome="success", token_type=str(bootstrap.token_type or "enrollment"))
-
-    return AgentEnrollOut(
-        agent_id=payload.agent_id,
-        config=agent.config or {},
-        credential=AgentCredentialOut(
-            credential=credential,
-            expires_at=cred_row.expires_at,
-            max_uses=int(cred_row.max_uses or 1),
-            used_uses=int(cred_row.used_uses or 0),
-            renewal_token=renewal_token,
-            renewal_token_expires_at=renewal_row.expires_at,
-        ),
-        certificate=certificate,
-        protocol=AgentProtocolOut(**protocol.descriptor()),
-    )
+    return response
 
 
 def rotate_credential(db: Session, *, agent: AgentPrincipal) -> AgentCredentialOut:
@@ -620,6 +673,7 @@ def renew_agent_certificate(
         agent_id=issued.agent_id,
         certificate_pem=issued.certificate_pem,
         ca_pem=issued.ca_pem,
+        server_ca_pem=certs.server_ca_bundle(),
         serial_hex=issued.serial_hex,
         not_before=issued.not_before,
         not_after=issued.not_after,
@@ -635,14 +689,14 @@ def set_config(
     admin: PortalPrincipal,
     audit_writer=write_audit_event,
 ) -> None:
-    cfg: Dict[str, Any] = dict(payload.config or {})
-    _safe_json_size(cfg, settings.SEAGULL_MAX_AGENT_CONFIG_BYTES, "config")
     row = repository.get_agent_by_agent_id(db, agent_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     if row.is_revoked:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
     before = {"agent_id": row.agent_id, "config": row.config if isinstance(row.config, dict) else {}}
+    cfg: Dict[str, Any] = configuration.replace(row.config, payload.config)
+    _safe_json_size(cfg, settings.SEAGULL_MAX_AGENT_CONFIG_BYTES, "config")
     row.config = cfg
     repository.save_agent(db, row)
     audit_writer(
@@ -660,7 +714,7 @@ def set_config(
     repository.commit(db)
 
 
-def heartbeat(db: Session, *, payload: AgentHeartbeatIn, agent: AgentPrincipal) -> None:
+def heartbeat(db: Session, *, payload: AgentHeartbeatIn, agent: AgentPrincipal) -> AgentProtocolOut:
     protocol.ensure_supported(payload.protocol_version, context="heartbeat")
     row = repository.get_agent_by_id(db, agent.id)
     if not row or row.is_revoked:
@@ -687,13 +741,19 @@ def heartbeat(db: Session, *, payload: AgentHeartbeatIn, agent: AgentPrincipal) 
     repository.save_agent(db, row)
     repository.commit(db)
     _publish_agent_heartbeat_realtime(row=row, status_text=status_text)
+    return AgentProtocolOut(**protocol.descriptor())
 
 
 def get_config(db: Session, *, agent: AgentPrincipal) -> dict:
     row = repository.get_agent_by_id(db, agent.id)
     if not row or row.is_revoked:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
-    return row.config or {}
+    config = configuration.normalize(row.config)
+    if config != row.config:
+        row.config = config
+        repository.save_agent(db, row)
+        repository.commit(db)
+    return config
 
 
 def list_agents(db: Session) -> List[AgentPublic]:

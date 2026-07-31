@@ -1,7 +1,6 @@
 import { InvestigationRawJsonPanel } from "@/shared/components/investigation";
 
 import BlockIpResultRenderer from "./renderers/BlockIpResultRenderer";
-import IsolateHostResultRenderer from "./renderers/IsolateHostResultRenderer";
 import KillProcessResultRenderer from "./renderers/KillProcessResultRenderer";
 import QuarantineFileResultRenderer from "./renderers/QuarantineFileResultRenderer";
 import ShellExecResultRenderer from "./renderers/ShellExecResultRenderer";
@@ -32,8 +31,6 @@ export default function ResultRenderer({ actionType, result, requestPayload, onP
       return <BlockIpResultRenderer actionType={actionType} result={result} requestPayload={requestPayload} onPivot={onPivot} />;
     case "quarantine_file":
       return <QuarantineFileResultRenderer result={result} />;
-    case "isolate_host":
-      return <IsolateHostResultRenderer result={result} />;
     case "run_shell_command":
       return <ShellExecResultRenderer result={result} />;
     default:

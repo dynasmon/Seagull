@@ -25,8 +25,6 @@ backend/venv/
 .claude
 .claude/
 
-agent/bin/
-agent/dist/
 *.test
 coverage.out
 secrets/**
@@ -41,7 +39,6 @@ backend/data/geoip/*.tar.gz
 backend/data/geoip/*.zip
 backend/data/geoip/.geoip-*/
 
-agent/agent
 backend/test.db
 *.db
 .vscode/

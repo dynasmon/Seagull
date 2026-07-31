@@ -19,6 +19,12 @@ class QueryProvenanceMeta(BaseModel):
 
 
 class NetEvent(BaseModel):
+    event_id: Optional[str] = Field(
+        None,
+        min_length=36,
+        max_length=36,
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    )
     agent_id: str = Field(..., description="Agent identifier")
     event_type: str = Field(
         ...,

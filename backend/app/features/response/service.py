@@ -116,7 +116,11 @@ def create_response_action(
         raise HTTPException(status_code=404, detail="Agent not found")
     if bool(row_agent.is_revoked):
         raise HTTPException(status_code=403, detail="Agent is revoked")
-    profiles.require_response_capable(row_agent, agent_id=payload.agent_id)
+    profiles.require_response_action_capable(
+        row_agent,
+        agent_id=payload.agent_id,
+        action_type=action_type,
+    )
 
     now = _utc_now()
     expires_at = _to_utc(payload.expires_at)
@@ -209,8 +213,12 @@ def create_response_action_batch(
         if bool(row_agent.is_revoked):
             skipped.append({"agent_id": agent_id, "reason": "revoked"})
             continue
-        if not profiles.allows_response_actions(profiles.of_agent(row_agent)):
-            skipped.append({"agent_id": agent_id, "reason": "sensor_profile"})
+        supported, unsupported_reason = profiles.response_action_support(
+            row_agent,
+            action_type=action_type,
+        )
+        if not supported:
+            skipped.append({"agent_id": agent_id, "reason": unsupported_reason})
             continue
         if action_type == _SHELL_EXEC_ACTION_TYPE and _shell_exec_rate_exceeded(db, agent_id=agent_id, now=now):
             skipped.append({"agent_id": agent_id, "reason": "rate_limited"})

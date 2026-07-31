@@ -43,6 +43,28 @@ class TestProfileRules:
         assert profiles.resolve_reported("sensor", None) == "sensor"
         assert profiles.resolve_reported("managed", "garbage") == "managed"
 
+    def test_response_action_requires_reported_capability(self):
+        agent_row = SimpleNamespace(agent_metadata={"profile": "managed"}, metrics={})
+        assert profiles.response_action_support(agent_row, action_type="kill_process") == (
+            False,
+            "capabilities_not_reported",
+        )
+        agent_row.metrics = {
+            "capabilities": {
+                "response_action_types": ["kill_process", "run_shell_command"],
+                "shell_exec": False,
+            }
+        }
+        assert profiles.response_action_support(agent_row, action_type="kill_process") == (True, "")
+        assert profiles.response_action_support(agent_row, action_type="quarantine_file") == (
+            False,
+            "unsupported_action",
+        )
+        assert profiles.response_action_support(agent_row, action_type="run_shell_command") == (
+            False,
+            "local_policy_denied",
+        )
+
 
 class TestResponseActionDispatchGuard:
     def test_single_dispatch_rejects_sensor_agent(self, monkeypatch):
@@ -61,7 +83,12 @@ class TestResponseActionDispatchGuard:
         assert "sensor" in str(exc.value.detail)
 
     def test_single_dispatch_allows_managed_agent(self, monkeypatch):
-        agent_row = SimpleNamespace(agent_id="agent-managed", is_revoked=False, agent_metadata={"profile": "managed"})
+        agent_row = SimpleNamespace(
+            agent_id="agent-managed",
+            is_revoked=False,
+            agent_metadata={"profile": "managed"},
+            metrics={"capabilities": {"response_action_types": ["kill_process"]}},
+        )
         created = {}
         monkeypatch.setattr(response_service.repository, "get_agent", lambda db, agent_id: agent_row)
         monkeypatch.setattr(response_service.repository, "flush", lambda db: None)
@@ -90,7 +117,12 @@ class TestResponseActionDispatchGuard:
     def test_batch_dispatch_skips_sensor_agents(self, monkeypatch):
         agents = {
             "agent-sensor": SimpleNamespace(agent_id="agent-sensor", is_revoked=False, agent_metadata={"profile": "sensor"}),
-            "agent-managed": SimpleNamespace(agent_id="agent-managed", is_revoked=False, agent_metadata={"profile": "managed"}),
+            "agent-managed": SimpleNamespace(
+                agent_id="agent-managed",
+                is_revoked=False,
+                agent_metadata={"profile": "managed"},
+                metrics={"capabilities": {"response_action_types": ["kill_process"]}},
+            ),
         }
         monkeypatch.setattr(response_service.repository, "get_agent", lambda db, agent_id: agents.get(agent_id))
         monkeypatch.setattr(response_service.repository, "flush", lambda db: None)

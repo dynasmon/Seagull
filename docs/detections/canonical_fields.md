@@ -44,12 +44,16 @@ Source: `backend/app/features/detections/domain/canonical_fields.py`
 
 | Event type | Source | Description |
 |---|---|---|
-| `net_flow` | proc / PCAP | Network connection flow |
+| `flow` | proc / PCAP | Network connection flow |
+| `l7_flow` | PCAP l7 | HTTP, DNS or TLS metadata for a flow |
 | `ssh_auth` | authlog | SSH authentication attempt |
 | `scan_probe` | PCAP scan | Port scan probe |
+| `scan_summary` | PCAP scan | Aggregated port scan activity |
 | `lateral_conn` | PCAP lateral | Lateral movement connection |
-| `ddos_pkt` | PCAP ddos | DoS/DDoS packet burst |
-| `heuristic` | heuristics engine | Heuristic threat signal |
+| `dos_attack` | PCAP ddos | DoS/DDoS burst |
+| `proc_exec` | procexec | Process execution |
+| `fim_change` | fim | File integrity change |
+| `vuln_scan` | vuln scanner | Vulnerability scan result |
 
 ## Using fields in v2 detection blocks
 

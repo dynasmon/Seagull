@@ -31,6 +31,7 @@ def test_action_registry_is_complete_and_well_formed() -> None:
         "block_outbound_ip",
         "unblock_outbound_ip",
         "quarantine_file",
+        "run_shell_command",
     }
     assert set(ACTION_REGISTRY) == expected
     for definition in ACTION_REGISTRY.values():
@@ -125,7 +126,12 @@ def test_build_action_timeline_cancelled_uses_canceller() -> None:
 
 def test_create_response_action_batch(monkeypatch) -> None:
     agents = {
-        "agent-1": SimpleNamespace(agent_id="agent-1", is_revoked=False),
+        "agent-1": SimpleNamespace(
+            agent_id="agent-1",
+            is_revoked=False,
+            agent_metadata={"profile": "managed"},
+            metrics={"capabilities": {"response_action_types": ["block_outbound_ip"]}},
+        ),
         "agent-2": SimpleNamespace(agent_id="agent-2", is_revoked=True),
     }
     created: list = []

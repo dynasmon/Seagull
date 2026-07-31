@@ -1,8 +1,17 @@
+import ipaddress
 import json
+import re
 from typing import Any, Dict
 from urllib.parse import urlsplit
 
 from app.core.config.env_secrets import env_value
+
+_SEMVER_PATTERN = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
 
 
 def _env_str(name: str, default: str | None = None) -> str | None:
@@ -52,6 +61,55 @@ def _env_csv(name: str, default: str = "") -> list[str]:
     return out
 
 
+def _valid_agent_public_host(value: str) -> bool:
+    host = value.strip()
+    if not host or any(char.isspace() for char in host) or "%" in host:
+        return False
+    address = host
+    if host.startswith("[") and host.endswith("]"):
+        address = host[1:-1]
+    try:
+        ipaddress.ip_address(address)
+        return True
+    except ValueError:
+        pass
+    if ":" in host or len(host) > 253:
+        return False
+    dns_name = host[:-1] if host.endswith(".") else host
+    if not dns_name:
+        return False
+    return all(
+        1 <= len(label) <= 63 and re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", label) is not None
+        for label in dns_name.split(".")
+    )
+
+
+def _agent_public_host_from_env() -> str:
+    configured = (_env_str("SEAGULL_AGENT_PUBLIC_HOST", "") or "").strip()
+    if configured:
+        return configured
+    return (_env_str("SEAGULL_CADDY_DOMAIN", "") or "").strip()
+
+
+def _valid_release_base_url(value: str) -> bool:
+    candidate = value.strip()
+    if not candidate or any(char.isspace() for char in candidate):
+        return False
+    try:
+        parsed = urlsplit(candidate)
+        _ = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname is not None
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
 class Settings:
     SEAGULL_ENV: str = (_env_str("SEAGULL_ENV", "dev") or "dev").lower()
     SEAGULL_DB_AUTO_UPGRADE: bool = _env_bool(
@@ -67,7 +125,9 @@ class Settings:
     # Server-side Prometheus query layer (used by the observability API). When
     # disabled or unreachable the API degrades gracefully instead of erroring.
     SEAGULL_PROMETHEUS_ENABLED: bool = _env_bool("SEAGULL_PROMETHEUS_ENABLED", True)
-    SEAGULL_PROMETHEUS_URL: str = _env_str("SEAGULL_PROMETHEUS_URL", "http://prometheus:9090") or "http://prometheus:9090"
+    SEAGULL_PROMETHEUS_URL: str = (
+        _env_str("SEAGULL_PROMETHEUS_URL", "http://prometheus:9090") or "http://prometheus:9090"
+    )
     SEAGULL_PROMETHEUS_TIMEOUT_SECONDS: float = _env_float("SEAGULL_PROMETHEUS_TIMEOUT_SECONDS", 5.0)
     SEAGULL_OBSERVABILITY_CACHE_TTL_SECONDS: float = _env_float("SEAGULL_OBSERVABILITY_CACHE_TTL_SECONDS", 10.0)
 
@@ -125,7 +185,9 @@ class Settings:
     SEAGULL_DB_REPLICA_PROBE_INTERVAL_SECONDS: float = _env_float("SEAGULL_DB_REPLICA_PROBE_INTERVAL_SECONDS", 5.0)
     SEAGULL_DB_REPLICA_CONNECT_TIMEOUT_SECONDS: int = _env_int("SEAGULL_DB_REPLICA_CONNECT_TIMEOUT_SECONDS", 2)
     SEAGULL_DB_READ_ROUTES: list[str] = _env_csv("SEAGULL_DB_READ_ROUTES", "")
-    SEAGULL_DB_EXECUTEMANY_MODE: str = _env_str("SEAGULL_DB_EXECUTEMANY_MODE", "values_plus_batch") or "values_plus_batch"
+    SEAGULL_DB_EXECUTEMANY_MODE: str = (
+        _env_str("SEAGULL_DB_EXECUTEMANY_MODE", "values_plus_batch") or "values_plus_batch"
+    )
     SEAGULL_DB_EXECUTEMANY_VALUES_PAGE_SIZE: int = _env_int("SEAGULL_DB_EXECUTEMANY_VALUES_PAGE_SIZE", 1000)
 
     SEAGULL_JWT_SECRET: str | None = _env_str("SEAGULL_JWT_SECRET", None)
@@ -195,12 +257,18 @@ class Settings:
     SEAGULL_CLICKHOUSE_SECURE: bool = _env_bool("SEAGULL_CLICKHOUSE_SECURE", False)
     SEAGULL_CLICKHOUSE_VERIFY: bool = _env_bool("SEAGULL_CLICKHOUSE_VERIFY", True)
     SEAGULL_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS: float = _env_float("SEAGULL_CLICKHOUSE_CONNECT_TIMEOUT_SECONDS", 2.0)
-    SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS: float = _env_float("SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS", 30.0)
+    SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS: float = _env_float(
+        "SEAGULL_CLICKHOUSE_SEND_RECEIVE_TIMEOUT_SECONDS", 30.0
+    )
     # Dedicated timeout for maintenance/backfill statements (INSERT ... SELECT over
     # large windows); must comfortably exceed the slowest expected chunk insert.
-    SEAGULL_CLICKHOUSE_LONG_OPS_TIMEOUT_SECONDS: float = _env_float("SEAGULL_CLICKHOUSE_LONG_OPS_TIMEOUT_SECONDS", 300.0)
+    SEAGULL_CLICKHOUSE_LONG_OPS_TIMEOUT_SECONDS: float = _env_float(
+        "SEAGULL_CLICKHOUSE_LONG_OPS_TIMEOUT_SECONDS", 300.0
+    )
     SEAGULL_CLICKHOUSE_PING_TTL_SECONDS: int = _env_int("SEAGULL_CLICKHOUSE_PING_TTL_SECONDS", 2)
-    SEAGULL_CLICKHOUSE_EVENTS_TABLE: str = _env_str("SEAGULL_CLICKHOUSE_EVENTS_TABLE", "net_events_raw") or "net_events_raw"
+    SEAGULL_CLICKHOUSE_EVENTS_TABLE: str = (
+        _env_str("SEAGULL_CLICKHOUSE_EVENTS_TABLE", "net_events_raw") or "net_events_raw"
+    )
     SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS: int = _env_int("SEAGULL_CLICKHOUSE_EVENTS_RETENTION_DAYS", 30)
     SEAGULL_CLICKHOUSE_QUERY_POOL_SIZE: int = _env_int("SEAGULL_CLICKHOUSE_QUERY_POOL_SIZE", 6)
     SEAGULL_USE_CLICKHOUSE_MVS: bool = _env_bool("SEAGULL_USE_CLICKHOUSE_MVS", False)
@@ -231,14 +299,28 @@ class Settings:
     SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES: int = _env_int("SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES", 1)
     SEAGULL_AGENT_CREDENTIAL_TTL_SECONDS: int = _env_int("SEAGULL_AGENT_CREDENTIAL_TTL_SECONDS", 604800)
     SEAGULL_AGENT_CREDENTIAL_MAX_USES: int = _env_int("SEAGULL_AGENT_CREDENTIAL_MAX_USES", 100000)
-    SEAGULL_AGENT_CREDENTIAL_ROTATE_BEFORE_SECONDS: int = _env_int("SEAGULL_AGENT_CREDENTIAL_ROTATE_BEFORE_SECONDS", 86400)
+    SEAGULL_AGENT_CREDENTIAL_ROTATE_BEFORE_SECONDS: int = _env_int(
+        "SEAGULL_AGENT_CREDENTIAL_ROTATE_BEFORE_SECONDS", 86400
+    )
     SEAGULL_AGENT_CREDENTIAL_OVERLAP_SECONDS: int = _env_int("SEAGULL_AGENT_CREDENTIAL_OVERLAP_SECONDS", 900)
     SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS: int = _env_int("SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS", 2592000)
     SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE: int = _env_int("SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE", 2)
 
-    SEAGULL_AGENT_PUBLIC_HOST: str = _env_str("SEAGULL_AGENT_PUBLIC_HOST", "") or ""
+    SEAGULL_AGENT_PUBLIC_HOST: str = _agent_public_host_from_env()
     SEAGULL_AGENT_MTLS_PORT: int = _env_int("SEAGULL_AGENT_MTLS_PORT", 8444)
     SEAGULL_AGENT_ENROLL_PORT: int = _env_int("SEAGULL_AGENT_ENROLL_PORT", 8445)
+    SEAGULL_AGENT_RELEASE_VERSION: str = _env_str("SEAGULL_AGENT_RELEASE_VERSION", "0.1.0") or "0.1.0"
+    SEAGULL_AGENT_RELEASE_BASE_URL: str = (
+        _env_str(
+            "SEAGULL_AGENT_RELEASE_BASE_URL",
+            "https://github.com/dynasmon/seagull-agent/releases/download",
+        )
+        or "https://github.com/dynasmon/seagull-agent/releases/download"
+    )
+    SEAGULL_AGENT_SUPPORTED_ARCHITECTURES: list[str] = _env_csv(
+        "SEAGULL_AGENT_SUPPORTED_ARCHITECTURES",
+        "amd64,arm64",
+    )
 
     SEAGULL_RULES_EVERY_SECONDS: float = _env_float("SEAGULL_RULES_EVERY_SECONDS", 5.0)
     SEAGULL_RULES_ENV: str = (_env_str("SEAGULL_RULES_ENV", SEAGULL_ENV) or SEAGULL_ENV or "dev").lower()
@@ -263,19 +345,46 @@ class Settings:
     SEAGULL_INGEST_STORM_HOT_SAMPLE_PERCENT: int = _env_int("SEAGULL_INGEST_STORM_HOT_SAMPLE_PERCENT", 2)
     SEAGULL_INGEST_STORM_WARM_SAMPLE_PERCENT: int = _env_int("SEAGULL_INGEST_STORM_WARM_SAMPLE_PERCENT", 5)
     SEAGULL_INGEST_STORM_ALERT_TTL_SECONDS: int = _env_int("SEAGULL_INGEST_STORM_ALERT_TTL_SECONDS", 3600)
-    SEAGULL_INGEST_QUEUE_KEY: str = _env_str("SEAGULL_INGEST_QUEUE_KEY", "seagull:ingest:queue") or "seagull:ingest:queue"
-    SEAGULL_INGEST_PROCESSING_KEY: str = _env_str("SEAGULL_INGEST_PROCESSING_KEY", "seagull:ingest:queue:processing") or "seagull:ingest:queue:processing"
-    SEAGULL_INGEST_BACKLOG_EVENTS_KEY: str = _env_str("SEAGULL_INGEST_BACKLOG_EVENTS_KEY", "seagull:ingest:backlog_events") or "seagull:ingest:backlog_events"
-    SEAGULL_INGEST_STORM_ACTIVE_KEY: str = _env_str("SEAGULL_INGEST_STORM_ACTIVE_KEY", "seagull:ingest:storm_active") or "seagull:ingest:storm_active"
-    SEAGULL_INGEST_STORM_SESSION_KEY: str = _env_str("SEAGULL_INGEST_STORM_SESSION_KEY", "seagull:ingest:storm_session") or "seagull:ingest:storm_session"
-    SEAGULL_INGEST_STORM_SINCE_KEY: str = _env_str("SEAGULL_INGEST_STORM_SINCE_KEY", "seagull:ingest:storm_since") or "seagull:ingest:storm_since"
-    SEAGULL_INGEST_STORM_ALERT_ID_KEY: str = _env_str("SEAGULL_INGEST_STORM_ALERT_ID_KEY", "seagull:ingest:storm_alert_id") or "seagull:ingest:storm_alert_id"
-    SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS: int = _env_int("SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50000)
-    SEAGULL_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS: int = _env_int("SEAGULL_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS", 200000)
-    SEAGULL_INGEST_BACKPRESSURE_MODE: str = (_env_str("SEAGULL_INGEST_BACKPRESSURE_MODE", "rollup_only") or "rollup_only").lower()
-    SEAGULL_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT: int = _env_int("SEAGULL_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT", 2)
+    SEAGULL_INGEST_QUEUE_KEY: str = (
+        _env_str("SEAGULL_INGEST_QUEUE_KEY", "seagull:ingest:queue") or "seagull:ingest:queue"
+    )
+    SEAGULL_INGEST_PROCESSING_KEY: str = (
+        _env_str("SEAGULL_INGEST_PROCESSING_KEY", "seagull:ingest:queue:processing")
+        or "seagull:ingest:queue:processing"
+    )
+    SEAGULL_INGEST_BACKLOG_EVENTS_KEY: str = (
+        _env_str("SEAGULL_INGEST_BACKLOG_EVENTS_KEY", "seagull:ingest:backlog_events")
+        or "seagull:ingest:backlog_events"
+    )
+    SEAGULL_INGEST_STORM_ACTIVE_KEY: str = (
+        _env_str("SEAGULL_INGEST_STORM_ACTIVE_KEY", "seagull:ingest:storm_active") or "seagull:ingest:storm_active"
+    )
+    SEAGULL_INGEST_STORM_SESSION_KEY: str = (
+        _env_str("SEAGULL_INGEST_STORM_SESSION_KEY", "seagull:ingest:storm_session") or "seagull:ingest:storm_session"
+    )
+    SEAGULL_INGEST_STORM_SINCE_KEY: str = (
+        _env_str("SEAGULL_INGEST_STORM_SINCE_KEY", "seagull:ingest:storm_since") or "seagull:ingest:storm_since"
+    )
+    SEAGULL_INGEST_STORM_ALERT_ID_KEY: str = (
+        _env_str("SEAGULL_INGEST_STORM_ALERT_ID_KEY", "seagull:ingest:storm_alert_id")
+        or "seagull:ingest:storm_alert_id"
+    )
+    SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS: int = _env_int(
+        "SEAGULL_INGEST_BACKPRESSURE_SOFT_BACKLOG_EVENTS", 50000
+    )
+    SEAGULL_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS: int = _env_int(
+        "SEAGULL_INGEST_BACKPRESSURE_HARD_BACKLOG_EVENTS", 200000
+    )
+    SEAGULL_INGEST_BACKPRESSURE_MODE: str = (
+        _env_str("SEAGULL_INGEST_BACKPRESSURE_MODE", "rollup_only") or "rollup_only"
+    ).lower()
+    SEAGULL_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT: int = _env_int(
+        "SEAGULL_INGEST_BACKPRESSURE_WARM_SAMPLE_PERCENT", 2
+    )
     SEAGULL_INGEST_RECENT_FEED_MAX_EVENTS: int = _env_int("SEAGULL_INGEST_RECENT_FEED_MAX_EVENTS", 5000)
-    SEAGULL_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS: int = _env_int("SEAGULL_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS", 1000)
+    SEAGULL_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS: int = _env_int(
+        "SEAGULL_INGEST_RECENT_FEED_PER_AGENT_MAX_EVENTS", 1000
+    )
     SEAGULL_INGEST_RECENT_FEED_MIN_BATCH: int = _env_int("SEAGULL_INGEST_RECENT_FEED_MIN_BATCH", 24)
     SEAGULL_INGEST_RECENT_FEED_LOOKBACK_SECONDS: int = _env_int("SEAGULL_INGEST_RECENT_FEED_LOOKBACK_SECONDS", 900)
     SEAGULL_INGEST_RECENT_FEED_MAX_PUSH_PER_CALL: int = _env_int("SEAGULL_INGEST_RECENT_FEED_MAX_PUSH_PER_CALL", 512)
@@ -285,16 +394,24 @@ class Settings:
     SEAGULL_INGEST_DEGRADED_HOT_SAMPLE_PERCENT: int = _env_int("SEAGULL_INGEST_DEGRADED_HOT_SAMPLE_PERCENT", 5)
     SEAGULL_INGEST_CRITICAL_HOT_SAMPLE_PERCENT: int = _env_int("SEAGULL_INGEST_CRITICAL_HOT_SAMPLE_PERCENT", 1)
     SEAGULL_INGEST_CLICKHOUSE_SAMPLE_PERCENT: int = _env_int("SEAGULL_INGEST_CLICKHOUSE_SAMPLE_PERCENT", 100)
-    SEAGULL_INGEST_DEGRADED_CLICKHOUSE_SAMPLE_PERCENT: int = _env_int("SEAGULL_INGEST_DEGRADED_CLICKHOUSE_SAMPLE_PERCENT", 25)
-    SEAGULL_INGEST_CRITICAL_CLICKHOUSE_SAMPLE_PERCENT: int = _env_int("SEAGULL_INGEST_CRITICAL_CLICKHOUSE_SAMPLE_PERCENT", 10)
+    SEAGULL_INGEST_DEGRADED_CLICKHOUSE_SAMPLE_PERCENT: int = _env_int(
+        "SEAGULL_INGEST_DEGRADED_CLICKHOUSE_SAMPLE_PERCENT", 25
+    )
+    SEAGULL_INGEST_CRITICAL_CLICKHOUSE_SAMPLE_PERCENT: int = _env_int(
+        "SEAGULL_INGEST_CRITICAL_CLICKHOUSE_SAMPLE_PERCENT", 10
+    )
 
     SEAGULL_OVERVIEW_FRESH_SECONDS: int = _env_int("SEAGULL_OVERVIEW_FRESH_SECONDS", 15)
     SEAGULL_OVERVIEW_STALE_SECONDS: int = _env_int("SEAGULL_OVERVIEW_STALE_SECONDS", 60)
     SEAGULL_OVERVIEW_FIXED_RANGE_STALE_SECONDS: int = _env_int("SEAGULL_OVERVIEW_FIXED_RANGE_STALE_SECONDS", 600)
     SEAGULL_OVERVIEW_PRESSURE_LOOKBACK_SECONDS: int = _env_int("SEAGULL_OVERVIEW_PRESSURE_LOOKBACK_SECONDS", 120)
     SEAGULL_OVERVIEW_INGEST_ROLLUP_FRESH_SECONDS: int = _env_int("SEAGULL_OVERVIEW_INGEST_ROLLUP_FRESH_SECONDS", 120)
-    SEAGULL_OVERVIEW_DRAINING_BACKLOG_EVENTS_THRESHOLD: int = _env_int("SEAGULL_OVERVIEW_DRAINING_BACKLOG_EVENTS_THRESHOLD", 25000)
-    SEAGULL_OVERVIEW_DRAINING_BACKLOG_MESSAGES_THRESHOLD: int = _env_int("SEAGULL_OVERVIEW_DRAINING_BACKLOG_MESSAGES_THRESHOLD", 5)
+    SEAGULL_OVERVIEW_DRAINING_BACKLOG_EVENTS_THRESHOLD: int = _env_int(
+        "SEAGULL_OVERVIEW_DRAINING_BACKLOG_EVENTS_THRESHOLD", 25000
+    )
+    SEAGULL_OVERVIEW_DRAINING_BACKLOG_MESSAGES_THRESHOLD: int = _env_int(
+        "SEAGULL_OVERVIEW_DRAINING_BACKLOG_MESSAGES_THRESHOLD", 5
+    )
     SEAGULL_EVENTS_SUMMARY_CACHE_TTL_SECONDS: int = _env_int("SEAGULL_EVENTS_SUMMARY_CACHE_TTL_SECONDS", 15)
     SEAGULL_EVENTS_ES_STALE_MARGIN_SECONDS: int = _env_int("SEAGULL_EVENTS_ES_STALE_MARGIN_SECONDS", 60)
     SEAGULL_EVENTS_HUNT_CLICKHOUSE_MINUTES: int = _env_int("SEAGULL_EVENTS_HUNT_CLICKHOUSE_MINUTES", 240)
@@ -321,13 +438,17 @@ class Settings:
     SEAGULL_EVENTS_SUMMARY_FRESH_SECONDS: int = _env_int("SEAGULL_EVENTS_SUMMARY_FRESH_SECONDS", 240)
     SEAGULL_EVENTS_SUMMARY_STALE_SECONDS: int = _env_int("SEAGULL_EVENTS_SUMMARY_STALE_SECONDS", 1800)
     SEAGULL_CH_WATERMARK_STALE_SECONDS: int = _env_int("SEAGULL_CH_WATERMARK_STALE_SECONDS", 120)
-    SEAGULL_ANALYTICS_SINGLEFLIGHT_LOCK_TTL_SECONDS: float = _env_float("SEAGULL_ANALYTICS_SINGLEFLIGHT_LOCK_TTL_SECONDS", 10.0)
+    SEAGULL_ANALYTICS_SINGLEFLIGHT_LOCK_TTL_SECONDS: float = _env_float(
+        "SEAGULL_ANALYTICS_SINGLEFLIGHT_LOCK_TTL_SECONDS", 10.0
+    )
     SEAGULL_ANALYTICS_SINGLEFLIGHT_WAIT_SECONDS: float = _env_float("SEAGULL_ANALYTICS_SINGLEFLIGHT_WAIT_SECONDS", 9.0)
     SEAGULL_ANALYTICS_PREWARM_ENABLED: bool = _env_bool("SEAGULL_ANALYTICS_PREWARM_ENABLED", True)
     SEAGULL_ANALYTICS_PREWARM_EVERY_SECONDS: float = _env_float("SEAGULL_ANALYTICS_PREWARM_EVERY_SECONDS", 120.0)
     SEAGULL_ANALYTICS_PREWARM_TOP_AGENTS: int = _env_int("SEAGULL_ANALYTICS_PREWARM_TOP_AGENTS", 3)
     SEAGULL_ANALYTICS_MATERIALIZE_ENABLED: bool = _env_bool("SEAGULL_ANALYTICS_MATERIALIZE_ENABLED", True)
-    SEAGULL_ANALYTICS_MATERIALIZE_EVERY_SECONDS: float = _env_float("SEAGULL_ANALYTICS_MATERIALIZE_EVERY_SECONDS", 300.0)
+    SEAGULL_ANALYTICS_MATERIALIZE_EVERY_SECONDS: float = _env_float(
+        "SEAGULL_ANALYTICS_MATERIALIZE_EVERY_SECONDS", 300.0
+    )
     SEAGULL_SNAPSHOTS_WORKER_ENABLED: bool = _env_bool("SEAGULL_SNAPSHOTS_WORKER_ENABLED", True)
     SEAGULL_SNAPSHOTS_EVERY_SECONDS: float = _env_float("SEAGULL_SNAPSHOTS_EVERY_SECONDS", 30.0)
     SEAGULL_SNAPSHOTS_MAX_AGE_MULTIPLIER: float = _env_float("SEAGULL_SNAPSHOTS_MAX_AGE_MULTIPLIER", 6.0)
@@ -341,7 +462,9 @@ class Settings:
     SEAGULL_SNAPSHOT_VULN_POSTURE_ENABLED: bool = _env_bool("SEAGULL_SNAPSHOT_VULN_POSTURE_ENABLED", True)
     SEAGULL_SNAPSHOT_TOPOLOGY_SUMMARY_ENABLED: bool = _env_bool("SEAGULL_SNAPSHOT_TOPOLOGY_SUMMARY_ENABLED", True)
     SEAGULL_SNAPSHOT_THREAT_MAP_ENABLED: bool = _env_bool("SEAGULL_SNAPSHOT_THREAT_MAP_ENABLED", True)
-    SEAGULL_SNAPSHOT_THREAT_MAP_WINDOWS: list[str] = _env_csv("SEAGULL_SNAPSHOT_THREAT_MAP_WINDOWS", "360,1440,10080,43200")
+    SEAGULL_SNAPSHOT_THREAT_MAP_WINDOWS: list[str] = _env_csv(
+        "SEAGULL_SNAPSHOT_THREAT_MAP_WINDOWS", "360,1440,10080,43200"
+    )
     SEAGULL_PROTO_INTEL_BACKFILL_CHUNK_HOURS: int = _env_int("SEAGULL_PROTO_INTEL_BACKFILL_CHUNK_HOURS", 6)
     SEAGULL_PROTO_INTEL_BACKFILL_SLEEP_SECONDS: float = _env_float("SEAGULL_PROTO_INTEL_BACKFILL_SLEEP_SECONDS", 0.5)
     SEAGULL_THREAT_GEO_CACHE_TTL_SECONDS: int = _env_int("SEAGULL_THREAT_GEO_CACHE_TTL_SECONDS", 30)
@@ -464,10 +587,7 @@ class Settings:
         if not (self.DB_PASSWORD or "").strip():
             raise RuntimeError("SEAGULL_DB_PASSWORD (or SEAGULL_DB_URL) is required.")
 
-        return (
-            f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}"
-            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
-        )
+        return f"postgresql://{self.DB_USER}:{self.DB_PASSWORD}" f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
     @staticmethod
     def _looks_insecure_secret(secret: str) -> bool:
@@ -501,10 +621,14 @@ class Settings:
         try:
             obj = json.loads(raw)
             if isinstance(obj, dict):
-                return obj
+                config = dict(obj)
+                revision = config.get("revision")
+                if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+                    config["revision"] = 1
+                return config
         except Exception:
             pass
-        return {}
+        return {"revision": 1}
 
     def token_pepper(self) -> str:
         # Separate pepper allows rotating JWT secret without invalidating stored hashes.
@@ -685,8 +809,20 @@ class Settings:
             errors.append("SEAGULL_AGENT_RENEWAL_TOKEN_TTL_SECONDS must be >= 3600")
         if (self.SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE or 0) < 1:
             errors.append("SEAGULL_AGENT_RENEWAL_TOKEN_MAX_ACTIVE must be >= 1")
-
         if svc == "backend-api":
+            if self.SEAGULL_AGENT_PUBLIC_HOST.strip() and not _valid_agent_public_host(self.SEAGULL_AGENT_PUBLIC_HOST):
+                errors.append("SEAGULL_AGENT_PUBLIC_HOST must be a DNS name or IP address without a port")
+            if self.SEAGULL_ENV in {"prod", "production"} and not self.SEAGULL_AGENT_PUBLIC_HOST.strip():
+                errors.append("SEAGULL_AGENT_PUBLIC_HOST must be set in prod")
+            if _SEMVER_PATTERN.fullmatch(self.SEAGULL_AGENT_RELEASE_VERSION) is None:
+                errors.append("SEAGULL_AGENT_RELEASE_VERSION must be a semantic version without a leading v")
+            if not _valid_release_base_url(self.SEAGULL_AGENT_RELEASE_BASE_URL):
+                errors.append("SEAGULL_AGENT_RELEASE_BASE_URL must be an absolute HTTPS URL without credentials")
+            architectures = self.SEAGULL_AGENT_SUPPORTED_ARCHITECTURES
+            if not architectures or len(set(architectures)) != len(architectures):
+                errors.append("SEAGULL_AGENT_SUPPORTED_ARCHITECTURES must contain unique supported values")
+            if any(value not in {"amd64", "arm64"} for value in architectures):
+                errors.append("SEAGULL_AGENT_SUPPORTED_ARCHITECTURES supports only amd64 and arm64")
             secret = (self.SEAGULL_JWT_SECRET or "").strip()
             if len(secret) < 32:
                 errors.append("SEAGULL_JWT_SECRET is required and must be >= 32 chars")
@@ -709,10 +845,18 @@ class Settings:
             if self.SEAGULL_ENV in {"prod", "production"} and self.SEAGULL_AUDIT_RETENTION_DAYS < 90:
                 errors.append("SEAGULL_AUDIT_RETENTION_DAYS must be >= 90 in prod")
             bootstrap_password = (self.SEAGULL_BOOTSTRAP_ADMIN_PASSWORD or "").strip()
-            bootstrap_reset_mode = bool(self.SEAGULL_BOOTSTRAP_ADMIN_RESET_ON_START or self.SEAGULL_BOOTSTRAP_ADMIN_SYNC_ON_START)
+            bootstrap_reset_mode = bool(
+                self.SEAGULL_BOOTSTRAP_ADMIN_RESET_ON_START or self.SEAGULL_BOOTSTRAP_ADMIN_SYNC_ON_START
+            )
             if self.SEAGULL_ENV in {"prod", "production"} and bootstrap_reset_mode and len(bootstrap_password) < 12:
-                errors.append("SEAGULL_BOOTSTRAP_ADMIN_PASSWORD must be set with >= 12 chars when bootstrap reset/sync is enabled")
-            if self.SEAGULL_ENV in {"prod", "production"} and bootstrap_password and self._looks_insecure_secret(bootstrap_password):
+                errors.append(
+                    "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD must be set with >= 12 chars when bootstrap reset/sync is enabled"
+                )
+            if (
+                self.SEAGULL_ENV in {"prod", "production"}
+                and bootstrap_password
+                and self._looks_insecure_secret(bootstrap_password)
+            ):
                 errors.append("SEAGULL_BOOTSTRAP_ADMIN_PASSWORD cannot use a default/placeholder value in prod")
             if self.SEAGULL_ENV in {"prod", "production"} and self.SEAGULL_BOOTSTRAP_ADMIN_RESET_ON_START:
                 errors.append("SEAGULL_BOOTSTRAP_ADMIN_RESET_ON_START must be false in prod")
@@ -741,7 +885,9 @@ class Settings:
                 if self.SEAGULL_ENV in {"prod", "production"} and not es_username:
                     errors.append("SEAGULL_ES_USERNAME is required in prod when Elasticsearch is enabled")
                 if self.SEAGULL_ENV in {"prod", "production"} and len(es_password) < 12:
-                    errors.append("SEAGULL_ES_PASSWORD must be set with >= 12 chars in prod when Elasticsearch is enabled")
+                    errors.append(
+                        "SEAGULL_ES_PASSWORD must be set with >= 12 chars in prod when Elasticsearch is enabled"
+                    )
                 if self.SEAGULL_ENV in {"prod", "production"} and self._looks_insecure_secret(es_password):
                     errors.append("SEAGULL_ES_PASSWORD cannot use a default/placeholder value in prod")
 

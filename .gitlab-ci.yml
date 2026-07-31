@@ -1,15 +1,5 @@
-# Two layers:
-#   1. cli-reproducibility-tests  — fast, runs everywhere, on every MR + default
-#      branch. Locks the host-side init invariants (env bootstrap, PKI/TLS perms,
-#      compose variable completeness, best-effort agent reconcile) so a change can
-#      never silently make a fresh machine fail.
-#   2. seagull-up-fresh-machine   — heavy, on-demand (manual or scheduled). Brings
-#      the WHOLE stack up from a clean checkout via `./seagull up` and asserts it
-#      becomes healthy.
-
 stages:
   - test
-  - package
   - reproducibility
 
 workflow:
@@ -47,76 +37,6 @@ detection-rule-tests:
   script:
     - python -m pytest backend/ -k "yaml_tests or quality" -q --tb=short
 
-agent-tests:
-  stage: test
-  image: golang:1.22
-  interruptible: true
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      changes:
-        - agent/**/*
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-      changes:
-        - agent/**/*
-    - if: '$CI_COMMIT_TAG =~ /^agent-v/'
-  before_script:
-    - apt-get update && apt-get install -y --no-install-recommends libpcap-dev
-  script:
-    - cd agent
-    - test -z "$(gofmt -l .)"
-    - go vet ./...
-    - go test ./...
-
-agent-package:
-  stage: package
-  image: golang:1.22
-  interruptible: true
-  needs: ["agent-tests"]
-  rules:
-    - if: '$CI_COMMIT_TAG =~ /^agent-v/'
-      variables:
-        SEAGULL_AGENT_CHANNEL: "stable"
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-      changes:
-        - agent/**/*
-      variables:
-        SEAGULL_AGENT_CHANNEL: "dev"
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      changes:
-        - agent/**/*
-      variables:
-        SEAGULL_AGENT_CHANNEL: "dev"
-  variables:
-    SEAGULL_AGENT_TARGETS: "linux/amd64"
-  before_script:
-    - apt-get update && apt-get install -y --no-install-recommends libpcap-dev
-  script:
-    - ./agent/build.sh --channel "${SEAGULL_AGENT_CHANNEL}" --dist agent/dist
-    - cd agent/dist && sha256sum -c SHA256SUMS
-  artifacts:
-    name: "seagull-agent-${CI_COMMIT_REF_SLUG}"
-    paths:
-      - agent/dist/
-    expire_in: 30 days
-
-agent-install-smoke:
-  stage: package
-  image: debian:12
-  interruptible: true
-  needs: ["agent-package"]
-  rules:
-    - if: '$CI_COMMIT_TAG =~ /^agent-v/'
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-      changes:
-        - agent/**/*
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      changes:
-        - agent/**/*
-  before_script:
-    - apt-get update && apt-get install -y --no-install-recommends libpcap0.8 ca-certificates
-  script:
-    - bash scripts/ci/agent-package-smoke.sh
-
 seagull-up-fresh-machine:
   stage: reproducibility
   tags:
@@ -127,7 +47,6 @@ seagull-up-fresh-machine:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
   variables:
     SEAGULL_MODE: "dev"
-    SEAGULL_AGENT_LOCAL_RECONCILE: "false"
     GIT_DEPTH: "1"
   script:
     - bash scripts/ci/seagull-up-smoke.sh
