@@ -24,6 +24,10 @@ on:
         description: Seagull Agent ref to validate as current
         required: true
         default: main
+      oldest_agent_ref:
+        description: Oldest supported Seagull Agent release tag
+        required: true
+        default: v0.1.0
 
 permissions:
   contents: read
@@ -48,10 +52,27 @@ jobs:
           ref: ${{ inputs.current_agent_ref || 'main' }}
           path: agent-current
           persist-credentials: false
+      - name: resolve the oldest supported agent release
+        id: oldest
+        env:
+          OLDEST_AGENT_REF: ${{ inputs.oldest_agent_ref || 'v0.1.0' }}
+        run: |
+          set -euo pipefail
+          printf 'ref=%s\n' "${OLDEST_AGENT_REF}" >> "${GITHUB_OUTPUT}"
+          if git ls-remote --exit-code --tags \
+            https://github.com/dynasmon/seagull-agent.git \
+            "refs/tags/${OLDEST_AGENT_REF}" >/dev/null 2>&1; then
+            printf 'published=true\n' >> "${GITHUB_OUTPUT}"
+          else
+            printf 'published=false\n' >> "${GITHUB_OUTPUT}"
+            printf '::notice::%s is not published yet; the oldest supported agent check is skipped\n' \
+              "${OLDEST_AGENT_REF}"
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: steps.oldest.outputs.published == 'true'
         with:
           repository: dynasmon/seagull-agent
-          ref: v0.1.0
+          ref: ${{ steps.oldest.outputs.ref }}
           path: agent-oldest
           persist-credentials: false
       - name: validate the current agent contract
@@ -61,6 +82,7 @@ jobs:
             --agent-dir agent-current/protocol/schema \
             --require-exact
       - name: validate the oldest supported agent contract
+        if: steps.oldest.outputs.published == 'true'
         run: |
           python3 platform/scripts/ci/verify_agent_contract.py \
             --platform-dir platform/backend/app/features/agents/contracts \
