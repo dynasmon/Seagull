@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getErrorMessage } from "@/shared/lib/errors";
 
 import { createEnrollmentTicket, getAgentOnboarding } from "../api";
-import type { AgentEnrollmentTicket, AgentOnboardingInfo, AgentProfile } from "../types";
+import type { AgentArchitecture, AgentEnrollmentTicket, AgentOnboardingInfo, AgentProfile } from "../types";
 
 interface UseAgentEnrollmentProps {
   open: boolean;
@@ -15,6 +15,7 @@ export function useAgentEnrollment({ open, isAdmin, onEnrolled }: UseAgentEnroll
   const [onboarding, setOnboarding] = useState<AgentOnboardingInfo | null>(null);
   const [agentId, setAgentId] = useState("");
   const [profile, setProfile] = useState<AgentProfile>("sensor");
+  const [architecture, setArchitecture] = useState<AgentArchitecture>("amd64");
   const [ticket, setTicket] = useState<AgentEnrollmentTicket | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +28,7 @@ export function useAgentEnrollment({ open, isAdmin, onEnrolled }: UseAgentEnroll
         if (cancelled) return;
         setOnboarding(info);
         setProfile((info.default_profile === "managed" ? "managed" : "sensor") as AgentProfile);
+        setArchitecture(info.release.artifacts[0]?.architecture ?? "amd64");
       })
       .catch((err) => {
         if (!cancelled) setError(getErrorMessage(err, "Failed to load onboarding settings"));
@@ -41,6 +43,7 @@ export function useAgentEnrollment({ open, isAdmin, onEnrolled }: UseAgentEnroll
     setTicket(null);
     setError(null);
     setProfile((onboarding?.default_profile === "managed" ? "managed" : "sensor") as AgentProfile);
+    setArchitecture(onboarding?.release.artifacts[0]?.architecture ?? "amd64");
   }, [onboarding]);
 
   const trimmedAgentId = agentId.trim();
@@ -52,7 +55,7 @@ export function useAgentEnrollment({ open, isAdmin, onEnrolled }: UseAgentEnroll
     setBusy(true);
     setError(null);
     try {
-      const created = await createEnrollmentTicket({ agent_id: trimmedAgentId, profile });
+      const created = await createEnrollmentTicket({ agent_id: trimmedAgentId, profile, architecture });
       setTicket(created);
       onEnrolled?.();
     } catch (err) {
@@ -60,7 +63,7 @@ export function useAgentEnrollment({ open, isAdmin, onEnrolled }: UseAgentEnroll
     } finally {
       setBusy(false);
     }
-  }, [canIssue, trimmedAgentId, profile, onEnrolled]);
+  }, [canIssue, trimmedAgentId, profile, architecture, onEnrolled]);
 
   return {
     onboarding,
@@ -69,6 +72,8 @@ export function useAgentEnrollment({ open, isAdmin, onEnrolled }: UseAgentEnroll
     agentIdValid: trimmedAgentId.length === 0 || agentIdValid,
     profile,
     setProfile,
+    architecture,
+    setArchitecture,
     ticket,
     busy,
     error,
