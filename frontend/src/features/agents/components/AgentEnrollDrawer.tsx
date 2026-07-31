@@ -11,7 +11,7 @@ import { copyTextToClipboard } from "@/shared/components/investigation/utils";
 
 import { FieldLabel } from "./AgentsPageShared";
 import type { AgentEnrollmentController } from "../hooks/useAgentEnrollment";
-import type { AgentProfile } from "../types";
+import type { AgentArchitecture, AgentProfile } from "../types";
 import { fmtDateTime, parseIso } from "../lib/agentUtils";
 
 interface AgentEnrollDrawerProps {
@@ -42,6 +42,25 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   );
 }
 
+function DownloadButton({ value, filename, label }: { value: string; filename: string; label: string }) {
+  const onDownload = useCallback(() => {
+    const url = URL.createObjectURL(new Blob([value], { type: "application/x-pem-file" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }, [value, filename]);
+
+  return (
+    <Button variant="subtle" size="md" onClick={onDownload}>
+      {label}
+    </Button>
+  );
+}
+
 export default function AgentEnrollDrawer({ open, onClose, isAdmin, controller }: AgentEnrollDrawerProps) {
   const {
     onboarding,
@@ -50,6 +69,8 @@ export default function AgentEnrollDrawer({ open, onClose, isAdmin, controller }
     agentIdValid,
     profile,
     setProfile,
+    architecture,
+    setArchitecture,
     ticket,
     busy,
     error,
@@ -62,6 +83,8 @@ export default function AgentEnrollDrawer({ open, onClose, isAdmin, controller }
     reset();
     onClose();
   }, [reset, onClose]);
+  const release = ticket?.release ?? onboarding?.release;
+  const artifact = ticket?.artifact ?? release?.artifacts.find((value) => value.architecture === architecture);
 
   return (
     <Drawer
@@ -79,7 +102,7 @@ export default function AgentEnrollDrawer({ open, onClose, isAdmin, controller }
           {error && <InlineAlert tone="danger">{error}</InlineAlert>}
 
           <Panel title="1. Identify the endpoint" compact>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-1.5">
                 <FieldLabel>Agent id</FieldLabel>
                 <TextInput
@@ -108,6 +131,24 @@ export default function AgentEnrollDrawer({ open, onClose, isAdmin, controller }
                   Sensor installations cannot execute response actions, on the server or on the endpoint.
                 </div>
               </div>
+
+              <div className="space-y-1.5">
+                <FieldLabel>Architecture</FieldLabel>
+                <SelectInput
+                  value={architecture}
+                  onChange={(e) => setArchitecture(e.target.value as AgentArchitecture)}
+                  disabled={!!ticket}
+                >
+                  {onboarding?.release.artifacts.map((value) => (
+                    <option key={value.architecture} value={value.architecture}>
+                      Linux {value.architecture}
+                    </option>
+                  ))}
+                </SelectInput>
+                <div className="text-[11px] text-muted-foreground">
+                  Select the CPU architecture reported by the endpoint.
+                </div>
+              </div>
             </div>
 
             {!ticket && (
@@ -125,17 +166,71 @@ export default function AgentEnrollDrawer({ open, onClose, isAdmin, controller }
           </Panel>
 
           <Panel title="2. Download the agent package" compact>
-            <div className="space-y-2 text-[12px] text-muted-foreground">
-              <div>
-                Copy the release tarball for the endpoint architecture onto the host and unpack it. The package carries the
-                binary, the systemd unit and the installer, so the host needs neither this repository nor a Go toolchain.
+            {artifact && release ? (
+              <div className="space-y-3 text-[12px] text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusPill variant="active">v{release.version}</StatusPill>
+                  <StatusPill variant="neutral">{artifact.architecture}</StatusPill>
+                  <a
+                    href={artifact.download_url}
+                    className="font-medium text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Download package
+                  </a>
+                  <a
+                    href={artifact.sbom_url}
+                    className="font-medium text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    SBOM
+                  </a>
+                  <a
+                    href={release.checksums_url}
+                    className="font-medium text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Checksums
+                  </a>
+                  <a
+                    href={release.checksums_signature_url}
+                    className="font-medium text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Signature
+                  </a>
+                  <a
+                    href={release.checksums_certificate_url}
+                    className="font-medium text-primary hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Signing certificate
+                  </a>
+                </div>
+                <pre className="overflow-x-auto rounded-md border border-border bg-surface-2 p-3 font-mono text-[11.5px] text-foreground">
+{`curl --fail --location --remote-name "${artifact.download_url}"
+curl --fail --location --remote-name "${release.checksums_url}"
+curl --fail --location --remote-name "${release.checksums_signature_url}"
+curl --fail --location --remote-name "${release.checksums_certificate_url}"
+cosign verify-blob \\
+  --certificate SHA256SUMS.pem \\
+  --signature SHA256SUMS.sig \\
+  --certificate-identity "https://github.com/dynasmon/seagull-agent/.github/workflows/release.yml@refs/tags/${release.tag}" \\
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \\
+  SHA256SUMS
+sha256sum --check SHA256SUMS --ignore-missing
+tar xzf "${artifact.filename}"
+cd "${artifact.filename.replace(/\.tar\.gz$/, "")}"`}
+                </pre>
               </div>
-              <pre className="overflow-x-auto rounded-md border border-border bg-surface-2 p-3 font-mono text-[11.5px] text-foreground">
-{`tar xzf seagull-agent_<version>_linux_amd64.tar.gz
-cd seagull-agent_<version>_linux_amd64
-sha256sum -c ../SHA256SUMS --ignore-missing`}
-              </pre>
-            </div>
+            ) : (
+              <div className="text-[12px] text-muted-foreground">Loading the supported release…</div>
+            )}
           </Panel>
 
           <Panel title="3. Install and enroll" compact>
@@ -156,8 +251,18 @@ sha256sum -c ../SHA256SUMS --ignore-missing`}
                 </div>
 
                 <InlineAlert tone="warning">
-                  The token is shown once and is consumed at first contact. Treat it as a secret.
+                  The token is shown once and is consumed at first contact. Paste it only when the installer prompts for it.
                 </InlineAlert>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <FieldLabel>Enrollment token</FieldLabel>
+                    <CopyButton value={ticket.bootstrap_token} label="Copy token" />
+                  </div>
+                  <pre className="overflow-x-auto rounded-md border border-border bg-surface-2 p-3 font-mono text-[11.5px] text-foreground">
+                    {ticket.bootstrap_token}
+                  </pre>
+                </div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -171,10 +276,11 @@ sha256sum -c ../SHA256SUMS --ignore-missing`}
 
                 {ticket.server_ca_required && (
                   <div className="space-y-1.5">
-                    <FieldLabel>Server certificate authority</FieldLabel>
-                    <div className="text-[11.5px] text-muted-foreground">
-                      This deployment uses a private authority. Copy <span className="font-mono">secrets/pki/server-ca.crt</span>{" "}
-                      to the endpoint as <span className="font-mono">server-ca.crt</span> before running the installer.
+                    <div className="flex items-center justify-between">
+                      <FieldLabel>Server certificate authority</FieldLabel>
+                      {ticket.server_ca_pem && (
+                        <DownloadButton value={ticket.server_ca_pem} filename="server-ca.crt" label="Download CA" />
+                      )}
                     </div>
                     {ticket.server_ca_fingerprint_sha256 && (
                       <div className="font-mono text-[11px] text-muted-foreground/80">
