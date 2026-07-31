@@ -14,6 +14,7 @@ from app.core.cache import get_json as _cache_get_json
 from app.core.cache import set_json as _cache_set_json
 from app.core.config import settings
 from app.core.observability import incr_counter, observe_hist
+from app.features.agents import protocol
 from app.features.inventory.repository import (
     create_snapshot_and_upsert_latest,
     fetch_overview_payload,
@@ -60,6 +61,7 @@ def invalidate_inventory_overview_cache(*, agent_id: str | None = None) -> None:
 
 def ingest_inventory(db: Session, *, payload: InventorySnapshotIn, agent_id: str) -> dict[str, Any]:
     now = _utc_now()
+    protocol.ensure_event_schema(payload.schema_version, context="ingest_inventory")
 
     packages_count = payload.packages_count if payload.packages_count is not None else len(payload.packages)
     if packages_count != len(payload.packages):
@@ -104,7 +106,7 @@ def ingest_inventory(db: Session, *, payload: InventorySnapshotIn, agent_id: str
         )
     except Exception:
         pass
-    return {"id": row_id, "stored": True}
+    return {"accepted": True, "durable": True, "id": row_id, "stored": True}
 
 
 def get_latest_inventory_or_404(db: Session, *, agent_id: str):
