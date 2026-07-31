@@ -1,7 +1,0 @@
-[Unit]
-Description=Synchronize Seagull agent CA bundle
-After=local-fs.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/lib/seagull/seagull-agent-sync-ca.sh
