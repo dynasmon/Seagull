@@ -4,6 +4,8 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
+from pydantic import BaseModel
 
 from app.core.api import idempotency
 
@@ -46,9 +48,10 @@ class TestReadBatchId:
         assert idempotency.read_batch_id(request) == "0f6f8f2a-2b0a-4a3f-9d54-0c9b0a2b6f11"
 
     def test_rejects_short_or_malformed_values(self):
-        assert idempotency.read_batch_id(_request({idempotency.BATCH_ID_HEADER: "abc"})) is None
-        assert idempotency.read_batch_id(_request({idempotency.BATCH_ID_HEADER: "bad value!"})) is None
-        assert idempotency.read_batch_id(_request({idempotency.BATCH_ID_HEADER: "x" * 200})) is None
+        for value in ("abc", "bad value!", "x" * 200):
+            with pytest.raises(HTTPException) as exc:
+                idempotency.read_batch_id(_request({idempotency.BATCH_ID_HEADER: value}))
+            assert exc.value.status_code == 400
 
     def test_missing_header_is_none(self):
         assert idempotency.read_batch_id(_request({})) is None
@@ -79,12 +82,14 @@ class TestRunOnce:
             agent_id="agent-1",
             batch_id="batch-aaaaaaaa",
             handler=handler,
+            request_digest="digest-a",
         )
         second = idempotency.run_once(
             scope="ingest_events",
             agent_id="agent-1",
             batch_id="batch-aaaaaaaa",
             handler=handler,
+            request_digest="digest-a",
         )
 
         assert len(calls) == 1
@@ -127,39 +132,45 @@ class TestRunOnce:
 
         assert len(calls) == 2
 
-    def test_duplicate_in_flight_returns_schema_safe_fallback(self, fake_redis):
-        fake_redis.store[idempotency._key("ingest_vuln", "agent-1", "batch-aaaaaaaa")] = ""
-        result = idempotency.run_once(
-            scope="ingest_vuln",
-            agent_id="agent-1",
-            batch_id="batch-aaaaaaaa",
-            handler=lambda: pytest.fail("handler must not run for duplicate"),
-            duplicate_result={"received_findings": 5, "stored_findings": 0},
-        )
-        assert result == {"received_findings": 5, "stored_findings": 0, "duplicate": True}
+    def test_duplicate_in_flight_is_retryable_and_never_acknowledged(self, fake_redis):
+        key = idempotency._key("ingest_vuln", "agent-1", "batch-aaaaaaaa")
+        fake_redis.store[key] = json.dumps({"state": "processing", "digest": "digest-a"})
+        with pytest.raises(HTTPException) as exc:
+            idempotency.run_once(
+                scope="ingest_vuln",
+                agent_id="agent-1",
+                batch_id="batch-aaaaaaaa",
+                handler=lambda: pytest.fail("handler must not run for duplicate"),
+                request_digest="digest-a",
+            )
+        assert exc.value.status_code == 425
+        assert exc.value.headers == {"Retry-After": "1"}
 
-    def test_falls_back_to_handler_when_redis_is_down(self, monkeypatch):
+    def test_rejects_durable_batch_when_redis_is_down(self, monkeypatch):
         monkeypatch.setattr(idempotency, "get_redis", lambda: None)
         calls = []
-        for _ in range(2):
+        with pytest.raises(HTTPException) as exc:
             idempotency.run_once(
                 scope="ingest_events",
                 agent_id="agent-1",
                 batch_id="batch-aaaaaaaa",
                 handler=lambda: calls.append(1),
             )
-        assert len(calls) == 2
+        assert exc.value.status_code == 503
+        assert calls == []
 
-    def test_oversized_results_are_not_cached(self, fake_redis):
-        payload = {"blob": "x" * 9000}
-        idempotency.run_once(
-            scope="ingest_events",
-            agent_id="agent-1",
-            batch_id="batch-aaaaaaaa",
-            handler=lambda: payload,
-        )
+    def test_oversized_results_are_not_acknowledged(self, fake_redis):
+        payload = {"blob": "x" * (idempotency.MAX_RESULT_BYTES + 1)}
+        with pytest.raises(HTTPException) as exc:
+            idempotency.run_once(
+                scope="ingest_events",
+                agent_id="agent-1",
+                batch_id="batch-aaaaaaaa",
+                handler=lambda: payload,
+            )
+        assert exc.value.status_code == 503
         stored = fake_redis.store[idempotency._key("ingest_events", "agent-1", "batch-aaaaaaaa")]
-        assert stored == ""
+        assert json.loads(stored)["state"] == "processing"
 
     def test_cached_result_roundtrips_as_json(self, fake_redis):
         idempotency.run_once(
@@ -169,4 +180,44 @@ class TestRunOnce:
             handler=lambda: {"snapshot_id": 7},
         )
         stored = fake_redis.store[idempotency._key("ingest_inventory", "agent-1", "batch-aaaaaaaa")]
-        assert json.loads(stored) == {"snapshot_id": 7}
+        assert json.loads(stored) == {
+            "state": "completed",
+            "digest": "",
+            "result": {"snapshot_id": 7},
+        }
+
+    def test_same_batch_id_with_different_payload_is_rejected(self, fake_redis):
+        idempotency.run_once(
+            scope="ingest_events",
+            agent_id="agent-1",
+            batch_id="batch-aaaaaaaa",
+            request_digest="digest-a",
+            handler=lambda: {"accepted": True, "durable": True, "received": 1},
+        )
+        with pytest.raises(HTTPException) as exc:
+            idempotency.run_once(
+                scope="ingest_events",
+                agent_id="agent-1",
+                batch_id="batch-aaaaaaaa",
+                request_digest="digest-b",
+                handler=lambda: pytest.fail("conflicting payload must not run"),
+            )
+        assert exc.value.status_code == 409
+
+    def test_pydantic_results_are_cached(self, fake_redis):
+        class Result(BaseModel):
+            accepted: bool
+            durable: bool
+
+        idempotency.run_once(
+            scope="ingest_vuln",
+            agent_id="agent-1",
+            batch_id="batch-aaaaaaaa",
+            handler=lambda: Result(accepted=True, durable=True),
+        )
+        stored = json.loads(fake_redis.store[idempotency._key("ingest_vuln", "agent-1", "batch-aaaaaaaa")])
+        assert stored["result"] == {"accepted": True, "durable": True}
+
+
+def test_request_fingerprint_is_canonical() -> None:
+    assert idempotency.request_fingerprint({"b": 2, "a": 1}) == idempotency.request_fingerprint({"a": 1, "b": 2})
