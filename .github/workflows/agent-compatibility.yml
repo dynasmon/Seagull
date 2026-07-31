@@ -1,0 +1,67 @@
+name: agent compatibility
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+      - "refact/**"
+    paths:
+      - ".github/workflows/agent-compatibility.yml"
+      - "backend/app/features/agents/**"
+      - "backend/tests/test_agent_protocol_contract.py"
+      - "scripts/ci/verify_agent_contract.py"
+  pull_request:
+    paths:
+      - ".github/workflows/agent-compatibility.yml"
+      - "backend/app/features/agents/**"
+      - "backend/tests/test_agent_protocol_contract.py"
+      - "scripts/ci/verify_agent_contract.py"
+  workflow_dispatch:
+    inputs:
+      current_agent_ref:
+        description: Seagull Agent ref to validate as current
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: current and oldest supported agent
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: platform
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: dynasmon/seagull-agent
+          ref: ${{ inputs.current_agent_ref || 'main' }}
+          path: agent-current
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: dynasmon/seagull-agent
+          ref: v0.1.0
+          path: agent-oldest
+          persist-credentials: false
+      - name: validate the current agent contract
+        run: |
+          python3 platform/scripts/ci/verify_agent_contract.py \
+            --platform-dir platform/backend/app/features/agents/contracts \
+            --agent-dir agent-current/protocol/schema \
+            --require-exact
+      - name: validate the oldest supported agent contract
+        run: |
+          python3 platform/scripts/ci/verify_agent_contract.py \
+            --platform-dir platform/backend/app/features/agents/contracts \
+            --agent-dir agent-oldest/protocol/schema
