@@ -259,7 +259,7 @@ def _validate_firewall_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_quarantine_file_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
     payload = _as_dict(raw_payload, "payload")
-    allowed_root = {"path", "quarantine_dir", "compute_hash", "dry_run"}
+    allowed_root = {"path", "compute_hash", "dry_run"}
     unknown = sorted([k for k in payload.keys() if k not in allowed_root])
     if unknown:
         raise HTTPException(status_code=422, detail=f"payload has unsupported keys: {', '.join(unknown)}")
@@ -275,12 +275,6 @@ def _validate_quarantine_file_payload(raw_payload: Dict[str, Any]) -> Dict[str, 
             raise HTTPException(status_code=422, detail=f"payload.path is in a protected location: {prefix}")
 
     out: Dict[str, Any] = {"path": path}
-    if payload.get("quarantine_dir") is not None:
-        qd = _as_str(payload.get("quarantine_dir"), "payload.quarantine_dir", max_length=4096)
-        if qd:
-            if not qd.startswith("/"):
-                raise HTTPException(status_code=422, detail="payload.quarantine_dir must be absolute")
-            out["quarantine_dir"] = qd
     out["compute_hash"] = _as_bool(payload.get("compute_hash", True), "payload.compute_hash")
     out["dry_run"] = _as_bool(payload.get("dry_run", False), "payload.dry_run")
     return out
@@ -288,16 +282,28 @@ def _validate_quarantine_file_payload(raw_payload: Dict[str, Any]) -> Dict[str, 
 
 def _validate_run_shell_command_payload(raw_payload: Dict[str, Any]) -> Dict[str, Any]:
     payload = _as_dict(raw_payload, "payload")
-    allowed_root = {"command", "timeout_seconds", "working_dir"}
+    allowed_root = {"command", "arguments", "timeout_seconds", "working_dir"}
     unknown = sorted([k for k in payload.keys() if k not in allowed_root])
     if unknown:
         raise HTTPException(status_code=422, detail=f"payload has unsupported keys: {', '.join(unknown)}")
 
     command = _as_str(payload.get("command"), "payload.command", max_length=4096) if payload.get("command") is not None else ""
-    if not command:
-        raise HTTPException(status_code=422, detail="payload.command is required")
-
-    out: Dict[str, Any] = {"command": command}
+    arguments_raw = payload.get("arguments")
+    if arguments_raw is not None and not isinstance(arguments_raw, list):
+        raise HTTPException(status_code=422, detail="payload.arguments must be an array")
+    has_arguments = isinstance(arguments_raw, list) and len(arguments_raw) > 0
+    if bool(command) == has_arguments:
+        raise HTTPException(status_code=422, detail="payload requires exactly one of command or arguments")
+    out: Dict[str, Any] = {}
+    if command:
+        out["command"] = command
+    else:
+        if len(arguments_raw) > 128:
+            raise HTTPException(status_code=422, detail="payload.arguments must contain at most 128 entries")
+        arguments = [_as_str(value, "payload.arguments", max_length=4096) for value in arguments_raw]
+        if any(not value for value in arguments):
+            raise HTTPException(status_code=422, detail="payload.arguments entries cannot be empty")
+        out["arguments"] = arguments
     if payload.get("timeout_seconds") is not None:
         out["timeout_seconds"] = _as_int(
             payload.get("timeout_seconds"),
@@ -436,15 +442,15 @@ ACTION_REGISTRY: Dict[str, ActionDefinition] = {
     ),
     "run_shell_command": ActionDefinition(
         key="run_shell_command",
-        label="Run Shell Command",
+        label="Run Approved Program",
         category="containment",
         risk_level="critical",
         reversible=False,
         requires_confirmation=True,
         estimated_duration_seconds=30,
         undo_action=None,
-        description="Execute a shell command on the agent host. Gated by agent config and an optional command allowlist.",
-        payload_template={"command": "", "timeout_seconds": 30},
+        description="Execute a locally allowlisted program without a command shell.",
+        payload_template={"arguments": ["/usr/bin/true"], "timeout_seconds": 30},
         validate_payload=_validate_run_shell_command_payload,
     ),
 }
