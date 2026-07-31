@@ -24,6 +24,7 @@ from app.features.agents.schemas import (
     AgentEnrollOut,
     AgentHeartbeatIn,
     AgentOnboardingOut,
+    AgentProtocolOut,
     AgentPublic,
     AgentUpdateIn,
 )
@@ -154,15 +155,14 @@ def set_agent_config(
         return None
 
 
-@router.post("/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/heartbeat", response_model=AgentProtocolOut)
 def agent_heartbeat(
     payload: AgentHeartbeatIn,
     agent: AgentPrincipal = Depends(get_current_agent),
     db: Session = Depends(get_db),
 ):
     with managed_session(db) as db_session:
-        service.heartbeat(db_session, payload=payload, agent=agent)
-        return None
+        return service.heartbeat(db_session, payload=payload, agent=agent)
 
 
 @router.get("/config")
