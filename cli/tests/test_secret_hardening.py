@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import ssl
-import subprocess
 
 import pytest
 
 from cli.config import env as _env
 from cli.security import tokens as _tokens
 from cli.stack import prepare as _prepare
-from cli.stack import systemd as _systemd
 
 
 def _mode(path) -> int:
@@ -96,18 +94,28 @@ class TestTokenClientTLS:
         monkeypatch.setattr(
             _tokens._env,
             "read",
-            lambda key, default="": "./ca.crt" if key == "SEAGULL_AGENT_SERVER_CA_FILE" else "",
+            lambda key, default="": "./ca.crt" if key == "SEAGULL_TLS_CERT_FILE" else "",
         )
         anchors = _tokens._trust_anchors()
         assert ca in anchors
 
 
 class TestMintWritesFilesNotEnv:
+    @pytest.mark.parametrize("agent_id", ["../escape", "agent/child", "", "agent id"])
+    def test_mint_rejects_unsafe_agent_ids(self, tmp_path, monkeypatch, agent_id):
+        monkeypatch.setattr(
+            _tokens,
+            "_login",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("login must not run")),
+        )
+
+        with pytest.raises(ValueError, match="invalid agent id"):
+            _tokens.mint([agent_id], output_dir=tmp_path)
+
     def test_mint_writes_token_files_and_never_touches_env(self, tmp_path, monkeypatch):
         values = {
             "SEAGULL_BOOTSTRAP_ADMIN_USERNAME": "admin",
             "SEAGULL_BOOTSTRAP_ADMIN_PASSWORD": "Str0ng!Pass1234",
-            "AGENT_CORE_ID": "agent-core-1",
         }
         monkeypatch.setattr(_tokens._env, "read", lambda key, default="": values.get(key, default))
         monkeypatch.setattr(
@@ -123,43 +131,12 @@ class TestMintWritesFilesNotEnv:
         monkeypatch.setattr(_tokens._env, "upsert", _fail_upsert)
 
         out = tmp_path / "bootstrap"
-        _tokens.mint(output_dir=out)
+        _tokens.mint(["agent-core-1"], output_dir=out)
 
         token_file = out / "agent-core-1.token"
         assert token_file.read_text().strip() == "abt.agent-core-1.secret"
         assert _mode(token_file) == 0o600
         assert _mode(out) == 0o700
-
-
-class TestSystemdTokenHandling:
-    def test_repo_token_prefers_bootstrap_file(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_systemd._env, "root", lambda: tmp_path)
-        bootstrap = tmp_path / "secrets" / "bootstrap"
-        bootstrap.mkdir(parents=True)
-        (bootstrap / "agent-core-1.token").write_text("abt.file.token\n")
-        assert _systemd.repo_bootstrap_token_for_agent("agent-core-1") == "abt.file.token"
-
-    def test_repo_token_legacy_env_fallback(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_systemd._env, "root", lambda: tmp_path)
-        legacy = {"AGENT_CORE_ID": "agent-core-1", "AGENT_CORE_BOOTSTRAP_TOKEN": "abt.legacy.token"}
-        monkeypatch.setattr(_systemd._env, "read", lambda key, default="": legacy.get(key, default))
-        assert _systemd.repo_bootstrap_token_for_agent("agent-core-1") == "abt.legacy.token"
-
-    def test_install_keeps_token_out_of_argv(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_systemd._env, "root", lambda: tmp_path)
-        captured = {}
-
-        def _fake_run(cmd, cwd=None, env=None):
-            captured["cmd"] = cmd
-            captured["env"] = env
-            return subprocess.CompletedProcess(cmd, 0)
-
-        monkeypatch.setattr(_systemd.subprocess, "run", _fake_run)
-        _systemd.install(bootstrap_token="abt.super.secret")
-
-        assert all("abt.super.secret" not in part for part in captured["cmd"])
-        assert captured["env"]["SEAGULL_AGENT_BOOTSTRAP_TOKEN"] == "abt.super.secret"
-        assert any(part.startswith("--preserve-env=") and "SEAGULL_AGENT_BOOTSTRAP_TOKEN" in part for part in captured["cmd"])
 
 
 class TestProdPrepareGuards:

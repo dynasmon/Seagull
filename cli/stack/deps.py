@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -11,8 +10,6 @@ from pathlib import Path
 from ..config import env as _env
 
 
-GO_MIN = (1, 21)
-PCAP_HEADER_PATHS = ("/usr/include/pcap.h", "/usr/include/pcap/pcap.h")
 INSTALL_HINT = "./seagull -d --install"
 
 
@@ -33,21 +30,6 @@ def _ok(cmd: list[str]) -> bool:
         return False
 
 
-def _go_status() -> tuple[bool, str]:
-    if not shutil.which("go"):
-        return False, "go toolchain not found"
-    raw = _output(["go", "version"])
-    match = re.search(r"go(\d+)\.(\d+)", raw)
-    if not match:
-        return False, "could not parse go version"
-    version = (int(match.group(1)), int(match.group(2)))
-    label = f"go{match.group(1)}.{match.group(2)}"
-    if version < GO_MIN:
-        return False, f"{label} is older than go{GO_MIN[0]}.{GO_MIN[1]}"
-    parts = raw.split()
-    return True, parts[2] if len(parts) > 2 else label
-
-
 def _docker_daemon_status() -> tuple[bool, str]:
     if _ok(["docker", "info"]):
         return True, ""
@@ -59,14 +41,7 @@ def _docker_daemon_status() -> tuple[bool, str]:
     return False, "docker daemon unreachable — start it: sudo systemctl enable --now docker"
 
 
-def agent_build_enabled() -> bool:
-    raw = os.environ.get("SEAGULL_AGENT_LOCAL_RECONCILE")
-    if raw is None:
-        raw = _env.read("SEAGULL_AGENT_LOCAL_RECONCILE", "false")
-    return str(raw).strip().lower() in ("true", "1", "yes", "on")
-
-
-def check(*, include_agent_build: bool | None = None) -> list[tuple[str, bool, str]]:
+def check() -> list[tuple[str, bool, str]]:
     results: list[tuple[str, bool, str]] = []
 
     docker_present = shutil.which("docker") is not None
@@ -87,33 +62,6 @@ def check(*, include_agent_build: bool | None = None) -> list[tuple[str, bool, s
     ))
 
     for name in ("curl", "jq", "git", "sudo"):
-        present = shutil.which(name) is not None
-        results.append((name, present, "" if present else f"{name} not found in PATH"))
-
-    if include_agent_build is None:
-        include_agent_build = agent_build_enabled()
-    if include_agent_build:
-        results.extend(agent_build_check())
-
-    return results
-
-
-def agent_build_check() -> list[tuple[str, bool, str]]:
-    results: list[tuple[str, bool, str]] = []
-
-    go_ok, go_detail = _go_status()
-    results.append((f"go (>= {GO_MIN[0]}.{GO_MIN[1]})", go_ok, go_detail))
-
-    gcc_present = shutil.which("gcc") is not None
-    results.append(("gcc", gcc_present, "" if gcc_present else "C compiler not found (agent build uses cgo)"))
-
-    pcap_present = any(Path(p).exists() for p in PCAP_HEADER_PATHS)
-    results.append((
-        "libpcap headers", pcap_present,
-        "" if pcap_present else "libpcap-dev (or libpcap-devel) not installed",
-    ))
-
-    for name in ("setcap", "systemctl"):
         present = shutil.which(name) is not None
         results.append((name, present, "" if present else f"{name} not found in PATH"))
 
@@ -140,8 +88,8 @@ def print_report(results: list[tuple[str, bool, str]]) -> int:
     return 0
 
 
-def check_and_report(*, include_agent_build: bool | None = None) -> int:
-    return print_report(check(include_agent_build=include_agent_build))
+def check_and_report() -> int:
+    return print_report(check())
 
 
 def install() -> int:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import ssl
 import time
 import urllib.error
@@ -11,15 +12,23 @@ from urllib.parse import urlsplit
 
 from ..config import env as _env
 
-_AGENT_MAP: list[tuple[str, str]] = [
-    ("AGENT_CORE_ID", "AGENT_CORE_BOOTSTRAP_TOKEN"),
-    ("AGENT_SENSOR_ID", "AGENT_SENSOR_BOOTSTRAP_TOKEN"),
-    ("AGENT_LATERAL_ID", "AGENT_LATERAL_BOOTSTRAP_TOKEN"),
-    ("AGENT_PROC_ID", "AGENT_PROC_BOOTSTRAP_TOKEN"),
-    ("AGENT_SCAN_ID", "AGENT_SCAN_BOOTSTRAP_TOKEN"),
-    ("AGENT_DDOS_ID", "AGENT_DDOS_BOOTSTRAP_TOKEN"),
-    ("AGENT_VULN_ID", "AGENT_VULN_BOOTSTRAP_TOKEN"),
-]
+_AGENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def _validated_agent_ids(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        agent_id = str(raw or "").strip()
+        if not _AGENT_ID_PATTERN.fullmatch(agent_id):
+            raise ValueError(f"invalid agent id: {raw!r}")
+        if agent_id not in seen:
+            seen.add(agent_id)
+            result.append(agent_id)
+    if not result:
+        raise ValueError("at least one agent id is required")
+    return result
+
 
 def _abs(path_str: str) -> Path:
     p = Path(path_str)
@@ -28,10 +37,7 @@ def _abs(path_str: str) -> Path:
 
 def _trust_anchors() -> list[Path]:
     anchors: list[Path] = []
-    for key, default in (
-        ("SEAGULL_AGENT_SERVER_CA_FILE", "./secrets/tls/ca.crt"),
-        ("SEAGULL_TLS_CERT_FILE", "./secrets/tls/tls.crt"),
-    ):
+    for key, default in (("SEAGULL_TLS_CERT_FILE", "./secrets/tls/tls.crt"),):
         raw = _env.read(key, default)
         if not raw:
             continue
@@ -134,9 +140,10 @@ def default_output_dir() -> Path:
     return _env.root() / "secrets" / "bootstrap"
 
 
-def mint(output_dir: Optional[Path] = None) -> None:
+def mint(agent_ids: list[str], output_dir: Optional[Path] = None) -> None:
     ev = _env.read
     output_dir = output_dir or default_output_dir()
+    agent_ids = _validated_agent_ids(agent_ids)
 
     def _port_of(value: str, default: str) -> str:
         # Compose port vars may carry a bind address ("127.0.0.1:8000").
@@ -165,12 +172,7 @@ def mint(output_dir: Optional[Path] = None) -> None:
     )
     print(f"[tokens] authenticated via {api_base}{api_prefix}")
 
-    for agent_key, token_key in _AGENT_MAP:
-        agent_id = ev(agent_key, "")
-        if not agent_id:
-            print(f"[tokens] skipping {token_key}: {agent_key} not set")
-            continue
-
+    for agent_id in agent_ids:
         url = f"{api_base}{api_prefix}/agents/{agent_id}/bootstrap-tokens"
         code, data = _post_json(
             url,

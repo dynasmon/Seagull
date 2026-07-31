@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-GO_MIN_MINOR=21
-GO_FALLBACK_VERSION=1.22.12
-
 log() {
   echo "[install-deps] $*"
 }
@@ -44,11 +41,11 @@ apt_install() {
 
 ensure_base_apt() {
   apt-get update -y
-  apt_install ca-certificates curl jq git gnupg sudo gcc libc6-dev libpcap-dev libcap2-bin python3 python3-cryptography
+  apt_install ca-certificates curl jq git gnupg sudo python3 python3-cryptography
 }
 
 ensure_base_dnf() {
-  dnf -y install ca-certificates curl jq git sudo gcc libpcap-devel libcap python3 python3-cryptography
+  dnf -y install ca-certificates curl jq git sudo python3 python3-cryptography
 }
 
 ensure_docker_apt() {
@@ -82,51 +79,6 @@ ensure_docker_dnf() {
     dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     log "installed docker"
   fi
-}
-
-go_minor() {
-  if ! command -v go >/dev/null 2>&1; then
-    return 0
-  fi
-  go version | sed -n 's/.*go1\.\([0-9][0-9]*\).*/\1/p'
-}
-
-ensure_go() {
-  local mgr="$1"
-  local minor
-  minor="$(go_minor || true)"
-  if [[ -n "${minor}" && "${minor}" -ge "${GO_MIN_MINOR}" ]]; then
-    return
-  fi
-
-  if [[ "${mgr}" == "apt" ]]; then
-    apt_install golang-go || true
-  else
-    dnf -y install golang || true
-  fi
-
-  minor="$(go_minor || true)"
-  if [[ -n "${minor}" && "${minor}" -ge "${GO_MIN_MINOR}" ]]; then
-    return
-  fi
-
-  local arch
-  case "$(uname -m)" in
-    x86_64) arch=amd64 ;;
-    aarch64|arm64) arch=arm64 ;;
-    *)
-      log "unsupported architecture for go tarball: $(uname -m)"
-      exit 1
-      ;;
-  esac
-
-  log "installing go ${GO_FALLBACK_VERSION} from go.dev"
-  curl -fsSL "https://go.dev/dl/go${GO_FALLBACK_VERSION}.linux-${arch}.tar.gz" -o /tmp/seagull-go.tar.gz
-  rm -rf /usr/local/go
-  tar -C /usr/local -xzf /tmp/seagull-go.tar.gz
-  rm -f /tmp/seagull-go.tar.gz
-  ln -sf /usr/local/go/bin/go /usr/local/bin/go
-  ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 }
 
 enable_docker_service() {
@@ -164,11 +116,10 @@ main() {
       ;;
     *)
       log "unsupported package manager"
-      log "install manually: docker engine + compose plugin, curl, jq, git, gcc, libpcap headers, libcap (setcap), go >= 1.${GO_MIN_MINOR}, python3 cryptography"
+      log "install manually: docker engine + compose plugin, curl, jq, git, sudo and python3 cryptography"
       exit 1
       ;;
   esac
-  ensure_go "${mgr}"
   enable_docker_service
   ensure_docker_group
   log "done"

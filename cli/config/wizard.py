@@ -96,7 +96,7 @@ def run() -> None:
     _env.bootstrap()
 
     ev = _env.read
-    default_domain = ev("SEAGULL_AGENT_TLS_SERVER_NAME", "")
+    default_domain = ev("SEAGULL_AGENT_PUBLIC_HOST", "") or ev("SEAGULL_CADDY_DOMAIN", "")
     if not default_domain or default_domain in ("localhost", "127.0.0.1"):
         for part in ev("SEAGULL_ALLOWED_HOSTS_PROD", "").split(","):
             part = part.strip()
@@ -141,14 +141,14 @@ def run() -> None:
     _env.upsert("SEAGULL_BOOTSTRAP_ADMIN_PASSWORD", admin_password)
     _env.upsert("GF_SECURITY_ADMIN_PASSWORD", grafana_password)
     _env.upsert("SEAGULL_ALLOWED_HOSTS_PROD", allowed_hosts)
-    _env.upsert("SEAGULL_AGENT_TLS_SERVER_NAME", public_domain)
+    _env.upsert("SEAGULL_AGENT_PUBLIC_HOST", public_domain)
     _env.upsert("SEAGULL_CADDY_DOMAIN", public_domain)
 
     print()
     print("[env-wizard] updated keys:")
     print(f"  SEAGULL_BOOTSTRAP_ADMIN_USERNAME={admin_user}")
     print(f"  SEAGULL_ALLOWED_HOSTS_PROD={allowed_hosts}")
-    print(f"  SEAGULL_AGENT_TLS_SERVER_NAME={public_domain}")
+    print(f"  SEAGULL_AGENT_PUBLIC_HOST={public_domain}")
     print(f"  SEAGULL_CADDY_DOMAIN={public_domain}")
     print("  POSTGRES_PASSWORD=<hidden>")
     print("  SEAGULL_REDIS_PASSWORD=<hidden>")
