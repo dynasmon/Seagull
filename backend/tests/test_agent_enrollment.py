@@ -100,6 +100,13 @@ class TestServerCaBundle:
         assert bundle is not None
         assert "BEGIN CERTIFICATE" in bundle
 
+    def test_returns_complete_ca_bundle(self, signing_ca, tmp_path, monkeypatch):
+        pem = signing_ca.public_bytes(serialization.Encoding.PEM)
+        bundle_path = tmp_path / "bundle.crt"
+        bundle_path.write_bytes(pem + pem)
+        monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE", str(bundle_path))
+        assert certs.server_ca_bundle() == (pem + pem).decode("ascii")
+
     def test_returns_none_when_missing(self, tmp_path, monkeypatch):
         monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE", str(tmp_path / "absent.crt"))
         assert certs.server_ca_bundle() is None
@@ -108,6 +115,19 @@ class TestServerCaBundle:
         bad = tmp_path / "bad.crt"
         bad.write_text("not a certificate")
         monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE", str(bad))
+        assert certs.server_ca_bundle() is None
+
+    def test_returns_none_for_trailing_content(self, signing_ca, tmp_path, monkeypatch):
+        bundle_path = tmp_path / "trailing.crt"
+        bundle_path.write_bytes(signing_ca.public_bytes(serialization.Encoding.PEM) + b"unexpected")
+        monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE", str(bundle_path))
+        assert certs.server_ca_bundle() is None
+
+    def test_returns_none_for_end_entity_certificate(self, signing_ca, tmp_path, monkeypatch):
+        issued = certs.issue_enrollment_certificate("agent-x", _make_csr_pem("agent-x"))
+        bundle_path = tmp_path / "leaf.crt"
+        bundle_path.write_text(issued.certificate_pem)
+        monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_CA_CERT_FILE", str(bundle_path))
         assert certs.server_ca_bundle() is None
 
 
@@ -130,7 +150,8 @@ def _stub_enroll_persistence(monkeypatch):
     now = datetime.utcnow()
     bootstrap = SimpleNamespace(id=7, token_type="enrollment")
 
-    monkeypatch.setattr(agents_service, "_consume_bootstrap_token", lambda db, agent_id, raw: bootstrap)
+    monkeypatch.setattr(agents_service, "_authorize_enrollment_token", lambda db, payload, raw: (bootstrap, None))
+    monkeypatch.setattr(agents_service, "_consume_enrollment_token", lambda db, token: None)
     monkeypatch.setattr(agents_service.repository, "get_agent_by_agent_id", lambda db, agent_id: None)
     monkeypatch.setattr(agents_service.repository, "save_agent", lambda db, row: saved["agents"].append(row))
     monkeypatch.setattr(agents_service.repository, "save_credential", lambda db, row: saved["credentials"].append(row))
