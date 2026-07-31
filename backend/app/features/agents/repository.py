@@ -50,6 +50,19 @@ def list_active_bootstrap_tokens_for_update(
     return q.all()
 
 
+def list_bootstrap_tokens_for_update(
+    db: Session,
+    agent_id: str,
+) -> list[AgentBootstrapTokenModel]:
+    return (
+        db.query(AgentBootstrapTokenModel)
+        .filter(AgentBootstrapTokenModel.agent_id == agent_id)
+        .order_by(AgentBootstrapTokenModel.created_at.desc(), AgentBootstrapTokenModel.id.desc())
+        .with_for_update()
+        .all()
+    )
+
+
 def list_active_renewal_tokens_for_update(db: Session, agent_id: str) -> list[AgentBootstrapTokenModel]:
     return list_active_bootstrap_tokens_for_update(db, agent_id, token_type="renewal")
 
