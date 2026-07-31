@@ -9,7 +9,36 @@ from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
-_DEPRECATED_KEYS = ["COMPOSE_IGNORE_ORPHANS", "SEAGULL_SKIP_AGENT_RECONCILE"]
+_DEPRECATED_KEYS = [
+    "COMPOSE_IGNORE_ORPHANS",
+    "SEAGULL_AGENT_LOCAL_RECONCILE",
+    "SEAGULL_SKIP_AGENT_RECONCILE",
+    "SEAGULL_API_URL",
+    "SEAGULL_ENROLL_URL",
+    "SEAGULL_AGENT_TLS_SERVER_NAME",
+    "SEAGULL_AGENT_SERVER_CA_FILE",
+    "AGENT_CORE_ID",
+    "AGENT_SENSOR_ID",
+    "AGENT_LATERAL_ID",
+    "AGENT_PROC_ID",
+    "AGENT_SCAN_ID",
+    "AGENT_DDOS_ID",
+    "AGENT_VULN_ID",
+    "AGENT_CORE_BOOTSTRAP_TOKEN",
+    "AGENT_SENSOR_BOOTSTRAP_TOKEN",
+    "AGENT_LATERAL_BOOTSTRAP_TOKEN",
+    "AGENT_PROC_BOOTSTRAP_TOKEN",
+    "AGENT_SCAN_BOOTSTRAP_TOKEN",
+    "AGENT_DDOS_BOOTSTRAP_TOKEN",
+    "AGENT_VULN_BOOTSTRAP_TOKEN",
+    "AGENT_CORE_BOOTSTRAP_TOKEN_FILE",
+    "AGENT_SENSOR_BOOTSTRAP_TOKEN_FILE",
+    "AGENT_LATERAL_BOOTSTRAP_TOKEN_FILE",
+    "AGENT_PROC_BOOTSTRAP_TOKEN_FILE",
+    "AGENT_SCAN_BOOTSTRAP_TOKEN_FILE",
+    "AGENT_DDOS_BOOTSTRAP_TOKEN_FILE",
+    "AGENT_VULN_BOOTSTRAP_TOKEN_FILE",
+]
 
 ENV_FILE_MODE = 0o600
 
@@ -56,15 +85,18 @@ def read(key: str, default: str = "", path: Optional[Path] = None) -> str:
 
 
 def environment(path: Optional[Path] = None) -> str:
-    for source in (
-        os.environ.get("SEAGULL_ENV"),
-        read("SEAGULL_ENV", "", path),
-        os.environ.get("SEAGULL_MODE"),
-        read("SEAGULL_MODE", "", path),
-    ):
-        value = (source or "").strip().lower()
-        if value:
-            return value
+    value = (os.environ.get("SEAGULL_ENV") or "").strip().lower()
+    if value:
+        return value
+    value = (read("SEAGULL_ENV", "", path) or "").strip().lower()
+    if value:
+        return value
+    value = (os.environ.get("SEAGULL_MODE") or "").strip().lower()
+    if value:
+        return value
+    value = (read("SEAGULL_MODE", "", path) or "").strip().lower()
+    if value:
+        return value
     return DEFAULT_ENVIRONMENT
 
 
