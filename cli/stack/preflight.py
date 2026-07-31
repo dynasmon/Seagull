@@ -58,13 +58,18 @@ def run() -> bool:
     for cmd in ("docker", "curl", "jq"):
         _require_cmd(cmd)
 
-    if subprocess.run(["docker", "compose", "version"], capture_output=True).returncode != 0:
+    if (
+        subprocess.run(["docker", "compose", "version"], capture_output=True).returncode
+        != 0
+    ):
         raise RuntimeError(
             "[preflight] docker compose plugin is not available — fix: ./seagull -d --install"
         )
 
     if subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
-        raise RuntimeError("[preflight] docker daemon is not reachable (is Docker running?)")
+        raise RuntimeError(
+            "[preflight] docker daemon is not reachable (is Docker running?)"
+        )
 
     ev = _env.read
 
@@ -78,8 +83,11 @@ def run() -> bool:
 
     tls_cert = ev("SEAGULL_TLS_CERT_FILE", "./secrets/tls/tls.crt")
     tls_key = ev("SEAGULL_TLS_KEY_FILE", "./secrets/tls/tls.key")
-    agent_ca = ev("SEAGULL_AGENT_SERVER_CA_FILE", "./secrets/tls/ca.crt")
-    server_name = ev("SEAGULL_AGENT_TLS_SERVER_NAME", "localhost")
+    server_name = (
+        ev("SEAGULL_AGENT_PUBLIC_HOST", "")
+        or ev("SEAGULL_CADDY_DOMAIN", "localhost")
+        or "localhost"
+    )
     force_regen = ev("SEAGULL_FORCE_REGENERATE_CERTS", "false").lower() in ("true", "1")
     jwt_secret = ev("SEAGULL_JWT_SECRET", "")
     jwt_secret_file = ev("SEAGULL_JWT_SECRET_FILE", "")
@@ -104,7 +112,9 @@ def run() -> bool:
         admin_pass = af.read_text().strip()
 
     if len(jwt_secret) < 32:
-        raise RuntimeError("[preflight] SEAGULL_JWT_SECRET must be at least 32 characters")
+        raise RuntimeError(
+            "[preflight] SEAGULL_JWT_SECRET must be at least 32 characters"
+        )
     if not admin_pass:
         raise RuntimeError("[preflight] SEAGULL_BOOTSTRAP_ADMIN_PASSWORD must be set")
 
@@ -116,25 +126,15 @@ def run() -> bool:
 
     abs_cert = _abs(tls_cert)
     abs_key = _abs(tls_key)
-    abs_ca = _abs(agent_ca)
-
     if force_regen:
         _tls.generate_dev_cert(abs_cert, abs_key, server_name)
 
     if not abs_cert.exists() or not abs_key.exists():
         _tls.generate_dev_cert(abs_cert, abs_key, server_name)
 
-    if not abs_ca.exists() and abs_cert.exists():
-        import shutil as _shutil
-        abs_ca.parent.mkdir(parents=True, exist_ok=True)
-        _shutil.copy(abs_cert, abs_ca)
-        abs_ca.chmod(0o644)
-        print(f"[preflight] seeded agent CA file from TLS certificate: {agent_ca}")
-
     for label, path in [
         ("SEAGULL_TLS_CERT_FILE", abs_cert),
         ("SEAGULL_TLS_KEY_FILE", abs_key),
-        ("SEAGULL_AGENT_SERVER_CA_FILE", abs_ca),
     ]:
         if path.is_dir():
             raise RuntimeError(
@@ -152,7 +152,6 @@ def run() -> bool:
     for label, path in [
         ("SEAGULL_TLS_CERT_FILE", abs_cert),
         ("SEAGULL_TLS_KEY_FILE", abs_key),
-        ("SEAGULL_AGENT_SERVER_CA_FILE", abs_ca),
     ]:
         if not _tls.is_group_or_world_readable(path):
             raise RuntimeError(
@@ -166,7 +165,9 @@ def run() -> bool:
 
         mtls_reissued = _pki.ensure("preflight")
     else:
-        print("[preflight] mTLS: disabled (SEAGULL_MTLS_ENABLED=false); skipping agent PKI")
+        print(
+            "[preflight] mTLS: disabled (SEAGULL_MTLS_ENABLED=false); skipping agent PKI"
+        )
 
     if not _compose.validate(_compose.STACK_FILES):
         raise RuntimeError("[preflight] docker compose config validation failed")
