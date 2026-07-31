@@ -63,6 +63,7 @@ def test_trigger_manual_scan_separates_request_token_from_scan_uuid(monkeypatch)
     assert result.scan.scan_uuid == result.scan_uuid
 
     queued_scan = captured_scan["row"]
+    assert agent_row.config["revision"] == 1
     assert queued_scan.request_token == result.request_token
     assert queued_scan.scan_uuid == result.scan_uuid
     assert queued_scan.scope["request_token"] == result.request_token
@@ -74,8 +75,20 @@ def test_trigger_manual_scan_separates_request_token_from_scan_uuid(monkeypatch)
 
 
 def test_trigger_manual_scan_reuses_existing_live_manual_scan(monkeypatch) -> None:
-    agent_row = SimpleNamespace(agent_id="agent-1", is_revoked=False, config={})
     existing_scan = _base_scan()
+    agent_row = SimpleNamespace(
+        agent_id="agent-1",
+        is_revoked=False,
+        config={
+            "revision": 7,
+            "modules": {
+                "vulnscanner": {
+                    "enabled": True,
+                    "scan_now_token": existing_scan.scan_uuid,
+                }
+            },
+        },
+    )
 
     called = {"add_vuln_scan": 0, "commit": 0}
 
