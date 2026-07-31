@@ -14,7 +14,6 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 MODE="${SEAGULL_MODE:-dev}"
-export SEAGULL_AGENT_LOCAL_RECONCILE="${SEAGULL_AGENT_LOCAL_RECONCILE:-false}"
 SMOKE_OK=0
 
 dc() { docker compose -f compose.yml "$@"; }
