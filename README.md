@@ -172,22 +172,50 @@ part of the platform deployment. Source, packaging, CI, and the install, upgrade
 rollback, and uninstall lifecycle live in
 [`dynasmon/seagull-agent`](https://github.com/dynasmon/seagull-agent).
 
-The platform pins a supported release through `SEAGULL_AGENT_RELEASE_VERSION` and
-offers the matching Linux `amd64` and `arm64` artifacts in the onboarding flow.
-Releases are signed; verification and installation are documented in the agent
-repository.
+The platform pins a supported release through `SEAGULL_AGENT_RELEASE_VERSION`, and
+`backend/app/features/agents/releases.json` pins the SHA-256 digest of every
+artifact the portal is allowed to distribute. A package is served only when its
+bytes match that pin, whether it was downloaded from the release source or placed
+in `SEAGULL_AGENT_PACKAGE_DIR` by an operator.
 
-Mint a single-use token in the Agents view, then run the command the portal
-renders:
+### Deploying an agent from the portal
+
+**Agents → Deploy agent** configures the endpoint on the server: identifier,
+security profile, architecture, and collectors. The portal then builds an
+installer that already carries the platform address, the trust anchor, the pinned
+agent release, and a single-use enrollment token. On the endpoint there is one
+command:
 
 ```bash
-sudo ./install.sh \
-  --agent-id web-01 \
-  --api-url https://siem.example.com:8444/agent \
-  --enroll-url https://siem.example.com:8445 \
-  --profile sensor \
-  --prompt-enroll-token
+sudo bash seagull-agent-web-01-amd64-installer.sh
 ```
+
+The installer verifies its embedded package against the pinned digest, refuses a
+host of the wrong architecture, resolves the libpcap runtime dependency, installs
+the service, enrolls, and only reports success once the endpoint holds a
+certificate. Re-running it preserves identity, credentials, queued telemetry, and
+local policy; when a different release is already installed it upgrades in place.
+
+When the endpoint can reach the portal directly, the same flow is a single line
+that the portal also renders:
+
+```bash
+curl --fail --silent --show-error --location \
+  --header 'X-Agent-Bootstrap-Token: abt.web-01.…' \
+  --output seagull-agent-web-01-amd64-installer.sh \
+  https://siem.example.com:8443/api/agents/installer && \
+  sudo bash seagull-agent-web-01-amd64-installer.sh
+```
+
+That command carries the enrollment token, so it is a secret with the token's
+lifetime, and the endpoint must trust the portal's TLS certificate. Endpoints
+that cannot reach the portal use the downloaded installer instead.
+
+Air-gapped installs set `SEAGULL_AGENT_PACKAGE_FETCH_ENABLED=false` and place the
+release tarballs in `SEAGULL_AGENT_PACKAGE_DIR`; the digest pin is enforced
+identically. Operators who prefer to verify the upstream signature themselves
+still have the manual path, including the `cosign` invocation, under *Install
+from the upstream release instead* in the same drawer.
 
 The endpoint generates its own private key and sends only a certificate signing
 request. The `sensor` profile collects telemetry and cannot execute response
@@ -210,6 +238,9 @@ most:
 | `SEAGULL_CADDY_DOMAIN`, `SEAGULL_CADDY_EMAIL` | Public TLS and domain configuration. |
 | `SEAGULL_AGENT_PUBLIC_HOST` | Hostname advertised to remote agents; defaults to the Caddy domain. |
 | `SEAGULL_AGENT_RELEASE_VERSION` | Agent release offered by onboarding. |
+| `SEAGULL_AGENT_PACKAGE_DIR` | Where verified agent packages are kept and served from. |
+| `SEAGULL_AGENT_PACKAGE_FETCH_ENABLED` | Allows the platform to download a pinned package it does not have. |
+| `SEAGULL_AGENT_DEFAULT_SOURCES` | Collectors preselected when an endpoint is deployed. |
 | `MAXMIND_LICENSE_KEY` | Enables automatic GeoLite2 downloads. |
 | `SEAGULL_CLICKHOUSE_ENABLED` | Analytics sink toggle. |
 | `SEAGULL_SEARCH_BACKEND`, `SEAGULL_ES_URL` | Hunting and search backend. |
