@@ -321,6 +321,13 @@ class Settings:
         "SEAGULL_AGENT_SUPPORTED_ARCHITECTURES",
         "amd64,arm64",
     )
+    SEAGULL_AGENT_RELEASE_MANIFEST_FILE: str = _env_str("SEAGULL_AGENT_RELEASE_MANIFEST_FILE", "") or ""
+    SEAGULL_AGENT_PACKAGE_DIR: str = (
+        _env_str("SEAGULL_AGENT_PACKAGE_DIR", "/var/lib/seagull/agent-packages")
+        or "/var/lib/seagull/agent-packages"
+    )
+    SEAGULL_AGENT_PACKAGE_FETCH_ENABLED: bool = _env_bool("SEAGULL_AGENT_PACKAGE_FETCH_ENABLED", True)
+    SEAGULL_AGENT_PACKAGE_FETCH_TIMEOUT_SECONDS: int = _env_int("SEAGULL_AGENT_PACKAGE_FETCH_TIMEOUT_SECONDS", 120)
 
     SEAGULL_RULES_EVERY_SECONDS: float = _env_float("SEAGULL_RULES_EVERY_SECONDS", 5.0)
     SEAGULL_RULES_ENV: str = (_env_str("SEAGULL_RULES_ENV", SEAGULL_ENV) or SEAGULL_ENV or "dev").lower()
@@ -823,6 +830,10 @@ class Settings:
                 errors.append("SEAGULL_AGENT_SUPPORTED_ARCHITECTURES must contain unique supported values")
             if any(value not in {"amd64", "arm64"} for value in architectures):
                 errors.append("SEAGULL_AGENT_SUPPORTED_ARCHITECTURES supports only amd64 and arm64")
+            if (self.SEAGULL_AGENT_PACKAGE_FETCH_TIMEOUT_SECONDS or 0) < 5:
+                errors.append("SEAGULL_AGENT_PACKAGE_FETCH_TIMEOUT_SECONDS must be >= 5")
+            if not self.SEAGULL_AGENT_PACKAGE_DIR.strip().startswith("/"):
+                errors.append("SEAGULL_AGENT_PACKAGE_DIR must be an absolute path")
             secret = (self.SEAGULL_JWT_SECRET or "").strip()
             if len(secret) < 32:
                 errors.append("SEAGULL_JWT_SECRET is required and must be >= 32 chars")

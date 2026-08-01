@@ -3,6 +3,7 @@ networks:
     driver: bridge
 
 volumes:
+  agent-packages:
   postgres-data:
   redis-data:
   elastic-data:
@@ -231,6 +232,10 @@ services:
       SEAGULL_AGENT_RELEASE_VERSION: ${SEAGULL_AGENT_RELEASE_VERSION:-0.1.0}
       SEAGULL_AGENT_RELEASE_BASE_URL: ${SEAGULL_AGENT_RELEASE_BASE_URL:-https://github.com/dynasmon/seagull-agent/releases/download}
       SEAGULL_AGENT_SUPPORTED_ARCHITECTURES: ${SEAGULL_AGENT_SUPPORTED_ARCHITECTURES:-amd64,arm64}
+      SEAGULL_AGENT_RELEASE_MANIFEST_FILE: ${SEAGULL_AGENT_RELEASE_MANIFEST_FILE:-}
+      SEAGULL_AGENT_PACKAGE_DIR: ${SEAGULL_AGENT_PACKAGE_DIR:-/var/lib/seagull/agent-packages}
+      SEAGULL_AGENT_PACKAGE_FETCH_ENABLED: ${SEAGULL_AGENT_PACKAGE_FETCH_ENABLED:-true}
+      SEAGULL_AGENT_PACKAGE_FETCH_TIMEOUT_SECONDS: ${SEAGULL_AGENT_PACKAGE_FETCH_TIMEOUT_SECONDS:-120}
       SEAGULL_DB_HOST: postgres
       SEAGULL_DB_PORT: "5432"
       SEAGULL_DB_NAME: ${POSTGRES_DB:-seagull}
@@ -372,6 +377,7 @@ services:
       - ./secrets/pki/agent-ca.crt:/etc/seagull/pki/agent-ca.crt:ro
       - ./secrets/pki/agent-ca.key:/etc/seagull/pki/agent-ca.key:ro
       - ./secrets/pki/server-ca.crt:/etc/seagull/pki/server-ca.crt:ro
+      - agent-packages:/var/lib/seagull/agent-packages
     # agent-ca.key is 0640 (host owner + PKI group); uid 10001 reads it via this
     # supplementary group instead of the key being world-readable.
     group_add:
