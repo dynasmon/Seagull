@@ -127,6 +127,17 @@ def _credential_overlap_until(now: datetime | None = None) -> datetime:
     return base + timedelta(seconds=overlap_seconds)
 
 
+def _match_bootstrap_token(
+    candidates: list[AgentBootstrapTokenModel],
+    raw_token: str,
+) -> AgentBootstrapTokenModel | None:
+    for tok in candidates:
+        got = hash_bootstrap_token(raw_token, tok.token_salt)
+        if secrets.compare_digest(got, tok.token_hash):
+            return tok
+    return None
+
+
 def _authorize_enrollment_token(
     db: Session,
     payload: AgentEnrollIn,
@@ -134,10 +145,8 @@ def _authorize_enrollment_token(
 ) -> tuple[AgentBootstrapTokenModel, AgentEnrollOut | None]:
     now = datetime.utcnow()
     candidates = repository.list_bootstrap_tokens_for_update(db, payload.agent_id)
-    for tok in candidates:
-        got = hash_bootstrap_token(raw_token, tok.token_salt)
-        if not secrets.compare_digest(got, tok.token_hash):
-            continue
+    tok = _match_bootstrap_token(candidates, raw_token)
+    if tok is not None:
         if tok.expires_at <= now:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bootstrap token expired")
         if tok.revoked_at is not None and str(tok.revoked_reason or "") != "consumed":
@@ -427,18 +436,23 @@ def create_enrollment_ticket(
     )
 
 
-def _guard_enroll_rate_limit(request, agent_id: str) -> None:
+def _within_rate_limit(request, *, scope: str, agent_id: str, ip_limit: int, agent_limit: int) -> bool:
     if request is None:
-        return
+        return True
     ip = (request.client.host if request.client else "") or "unknown"
-    ip_rl = rate_limit(f"rl:agent-enroll:ip:{ip}", limit=30, window_seconds=300)
-    agent_rl = rate_limit(f"rl:agent-enroll:agent:{agent_id}", limit=10, window_seconds=300)
-    if not ip_rl.allowed or not agent_rl.allowed:
-        incr_counter("agent_identity_enroll_total", outcome="rate_limited")
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many enrollment attempts. Try again in a few minutes.",
-        )
+    ip_rl = rate_limit(f"rl:{scope}:ip:{ip}", limit=ip_limit, window_seconds=300)
+    agent_rl = rate_limit(f"rl:{scope}:agent:{agent_id}", limit=agent_limit, window_seconds=300)
+    return ip_rl.allowed and agent_rl.allowed
+
+
+def _guard_enroll_rate_limit(request, agent_id: str) -> None:
+    if _within_rate_limit(request, scope="agent-enroll", agent_id=agent_id, ip_limit=30, agent_limit=10):
+        return
+    incr_counter("agent_identity_enroll_total", outcome="rate_limited")
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many enrollment attempts. Try again in a few minutes.",
+    )
 
 
 def _issue_enrollment_certificate(db: Session, *, agent_id: str, csr_pem: str) -> AgentEnrollCertificateOut:
