@@ -309,6 +309,7 @@ class Settings:
     SEAGULL_AGENT_PUBLIC_HOST: str = _agent_public_host_from_env()
     SEAGULL_AGENT_MTLS_PORT: int = _env_int("SEAGULL_AGENT_MTLS_PORT", 8444)
     SEAGULL_AGENT_ENROLL_PORT: int = _env_int("SEAGULL_AGENT_ENROLL_PORT", 8445)
+    SEAGULL_EDGE_HTTPS_PORT: int = _env_int("SEAGULL_EDGE_HTTPS_PORT", 8443)
     SEAGULL_AGENT_RELEASE_VERSION: str = _env_str("SEAGULL_AGENT_RELEASE_VERSION", "0.1.0") or "0.1.0"
     SEAGULL_AGENT_RELEASE_BASE_URL: str = (
         _env_str(
@@ -320,6 +321,17 @@ class Settings:
     SEAGULL_AGENT_SUPPORTED_ARCHITECTURES: list[str] = _env_csv(
         "SEAGULL_AGENT_SUPPORTED_ARCHITECTURES",
         "amd64,arm64",
+    )
+    SEAGULL_AGENT_RELEASE_MANIFEST_FILE: str = _env_str("SEAGULL_AGENT_RELEASE_MANIFEST_FILE", "") or ""
+    SEAGULL_AGENT_PACKAGE_DIR: str = (
+        _env_str("SEAGULL_AGENT_PACKAGE_DIR", "/var/lib/seagull/agent-packages")
+        or "/var/lib/seagull/agent-packages"
+    )
+    SEAGULL_AGENT_PACKAGE_FETCH_ENABLED: bool = _env_bool("SEAGULL_AGENT_PACKAGE_FETCH_ENABLED", True)
+    SEAGULL_AGENT_PACKAGE_FETCH_TIMEOUT_SECONDS: int = _env_int("SEAGULL_AGENT_PACKAGE_FETCH_TIMEOUT_SECONDS", 120)
+    SEAGULL_AGENT_DEFAULT_SOURCES: list[str] = _env_csv(
+        "SEAGULL_AGENT_DEFAULT_SOURCES",
+        "authlog,proc,proc_exec,fim,scan,ddos,l7,syscollector,vuln",
     )
 
     SEAGULL_RULES_EVERY_SECONDS: float = _env_float("SEAGULL_RULES_EVERY_SECONDS", 5.0)
@@ -823,6 +835,15 @@ class Settings:
                 errors.append("SEAGULL_AGENT_SUPPORTED_ARCHITECTURES must contain unique supported values")
             if any(value not in {"amd64", "arm64"} for value in architectures):
                 errors.append("SEAGULL_AGENT_SUPPORTED_ARCHITECTURES supports only amd64 and arm64")
+            sources = self.SEAGULL_AGENT_DEFAULT_SOURCES
+            if not sources or len(set(sources)) != len(sources):
+                errors.append("SEAGULL_AGENT_DEFAULT_SOURCES must contain unique collector names")
+            if not (1 <= self.SEAGULL_EDGE_HTTPS_PORT <= 65535):
+                errors.append("SEAGULL_EDGE_HTTPS_PORT must be a valid TCP port")
+            if (self.SEAGULL_AGENT_PACKAGE_FETCH_TIMEOUT_SECONDS or 0) < 5:
+                errors.append("SEAGULL_AGENT_PACKAGE_FETCH_TIMEOUT_SECONDS must be >= 5")
+            if not self.SEAGULL_AGENT_PACKAGE_DIR.strip().startswith("/"):
+                errors.append("SEAGULL_AGENT_PACKAGE_DIR must be an absolute path")
             secret = (self.SEAGULL_JWT_SECRET or "").strip()
             if len(secret) < 32:
                 errors.append("SEAGULL_JWT_SECRET is required and must be >= 32 chars")

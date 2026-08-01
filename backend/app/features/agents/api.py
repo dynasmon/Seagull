@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit_event
@@ -24,6 +24,7 @@ from app.features.agents.schemas import (
     AgentEnrollOut,
     AgentHeartbeatIn,
     AgentOnboardingOut,
+    AgentPackageSyncOut,
     AgentProtocolOut,
     AgentPublic,
     AgentUpdateIn,
@@ -39,6 +40,36 @@ def get_agent_onboarding(
     _admin: PortalPrincipal = Depends(require_admin),
 ):
     return onboarding.describe(request)
+
+
+@router.post("/packages/sync", response_model=AgentPackageSyncOut)
+def sync_agent_packages(_admin: PortalPrincipal = Depends(require_admin)):
+    version, states = service.sync_packages()
+    return AgentPackageSyncOut(version=version, packages=states)
+
+
+@router.get("/installer")
+def download_agent_installer(request: Request, db: Session = Depends(get_db)):
+    raw_bootstrap = (request.headers.get("X-Agent-Bootstrap-Token") or "").strip()
+    if not raw_bootstrap:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing enrollment token")
+
+    with managed_session(db) as db_session:
+        name, body = service.build_installer(
+            db_session,
+            raw_bootstrap_token=raw_bootstrap,
+            request=request,
+            audit_writer=write_audit_event,
+        )
+    return Response(
+        content=body,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{name}"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post("/enrollment-tickets", response_model=AgentEnrollmentTicketOut, status_code=status.HTTP_201_CREATED)

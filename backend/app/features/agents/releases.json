@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "releases": [
+    {
+      "version": "0.1.0",
+      "channel": "stable",
+      "artifacts": [
+        {
+          "os": "linux",
+          "architecture": "amd64",
+          "filename": "seagull-agent_0.1.0_linux_amd64.tar.gz",
+          "sha256": "24e71ecab401dd67485aaf82f9a9765dd0748f7c9f897f945e76b0834ac5771f",
+          "size_bytes": 3924527
+        },
+        {
+          "os": "linux",
+          "architecture": "arm64",
+          "filename": "seagull-agent_0.1.0_linux_arm64.tar.gz",
+          "sha256": "31ac0915f9b45b47ff667e65fc99a53daa1e9eb7be779d27612684299e10f470",
+          "size_bytes": 3550924
+        }
+      ]
+    }
+  ]
+}

@@ -1,10 +1,11 @@
-import { apiGet, apiPatch, apiPost, apiPut } from "@/shared/lib/http";
+import { apiDownload, apiGet, apiPatch, apiPost, apiPut } from "@/shared/lib/http";
 import type { ApiGetOptions } from "@/shared/lib/http";
 import type {
   AgentDetail,
   AgentEnrollmentTicket,
   AgentEnrollmentTicketIn,
   AgentOnboardingInfo,
+  AgentPackageSync,
   AgentPublic,
   AgentUpdateIn,
   ResponseActionCreateIn,
@@ -49,6 +50,17 @@ export function getAgentOnboarding(opts?: ApiGetOptions) {
 
 export function createEnrollmentTicket(payload: AgentEnrollmentTicketIn) {
   return apiPost<AgentEnrollmentTicket>("/api/agents/enrollment-tickets", payload);
+}
+
+export function syncAgentPackages() {
+  return apiPost<AgentPackageSync>("/api/agents/packages/sync");
+}
+
+export function downloadAgentInstaller(bootstrapToken: string) {
+  return apiDownload("/api/agents/installer", {
+    headers: { "X-Agent-Bootstrap-Token": bootstrapToken },
+    timeoutMs: 120000,
+  });
 }
 
 export function createResponseAction(payload: ResponseActionCreateIn) {

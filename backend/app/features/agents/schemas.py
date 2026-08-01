@@ -144,11 +144,22 @@ class AgentReleaseOut(BaseModel):
     compatibility_contract_url: str
 
 
+class AgentPackageStateOut(BaseModel):
+    architecture: Literal["amd64", "arm64"]
+    filename: str
+    sha256: str
+    size_bytes: int
+    cached: bool
+    error: Optional[str] = None
+
+
 class AgentOnboardingOut(BaseModel):
     api_url: str
     enroll_url: str
     profiles: List[str] = Field(default_factory=list)
     default_profile: str
+    collectors: List[str] = Field(default_factory=list)
+    default_collectors: List[str] = Field(default_factory=list)
     token_ttl_seconds: int
     token_max_uses: int
     protocol_version: int
@@ -158,12 +169,14 @@ class AgentOnboardingOut(BaseModel):
     server_ca_fingerprint_sha256: Optional[str] = None
     server_ca_pem: Optional[str] = None
     release: AgentReleaseOut
+    packages: List[AgentPackageStateOut] = Field(default_factory=list)
 
 
 class AgentEnrollmentTicketIn(BaseModel):
     agent_id: str = Field(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
     profile: Optional[str] = Field(default=None, max_length=32)
     architecture: Literal["amd64", "arm64"] = "amd64"
+    sources: Optional[List[str]] = Field(default=None, max_length=16)
     ttl_seconds: Optional[int] = Field(default=None, ge=60, le=86400)
     description: Optional[str] = Field(default=None, max_length=256)
 
@@ -171,6 +184,7 @@ class AgentEnrollmentTicketIn(BaseModel):
 class AgentEnrollmentTicketOut(BaseModel):
     agent_id: str
     profile: str
+    sources: List[str] = Field(default_factory=list)
     bootstrap_token: str
     expires_at: datetime
     max_uses: int
@@ -183,3 +197,11 @@ class AgentEnrollmentTicketOut(BaseModel):
     server_ca_fingerprint_sha256: Optional[str] = None
     server_ca_pem: Optional[str] = None
     install_command: str
+    installer_filename: str
+    installer_command: str
+    bootstrap_command: str
+
+
+class AgentPackageSyncOut(BaseModel):
+    version: str
+    packages: List[AgentPackageStateOut] = Field(default_factory=list)

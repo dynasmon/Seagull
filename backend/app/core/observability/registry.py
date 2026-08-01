@@ -98,6 +98,10 @@ _SPECS: Tuple[MetricSpec, ...] = (
     _spec("agent_identity_reissue_total", "counter", "Agent identity re-issues.", ("outcome",)),
     _spec("agent_disable_total", "counter", "Agents disabled.", ("outcome",)),
     _spec("agent_enable_total", "counter", "Agents enabled.", ("outcome",)),
+    _spec("agent_package_fetch_total", "counter", "Agent release packages fetched from the upstream release source.",
+          ("outcome", "architecture", "reason")),
+    _spec("agent_installer_build_total", "counter", "Pre-configured agent installers built for an endpoint.",
+          ("outcome", "architecture", "reason")),
 
     _spec("realtime_publish_topic_total", "counter", "Realtime messages published per topic.", ("topic",)),
     _spec("realtime_publish_dropped_total", "counter", "Realtime publishes dropped.", ("reason",)),

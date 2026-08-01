@@ -14,6 +14,7 @@ from app.core.observability import incr_counter
 from app.features.agents.models import AgentCredentialModel, AgentModel
 
 _CERT_CN_RE = re.compile(r"CN\s*=\s*([^,/]+)")
+_BOOTSTRAP_TOKEN_RE = re.compile(r"abt\.([A-Za-z0-9][A-Za-z0-9._-]{0,63})\.([A-Za-z0-9_-]{16,})")
 
 
 def _identity_binding_mode() -> str:
@@ -95,6 +96,14 @@ def generate_bootstrap_token(agent_id: str) -> Tuple[str, str, str]:
 
 def hash_bootstrap_token(raw_token: str, salt: str) -> str:
     return _sha256_hex((salt + (raw_token or "")).encode("utf-8"))
+
+
+def bootstrap_token_agent_id(raw_token: str) -> str:
+    match = _BOOTSTRAP_TOKEN_RE.fullmatch((raw_token or "").strip())
+    if match is None:
+        incr_counter("agent_bootstrap_token_consumed_total", outcome="invalid")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid bootstrap token")
+    return match.group(1)
 
 
 def generate_agent_credential(agent_id: str) -> Tuple[str, str, str]:

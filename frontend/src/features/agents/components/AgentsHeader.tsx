@@ -29,7 +29,7 @@ export default function AgentsHeader({ agents, compact, setCompact, isAdmin, onE
       <div className="flex flex-wrap items-center gap-2">
         {isAdmin && (
           <Button variant="primary" size="md" onClick={onEnroll}>
-            Enroll agent
+            Deploy agent
           </Button>
         )}
         <Button variant={compact ? "secondary" : "subtle"} size="md" onClick={() => setCompact(!compact)}>

@@ -6,7 +6,7 @@ export default function AgentsPage() {
   const model = useAgentsPageModel();
 
   if (!model.selectedAgentId) {
-    return <AgentsEmptySelection agents={model.agents} compact={model.compact} />;
+    return <AgentsEmptySelection model={model} />;
   }
 
   return <AgentsWorkspace model={model} />;

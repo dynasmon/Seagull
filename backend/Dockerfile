@@ -6,7 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 RUN addgroup --system --gid 10001 seagull \
-    && adduser --system --uid 10001 --ingroup seagull seagull
+    && adduser --system --uid 10001 --ingroup seagull seagull \
+    && install -d -o 10001 -g 10001 -m 0755 /var/lib/seagull/agent-packages
 
 COPY requirements.lock requirements-dev.txt requirements.txt alembic.ini ./
 COPY alembic ./alembic

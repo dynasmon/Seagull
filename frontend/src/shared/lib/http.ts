@@ -407,6 +407,23 @@ export function apiDelete<T>(path: string): Promise<T> {
   });
 }
 
+export async function apiDownload(path: string, init?: ApiRequestInit): Promise<Blob> {
+  const res = await fetchWithPolicy(path, {
+    ...init,
+    headers: {
+      ...(init?.headers || {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    const isJson = (res.headers.get("content-type") || "").includes("application/json");
+    const body = isJson ? await res.json().catch(() => null) : null;
+    const detail = body && typeof body.detail === "string" ? body.detail : `HTTP ${res.status}`;
+    throw makeHttpError(res.status, body, detail);
+  }
+  return res.blob();
+}
+
 // Convenience for auth pages
 export const authApi = {
   login: (username: string, password: string) => apiPost<TokenOut>("/api/auth/login", { username, password }),

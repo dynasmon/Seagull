@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 os.environ.setdefault("SEAGULL_SKIP_STARTUP_BOOTSTRAP", "true")
 os.environ.setdefault("SEAGULL_JWT_SECRET", "x" * 40)
@@ -151,6 +152,73 @@ class TestEnrollmentTicket:
         assert out.architecture == "amd64"
         assert out.artifact.filename == "seagull-agent_0.1.0_linux_amd64.tar.gz"
         assert row.agent_metadata["profile"] == "sensor"
+
+    def test_ticket_renders_the_endpoint_commands(self, monkeypatch):
+        monkeypatch.setattr(settings, "SEAGULL_AGENT_PUBLIC_HOST", "siem.corp.example")
+        self._stub(monkeypatch, SimpleNamespace(agent_id="web-01", agent_metadata={}))
+
+        out = agents_service.create_enrollment_ticket(
+            object(),
+            payload=AgentEnrollmentTicketIn(agent_id="web-01", sources=["proc", "authlog"]),
+            request=_request(),
+            admin=SimpleNamespace(id=1, username="admin"),
+            audit_writer=lambda db, **kw: None,
+        )
+
+        assert out.sources == ["authlog", "proc"]
+        assert out.installer_filename == "seagull-agent-web-01-amd64-installer.sh"
+        assert out.installer_command == "sudo bash seagull-agent-web-01-amd64-installer.sh"
+        assert out.bootstrap_command.startswith("curl ")
+        assert "https://siem.corp.example:8443/api/agents/installer" in out.bootstrap_command
+        assert f"X-Agent-Bootstrap-Token: {out.bootstrap_token}" in out.bootstrap_command
+        assert out.bootstrap_command.endswith(out.installer_command)
+        assert "--sources authlog,proc" in out.install_command
+
+    def test_ticket_rejects_an_unsupported_collector(self, monkeypatch):
+        monkeypatch.setattr(settings, "SEAGULL_AGENT_PUBLIC_HOST", "siem.corp.example")
+        self._stub(monkeypatch, None)
+
+        with pytest.raises(HTTPException) as excinfo:
+            agents_service.create_enrollment_ticket(
+                object(),
+                payload=AgentEnrollmentTicketIn(agent_id="web-01", sources=["authlog", "rootkit"]),
+                request=_request(),
+                admin=SimpleNamespace(id=1, username="admin"),
+                audit_writer=lambda db, **kw: None,
+            )
+        assert excinfo.value.status_code == 422
+
+    def test_ticket_records_the_provisioning_parameters_on_the_token(self, monkeypatch):
+        monkeypatch.setattr(settings, "SEAGULL_AGENT_PUBLIC_HOST", "siem.corp.example")
+        captured = {}
+
+        def capture(db, **kwargs):
+            captured.update(kwargs)
+            return AgentBootstrapTokenOut(
+                agent_id=kwargs["agent_id"],
+                bootstrap_token="abt.web-01.secret",
+                expires_at=datetime.utcnow() + timedelta(minutes=15),
+                max_uses=1,
+            )
+
+        monkeypatch.setattr(agents_service, "create_bootstrap_token", capture)
+        monkeypatch.setattr(agents_service.repository, "get_agent_by_agent_id", lambda db, agent_id: None)
+
+        agents_service.create_enrollment_ticket(
+            object(),
+            payload=AgentEnrollmentTicketIn(agent_id="web-01", profile="managed", architecture="arm64"),
+            request=_request(),
+            admin=SimpleNamespace(id=1, username="admin"),
+            audit_writer=lambda db, **kw: None,
+        )
+
+        provisioning = captured["metadata"]["provisioning"]
+        assert provisioning["profile"] == "managed"
+        assert provisioning["architecture"] == "arm64"
+        assert provisioning["version"] == settings.SEAGULL_AGENT_RELEASE_VERSION
+        assert provisioning["api_url"] == "https://siem.corp.example:8444/agent"
+        assert provisioning["enroll_url"] == "https://siem.corp.example:8445"
+        assert provisioning["sources"] == settings.SEAGULL_AGENT_DEFAULT_SOURCES
 
     def test_ticket_records_managed_profile_on_the_agent(self, monkeypatch):
         monkeypatch.setattr(settings, "SEAGULL_AGENT_PUBLIC_HOST", "siem.corp.example")
