@@ -13,9 +13,21 @@ from app.core.audit import audit_actor, write_audit_event
 from app.core.config import settings
 from app.core.observability import incr_counter
 from app.core.security.rate_limit import rate_limit
-from app.features.agents import certs, configuration, enrollment_replay, onboarding, profiles, protocol, repository
+from app.features.agents import (
+    certs,
+    collectors,
+    configuration,
+    enrollment_replay,
+    installer,
+    onboarding,
+    packages,
+    profiles,
+    protocol,
+    repository,
+)
 from app.features.agents.auth import (
     AgentPrincipal,
+    bootstrap_token_agent_id,
     generate_agent_credential,
     generate_bootstrap_token,
     hash_agent_credential,
@@ -280,6 +292,7 @@ def _issue_bootstrap_token(
     max_uses: int,
     created_by_user_id: int | None = None,
     description: str | None = None,
+    metadata: Dict[str, Any] | None = None,
 ) -> tuple[str, AgentBootstrapTokenModel]:
     token, salt, token_hash = generate_bootstrap_token(agent_id)
     row = AgentBootstrapTokenModel(
@@ -292,6 +305,7 @@ def _issue_bootstrap_token(
         used_uses=0,
         created_by_user_id=created_by_user_id,
         description=description,
+        token_metadata=metadata or {},
     )
     repository.save_bootstrap_token(db, row)
     repository.flush(db)
@@ -322,6 +336,7 @@ def create_bootstrap_token(
     request,
     admin: PortalPrincipal,
     audit_writer=write_audit_event,
+    metadata: Dict[str, Any] | None = None,
 ) -> AgentBootstrapTokenOut:
     ttl_seconds = int(payload.ttl_seconds or settings.SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS)
     max_uses = int(payload.max_uses or settings.SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES)
@@ -355,6 +370,7 @@ def create_bootstrap_token(
         max_uses=max_uses,
         created_by_user_id=admin.id,
         description=payload.description,
+        metadata=metadata,
     )
     audit_writer(
         db,
@@ -394,6 +410,19 @@ def create_enrollment_ticket(
     profile = profiles.normalize(payload.profile) or profiles.SENSOR
     described = onboarding.describe(request)
     artifact = onboarding.artifact_for(described.release, payload.architecture)
+    sources = collectors.resolve(payload.sources, default=settings.SEAGULL_AGENT_DEFAULT_SOURCES)
+    try:
+        packages.reference(described.release.version, payload.architecture)
+    except packages.PackageError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.detail) from None
+    provisioning = {
+        "profile": profile,
+        "architecture": payload.architecture,
+        "sources": sources,
+        "api_url": described.api_url,
+        "enroll_url": described.enroll_url,
+        "version": described.release.version,
+    }
     token = create_bootstrap_token(
         db,
         agent_id=payload.agent_id,
@@ -405,6 +434,7 @@ def create_enrollment_ticket(
         request=request,
         admin=admin,
         audit_writer=audit_writer,
+        metadata={"provisioning": provisioning},
     )
 
     row = repository.get_agent_by_agent_id(db, payload.agent_id)
@@ -414,9 +444,11 @@ def create_enrollment_ticket(
         repository.save_agent(db, row)
         repository.commit(db)
 
+    installer_filename = installer.filename(agent_id=token.agent_id, architecture=payload.architecture)
     return AgentEnrollmentTicketOut(
         agent_id=token.agent_id,
         profile=profile,
+        sources=sources,
         bootstrap_token=token.bootstrap_token,
         expires_at=token.expires_at,
         max_uses=token.max_uses,
@@ -431,6 +463,14 @@ def create_enrollment_ticket(
         install_command=onboarding.install_command(
             agent_id=token.agent_id,
             profile=profile,
+            sources=sources,
+            request=request,
+        ),
+        installer_filename=installer_filename,
+        installer_command=onboarding.installer_command(filename=installer_filename),
+        bootstrap_command=onboarding.bootstrap_command(
+            token=token.bootstrap_token,
+            filename=installer_filename,
             request=request,
         ),
     )
@@ -443,6 +483,131 @@ def _within_rate_limit(request, *, scope: str, agent_id: str, ip_limit: int, age
     ip_rl = rate_limit(f"rl:{scope}:ip:{ip}", limit=ip_limit, window_seconds=300)
     agent_rl = rate_limit(f"rl:{scope}:agent:{agent_id}", limit=agent_limit, window_seconds=300)
     return ip_rl.allowed and agent_rl.allowed
+
+
+def _installer_spec(
+    db: Session,
+    *,
+    agent_id: str,
+    raw_bootstrap_token: str,
+    request,
+) -> installer.InstallerSpec:
+    now = datetime.utcnow()
+    token = _match_bootstrap_token(repository.list_bootstrap_tokens(db, agent_id), raw_bootstrap_token)
+    if token is None:
+        incr_counter("agent_installer_build_total", outcome="failure", reason="invalid_token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid enrollment token")
+    if str(token.token_type or "enrollment") != "enrollment":
+        incr_counter("agent_installer_build_total", outcome="failure", reason="wrong_token_type")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid enrollment token")
+    if token.expires_at <= now:
+        incr_counter("agent_installer_build_total", outcome="failure", reason="expired")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Enrollment token expired")
+    if token.revoked_at is not None:
+        incr_counter("agent_installer_build_total", outcome="failure", reason="revoked")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Enrollment token revoked")
+    if int(token.used_uses or 0) >= int(token.max_uses or 1):
+        incr_counter("agent_installer_build_total", outcome="failure", reason="consumed")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Enrollment token already consumed")
+
+    agent = repository.get_agent_by_agent_id(db, agent_id)
+    if agent is not None and agent.is_revoked:
+        incr_counter("agent_installer_build_total", outcome="failure", reason="agent_revoked")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is revoked")
+
+    metadata = token.token_metadata if isinstance(token.token_metadata, dict) else {}
+    provisioning = metadata.get("provisioning")
+    if not isinstance(provisioning, dict):
+        incr_counter("agent_installer_build_total", outcome="failure", reason="not_provisioned")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This token was not issued for a pre-configured installer. Issue an enrollment ticket instead.",
+        )
+
+    described = onboarding.describe(request)
+    architecture = str(provisioning.get("architecture") or "")
+    try:
+        package = packages.reference(str(provisioning.get("version") or "") or None, architecture)
+    except packages.PackageError as exc:
+        incr_counter("agent_installer_build_total", outcome="failure", reason=exc.reason)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.detail) from None
+    return installer.InstallerSpec(
+        agent_id=agent_id,
+        profile=profiles.normalize(provisioning.get("profile")) or profiles.SENSOR,
+        sources=collectors.resolve(provisioning.get("sources"), default=settings.SEAGULL_AGENT_DEFAULT_SOURCES),
+        api_url=str(provisioning.get("api_url") or described.api_url),
+        enroll_url=str(provisioning.get("enroll_url") or described.enroll_url),
+        enrollment_token=raw_bootstrap_token,
+        package=package,
+        server_ca_pem=described.server_ca_pem,
+    )
+
+
+def build_installer(
+    db: Session,
+    *,
+    raw_bootstrap_token: str,
+    request=None,
+    audit_writer=write_audit_event,
+) -> tuple[str, bytes]:
+    agent_id = bootstrap_token_agent_id(raw_bootstrap_token)
+    if not _within_rate_limit(request, scope="agent-installer", agent_id=agent_id, ip_limit=20, agent_limit=10):
+        incr_counter("agent_installer_build_total", outcome="failure", reason="rate_limited")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many installer downloads. Try again in a few minutes.",
+        )
+
+    spec = _installer_spec(db, agent_id=agent_id, raw_bootstrap_token=raw_bootstrap_token, request=request)
+    try:
+        payload = packages.read(spec.package)
+    except packages.PackageError as exc:
+        incr_counter(
+            "agent_installer_build_total",
+            outcome="failure",
+            architecture=spec.package.architecture,
+            reason=exc.reason,
+        )
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.detail) from None
+
+    body = installer.render(spec, payload)
+    name = installer.filename(agent_id=agent_id, architecture=spec.package.architecture)
+    if request is not None:
+        audit_writer(
+            db,
+            request=request,
+            actor=audit_actor(None, agent_id),
+            event_type="agent_action",
+            action="agents.installer.download",
+            resource_type="agent",
+            resource_id=agent_id,
+            outcome="success",
+            after={
+                "agent_id": agent_id,
+                "profile": spec.profile,
+                "architecture": spec.package.architecture,
+                "version": spec.package.version,
+                "sources": list(spec.sources),
+            },
+        )
+        repository.commit(db)
+    incr_counter(
+        "agent_installer_build_total",
+        outcome="success",
+        architecture=spec.package.architecture,
+        reason="",
+    )
+    return name, body
+
+
+def sync_packages() -> tuple[str, list]:
+    version = settings.SEAGULL_AGENT_RELEASE_VERSION.strip()
+    for architecture in settings.SEAGULL_AGENT_SUPPORTED_ARCHITECTURES:
+        try:
+            packages.ensure(packages.reference(version, architecture))
+        except packages.PackageError as exc:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.detail) from None
+    return version, onboarding.package_states()
 
 
 def _guard_enroll_rate_limit(request, agent_id: str) -> None:

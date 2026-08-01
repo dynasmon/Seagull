@@ -7,12 +7,15 @@ from urllib.parse import urlsplit
 from fastapi import HTTPException, status
 
 from app.core.config import settings
-from app.features.agents import certs, profiles, protocol
+from app.features.agents import certs, collectors, packages, profiles, protocol
 from app.features.agents.schemas import (
     AgentOnboardingOut,
+    AgentPackageStateOut,
     AgentReleaseArtifactOut,
     AgentReleaseOut,
 )
+
+INSTALLER_PATH = "/api/agents/installer"
 
 
 def _forwarded_hostname(value: str) -> str:
@@ -49,6 +52,39 @@ def _base_url(host: str, port: int, path: str = "") -> str:
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
     return f"https://{host}:{int(port)}{path}"
+
+
+def portal_url(request=None, path: str = "") -> str:
+    return _base_url(_public_host(request), settings.SEAGULL_EDGE_HTTPS_PORT, path)
+
+
+def package_states() -> list[AgentPackageStateOut]:
+    out: list[AgentPackageStateOut] = []
+    for architecture in settings.SEAGULL_AGENT_SUPPORTED_ARCHITECTURES:
+        try:
+            current = packages.state(packages.reference(architecture=architecture))
+        except packages.PackageError as exc:
+            out.append(
+                AgentPackageStateOut(
+                    architecture=architecture,
+                    filename="",
+                    sha256="",
+                    size_bytes=0,
+                    cached=False,
+                    error=exc.detail,
+                )
+            )
+            continue
+        out.append(
+            AgentPackageStateOut(
+                architecture=current.architecture,
+                filename=current.filename,
+                sha256=current.sha256,
+                size_bytes=current.size_bytes,
+                cached=current.cached,
+            )
+        )
+    return out
 
 
 def _ca_fingerprint(bundle: Optional[str]) -> Optional[str]:
@@ -106,6 +142,8 @@ def describe(request=None) -> AgentOnboardingOut:
         enroll_url=enroll_url,
         profiles=list(profiles.VALID_PROFILES),
         default_profile=profiles.SENSOR,
+        collectors=list(collectors.CATALOG),
+        default_collectors=collectors.resolve(None, default=settings.SEAGULL_AGENT_DEFAULT_SOURCES),
         token_ttl_seconds=int(settings.SEAGULL_AGENT_BOOTSTRAP_TOKEN_TTL_SECONDS),
         token_max_uses=int(settings.SEAGULL_AGENT_BOOTSTRAP_TOKEN_MAX_USES),
         protocol_version=protocol.PROTOCOL_VERSION,
@@ -115,10 +153,11 @@ def describe(request=None) -> AgentOnboardingOut:
         server_ca_fingerprint_sha256=_ca_fingerprint(ca_bundle),
         server_ca_pem=ca_bundle,
         release=release(),
+        packages=package_states(),
     )
 
 
-def install_command(*, agent_id: str, profile: str, request=None) -> str:
+def install_command(*, agent_id: str, profile: str, sources: Optional[list[str]] = None, request=None) -> str:
     described = describe(request)
     normalized = profiles.normalize(profile) or profiles.SENSOR
     lines = [
@@ -127,8 +166,24 @@ def install_command(*, agent_id: str, profile: str, request=None) -> str:
         f"--api-url {shlex.quote(described.api_url)}",
         f"--enroll-url {shlex.quote(described.enroll_url)}",
         f"--profile {shlex.quote(normalized)}",
-        "--prompt-enroll-token",
     ]
+    if sources:
+        lines.append(f"--sources {shlex.quote(','.join(sources))}")
+    lines.append("--prompt-enroll-token")
     if described.server_ca_required:
         lines.append("--ca-file ./server-ca.crt")
     return " \\\n  ".join(lines)
+
+
+def installer_command(*, filename: str) -> str:
+    return f"sudo bash {shlex.quote(filename)}"
+
+
+def bootstrap_command(*, token: str, filename: str, request=None) -> str:
+    url = portal_url(request, INSTALLER_PATH)
+    return (
+        f"curl --fail --silent --show-error --location "
+        f"--header {shlex.quote(f'X-Agent-Bootstrap-Token: {token}')} "
+        f"--output {shlex.quote(filename)} {shlex.quote(url)} && "
+        f"{installer_command(filename=filename)}"
+    )
