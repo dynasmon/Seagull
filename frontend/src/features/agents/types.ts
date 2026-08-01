@@ -44,11 +44,27 @@ export type AgentRelease = {
   compatibility_contract_url: string;
 };
 
+export type AgentPackageState = {
+  architecture: AgentArchitecture;
+  filename: string;
+  sha256: string;
+  size_bytes: number;
+  cached: boolean;
+  error?: string | null;
+};
+
+export type AgentPackageSync = {
+  version: string;
+  packages: AgentPackageState[];
+};
+
 export type AgentOnboardingInfo = {
   api_url: string;
   enroll_url: string;
   profiles: string[];
   default_profile: string;
+  collectors: string[];
+  default_collectors: string[];
   token_ttl_seconds: number;
   token_max_uses: number;
   protocol_version: number;
@@ -58,12 +74,14 @@ export type AgentOnboardingInfo = {
   server_ca_fingerprint_sha256?: string | null;
   server_ca_pem?: string | null;
   release: AgentRelease;
+  packages: AgentPackageState[];
 };
 
 export type AgentEnrollmentTicketIn = {
   agent_id: string;
   profile?: AgentProfile;
   architecture?: AgentArchitecture;
+  sources?: string[];
   ttl_seconds?: number;
   description?: string;
 };
@@ -71,6 +89,7 @@ export type AgentEnrollmentTicketIn = {
 export type AgentEnrollmentTicket = {
   agent_id: string;
   profile: AgentProfile;
+  sources: string[];
   bootstrap_token: string;
   expires_at: string;
   max_uses: number;
@@ -83,6 +102,9 @@ export type AgentEnrollmentTicket = {
   server_ca_fingerprint_sha256?: string | null;
   server_ca_pem?: string | null;
   install_command: string;
+  installer_filename: string;
+  installer_command: string;
+  bootstrap_command: string;
 };
 
 export type ResponseActionCreateIn = {
