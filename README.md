@@ -182,8 +182,9 @@ in `SEAGULL_AGENT_PACKAGE_DIR` by an operator.
 
 **Agents → Deploy agent** configures the endpoint on the server: identifier,
 security profile, architecture, and collectors. The portal then builds an
-installer that already carries the platform address, the trust anchor, the pinned
-agent release, and a single-use enrollment token. On the endpoint there is one
+installer that already carries the platform address, the pinned agent release, a
+single-use enrollment token, and — when the edge does not present a publicly
+trusted certificate — the trust anchor for it. On the endpoint there is one
 command:
 
 ```bash
