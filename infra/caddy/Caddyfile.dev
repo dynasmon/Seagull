@@ -48,7 +48,7 @@
 	}
 
 	handle {
-		reverse_proxy seagull-portal:{$SEAGULL_PORTAL_INTERNAL_PORT:-8080}
+		reverse_proxy seagull-portal:{$SEAGULL_PORTAL_INTERNAL_PORT:8080}
 	}
 }
 
