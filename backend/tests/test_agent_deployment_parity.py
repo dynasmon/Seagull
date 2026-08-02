@@ -32,7 +32,7 @@ def test_platform_pins_an_agent_release() -> None:
     root = Path(__file__).resolve().parents[2]
     env = (root / ".env.example").read_text()
 
-    assert "SEAGULL_AGENT_RELEASE_VERSION=0.1.0" in env
+    assert "SEAGULL_AGENT_RELEASE_VERSION=0.1.1" in env
     assert "SEAGULL_AGENT_RELEASE_BASE_URL=https://github.com/dynasmon/seagull-agent/releases/download" in env
 
 
