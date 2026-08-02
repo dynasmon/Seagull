@@ -212,33 +212,27 @@ curl -s "$ES/_cat/shards/seagull-events-ilm-*?v"
 # Production cluster
 
 Everything above applies unchanged to a multi-node cluster; this section covers the
-cluster itself: topology, sharding, snapshots, scaling, and operations. The
-deployment definition is `compose.prod.yml` at the repo root. It runs unmodified on
-a single host for validation and staging; the same knobs carry to real production,
-where security must additionally be enabled (see Security). The dev `compose.yml`
-stays single-node and is not affected by anything here.
+cluster itself: topology, sharding, snapshots, scaling, and operations.
 
-## `compose.prod.yml`
+The stack ships one Elasticsearch node in `compose.yml`, which is what
+`./seagull up` runs in every environment. A cluster is operated separately from
+the application stack: run the nodes wherever they belong (dedicated hosts, a
+managed service, an operator-owned compose file) and point the platform at them.
+Nothing else changes — the same env knobs drive shard counts, ILM, and the
+expected health status.
 
-```bash
-docker compose -f compose.prod.yml up -d
-```
-
-Runs as its own project (`seagull-prod`: dedicated volumes and network, isolated
-from the dev stack):
-
-| Service | What it is |
+| Setting | Cluster value |
 | --- | --- |
-| `es01` `es02` `es03` | 3-node ES cluster, published on `127.0.0.1:9201-9203`. |
-| `es-snapshots-init` | One-shot chown of the shared snapshot volume (named volumes are created root-owned; ES runs as uid 1000). |
-| `postgres`, `redis` | App dependencies (definitions inherited from `compose.yml` via `extends`). |
-| `seagull-backend` | Backend on `127.0.0.1:18000`, `SEAGULL_ES_EXPECTED_STATUS=green`. |
-| `seagull-ingest-pipeline` | Ingest + es-indexer; bootstraps the template with 3 shards / 1 replica. |
+| `SEAGULL_ES_URL` | Comma-separated node list, e.g. `http://es01:9200,http://es02:9200,http://es03:9200`. |
+| `SEAGULL_ES_NUMBER_OF_SHARDS` / `SEAGULL_ES_NUMBER_OF_REPLICAS` | `3` / `1` (see Sharding and replication). |
+| `SEAGULL_ES_EXPECTED_STATUS` | `green` — yellow means lost redundancy on a cluster. |
+| `SEAGULL_ES_ILM_MIGRATE_ENABLED` | `true` once nodes carry tiered `node.roles`. |
+| `SEAGULL_ES_ILM_WARM_SHRINK_SHARDS` | `1` with 3 primary shards. |
+| `SEAGULL_ES_SECURITY_ENABLED` and credentials | Required beyond a trusted network (see Security). |
 
-Every knob is an env var (`SEAGULL_PROD_*` block in `.env.example`): ES version,
-heap (`SEAGULL_PROD_ES_HEAP`, default `2g`), `mem_limit` (default `4g`, keep it at
-~2× heap), node roles, ports, shard counts, security toggle. On a RAM-constrained
-machine run it with `SEAGULL_PROD_ES_HEAP=1g`.
+Per-node sizing is a property of the nodes themselves: heap at 50% of node RAM
+capped at 30 GB, a container memory limit around 2× heap, `bootstrap.memory_lock`
+on, and `vm.max_map_count >= 262144` on the host.
 
 `SEAGULL_ES_URL` accepts a comma-separated host list; all ES clients (backend and
 workers) round-robin across the listed nodes and fail over when one goes down. The
@@ -267,7 +261,7 @@ inspectable placeholders; bootstrap always overwrites them):
 | Environment | Shards | Replicas | Where |
 | --- | --- | --- | --- |
 | dev / single-node compose | 1 | 0 | code defaults (`SEAGULL_ES_NUMBER_OF_SHARDS/REPLICAS`) |
-| production / cluster | 3 | 1 | `compose.prod.yml` sets the same env vars |
+| production / cluster | 3 | 1 | `SEAGULL_ES_NUMBER_OF_SHARDS/REPLICAS` on the stack |
 
 Why 3 shards / 1 replica:
 
@@ -307,7 +301,7 @@ change, not a reindex.
 
 ## Snapshots
 
-Infrastructure (already wired in `compose.prod.yml`): a shared volume mounted at
+Infrastructure the cluster must provide: a shared volume mounted at
 `/usr/share/elasticsearch/snapshots` on **every** node, declared via `path.repo`.
 A snapshot repository must be visible to all nodes — on a single host a shared
 volume works; across hosts use NFS or a cloud repository plugin (S3/GCS/Azure).
@@ -470,9 +464,10 @@ Postgres fallback; only ES-unreachable-and-required does.
 
 ## Security
 
-`SEAGULL_PROD_ES_SECURITY_ENABLED` defaults to `false`, which is acceptable only
-while the cluster is confined to a trusted network (local validation, isolated
-staging). Any deployment reachable beyond that **must** enable security, and
+Elasticsearch authentication off is acceptable only while the cluster is confined
+to a trusted network (local validation, isolated staging); `./seagull up` refuses
+to start a production stack with `SEAGULL_ES_SECURITY_ENABLED=false` while the
+search backend uses Elasticsearch. Any deployment reachable beyond that **must** enable security, and
 multi-node clusters with security on additionally require transport TLS with
 certificates provisioned before boot:
 
@@ -509,9 +504,9 @@ certificates provisioned before boot:
   the JVM loses compressed object pointers and 40 GB of heap performs worse than
   30). The other 50% is not waste — Lucene depends on the OS page cache for
   segment reads.
-- Always set `-Xms` = `-Xmx` (`SEAGULL_PROD_ES_HEAP`, default `2g` per node; dev
-  stays at 512 MB). `mem_limit` (`SEAGULL_PROD_ES_MEM_LIMIT`) at ~2× heap leaves
-  the other half to the OS page cache Lucene depends on.
+- Always set `-Xms` = `-Xmx` (the single node in `compose.yml` stays at 512 MB;
+  cluster nodes typically run 2 GB or more). A container memory limit at ~2× heap
+  leaves the other half to the OS page cache Lucene depends on.
 - `bootstrap.memory_lock=true` + memlock ulimits prevent the heap from swapping;
   keep host swap usage for ES nodes at effectively zero.
 - Rough sizing for this workload: a 2 GB-heap node handles the lab comfortably; at
@@ -560,7 +555,7 @@ Two complementary sources:
 
 ## Dev vs prod defaults
 
-| Knob | dev (`compose.yml`) | production (`compose.prod.yml`) | Why they differ |
+| Knob | single node (`compose.yml`) | production cluster | Why they differ |
 | --- | --- | --- | --- |
 | Nodes | 1 (`discovery.type: single-node`) | 3, quorum election | HA needs a majority; 2 nodes cannot lose either one. |
 | Shards / replicas | 1 / 0 | 3 / 1 | Single node can't host replicas (they'd just turn the cluster yellow); a cluster wants parallelism + redundancy. |
