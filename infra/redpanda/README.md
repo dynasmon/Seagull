@@ -15,10 +15,10 @@ single pilot consumer reads from Redpanda behind a feature flag. Nothing is remo
 
 ## Topology
 
-| Environment | File               | Brokers | Replication |
-|-------------|--------------------|---------|-------------|
-| dev         | `compose.yml`      | 1 (`redpanda`, dev-container mode) | 1 |
-| production  | `compose.prod.yml` | 3 (`redpanda-1..3`, seeds fixed, `empty_seed_starts_cluster=false`) | 3 |
+| Environment | Brokers | Replication |
+|-------------|---------|-------------|
+| stack default (`compose.yml`) | 1 (`redpanda`, dev-container mode) | 1 |
+| production cluster (operated separately) | 3 or more, fixed seeds, `empty_seed_starts_cluster=false` | 3 |
 
 Ports per broker: Kafka internal `9092`, Kafka external `19092` (host-published,
 localhost-bound in prod), Admin API `9644` (metrics + rpk). Pandaproxy (REST, `8082`)
@@ -48,7 +48,7 @@ mirror. A topic will be added when that worker gains a real job stream.
 Environment overrides (read by the provisioner): `SEAGULL_REDPANDA_EVENTS_PARTITIONS`
 (12), `SEAGULL_REDPANDA_EVENTS_RETENTION_HOURS` (168), `SEAGULL_REDPANDA_ALERTS_RETENTION_HOURS`
 (720), `SEAGULL_REDPANDA_DLQ_RETENTION_HOURS` (720), `SEAGULL_REDPANDA_TOPIC_REPLICATION`
-(1 in dev, 3 in `compose.prod.yml`).
+(1 with the single broker, 3 on a cluster).
 
 ## Partition key
 
