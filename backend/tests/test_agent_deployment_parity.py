@@ -36,10 +36,19 @@ def test_platform_pins_an_agent_release() -> None:
     assert "SEAGULL_AGENT_RELEASE_BASE_URL=https://github.com/dynasmon/seagull-agent/releases/download" in env
 
 
-def test_agent_listeners_serve_the_platform_server_identity() -> None:
+def test_agent_listeners_serve_the_managed_edge_certificate() -> None:
     root = Path(__file__).resolve().parents[2]
     caddyfile = (root / "infra/caddy/Caddyfile").read_text()
 
-    assert ":8444" in caddyfile
-    assert ":8445" in caddyfile
-    assert caddyfile.count("tls /etc/seagull/mtls/server.crt /etc/seagull/mtls/server.key") == 2
+    assert "{$SEAGULL_CADDY_DOMAIN}:8444" in caddyfile
+    assert "{$SEAGULL_CADDY_DOMAIN}:8445" in caddyfile
+    assert "/etc/seagull/mtls/server.crt" not in caddyfile
+    assert "trust_pool file /etc/seagull/mtls/agent-ca.crt" in caddyfile
+
+
+def test_the_internal_listener_certificate_excludes_the_edge_hostname() -> None:
+    root = Path(__file__).resolve().parents[2]
+    pki = (root / "cli/security/pki.py").read_text()
+
+    assert "SEAGULL_CADDY_DOMAIN" not in pki
+    assert "SEAGULL_AGENT_PUBLIC_HOST" not in pki

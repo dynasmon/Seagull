@@ -24,7 +24,6 @@ SERVER_DIR_NAME = "server"
 SERVER_CERT_NAME = "mtls.crt"
 SERVER_KEY_NAME = "mtls.key"
 DEFAULT_SERVER_NAMES = "localhost,127.0.0.1"
-EDGE_NAME_KEYS = ("SEAGULL_AGENT_PUBLIC_HOST", "SEAGULL_CADDY_DOMAIN")
 
 MTLS_SHARED_KEY_MODE = 0o640
 
@@ -205,45 +204,20 @@ def validate_cert_chain(cert_path: Path, ca_path: Path) -> bool:
     return True
 
 
-def resolve_edge_server_names() -> List[str]:
-    names: List[str] = []
-    for value in (_cfg(key, "") for key in EDGE_NAME_KEYS):
-        name = value.strip()
-        if name.startswith("[") and name.endswith("]"):
-            name = name[1:-1]
-        if name:
-            names.append(name)
-    return names
-
-
 def resolve_server_names() -> List[str]:
     raw = _cfg("SEAGULL_AGENT_MTLS_SERVER_NAMES", DEFAULT_SERVER_NAMES)
-    configured = raw.split(",")
-    names = (
-        resolve_edge_server_names() + configured if _env.is_production() else configured
-    )
 
     out: List[str] = []
     seen: set[str] = set()
-    for item in names:
+    for item in raw.split(","):
         name = item.strip()
+        if name.startswith("[") and name.endswith("]"):
+            name = name[1:-1]
         if not name or name in seen:
             continue
         seen.add(name)
         out.append(name)
     return out
-
-
-def validate_edge_coverage(label: str) -> None:
-    if not _env.is_production():
-        return
-    if not resolve_edge_server_names():
-        raise RuntimeError(
-            f"[{label}] SEAGULL_ENV is production but no public edge hostname is configured; "
-            "set SEAGULL_AGENT_PUBLIC_HOST or SEAGULL_CADDY_DOMAIN so the agent mTLS "
-            "certificate can be issued for it "
-            "(agents fail TLS verification against a localhost-only certificate)"
-        )
 
 
 def _build_san(server_names: List[str]) -> x509.SubjectAlternativeName:
@@ -369,7 +343,6 @@ def ensure_server_pki(pki_dir: Optional[Path] = None) -> bool:
 
 
 def ensure(label: str) -> bool:
-    validate_edge_coverage(label)
     if ensure_agent_ca():
         print(f"[{label}] mTLS: generated agent CA")
     reissued = ensure_server_pki()

@@ -53,8 +53,8 @@ import /etc/caddy/conf.d/*.caddy
 	}
 }
 
-:8444 {
-	tls /etc/seagull/mtls/server.crt /etc/seagull/mtls/server.key {
+{$SEAGULL_CADDY_DOMAIN}:8444 {
+	tls {
 		client_auth {
 			mode {$SEAGULL_AGENT_MTLS_CLIENT_AUTH:require_and_verify}
 			trust_pool file /etc/seagull/mtls/agent-ca.crt
@@ -70,9 +70,7 @@ import /etc/caddy/conf.d/*.caddy
 	respond "Not Found" 404
 }
 
-:8445 {
-	tls /etc/seagull/mtls/server.crt /etc/seagull/mtls/server.key
-
+{$SEAGULL_CADDY_DOMAIN}:8445 {
 	@enroll {
 		method POST
 		path /enroll
