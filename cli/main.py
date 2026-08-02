@@ -84,10 +84,15 @@ def _up_prod(fresh: bool) -> int:
         result, msg = _state.check()
         if result in (_state.DRIFT, _state.ORPHAN_VOLUMES):
             print(msg, file=sys.stderr)
-            print("[up] resetting named runtime volumes due to configuration drift")
-            _compose.run(_compose.STACK_FILES, ["down", "-v", "--remove-orphans"])
-            _clear_bootstrap_tokens()
-            _state.clear()
+            print(
+                "[up] refusing to start: the runtime volumes were initialized with a "
+                "different configuration\n"
+                "     review the change, then rerun with ./seagull up --fresh to drop "
+                "the named volumes and start clean (all stored data is lost),\n"
+                "     or restore the previous values so the running data stays usable",
+                file=sys.stderr,
+            )
+            return 1
 
     rc = _compose.run(
         _compose.STACK_FILES,
