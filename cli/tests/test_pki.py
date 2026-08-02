@@ -162,44 +162,43 @@ class TestServerPki:
         assert pki._cert_san_names(cert) == {"agents.example.com"}
 
 
-class TestProductionServerNames:
+class TestServerNames:
     def _isolate(self, tmp_path, monkeypatch):
         monkeypatch.setattr(pki._env, "ROOT", tmp_path)
         for key in (
             "SEAGULL_CADDY_DOMAIN",
             "SEAGULL_AGENT_PUBLIC_HOST",
             "SEAGULL_AGENT_MTLS_SERVER_NAMES",
+            "SEAGULL_ENV",
             "SEAGULL_MODE",
         ):
             monkeypatch.delenv(key, raising=False)
 
-    def test_dev_ignores_the_edge_hostname(self, tmp_path, monkeypatch):
+    def test_defaults_to_the_local_listener_names(self, tmp_path, monkeypatch):
         self._isolate(tmp_path, monkeypatch)
-        monkeypatch.setenv("SEAGULL_CADDY_DOMAIN", "seagull.example.com")
         assert pki.resolve_server_names() == ["localhost", "127.0.0.1"]
 
-    def test_production_leads_with_the_edge_hostname(self, tmp_path, monkeypatch):
-        self._isolate(tmp_path, monkeypatch)
-        monkeypatch.setenv("SEAGULL_ENV", "production")
-        monkeypatch.setenv("SEAGULL_CADDY_DOMAIN", "seagull.example.com")
-        assert pki.resolve_server_names() == [
-            "seagull.example.com",
-            "localhost",
-            "127.0.0.1",
-        ]
-
-    def test_production_covers_the_agent_public_host(self, tmp_path, monkeypatch):
-        self._isolate(tmp_path, monkeypatch)
-        monkeypatch.setenv("SEAGULL_ENV", "prod")
-        monkeypatch.setenv("SEAGULL_AGENT_PUBLIC_HOST", "agents.example.com")
-        assert "agents.example.com" in pki.resolve_server_names()
-
-    def test_production_normalizes_bracketed_ipv6_for_certificate_san(
+    def test_the_edge_hostname_never_reaches_the_internal_certificate(
         self, tmp_path, monkeypatch
     ):
         self._isolate(tmp_path, monkeypatch)
-        monkeypatch.setenv("SEAGULL_ENV", "prod")
-        monkeypatch.setenv("SEAGULL_AGENT_PUBLIC_HOST", "[2001:db8::10]")
+        monkeypatch.setenv("SEAGULL_ENV", "production")
+        monkeypatch.setenv("SEAGULL_CADDY_DOMAIN", "seagull.example.com")
+        monkeypatch.setenv("SEAGULL_AGENT_PUBLIC_HOST", "seagull.example.com")
+        assert pki.resolve_server_names() == ["localhost", "127.0.0.1"]
+
+    def test_configured_names_are_issued_verbatim(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        monkeypatch.setenv(
+            "SEAGULL_AGENT_MTLS_SERVER_NAMES", "agents.example.com,localhost,localhost"
+        )
+        assert pki.resolve_server_names() == ["agents.example.com", "localhost"]
+
+    def test_bracketed_ipv6_is_normalized_for_the_certificate_san(
+        self, tmp_path, monkeypatch
+    ):
+        self._isolate(tmp_path, monkeypatch)
+        monkeypatch.setenv("SEAGULL_AGENT_MTLS_SERVER_NAMES", "[2001:db8::10]")
         pki_dir = tmp_path / "pki"
         pki.ensure_server_pki(pki_dir)
         cert = x509.load_pem_x509_certificate(
@@ -207,63 +206,10 @@ class TestProductionServerNames:
         )
         assert "2001:db8::10" in pki._cert_san_names(cert)
 
-    def test_production_does_not_duplicate_configured_names(
-        self, tmp_path, monkeypatch
-    ):
+    def test_switching_the_edge_hostname_does_not_reissue(self, tmp_path, monkeypatch):
         self._isolate(tmp_path, monkeypatch)
-        monkeypatch.setenv("SEAGULL_ENV", "production")
-        monkeypatch.setenv("SEAGULL_CADDY_DOMAIN", "seagull.example.com")
-        monkeypatch.setenv("SEAGULL_AGENT_PUBLIC_HOST", "seagull.example.com")
-        monkeypatch.setenv(
-            "SEAGULL_AGENT_MTLS_SERVER_NAMES", "seagull.example.com,localhost"
-        )
-        assert pki.resolve_server_names() == ["seagull.example.com", "localhost"]
-
-    def test_production_cert_is_issued_for_the_edge_hostname(
-        self, tmp_path, monkeypatch
-    ):
-        self._isolate(tmp_path, monkeypatch)
-        monkeypatch.setenv("SEAGULL_ENV", "production")
-        monkeypatch.setenv("SEAGULL_CADDY_DOMAIN", "seagull.example.com")
-        pki_dir = tmp_path / "pki"
-        pki.ensure_server_pki(pki_dir)
-        cert = x509.load_pem_x509_certificate(
-            (pki_dir / "server" / "mtls.crt").read_bytes()
-        )
-        assert "seagull.example.com" in pki._cert_san_names(cert)
-        cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
-        assert cn == "seagull.example.com"
-
-    def test_localhost_only_cert_is_reissued_after_switching_to_production(
-        self, tmp_path, monkeypatch
-    ):
-        self._isolate(tmp_path, monkeypatch)
-        monkeypatch.setenv("SEAGULL_CADDY_DOMAIN", "seagull.example.com")
         pki_dir = tmp_path / "pki"
         pki.ensure_server_pki(pki_dir)
         monkeypatch.setenv("SEAGULL_ENV", "production")
-        assert pki.ensure_server_pki(pki_dir) is True
-        cert = x509.load_pem_x509_certificate(
-            (pki_dir / "server" / "mtls.crt").read_bytes()
-        )
-        assert "seagull.example.com" in pki._cert_san_names(cert)
-
-
-class TestValidateEdgeCoverage:
-    def test_dev_without_edge_hostname_is_allowed(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(pki._env, "ROOT", tmp_path)
-        for key in ("SEAGULL_CADDY_DOMAIN", "SEAGULL_AGENT_PUBLIC_HOST"):
-            monkeypatch.delenv(key, raising=False)
-        pki.validate_edge_coverage("preflight")
-
-    def test_production_without_edge_hostname_raises(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(pki._env, "ROOT", tmp_path)
-        for key in ("SEAGULL_CADDY_DOMAIN", "SEAGULL_AGENT_PUBLIC_HOST"):
-            monkeypatch.delenv(key, raising=False)
-        monkeypatch.setenv("SEAGULL_ENV", "production")
-        try:
-            pki.validate_edge_coverage("prod-prepare")
-            raised = False
-        except RuntimeError as exc:
-            raised = "SEAGULL_AGENT_PUBLIC_HOST" in str(exc)
-        assert raised
+        monkeypatch.setenv("SEAGULL_CADDY_DOMAIN", "seagull.example.com")
+        assert pki.ensure_server_pki(pki_dir) is False
