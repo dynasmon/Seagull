@@ -150,7 +150,7 @@ class TestEnrollmentTicket:
         assert "--prompt-enroll-token" in out.install_command
         assert out.bootstrap_token not in out.install_command
         assert out.architecture == "amd64"
-        assert out.artifact.filename == "seagull-agent_0.1.0_linux_amd64.tar.gz"
+        assert out.artifact.filename == f"seagull-agent_{settings.SEAGULL_AGENT_RELEASE_VERSION}_linux_amd64.tar.gz"
         assert row.agent_metadata["profile"] == "sensor"
 
     def test_ticket_renders_the_endpoint_commands(self, monkeypatch):
