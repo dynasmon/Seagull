@@ -31,6 +31,9 @@ class AgentModel(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     last_seen_at = Column(DateTime, nullable=True)
 
+    observed_address = Column(String(45), nullable=True)
+    observed_address_at = Column(DateTime, nullable=True)
+
     is_revoked = Column(Boolean, nullable=False, default=False)
 
 
