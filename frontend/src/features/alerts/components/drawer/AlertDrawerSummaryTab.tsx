@@ -1,3 +1,4 @@
+import AgentTag from "@/features/agents/components/AgentTag";
 import { Badge } from "@/shared/components/Badge";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import {
@@ -16,6 +17,11 @@ export function AlertDrawerSummaryTab({ selected }: { selected: Alert }) {
     <InvestigationSection title="Alert summary" subtitle="Highest-value triage facts first.">
       <InvestigationSummaryGrid>
         <InvestigationFactCard label="Rule ID" value={selected.rule_id} mono />
+        <InvestigationFactCard
+          label="Agent"
+          value={<AgentTag agentId={selected.agent_id ?? (selected.details?.agent_id as string | undefined)} />}
+          copyValue={selected.agent_id ?? undefined}
+        />
         <InvestigationFactCard
           label="Severity"
           value={
