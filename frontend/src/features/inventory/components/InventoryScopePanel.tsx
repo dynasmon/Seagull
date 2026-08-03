@@ -1,7 +1,7 @@
 import { Panel } from "@/shared/components/Panel";
-import { SelectInput } from "@/shared/components/SelectInput";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
 
+import AgentFilter from "@/features/agents/components/AgentFilter";
 import type { AgentPublic } from "@/features/agents/types";
 
 interface InventoryScopePanelProps {
@@ -38,18 +38,13 @@ export function InventoryScopePanel({
       <div className="space-y-4">
         <div>
           <FieldLabel>Agent</FieldLabel>
-          <SelectInput
-            value={agentScope}
-            onChange={(e) => onAgentChange(e.target.value)}
-            className="mt-1 font-mono text-[11.5px]"
-          >
-            <option value="__all">All agents</option>
-            {agentsOptions.map((a) => (
-              <option key={a.agent_id} value={a.agent_id}>
-                {a.display_name ? a.display_name : a.agent_id}
-              </option>
-            ))}
-          </SelectInput>
+          <AgentFilter
+            value={agentScope === "__all" ? "" : agentScope}
+            onChange={(agentId) => onAgentChange(agentId || "__all")}
+            agents={agentsOptions}
+            fullWidth
+            className="mt-1"
+          />
           <div className="mt-2 font-mono text-[11px] text-muted-foreground">
             Current scope: <span className="text-foreground/90">{scopeLabel}</span>
           </div>
