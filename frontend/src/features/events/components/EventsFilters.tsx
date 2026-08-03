@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo } from "react";
 
+import AgentFilter from "@/features/agents/components/AgentFilter";
 import DraftNumberInput from "@/shared/components/DraftNumberInput";
 import { DataLookbackSelect, DebouncedSearchInput } from "@/shared/components/DataView";
 import { SelectInput } from "@/shared/components/SelectInput";
@@ -102,22 +103,16 @@ function EventsFiltersImpl(props: Props) {
               readOnly
               className={cx("mt-1 font-mono text-[11.5px] opacity-80")}
             />
-            <div className="mt-1 text-[11px] text-muted-foreground">Scope is set in the sidebar (Agent picker).</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">Scope is pinned to the agent selected in Fleet.</div>
           </>
         ) : (
-          <SelectInput
+          <AgentFilter
             value={effectiveCfg.agent_id ?? ""}
-            onChange={(e) => patch({ agent_id: e.target.value ? e.target.value : null })}
-            disabled={busy}
-            className={cx("mt-1 w-full font-mono text-[11.5px]", busy && "cursor-not-allowed opacity-60")}
-          >
-            <option value="">All agents</option>
-            {agents.map((a) => (
-              <option key={a.agent_id} value={a.agent_id}>
-                {a.display_name ? a.display_name : a.agent_id}
-              </option>
-            ))}
-          </SelectInput>
+            onChange={(agentId) => patch({ agent_id: agentId || null })}
+            isDisabled={busy}
+            fullWidth
+            className="mt-1"
+          />
         )}
       </div>
 
