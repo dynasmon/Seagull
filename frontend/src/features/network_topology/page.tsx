@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { createResponseAction, getResponseActionResult, listAgents, listResponseActions } from "@/features/agents/api";
-import type { AgentPublic } from "@/features/agents/types";
+import { useAgentsCatalog } from "@/app/providers";
+import { createResponseAction, getResponseActionResult, listResponseActions } from "@/features/agents/api";
+import { agentDisplayName } from "@/features/agents/lib/identity";
 import { useAuth } from "@/features/auth/context";
 import { Button } from "@/shared/components/Button";
 import { DataQueryStateBanner } from "@/shared/components/DataView";
@@ -90,8 +91,8 @@ export default function NetworkTopologyPage() {
   } = useNetworkTopologyFilters();
 
   const workspace = useTopologyWorkspaceState();
+  const { agents } = useAgentsCatalog();
 
-  const [agents, setAgents] = useState<AgentPublic[]>([]);
   const [summary, setSummary] = useState<TopologySummary | null>(null);
   const [graph, setGraph] = useState<TopologyGraph | null>(null);
   const [subnets, setSubnets] = useState<TopologySubnet[]>([]);
@@ -123,17 +124,8 @@ export default function NetworkTopologyPage() {
   const discoveryActionSeqRef = useRef(0);
   const seenNodeIdsRef = useRef<Set<string> | null>(null);
 
-  const agentOptions = useMemo(
-    () =>
-      agents.map((agent) => ({
-        value: agent.agent_id,
-        label: agent.display_name ? `${agent.display_name} (${agent.agent_id})` : agent.agent_id,
-      })),
-    [agents],
-  );
-
   const agentLabelById = useMemo(
-    () => new Map(agents.map((a) => [a.agent_id, a.display_name ?? a.agent_id])),
+    () => new Map(agents.map((a) => [a.agent_id, agentDisplayName(a)])),
     [agents],
   );
 
@@ -363,19 +355,17 @@ export default function NetworkTopologyPage() {
       }),
       listTopologySubnets({ ...resolveTopologySubnetParams(activeFilters, now), signal }),
       listTopologyObservations({ ...resolveTopologyObservationParams(activeFilters, now), signal }),
-      listAgents({ signal }),
     ]);
 
     if (signal.aborted) return;
 
-    const [summaryResult, graphResult, subnetResult, observationResult, agentsResult] = requests;
+    const [summaryResult, graphResult, subnetResult, observationResult] = requests;
     if (summaryResult.status === "fulfilled") setSummary(summaryResult.value);
     if (graphResult.status === "fulfilled") setGraph(graphResult.value);
     if (subnetResult.status === "fulfilled") setSubnets(subnetResult.value.items);
     if (observationResult.status === "fulfilled") setObservations(observationResult.value.items);
-    if (agentsResult.status === "fulfilled") setAgents(agentsResult.value || []);
 
-    setError(firstRejectedMessage(requests.slice(0, 4)));
+    setError(firstRejectedMessage(requests));
     loadedOnceRef.current = true;
     setLoading(false);
   }, []);
@@ -675,7 +665,6 @@ export default function NetworkTopologyPage() {
         {workspace.filterRailOpen && (
           <TopologyFilterRail
             filters={draftFilters}
-            agentOptions={agentOptions}
             groups={availableGrouping.groups}
             dirty={isDirty}
             applying={liveState.isRefreshing}
@@ -770,7 +759,6 @@ export default function NetworkTopologyPage() {
               {isAdmin && (
                 <NetworkTopologyDiscoveryPanel
                   isAdmin={isAdmin}
-                  agents={agentOptions.map((a) => ({ agent_id: a.value, label: a.label }))}
                   selectedAgentId={selectedDiscoveryAgentId}
                   mode={discoveryMode}
                   allowedCidrs={discoveryAllowedCidrs}
