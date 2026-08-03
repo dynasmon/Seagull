@@ -4,9 +4,9 @@ import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { Card } from "@/shared/components/Card";
 import { InlineAlert } from "@/shared/components/InlineAlert";
-import { SelectInput } from "@/shared/components/SelectInput";
 import { Table, type Column } from "@/shared/components/Table";
 import { cx } from "@/shared/lib/cx";
+import AgentFilter from "@/features/agents/components/AgentFilter";
 import type { AgentPublic } from "@/features/agents/types";
 
 import { LiveElapsedText } from "./LiveElapsedText";
@@ -394,17 +394,14 @@ export function ActiveScanPanel({
             <div className="text-xs text-muted-foreground">
               Select an agent and run an immediate vulnerability scan.
             </div>
-            <SelectInput
+            <AgentFilter
               value={scanTargetAgent}
-              onChange={(e) => onAgentChange(e.target.value)}
-              className="w-full font-mono"
-            >
-              {agents.map((a) => (
-                <option key={a.agent_id} value={a.agent_id}>
-                  {a.agent_id}
-                </option>
-              ))}
-            </SelectInput>
+              onChange={onAgentChange}
+              agents={agents}
+              label="Target"
+              allLabel="Select an agent"
+              fullWidth
+            />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
