@@ -229,3 +229,10 @@ export function useAgentsCatalog() {
   if (!ctx) throw new Error("useAgentsCatalog must be used within AppProviders");
   return ctx;
 }
+
+const DETACHED_AGENTS_CATALOG: Pick<AgentsCtx, "agents" | "isLoading"> = { agents: [], isLoading: false };
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function useAgentsDirectory(): Pick<AgentsCtx, "agents" | "isLoading"> {
+  return useContext(AgentsContext) ?? DETACHED_AGENTS_CATALOG;
+}
