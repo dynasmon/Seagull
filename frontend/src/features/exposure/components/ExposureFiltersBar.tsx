@@ -1,3 +1,4 @@
+import AgentFilter from "@/features/agents/components/AgentFilter";
 import { Button } from "@/shared/components/Button";
 import { CheckboxField } from "@/shared/components/CheckboxField";
 import { DataFilterGroup, DataViewFilterBar } from "@/shared/components/DataView";
@@ -18,7 +19,6 @@ type Option = {
 
 type Props = {
   filters: AssetFilters;
-  agentOptions: Option[];
   reasonCodeOptions: Option[];
   onChange: (next: Partial<AssetFilters>) => void;
   onApply: () => void;
@@ -28,7 +28,6 @@ type Props = {
 
 export function ExposureFiltersBar({
   filters,
-  agentOptions,
   reasonCodeOptions,
   onChange,
   onApply,
@@ -90,18 +89,7 @@ export function ExposureFiltersBar({
         </DataFilterGroup>
 
         <DataFilterGroup label="Agent">
-          <SelectInput
-            value={filters.agent_id}
-            onChange={(event) => onChange({ agent_id: event.target.value })}
-            className="w-full font-mono text-xs"
-          >
-            <option value="">All agents</option>
-            {agentOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </SelectInput>
+          <AgentFilter value={filters.agent_id} onChange={(agentId) => onChange({ agent_id: agentId })} fullWidth />
         </DataFilterGroup>
 
         <DataFilterGroup label="Reason Code">

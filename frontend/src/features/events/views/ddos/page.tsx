@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useAgentsCatalog } from "@/app/providers";
+import AgentFilter from "@/features/agents/components/AgentFilter";
+import { agentScopeLabel } from "@/features/agents/lib/identity";
 import { Button } from "@/shared/components/Button";
 import { DataPaginationFooter, DataQueryStateBanner, DataStatsStrip, DataViewToolbar } from "@/shared/components/DataView";
 import EmptyState from "@/shared/components/EmptyState";
@@ -310,19 +312,10 @@ export default function DdosEventsPage() {
   const rightToolbar =
     query.panel === "deep" ? (
       <div className="flex flex-wrap items-center gap-2">
-        <SelectInput
+        <AgentFilter
           value={query.agent_id}
-          onChange={(e) => setQuery((prev) => ({ ...prev, agent_id: e.target.value, event_id: null }))}
-          className="h-8 min-w-[180px] text-xs"
-          aria-label="Agent scope"
-        >
-          <option value="">All agents</option>
-          {(agents || []).map((a) => (
-            <option key={a.agent_id} value={a.agent_id}>
-              {a.display_name || a.agent_id}
-            </option>
-          ))}
-        </SelectInput>
+          onChange={(agentId) => setQuery((prev) => ({ ...prev, agent_id: agentId, event_id: null }))}
+        />
 
         <SelectInput
           value={String(query.since_minutes)}
@@ -398,7 +391,7 @@ export default function DdosEventsPage() {
           { label: "Peak BPS", value: Number(liveSummary.ddos_peak_bps || 0).toFixed(0), tone: Number(liveSummary.ddos_peak_bps || 0) > 0 ? "warning" : "default" },
           { label: "Phase", value: String(pressure.phase || "ok"), tone: pressure.phase && pressure.phase !== "ok" ? "danger" : "success" },
           { label: "Live status", value: liveSurface.label, hint: `${liveSurface.transport ?? "poll"}${lastUpdatedAt ? ` · ${new Date(lastUpdatedAt).toLocaleTimeString()}` : ""}` },
-          { label: "Scope", value: query.agent_id || "all agents", hint: `Lookback ${query.since_minutes}m` },
+          { label: "Scope", value: agentScopeLabel(agents, query.agent_id), hint: `Lookback ${query.since_minutes}m` },
           { label: "Batch size", value: query.limit },
         ]}
       />

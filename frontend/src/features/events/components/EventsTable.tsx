@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import AgentTag from "@/features/agents/components/AgentTag";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import { Table, type Column, type TableSortState } from "@/shared/components/Table";
@@ -60,12 +61,6 @@ function srcLabel(e: NetEvent) {
   return "-";
 }
 
-function agentLabel(agent_id: string, agentNameById?: Record<string, string>) {
-  const name = agentNameById?.[agent_id];
-  if (!name || name === agent_id) return agent_id;
-  return `${name} (${agent_id})`;
-}
-
 function eventRowKey(e: NetEvent, idx: number): string {
   const idNum = Number((e as any).id);
   const idPart = Number.isFinite(idNum) && idNum > 0 ? `id:${idNum}` : "id:na";
@@ -79,7 +74,6 @@ export default function EventsTable({
   onEdit,
   compact,
   showExtra,
-  agentNameById,
   sort,
   onSortChange,
 }: {
@@ -89,7 +83,6 @@ export default function EventsTable({
   onEdit?: (ev: NetEvent) => void;
   compact?: boolean;
   showExtra?: boolean;
-  agentNameById?: Record<string, string>;
   sort?: TableSortState | null;
   onSortChange?: (next: TableSortState) => void;
 }) {
@@ -109,8 +102,8 @@ export default function EventsTable({
         title: "Agent",
         sortKey: "agent_id",
         sortable: true,
-        width: 220,
-        render: (e) => <div className="truncate font-mono text-[12px]">{agentLabel(e.agent_id, agentNameById)}</div>,
+        width: 200,
+        render: (e) => <AgentTag agentId={e.agent_id} />,
       },
       {
         key: "event_type",
@@ -212,7 +205,7 @@ export default function EventsTable({
     }
 
     return cols;
-  }, [agentNameById, compact, onEdit, showExtra]);
+  }, [compact, onEdit, showExtra]);
 
   const selectedRowKey = useMemo(() => {
     if (selectedId === null) return null;

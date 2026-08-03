@@ -14,8 +14,9 @@ import { StatusPill } from "@/shared/components/StatusPill";
 import { Table, type Column } from "@/shared/components/Table";
 import { TextInput } from "@/shared/components/TextInput";
 
-import { listAgents } from "@/features/agents/api";
-import type { AgentPublic } from "@/features/agents/types";
+import { useAgentsCatalog } from "@/app/providers";
+import AgentFilter from "@/features/agents/components/AgentFilter";
+import { agentScopeLabel } from "@/features/agents/lib/identity";
 
 import AttackChainDrawer from "./AttackChainDrawer";
 import { listAttackChainCases } from "./api";
@@ -111,8 +112,7 @@ type AppliedFilters = {
 export default function AttackChainPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [agents, setAgents] = useState<AgentPublic[]>([]);
-  const [agentsLoading, setAgentsLoading] = useState(false);
+  const { agents } = useAgentsCatalog();
 
   const [draft, setDraft] = useState<DraftFilters>({
     agentId: "",
@@ -145,15 +145,6 @@ export default function AttackChainPage() {
 
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const reqSeq = useRef(0);
-
-  // Load agent list once for filters.
-  useEffect(() => {
-    setAgentsLoading(true);
-    listAgents()
-      .then((a) => setAgents(a || []))
-      .catch(() => setAgents([]))
-      .finally(() => setAgentsLoading(false));
-  }, []);
 
   const appliedSummary = useMemo(() => {
     const bits: string[] = [];
@@ -418,7 +409,7 @@ export default function AttackChainPage() {
           { label: "Closed", value: closedCases },
           { label: "High risk (score >= 60)", value: highRiskCases },
           { label: "Top stage", value: hottestStage },
-          { label: "Scope", value: applied.agentId || "all agents", hint: applied.status || "all status" },
+          { label: "Scope", value: agentScopeLabel(agents, applied.agentId), hint: applied.status || "all status" },
           { label: "Timeline", value: applied.since ? "bounded" : "all time" },
           { label: "Density", value: applied.density },
         ]}
@@ -427,7 +418,7 @@ export default function AttackChainPage() {
       <div className="w-full grid grid-cols-1 xl:grid-cols-12 gap-4 min-h-[calc(100vh-220px)]">
         <Panel
           title="Controls"
-          actions={<span className="text-[10px] font-mono text-muted-foreground">{agentsLoading ? "loading agents" : `${agents.length} agents`}</span>}
+          actions={<span className="text-[10px] font-mono text-muted-foreground">{`${agents.length} agents`}</span>}
           className="xl:col-span-4"
           scrollY
         >
@@ -450,22 +441,12 @@ export default function AttackChainPage() {
 
                 <div>
                   <FieldLabel>Agent</FieldLabel>
-                  <SelectInput
-                    className="mt-1"
+                  <AgentFilter
                     value={draft.agentId}
-                    onChange={(e) => setDraft((p) => ({ ...p, agentId: e.target.value }))}
-                  >
-                    <option value="">All agents</option>
-                    {agents.map((a) => (
-                      <option key={a.agent_id} value={a.agent_id}>
-                        {a.display_name
-                          ? `${a.display_name} · ${a.agent_id}`
-                          : (a.metadata as any)?.hostname
-                            ? `${String((a.metadata as any).hostname)} · ${a.agent_id}`
-                            : a.agent_id}
-                      </option>
-                    ))}
-                  </SelectInput>
+                    onChange={(agentId) => setDraft((p) => ({ ...p, agentId }))}
+                    fullWidth
+                    className="mt-1"
+                  />
                 </div>
 
                 <div>
