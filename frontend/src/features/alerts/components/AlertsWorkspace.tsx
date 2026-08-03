@@ -1,5 +1,8 @@
 import { useEffect, useRef } from "react";
 
+import { useAgentsCatalog } from "@/app/providers";
+import AgentFilter from "@/features/agents/components/AgentFilter";
+import { agentScopeLabel } from "@/features/agents/lib/identity";
 import { Button } from "@/shared/components/Button";
 import {
   DataPaginationFooter,
@@ -23,6 +26,7 @@ import { AlertsTable } from "./AlertsTable";
 export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
   const { query, data, filters, bulk, actions, openDrawerFor, handleRunAll } = model;
   const { view, patch } = query;
+  const { agents } = useAgentsCatalog();
 
   const panelBodyRef = useRef<HTMLDivElement | null>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -78,6 +82,7 @@ export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
               placeholder="Search rule, IP, technique, description..."
               className="h-9 min-w-[220px] max-w-[360px]"
             />
+            <AgentFilter value={view.agent_id} onChange={(agentId) => patch({ agent_id: agentId })} />
             <SeverityFilter
               value={view.severity}
               onChange={(value) => patch({ severity: value })}
@@ -168,7 +173,7 @@ export function AlertsWorkspace({ model }: { model: AlertsPageModel }) {
           { label: "Unknown", value: filters.severityBreakdown.unknown },
           { label: "Severity filter", value: view.severity },
           { label: "Status filter", value: view.status },
-          { label: "Density", value: view.density },
+          { label: "Agent scope", value: agentScopeLabel(agents, view.agent_id) },
           { label: "Selected", value: bulk.selectedRows.length },
         ]}
       />
