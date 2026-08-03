@@ -236,6 +236,7 @@ most:
 | `SEAGULL_BOOTSTRAP_ADMIN_PASSWORD` | Initial administrator password. |
 | `SEAGULL_COOKIE_SECURE` | Required when serving over HTTPS. |
 | `SEAGULL_ALLOWED_HOSTS` | Accepted hostnames outside local development. |
+| `SEAGULL_TRUST_PROXY_HEADERS`, `SEAGULL_TRUSTED_PROXY_CIDRS` | Required behind the edge so agent addresses, audit records and rate limits see the real client instead of the proxy. |
 | `SEAGULL_CADDY_DOMAIN`, `SEAGULL_CADDY_EMAIL` | Public TLS and domain configuration. |
 | `SEAGULL_AGENT_PUBLIC_HOST` | Hostname advertised to remote agents; defaults to the Caddy domain. |
 | `SEAGULL_AGENT_RELEASE_VERSION` | Agent release offered by onboarding. |
