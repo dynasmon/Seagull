@@ -1,9 +1,8 @@
 import type { AgentPublic } from "../types";
-import { isOnline, parseIso } from "./agentUtils";
+import { parseIso } from "./agentUtils";
+import { AGENT_HEALTH_RANK, agentDisplayName, agentHealth, agentMatchesQuery, type AgentHealth } from "./identity";
 
-export type FleetHealth = "online" | "offline" | "disabled";
-
-export type FleetStatusFilter = "all" | FleetHealth;
+export type FleetStatusFilter = "all" | AgentHealth;
 
 export type FleetSort = "status" | "name" | "last_seen";
 
@@ -22,28 +21,10 @@ export const FLEET_SORTS: Array<{ value: FleetSort; label: string }> = [
   { value: "last_seen", label: "Last seen" },
 ];
 
-const HEALTH_RANK: Record<FleetHealth, number> = { online: 0, offline: 1, disabled: 2 };
-
-export function agentHealth(agent: AgentPublic): FleetHealth {
-  if (agent.is_revoked) return "disabled";
-  return isOnline(agent.last_seen_at) ? "online" : "offline";
-}
-
 export function countFleet(agents: AgentPublic[]): FleetCounts {
   const counts: FleetCounts = { all: agents.length, online: 0, offline: 0, disabled: 0 };
   for (const agent of agents) counts[agentHealth(agent)] += 1;
   return counts;
-}
-
-export function agentDisplayName(agent: AgentPublic): string {
-  return agent.display_name || agent.agent_id;
-}
-
-function matchesQuery(agent: AgentPublic, query: string): boolean {
-  if (!query) return true;
-  if (agent.agent_id.toLowerCase().includes(query)) return true;
-  if ((agent.display_name || "").toLowerCase().includes(query)) return true;
-  return (agent.tags || []).some((tag) => tag.toLowerCase().includes(query));
 }
 
 export function selectFleet(
@@ -52,9 +33,8 @@ export function selectFleet(
   status: FleetStatusFilter,
   sort: FleetSort
 ): AgentPublic[] {
-  const needle = query.trim().toLowerCase();
   const rows = agents.filter(
-    (agent) => (status === "all" || agentHealth(agent) === status) && matchesQuery(agent, needle)
+    (agent) => (status === "all" || agentHealth(agent) === status) && agentMatchesQuery(agent, query)
   );
 
   const byName = (a: AgentPublic, b: AgentPublic) =>
@@ -66,7 +46,7 @@ export function selectFleet(
       const delta = (parseIso(b.last_seen_at) ?? 0) - (parseIso(a.last_seen_at) ?? 0);
       return delta !== 0 ? delta : byName(a, b);
     }
-    const rank = HEALTH_RANK[agentHealth(a)] - HEALTH_RANK[agentHealth(b)];
+    const rank = AGENT_HEALTH_RANK[agentHealth(a)] - AGENT_HEALTH_RANK[agentHealth(b)];
     return rank !== 0 ? rank : byName(a, b);
   });
 }
