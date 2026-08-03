@@ -5,6 +5,8 @@ export type AgentPublic = {
   tags: string[];
   created_at: string;
   last_seen_at?: string | null;
+  observed_address?: string | null;
+  observed_address_at?: string | null;
   is_revoked: boolean;
   metadata: Record<string, any>;
   metrics: Record<string, any>;

@@ -175,6 +175,14 @@ html.dark {
   .seagullSideNav .euiSideNavItem__items {
     margin-top: 0.25rem;
   }
+
+  .seagullAgentFilter {
+    min-width: 15rem;
+  }
+
+  .seagullAgentFilter .euiComboBoxPill--plainText {
+    font-weight: 500;
+  }
 }
 
 @layer components {
