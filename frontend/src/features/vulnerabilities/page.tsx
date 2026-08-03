@@ -20,6 +20,7 @@ import { useLiveRefresh, usePortalRealtimeSubscription } from "@/shared/realtime
 
 import { useAuth } from "@/features/auth/context";
 import { listAgents } from "@/features/agents/api";
+import AgentFilter from "@/features/agents/components/AgentFilter";
 import type { AgentPublic } from "@/features/agents/types";
 
 import { getVulnFindingsPage, getVulnPosture, getVulnScansPage, getVulnSummary, triggerVulnScanNow } from "./api";
@@ -1217,23 +1218,23 @@ export default function VulnerabilitiesPage() {
 
           <div>
             <div className="text-xs text-muted-foreground">Reporter agent</div>
-            <TextInput
+            <AgentFilter
               value={draft.reporterAgentId}
-              onChange={(e) => setDraft((p) => ({ ...p, reporterAgentId: e.target.value }))}
-              onKeyDown={(e) => e.key === "Enter" && applyFilters()}
-              placeholder="agent-id"
-              className="mt-1 font-mono"
+              onChange={(agentId) => setDraft((p) => ({ ...p, reporterAgentId: agentId }))}
+              label="Reporter"
+              fullWidth
+              className="mt-1"
             />
           </div>
 
           <div>
             <div className="text-xs text-muted-foreground">Asset agent</div>
-            <TextInput
+            <AgentFilter
               value={draft.assetAgentId}
-              onChange={(e) => setDraft((p) => ({ ...p, assetAgentId: e.target.value }))}
-              onKeyDown={(e) => e.key === "Enter" && applyFilters()}
-              placeholder="agent-id"
-              className="mt-1 font-mono"
+              onChange={(agentId) => setDraft((p) => ({ ...p, assetAgentId: agentId }))}
+              label="Asset"
+              fullWidth
+              className="mt-1"
             />
           </div>
 
