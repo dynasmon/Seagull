@@ -11,6 +11,7 @@ class AlertOut(BaseModel):
     created_at: datetime
     rule_id: str
     severity: str
+    agent_id: Optional[str] = None
 
     src_ip: Optional[str] = None
     dst_ip: Optional[str] = None

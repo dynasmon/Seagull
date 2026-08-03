@@ -178,7 +178,7 @@ def project_alert_compact(alert: Mapping[str, Any]) -> dict[str, Any]:
     if created_at:
         out["created_at"] = created_at
 
-    for key, max_len in (("rule_id", 64), ("severity", 16), ("src_ip", 45), ("dst_ip", 45), ("description", 240), ("status", 24)):
+    for key, max_len in (("rule_id", 64), ("agent_id", 64), ("severity", 16), ("src_ip", 45), ("dst_ip", 45), ("description", 240), ("status", 24)):
         text = _to_text(alert.get(key), max_len=max_len)
         if text is not None:
             out[key] = text

@@ -30,6 +30,7 @@ def list_alerts_page(
     page_size: int,
     severity: str | None,
     rule_id: str | None,
+    agent_id: str | None,
     tactic: str | None,
     technique_id: str | None,
     min_confidence: int | None,
@@ -42,6 +43,8 @@ def list_alerts_page(
         stmt = stmt.where(AlertModel.severity == severity)
     if rule_id:
         stmt = stmt.where(AlertModel.rule_id == rule_id)
+    if agent_id:
+        stmt = stmt.where(AlertModel.details["agent_id"].astext == agent_id)
     if tactic:
         stmt = stmt.where(AlertModel.mitre_tactic == tactic)
     if technique_id:

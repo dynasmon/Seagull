@@ -44,6 +44,7 @@ def build_alert_realtime_payload(
     created_at: datetime | None,
     rule_id: str | None,
     severity: str | None,
+    agent_id: str | None = None,
     src_ip: str | None = None,
     dst_ip: str | None = None,
     dst_port: int | None = None,
@@ -63,6 +64,10 @@ def build_alert_realtime_payload(
     sev = _safe_text(severity, max_len=16)
     if sev:
         payload["severity"] = sev
+
+    agent = _safe_text(agent_id, max_len=64)
+    if agent:
+        payload["agent_id"] = agent
 
     src = _safe_text(src_ip, max_len=45)
     if src:
@@ -95,6 +100,7 @@ def build_alert_realtime_payload_from_row(row: Any) -> Dict[str, Any]:
         created_at=getattr(row, "created_at", None),
         rule_id=getattr(row, "rule_id", None),
         severity=getattr(row, "severity", None),
+        agent_id=getattr(row, "agent_id", None),
         src_ip=getattr(row, "src_ip", None),
         dst_ip=getattr(row, "dst_ip", None),
         dst_port=getattr(row, "dst_port", None),
