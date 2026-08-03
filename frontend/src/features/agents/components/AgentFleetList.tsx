@@ -4,19 +4,13 @@ import { EuiBadge } from "@elastic/eui";
 import { cx } from "@/shared/lib/cx";
 
 import type { AgentPublic } from "../types";
-import { agentDisplayName, agentHealth, type FleetHealth } from "../lib/fleet";
+import { AGENT_HEALTH_LABEL, agentAddress, agentDisplayName, agentHealth, type AgentHealth } from "../lib/identity";
 import { fmtLastSeen } from "../lib/agentUtils";
 
-const HEALTH_DOT: Record<FleetHealth, string> = {
+const HEALTH_DOT: Record<AgentHealth, string> = {
   online: "bg-success shadow-[0_0_0_3px_rgb(var(--success)/0.18)]",
   offline: "bg-warning",
   disabled: "bg-muted-foreground/55",
-};
-
-const HEALTH_LABEL: Record<FleetHealth, string> = {
-  online: "Online",
-  offline: "Offline",
-  disabled: "Disabled",
 };
 
 interface AgentFleetRowProps {
@@ -28,6 +22,7 @@ interface AgentFleetRowProps {
 
 const AgentFleetRow = memo(function AgentFleetRow({ agent, selected, compact, onSelect }: AgentFleetRowProps) {
   const health = agentHealth(agent);
+  const address = agentAddress(agent);
   const tags = agent.tags || [];
   const maxTags = compact ? 2 : 4;
   const overflow = tags.length - maxTags;
@@ -68,9 +63,17 @@ const AgentFleetRow = memo(function AgentFleetRow({ agent, selected, compact, on
             </span>
           </span>
 
-          <span className="mt-0.5 flex items-center gap-1.5">
+          <span className="mt-0.5 flex items-baseline justify-between gap-2">
             <span className="truncate font-mono text-[10.5px] text-muted-foreground/85">{agent.agent_id}</span>
-            <span className="sr-only">{HEALTH_LABEL[health]}</span>
+            {address ? (
+              <span
+                className="shrink-0 whitespace-nowrap font-mono text-[10px] tabular-nums text-muted-foreground/85"
+                title={`Last seen connecting from ${address}`}
+              >
+                {address}
+              </span>
+            ) : null}
+            <span className="sr-only">{AGENT_HEALTH_LABEL[health]}</span>
           </span>
 
           {tags.length > 0 ? (

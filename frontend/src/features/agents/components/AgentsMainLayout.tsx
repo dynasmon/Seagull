@@ -39,6 +39,7 @@ export default function AgentsMainLayout({ model }: AgentsMainLayoutProps) {
 
       <div className="space-y-4 xl:col-span-8 min-w-0">
         <AgentAtGlancePanel
+          agent={agents.selectedAgentRow}
           topStats={telemetry.topStats}
           eventsRate={telemetry.eventsRate}
           alerts60m={telemetry.alerts60m}
