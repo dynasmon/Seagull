@@ -24,7 +24,7 @@ export function filterAlerts(alerts: Alert[], search: string): Alert[] {
   if (!qq) return alerts;
 
   return (alerts || []).filter((a) => {
-    const hay = [a.rule_id, a.src_ip, a.dst_ip, a.description, a.mitre_tactic, a.mitre_technique_id, a.mitre_technique]
+    const hay = [a.rule_id, a.agent_id, a.src_ip, a.dst_ip, a.description, a.mitre_tactic, a.mitre_technique_id, a.mitre_technique]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
