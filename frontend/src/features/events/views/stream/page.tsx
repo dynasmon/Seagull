@@ -22,6 +22,7 @@ import { getIntParam, getStringParam, setOptionalParam } from "@/shared/lib/urlP
 import { useLiveRefresh, usePortalRealtime, usePortalRealtimeSubscription } from "@/shared/realtime";
 
 import { useAgentsCatalog } from "@/app/providers";
+import { agentScopeLabel } from "@/features/agents/lib/identity";
 
 import { getEventStreamSnapshot, huntEvents } from "../../api";
 import EventDrawer from "../../components/EventDrawer";
@@ -600,7 +601,7 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
         <div className="space-y-4 min-h-0">
           <Panel
             title="Filters"
-            actions={<span className="text-[10px] font-mono text-muted-foreground">{view.agent_id ? `Agent: ${agentNameById[view.agent_id] || view.agent_id}` : "All agents"}</span>}
+            actions={<span className="text-[10px] font-mono text-muted-foreground">{agentScopeLabel(agents, view.agent_id)}</span>}
           >
             <EventsFilters
               agents={agentOptions}
@@ -765,7 +766,6 @@ export default function EventsPage({ forcedEventType, forcedScope, moduleTitle }
                 selectedId={selectedId}
                 compact={tablePrefs.compact}
                 showExtra={display.show_extra}
-                agentNameById={agentNameById}
                 sort={tablePrefs.sort}
                 onSortChange={(next) => tablePrefs.setSort(next)}
                 onSelect={(e) => {
