@@ -6,6 +6,12 @@ import { useAgentsCatalog } from "@/app/providers";
 import { getRecentEvents } from "@/features/events/api";
 import type { NetEvent } from "@/features/events/types";
 import { getAgent } from "@/features/agents/api";
+import {
+  agentAddress,
+  agentDisplayName,
+  agentMatchesQuery,
+  sortAgentsForPicker,
+} from "@/features/agents/lib/identity";
 import type { AgentDetail, AgentPublic } from "@/features/agents/types";
 import { getInventoryHistory, getInventoryLatest } from "@/features/inventory/api";
 import type { InventorySnapshotOut } from "@/features/inventory/types";
@@ -76,12 +82,10 @@ export default function InternalAgentsInspectorView() {
   const selectedAgentId = (sp.get("agent_id") || "").trim();
   const inFlight = useRef(false);
 
-  const filteredAgents = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const rows = [...agents].sort((a, b) => (a.display_name || a.agent_id).localeCompare(b.display_name || b.agent_id));
-    if (!q) return rows;
-    return rows.filter((a) => [a.display_name, a.agent_id, ...(a.tags || [])].filter(Boolean).join(" ").toLowerCase().includes(q));
-  }, [agents, query]);
+  const filteredAgents = useMemo(
+    () => sortAgentsForPicker(agents).filter((a) => agentMatchesQuery(a, query)),
+    [agents, query]
+  );
 
   const selectedAgentRow = useMemo(
     () => agents.find((a) => a.agent_id === selectedAgentId) || null,
@@ -172,11 +176,14 @@ export default function InternalAgentsInspectorView() {
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0 flex items-center gap-2">
                           <StatusDot status={status} />
-                          <div className="truncate font-mono text-sm">{a.display_name || a.agent_id}</div>
+                          <div className="truncate font-mono text-sm">{agentDisplayName(a)}</div>
                         </div>
                         <div className="text-[10px] font-mono text-muted-foreground uppercase">{status}</div>
                       </div>
-                      <div className="mt-1 text-[10px] font-mono text-muted-foreground truncate">{a.agent_id}</div>
+                      <div className="mt-1 flex items-baseline justify-between gap-2 text-[10px] font-mono text-muted-foreground">
+                        <span className="truncate">{a.agent_id}</span>
+                        <span className="shrink-0 tabular-nums">{agentAddress(a) || "-"}</span>
+                      </div>
                     </EuiPanel>
                   );
                 })
@@ -209,9 +216,20 @@ export default function InternalAgentsInspectorView() {
           {error ? <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{error}</div> : null}
 
           <Card title="Runtime Snapshot">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               <MetricCard title="Status" value={statusOfAgent(selectedAgentRow)} />
               <MetricCard title="Last seen" value={fmtDateTime(selectedAgentRow?.last_seen_at)} />
+              <MetricCard
+                title="Connects from"
+                value={
+                  agent && agentAddress(agent) ? (
+                    <IpAddressPill ip={agentAddress(agent)} compact />
+                  ) : (
+                    "-"
+                  )
+                }
+                helper={agent?.observed_address_at ? fmtDateTime(agent.observed_address_at) : undefined}
+              />
               <MetricCard title="Uptime sec" value={agent?.metrics?.uptime_seconds ?? "-"} />
               <MetricCard title="Events sample" value={events.length} />
             </div>
