@@ -1,7 +1,7 @@
 import { Button } from "@/shared/components/Button";
 import { InlineAlert } from "@/shared/components/InlineAlert";
 import { Panel } from "@/shared/components/Panel";
-import { SelectInput } from "@/shared/components/SelectInput";
+import AgentFilter from "@/features/agents/components/AgentFilter";
 import { StatusPill } from "@/shared/components/StatusPill";
 import { TextInput } from "@/shared/components/TextInput";
 
@@ -14,7 +14,6 @@ type DiscoveryActionSummary = {
 
 export type NetworkTopologyDiscoveryPanelProps = {
   isAdmin: boolean;
-  agents: Array<{ agent_id: string; label: string }>;
   selectedAgentId: string;
   mode: "passive_only" | "active_enabled";
   allowedCidrs: string[];
@@ -43,7 +42,6 @@ function formatTimestamp(value: string | null) {
 
 export function NetworkTopologyDiscoveryPanel({
   isAdmin,
-  agents,
   selectedAgentId,
   mode,
   allowedCidrs,
@@ -73,14 +71,12 @@ export function NetworkTopologyDiscoveryPanel({
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
               Agent
             </span>
-            <SelectInput value={selectedAgentId} onChange={(event) => onSelectAgent(event.target.value)}>
-              <option value="">Select an agent</option>
-              {agents.map((agent) => (
-                <option key={agent.agent_id} value={agent.agent_id}>
-                  {agent.label}
-                </option>
-              ))}
-            </SelectInput>
+            <AgentFilter
+              value={selectedAgentId}
+              onChange={onSelectAgent}
+              allLabel="Select an agent"
+              fullWidth
+            />
           </label>
           <StatusPill variant={activeEnabled ? "warning" : "inactive"}>
             {activeEnabled ? "Active enabled" : "Passive only"}
