@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import AgentTag from "@/features/agents/components/AgentTag";
 import { Button } from "@/shared/components/Button";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { SeverityPill } from "@/shared/components/SeverityPill";
@@ -46,6 +47,12 @@ export function AlertsTable({
             <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{fmtTs(a.created_at)}</span>
           </div>
         ),
+      },
+      {
+        key: "agent",
+        title: "Agent",
+        width: 168,
+        render: (a) => <AgentTag agentId={a.agent_id ?? (a.details?.agent_id as string | undefined)} />,
       },
       {
         key: "network",

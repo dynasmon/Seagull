@@ -68,8 +68,9 @@ export function useAlertsData(view: ViewCfg, onAlertUpdated: (alert: Alert) => v
     const v = viewRef.current;
     const severityFilter = String(v.severity || "all").toLowerCase();
     const ruleFilter = String(v.rule_id || "").trim().toLowerCase();
+    const agentFilter = String(v.agent_id || "").trim();
     const statusFilter = String(v.status || "all").toLowerCase();
-    if (severityFilter !== "all" || statusFilter !== "all" || ruleFilter) {
+    if (severityFilter !== "all" || statusFilter !== "all" || ruleFilter || agentFilter) {
       scheduleRealtimeInvalidateRefresh();
       return;
     }
@@ -127,7 +128,7 @@ export function useAlertsData(view: ViewCfg, onAlertUpdated: (alert: Alert) => v
       setLoading(true);
       setError(null);
 
-      const { severity, status, rule_id, page_size } = viewRef.current;
+      const { severity, status, rule_id, agent_id, page_size } = viewRef.current;
 
       try {
         const page = await getAlertsPage({
@@ -135,6 +136,7 @@ export function useAlertsData(view: ViewCfg, onAlertUpdated: (alert: Alert) => v
           severity: severity && severity !== "all" ? severity : undefined,
           status: status && status !== "all" ? status : undefined,
           rule_id: rule_id ? rule_id : undefined,
+          agent_id: agent_id ? agent_id : undefined,
         });
         if (reqSeq.current !== mySeq) return;
 
@@ -185,7 +187,7 @@ export function useAlertsData(view: ViewCfg, onAlertUpdated: (alert: Alert) => v
     setLoadingMore(true);
     setError(null);
 
-    const { severity, status, rule_id, page_size } = viewRef.current;
+    const { severity, status, rule_id, agent_id, page_size } = viewRef.current;
 
     try {
       const page = await getAlertsPage({
@@ -194,6 +196,7 @@ export function useAlertsData(view: ViewCfg, onAlertUpdated: (alert: Alert) => v
         severity: severity && severity !== "all" ? severity : undefined,
         status: status && status !== "all" ? status : undefined,
         rule_id: rule_id ? rule_id : undefined,
+        agent_id: agent_id ? agent_id : undefined,
       });
       if (moreSeq.current !== mySeq) return;
 
@@ -266,7 +269,7 @@ export function useAlertsData(view: ViewCfg, onAlertUpdated: (alert: Alert) => v
     setLastRefresh(null);
     loadHead("reset");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view.severity, view.status, view.rule_id, view.page_size]);
+  }, [view.severity, view.status, view.rule_id, view.agent_id, view.page_size]);
 
   function updateAlert(updated: Alert) {
     setAlerts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));

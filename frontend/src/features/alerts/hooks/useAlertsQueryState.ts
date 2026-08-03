@@ -21,11 +21,13 @@ export function useAlertsQueryState() {
     if (hydratedRef.current) return;
     hydratedRef.current = true;
     const ruleId = String(searchParams.get("rule_id") || "").trim();
+    const agentId = String(searchParams.get("agent_id") || "").trim();
     const search = String(searchParams.get("search") || "").trim();
     const severity = String(searchParams.get("severity") || "").trim().toLowerCase();
     const status = String(searchParams.get("status") || "").trim().toLowerCase();
     const next: Partial<ViewCfg> = {};
     if (ruleId) next.rule_id = ruleId;
+    if (agentId) next.agent_id = agentId;
     if (search) next.search = search;
     if (severity) next.severity = severity;
     if (status) next.status = status;
@@ -46,6 +48,7 @@ function mergeView(prev: ViewCfg, next: Partial<ViewCfg>): ViewCfg {
   merged.severity = String(merged.severity || "all");
   merged.status = String(merged.status || "all");
   merged.rule_id = String(merged.rule_id || "").trim();
+  merged.agent_id = String(merged.agent_id || "").trim();
   merged.search = String(merged.search || "");
   merged.page_size = clampInt(merged.page_size, 10, 200, DEFAULTS.page_size);
   merged.infinite_scroll = Boolean(merged.infinite_scroll);

@@ -269,6 +269,7 @@ export type PortalRealtimeEventPayloadMap = {
       updated_at?: string;
       severity?: string;
       rule_id?: string;
+      agent_id?: string;
       status?: string;
       src_ip?: string | null;
       dst_ip?: string | null;

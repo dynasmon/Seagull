@@ -14,6 +14,7 @@ export function buildAlertFromRealtimeDelta(
   return {
     id: Math.trunc(id),
     rule_id: String(projected?.rule_id || "realtime.alert"),
+    agent_id: typeof projected?.agent_id === "string" ? projected.agent_id : null,
     severity: String(projected?.severity || "medium"),
     confidence: typeof projected?.confidence === "number" ? projected.confidence : undefined,
     src_ip: typeof projected?.src_ip === "string" ? projected.src_ip : null,

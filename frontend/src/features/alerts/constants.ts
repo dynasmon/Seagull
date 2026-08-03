@@ -4,6 +4,7 @@ export type ViewCfg = {
   severity: string;
   status: string;
   rule_id: string;
+  agent_id: string;
   search: string;
   page_size: number;
   infinite_scroll: boolean;
@@ -17,6 +18,7 @@ export const DEFAULTS: ViewCfg = {
   severity: "all",
   status: "all",
   rule_id: "",
+  agent_id: "",
   search: "",
   page_size: 200,
   infinite_scroll: false,

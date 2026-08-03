@@ -13,6 +13,7 @@ export type AlertDisposition =
 export type Alert = {
   id: number;
   rule_id: string;
+  agent_id?: string | null;
   severity: AlertSeverity | string;
   confidence?: number;
   mitre_tactic?: string | null;
