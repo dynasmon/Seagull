@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 import secrets
@@ -82,6 +83,26 @@ def _normalize_tags(tags: Optional[List[str]]) -> List[str]:
     return out
 
 
+def client_address(request) -> str | None:
+    if request is None:
+        return None
+    host = str(getattr(request.client, "host", "") or "").strip()
+    if not host:
+        return None
+    try:
+        return str(ipaddress.ip_address(host.split("%", 1)[0]))
+    except ValueError:
+        return None
+
+
+def _track_observed_address(row: AgentModel, request, *, seen_at: datetime) -> None:
+    address = client_address(request)
+    if not address:
+        return
+    row.observed_address = address
+    row.observed_address_at = seen_at
+
+
 def _safe_json_size(obj: Any, max_bytes: int, field_name: str) -> None:
     raw = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     if len(raw) > max_bytes:
@@ -122,6 +143,8 @@ def _agent_to_public(a: AgentModel) -> AgentPublic:
         tags=tags,
         created_at=a.created_at,
         last_seen_at=a.last_seen_at,
+        observed_address=a.observed_address,
+        observed_address_at=a.observed_address_at,
         is_revoked=a.is_revoked,
         metadata=metadata,
         metrics=metrics,
@@ -479,7 +502,7 @@ def create_enrollment_ticket(
 def _within_rate_limit(request, *, scope: str, agent_id: str, ip_limit: int, agent_limit: int) -> bool:
     if request is None:
         return True
-    ip = (request.client.host if request.client else "") or "unknown"
+    ip = client_address(request) or "unknown"
     ip_rl = rate_limit(f"rl:{scope}:ip:{ip}", limit=ip_limit, window_seconds=300)
     agent_rl = rate_limit(f"rl:{scope}:agent:{agent_id}", limit=agent_limit, window_seconds=300)
     return ip_rl.allowed and agent_rl.allowed
@@ -699,6 +722,8 @@ def enroll(
         if not (agent.display_name or "").strip():
             agent.display_name = (payload.hostname or payload.agent_id)[:128]
 
+    _track_observed_address(agent, request, seen_at=agent.last_seen_at or rotated_at)
+
     _revoke_active_credentials(
         db,
         payload.agent_id,
@@ -893,13 +918,20 @@ def set_config(
     repository.commit(db)
 
 
-def heartbeat(db: Session, *, payload: AgentHeartbeatIn, agent: AgentPrincipal) -> AgentProtocolOut:
+def heartbeat(
+    db: Session,
+    *,
+    payload: AgentHeartbeatIn,
+    agent: AgentPrincipal,
+    request=None,
+) -> AgentProtocolOut:
     protocol.ensure_supported(payload.protocol_version, context="heartbeat")
     row = repository.get_agent_by_id(db, agent.id)
     if not row or row.is_revoked:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or revoked agent")
     status_text = str(payload.status or "").strip()[:32]
     row.last_seen_at = datetime.utcnow()
+    _track_observed_address(row, request, seen_at=row.last_seen_at)
     current_meta = row.agent_metadata if isinstance(row.agent_metadata, dict) else {}
     effective_profile = profiles.resolve_reported(profiles.of(current_meta), payload.profile)
     if effective_profile != profiles.of(current_meta):

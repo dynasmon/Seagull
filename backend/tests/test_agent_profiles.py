@@ -240,6 +240,8 @@ class TestAdminProfileUpdate:
             metrics={},
             created_at=datetime(2026, 1, 1),
             last_seen_at=None,
+            observed_address=None,
+            observed_address_at=None,
             is_revoked=False,
         )
         monkeypatch.setattr(agents_service.repository, "get_agent_by_agent_id", lambda db, agent_id: row)

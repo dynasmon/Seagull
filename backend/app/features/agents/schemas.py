@@ -81,6 +81,8 @@ class AgentPublic(BaseModel):
     tags: List[str] = Field(default_factory=list)
     created_at: datetime
     last_seen_at: Optional[datetime]
+    observed_address: Optional[str] = None
+    observed_address_at: Optional[datetime] = None
     is_revoked: bool
     metadata: Dict[str, Any] = Field(default_factory=dict)
     metrics: Dict[str, Any] = Field(default_factory=dict)
