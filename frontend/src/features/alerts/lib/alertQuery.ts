@@ -18,6 +18,7 @@ export function safeLoadView(): ViewCfg {
       severity: String(parsed.severity ?? DEFAULTS.severity),
       status: String((parsed as Partial<ViewCfg>).status ?? DEFAULTS.status),
       rule_id: String(parsed.rule_id ?? "").trim(),
+      agent_id: String(parsed.agent_id ?? "").trim(),
       search: String(parsed.search ?? ""),
       page_size: clampInt(parsed.page_size, 10, 200, DEFAULTS.page_size),
       infinite_scroll: Boolean(parsed.infinite_scroll),
