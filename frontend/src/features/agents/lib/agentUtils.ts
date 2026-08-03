@@ -264,6 +264,7 @@ function sameAgentRow(a: AgentPublic, b: AgentPublic): boolean {
     a.is_revoked === b.is_revoked &&
     a.display_name === b.display_name &&
     a.description === b.description &&
+    a.observed_address === b.observed_address &&
     a.metrics?.status === b.metrics?.status &&
     (a.tags || []).join(" ") === (b.tags || []).join(" ")
   );
