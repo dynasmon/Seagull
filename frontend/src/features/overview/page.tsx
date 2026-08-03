@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { EuiHealth, EuiStat } from "@elastic/eui";
 
+import AgentTag from "@/features/agents/components/AgentTag";
 import EmptyState from "@/shared/components/EmptyState";
 import { IpAddressPill } from "@/shared/components/IpAddressPill";
 import { DataQueryStateBanner } from "@/shared/components/DataView";
@@ -685,8 +686,8 @@ function OverviewPageView({
                   {
                     key: "agent",
                     title: "Agent",
-                    className: "font-mono text-foreground w-32",
-                    render: (r: any) => r.agent_id || r.agent || "-",
+                    className: "text-foreground w-32",
+                    render: (r: any) => <AgentTag agentId={r.agent_id || r.agent} />,
                   },
                   {
                     key: "src",
