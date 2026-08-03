@@ -1,5 +1,7 @@
 import { useMemo } from "react";
 
+import AgentFilter from "@/features/agents/components/AgentFilter";
+import AgentTag from "@/features/agents/components/AgentTag";
 import { fmtDuration, fmtMaybeIso } from "@/features/agents/lib/agentUtils";
 import type { AgentPublic } from "@/features/agents/types";
 import { Badge } from "@/shared/components/Badge";
@@ -64,24 +66,13 @@ export default function ActiveExecutionsTable({
     return map;
   }, [catalog]);
 
-  const agentName = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const a of agents) map.set(a.agent_id, a.display_name || a.agent_id);
-    return map;
-  }, [agents]);
-
-  const agentOptions = useMemo(
-    () => [{ value: "", label: "All agents" }, ...agents.map((a) => ({ value: a.agent_id, label: a.display_name || a.agent_id }))],
-    [agents],
-  );
-
   const columns: Array<Column<ResponseActionOut>> = [
     { key: "id", title: "#ID", width: 70, render: (row) => <span className="font-mono text-[11px]">#{row.id}</span> },
     { key: "action_type", title: "Type", render: (row) => <span className="font-mono text-[11px]">{row.action_type}</span> },
     {
       key: "agent_id",
       title: "Agent",
-      render: (row) => <span className="truncate text-[11.5px]">{agentName.get(row.agent_id) || row.agent_id}</span>,
+      render: (row) => <AgentTag agentId={row.agent_id} />,
     },
     { key: "status", title: "Status", render: (row) => <StatusPill variant={statusVariant(row.status)}>{row.status}</StatusPill> },
     {
@@ -134,7 +125,12 @@ export default function ActiveExecutionsTable({
         </span>
       }
     >
-      <div className="mb-3">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <AgentFilter
+          value={filters.agentId}
+          onChange={(agentId) => setFilters((prev) => ({ ...prev, agentId }))}
+          agents={agents}
+        />
         <FilterBar>
           <FilterButtonMultiSelect
             label="Status"
@@ -149,38 +145,31 @@ export default function ActiveExecutionsTable({
             onChange={(next) => setFilters((prev) => ({ ...prev, category: next }))}
           />
           <FilterButtonSelect
-            label="Agent"
-            value={filters.agentId}
-            options={agentOptions}
-            searchable
-            onChange={(next) => setFilters((prev) => ({ ...prev, agentId: next }))}
-          />
-          <FilterButtonSelect
             label="Window"
             value={filters.since}
             options={SINCE_OPTIONS}
             onChange={(next) => setFilters((prev) => ({ ...prev, since: next }))}
           />
-          <div className="flex items-center gap-1">
-            <TextInput
-              className="max-w-[140px] font-mono text-[11px]"
-              aria-label="Batch ID"
-              placeholder="batch_…"
-              value={filters.batchId}
-              onChange={(event) => setFilters((prev) => ({ ...prev, batchId: event.target.value }))}
-            />
-            {filters.batchId ? (
-              <button
-                type="button"
-                aria-label="Clear batch ID"
-                className="rounded border border-border/60 px-1.5 text-[12px] leading-none text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                onClick={() => setFilters((prev) => ({ ...prev, batchId: "" }))}
-              >
-                ×
-              </button>
-            ) : null}
-          </div>
         </FilterBar>
+        <div className="flex items-center gap-1">
+          <TextInput
+            className="max-w-[140px] font-mono text-[11px]"
+            aria-label="Batch ID"
+            placeholder="batch_…"
+            value={filters.batchId}
+            onChange={(event) => setFilters((prev) => ({ ...prev, batchId: event.target.value }))}
+          />
+          {filters.batchId ? (
+            <button
+              type="button"
+              aria-label="Clear batch ID"
+              className="rounded border border-border/60 px-1.5 text-[12px] leading-none text-muted-foreground hover:border-primary/40 hover:text-foreground"
+              onClick={() => setFilters((prev) => ({ ...prev, batchId: "" }))}
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {error ? (
