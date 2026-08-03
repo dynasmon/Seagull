@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import AgentFilter from "@/features/agents/components/AgentFilter";
+import AgentTag from "@/features/agents/components/AgentTag";
 import Drawer from "@/shared/components/Drawer";
 import { Button } from "@/shared/components/Button";
 import { DataPaginationFooter, DataQueryStateBanner, DataStatsStrip, DataViewToolbar, DebouncedSearchInput } from "@/shared/components/DataView";
@@ -651,7 +653,7 @@ function WorkspaceDrawer({
               { label: "Triage", value: workspace.triage_state },
               { label: "Workspace key", value: workspace.workspace_key },
               { label: "Assignee", value: workspace.assignee || "-" },
-              { label: "Primary agent", value: workspace.primary_agent_id || "-" },
+              { label: "Primary agent", value: <AgentTag agentId={workspace.primary_agent_id} /> },
               {
                 label: "Linked case",
                 value: workspace.linked_attack_chain_case_id ? `#${workspace.linked_attack_chain_case_id}` : "-",
@@ -763,11 +765,12 @@ function WorkspaceDrawer({
                   </div>
                   <div>
                     <FieldLabel>Primary agent</FieldLabel>
-                    <TextInput
+                    <AgentFilter
                       value={edit.primaryAgentId}
-                      onChange={(e) => setEdit((prev) => ({ ...prev, primaryAgentId: e.target.value }))}
-                      placeholder="agent-id"
-                      className="mt-1 font-mono"
+                      onChange={(agentId) => setEdit((prev) => ({ ...prev, primaryAgentId: agentId }))}
+                      allLabel="Unassigned"
+                      fullWidth
+                      className="mt-1"
                     />
                   </div>
                   <div>
@@ -1300,7 +1303,7 @@ export default function InvestigationsPage() {
           </SelectInput>
 
           <TextInput value={filters.assignee} onChange={(e) => setFilters((p) => ({ ...p, assignee: e.target.value }))} placeholder="Assignee" />
-          <TextInput value={filters.agentId} onChange={(e) => setFilters((p) => ({ ...p, agentId: e.target.value }))} placeholder="Primary agent" />
+          <AgentFilter value={filters.agentId} onChange={(agentId) => setFilters((p) => ({ ...p, agentId }))} label="Primary agent" fullWidth />
           <TextInput value={filters.linkedCaseId} onChange={(e) => setFilters((p) => ({ ...p, linkedCaseId: e.target.value }))} placeholder="Linked case ID" className="font-mono" />
         </div>
 
