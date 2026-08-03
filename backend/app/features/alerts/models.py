@@ -48,6 +48,11 @@ class AlertModel(Base):
     risk_score = Column(Integer, nullable=True)
     false_positive_reason = Column(String(64), nullable=True, index=False)
 
+    @property
+    def agent_id(self) -> str | None:
+        details = self.details if isinstance(self.details, dict) else {}
+        return str(details.get("agent_id") or "").strip() or None
+
 from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, Integer, String
