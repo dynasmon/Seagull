@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { listAgents } from "@/features/agents/api";
-import type { AgentPublic } from "@/features/agents/types";
 import { useAuth } from "@/features/auth/context";
 import { Button } from "@/shared/components/Button";
 import { Card } from "@/shared/components/Card";
@@ -142,8 +140,6 @@ export default function ExposurePage() {
   const [draftFilters, setDraftFilters] = useState<AssetFilters>(initialAssetFilters);
   const [assetFilters, setAssetFilters] = useState<AssetFilters>(initialAssetFilters);
 
-  const [agents, setAgents] = useState<AgentPublic[]>([]);
-  const [agentsLoading, setAgentsLoading] = useState(false);
 
   const [summary, setSummary] = useState<ExposureSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
@@ -221,15 +217,6 @@ export default function ExposurePage() {
     asset_key: String(searchParams.get("asset_key") || "").trim(),
     q: String(searchParams.get("finding_key") || searchParams.get("q") || "").trim(),
   };
-
-  const agentOptions = useMemo(
-    () =>
-      agents.map((agent) => ({
-        value: agent.agent_id,
-        label: agent.display_name ? `${agent.display_name} (${agent.agent_id})` : agent.agent_id,
-      })),
-    [agents],
-  );
 
   const reasonCodeOptions = useMemo(() => {
     const counts = summary?.top_reason_codes ?? [];
@@ -583,25 +570,6 @@ export default function ExposurePage() {
   }, [assetFilters, assetTablePrefs.pageSize, fetchAssets]);
 
   useEffect(() => {
-    const ac = new AbortController();
-    setAgentsLoading(true);
-    listAgents()
-      .then((items) => {
-        if (ac.signal.aborted) return;
-        setAgents(items || []);
-      })
-      .catch(() => {
-        if (ac.signal.aborted) return;
-        setAgents([]);
-      })
-      .finally(() => {
-        if (ac.signal.aborted) return;
-        setAgentsLoading(false);
-      });
-    return () => ac.abort();
-  }, []);
-
-  useEffect(() => {
     if (tab === "paths" && !pathsPage && !pathsLoading) {
       const ac = new AbortController();
       void fetchPaths({ signal: ac.signal });
@@ -722,18 +690,14 @@ export default function ExposurePage() {
           <Card
             title="Asset posture"
             right={
-              <div className="flex items-center gap-2">
-                {agentsLoading ? <span className="font-mono text-[11px] text-muted-foreground">loading agents</span> : null}
-                <Button variant="ghost" size="sm" onClick={() => void fetchAssets({ pageSize: refreshAssetPageSize() })}>
-                  Refresh
-                </Button>
-              </div>
+              <Button variant="ghost" size="sm" onClick={() => void fetchAssets({ pageSize: refreshAssetPageSize() })}>
+                Refresh
+              </Button>
             }
           >
             <div className="space-y-4">
               <ExposureFiltersBar
                 filters={draftFilters}
-                agentOptions={agentOptions}
                 reasonCodeOptions={reasonCodeOptions}
                 onChange={(next) => setDraftFilters((prev) => ({ ...prev, ...next }))}
                 onApply={() => setAssetFilters(draftFilters)}
