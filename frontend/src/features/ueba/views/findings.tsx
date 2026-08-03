@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import AgentFilter from "@/features/agents/components/AgentFilter";
+import AgentTag from "@/features/agents/components/AgentTag";
 import { Badge } from "@/shared/components/Badge";
 import { Button } from "@/shared/components/Button";
 import {
@@ -171,10 +173,15 @@ const FINDING_COLUMNS: Array<Column<UebaFinding>> = [
         <span className="min-w-0 truncate font-mono text-[12px] font-medium text-foreground">{row.entity_value}</span>
         <span className="min-w-0 max-w-[55%] shrink-0 truncate font-mono text-[10px] text-muted-foreground">
           {row.entity_type}
-          {row.agent_id ? ` · ${row.agent_id}` : ""}
         </span>
       </div>
     ),
+  },
+  {
+    key: "agent",
+    title: "Agent",
+    width: 160,
+    render: (row) => <AgentTag agentId={row.agent_id} />,
   },
   {
     key: "detector",
@@ -404,13 +411,7 @@ export default function UebaFindingsPage() {
                     onChange={(v) => setStatus(v as UebaFindingStatus | "all")}
                   />
                 </FilterBar>
-                <DebouncedSearchInput
-                  value={agentFilter}
-                  onChange={setAgentFilter}
-                  placeholder="Filter by agent..."
-                  className="w-44"
-                  ariaLabel="Filter by agent ID"
-                />
+                <AgentFilter value={agentFilter} onChange={setAgentFilter} />
                 <DebouncedSearchInput
                   value={entitySearch}
                   onChange={setEntitySearch}
