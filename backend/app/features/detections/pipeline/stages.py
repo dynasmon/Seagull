@@ -139,6 +139,9 @@ def build_alert_details(ctx: AlertContext, *, mitre: dict) -> dict[str, Any]:
         "enrichment": ctx.enrichment,
         "rule_meta": build_rule_provenance(cand.rule),
     }
+    agent_id = str((cand.group_key or {}).get("agent_id") or (cand.match_hints or {}).get("agent_id") or "").strip()
+    if agent_id:
+        details["agent_id"] = agent_id
     if extra.get("count") is not None:
         details["count"] = extra.get("count")
     if extra.get("distinct_field") is not None:
